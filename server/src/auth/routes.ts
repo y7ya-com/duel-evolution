@@ -61,6 +61,12 @@ authApp.get("/api/auth/sign-in/discord", async (c) => {
 
 authApp.on(["GET", "POST"], "/api/auth/*", (c) => authFor(c).handler(c.req.raw));
 
+/** The Discord server invite, for the game's "Open Discord" buttons (the reset panel has no register answer to read). */
+authApp.get("/api/de/discord-invite", (c) => {
+  c.header("Cache-Control", "public, max-age=300");
+  return c.json({ inviteUrl: c.env.DISCORD_INVITE_URL ?? null });
+});
+
 /** Is this browser signed in: for the game's own UI before it goes online. */
 authApp.get("/api/de/session", async (c) => {
   c.header("Cache-Control", "no-store");

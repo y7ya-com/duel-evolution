@@ -56,6 +56,7 @@ sent anywhere. The game boots straight to its own title, and its own UI drives t
 |---|---|
 | `GET /api/de/session` | `{ signedIn: false }`, or `{ signedIn: true, userId, name, roles, discord, password }` |
 | `GET /api/auth/sign-in/discord?return=/` | Discord → callback (sets the cookie) → `return?online=1`. Failure: `return?online=0&error=…`. `return` must be a same-site path. |
+| `GET /api/de/discord-invite` | `{ inviteUrl }` (the Discord server invite, or null), for the game's "Open Discord" buttons |
 | `POST /api/de/register {username, password}` | `{ok, code, inviteUrl, expiresInMinutes}`. 400 `BAD_NAME` / `BAD_PASSWORD`, 409 `NAME_TAKEN`, 429 |
 | `POST /api/auth/sign-in/username {username, password}` | 200 + the cookie. 401 for a wrong name or password, 403 `EMAIL_NOT_VERIFIED` (verify first: the dialog's "Continue" just retries), 429 for rate limits or the lockout |
 | `POST /api/de/reset {code, newPassword}` | 200 + the cookie (signed in), 400 `BAD_CODE` / `BAD_PASSWORD`, 429 |

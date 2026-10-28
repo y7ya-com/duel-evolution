@@ -240,6 +240,10 @@ describe("Discord", () => {
     }
   });
 
+  it("discord-invite answers the configured invite, signed in or not", async () => {
+    expect(await (await call("/api/de/discord-invite")).json()).toEqual({ inviteUrl: "https://discord.gg/test" });
+  });
+
   it("session says signed out without a cookie", async () => {
     expect(await (await call("/api/de/session")).json()).toEqual({ signedIn: false });
   });
