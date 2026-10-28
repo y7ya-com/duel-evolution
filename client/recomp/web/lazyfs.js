@@ -6,7 +6,8 @@
 // chunk not in memory is a synchronous HTTP Range request: the game stops until it arrives. Everything else here exists
 // to make that rare, without changing what the game reads:
 //   - memory: a 64 MB LRU of chunks, plus PINNED chunks a prefetch policy wants kept (capped, PIN_MAX)
-//   - prefetch: async fetch() in the background (a few at a time, off the critical path) of
+//   - prefetch: async fetch() in the background (one at a time, aborted and queued again whenever a synchronous read
+//     starts, so that read has the whole link) of
 //       the hot set: the small merge.dat regions the menus and the deck editor read (thumbnails, deck UI, ...),
 //       the maps next to the current one (the exe's map table, 0xd2d4d0), so a door is already in memory,
 //       read-ahead: the next chunks after any synchronous miss
@@ -47,9 +48,9 @@ Module.preRun.push(() => {
         set("YO2_PORT_OFFSET", "1000");
         history.replaceState(null, "", location.pathname + "?" + q + location.hash);
     }
-    // MB of chunks; fetches in flight. Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
+    // MB of chunks; background fetches in flight (one: it never takes the link from a synchronous read). Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
     const small = matchMedia("(pointer: coarse)").matches;
-    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 3, SYNC_TRIES = 3;
+    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 1, SYNC_TRIES = 3;
     const prefetchOn = q.get("prefetch") !== "0";
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
@@ -119,6 +120,7 @@ Module.preRun.push(() => {
         const [from, to] = span(url, i), t0 = performance.now(), name = url.slice(url.lastIndexOf("/") + 1);
         // A mobile network can stall or drop one read (iOS: "TimeoutError" thrown by send, or status 0): the same Range
         // is asked again before the game sees EIO, which ends the session. A sync XHR on the page can't take a timeout.
+        for (const ac of aborts.values()) ac.abort();   // the background yields the link (fetchChunk queues it again)
         let t = null, err = "", tries = 0;
         while (t === null && tries < SYNC_TRIES) {
             tries++;
@@ -154,6 +156,7 @@ Module.preRun.push(() => {
     const wanted = new Map();    // "url#chunk" -> the pin tag a queued or policy chunk should get
     let running = 0, runningLow = 0;   // low: the card trickle, one at a time
     const inflight = new Set();          // "url#chunk" being fetched
+    const aborts = new Map();            // "url#chunk" -> the AbortController of its network fetch
     L.queueLen = () => queue.length + running;
     function want(url, i, pri, tag, keep = true) {
         const f = files.get(url);
@@ -182,14 +185,18 @@ Module.preRun.push(() => {
         const k = keyOf(j.url, j.i);
         if (inflight.has(k)) return;
         inflight.add(k);
-        try { await fetchChunk2(j); } finally { inflight.delete(k); }
+        try { await fetchChunk2(j); }
+        catch (e) { if (e && e.name === "AbortError") queue.push(j); else throw e; }   // a sync read took the link
+        finally { inflight.delete(k), aborts.delete(k); }
     }
     async function fetchChunk2(j) {
         let data = j.keep ? await fromStore(j.url, j.i) : null;   // the trickle only fills the HTTP cache
         if (data) stats.fromStore++;
         else {
             const [from, to] = span(j.url, j.i);
-            const r = await fetch(j.url + files.get(j.url).ver, { headers: { Range: `bytes=${from}-${to}` } });
+            const ac = new AbortController();
+            aborts.set(keyOf(j.url, j.i), ac);
+            const r = await fetch(j.url + files.get(j.url).ver, { headers: { Range: `bytes=${from}-${to}` }, signal: ac.signal });
             if (r.status !== 206) return;
             data = new Uint8Array(await r.arrayBuffer());
             if (data.length !== to - from + 1) return;

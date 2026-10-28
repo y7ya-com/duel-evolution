@@ -35,6 +35,7 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
+let aborted = 0;   // background fetches a synchronous read aborted
 const syncFaults = [], fetchFaults = [];   // fetchFaults: (range) => true drops that background fetch, once   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -69,6 +70,7 @@ function makeEnv(store, ls, opts = {}) {
         if (o.method === "HEAD") return { status: 200, headers: h };
         netFetch++;
         await sleep(1);
+        if (o.signal && o.signal.aborted) { aborted++; throw Object.assign(new Error("aborted"), { name: "AbortError" }); }
         if (fetchFaults.length && fetchFaults[0](o.headers.Range)) { fetchFaults.shift(); throw new TypeError("Load failed"); }   // a dropped connection
         const [a, b] = rangeOf(o.headers.Range);
         fetched.push(a);
@@ -89,7 +91,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }) };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -256,6 +258,17 @@ await settle(g.Module.yo2Lazy);
 await sleep(300);
 assert.ok(!fetched.some((a) => a >= card.off), "no trickle without ?trickle=1");
 console.log("trickle: ok");
+
+// ---- a synchronous read takes the link: the background fetch in flight is aborted, and fetched again after it
+g = makeEnv(new Map(), new Map());
+await g.ready();
+g.read("/game/merge.dat", 0, toc);   // the directory: the hot set queued, one fetch in flight
+aborted = 0;
+readEntry(g, "data/card/0001");   // a synchronous miss meanwhile
+await settle(g.Module.yo2Lazy);
+assert.ok(aborted >= 1, "the background fetch in flight was aborted");
+assert.ok([...g.Module.yo2Lazy.pinned.values()].filter((p) => p.tag === "hot").length >= 7, "and fetched again");
+console.log("sync read yields: ok");
 
 // ---- prefetch=0: the plain lazy reads
 syncXhr = 0, netFetch = 0;
