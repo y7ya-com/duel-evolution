@@ -145,9 +145,7 @@ static void guest_rel(const char *g, char *rel, size_t n) {
 }
 
 // for reading: overlay first, then game dir. for writing: overlay (parent dirs created on demand).
-int rc_host_path(const char *g, int write, char *out, size_t n) {
-    char rel[1024];
-    guest_rel(g, rel, sizeof rel);
+static int host_path(const char *rel, int write, char *out, size_t n) {
     if (resolve_in(rc_write_dir, rel, out, n)) return 1;
     if (!write && resolve_in(rc_game_dir, rel, out, n)) return 1;
     if (write) {
@@ -160,6 +158,71 @@ int rc_host_path(const char *g, int write, char *out, size_t n) {
     }
     resolve_in(rc_game_dir, rel, out, n);
     return 0;
+}
+
+// Read lookups are remembered (RC_NOSPEED=1: not). For every asset the exe's file loader probes the loose file and each
+// folder above it as an archive (window.dat, common.dat, data.dat) before merge.dat: ~1900 failed probes per lobby
+// entry, a dozen lstat/opendir/readdir calls each. The game folder never changes and the overlay only through the
+// writes in k32io.c, which ask for a write path first and call rc_path_changed() after: both drop what is remembered,
+// and a lookup that ran across either is not stored.
+#define PC 4096
+static pthread_mutex_t pc_mu = PTHREAD_MUTEX_INITIALIZER;
+static unsigned pc_gen, pc_n;
+static struct { char *rel; const char *out; int exists; } pc[PC];   // rel and out in one allocation
+static void pc_drop(void) {
+    for (int i = 0; i < PC; i++) free(pc[i].rel), pc[i].rel = NULL;
+    pc_n = 0;
+}
+void rc_path_changed(void) {
+    pthread_mutex_lock(&pc_mu);
+    pc_gen++;
+    pc_drop();
+    pthread_mutex_unlock(&pc_mu);
+}
+static unsigned pc_find(const char *rel) {   // its slot, or the empty one where it goes
+    unsigned i = 2166136261u;
+    for (const char *q = rel; *q; q++) i = (i ^ (uint8_t)*q) * 16777619u;
+    for (i &= PC - 1; pc[i].rel && strcmp(pc[i].rel, rel); i = (i + 1) & (PC - 1)) {}
+    return i;
+}
+int rc_host_path(const char *g, int write, char *out, size_t n) {
+    char rel[1024];
+    guest_rel(g, rel, sizeof rel);
+    if (write) rc_path_changed();
+    if (write || rc_nospeed) return host_path(rel, write, out, n);
+    pthread_mutex_lock(&pc_mu);
+    unsigned i = pc_find(rel), gen = pc_gen;
+    if (pc[i].rel) {
+        snprintf(out, n, "%s", pc[i].out);
+        int r = pc[i].exists;
+        pthread_mutex_unlock(&pc_mu);
+        static int cmp = -1;   // RC_PATHS=compare: every remembered answer checked against a fresh lookup
+        if (cmp < 0) cmp = getenv("RC_PATHS") && !strcmp(getenv("RC_PATHS"), "compare");
+        if (cmp) {
+            static unsigned hits, bad;
+            char fresh[1024];
+            int f = host_path(rel, 0, fresh, sizeof fresh);
+            if (f != r || strcmp(fresh, out)) bad++, rc_log("paths compare: %s: remembered %d %s, now %d %s", rel, r, out, f, fresh);
+            if (!(++hits & 1023)) rc_log("paths compare: %u remembered answers, %u differ", hits, bad);
+        }
+        return r;
+    }
+    pthread_mutex_unlock(&pc_mu);
+    int r = host_path(rel, 0, out, n);
+    pthread_mutex_lock(&pc_mu);
+    if (gen == pc_gen) {
+        if (pc_n >= PC / 2) pc_drop();
+        i = pc_find(rel);
+        if (!pc[i].rel) {
+            size_t lr = strlen(rel) + 1, lo = strlen(out) + 1;
+            pc[i].rel = malloc(lr + lo);
+            memcpy(pc[i].rel, rel, lr);
+            memcpy(pc[i].rel + lr, out, lo);
+            pc[i].out = pc[i].rel + lr, pc[i].exists = r, pc_n++;
+        }
+    }
+    pthread_mutex_unlock(&pc_mu);
+    return r;
 }
 
 // ---------------------------------------------------------------- process / module

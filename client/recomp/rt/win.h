@@ -27,6 +27,7 @@ extern const char *rc_game_dir, *rc_write_dir;
 uint32_t rc_handle_new(int type);
 RcHandle *rc_handle(uint32_t h);
 int rc_host_path(const char *guest, int write, char *out, size_t n);
+void rc_path_changed(void);   // k32.c: after a write to the overlay (rc_host_path remembers read lookups)
 
 uint32_t rc_valloc(uint32_t size);
 uint32_t rc_vsize(uint32_t a);

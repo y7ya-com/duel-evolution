@@ -64,6 +64,7 @@ IMP(KERNEL32, CreateFileA) {
     struct stat st;
     if (!stat(p, &st) && S_ISDIR(st.st_mode)) { err(c, 5); RET(7, 0xffffffffu); }
     int fd = open(p, fl, 0644);
+    if (wr) rc_path_changed();
     if (rc_verbose) rc_log("CreateFileA(%s) -> %s fd=%d", g, p, fd);
     if (fd < 0) { err(c, win_err(errno)); RET(7, 0xffffffffu); }
     uint32_t h = rc_handle_new(H_FILE);
@@ -177,13 +178,17 @@ IMP(KERNEL32, CloseHandle) {
 IMP(KERNEL32, DeleteFileA) {
     char p[1024];
     if (!rc_host_path(GS(ARG(0)), 1, p, sizeof p)) { err(c, 2); RET(1, 0); }
-    RET(1, unlink(p) == 0);
+    int ok = unlink(p) == 0;
+    rc_path_changed();
+    RET(1, ok);
 }
 IMP(KERNEL32, MoveFileA) {
     char a[1024], b[1024];
     rc_host_path(GS(ARG(0)), 1, a, sizeof a);
     rc_host_path(GS(ARG(1)), 1, b, sizeof b);
-    RET(2, rename(a, b) == 0);
+    int ok = rename(a, b) == 0;
+    rc_path_changed();
+    RET(2, ok);
 }
 IMP(KERNEL32, CopyFileA) {
     char a[1024], b[1024];
@@ -196,12 +201,15 @@ IMP(KERNEL32, CopyFileA) {
     while (d >= 0 && (k = read(s, buf, sizeof buf)) > 0) (void)!write(d, buf, k);
     if (s >= 0) close(s);
     if (d >= 0) close(d);
+    rc_path_changed();
     RET(3, d >= 0);
 }
 IMP(KERNEL32, CreateDirectoryA) {
     char p[1024];
     if (rc_host_path(GS(ARG(0)), 1, p, sizeof p)) { err(c, 183); RET(2, 0); }
-    RET(2, mkdir(p, 0755) == 0);
+    int ok = mkdir(p, 0755) == 0;
+    rc_path_changed();
+    RET(2, ok);
 }
 IMP(KERNEL32, GetFileAttributesA) {
     char p[1024];
