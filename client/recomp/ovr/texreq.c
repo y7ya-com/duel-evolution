@@ -30,3 +30,20 @@ void f_0059b550(CPU *restrict c) {
     }
     if (ms > 5) rc_log("texreq %.1f ms from %08x a3 %x a4 %x: %s", ms, ret, a[2], a[3], name);
 }
+
+// The texture map's find (0x59fae0, VC6 std::map). A loader thread (0x59de80) finds its texture's node at 0x59e0d8 before
+// it takes the map's mutex, while the main thread may be inserting another texture under that mutex: a find that runs
+// into an insert's rebalancing misses, the loader marks the map's head ready instead of the node, and the main thread
+// spins on the node forever (0x59b5c1; native runs froze just past lobby entry). That one find takes the mutex too.
+void o_0059fae0(CPU *restrict c);
+
+void f_0059fae0(CPU *restrict c) {
+    if (RD32m(c->esp) != 0x59e0ddu) { o_0059fae0(c); return; }
+    uint32_t mu = RD32m(RD32m(0x126f310) + 0x50), wait[2] = {mu, 0xffffffffu}, ecx = c->ecx;
+    rc_call(c, RD32m(0x12d5d88), 2, wait);   // WaitForSingleObject(mutex, INFINITE)
+    c->ecx = ecx;
+    o_0059fae0(c);
+    uint32_t eax = c->eax, ret_to = c->ret_to;
+    rc_call(c, RD32m(0x12d5b58), 1, &mu);    // ReleaseMutex
+    c->eax = eax, c->ret_to = ret_to;
+}
