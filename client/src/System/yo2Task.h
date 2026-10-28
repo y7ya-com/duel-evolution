@@ -37,13 +37,15 @@ enum TaskResult : int32_t {
 
 class CTaskMessage {
 public:
-    explicit CTaskMessage(int32_t tag, bool broadcast = false) : tag(tag), broadcast(broadcast) {}
+    // @yo2 0x0062dce0 CTaskMessage::CTaskMessage(tag, broadcast, reverse)
+    explicit CTaskMessage(int32_t tag, bool broadcast = false, int32_t reverse = 0)
+        : tag(tag), broadcast(broadcast), reverse(reverse) {}
     // @yo2 0x005bdd70 CTaskMessage deleting destructor
     virtual ~CTaskMessage() = default;
 
     int32_t tag;          // 0x04 TaskMsg or a game-specific tag
     bool broadcast;       // 0x08 after the receiver, pass it to the children (callChild)
-    int32_t reverse = 0;  // 0x0c walk the children last to first
+    int32_t reverse;      // 0x0c walk the children last to first
 };
 YO2_AT(CTaskMessage, tag, 0x04);
 YO2_AT(CTaskMessage, broadcast, 0x08);
@@ -74,6 +76,8 @@ struct CTmDestroyed : CTaskMessage {
 };
 YO2_AT(CTmDestroyed, sender, 0x10);
 
+// @yo2 0x0062dda0 CTmDispStatus deleting destructor
+// @yo2 0x0062ddd0 CTmDispStatus::~CTmDispStatus
 struct CTmDispStatus : CTaskMessage {
     CTmDispStatus() : CTaskMessage(TM_DISP_STATUS) {}
     void print(const char* fmt, ...);
@@ -83,9 +87,12 @@ struct CTmDispStatus : CTaskMessage {
 YO2_AT(CTmDispStatus, mode, 0x10);
 YO2_AT(CTmDispStatus, chain, 0x14);
 
+// @yo2 0x0062dd50 CTmCapUtil deleting destructor
+// @yo2 0x0062dd80 CTmCapUtil::~CTmCapUtil
 struct CTmCapUtil : CTaskMessage {
     enum : int32_t { CYCLE_DRAW_MODE = 9 };
-    explicit CTmCapUtil(int32_t code) : CTaskMessage(TM_CAP_UTIL, true), code(code) {}
+    // @yo2 0x0062dd10 CTmCapUtil::CTmCapUtil
+    explicit CTmCapUtil(int32_t code) : CTaskMessage(TM_CAP_UTIL), code(code) {}
     int32_t code;  // 0x10
 };
 YO2_AT(CTmCapUtil, code, 0x10);
@@ -132,6 +139,8 @@ public:
     void changeParent(CTask* parent, uint32_t priority);
     void insertChild(CTask* child);
     int indexInParent() const;
+    void setLockFlags(uint32_t bits) { lockFlags_ |= bits; }
+    void clearLockFlags(uint32_t bits) { lockFlags_ &= ~bits; }
     // @yo2 0x00628d70 CTask::isLocked
     bool isLocked(uint32_t mask) const { return (lockFlags_ & mask) != 0; }
     // @yo2 0x00628f80 CTask::setHook

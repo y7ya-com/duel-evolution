@@ -96,9 +96,12 @@ WEB_LDFLAGS := $(WEB_LINK_OPT) -pthread -sJSPI -sPTHREAD_POOL_SIZE=8 \
   -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB -sASSERTIONS=0 -sENVIRONMENT=web,worker \
   -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -lwebsocket.js -lidbfs.js \
   -sFORCE_FILESYSTEM=1 '-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=$$ENV' --profiling-funcs \
-  --pre-js web/lazyfs.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --shell-file web/shell.html
+  --pre-js web/lazyfs.js --pre-js web/yieldguard.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --shell-file web/shell.html
 
 web: $(WB)/yo2rc.html
+# the script tag Emscripten writes, swapped for one that picks the build: JSPI if the browser has it (and the page has no
+# ?async), else ASYNCIFY (make web-async)
+WEB_PICK := <script>{const s = document.createElement("script"); s.async = true; s.src = "Suspending" in WebAssembly \&\& !new URLSearchParams(location.search).has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
 
 $(WB)/%.o: $(OUT)/%.c rt/rc.h
 	@mkdir -p $(WB)
@@ -123,12 +126,37 @@ $(WB)/ovr_orig.o: $(B)/ovr_orig.c rt/rc.h
 	@mkdir -p $(WB)
 	emcc $(WEB_CFLAGS) -c $< -o $@
 
-$(WB)/yo2rc.html: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a web/lazyfs.js web/audio.js web/audiopage.js web/sfx.js web/shell.html
+$(WB)/yo2rc.html: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js web/sfx.js web/shell.html
 	em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WEB_LDFLAGS) -o $@
+	sed -i.bak 's#<script async type="text/javascript" src="yo2rc.js"></script>#$(WEB_PICK)#' $@ && rm -f $@.bak
+	grep -q yo2rc-async.js $@
+
+# ASYNCIFY fallback (WebKit/Safari and Firefox have no JSPI yet): the same objects, but the guest main thread's yields
+# (emscripten_sleep, rt/web.c) unwind and rewind the wasm stack through Binaryen's asyncify instead of suspending.
+# Output build-web/yo2rc-async.{js,wasm} beside the JSPI build; yo2rc.html loads whichever the browser can run.
+# ASYNCIFY_ADVISE marks ~all 79k functions (every guest call goes through rc_icall's indirect call); instrumenting all
+# of them gives 132 MB that V8 won't even compile (f_008df280: too many locals). So only web/async-only.txt is
+# instrumented: the frames recorded on the stack at real yields (?yieldlog, web/yieldguard.js), ~50 functions, about
+# the JSPI build's size. The same list goes into the page (web/asyncguard.js), which skips a yield from any other
+# stack instead of letting it corrupt the unwind.
+WEB_ASYNC_FLAGS ?= -sASYNCIFY -sASYNCIFY_IMPORTS=emscripten_sleep -sASYNCIFY_STACK_SIZE=1048576 \
+  -sASYNCIFY_ONLY=@$(WB)/async-only.json --pre-js web/asyncguard.js
+# 2 GB - 64 KB of memory: Firefox's WebGL rejects a heap view of exactly 2 GB ("can't be ... larger than 2 GB"), and
+# Emscripten only switches its GL glue to copies above 2 GB. The guest uses the first 1 GB; Emscripten's heap loses a page.
+WEB_ASYNC_MEM := 2147418112
+WEB_ASYNC_LDFLAGS := $(subst =2147483648,=$(WEB_ASYNC_MEM),$(subst -sJSPI,$(WEB_ASYNC_FLAGS),$(WEB_LDFLAGS)))
+web-async: $(WB)/yo2rc-async.js
+$(WB)/async-only.json: web/async-only.txt
+	@mkdir -p $(WB)
+	python3 -I -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in open(sys.argv[1]) if l.strip() and not l.startswith("#")]))' $< > $@
+$(WB)/yo2rc-async.js: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WB)/async-only.json web/asyncguard.js web/wasmnames.py web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js
+	em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(filter-out --shell-file web/shell.html,$(WEB_ASYNC_LDFLAGS)) -o $@
+	python3 -I web/wasmnames.py $(WB)/yo2rc-async.wasm $(WB)/async-only.json > $(WB)/async-only-idx.json
+	python3 -I -c 'import sys; p, l = sys.argv[1:]; s = open(p).read(); assert "__RC_ASYNC_ONLY__" in s; open(p, "w").write(s.replace("__RC_ASYNC_ONLY__", open(l).read().strip()))' $@ $(WB)/async-only-idx.json
 
 clean:
 	rm -rf $(B) $(WB)
-.PHONY: all clean web
+.PHONY: all clean web web-async
 
 # header dependencies of the C++ runtime objects (platform/win32/d3d8.h etc.): a struct change rebuilds its users
 -include $(RT_CXX_OBJS:.o=.d)

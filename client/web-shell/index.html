@@ -9,9 +9,15 @@
   // The site root: the game client (yo2rc.html, the recompiled exe). Same-origin updater HTTP (/yo2/, /app/ -> the game server),
   // the network gateway at /net, game ports with the server's +1000 offset, DejaVu Sans for GDI text. Extra query
   // params (e.g. ?RC_VERBOSE=1, ?log) pass through.
-  if (!window.crossOriginIsolated || !("Suspending" in WebAssembly) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+  // Chrome/Edge run the JSPI build, Safari/Firefox the ASYNCIFY one (yo2rc.html picks). Only these are truly missing:
+  const gl2 = (() => { try { return !!document.createElement("canvas").getContext("webgl2"); } catch (e) { return false; } })();
+  const why = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "The game needs a desktop browser for now."
+    : !window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined" ? "This browser blocks the shared memory the game needs. Update it, or open the page in current desktop Chrome, Edge, Firefox or Safari."
+    : !gl2 ? "This browser has no WebGL 2 (or it is turned off). Turn on hardware acceleration, or try another desktop browser."
+    : "";
+  if (why) {
     const m = document.getElementById("msg");
-    m.textContent = "This browser can't run the game. Open this page in a current desktop Chrome or Edge.";
+    m.textContent = why;
     m.hidden = false;
   } else {
     fetch("__warm", { keepalive: true }).catch(() => {});   // wake the game server while the client boots (survives the redirect)

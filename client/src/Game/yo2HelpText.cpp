@@ -5,8 +5,12 @@
 
 #include "System/yo2Debug.h"
 
+// @yo2 0x00a5c770 g_helpTextMng static init entry stub
 // @yo2 0x00a5c790 g_helpTextMng static initialiser (new HelpTextMng)
-// @yo2 0x00a5c840 g_helpTextMng atexit destructor (delete)
+// @yo2 0x00a5c7e0 the holder's static init entry stub (an empty initialiser, then the atexit)
+// @yo2 0x00a5c800 the holder's (empty) static initialiser
+// @yo2 0x00a5c820 the holder's atexit registration
+// @yo2 0x00a5c840 g_helpTextMng atexit destructor (delete, once: guard bit 1 of DAT_012bb7cc)
 static struct HelpTextMngHolder {
     HelpTextMngHolder() { g_helpTextMng = new HelpTextMng; }
     ~HelpTextMngHolder() {

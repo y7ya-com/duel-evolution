@@ -1,5 +1,7 @@
 // The game's debug helpers: printf into a shared buffer, the assertion box, and the (release-empty) trace.
 #pragma once
+#include <cstddef>
+#include <cstdint>
 
 // printf into one static 1 KB-ish buffer; the result is valid until the next call.
 const char* yo2Format(const char* fmt, ...);
@@ -22,3 +24,10 @@ void yo2Trace(const char* fmt, ...);
     } while (0)
 
 [[noreturn]] void yo2Exit(int code);
+
+// The exe's ProductVersion resource string (shown in the assertion box); empty when it has none.
+const char* yo2ProductVersion();
+// What the platform reads it from: GetFileVersionInfo("yo2.exe") "\StringFileInfo\041104b0\ProductVersion".
+bool yo2ExeProductVersion(const char* exe, const char* key, char* out, size_t cap);
+// A D3D/D3DX HRESULT as "NAME explanation" (the exe's Japanese texts); "" for codes it doesn't know.
+const char* d3dErrorText(int32_t hr);

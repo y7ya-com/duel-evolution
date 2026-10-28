@@ -270,7 +270,8 @@ def check_trades(exe):
     out = client(exe, a.lobby.sent)
     d = social(out)
     assert (d["reqTrade"], d["offerReply"], d["addCard"], d["t_other"], d["t_own"], d["t_confirm"], d["t_end"]) == \
-        ("0", "0", "0", "9,0,1", "0,0,1", "3", "1"), d             # last partner move: add 9; both ready
+        ("0", "0", "0", "9,0,1", "65535,255,1", "3", "1"), d       # last partner move: add 9; both ready; no own
+                                                                    # move replayed: the constructor's 0xffff / 0xff
     f = d["flags"]
     assert all(f[k] == "2" for k in ("4f", "50", "52", "56", "59", "5a", "5b", "5c", "5d", "5f", "60", "62", "63")), f
     after = bytearray(0xcb8)

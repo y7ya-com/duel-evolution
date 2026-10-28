@@ -10,6 +10,7 @@
 #if YO2_IN_EXE
 #include "SceneAffectIcon.h"
 #include "SceneCard.h"
+#include "NetDuel.h"
 
 namespace {
 template <class F>
@@ -96,26 +97,11 @@ void spriteDraw(CSpriteElmOlder* s, int32_t x, int32_t y, int32_t alpha, const i
 }
 
 // ---------------------------------------------------------------- text
-void dlgTextW(WChar* out, int32_t id) { exe<void(__cdecl*)(WChar*, int32_t)>(0x00744a90)(out, id); }
-void formatNumW(WChar* out, const WChar* fmt, int32_t n) {
-    exe<void(__cdecl*)(WChar*, const WChar*, int32_t)>(0x00743ae0)(out, fmt, n);
-}
 bool textLine(const WChar* src, WChar* out, int32_t i) {
     return exe<int32_t(__cdecl*)(const WChar*, WChar*, int32_t)>(0x007a0e80)(src, out, i) != 0;
 }
 
 // ---------------------------------------------------------------- cards
-void cardPlaneDestruct(CardPlane* p) { exe<void(__thiscall*)(void*)>(0x00763240)(p); }
-void cardPlaneSetCard(CardPlane* p, int32_t id) { exe<void(__thiscall*)(void*, int32_t)>(0x007632c0)(p, id); }
-CSpriteElmOlder* cardPlaneField(CardPlane* p, int32_t deg, int32_t v) {
-    return exe<CSpriteElmOlder*(__thiscall*)(void*, int32_t, int32_t)>(0x00763470)(p, deg, v);
-}
-CSpriteElmOlder* cardPlaneHandBig(CardPlane* p, int32_t deg) {
-    return exe<CSpriteElmOlder*(__thiscall*)(void*, int32_t)>(0x00763420)(p, deg);
-}
-CSpriteElmOlder* cardPlaneHandMini(CardPlane* p, int32_t deg) {
-    return exe<CSpriteElmOlder*(__thiscall*)(void*, int32_t)>(0x007633b0)(p, deg);
-}
 void matPos(uint32_t player, uint32_t zone, uint32_t index, int32_t* x, int32_t* y) {
     uint64_t r = exe<uint64_t(__cdecl*)(uint32_t, uint32_t, uint32_t)>(0x007bea20)(player, zone, index);
     *x = (int32_t)(uint32_t)r;
@@ -137,7 +123,6 @@ void playBgm(uint32_t id, int32_t fade) { exe<void(__cdecl*)(uint32_t, int32_t)>
 void avatarPose(int32_t side, int32_t pose) { exe<void(__cdecl*)(int32_t, int32_t)>(0x00a56630)(side, pose); }
 void duelAvatarPose(int32_t side, int32_t pose) { exe<void(__cdecl*)(int32_t, int32_t)>(0x007847b0)(side, pose); }
 uint32_t systemTick() { return exe<uint32_t(__cdecl*)()>(0x006071f0)(); }
-void engineReset(int32_t v) { exe<void(__cdecl*)(int32_t)>(0x0073a090)(v); }
 bool staticFieldAlive(void* task) { return task != nullptr; }
 void staticFieldRefresh(void* field) {
     exe<void(__thiscall*)(void*)>(0x0079dfa0)(g_duelScene + 0x23c8);

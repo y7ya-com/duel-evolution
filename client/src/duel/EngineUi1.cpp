@@ -1,5 +1,7 @@
 // Engine helpers of the 0x0071e000..0x00723000 block (the interface between the engine and the duel scene).
 #include "EngineInternal.h"
+#include "NetDuel.h"
+#include "System/vc6.h"
 
 // @yo2 0x00720240 the i-th card of the 0x6610 deck list
 uint32_t* engListCard(int i) { return &g_eng.deckList.card[i]; }
@@ -293,3 +295,16 @@ void engBattleTargets(uint32_t* out) {
 
 // @yo2 0x00722670
 uint16_t engCc3aa() { return *engAt<uint16_t>(0x012cc3aa); }
+
+// @yo2 0x0073dbf0 "\t<text>" for each of the deck-list window's first n cards (the id read as a DLG_Text id)
+void deckListAppendText(vc6::wstring& s, int32_t n) {
+    std::u16string t(s);
+    for (int32_t i = 0; i < n; i++)
+        if (uint32_t id = g_eng.deckList.card[i] & 0x3fff) {
+            char16_t w[0x200];
+            wtextCopy(w, (int)id);
+            t += u'\t';
+            t += w;
+        }
+    s.assign(t.data(), t.size());
+}

@@ -33,6 +33,8 @@ CWindowModelDialogWithBtns* windowModelDialogErrorCreate(CTask* parent) {
 vc6::string lobbyErrorUrl() { return "http://example.invalid/help"; }
 static int g_faderHides, g_backToMain;
 static std::vector<std::string> g_opened;
+static std::vector<uint32_t> g_sounds;
+void appPlaySound(uint32_t id, int32_t) { g_sounds.push_back(id); }
 void screenFaderHide() { g_faderHides++; }
 void lobbyErrorBackToMain() { g_backToMain++; }
 void lobbyShellOpen(const char* url) { g_opened.push_back(url); }
@@ -43,10 +45,7 @@ struct FakeScene : CSceneTask {
     vc6::string errUrl;
     int closedCount = 0;
     FakeScene() { errDlg.setUser(this); }
-    int onErrorDialog(CWindowTaskModel*, CALLBACK_MESSAGE_TYPE, intptr_t v) {
-        errChoice = (int32_t)v;
-        return 0;
-    }
+    int onErrorDialog(CWindowTaskModel*, CALLBACK_MESSAGE_TYPE, intptr_t v) { return lobbyOnErrorDialog(*this, v); }
     void errorClosed() { closedCount++; }
 };
 
@@ -85,7 +84,7 @@ int main() {
 
     // the callback answers; next call closes it, opens the page and moves on to the main state
     g_err->callback_->call(g_err, CALLBACK_MESSAGE_TYPE(0), 4000);
-    CHECK(s->errChoice == 4000);
+    CHECK(s->errChoice == 1 && g_sounds == std::vector<uint32_t>{0x10000001});
     lobbyErrorState(*s);
     for (CZSort& q : layers.layer) q.clear();
     CTask::flushDeleted();
@@ -99,7 +98,9 @@ int main() {
     s->nextState = 0x20;
     lobbyErrorState(*s);
     CHECK(g_err->text == u("T11c6"));
-    s->errChoice = 4000;
+    g_err->callback_->call(g_err, CALLBACK_MESSAGE_TYPE(0), 0xfa1);   // any other button: still open
+    CHECK(s->errChoice == -1 && g_sounds.size() == 1);
+    g_err->callback_->call(g_err, CALLBACK_MESSAGE_TYPE(0), 0xfa2);
     lobbyErrorState(*s);
     CHECK(s->state == 0x20 && s->prevState == 0x31 && g_backToMain == 1 && g_opened.size() == 1);
     for (CZSort& q : layers.layer) q.clear();   // the draw queues still name freed elements

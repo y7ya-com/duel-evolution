@@ -211,3 +211,4 @@ void CElement::setQueue(CZSort* q) {
     queues_.clear();
     queues_.push_back(q);
 }
+

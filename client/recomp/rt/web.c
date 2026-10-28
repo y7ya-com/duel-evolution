@@ -1,4 +1,4 @@
-// Web (Emscripten) runtime pieces. The guest's main thread runs on the browser's main thread under JSPI; the
+// Web (Emscripten) runtime pieces. The guest's main thread runs on the browser's main thread under JSPI (or ASYNCIFY); the
 // waits below hand the browser its turn (paint, input, WebSocket, proxied calls) instead of blocking it. Guest
 // threads (CreateThread, timeSetEvent) are real pthreads on workers and block normally.
 #ifdef __EMSCRIPTEN__
@@ -13,9 +13,13 @@
 
 static uint32_t last_yield;
 
+// web/yieldguard.js: 0 when the ASYNCIFY build could not unwind this stack (a frame it did not instrument)
+EM_JS(int, web_yield_ok, (void), { return Module.rcYieldOk ? Module.rcYieldOk() : 1; });
+
 // Sleep / GetMessage / WaitFor* polling: a suspension on the main thread, a real sleep on a worker
 void rc_web_sleep(uint32_t ms) {
     if (!emscripten_is_main_runtime_thread()) { usleep(ms * 1000u); return; }
+    if (!web_yield_ok()) return;
     emscripten_sleep(ms);
     last_yield = rc_ticks_ms();
 }

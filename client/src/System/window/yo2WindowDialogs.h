@@ -21,6 +21,7 @@ YO2_SIZEOF(CDialogCallback, 0x48);
 class CWindowModelThin : public CWindowTaskModel {
 public:
     static CWindowModelThin* create(CTask* parent, float x, float y, int32_t style);
+    void setup(float x, float y, int32_t style);   // what create sets before CTask::create
     CWindowModelThin();
     ~CWindowModelThin() override;
     bool onInit() override;

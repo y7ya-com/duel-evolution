@@ -11,13 +11,15 @@ set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd); BUILD=0
 [ "${1:-}" = --build ] && { BUILD=1; shift; }
 X=${1:-recomp-de}; X=${X%/}; C=$R/client; B=$C/recomp/build-web; O=$R/infra/out/$X
-[ $BUILD = 1 ] && (cd $C/recomp && python3 -I ../tools/buildslot.py make -j2 web)
+[ $BUILD = 1 ] && (cd $C/recomp && python3 -I ../tools/buildslot.py make -j2 web web-async)
 for f in yo2rc.html yo2rc.js yo2rc.wasm; do [ -s $B/$f ] || { echo "no $B/$f (build it, or pass --build)"; exit 1; }; done
 mkdir -p $O; cp $B/yo2rc.html $B/yo2rc.js $B/yo2rc.wasm $O/
+# the ASYNCIFY fallback (Safari/Firefox, `make web-async`), when built: the page picks it when the browser has no JSPI
+ASYNC=; [ -s $B/yo2rc-async.js ] && [ -s $B/yo2rc-async.wasm ] && { cp $B/yo2rc-async.js $B/yo2rc-async.wasm $O/; ASYNC="yo2rc-async.wasm yo2rc-async.js"; }
 BUILDID=$(git -C $R rev-parse --short HEAD) NOLOADER=${NOLOADER:-} python3 - $O/yo2rc.html <<'PY'
 import os, re, sys; p = sys.argv[1]; s = open(p).read()
 tag = '<script src="stage.js"></script>\n' + ('' if os.environ.get('NOLOADER') else '<script src="loader.js"></script>\n')
-i = s.find('<script async'); assert i > 0 and 'stage.js' not in s; s = s[:i] + tag + s[i:]
+i = s.find('<script async'); i = i if i > 0 else s.find('<script>{const s'); assert i > 0 and 'stage.js' not in s; s = s[:i] + tag + s[i:]
 # user-facing name only: no build or engine names in the tab title
 s, n = re.subn(r'<title>[^<]*</title>', '<title>Duel Evolution</title>\n<meta name="description" content="Duel Evolution: the online card-dueling game, in your browser.">', s, 1)
 assert n == 1
@@ -27,7 +29,7 @@ open(p, 'w').write(s)
 PY
 echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
 cat $O/BUILD.txt
-FILES="yo2rc.wasm yo2rc.js yo2rc.html BUILD.txt"
+FILES="$ASYNC yo2rc.wasm yo2rc.js yo2rc.html BUILD.txt"
 [ $X = recomp ] && { cp $C/web-shell/index.html $C/web-shell/stage.js $C/web-shell/loader.js $O/; FILES="$FILES stage.js loader.js index.html"; }
 cd $R/server
 for f in $FILES; do

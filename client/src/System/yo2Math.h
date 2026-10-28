@@ -4,6 +4,7 @@
 #include <cmath>
 
 struct Vec3 {
+    // @yo2 0x005bae80 D3DXVECTOR3::D3DXVECTOR3(x, y, z) (aggregate initialisation here)
     float x = 0, y = 0, z = 0;
 
     // @yo2 0x0060d700 D3DXVECTOR3::operator+

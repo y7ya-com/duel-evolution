@@ -64,9 +64,8 @@ void playBgm(uint32_t id, int32_t fade);               // TODO(System) FUN_00686
 void avatarPose(int32_t side, int32_t pose);           // TODO(System) FUN_00a56630 the menu bar's avatar
 void duelAvatarPose(int32_t side, int32_t pose);       // TODO(scene1) FUN_007847b0 CDuelAvaTask (not translated yet)
 uint32_t systemTick();                                 // TODO(System) FUN_006071f0
-void engineReset(int32_t v);                           // TODO(engine) FUN_0073a090
-bool staticFieldAlive(void* task);                     // TODO(scene1) the CTaskPtr<CStaticField> dynamic_cast
-void staticFieldRefresh(void* field);                  // TODO(scene1) FUN_0079dfa0 + FUN_007eb690
+bool staticFieldAlive(void* task);  // inline in the exe (in 0x00790740) TODO(scene1) CTaskPtr<CStaticField> dyn. cast
+void staticFieldRefresh(void* field);                  // TODO(scene2) FUN_007eb690, through the CTaskPtr FUN_0079dfa0
 // TODO(scene1) FUN_007674a0 CWindowDeckList create: under `parent` at (x, y), style, the list's two arguments
 CWindowTaskModel* deckListOpen(CTask* parent, int32_t x, int32_t y, int32_t style, uint32_t a, uint32_t b,
                                int32_t c);
@@ -132,7 +131,7 @@ int32_t duelStart(int32_t mode) {
         duelSetV90a8(0);
         g_matchGame[3] = g_matchGame[2] = g_matchGame[1] = 0;
         g_matchGames = 0;
-        engineReset(1);
+        ::duelDefaultDeck(1);
         g_matchGames++;
         g_duelV78 = 0;
         g_duelStartTime = (int32_t)std::time(nullptr);

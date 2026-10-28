@@ -1,0 +1,53 @@
+# Functions on the wasm stack when the guest main thread yields (rt/web.c), recorded with ?yieldlog (web/yieldguard.js)
+# over title, login, My Room, lobby, NPC dialog, rock-paper-scissors. The ASYNCIFY build adds these to what Binaryen's
+# own analysis instruments (host code that reaches a wait directly); the guest frames reach one only through rc_icall.
+# A yield from a stack with an uninstrumented frame is skipped and logged ("not in web/async-only.txt"): add it here.
+(anonymous namespace)::peek(unsigned int, unsigned int, unsigned int, unsigned int, bool)
+dev_Present
+f_0042b4c0
+f_0042b550
+f_0042b8a0
+f_00530600
+f_0057f060
+f_00588500
+f_0059ac20
+f_0059b550
+f_0059de80
+f_00606ab0
+f_00606bf0
+f_00607fd0
+f_006099c0
+f_0060d520
+f_00621300
+f_00627eb0
+f_00628210
+f_0066df80
+f_00671fb0
+f_009c2bd0
+f_009c2c60
+f_009c54a0
+f_009c5560
+f_009c9b40
+f_009c9ca0
+f_009cca40
+f_009d4070
+f_009d4860
+f_009de190
+f_009fb8c0
+f_009fe340
+f_009febb0
+f_00a024e0
+f_00a505a0
+f_00a52920
+f_00b0ddb0
+imp_KERNEL32_Sleep
+imp_KERNEL32_WaitForSingleObject
+imp_USER32_PeekMessageA
+main
+o_0059b550
+rc_call
+rc_icall
+rc_web_frame
+rc_web_idle
+rc_web_sleep
+wait_counted

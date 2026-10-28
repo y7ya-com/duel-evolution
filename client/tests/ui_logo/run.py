@@ -22,6 +22,7 @@ TESTS = sorted(glob.glob(os.path.join(HERE, "*_test.cpp")))
 STUBS = sorted(set(glob.glob(os.path.join(HERE, "*.cpp"))) - set(TESTS))
 FLAGS = ["-std=c++17", "-Wall", "-Wextra", "-I" + os.path.join(ROOT, "src"), "-I" + os.path.join(ROOT, "platform")]
 HOST = ["-isystem", os.path.join(ROOT, "platform", "win32")]  # Win32/D3D8 stand-ins off Windows; i686 uses the real headers
+EXTRA += [os.path.join(ROOT, "src", "System", "window", "*.cpp")]   # the window factory src/System's app uses
 EXTRA = sorted(f for g in EXTRA for f in glob.glob(g))
 
 

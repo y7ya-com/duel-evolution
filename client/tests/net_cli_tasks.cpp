@@ -10,6 +10,8 @@ CNetGate* appNetGate() { return &gate; }
 CNetAccount* appNetAccount() { return &acc; }
 CNetLobby* appNetLobby() { return &lobby; }
 uint32_t appWindowHandle() { return 0x1234; }
+std::string appGateServer() { return "198.51.100.4"; }
+int32_t appGatePort() { return 5730; }
 void appPlaySound(uint32_t id, int32_t arg) { printf("sound %08x %d\n", id, arg); }
 
 static int32_t g_dialogResult;

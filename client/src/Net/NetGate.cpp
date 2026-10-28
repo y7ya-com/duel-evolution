@@ -2,6 +2,20 @@
 
 #include <cstring>
 
+#include "NetUi.h"
+
+// @yo2 0x0069a210 CNetGate::CNetGate: the base, an empty list, and the gate's address from the system config
+// (0x0068ea60, the host string's assign, is the std::string here)
+// @yo2 0x0068ea60
+void CNetGate::init() {
+    CMessageIOBase::init();
+    servers.clear();
+    strncpy(host, appGateServer().c_str(), sizeof host - 1);
+    port = static_cast<uint16_t>(appGatePort());
+    listing = 0;
+    result = 0;
+}
+
 // @yo2 0x0069a650 0x2005 client version
 void CNetGate::sendVersion() {
     ygClear(&out);
@@ -47,6 +61,9 @@ CServerInfo& CNetGate::newEntry() {
     CServerInfo e{};
     e.id = e.kind = -1;
     e.lang = e.rank = e.area = -1;
+    // the exe's CServerList is a vector<smart_ptr<CServerInfo>>:
+    // @yo2 0x0069aa00 vector<smart_ptr<CServerInfo>>::_Insert_n
+    // @yo2 0x0069ad90 smart_ptr<CServerInfo>::operator= (ownership moves)
     servers.push_back(e);
     return servers.back();
 }

@@ -10,3 +10,6 @@
 006b7ef0  # 0x4101 PSELECTRESULT (nodp.c: the DP balance pinned after it)
 006bc270  # 0x4140 PLAYERDATAUPDATE (nodp.c: the same)
 0061d6a0  # CSceneMng::switchScene (scene.c: the web loader ring's begin/end)
+006a6eb0  # the 0x3004 result's text id (autherr.c: -255 has no text)
+006a8f70  # the gate task (gateerr.c: logs a gate failure and its text id)
+005df750  # the dialogs' text by id (msgtext.c: an id with no text gets a message)

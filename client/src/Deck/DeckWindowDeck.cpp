@@ -512,7 +512,7 @@ void CWindowTaskDeck::onColleague(void* who) {
 
 // TODO(Deck A) parts: CWindowTaskDeckBar frame sets, 0 FUN_009133d0, 1 FUN_009135e0, 2 FUN_009137f0, 3 FUN_00913a00
 void deckBarMode(CWindowTaskDeckBar* bar, int mode);
-void deckBarSetY(CWindowTaskDeckBar* bar, float a, float b);   // TODO(Deck A) parts: bar +0x4a4 / +0x4a8
+void deckBarSetY(CWindowTaskDeckBar* bar, float a, float b);  // inline (in 0x00950a00) TODO(Deck A) bar +0x4a4 / +0x4a8
 
 // @yo2 0x009519d0
 void CWindowTaskDeck::showMissingFrame() {
@@ -544,8 +544,8 @@ void CWindowTaskDeck::clearAll() {
 }
 
 // CDeckObject's virtuals the export uses. TODO(System): vtable slots 50 (clear), 2 / 3 / 4 (add main/side/extra)
-void deckObjClear(void* deckObj);
-void deckObjAdd(void* deckObj, int which, uint32_t card, int32_t slot);
+void deckObjClear(void* deckObj);  // 0x00906cc0 CDeckManager vf 0xc8
+void deckObjAdd(void* deckObj, int which, uint32_t card, int32_t slot);  // 0x00907350/0x00907430/0x00907510
 
 // @yo2 0x0094ff40 write the grids into a deck object (the missing grid is not part of the deck)
 void CWindowTaskDeck::exportTo(void* deckObj, int32_t slot) {

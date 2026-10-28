@@ -47,5 +47,6 @@ int main() {
             for (const FieldMapEntry& f : g_fieldMaps[e.from].entries) back |= f.from == m;
             CHECK(back);
         }
+    CHECK(g_fieldMapDir == "data/Map/");
     std::printf("world_fieldmap_test ok\n");
 }

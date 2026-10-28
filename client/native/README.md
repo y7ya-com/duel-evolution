@@ -29,12 +29,12 @@ YO2_HIDDEN=1 SDL_AUDIODRIVER=dummy YO2_STUBHITS=stubhits.tsv python3 -I tools/me
   `yo2App.h` half switches on once that header is on main.
 - With `YO2_HIDDEN`, message boxes go to stderr instead of opening on screen.
 
-## State (2026-10-27)
+## State (2026-10-27, main ef0c585c + this branch)
 
-- **main** links: 769 stubs, 707 typed and 62 raw. 218 are glue, 236 todo, 315 have no address. Boot stops at the
-  first call: `yo2WinMain` lives in `src/System/yo2App.cpp` on the unmerged phase2-system branch.
-- **main + phase2-system** (local throwaway branch `native-exp`, commit 5cb4c6d1):
-  - The boot goes WinMain → yaneSDK init → window → `CAppBase::ThreadProc` → `CApp::mainThread`.
-  - It passes 18 stubs: config/registry, file language, card and pack text, sound volume.
-  - Then it dies (SIGSEGV) where CApp creates the five Net connections: `yo2NewNetGate/Lobby/Usb` are todo, and
-    `yo2NewNetAccount/Duel` are glue, so all of them return null. That log is `yo2-decomp-data/trace/stubhits.tsv`.
+- Links with 859 stubs, 857 typed and 2 raw. 253 are glue and 300 have no address.
+- The boot goes WinMain → yaneSDK init → window → `CAppBase::ThreadProc` → `CApp::mainThread`. It passes 15 stubs:
+  - registry, crypt files, the duel's file language;
+  - card and pack text, sound volume;
+  - `yo2SoundInit` (= `ygNetStartup`).
+- Then it dies (SIGSEGV) where CApp creates the five Net connections: `yo2NewNetGate/Lobby/Usb` are todo, and
+  `yo2NewNetAccount/Duel` are glue, so all of them return null. That log is `yo2-decomp-data/trace/stubhits.tsv`.

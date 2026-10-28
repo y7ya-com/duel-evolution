@@ -40,12 +40,12 @@ const ArgbImage* textureImage(const vc6::string& path);  // 0x0059c3f0 + LockRec
 void textureRelease(const vc6::string& path);            // 0x0059c1f0
 // TODO(System): the sprite's texture (level 0) becomes `rect` (left, top, right, bottom) of `src`, unscaled
 // (D3DXLoadSurfaceFromSurface, D3DX_FILTER_NONE: what falls outside the source is transparent black).
-void spriteLoadImage(CSpriteElm* sprite, const ArgbImage& src, const int32_t rect[4]);
+void spriteLoadImage(CSpriteElm* sprite, const ArgbImage& src, const int32_t rect[4]);   // no address: inline D3DX calls in compose
 
 // TODO(platform): a worker thread (_beginthread in the exe). Returns 0 if it can't be started.
-uintptr_t yo2BeginThread(void (*proc)(void*), void* arg);
-void yo2JoinThread(uintptr_t thread);
-void yo2Sleep(uint32_t ms);
+uintptr_t yo2BeginThread(void (*proc)(void*), void* arg);   // 0x00b0ac72 _beginthread
+void yo2JoinThread(uintptr_t thread);                       // no address: the exe never joins (spins on +0x171)
+void yo2Sleep(uint32_t ms);                                 // no address: kernel32 Sleep (IAT 0x012d5d04)
 
 // TODO(System): CTextElm (a text label element), 0x760 bytes. Its text is a UTF-16 MSVC6 wstring at +0x410.
 class CTextElm : public CElement {
@@ -97,7 +97,7 @@ uint8_t lobbyRoomKind();
 struct SwfMotion;
 SwfMotion* swfLoadMotion(const char* txtPath);                     // 0x00678ce0
 void swfFreeMotion(SwfMotion* motion);
-const std::vector<std::string>& swfMotionPngs(const SwfMotion* motion);   // the record's vector<string> at +0x04
+const std::vector<std::string>& swfMotionPngs(const SwfMotion* motion);   // 0x009c9430 (record ctor) its vector<string> at +0x04
 
 // TODO(Swf): CSwfEngine, an element that plays a SwfMotion with a given PNG list.
 class CSwfEngine : public CElement {
@@ -106,15 +106,15 @@ public:
     void load(const std::vector<std::string>& pngs, const SwfMotion* motion);   // 0x0066df80 (pngs, +0x10, +0x34, 0)
     void play(bool on);                                             // 0x0066e2f0
     void continueFrom(const CSwfEngine* from, const vc6::string& clip);   // 0x0066f550 on from's player (+0x3dc)
-    bool finished() const;                                          // +0x3f1
-    void setLoop(bool on);                                          // +0x3e4
-    void setUnk459(bool on);                                        // +0x459
-    void setOwner(CTask* owner);                                    // +0x3f8 CTaskPtr<CTask>: gets its messages
-    CElement* root() const;                                         // +0x350 CTaskPtr<CElement>
+    bool finished() const;                                          // 0x0066db60 (inline field) +0x3f1
+    void setLoop(bool on);                                          // 0x0066db60 (inline field) +0x3e4
+    void setUnk459(bool on);                                        // 0x0066db60 (inline field) +0x459
+    void setOwner(CTask* owner);                                    // 0x0066db60 (inline field) +0x3f8 CTaskPtr<CTask>: gets its messages
+    CElement* root() const;                                         // 0x0066db60 (inline field) +0x350 CTaskPtr<CElement>
 };
 
 // TODO(Game, yo2FieldMap.cpp): CFieldMap is blocked there; the chibi only needs these, on a CTask that may be one.
-bool isFieldMap(CTask* task);
+bool isFieldMap(CTask* task);   // 0x00a504b0 (CFieldMap::create; the exe dynamic_casts inline)
 float fieldHeightAt(CTask* field, int32_t x, int32_t y);                        // 0x00a51e30
 bool fieldProbeWalls(CTask* field, Vec3* step, CElement* who, uint32_t* color);  // 0x00a51e70
 

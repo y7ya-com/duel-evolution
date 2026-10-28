@@ -14,6 +14,8 @@ bool cardPackCards(uint32_t, std::vector<uint16_t>*, int32_t*) { return false; }
 void newItemListAdd(NewItemList, uint16_t) {}
 void npcInfoClear() {}
 CNetLobby* appNetLobby() { return nullptr; }   // NetAvatarAccess lookups; part B never reaches them
+std::string appGateServer() { return "127.0.0.1"; }   // CNetGate::init; part B never connects
+int32_t appGatePort() { return 0; }
 void npcInfoAdd(const NpcInfo&) {}
 std::u16string lobbyWiden(const char* s) { return std::u16string(s, s + std::char_traits<char>::length(s)); }
 void lobbyAutoDuelStarted(int32_t) {}

@@ -18,47 +18,47 @@ struct IWindowTaskMediator;   // the owner interface a window part reports click
 // CElement / CSpriteElm fields (yo2Element.cpp, yo2SpriteElm.cpp)
 CSpriteElm* spriteCreate(void* parent, int32_t prio, const VcString& path);   // TODO(System) FUN_0061f030 new CSpriteElm(0x5088), load, create under parent
 void spriteSetBlend(CSpriteElm* s, int32_t mode);         // TODO(System) FUN_0060dc20 (mode 2 = alpha; picks the shader)
-void spriteSetSrc(CSpriteElm* s, int32_t u, int32_t v, int32_t w, int32_t h);   // TODO(System) CSpriteElm +0x94..+0xa0 source rect
-void spriteSetAlpha(CSpriteElm* s, float a);              // TODO(System) CSpriteElm +0xb0
+void spriteSetSrc(CSpriteElm* s, int32_t u, int32_t v, int32_t w, int32_t h);   // inline in 0x00920620 TODO(System)
+void spriteSetAlpha(CSpriteElm* s, float a);  // inline in the exe (in 0x00920620); TODO(System) CSpriteElm +0xb0
 void elemSetPos3(void* e, float x, float y, float z);     // TODO(System) CElement +0x70..+0x78 (inline in the exe; FUN_005bae80)
 void elemSetPos2(void* e, float x, float y);              // TODO(System) FUN_005baeb0 CElement::setPos(x, y)
-void elemSetScaleX(void* e, float sx);                    // TODO(System) CElement +0x88
-void elemSetScaleY(void* e, float sy);                    // TODO(System) CElement +0x8c
-void elemSetDisabled(void* e, bool on);                   // TODO(System) CElement +0x20 bit 1 (set while hidden: no hit test)
-void elemSetFlagC7(void* e);                              // TODO(System) CElement +0xc7 = 1
+void elemSetScaleX(void* e, float sx);  // inline in the exe (in 0x00911fe0); TODO(System) CElement +0x88
+void elemSetScaleY(void* e, float sy);  // inline in the exe (in 0x00911fe0); TODO(System) CElement +0x8c
+void elemSetDisabled(void* e, bool on);  // inline in the exe (in 0x0090a980) TODO(System) CElement +0x20 bit 1
+void elemSetFlagC7(void* e);  // inline in the exe (in 0x00920620); TODO(System) CElement +0xc7 = 1
 void elemSetListener(void* e, void* mediator);            // TODO(System) FUN_005ddd70: clicks on e go to mediator
 // CSwfEngine (yo2SwfEngine.cpp)
 CSwfEngine* swfCreate(void* parent, int32_t prio, const VcString& path, int32_t flag);   // TODO(System) FUN_0066d7a0
 void swfGotoFrame(CSwfEngine* s, int32_t frame);          // TODO(System) FUN_0066e2f0
 void swfPlayLabel(CSwfEngine* s, int32_t loop, const VcString& label);   // TODO(System) FUN_0066f550
-void swfSetHold(CSwfEngine* s, bool on);                  // TODO(System) CSwfEngine +0x3e4 (1 = keep the current frame)
+void swfSetHold(CSwfEngine* s, bool on);  // inline in the exe (in 0x009144a0) TODO(System) CSwfEngine +0x3e4
 // CWindowTaskText / CWindowTaskTextSwitch / CWindowTaskBackPlane (yo2WindowTask*.cpp)
 CWindowTaskText* textCreate(void* parent, void* mediator);   // TODO(System) FUN_005aea60
-void textSetString(CWindowTaskText* t, const VcWString& s);  // TODO(System) CWindowTaskText vtable +0x44
+void textSetString(CWindowTaskText* t, const VcWString& s);  // 0x005af000 TODO(System) CWindowTaskText vtable +0x44
 void textSetSize(CWindowTaskText* t, int32_t size);       // TODO(System) FUN_005af590
 void textSetColor(CWindowTaskText* t, float r, float g, float b, float a);   // TODO(System) FUN_005af650
-void textSetDepth(CWindowTaskText* t, float z);           // TODO(System) CWindowTaskText +0x37c and +0x78
+void textSetDepth(CWindowTaskText* t, float z);  // inline in the exe (in 0x00914560) TODO(System) +0x37c and +0x78
 void textRefresh(CWindowTaskText* t);                     // TODO(System) FUN_005d5700
-void switchSetOn(CWindowTaskTextSwitch* t, bool on);      // TODO(System) CWindowTaskTextSwitch +0x350
+void switchSetOn(CWindowTaskTextSwitch* t, bool on);      // inline in the exe (in 0x0091ffd0) TODO(System) +0x350
 CWindowTaskTextSwitch* switchCreate(void* parent, void* mediator);   // TODO(System) FUN_005b9f40
 void switchSetText(CWindowTaskTextSwitch* t, const VcWString& s);   // TODO(System) vtable +0x44 (c_str via FUN_0065ffb0)
-void switchSetOwner(CWindowTaskTextSwitch* t, void* mediator);   // TODO(System) its IWindowTaskMediator (+0x340) slot 0
+void switchSetOwner(CWindowTaskTextSwitch* t, void* mediator);   // 0x00594ff0 TODO(System) its mediator (+0x340) slot 0
 // TODO(System) FUN_005e99d0 setPos, FUN_005e9a00 setSize, then FUN_005d56d0 (keepSize) or FUN_005d5700 (refresh)
 void switchPlace(CWindowTaskTextSwitch* t, float x, float y, float w, float h, bool keepSize);
 const VcWString& textTable(int32_t id);                   // TODO(System) FUN_00858610()->vf1(id): the UI text table
 CWindowTaskBackPlane* planeCreate(void* parent, void* mediator);   // TODO(System) FUN_005a6a60
-void elemSetZ(void* e, float z);                          // TODO(System) CElement +0x78
+void elemSetZ(void* e, float z);  // inline in the exe (in 0x00917240); TODO(System) CElement +0x78
 void elemSetDepth(void* e, float z);                      // TODO(System) FUN_0091f930 on a foreign control (+0x34c, +0x78)
 void modelInstallDefaultHandler(void* self);              // TODO(System) FUN_005df480(self, temp of vtable 0x00be8dd8 / FUN_005e7180)
 void planeSetColor(CWindowTaskBackPlane* p, float r, float g, float b, float a);   // TODO(System) FUN_005a72e0
-void planeSetSize(CWindowTaskBackPlane* p, float w, float h);   // TODO(System) +0x37c/+0x380, then vtable +0x34 (relayout)
+void planeSetSize(CWindowTaskBackPlane* p, float w, float h);   // inline in 0x00917240 TODO(System) w/h +0x37c, vf 0x34
 // CWindowTaskControll / CWindowTaskModel (the window-part bases)
-const VcString& skinDir();                                // TODO(System) *(DAT_0126fa8c)+0x1c: the window skin folder
-void ctrlSetOwner(void* self, void* owner);               // TODO(System) CWindowTaskControll +0x344 (the IWindowTaskMediator told of clicks)
-void ctrlNotifyOwner(void* self, int32_t slot);           // TODO(System) (*(self+0x344))->vf[slot](self+0x340)
-void ctrlRelayout(void* self);                            // TODO(System) vtable +0x34 (CWindowTaskControll_vf13)
+const VcString& skinDir();  // 0x005a2510 TODO(System) *(DAT_0126fa8c)+0x1c: the window skin folder
+void ctrlSetOwner(void* self, void* owner);  // inline in the exe (in 0x0090aca0) TODO(System) CWindowTaskControll+0x344
+void ctrlNotifyOwner(void* self, int32_t slot);  // inline in the exe (in 0x00914460) TODO(System) owner +0x344 vf[slot]
+void ctrlRelayout(void* self);  // 0x0090a6e0 TODO(System) +0x34 (DeckFigure; DeckBar 0x00911fe0, SwapIcon 0x00915850)
 void modelActivate(void* self);                           // TODO(System) FUN_005df430 CWindowTaskModel default mediator call
-void modelNotifyOwner(void* self, int32_t a, int32_t msg);   // TODO(System) (*(self+0x394))->vf0(self, a, msg)
+void modelNotifyOwner(void* self, int32_t a, int32_t msg);   // 0x005ff8a0 TODO(System) (*(self+0x394))->vf0(self,a,msg)
 void elemOnChildDestroyed(void* self, int32_t msg);       // TODO(System) FUN_005dea50 CElement::receive tail
 
 // "@0%d" style formatting into a wide string (FUN_00605440 is swprintf into a std::wstring)

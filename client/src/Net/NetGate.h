@@ -21,7 +21,7 @@ struct CServerInfo {
     int8_t area;        // 0x34 b3: room / area number
     uint16_t extra;     // 0x36
 
-    const char* address() const { return ip; }   // FUN_0068ec10
+    const char* address() const { return ip; }   // @yo2 0x0068ec10
 };
 YO2_AT(CServerInfo, name, 0x0c);
 YO2_AT(CServerInfo, ip, 0x1d);
@@ -42,6 +42,7 @@ struct CNetGate : CMessageIOBase {
     int32_t result;            // 0x54c YG_VERSION_ERROR after a refused version
     CServerList servers;        // past the exe's 0x550 bytes
 
+    void init();                         // FUN_0069a210 the constructor's body (members: C++'s)
     void sendVersion();                  // FUN_0069a650
     int32_t onRecv();                    // FUN_0069a4b0
     void parseServerList();              // FUN_0069a6a0

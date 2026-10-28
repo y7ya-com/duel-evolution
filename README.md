@@ -65,11 +65,12 @@ YO2_GAME=/path/to/game build/yo2rc
 
 ### Client, web
 
-Needs Emscripten and a browser with JSPI and cross-origin isolation (current desktop Chrome or Edge).
+Needs Emscripten and a cross-origin-isolated page. Chrome and Edge run the JSPI build; Safari and Firefox run the
+ASYNCIFY build, which `yo2rc.html` picks when the browser has no JSPI.
 
 ```sh
 cd client/recomp
-make -j4 web                                          # build-web/yo2rc.{html,js,wasm}
+make -j4 web web-async                                # build-web/yo2rc.{html,js,wasm} and yo2rc-async.{js,wasm}
 YO2_GAME=/path/to/game node web/serve.mjs             # http://127.0.0.1:8780/ with COOP/COEP headers
 ```
 

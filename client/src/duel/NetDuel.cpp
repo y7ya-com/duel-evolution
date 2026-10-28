@@ -14,7 +14,45 @@ static uint8_t s_duelUi[0x440];
 uint8_t* g_duelUi = s_duelUi;
 DuelCardList g_fusionList;   // (g_deckList is g_eng.deckList, defined with the engine)
 CNetDuel* g_netDuel = nullptr;
+DuelDeckMsg g_duelDeck[2];
+DuelDeckMsg g_duelDeckSaved;
+int32_t g_duelDeckIsSaved;
+int32_t g_duelViewFusing;
 #endif
+
+// @yo2 0x00739ff0
+void duelDeckSave() {
+    g_duelDeckIsSaved = 1;
+    g_duelDeckSaved = g_duelDeck[0];
+}
+// @yo2 0x0073a030
+void duelDeckRestore() {
+    if (g_duelDeckIsSaved) {
+        g_duelDeckIsSaved = 0;
+        g_duelDeck[0] = g_duelDeckSaved;
+    }
+}
+// @yo2 0x0073a070
+void duelRequestReset() { g_duelDeckIsSaved = 0; }
+// @yo2 0x0073a090 the built-in deck (the exe's table at 0x00beb9d4: main count, ids, extra count, ids)
+void duelDefaultDeck(int32_t j) {
+    static const uint16_t kMain[] = {291, 291, 291, 291, 291, 291, 291, 291, 291, 291, 581, 581, 581, 581,
+                                     581, 581, 581, 581, 581, 581, 678, 678, 678, 678, 678, 678, 678, 678,
+                                     678, 678, 1106, 1106, 1106, 1106, 1106, 1106, 1106, 1106, 1106, 1106};
+    static const uint16_t kExtra[] = {2160, 2160, 2160, 2160, 2160};
+    DuelDeckMsg& d = g_duelDeck[j];
+    d.x = d.extraCount = d.mainCount = 0;
+    for (uint16_t id : kMain)
+        d.main[d.mainCount++] = id;
+    for (uint16_t id : kExtra)
+        d.extra[d.extraCount++] = id;
+}
+// @yo2 0x0073d340
+void duelViewFusingSet() { g_duelViewFusing = 1; }
+// @yo2 0x0073d360
+void duelViewFusingClear() { g_duelViewFusing = 0; }
+// @yo2 0x0073d380
+int32_t duelViewFusing() { return g_duelViewFusing; }
 
 static int32_t now() { return (int32_t)time(nullptr); }
 static int32_t s_lastWatchPing;   // DAT_01288eb8
@@ -275,7 +313,7 @@ void CNetDuel::sendDeck(const DuelDeckMsg* d) {
     finish(this);
     p = begin(this, 0x6603);
     ygPut32(p, d->extraCount);
-    for (uint32_t i = 0; i < d->extraCount && i < 40; i++) ygPut16(p, d->extra[i]);
+    for (uint32_t i = 0; i < d->extraCount && i < 31; i++) ygPut16(p, d->extra[i]);
     finish(this);
 }
 

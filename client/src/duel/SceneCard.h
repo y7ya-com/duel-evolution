@@ -68,6 +68,16 @@ public:
     void setZ(int32_t v) { z = v; }
     // @yo2 0x00758520
     void getCode(uint16_t* out) const { *out = code; }
+    // @yo2 0x00742e30 the counter badge pops
+    void popCounterBadge() { flash = 3; flashLevel = 0x200; }
+    // @yo2 0x00742e50 the lock badge pops
+    void popLockBadge() { flash = 4; flashLevel = 0x200; }
+    // @yo2 0x00742e70 a counter of `kind` pops, up (6) or down (7)
+    void popCounter(int32_t delta, int32_t kind) {
+        flashLevel = 0x200;
+        v54 = kind;
+        flash = (delta < 0) + 6;
+    }
 };
 YO2_AT(CCard, cardId, 0x10);
 YO2_AT(CCard, drawNow, 0x20);
@@ -119,15 +129,20 @@ extern PlaneLoader* g_cardListBig;       // DAT_012a6b7c: data/card/list_card.tx
 extern PlaneLoader* g_cardListMini;      // DAT_012a6b78: data/mini/list_card.txt
 // TODO(System) the card sheet metrics FUN_007540c0 fills: big card width, mini card width / height
 extern int32_t g_cardW;                  // DAT_012a6b84
-extern int32_t g_miniW;                  // DAT_012a6b88
-extern int32_t g_miniH;                  // DAT_012a6b8c
-extern int32_t g_sinTable[0x200];        // TODO(System) DAT_0126ca10: cos in 16.16, 0x200 steps per turn ([k - 0x80] = sin)
+extern int32_t g_miniW;                  // 0x012a6b88
+extern int32_t g_miniH;                  // 0x012a6b8c
+extern int32_t g_sinTable[0x200];  // 0x0126ca10 TODO(System) cos in 16.16, 0x200 steps per turn ([k - 0x80] = sin)
 extern uint32_t g_appTick;               // TODO(System) DAT_012711a4: the app's frame counter
 #endif
 
 void cardHoverMark();                    // FUN_007579c0
 CSpriteElmOlder* cardSprite(CCard* c);               // FUN_007582f0
 void cardPlaneDelete(CardPlane* p, uint8_t flags);   // FUN_00757ff0
+void cardPlaneDestruct(CardPlane* p);                 // FUN_00763240
+void cardPlaneSetCard(CardPlane* p, int32_t id);      // FUN_007632c0
+CSpriteElmOlder* cardPlaneHandMini(CardPlane* p, int32_t deg);         // FUN_007633b0
+CSpriteElmOlder* cardPlaneHandBig(CardPlane* p, int32_t deg);          // FUN_00763420
+CSpriteElmOlder* cardPlaneField(CardPlane* p, int32_t deg, int32_t v);   // FUN_00763470
 void numberDestruct(CNumber* n);                      // FUN_00758020
 void numberDelete(CNumber* n, uint8_t flags);
 // CNumber's constructor / destructor share duel/font/number.txt (inline in their owners)

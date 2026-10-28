@@ -18,7 +18,7 @@ cd run && RC_LENIENT=1 python3 -I ../../tools/memcap.py --mb 1500 ../build/yo2rc
 Environment: `YO2_GAME` (folder with merge.dat etc.; read-only, default `../game`: an APFS clone (`cp -cR`) of the Boxedwine copy, since a rebuilt binary reading inside ~/Library/Containers stalls on a macOS privacy prompt), `YO2_WRITE` (overlay
 for anything the game writes, default `./rc-overlay`), `RC_VERBOSE=1` (log files, threads, LoadLibrary),
 `RC_LENIENT=1` (an unwritten import logs once and returns 0 instead of stopping; exploration only).
-`RC_HEAP_MB=<n>` (cap the guest heap, e.g. 896 to behave like the wasm build; guest memory in use is logged every 3000 frames, `RC_MEM_SIZES=1` adds the live large blocks by size), `RC_FASTFORWARD=1` (test runs: virtual time. The main thread's frame-pacing Sleep waits until the other guest threads are idle, then jumps the clock instead of sleeping; only screenshot frames, or every `RC_FF_RENDER`-th, are drawn. A scripted MVP run takes ~80 s instead of ~12 min, with the same frame-numbered RC_INPUT script. Pair it with a test server started through `tools/run_fast.py`, which shrinks run.py's 0.25 s per-message send pause), `RC_TIMESCALE=N` (test runs: the game's clocks run N× faster and its sleeps/timeouts last 1/N; the game paces frames on its clock, so frames come N× faster with the same logic per frame and frame-numbered RC_INPUT scripts stay valid), `RC_SEED=<n>` (every CRT srand uses n: repeatable rand(), e.g. the lobby spawn point for RC_INPUT scripts), `YO2_TEXLOADERS` (texture loader threads, default 4; 128 = the original, each spinning Sleep(1): emit.py `IMM_HOOKS`).
+`RC_FASTFORWARD=1` (test runs: virtual time. The main thread's frame-pacing Sleep waits until the other guest threads are idle, then jumps the clock instead of sleeping; only screenshot frames, or every `RC_FF_RENDER`-th, are drawn. A scripted MVP run takes ~80 s instead of ~12 min, with the same frame-numbered RC_INPUT script. Pair it with a test server started through `tools/run_fast.py`, which shrinks run.py's 0.25 s per-message send pause), `RC_TIMESCALE=N` (test runs: the game's clocks run N× faster and its sleeps/timeouts last 1/N; the game paces frames on its clock, so frames come N× faster with the same logic per frame and frame-numbered RC_INPUT scripts stay valid), `RC_SEED=<n>` (every CRT srand uses n: repeatable rand(), e.g. the lobby spawn point for RC_INPUT scripts), `YO2_TEXLOADERS` (texture loader threads, default 4; 128 = the original, each spinning Sleep(1): emit.py `IMM_HOOKS`).
 
 Fast rebuilds: gen.py keeps a per-function cache (out/emitcache.pkl) keyed on the recompiler's code, the exe, the
 entry set and the flag-returners, plus the hooks.py entries on each function's own instructions: a warm full regen
@@ -45,7 +45,14 @@ node web/serve.mjs --manifest <game folder> > files.txt                      # f
   (COOP/COEP).
 - **Files**: `web/lazyfs.js` mounts each base URL's `files.txt` as lazy MEMFS files at `/game` (and `/fonts`). Reads are
   synchronous 1 MB HTTP Range requests through a 64 MB LRU, so k32io.c's POSIX calls work unchanged. Writes go to
-  MEMFS `/overlay` and are lost on reload.
+  MEMFS `/overlay` and are lost on reload. Background `fetch()`es keep those synchronous requests rare: merge.dat's
+  directory at start, the menus' and deck editor's small regions (~40 MB, pinned), the maps next to the current one
+  (the exe's map table) and the lobby avatars, read-ahead after a miss; every chunk goes into the Cache API and the
+  last session's working set is loaded from it before main runs. Per player it also learns, from the scene events (ovr/scene.c), which chunks each scene reads (its switch and the stay, up to 48) and which scene follows which; arriving in a scene pins what the next two likely scenes read, and boot fetches its own and the first scenes' sets in parallel. A player with nothing learned starts from defaults taken from a native MVP run (login -> lobby -> NPC duel -> lobby) over the same merge.dat. Requests carry `?v=<ETag>`: a server that answers
+  those with `Cache-Control: immutable` lets the browser serve even a synchronous miss from disk, and turns on a
+  low-priority trickle of the card art into that cache. `?prefetch=0` turns it all off. Tests: `node
+  web/lazyfs_test.mjs`; `node web/lazyfs_replay.mjs <RC_IOTRACE log> <merge.dat> off|on|on-http [state]` replays a
+  native run's reads through it with a modelled network and prints the synchronous stalls.
 - **Network**: WSOCK32 runs over platform/net's WebSocket gateway (`rt/web_wsock.c`, included by wsock.c, and
   `rt/web_net.cpp`). Every gateway call runs on the main thread, proxied from workers. WININET is a synchronous XHR to
   `YO2_HTTP` + path; that server needs CORS.
@@ -146,6 +153,18 @@ site compares it with its own return address, returning further while they diffe
 - CRT asm that pops its own return address;
 - C++ catch continuations, `__except` blocks and `longjmp` targets. These are recompiled as entries, and their
   eventual `ret` unwinds the dead host frames.
+
+## Browsers without JSPI (Safari, Firefox): the ASYNCIFY build
+
+`make web-async` links the same objects with `-sASYNCIFY` instead of `-sJSPI` into `build-web/yo2rc-async.{js,wasm}`,
+beside the JSPI build; `yo2rc.html` loads `yo2rc.js` when `WebAssembly.Suspending` exists, else `yo2rc-async.js`
+(`?async` forces it, for A/B in Chrome). Ship both. Only the functions in `web/async-only.txt` are instrumented (~50:
+the frames on the stack at real yields, recorded with `?yieldlog`; ASYNCIFY_ADVISE would mark all 79k, since every
+guest call goes through rc_icall's indirect call, and that 132 MB build doesn't even compile in V8). `web/yieldguard.js`
+checks every yield's stack against that list by function index (`web/wasmnames.py`) and skips a yield from any other
+stack (logged as "not in web/async-only.txt": add the name and relink). SDL's own sleep in SDL_GL_SwapWindow is off in
+that build (`SDL_EMSCRIPTEN_ASYNCIFY=0`, web/asyncguard.js), and its memory is 2 GB - 64 KB: Firefox's WebGL rejects a
+heap view of exactly 2 GB.
 
 ## Background audio settings
 

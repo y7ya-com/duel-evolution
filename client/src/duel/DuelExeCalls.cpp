@@ -10,6 +10,7 @@ template <class F> static F exe(uint32_t addr) { return reinterpret_cast<F>(addr
 void duelView(int view, uintptr_t a, uintptr_t b, uintptr_t c) {
     exe<void(__cdecl*)(int, uint32_t, uint32_t, uint32_t)>(0x0073dd80)(view, (uint32_t)a, (uint32_t)b, (uint32_t)c);
 }
+void yo2LoadCardText(int32_t language) { exe<void(__cdecl*)(int32_t)>(0x0073b640)(language); }
 int duelViewBusy(int view) { return exe<int(__cdecl*)(int)>(0x00743130)(view); }
 bool soundEnabled() { return exe<char(__cdecl*)()>(0x00a58630)() != 0; }
 void duelPlayBgm(int bgm, int loop, int fade) { exe<void(__cdecl*)(int, int, int)>(0x0073d4b0)(bgm, loop, fade); }

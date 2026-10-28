@@ -110,3 +110,10 @@ bool yaneReadFile(const char* name, void (*sink)(void*, const void*, uint32_t), 
     sink(user, f.GetMemory(), (uint32_t)f.GetSize());
     return true;
 }
+
+bool yaneFileExists(const char* name) { return CFile::PathFileExists(name); }
+
+void yaneSetFileLanguage(char letter, char fallback) {
+    CFile::m_szLanguage[0] = letter;
+    CFile::m_szLanguage[1] = fallback;
+}

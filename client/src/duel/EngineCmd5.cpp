@@ -55,6 +55,52 @@ void engCmdDraw() {
     }
 }
 
+// @yo2 0x00734250 the tag scenes' 0x55 (dispatcher FUN_0072ca70): engCmdDraw through engDrawTop, the move's start
+// code without the face bit
+void engTagCmdDraw() {
+    uint32_t j = cmdPlayer();
+    EngPlayer& p = g_eng.pl[j];
+    switch (g_eng.step) {
+    case 0:
+        if (!g_eng.cur.p1) {
+            g_eng.running = 0;
+            return;
+        }
+        if (!p.deckCount) {
+            g_eng.running = 0;
+            p.deckOut = 1;
+            return;
+        }
+        g_eng.step = 1;
+        if (g_eng.cur.p0 != 0xffff) duelView(0x3f, j, g_eng.cur.p1, g_eng.cur.p0);
+        return;
+    case 1: {
+        if (duelViewBusy(0x3f)) return;
+        if (!p.deckCount) {
+            p.deckOut = 1;
+            g_eng.running = 0;
+            return;
+        }
+        engWordCopy(&g_eng.tmpCard, &p.deck[0]);
+        engDrawTop(j);
+        uint32_t n = (p.handCount - 1) & 0xff;
+        uint32_t toFace = engFaceUpAt(j, Z_HAND, n) & 1;
+        if (g_eng.turnPlayer) engBgmTurn(j);
+        duelView(0x19, cardUid(g_eng.tmpCard), j | 0x1a, toFace << 14 | j | n << 6 | 0x16);
+        g_eng.step++;
+        return;
+    }
+    case 2:
+        if (--g_eng.cur.p1) {
+            g_eng.step = 1;
+            return;
+        }
+        if (g_eng.flags & 4) engSetPlayerFlag(j, 2, 1);
+        g_eng.running = 0;
+        return;
+    }
+}
+
 // @yo2 0x00712440 0x56 nothing
 void engCmd56() { g_eng.running = 0; }
 

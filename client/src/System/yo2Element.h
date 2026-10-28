@@ -8,6 +8,7 @@
 #include "yo2Task.h"
 
 class CZSort;
+class CD3DSpriteBase;
 
 class CElement : public CTask {
 public:
@@ -33,6 +34,7 @@ public:
     bool hidesChildren() const { return hideChildren_; }
     void setDrawMode(int32_t mode);
     void setQueue(CZSort* q);
+    void applyColor(CD3DSpriteBase* sprite) const;
     // @yo2 0x0060dbe0 CElement::worldTranslation (m_Matrix row 3)
     Vec3 worldTranslation() const { return world_.translationPart(); }
 

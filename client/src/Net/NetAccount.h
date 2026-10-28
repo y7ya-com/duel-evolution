@@ -15,6 +15,8 @@
 // (CLobbyPlayer = this + 4 bytes). Field names are only given where a message or YOLaucher says what they are.
 struct CPlayerInfo {
     CPlayerInfo();           // FUN_0063bfd0: the two avatars at their default, every field cleared
+    // @yo2 0x008580f0
+    CAvatarData& avatarOf(int world) { return avatar[world]; }
 
     uint32_t _vtbl;          // 0x000
     uint8_t valid;           // 0x004 set by PLAYERLIST
@@ -117,6 +119,8 @@ struct CMyUser {
     uint8_t _2046[2];
 
     CPlayerInfo* player(int slot);        // FUN_006a5bc0
+    // @yo2 0x00858120 the active slot's character (null past slot 3)
+    CPlayerInfo* activePlayer() { return activeSlot < 4 ? &players[activeSlot] : nullptr; }
     void clear();                         // FUN_0068e470 (vtable slot 1)
     void setUser(const char* s);          // FUN_00642120
     void setPassword(const char* s);      // FUN_006421a0
@@ -132,6 +136,16 @@ YO2_SIZEOF(CMyUser, 0x2048);
 
 // PBIN / NPCBIN holder at CNetAccount+0x3264 (FUN_00ad68a0 / FUN_00ad68d0 fill it)
 struct CPlayerBinData {
+    // @yo2 0x00858090 CPlayerBinData::CPlayerBinData (both tables zeroed)
+    // @yo2 0x008580d0 CPlayerBinData::~CPlayerBinData (the implicit one)
+    CPlayerBinData() : _vtbl(0), pbin(), npcBin(), _286() {}
+    // @yo2 0x00858030 the PBIN bytes
+    uint8_t* bytes() { return pbin; }
+    // @yo2 0x00858050
+    void setByte(int i, uint8_t v) { pbin[i] = v; }
+    // @yo2 0x00858070
+    uint8_t byte(int i) const { return pbin[i]; }
+
     uint32_t _vtbl;             // 0x000
     uint8_t pbin[0x81];         // 0x004
     uint8_t npcBin[0x201];      // 0x085

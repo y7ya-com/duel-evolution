@@ -78,3 +78,7 @@ YgTransport ygSocketTransport(int32_t) { return {}; }
 void ygSocketClose(int32_t) {}
 int32_t ygConnectAsync(const char*, uint16_t, YgConn*, uint32_t) { return -1; }
 int32_t ygSocketSelect(int32_t, uint32_t) { return -1; }
+
+// Net's gate seams (src/Net/NetUi.h; the game's are in src/Net/app): never connected here
+std::string appGateServer() { return "127.0.0.1"; }
+int32_t appGatePort() { return 0; }

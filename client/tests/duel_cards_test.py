@@ -125,6 +125,7 @@ def main():
         subprocess.check_call(["c++", "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                                "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", SRC, "-I", tmp,
                                os.path.join(HERE, "duel_cards_cli.cpp"), *FILES, os.path.join(SRC, "duel", "CardDB.cpp"),
+                               os.path.join(SRC, "Game", "yo2GameData.cpp"),
                                obj, "-o", exe])
         r = subprocess.run([exe, CARDS], capture_output=True, text=True)
     out = r.stdout.splitlines()

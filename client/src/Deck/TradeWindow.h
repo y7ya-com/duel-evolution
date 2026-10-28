@@ -91,13 +91,13 @@ void tradeRefreshKabanAll();             // FUN_00994630
 // UI hooks the window uses (TODO(System): CWindowTaskModel / sprite calls)
 CWindowTaskTradeCard* uiNewTradeCard(CWindowTaskTrade* w);   // FUN_0098f1c0: new task under the window
 void uiDeleteTask(void* task, int line);                     // FUN_006286b0 (yo2TradeWindow.cpp line)
-void uiRedraw(void* task);                                   // vtable +0x34
+void uiRedraw(void* task);                                   // 0x0098f660 CWindowTaskTradeCard; vtable +0x34
 void* uiCardSprite(CWindowTaskTradeCard* c, const std::string& path);  // FUN_0061f030: new CSpriteElm "picCard"
-void uiSpriteVisible(void* sprite, bool on);                 // CElement +0xc7
+void uiSpriteVisible(void* sprite, bool on);                 // inline in the exe (in 0x0098fda0); CElement +0xc7
 void uiReadyLamp(int which, bool on);                        // FUN_005d9520 + FUN_0060e170 + flag 2 at +0x20
 void uiKabanRefresh(bool on);                                // FUN_00981af0 + FUN_0091ffd0 (Deck part A)
 void uiKabanRefreshAll();                                    // FUN_00981af0 + FUN_009200a0
 void uiTradeLock(bool on);                                   // FUN_008f6d50 (the ready button)
-bool uiCursorOver(CWindowTaskTradeCard* c);                  // vtable +0x3c with the cursor position
+bool uiCursorOver(CWindowTaskTradeCard* c);  // 0x0098fe20 CWindowTaskTradeCard; vtable +0x3c with the cursor position
 void uiDetailView(int32_t card);                             // FUN_00994850: detail window card, +0x440 = -1
 std::string cardImageName(int32_t card);                     // FUN_0098fc20: the card list's file name table

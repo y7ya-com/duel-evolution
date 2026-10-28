@@ -15,6 +15,7 @@ CPlayerInfo::CPlayerInfo() {
     playerReset(this);
 }
 
+// @yo2 0x006abb70 CPlayerInfo::clear (also inlined in FUN_0068f520 / FUN_0068e470 / FUN_006ab5e0)
 void playerReset(CPlayerInfo* p) {
     p->valid = 0;
     memset(p->_005 + 3, 0, 4);                       // +0x08

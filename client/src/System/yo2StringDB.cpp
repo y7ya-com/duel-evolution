@@ -4,6 +4,7 @@
 
 #include "yo2Debug.h"
 #include "yo2File.h"
+#include "yo2Widen.h"
 
 // @yo2 0x0061f960 static init: g_stringDB = new CStringDB
 // @yo2 0x0061fa30 static init: atexit
@@ -19,6 +20,9 @@ vc6::string CStringDB::get(uint32_t index) const {
     std::memcpy(&off, idx_.data() + index * 4, 4);
     return vc6::string(reinterpret_cast<const char*>(bin_.data() + off));
 }
+
+// @yo2 0x0061fb80 CStringDB::getW: widened to the UI code page
+std::u16string CStringDB::getW(uint32_t index) const { return yo2Widen(std::string_view(get(index))); }
 
 // @yo2 0x0061fe50 CStringDB::load
 bool CStringDB::load() {

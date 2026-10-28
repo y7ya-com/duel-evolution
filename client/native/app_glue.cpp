@@ -29,6 +29,7 @@ bool yo2LoadFile(const char* name, std::vector<uint8_t>& out) {
 
 #include "Game/Avatar/yo2ChibiAvatarElm.h"
 #include "System/yo2App.h"
+#include "System/yo2SystemConfig.h"
 #include "platform.h"
 
 void yo2AppInitialize(void* instance, void* prev, const char* cmdLine, int show) { yaneInit(instance, prev, cmdLine, show); }
@@ -110,11 +111,18 @@ int32_t yo2ResourceLanguage() {
     }
 }
 
-// 0x0069f820: GetDiskFreeSpaceEx on the current drive >= bytes
-bool yo2DiskSpaceAtLeast(uint64_t bytes) {
+// Net's GetDiskFreeSpaceExA(NULL) (src/Net/NetDownload.h); yo2DiskSpaceAtLeast 0x0069f820 itself is Net's
+// (src/Net/app/NetAppGlue.cpp). ponytail: an unknown size reports plenty, so it never blocks the start.
+bool ygDiskFreeBytes(uint64_t* avail) {
     struct statvfs v;
-    return statvfs(".", &v) != 0 || (uint64_t)v.f_bavail * v.f_frsize >= bytes;   // unknown: don't block the start
+    *avail = statvfs(".", &v) != 0 ? UINT64_MAX : (uint64_t)v.f_bavail * v.f_frsize;
+    return true;
 }
+
+// src/System/yo2SystemConfig.h: yaneSDK's CFile and the CRT
+bool yo2FileExists(const char* name) { return yaneFileExists(name); }          // 0x00528640 CFile::PathFileExists
+void yo2MakeDirectory(const char* path) { mkdir(path, 0755); }                  // 0x00b0c5f5 _mkdir
+void yo2SetFileLanguage(char letter, char fallback) { yaneSetFileLanguage(letter, fallback); }   // DAT_00c7f1d0/1
 
 // 0x009c9730 is CChibiAvatarElm::loadMotions (src/Game)
 void yo2GameTablesInit() { CChibiAvatarElm::loadMotions(); }

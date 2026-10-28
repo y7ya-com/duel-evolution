@@ -16,7 +16,7 @@ bool cardPackCards(uint32_t pack, std::vector<uint16_t>* cards, int32_t* pbinBas
 
 // FUN_0056b060 push_back on the "just got" lists at *(DAT_012bb6b0 + 0x470) (PBIN bits) / + 0x480 (cards).
 enum NewItemList { NEW_ITEM_FLAGS = 0x470, NEW_ITEM_CARDS = 0x480 };
-void newItemListAdd(NewItemList list, uint16_t id);
+void newItemListAdd(NewItemList list, uint16_t id);   // 0x0056b060
 
 // The NPC info list, a vector of 0x44-byte records at *(DAT_012bc8d0) + 0xd0 (YOLaucher mundo/npc.py npc_entry).
 struct NpcInfo {

@@ -379,3 +379,93 @@ def attr(e, f, seed):
             out.append((f(j, s, p), e.read(p, 4)))
             out.append(f(j, s, 0))
     return out
+
+
+# ---- the duel's deck messages (DAT_012bdf40, two 0x108 records; the saved copy DAT_012bdd80, its flag DAT_0128d02c)
+DECKS, SAVED, IS_SAVED = 0x012BDF40, 0x012BDD80, 0x0128D02C
+
+
+def _decks(e, seed):
+    rnd = random.Random(seed)
+    e.write(DECKS, bytes(rnd.randrange(256) for _ in range(0x210)))
+    e.write(SAVED, bytes(rnd.randrange(256) for _ in range(0x108)))
+    e.w32(IS_SAVED, seed & 1)
+
+
+@case(0x73A090, params=[0, 1, 2, 3])
+def default_deck(e, f, seed):
+    _decks(e, seed)
+    f(seed & 1)
+    return e.read(DECKS, 0x210)
+
+
+for _addr in (0x739FF0, 0x73A030, 0x73A070):   # save / restore / forget
+    @case(_addr, params=[0, 1, 2, 3])
+    def deck_save(e, f, seed):
+        _decks(e, seed)
+        f()
+        return e.read(DECKS, 0x108), e.read(SAVED, 0x108), e.read(IS_SAVED, 4)
+
+
+for _addr in (0x73D340, 0x73D360, 0x73D380):   # DUEL_VIEW's fusion flag DAT_012a59d8
+    @case(_addr, params=[0, 1, 7])
+    def fusing(e, f, v, _get=_addr == 0x73D380):   # set / clear leave EAX as it was: only the getter's counts
+        e.w32(0x012A59D8, v)
+        r = f()
+        return e.read(0x012A59D8, 4), r if _get else None
+
+
+# ---- CCard's badge / counter pops (thiscall on the 0x80 card)
+for _addr in (0x742E30, 0x742E50):
+    @case(_addr, conv="thiscall", params=[0, 1])
+    def card_badge(e, f, seed):
+        c = e.alloc(bytes((i + seed) & 0xFF for i in range(0x80)))
+        f(c)
+        return e.read(c, 0x80)
+
+
+@case(0x742E70, conv="thiscall", params=[(0, 0), (-1, 3), (5, 0x10)])
+def card_counter_pop(e, f, p):
+    c = e.alloc(bytes(range(0x80)))
+    f(c, p[0] & 0xFFFFFFFF, p[1])
+    return e.read(c, 0x80)
+
+
+# ---- the tag scenes' draw: DUEL_VIEW (0x73dd80) and its busy check (0x743130) stubbed and logged
+ENG_CUR, ENG_STEP, ENG_RUNNING, ENG_FLAGS, ENG_TURN = 0x012C78A0, 0x012C80B0, 0x012C80AC, 0x012CA498, 0x012CC2D0
+
+
+@case(0x734250, params=list(range(8)))
+def tag_draw(e, f, seed):
+    board(e, seed)
+    views = []
+    e.on_addr(0x73DD80, lambda e, *a: views.append(a) or 1, 4)
+    e.on_addr(0x743130, lambda e, k: 0, 1)
+    j, n = seed & 1, (0, 1, 2, 5)[seed >> 1 & 3]
+    e.w32(ENG_CUR, (j << 15) | (0xFFFF if seed & 4 else 0x0123) << 16)
+    e.w32(ENG_CUR + 4, n)
+    e.w32(ENG_STEP, 0)
+    e.w32(ENG_RUNNING, 1)
+    e.w32(ENG_FLAGS, 4 if seed & 2 else 0)
+    e.w32(ENG_TURN, 0)
+    for _ in range(16):
+        f()
+        if not struct.unpack("<I", e.read(ENG_RUNNING, 4))[0]:
+            break
+    return views
+
+
+# ---- CCardPlane (0xc: vtbl, CCardLoader vtbl, sheet index); the card lists' refcount DAT_012a6b74
+@case(0x7632C0, conv="thiscall", params=[0, 5, 0x1234])
+def card_plane_set(e, f, id):
+    p = e.alloc(struct.pack("<3I", 1, 2, 5))
+    f(p, id)
+    return e.read(p, 0xC)
+
+
+@case(0x763240, conv="thiscall", params=[2, 7])
+def card_plane_dtor(e, f, refs):   # refs stay above 0: the lists are not freed
+    e.w32(0x012A6B74, refs)
+    p = e.alloc(struct.pack("<3I", 1, 2, 3))
+    f(p)
+    return e.read(p, 0xC), e.read(0x012A6B74, 4)

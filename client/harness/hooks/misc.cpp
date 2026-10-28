@@ -64,3 +64,14 @@ YO2_HOOK void __thiscall yo2_904dc0(CDeckRuleCheck* r, uint16_t id) { r->addMain
 YO2_HOOK void __thiscall yo2_904df0(CDeckRuleCheck* r, uint16_t id) { r->addSide(id); }
 YO2_HOOK void __thiscall yo2_904e20(CDeckRuleCheck* r, uint16_t id) { r->addExtra(id); }
 YO2_HOOK bool __thiscall yo2_904e50(CDeckRuleCheck* r) { return r->valid(); }
+
+
+// src/ChangeAvatar: the small members defined in yo2ChangeAvatar.h (inline, so nothing else of the folder is linked).
+#include "ChangeAvatar/yo2ChangeAvatar.h"
+YO2_HOOK bool __thiscall yo2_8a8c80(CWindowDialogAvatarSwitch* w) { return w->CWindowDialogAvatarSwitch::onMain(); }
+YO2_HOOK void __thiscall yo2_8b07a0(CWindowDialogAvatarSwitch* w, const CAvatarData* a) { w->setAvatar(*a); }
+YO2_HOOK void __thiscall yo2_8b2c20(const CChangeAvatarPack* p, int32_t world, CAvatarData* out) {
+    p->avatar(world, out);
+}
+// `this` (the pack) is not read
+YO2_HOOK void __thiscall yo2_8b2af0(CChangeAvatarPack*, CAvatarData* a) { CChangeAvatarPack::randomize(a); }

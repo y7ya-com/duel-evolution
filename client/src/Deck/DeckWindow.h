@@ -69,18 +69,18 @@ CTextElm* textCreate(void* parent, int32_t prio);                          // TO
 void textSetText(CTextElm* t, const VcWString& s);                        // TODO(System) FUN_00634850
 void elemSetBlend(void* e, int32_t mode);                                  // TODO(System) FUN_0060dc20 (2 = alpha)
 void elemAbsPos(const void* e, float* x, float* y);                        // TODO(System) FUN_0060dbe0 screen position
-void mediatorCall(void* mediator, int slot, void* colleague);             // TODO(System) IWindowTaskMediator vtable call
-void mousePos(int32_t* x, int32_t* y);                                     // TODO(System) (*(app+0x148))->vf01
-int32_t mouseWheel();                                                       // TODO(System) (*(app+0x148))->vf22
-void mouseSetDragOffset(int32_t x, int32_t y);                             // TODO(System) (*(app+0x148))->vf07
-int32_t sceneId();                                                          // TODO(System) *(DAT_01271790+0x7c)
+void mediatorCall(void* mediator, int slot, void* colleague);  // inline (in 0x00946290) TODO(System) vtbl[slot] call
+void mousePos(int32_t* x, int32_t* y);  // 0x00542590 CMyMouseEx; TODO(System) (*(app+0x148))->vf01
+int32_t mouseWheel();  // 0x00607780 CMyMouseEx; TODO(System) (*(app+0x148))->vf22
+void mouseSetDragOffset(int32_t x, int32_t y);  // 0x005425f0 CMyMouseEx; TODO(System) (*(app+0x148))->vf07
+int32_t sceneId();  // inline in the exe (in 0x00947ae0); TODO(System) *(DAT_01271790+0x7c)
 void soundPlay(uint32_t id, int32_t vol);                                  // TODO(System) FUN_00686560
 uint32_t cardKonamiId(uint32_t card);                                      // TODO(System) FUN_0073bc50 (card table & 0x3fff)
 int32_t cardLimit(uint32_t konamiId);                                      // TODO(System) FUN_00716c10 (0/1/2 list, 3 free)
 int32_t cardFrame(uint32_t konamiId);                                      // TODO(System) FUN_0073c010 (2/3 = fusion)
 void scrollSetRange(void* scroll, int32_t lines);                          // TODO(System) FUN_005ad4e0 CWindowTaskScroll
-float scrollLineToPixel(void* scroll, int32_t line);                       // TODO(System) CWindowTaskScroll vf21
-float scrollPixelRange(void* scroll);                                      // TODO(System) CWindowTaskScroll vf19
+float scrollLineToPixel(void* scroll, int32_t line);  // 0x005ad5a0 (+0x54); TODO(System) CWindowTaskScroll vf21
+float scrollPixelRange(void* scroll);  // 0x005acc60 (+0x4c); TODO(System) CWindowTaskScroll vf19
 void scrollEnable(void* scroll, bool on);                                  // TODO(System) FUN_005acbf0 / FUN_005acc30
 void deckDragStartScene(int32_t sceneId);                                  // TODO(Deck B) FUN_008d7ce0+FUN_008d7e30 / FUN_008cf420
 void cardPicName(VcString* out, uint32_t card);                            // TODO(Deck A) FUN_00922010 util

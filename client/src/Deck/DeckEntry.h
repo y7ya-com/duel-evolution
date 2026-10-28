@@ -50,19 +50,22 @@ DeckPart deckDropTarget(const DropZones& z, bool extraView, int32_t x, int32_t y
 // ---------------------------------------------------------------- System / app externs only deckEntry uses
 // CDeckObject vtable (the edited deck, CDeckScene+0x84; the trunk at +0x80 is one too). Counts are u8 in the exe.
 // The string slots (vf 0x00 setFile, vf 0x04 setFolder, vf 0xd0 save, vf 0xd4 load) are in DeckEntryMain.h.
-uint8_t deckObjCount(CDeckObject* d, DeckPart part);        // TODO(System) vf 0x38 / 0x3c / 0x40 / 0x44
-const uint16_t* deckObjCards(CDeckObject* d, DeckPart part);   // TODO(System) vf 0x6c / 0x80 / 0x94 / 0xa8
-bool deckObjAdd(CDeckObject* d, DeckPart part, uint32_t card, CDeckObject* trunk);   // TODO(System) vf 0x08/0x0c/0x10
-bool deckObjRemove(CDeckObject* d, DeckPart part, uint32_t card);   // TODO(System) vf 0x28 / 0x2c / 0x30
-void deckObjClear(CDeckObject* d);                          // TODO(System) vf 0xcc: empty the missing-cards list
+// In the exe the object is a CDeckManager (vtable 0x00bef2b4; the trunk is a CKabanManager). Per-part slots:
+// count 0x009065f0/0x00906610/0x00906630/0x00906650, cards 0x00906790/0x009068a0/0x009069b0/0x00906ac0,
+// add 0x00907350/0x00907430/0x00907510, remove 0x00907970/0x00907a30/0x00907af0.
+uint8_t deckObjCount(CDeckObject* d, DeckPart part);        // 0x009065f0 TODO(System) vf 0x38 / 0x3c / 0x40 / 0x44
+const uint16_t* deckObjCards(CDeckObject* d, DeckPart part);   // 0x00906790 TODO(System) vf 0x6c / 0x80 / 0x94 / 0xa8
+bool deckObjAdd(CDeckObject* d, DeckPart part, uint32_t card, CDeckObject* trunk);  // 0x00907350 TODO(System) vf+8/c/10
+bool deckObjRemove(CDeckObject* d, DeckPart part, uint32_t card);   // 0x00907970 TODO(System) vf 0x28 / 0x2c / 0x30
+void deckObjClear(CDeckObject* d);  // 0x00906d90 CDeckManager; TODO(System) vf 0xcc: empty the missing-cards list
 void deckObjPrepare(CDeckObject* trunk);                    // TODO(System) FUN_00815350 (before reading the trunk)
 // The trunk's per-card record: 3 bytes per card id from offset 9 (count first), read inline by the init.
 inline uint8_t trunkCount(const CDeckObject* trunk, uint32_t card) {
     return reinterpret_cast<const uint8_t*>(trunk)[(card + 3) * 3];
 }
-int32_t trunkTotal(const CDeckObject* trunk);               // TODO(System) trunk +0x4: shown by the trunk window
-CDeckObject* appTrunk();                                    // TODO(System) DAT_012714b4: the player's trunk deck
-CDeckObject* appEditDeck();                                 // TODO(System) DAT_012b28c4: the deck being edited
+int32_t trunkTotal(const CDeckObject* trunk);  // inline in the exe (in 0x008da960) TODO(System) trunk +0x4: the total
+CDeckObject* appTrunk();  // inline in the exe (in 0x008da960); TODO(System) DAT_012714b4: the player's trunk deck
+CDeckObject* appEditDeck();  // inline in the exe (in 0x008da960); TODO(System) DAT_012b28c4: the deck being edited
 VcString settingsLastDeck();                                // TODO(System) FUN_00814f40()->FUN_00815110: last deck file
 
 // The scene machinery
@@ -77,29 +80,29 @@ void sceneSetButtonsEnabled(bool on);                       // TODO(System) FUN_
 // TODO(System) the menu-bar calls at the end of the init (DAT_012bb6b0: FUN_00a564e0/FUN_00a564b0/FUN_00a565d0/
 // FUN_00a56630 objects): tick the top menu, show the bar in deck mode, and for scene 0xc / 8 set its buttons
 void sceneMenuForDeck(uint8_t sceneId);
-uint8_t appSceneId();                                       // TODO(System) *(*(DAT_012711ac+0xc6c)+0x9ed)
+uint8_t appSceneId();  // inline in the exe (in 0x008da960); TODO(System) *(*(DAT_012711ac+0xc6c)+0x9ed)
 void sceneFadeIn(int32_t a, int32_t b);                     // TODO(System) FUN_0061ca80(a, b)->FUN_007dcc20 (10, 0xee4c)
 void packsRefresh();                                        // TODO(System) FUN_00983e20 (the pack catalogue)
 void elemDestroyTree(void* root);                           // TODO(System) FUN_0063d280 + CTask::destroy
 // dialogs (CWindowModelDialogOk / YesNo, System): result 4000 = OK / yes, 0xfa1 = no / cancel
-int32_t dialogResult(void* dlg);                            // TODO(System) vf 0x60
+int32_t dialogResult(void* dlg);                            // 0x005e65f0 TODO(System) vf 0x60
 void dialogClose(void* dlg);                                // TODO(System) FUN_005df6d0
 void dialogOpen(void* dlg);                                 // TODO(System) FUN_005df430
-void dialogSetText(void* dlg, const uint16_t* text);        // TODO(System) vf 0x30
-void dialogLayout(void* dlg);                               // TODO(System) vf 0x38
-const VcWString& uiText(int32_t id);                        // TODO(System) (*DAT_01271840)->vf1(id)
-bool keyEnterPressed();                                     // TODO(System) (app+0x148)->vf 0x48
+void dialogSetText(void* dlg, const uint16_t* text);        // 0x005e64e0 TODO(System) vf 0x30
+void dialogLayout(void* dlg);                               // 0x005df4f0 TODO(System) vf 0x38
+const VcWString& uiText(int32_t id);                        // 0x0061fb80 TODO(System) (*DAT_01271840)->vf1(id)
+bool keyEnterPressed();                                     // 0x00607720 CMyMouseEx; TODO(System) (app+0x148)->vf 0x48
 
 // ---- also declared (same signatures) by DeckParts.h, which deckEntry doesn't include
-void elemSetScaleX(void* e, float sx);                      // TODO(System) CElement +0x88
-void elemSetScaleY(void* e, float sy);                      // TODO(System) CElement +0x8c
+void elemSetScaleX(void* e, float sx);  // inline in the exe (in 0x008da960); TODO(System) CElement +0x88
+void elemSetScaleY(void* e, float sy);  // inline in the exe (in 0x008da960); TODO(System) CElement +0x8c
 void elemSetListener(void* e, void* mediator);              // TODO(System) FUN_005ddd70: clicks on e go to mediator
 CSwfEngine* swfCreate(void* parent, int32_t prio, const VcString& path, int32_t flag);   // TODO(System) FUN_0066d7a0
 // ---- the rest of what CDeckScene's own functions call
 void sorterDestroy(void* obj);                              // TODO(Deck A) FUN_009215d0 util (the object at +0x1c0)
 void sceneTaskDestruct(void* scene);                        // TODO(System) FUN_00629530 the CSceneTask/CTask base
-void dialogSetSize(void* dlg, float w, float h);            // TODO(System) +0x388 / +0x38c, then vf 0x24
-void dialogSetTextScale(void* dlg, float s);                // TODO(System) (*(dlg+0x398))->vf 0x24(s)
+void dialogSetSize(void* dlg, float w, float h);  // inline in the exe (in 0x008e9d40) TODO(System) +0x388/c, vf 0x24
+void dialogSetTextScale(void* dlg, float s);  // 0x00595010 TODO(System) (*(dlg+0x398))->vf 0x24(s), its frame
 void dialogSetColor(void* dlg, float r, float g, float b, float a);   // TODO(System) FUN_005e5630
 
 // A field of an object the exe reads inline at a fixed offset.

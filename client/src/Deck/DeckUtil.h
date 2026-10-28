@@ -60,26 +60,26 @@ void ctlBaseInit(void* ctl);                             // TODO(System) FUN_005
 void ctlBaseDestroy(void* ctl);                          // TODO(System) FUN_005de7e0 CWindowTaskControll dtor
 bool modelIsTop(void* model);                            // TODO(System) FUN_005df450 the topmost model?
 void modelOnClose(void* model);                          // TODO(System) FUN_005df430 (FUN_005e2140(model, 0)): on a colleague event
-void ctlSetAlpha(void* ctl, float a);                    // TODO(System) CWindowTaskControll vf 9 (0x24)
-void ctlLayout(void* ctl);                               // TODO(System) CWindowTaskControll vf 13 (0x34)
+void ctlSetAlpha(void* ctl, float a);  // 0x00595010 TODO(System) CWindowTaskControll vf 9 (0x24); Listbox 0x005b26f0
+void ctlLayout(void* ctl);  // 0x005c1250 (FramePlane; Input 0x005c34d0); TODO(System) CWindowTaskControll vf 13 (0x34)
 void focusSet(void* colleague);                          // TODO(System) FUN_005e2cb0 the focus group's setFocus
 // CWindowTaskListbox (yo2WindowTaskListbox.cpp)
 void listboxAdd(CWindowTaskListbox* lb, const uint16_t* text);   // TODO(System) FUN_005b3ca0 add a row
 void listboxRemove(CWindowTaskListbox* lb, int32_t row);         // TODO(System) FUN_005b3f40
 void listboxClear(CWindowTaskListbox* lb);                       // TODO(System) FUN_005b40d0
-void listboxRefresh(CWindowTaskListbox* lb);                     // TODO(System) CWindowTaskListbox vf 0x5c
-void listboxSetEnabled(CWindowTaskListbox* lb, bool on);         // TODO(System) CWindowTaskListbox vf 0x58
-int32_t listboxCount(CWindowTaskListbox* lb);                    // TODO(System) CWindowTaskListbox vf 0x64
-int32_t listboxMode(CWindowTaskListbox* lb);                     // TODO(System) CWindowTaskListbox +0x3fc
-int32_t listboxCursor(CWindowTaskListbox* lb);                   // TODO(System) CWindowTaskListbox +0x3c0
-int32_t listboxScrollTop(CWindowTaskListbox* lb);  // TODO(System) +0x37c CWindowTaskScroll's +0x478 (first row)
+void listboxRefresh(CWindowTaskListbox* lb);                     // 0x005b2820 TODO(System) CWindowTaskListbox vf 0x5c
+void listboxSetEnabled(CWindowTaskListbox* lb, bool on);         // 0x005b2680 TODO(System) CWindowTaskListbox vf 0x58
+int32_t listboxCount(CWindowTaskListbox* lb);                    // 0x005b2840 TODO(System) CWindowTaskListbox vf 0x64
+int32_t listboxMode(CWindowTaskListbox* lb);  // inline in the exe (in 0x00933380) TODO(System) listbox +0x3fc
+int32_t listboxCursor(CWindowTaskListbox* lb);  // inline in the exe (in 0x00933380) TODO(System) listbox +0x3c0
+int32_t listboxScrollTop(CWindowTaskListbox* lb);  // inline in the exe (in 0x00933110) TODO(System) +0x37c's +0x478
 void textSetAlign(CWindowTaskText* t, int32_t v);                // TODO(System) FUN_005af8a0 (CTextElm +0x74c)
 void textSetLineHeight(CWindowTaskText* t, int32_t v);           // TODO(System) FUN_005af600
 void textSetFontSize(CWindowTaskText* t, int32_t v);             // TODO(System) FUN_005af590
 void textSetPos(CWindowTaskText* t, float x, float y);           // TODO(System) FUN_005baeb0 (+0x374/+0x378, z = +0x37c)
 void textSetArea(CWindowTaskText* t, int32_t w, int32_t h);      // TODO(System) FUN_005af690
 void textSetColor(CWindowTaskText* t, float r, float g, float b, float a);   // TODO(System) FUN_005af650
-void ctlSetText(void* ctl, const uint16_t* s);                   // TODO(System) vf 0x44 (CWindowTaskText / TextSwitch)
+void ctlSetText(void* ctl, const uint16_t* s);  // 0x005af000 TODO(System) vf 0x44 (Text; TextSwitch 0x005ba170)
 void ctlHide(void* ctl);                                         // TODO(System) FUN_005d5700 show(0) + TF_NOHIT
 void ctlShow(void* ctl);                                         // TODO(System) FUN_005d56d0 clear TF_NOHIT + show(1)
 // child widgets (System): create(parent, mediator[, style])
@@ -95,13 +95,13 @@ void listboxSetSize(CWindowTaskListbox* lb, float w, float rowH);   // TODO(Syst
 void switchSetPos(CWindowTaskTextSwitch* s, float x, float y);   // TODO(System) FUN_005e99d0
 void switchSetSize(CWindowTaskTextSwitch* s, float w, float h);  // TODO(System) FUN_005e9a00
 void switchSetFontSize(CWindowTaskTextSwitch* s, int32_t v);     // TODO(System) FUN_005e9a30 on its +0x5a4 shadow text
-VcWString msgText(int32_t id);                                   // TODO(System) DAT_01271840 vf 1: the message table
+VcWString msgText(int32_t id);  // 0x0061fb80 TODO(System) DAT_01271840 vf 1: the message table
 // TODO(System) FUN_005ff910 + FUN_005df480: give the model a key handler (a member callback to FUN_005e0620 on obj)
 void modelSetKeyHandler(void* model, void* obj);
-void textFieldSetText(CWindowTaskTextField* f, const uint16_t* s);   // TODO(System) CWindowTaskTextField vf 0x44
+void textFieldSetText(CWindowTaskTextField* f, const uint16_t* s);   // 0x005b0420 TODO(System) TextField vf 0x44
 // the mediator interface the models notify (IWindowTaskMediator vf 0 at mediator->vtbl[0])
-void mediatorNotify(void* mediator, void* sender, int32_t what, int32_t arg);   // TODO(System) slot 0
-void mediatorSelect(void* mediator, void* colleague);                         // TODO(System) slot 0 (1 arg)
+void mediatorNotify(void* mediator, void* sender, int32_t what, int32_t arg);   // 0x005ff8a0 TODO(System) slot 0
+void mediatorSelect(void* mediator, void* colleague);  // 0x00933380 CWindowModelFileList; TODO(System) slot 0 (1 arg)
 // the card database (yo2CardDB.cpp)
 uint32_t cardInternalId(int32_t index);                  // TODO(System) FUN_0073bc50 table[i].word & 0x3fff
 uint32_t cardFrameType(uint32_t id);                     // TODO(System) FUN_0073c010 (card_prop word >> 1) & 0x1f
@@ -112,8 +112,8 @@ void dirForEach(const char* pattern, void (*fn)(void* ctx, const char* name), vo
 const char* deckDir();                                   // TODO(System) FUN_00618600 the app's deck folder
 bool fileStat(const char* path);                         // TODO(System) FUN_00b0bdc8 _stat() != -1
 // the pack catalogue (DAT_012b28c4 is the file manager; the catalogue is passed in)
-void fileMgrSetDir(const char* dir);                     // TODO(System) DAT_012b28c4 vf 1
-bool fileMgrExists(const VcString& name);                // TODO(System) DAT_012b28c4 vf 0xd8
+void fileMgrSetDir(const char* dir);                     // 0x00906440 CDeckManager; TODO(System) DAT_012b28c4 vf 1
+bool fileMgrExists(const VcString& name);                // 0x00906fb0 CDeckManager; TODO(System) DAT_012b28c4 vf 0xd8
 // CDeckCardPicture (CWindowTaskBase.cpp, System): the per-card thumbnail record
 struct CDeckCardPicture;
 void cardPictureLoad(CDeckCardPicture* p, void* parent, int32_t prio);   // TODO(System) FUN_00921e60
@@ -379,19 +379,19 @@ VcString skinPath(const char* file);   // TODO(System) FUN_005a2510(DAT_0126fa8c
 CWindowTaskFrameBottomThick* frameThickCreate(void* parent, void* mediator, int32_t style);
 // TODO(System) inline in the exe: +0x410/+0x414 = (x, y) (copied to +0x70/+0x74), +0x418/+0x41c = size, relayout
 // (vf 13), then +0x420 = the bottom band's height, relayout again
-void frameThickPlace(CWindowTaskFrameBottomThick* f, float x, float y, float w, float h, float bottom);
+void frameThickPlace(CWindowTaskFrameBottomThick* f, float x, float y, float w, float h, float bottom); // in 0x009299f0
 // TODO(System) inline: +0x3ac/+0x3b0 = (x, y) (float copies at +0x70/+0x74), +0x3b8 = h, +0x3b4 = w (when it
 // changes, FUN_005b4d80 re-measures the rows), relayout (vf 13)
 void listboxPlace(CWindowTaskListbox* lb, int32_t x, int32_t y, int32_t w, int32_t h);
-void listboxSetZ(CWindowTaskListbox* lb, float z);                 // TODO(System) inline: +0x3bc and +0x78
+void listboxSetZ(CWindowTaskListbox* lb, float z);  // inline in the exe (in 0x009299f0) TODO(System) +0x3bc and +0x78
 void listboxSetTextAlign(CWindowTaskListbox* lb, int32_t v);        // TODO(System) FUN_005af8a0 on its +0x384 text
 // TODO(System) inline +0x3f8 = on, then FUN_005af870(on) on its +0x384 text (CTextElm +0x51c)
 void listboxSetMarks(CWindowTaskListbox* lb, bool on);
-void frameSetZ(CWindowTaskFrameBottomThick* f, float z);           // TODO(System) inline: +0x34c and +0x78
+void frameSetZ(CWindowTaskFrameBottomThick* f, float z);  // inline in the exe (in 0x009299f0) TODO(System) +0x34c/+0x78
 CWindowTaskTextField* textFieldCreate(void* parent, void* mediator);   // TODO(System) FUN_005b01a0
 void ctlSetColor(void* ctl, float r, float g, float b, float a);   // TODO(System) FUN_005e5630
-void ctlSetMediator(void* ctl, void* mediator);   // TODO(System) the colleague (+0x340) vtable slot 0: who it tells
-void textSetFont(CWindowTaskText* t, const void* font);   // TODO(System) vf 0x4c (DAT_00d4509c, the default font)
+void ctlSetMediator(void* ctl, void* mediator);   // 0x00594ff0 TODO(System) the colleague (+0x340) slot 0: who it tells
+void textSetFont(CWindowTaskText* t, const void* font);   // 0x005af350 TODO(System) vf 0x4c (DAT_00d4509c: default)
 void textResetClip(CWindowTaskText* t);           // TODO(System) FUN_005af930(0): +0x430 = its own +0x434 buffer
 int32_t textWidth(CWindowTaskText* t);            // TODO(System) FUN_005af6e0 the drawn width in pixels
 // TODO(System) FUN_00801db0 CWindowTaskTextSwitch's rect {x, y, w, h} (+0x3d4..+0x3e0)

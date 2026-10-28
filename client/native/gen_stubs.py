@@ -22,7 +22,8 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 BUILD = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
 OUT = os.path.join(BUILD, "native", "stubs")
-ADDR_RE = re.compile(r"(?:FUN_|0x)(00[0-9a-fA-F]{6})\b")
+# code (FUN_ / 0x) or a data global (DAT_ / 0x) in the exe's image, 0x00400000..0x01ffffff
+ADDR_RE = re.compile(r"(?:FUN_|DAT_|0x)(0(?:0[4-9a-fA-F]|1[0-9a-fA-F])[0-9a-fA-F]{5})\b")
 
 
 def sh(cmd, **kw):
@@ -102,13 +103,13 @@ def owner(addr):
     for lo, hi, o in RANGES:
         if lo <= a <= hi:
             return o
-    return "yaneSDK" if a < 0x580000 else "crt" if a >= 0xb00000 else "-"
+    return "yaneSDK" if a < 0x580000 else "data" if a >= 0xbe0000 else "crt" if a >= 0xb00000 else "-"
 
 
 def findAddr(ident, sources):
     """The exe address noted at the declaration of `ident` in the given files: on the declaration's line, or in the
     comment lines right above it. Only declaration-like lines count (type tokens before the name), not calls."""
-    pat = re.compile(r"^\s*(?:(?:[\w:<>,*&]+|const|virtual|static|inline|extern)\s+)*[*&]*\s*(?:\w+::)*~?"
+    pat = re.compile(r"^\s*(?:\[\[\w+\]\]\s*)*(?:(?:[\w:<>,*&]+|const|virtual|static|inline|extern)\s+)*[*&]*\s*(?:\w+::)*~?"
                      + re.escape(ident) + r"\s*[\(\[;{=]")
     for p in sources:
         lines = text(p)
@@ -116,10 +117,14 @@ def findAddr(ident, sources):
             if not pat.match(line) or "@yo2 " in line or "return " in line:
                 continue
             m = ADDR_RE.search(line.split("//", 1)[1]) if "//" in line else None
-            j = i - 1
-            while not m and j >= 0 and i - j <= 3 and lines[j].lstrip().startswith("//"):
-                m = ADDR_RE.search(lines[j])
-                j -= 1
+            if not m:   # the comment block right above: its first address (later ones are usually callees)
+                j = i
+                while j > 0 and i - j < 3 and lines[j - 1].lstrip().startswith("//"):
+                    j -= 1
+                for k in range(j, i):
+                    m = ADDR_RE.search(lines[k])
+                    if m:
+                        break
             if m:
                 return m.group(1).lower()
     return ""
@@ -166,7 +171,7 @@ def parse(dem):
         return None
     q = splitTop(name, "::")
     ps = [p.strip() for p in splitTop(params, ",")] if params.strip() not in ("", "void") else []
-    if any("..." in p for p in ps):
+    if any("..." in p for p in ps[:-1]):
         return None
     last, cls = q[-1], (q[-2] if len(q) > 1 else None)
     kind = "ctor" if last == cls else "dtor" if cls and last == "~" + cls else "func"
@@ -187,7 +192,7 @@ def typed(p, call):
         return f"{full}() {{ {call} }}\n"
     if p["kind"] == "var":
         return f"decltype({full}) {full}{{}};\n"
-    args = ", ".join(f"std::declval<{t}>()" for t in p["params"])
+    args = ", ".join(f"std::declval<{t}>()" for t in p["params"] if t != "...")   # a C variadic takes fewer
     if p["member"]:
         expr = f"std::declval<{'const ' if p['const'] else ''}{qual}&>().{p['name']}({args})"
     else:
@@ -195,6 +200,44 @@ def typed(p, call):
     ret = f"decltype({expr})"
     return (f"auto {full}({sig}){' const' if p['const'] else ''} -> {ret} {{\n    {call}\n"
             f"    return yo2StubRet<{ret}>();\n}}\n")
+
+
+def fileScopeDecls(path):
+    """What a .cpp declares for itself at namespace scope (forward types, function and extern declarations, using /
+    typedef, struct/class/enum definitions), each wrapped in its namespaces, so its stubs see what it sees. Function
+    bodies, variable definitions and anonymous namespaces are left out."""
+    out, ns, depth, stmt, keep = [], [], 0, "", None
+    for raw in text(path):
+        line = re.sub(r"//.*", "", raw)
+        if depth == 0 and not stmt:
+            m = re.match(r"\s*namespace\s+(\w*)\s*\{\s*$", line)
+            if m:
+                ns.append(m.group(1))
+                continue
+            if re.match(r"\s*\}\s*(//.*)?$", line) and ns:
+                ns.pop()
+                continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        stmt += line + "\n"
+        opened, closed = line.count("{"), line.count("}")
+        if depth == 0 and opened and keep is None:
+            keep = bool(re.match(r"\s*(template\s*<.*>\s*)?(struct|class|enum|union)\b", stmt))
+        depth += opened - closed
+        if depth > 0:
+            continue
+        if keep is None:   # a statement without a body: declarations only, not variable definitions
+            head = stmt.split("(")[0]
+            keep = stmt.rstrip().endswith(";") and ("=" not in head) and not re.search(
+                r"=\s*(default|delete)\s*;\s*$", stmt) and (
+                "(" in stmt or re.match(r"\s*(extern|using|typedef|struct|class|enum)\b", stmt) is not None)
+        if keep and stmt.rstrip().endswith(";") and "" not in ns:
+            text_ = stmt.rstrip()
+            for n in reversed(ns):
+                text_ = f"namespace {n} {{ {text_} }}"
+            out.append(text_)
+        stmt, keep = "", None
+    return out
 
 
 def cstr(s):
@@ -214,7 +257,7 @@ def link():
             continue
         m = re.match(r"\s+.* in (?:.*\()?([\w.+-]+\.cpp)\.o\)?$", line)
         if cur and m:
-            undef[cur].append(m.group(1))
+            undef[cur].append(m.group(1).replace("_stubs.cpp", ".cpp"))
     ok = r.returncode == 0
     if not ok and not undef:
         sys.exit("yo2native failed to build for another reason:\n" + "\n".join(out.split("\n")[-40:]))
@@ -265,7 +308,7 @@ def main():
             sys.exit("no progress; still undefined:\n" + "\n".join(sorted(undef)[:40]))
         for d in new:
             callers = [SOURCES[c] for c in undef[d] if c in SOURCES] or [SOURCES["main.cpp"]]
-            p = parse(d)
+            p = parse(d[1:] if d.startswith("_") and "::" not in d and "(" not in d else d)
             ident = p["name"] if p and p.get("name") else re.split(r"[\s:(]", d.split("(")[0])[-1]
             files = [f for c in callers for f in headerClosure(c)]
             addr = findAddr(ident.lstrip("~"), files)
@@ -275,9 +318,9 @@ def main():
                         "mangled": mangled.get(d, d if not d.startswith(("vtable", "typeinfo")) else None)}
         write(stubs, cflags)
     with open(os.path.join(OUT, "stubs.tsv"), "w") as f:
-        f.write("addr\tkind\towner\traw\tname\tcaller\n")
+        f.write("addr\tkind\towner\traw\tname\tcaller\twhy_raw\n")
         for d, s in sorted(stubs.items(), key=lambda kv: kv[1]["addr"] or "~"):
-            f.write(f"{s['addr'] or '-'}\t{s['kind']}\t{s['owner']}\t{int(s['raw'])}\t{d}\t{s['caller']}\n")
+            f.write(f"{s['addr'] or '-'}\t{s['kind']}\t{s['owner']}\t{int(s['raw'])}\t{d}\t{s['caller']}\t{s.get('why', '-' if not s['raw'] else 'no typed form (template, conversion operator, vtable)')}\n")
     raws = sum(s["raw"] for s in stubs.values())
     print(f"{len(stubs)} stubs ({len(stubs) - raws} typed, {raws} raw), "
           f"{sum(s['kind'] == 'glue' for s in stubs.values())} glue, {sum(s['kind'] == 'noaddr' for s in stubs.values())} without an address")
@@ -289,12 +332,17 @@ def write(stubs, cflags):
         if not s["raw"]:
             byCaller.setdefault(s["caller"], []).append(d)
     for caller, names in sorted(byCaller.items()):
-        while names:   # compile; anything that errors goes raw; again until the file is clean
+        decls = fileScopeDecls(os.path.join(ROOT, caller))
+        while names:   # compile; a failing copied declaration is dropped, a failing stub goes raw; until clean
             path = os.path.join(OUT, os.path.basename(caller).replace(".cpp", "_stubs.cpp"))
-            lines, spans = ["// generated by native/gen_stubs.py: do not edit", "#include <utility>"], []
+            lines, spans, declSpans = ["// generated by native/gen_stubs.py: do not edit", "#include <utility>"], [], []
             for inc, found in includes(os.path.join(ROOT, caller)):
                 lines.append(f'#include "{found}"' if found else inc)
             lines.append('#include "stubhit.h"')
+            for k, decl in enumerate(decls):
+                start = len(lines) + 1
+                lines += decl.split("\n")
+                declSpans.append((start, len(lines), k))
             for d in names:
                 s = stubs[d]
                 call = (f"yo2StubHit(0x{s['addr'] or '0'}, {cstr(s['kind'])}, {cstr(s['owner'])}, {cstr(d)}, "
@@ -304,12 +352,21 @@ def write(stubs, cflags):
                 spans.append((start, len(lines), d))
             open(path, "w").write("\n".join(lines) + "\n")
             r = sh(["c++", "-fsyntax-only", "-ferror-limit=0"] + cflags + [path])
-            bad = set()
-            for m in re.finditer(re.escape(path) + r":(\d+):\d+: error", r.stderr):
+            bad, badDecls = set(), set()
+            for m in re.finditer(re.escape(path) + r":(\d+):\d+: error: (.*)", r.stderr):
                 ln = int(m.group(1))
-                bad |= {d for a, b, d in spans if a <= ln <= b}
+                badDecls |= {k for a, b, k in declSpans if a <= ln <= b}
+                for a, b, d in spans:
+                    if a <= ln <= b and d not in bad:
+                        bad.add(d)
+                        stubs[d]["why"] = m.group(2)
+            if badDecls:   # those copied declarations don't stand alone: without them, try again
+                decls = [x for k, x in enumerate(decls) if k not in badDecls]
+                continue
             if r.returncode and not bad:   # an error outside the stubs (an include): all of this caller goes raw
                 bad = set(names)
+                for d in bad:
+                    stubs[d]["why"] = "the caller's includes don't compile on their own"
             for d in bad:
                 stubs[d]["raw"] = True
             names = [d for d in names if d not in bad]

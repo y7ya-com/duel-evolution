@@ -12,12 +12,12 @@ CNetGateTask::CNetGateTask() = default;
 CNetGateTask::~CNetGateTask() = default;
 
 // @yo2 0x006a89d0 create under parent (priority 10000) with its own sprite layer under uiParent
-void CNetGateTask::spawn(CTask* parent, CTask* uiParent) {
+CNetGateTask* CNetGateTask::spawn(CTask* parent, CTask* uiParent) {
     CNetGateTask* t = new CNetGateTask;
     t->elm.setUser(t);
     t->elm.set(uiCreateSpriteElm(uiParent, 10000));
     if (CTask* e = t->elm.get()) e->setInstName("CNetGateTask::m_elm");
-    t->create(parent, 10000);
+    return dynamic_cast<CNetGateTask*>(t->create(parent, 10000));
 }
 
 // @yo2 0x006a8ee0

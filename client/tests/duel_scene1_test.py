@@ -48,6 +48,7 @@ HOST = ["c++", "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror", "-Wno-u
         "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", SRC, "-I", INC, "-I", HERE,
         "-I", PLATFORM, "-isystem", os.path.join(PLATFORM, "win32")]
 SYSTEM = sorted(glob.glob(os.path.join(SRC, "System", "**", "*.cpp"), recursive=True))
+SYSTEM.append(os.path.join(SRC, "Game", "yo2HelpText.cpp"))   # the menu bar reads HelpTextMng::current (Game)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from memcap import run_capped  # noqa: E402  (kills a test past 1 GB RSS)
 

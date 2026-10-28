@@ -7,10 +7,10 @@
 
 class CMouseEx;   // yaneSDK
 // TODO(yaneSDK): the app's CMouseEx (CApp + 0x148) and the calls on it this class makes.
-CMouseEx* windowAppMouse();
-void windowMouseGetXY(int32_t* x, int32_t* y);   // CMouseEx::GetXY (vslot 1)
-bool windowMouseLButton();                       // CMouseEx::LButton (vslot 3): the left button is down
-void windowMouseResetButton();                   // CMouseEx::ResetButton (vslot 6)
+CMouseEx* windowAppMouse();                      // 0x006072b0 (CApp; the mouse at +0x148)
+void windowMouseGetXY(int32_t* x, int32_t* y);   // 0x00542590 CMouseEx::GetXY (vslot 1)
+bool windowMouseLButton();                       // 0x00542640 CMouseEx::LButton (vslot 3): the left button is down
+void windowMouseResetButton();                   // 0x00542830 CMouseEx::ResetButton (vslot 6)
 // TODO(duel): 0x0071f8c0, the dialog's answer to the server (packet 0x6423 on the duel connection).
 void ugDialogSendResult(int32_t result);
 

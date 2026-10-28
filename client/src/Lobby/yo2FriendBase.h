@@ -59,7 +59,7 @@ public:
     bool contains(uint32_t pid);                          // FUN_0085d1a0
     bool addMember(uint32_t pid, const char* name);       // FUN_0085d1d0
     bool delMember(uint32_t pid);                         // FUN_0085d360
-    FBEntry* entry(int i) { return &entries[i]; }         // FUN_0085d410
+    FBEntry* entry(int i) { return &entries[i]; }         // @yo2 0x0085d410
     void recount();                                       // FUN_0085d440
     int indexOf(uint32_t pid);                            // FUN_0085d4c0
     FBEntry* find(uint32_t pid);                          // FUN_0085d4f0

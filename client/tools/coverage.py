@@ -29,7 +29,7 @@ def main():
         wo = os.path.join(DATA, "trace", "WORKORDER.tsv")
         if os.path.exists(wo):   # README Scope: core rows only, in work-order order
             for r in list(open(wo))[1:]:
-                seq, a, layer, via, core, phase, src, size, smp, status, name = r.rstrip("\n").split("\t")
+                seq, a, layer, via, core, phase, src, size, smp, status, name, *_ = r.rstrip("\n").split("\t")
                 if core == "core" and status == "todo" and int(a, 16) not in done and mine(int(a, 16), src):
                     print(f"0x{a} {int(size):6d} {src} L{layer} {phase.split()[1]} {name}")
             return

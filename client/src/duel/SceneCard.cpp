@@ -43,13 +43,6 @@ enum : uint32_t {
 };
 }   // namespace
 
-// CCardPlane's System half (yo2CardPlane, 0x00763240..): which sheet and cell a card shows at a rotation.
-void cardPlaneDestruct(CardPlane* p);                         // TODO(System) FUN_00763240 ~CCardPlane
-void cardPlaneSetCard(CardPlane* p, int32_t id);              // TODO(System) FUN_007632c0
-CSpriteElmOlder* cardPlaneField(CardPlane* p, int32_t deg, int32_t v);   // TODO(System) FUN_00763470
-CSpriteElmOlder* cardPlaneHandBig(CardPlane* p, int32_t deg);  // TODO(System) FUN_00763420
-CSpriteElmOlder* cardPlaneHandMini(CardPlane* p, int32_t deg); // TODO(System) FUN_007633b0
-
 // ---------------------------------------------------------------- CPlaneLoaderElm (inline copies emitted here)
 
 // @yo2 0x00757cd0 CPlaneLoaderElm::CPlaneLoaderElm
@@ -104,6 +97,26 @@ void cardLoaderRelease() {
         planeDelete(g_cardListMini);
         g_cardListMini = nullptr;
     }
+}
+
+// ---------------------------------------------------------------- CCardPlane: {vtbl, its CCardLoader base's vtbl,
+// the card's sheet index}. The cell a card shows is sheet `b` of one of the card lists.
+
+// @yo2 0x00763240 CCardPlane::~CCardPlane (the CCardLoader base lets go of the card lists)
+void cardPlaneDestruct(CardPlane* p) {
+    p->vtbl = VT_CCARDPLANE;
+    p->a = VT_CCARDLOADER;
+    cardLoaderRelease();
+}
+// @yo2 0x007632c0
+void cardPlaneSetCard(CardPlane* p, int32_t id) { p->b = (uint32_t)id; }
+// @yo2 0x007633b0 the hand card: its cell of data/card (the rotation isn't used)
+CSpriteElmOlder* cardPlaneHandMini(CardPlane* p, int32_t) { return planeSprite(g_cardListBig, (int32_t)p->b); }
+// @yo2 0x00763420 the hand card seen by a spectator: data/card's first cell
+CSpriteElmOlder* cardPlaneHandBig(CardPlane*, int32_t) { return planeSprite(g_cardListBig, 0); }
+// @yo2 0x00763470 the field card: cell v of data/mini (-1 = the card's own)
+CSpriteElmOlder* cardPlaneField(CardPlane* p, int32_t, int32_t v) {
+    return planeSprite(g_cardListMini, v == -1 ? (int32_t)p->b : v);
 }
 
 // @yo2 0x00757ff0 CCardPlane scalar deleting destructor

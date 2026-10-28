@@ -33,6 +33,7 @@ def build(tmp):
     srcs = sorted(os.path.join(SRC, "duel", n) for n in os.listdir(os.path.join(SRC, "duel"))
                   if n.endswith(".cpp") and not n.startswith("Scene"))
     srcs += [os.path.join(SRC, "Net", n) for n in ("MessageIO.cpp", "ygpacket.cpp")]
+    srcs.append(os.path.join(SRC, "Game", "yo2GameData.cpp"))   # the card files' reader
     exe = os.path.join(tmp, "duel_e2e")
     subprocess.check_call(["c++", "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-fsanitize=address,undefined",
                            "-I", SRC, os.path.join(HERE, "duel_e2e_cli.cpp"), *srcs, "-o", exe])

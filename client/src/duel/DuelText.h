@@ -14,6 +14,7 @@ struct TextRef {
     TextRef(const char* s) : v((uintptr_t)s) {}
 };
 
+void yo2LoadCardText(int32_t language);         // FUN_0073b640 (System calls it): language 0..6 = J E G F I S K
 bool textLoad(const char* binDir, char lang);   // the per-language half of FUN_0073b640 (lowercase file names)
 const char* textById(int id);                  // FUN_0073be10
 const char* textCardName(int card);            // FUN_0073bc80

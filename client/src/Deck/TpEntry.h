@@ -39,7 +39,7 @@ TpClaim tpClaimKind(uint32_t tpRank, bool tp100, bool tp500);
 
 // hooks: the TP window (yo2TpWindow.cpp, CWindowTaskTp at DAT_012b4444) and the player record (System)
 extern CNetLobby* g_tpLobby;            // the lobby connection (*(DAT_012711ac + ...)), TODO(System)
-int32_t tpWindowCount();                // DAT_012b4444 + 0x440
+int32_t tpWindowCount();                // inline in the exe (in 0x008f4ac0); DAT_012b4444 + 0x440
 void tpWindowAdd(int32_t card);         // FUN_0098c0e0
 void tpWindowRemove(int32_t index);     // FUN_0098c340
 void tpWindowReset(int32_t index);      // FUN_0098c470
@@ -47,7 +47,7 @@ void tpWindowRedraw();                  // FUN_0098c550
 void tpWindowEnable(bool on);           // FUN_0098c920
 void tpWindowCards(uint16_t* out);      // FUN_0098d220: the chosen ids
 void tpWindowPage(int page);            // FUN_0098c0c0
-uint32_t playerTpRank();                // the slot record's +0x128 (PlayerData u11c[3]; 1..1000 = ranked)
+uint32_t playerTpRank();  // inline in the exe (in 0x008f4ac0): the slot record's +0x128 (1..1000 = ranked)
 bool pbinTest(uint32_t bit);            // FUN_00ad6a90
 void pbinSet(uint32_t bit, bool on);    // FUN_00ad6900
 void uiOkLamp();                        // FUN_0060e170(0, 0) + FUN_00973c60 (the "get" button)

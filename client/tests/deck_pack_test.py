@@ -28,12 +28,14 @@ PACKDIR = os.path.dirname(PACKINFO)
 
 def compile_cli(tmp):
     srcs = sorted(glob.glob(os.path.join(SRC, "Pack", "*.cpp")))
+    vfs = os.path.join(SRC, "..", "platform", "vfs", "vfs.cpp")
     for s in srcs:
         subprocess.check_call(["i686-w64-mingw32-g++", "-std=c++17", "-Wall", "-Werror", "-fsyntax-only", "-I", SRC, s])
     exe = os.path.join(tmp, "deck_pack_cli")
     subprocess.check_call(["c++", "-std=c++17", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
-                           "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", SRC,
-                           os.path.join(HERE, "deck_pack_cli.cpp"), *srcs, "-o", exe])
+                           "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", SRC, "-I",
+                           os.path.join(SRC, "..", "platform"), os.path.join(HERE, "deck_pack_cli.cpp"), *srcs, vfs,
+                           "-o", exe])
     return exe
 
 
@@ -52,8 +54,11 @@ def catalogue():
     return rows
 
 
+MERGE = os.environ.get("YO2_MERGE_DAT", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/merge.dat")
+
+
 def run(exe, tsv, owned, *cmd):
-    return subprocess.run([exe, tsv, PACKDIR, ",".join(map(str, owned)), *cmd], capture_output=True, text=True,
+    return subprocess.run([exe, MERGE, PACKDIR, ",".join(map(str, owned)), *cmd], capture_output=True, encoding="cp1252", errors="replace",
                           check=True).stdout.splitlines()
 
 
@@ -75,7 +80,8 @@ def main():
                 f.write("\t".join(map(str, r)) + "\n")
         # the table: one record per pack id, decks keep their .ydc and PBIN bit, the rest only the .iid
         recs = {int(l.split()[1]): l.split() for l in run(exe, tsv, [], "table") if l.startswith("rec ")}
-        assert len(rows) <= 0xc0 and set(recs) == {p for p, _, _ in shop} | ({0} if len(rows) < 0xc0 else set())
+        # PACK_*.bin fill all 0xc0 slots with distinct ids; the shop's packinfo_s.txt lists a subset of them
+        assert len(recs) == 0xc0 and {p for p, _, _ in shop} <= set(recs), (len(recs), {p for p, _, _ in shop} - set(recs))
         for pid, kind, bit in shop:
             r = recs[pid]
             assert (int(r[2]), int(r[3]), r[5]) == (pid, kind, f"{pid}.iid"), r
@@ -83,7 +89,14 @@ def main():
                 assert int(r[4]) == (bit or 0) and r[6] != "-", r
             else:
                 assert int(r[4]) == 0 and r[6] == "-", r
-        print(f"ok: pack table, {len(shop)} packs of packinfo_s.txt (ids, types, iid names, deck ydc + PBIN bits)")
+        # the names came from PACK_Name_S.bin / PACK_Img.bin: the same as packinfo_s.txt's
+        for row in rows:
+            r = recs[row[0]]
+            img, name = " ".join(r[7:]).split("|", 1)
+            # the shop's text adds a translation after one deck's name ("... (DECK E-HÉROE EVOLUCIÓN)")
+            assert img == row[2] and row[3].startswith(name), (row[0], img, name, row[2], row[3])
+        print(f"ok: pack table from merge.dat's PACK_*.bin = packinfo_s.txt's {len(shop)} packs (ids, types, images, "
+              "names, iid names, deck ydc + PBIN bits)")
 
         boosters = [p for p, k, _ in shop if k == 0 and os.path.exists(os.path.join(PACKDIR, f"{p}.iid"))][:3]
         decks = [p for p, k, _ in shop if k in (1, 4) and os.path.exists(os.path.join(PACKDIR, f"{p}.ydc"))][:2]

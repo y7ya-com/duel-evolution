@@ -1,5 +1,6 @@
 // No-op stand-ins for the src/Net hooks the lobby parsers call (the Net tests' net_cli*.cpp record them; the Lobby
 // tests only link CNetLobby for its data), built into every Lobby test.
+#include <string>
 #include "Net/NetLobby_Rooms.h"
 #include "Net/NetLobby_Shop.h"
 #include "Net/NetLobby_Social.h"
@@ -28,3 +29,6 @@ void unreleasedCount(int32_t) {}
 void unreleasedSet(int32_t, int32_t, int32_t) {}
 void lobbyAutoDuelStarted(int32_t) {}
 void lobbyMenuMaintenance() {}
+// CNetGate::init's system config (Net/NetUi.h)
+std::string appGateServer() { return "127.0.0.1"; }
+int32_t appGatePort() { return 5730; }

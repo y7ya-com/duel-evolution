@@ -7,6 +7,7 @@
 #include <set>
 #include <vector>
 
+#include "Game/yo2HelpText.h"
 #include "System/window/yo2WindowControls.h"
 #include "System/yo2ZSort.h"
 #include "game_test.h"
@@ -61,6 +62,15 @@ static void pictureFrame(Win* w) {
     CHECK(f->taskName() == "絵を差し替える背景CWindowTaskPictureFrame(コントロール)" && f->w_ == 256 && f->h_ == 256);
     f->create(w, 0);
     f->mediator_ = w;
+    CHECK(f->loads == 1 && f->w_ == 80 && f->h_ == 24 && f->top_.get()->tiles.size() == 5 && !f->left_.task());
+    CHECK(el(f->bottomRight_)->instName() == "CWindowTaskPictureFrameの右下画像");
+    for (auto& p : f->pieces_)
+        p = {8, 8, 0, 0};
+    f->pieces_[4] = {16, 4, 8, 8};   // the centre
+    f->CWindowTaskPictureFrame::layout();
+    const WindowDupTile& centre = f->top_.get()->tiles[2];
+    CHECK(f->top_.get()->tiles.size() == 5 && centre.x == 8 && centre.y == 8 && centre.sx == 4 && centre.sy == 2);
+    CHECK(centre.u == 8 && centre.w == 16 && f->top_.get()->tiles[1].sy == 1 && el(f->bottomRight_)->pos_.x == 72);
     f->w_ = 100, f->h_ = 40;
     f->pos_ = {10, 20, 0};
     updateTree(w);
@@ -696,6 +706,281 @@ static void listPieces(Win* w) {
     CHECK(l->w_ == 120 && l->lineCounts_[0] == 3 && l->scroll_->x_ == 104);
 }
 
+static void iconArrows(Win* w) {
+    CWindowTaskIconExpand* e = CWindowTaskIconExpand::create(w, w);
+    CWindowTaskIconShrink* s = CWindowTaskIconShrink::create(w, w);
+    CHECK(e && e->taskName() == "△ボタン(コントロール)" && e->kind() == 0xc && e->w_ == 16 && e->h_ == 24);
+    CHECK(s && s->taskName() == "▽ボタン(コントロール)" && s->kind() == 0xd);
+    CHECK(el(e->sprite_)->instName() == "CWindowTaskIconExpandの画像" && el(s->sprite_)->instName() == "CWindowTaskIconShrinkの画像");
+    CHECK(static_cast<CSpriteElm*>(el(s->sprite_))->texture == "data/common/window/icon_01_c01.png");
+    e->x_ = 10, e->y_ = 600;
+    e->layout();
+    updateTree(w);
+    g_mouseX = 15, g_mouseY = 610;
+    key(VK_LBUTTON, false);
+    e->onMain();   // hover (whatever control is on top there)
+    CHECK(rectIs(el(e->sprite_), 16, 48, 16, 24) && e->wasUp_);
+    w->calls.clear();
+    e->handleMessage(msg(0x202));   // a release without a press
+    CHECK(w->calls.empty());
+    key(VK_LBUTTON, true);
+    e->onMain();
+    CHECK(e->pressed_ && rectIs(el(e->sprite_), 32, 48, 16, 24));
+    key(VK_LBUTTON, false);
+    e->handleMessage(msg(0x202));
+    CHECK(w->calls.size() == 1 && w->calls[0].second == e && !e->pressed_);
+    s->setLook(2);
+    CHECK(rectIs(el(s->sprite_), 32, 72, 16, 24));
+}
+
+static void framePlane(Win* w) {
+    CWindowTaskFramePlane* f = CWindowTaskFramePlane::create(w, w, 3);
+    CHECK(f && f->taskName() == "平らなウィンドウ(コントロール)" && f->kind() == 4 && f->color_[3] == 0.7f);
+    CHECK(static_cast<CSpriteElm*>(el(f->sprites_[8]))->texture == "data/common/window/window_base_01_c03.png");
+    CHECK(el(f->sprites_[8])->instName() == "CWindowTaskFramePlaneの中央画像" && rectIs(el(f->sprites_[8]), 32, 8, 8, 8));
+    CHECK(rectIs(el(f->sprites_[0]), 24, 0, 8, 8) && rectIs(el(f->sprites_[7]), 40, 16, 8, 8));
+    f->w_ = 100, f->h_ = 50, f->x_ = 20, f->y_ = 30;
+    CHECK(f->onMain());   // lays out
+    CHECK(f->pos_.x == 20 && el(f->sprites_[8])->scale_.x == 10.5f && el(f->sprites_[8])->scale_.y == 4.25f);
+    CHECK(el(f->sprites_[7])->pos_.x == 92 && el(f->sprites_[7])->pos_.y == 42 && el(f->sprites_[4])->scale_.y == 4.25f);
+    updateTree(w);
+    CHECK(f->hitTest(70, 55) && !f->hitTest(20, 55) && !f->hitTest(70, 80));
+    w->calls.clear();
+    CHECK(f->handleMessage(msg(0x202)) && w->calls.empty());
+    CHECK(f->handleMessage(msg(0x201, 7, 8)) && w->calls.size() == 2 && w->calls[0].first == 1 && w->dragY == 8);
+    CHECK(CWindowTaskFramePlane::create(w, w, 6)->color_[3] == 1);
+}
+
+static WindowMsg chr(uint32_t c, uint32_t m = WM_CHAR) {
+    WindowMsg w = msg(m);
+    w.ch = c;
+    return w;
+}
+static WindowMsg keyDown(uint32_t vk) {
+    WindowMsg w = msg(WM_KEYDOWN);
+    w.key = vk;
+    return w;
+}
+
+static void input(Win* w) {
+    CWindowTaskInput* c = CWindowTaskInput::create(w, w, 2);
+    CHECK(c && c->taskName() == "インプットボックス(コントロール)" && c->kind() == 0x15 && c->style_ == 2);
+    CHECK(!c->multiLine_ && c->maxLen_ == 19 && c->w_ == 256 && c->h_ == 256 && c->inheritTransform_);
+    CHECK(c->ime_.get()->owner == c && c->ime_.get()->instName() == "m_ime");
+    CHECK(c->text_->instName() == "CWindowTaskInputのテキスト" && elmOf(c->text_.get())->fontSize == 16);
+    CHECK(c->text_->posZ_ == 2);
+    CHECK(c->fill_.get()->texture == std::string(windowDataDir()) + windowFrameTexture(2) && rectIs(el(c->fill_), 56, 8, 8, 8));
+    CHECK(c->border_.get()->texture == c->fill_.get()->texture && rectIs(el(c->border_), 80, 16, 8, 8));
+    CHECK(c->caret_.get()->texture == std::string(windowDataDir()) + "kasoru_01_c00.png" && rectIs(el(c->caret_), 0, 0, 2, 16));
+    CHECK(el(c->fill_)->color_[3] == 1 && approx(el(c->fill_)->scale_.x, 239 * 0.125f) && el(c->border_)->scale_.y == 30);
+    CHECK(elmOf(c->text_.get())->boxW == 248 && elmOf(c->text_.get())->boxH == 16 && elmOf(c->text_.get())->pageLines == 15);
+
+    // typing: printable characters at the caret, each insert and each message telling the window
+    w->calls.clear();
+    for (char ch : std::string("abc")) c->handleMessage(chr(ch));
+    CHECK(c->value_ == u"abc" && c->col_ == 3 && c->line_ == 0 && w->calls.size() == 6 && w->calls[0].first == 0);
+    c->handleMessage(chr(1));   // a control character
+    CHECK(c->value_ == u"abc");
+    c->digitsOnly_ = true;
+    c->handleMessage(chr('x'));
+    c->handleMessage(chr('7'));
+    CHECK(c->value_ == u"abc7");
+    c->digitsOnly_ = false;
+    c->maxLen_ = 4;
+    c->handleMessage(chr('d'));
+    CHECK(c->value_ == u"abc7");
+    c->maxLen_ = 19;
+    // editing keys
+    c->handleMessage(keyDown(VK_LEFT));
+    CHECK(c->col_ == 3);
+    c->handleMessage(chr('\b'));
+    CHECK(c->value_ == u"ab7" && c->col_ == 2);
+    c->handleMessage(keyDown(VK_DELETE));
+    CHECK(c->value_ == u"ab" && c->col_ == 2);
+    c->handleMessage(keyDown(VK_HOME));
+    CHECK(c->col_ == 0);
+    c->handleMessage(chr('\b'));   // nothing before the caret
+    CHECK(c->value_ == u"ab");
+    c->handleMessage(keyDown(VK_END));
+    CHECK(c->col_ == 2);
+    c->setCaret(9, 0);
+    int32_t col, line;
+    c->caret(&col, &line);
+    CHECK(col == 2 && line == 0);
+    // Tab / Shift+Tab, Enter
+    w->calls.clear();
+    c->handleMessage(chr('\t'));
+    key(VK_SHIFT, true);
+    c->handleMessage(chr('\t'));
+    key(VK_SHIFT, false);
+    CHECK(w->calls.size() == 4 && w->calls[0].first == 2 && w->calls[2].first == 3);
+    c->submitOnEnter_ = true;
+    w->calls.clear();
+    c->handleMessage(chr('\r'));
+    CHECK(w->calls.size() == 2 && !c->entered_ && c->value_ == u"ab");
+    c->multiLine_ = true;
+    c->handleMessage(chr('\r'));
+    CHECK(c->value_ == u"ab\n" && c->col_ == 0 && c->line_ == 1);
+    c->handleMessage(keyDown(VK_UP));
+    CHECK(c->line_ == 0);
+    // Ctrl+V, and the double-byte IME character
+    g_clipboard = "xy";
+    c->clear();
+    CHECK(c->value_.empty() && c->col_ == 0);
+    c->text_->setText(u"");
+    c->handleMessage(chr(0x16));
+    CHECK(c->value_ == u"xy" && c->col_ == 2);
+    g_clipboard.clear();
+    c->handleMessage(chr(0x4142, WM_IME_CHAR));
+    CHECK(c->value_ == u"xyA");
+    // IME messages go to the IME window; layout cuts value_ to maxLen_ bytes
+    c->handleMessage(msg(WM_IME_COMPOSITION));
+    CHECK(c->ime_.get()->msgs == std::vector<uint32_t>{WM_IME_COMPOSITION});
+    c->maxLen_ = 2;
+    c->layout();
+    CHECK(c->value_ == u"xy");
+    // a click focuses and moves the caret under the mouse
+    c->pos_ = {100, 50, 0};
+    updateTree(w);
+    w->calls.clear();
+    c->handleMessage(msg(WM_LBUTTONDOWN, 100 + 8 + 9, 50 + 8 + 2));
+    CHECK(c->focused_ == 1 && c->col_ == 1 && c->line_ == 0);
+    CHECK(w->calls.size() == 2 && w->calls[0].first == 1);
+    CHECK(c->hitTest(101, 51) && !c->hitTest(100, 51) && !c->hitTest(356, 51));
+    // onMain: the caret shows only while focused (the test window isn't the factory's top window: never) and
+    // blinking on; the IME window follows the caret
+    c->caretOn_ = true;
+    c->blink_ = 13;
+    c->onMain();
+    CHECK(c->caretOn_ && c->blink_ == 14 && el(c->caret_)->scale_.x == 0);
+    c->onMain();
+    CHECK(!c->caretOn_ && c->blink_ == 0);
+    c->placeIme();
+    CHECK(c->ime_.get()->x == 16 && c->ime_.get()->y == 8 && c->ime_.get()->z == 1);
+    c->password_ = true;
+    c->onMain();
+    CHECK(elmOf(c->text_.get())->text == u"**");
+    // up up down down left right left right B A (a wrong key restarts it without counting itself)
+    c->konami_ = 0;
+    for (int k : {VK_UP, VK_UP, VK_DOWN, VK_DOWN, VK_LEFT, VK_RIGHT, VK_LEFT, VK_RIGHT, int('B'), int('A')})
+        c->handleMessage(keyDown(k));
+    CHECK(c->konami_ == 10);
+    c->handleMessage(keyDown('A'));
+    CHECK(c->konami_ == 0);
+}
+
+struct Owner : CTask {
+    int events = 0;
+    CWindowTaskControll* sender = nullptr;
+    int32_t receive(CTaskMessage* m) override {
+        if (m->tag == CTmWndObjEvent::TAG) {
+            events++;
+            sender = static_cast<CTmWndObjEvent*>(m)->sender;
+            return TR_HANDLED;
+        }
+        return CTask::receive(m);
+    }
+};
+
+static void pictureSwitch(Win* w) {
+    auto* owner = new Owner;
+    owner->create(w, 0);
+    CWindowTaskPictureSwitch* p = CWindowTaskPictureSwitch::create(w, owner, w);
+    CHECK(p && p->taskName() == "絵スイッチ(コントロール)" && p->kind() == 0x1a && p->owner_.task() == owner);
+    CHECK(el(p->checkedSprite_)->instName() == "CWindowTaskPictureSwitchの押し下げ画像" && p->unk364_ == 0xffffffff);
+    CHECK(p->text_->instName() == "CWindowTaskPictureSwitchのテキスト" && p->text_->pageLines() == 1);
+    p->setImages("a.png", {0, 0, 40, 20}, {0, 20, 40, 20}, {0, 40, 40, 20}, {0, 60, 40, 20});
+    CHECK(p->w_ == 40 && p->h_ == 20 && rectIs(el(p->click_), 0, 40, 40, 20));
+    CHECK(static_cast<CSpriteElm*>(el(p->hover_))->texture == "a.png");
+    p->x_ = 300, p->y_ = 400;
+    p->layout();
+    updateTree(w);
+    // hover, press, release: the owner hears of the click, then the window
+    g_mouseX = 310, g_mouseY = 410;
+    key(VK_LBUTTON, false);
+    p->onMain();
+    CHECK(p->state_ == CWindowTaskPictureSwitch::HOVER && el(p->hover_)->disp_ && !el(p->normal_)->disp_);
+    p->handleMessage(msg(WM_LBUTTONDOWN));
+    CHECK(p->state_ == CWindowTaskPictureSwitch::PRESSED);
+    p->onMain();
+    CHECK(el(p->click_)->disp_ && !el(p->hover_)->disp_);
+    w->calls.clear();
+    p->handleMessage(msg(WM_LBUTTONUP));
+    CHECK(p->state_ == CWindowTaskPictureSwitch::HOVER && owner->events == 1 && owner->sender == p);
+    CHECK(w->calls.size() == 1 && w->calls[0].first == 0 && w->calls[0].second == p);
+    // checked: the checked look; transparent pixels don't hit
+    p->checked_ = true;
+    g_mouseX = 500;
+    p->onMain();
+    CHECK(p->state_ == CWindowTaskPictureSwitch::NORMAL && el(p->checkedSprite_)->disp_ && !el(p->normal_)->disp_);
+    CHECK(p->hit(310, 410) && !p->hit(300, 410));
+    static_cast<CSpriteElm*>(el(p->normal_))->pixel[3] = 0;
+    CHECK(!p->hit(310, 410));
+    static_cast<CSpriteElm*>(el(p->normal_))->format = 0x17;
+    CHECK(p->hit(310, 410));
+    // Enter clicks; the strip loader
+    p->handleMessage(chr('\r'));
+    CHECK(owner->events == 2);
+    static_cast<CSpriteElm*>(el(p->normal_))->texW = 64, static_cast<CSpriteElm*>(el(p->normal_))->texH = 128;
+    p->setImageStrip("s.png", 4);
+    CHECK(p->w_ == 64 && p->h_ == 32 && rectIs(el(p->checkedSprite_), 0, 96, 64, 32) && rectIs(el(p->click_), 0, 64, 64, 32));
+    p->setImageStrip("s.png", 3);
+    CHECK(rectIs(el(p->checkedSprite_), 0, 64, 64, 32));
+    p->text_->setKeepNewlines(true);
+    CHECK(elmOf(p->text_.get())->keepNewlines);
+    p->setText(u"go");
+    CHECK(p->text_->y_ == 8 && elmOf(p->text_.get())->text == u"go");
+}
+
+static void menubar(Win* w) {
+    int before = CWindowTaskMenubar::s_count;
+    CWindowTaskMenubar* b = CWindowTaskMenubar::create(w, w);
+    CHECK(b && b->kind() == 2 && CWindowTaskMenubar::s_count == before + 1 && b->pos_.y == 736);
+    CHECK(el(b->frame_)->instName() == "CWindowTaskMenubarのフレーム画像" && b->frame_->priority() == 1000);
+    CHECK(static_cast<CSpriteElm*>(el(b->panel_))->texture == "data/common/window/menuber_02_c01.png");
+    CHECK(el(b->panel_)->color_[3] == 0.7f && el(b->frame_)->pos_.z == 2);
+    CHECK(b->text1_->instName() == "ヘルプテキスト2" && b->speed_ == 1 && b->pause_ == 30 && b->unk3b8_ == -1);
+    // a short message stays put; the second copy hidden
+    elmOf(b->text1_.get())->width = 100;
+    int32_t id = g_helpTextMng->add(5, u"short", nullptr);
+    b->onMain();
+    CHECK(b->message_ == u"short" && elmOf(b->text1_.get())->text == u"short" && b->width_ == 100);
+    CHECK(b->text1_->x_ == 392 && b->text1_->y_ == 8 && !b->text2_->disp_ && b->pause_ == 29);
+    for (int i = 0; i < 40; i++)
+        b->onMain();
+    CHECK(b->text1_->x_ == 392);
+    // a long one scrolls after the pause, and wraps
+    elmOf(b->text1_.get())->width = 700;
+    g_helpTextMng->setText(id, u"long");
+    b->onMain();
+    CHECK(b->text2_->disp_ && b->text2_->x_ == 1404 && b->pause_ == 29);
+    for (int i = 0; i < 29; i++)
+        b->onMain();
+    CHECK(b->scroll_ == -1 && b->text1_->x_ == 391);
+    b->scroll_ = -1012;
+    b->onMain();
+    CHECK(b->scroll_ == 0);
+    g_helpTextMng->remove(id);
+    updateTree(w);
+    CHECK(b->hitTest(500, 740) && !b->hitTest(0, 740) && !b->hitTest(500, 768));
+    w->calls.clear();
+    CHECK(!b->handleMessage(msg(WM_MOUSEMOVE)) && b->handleMessage(msg(WM_LBUTTONDOWN)) && w->calls[0].first == 1);
+}
+
+static void checkbox(Win* w) {
+    CWindowTaskCheckbox* c = CWindowTaskCheckbox::create(w, w);
+    CHECK(c && c->taskName() == "チェックボックス" && c->kind() == 4 && c->w_ == 16 && !c->checked_);
+    CHECK(rectIs(el(c->tick_), 16, 0, 16, 16) && !el(c->tick_)->disp_ && el(c->tick_)->pos_.z == 1);
+    CHECK(static_cast<CSpriteElm*>(el(c->box_))->texture == "data/common/window/check_01_c00.png");
+    w->calls.clear();
+    CHECK(c->handleMessage(msg(WM_LBUTTONDOWN)) && c->checked_ && el(c->tick_)->disp_ && w->calls[0].first == 0);
+    c->handleMessage(msg(WM_LBUTTONDOWN));
+    CHECK(!c->checked_ && el(c->tick_)->isLocked(2));
+    c->pos_ = {50, 60, 0};
+    updateTree(w);
+    CHECK(c->hitTest(58, 68) && !c->hitTest(50, 68) && !c->hitTest(58, 76));
+}
+
 int main() {
     CZSortSet layers;
     g_zsortSet = &layers;
@@ -716,6 +1001,12 @@ int main() {
     listbox(w);
     activeAndTextlist(w);
     listPieces(w);
+    input(w);
+    iconArrows(w);
+    framePlane(w);
+    pictureSwitch(w);
+    menubar(w);
+    checkbox(w);
     g_windowFactory->destroyAllWindows();
     CHECK(g_windowFactory->controls_.empty());
     root->destroy(__FILE__, __LINE__);

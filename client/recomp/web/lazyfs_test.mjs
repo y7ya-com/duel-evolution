@@ -1,0 +1,247 @@
+// node web/lazyfs_test.mjs: web/lazyfs.js against a synthetic merge.dat (KCEJYUGI) and fake XHR / fetch / Cache API /
+// localStorage / MEMFS (no browser needed). Checks the bytes, the hot-set and map prefetches, persistence across a
+// reload, the trickle staying out of memory, and prefetch=0.
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import assert from "node:assert/strict";
+
+const MB = 1 << 20;
+// ---- a small archive: folders with known spans (in MB), every byte a function of its offset
+const layout = [["data/bin#/a.bin", 1], ["data/mini/0001.png", 3], ["data/deck/bg.png", 1], ["data/common/c.png", 1],
+    ["data/menu/m.png", 1], ["data/map/map_r01/r.png", 2], ["data/map/map_a02/a.png", 3], ["data/map/map_a01/b.png", 4],
+    ["data/map/map_a03/c.png", 2], ["data/avatar/x.png", 2], ["data/card/0001.png", 6], ["data/y/duel/effect/a.png", 2], ["data/card/0002.png", 2],
+    ["data/y2/duel/field/duelbg_a_02.png", 1]];
+const listCard = "0000.png\r\n0001.png\r\n0002.png\r\n";   // list_card.txt: line N = YO2 card id N's art
+const toc = 12 + (layout.length + 1) * 268;
+let off = 8 * MB;   // past the directory, so entries start on later chunks
+const entries = layout.map(([name, mb]) => { const e = { name, off, len: mb * MB - 100 }; off += mb * MB; return e; });
+entries.push({ name: "data/card/list_card.txt", off, len: listCard.length }), off += MB;
+const size = off;
+const file = Buffer.alloc(size);
+for (let i = toc; i < size; i += 4) file.writeUInt32LE((i * 2654435761) >>> 0, i);
+file.write("KCEJYUGI", 0, "latin1");
+file.writeUInt32LE(entries.length, 8);
+file.write(listCard, entries.at(-1).off, "latin1");
+entries.forEach((e, k) => {
+    const at = 12 + k * 268;
+    file.fill(0, at, at + 268);
+    for (let c = 0; c < e.name.length; c++) {
+        const b = e.name.replace(/\//g, "\\").charCodeAt(c);
+        file[at + c] = ((b & 15) << 4) | (b >> 4);
+    }
+    file.writeUInt32LE(e.off, at + 256), file.writeUInt32LE(e.len, at + 260), file.writeUInt32LE(e.len, at + 264);
+});
+const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") };
+
+// ---- fakes
+let syncXhr = 0, netFetch = 0;
+const fetched = [];   // offsets of every background fetch
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function rangeOf(h) { const m = /bytes=(\d+)-(\d+)/.exec(h); return [+m[1], +m[2]]; }
+const pathOf = (url) => decodeURIComponent(new URL(url, "http://t/").pathname.slice(1));
+function makeEnv(store, ls, opts = {}) {
+    class XMLHttpRequest {
+        open(m, url) { this.url = url; this.h = {}; }
+        setRequestHeader(k, v) { this.h[k] = v; }
+        overrideMimeType() {}
+        send() {
+            const p = pathOf(this.url);
+            if (p.startsWith("api/")) { this.status = 404; this.responseText = ""; return; }   // the legacy site: no session service
+            if (p === "game/files.txt") {
+                this.status = 200;
+                this.responseText = Object.entries(files).map(([k, b]) => `${b.length}\t${k.slice(5)}`).join("\n");
+                return;
+            }
+            syncXhr++;
+            const [a, b] = rangeOf(this.h.Range);
+            this.status = 206;
+            this.responseText = files[p].subarray(a, b + 1).toString("latin1");
+        }
+    }
+    async function fetch(url, o = {}) {
+        if (pathOf(url) === "api/de/prefetch/duel")   // the server's NPC deck for the duel being set up
+            return { status: 200, headers: { get: () => null }, json: async () => ({ npc: 35, cards: [2], field: "duelbg_a_02" }) };
+        const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
+        const h = { get: (k) => headers.get(k.toLowerCase()) || null };
+        if (o.method === "HEAD") return { status: 200, headers: h };
+        netFetch++;
+        await sleep(1);
+        const [a, b] = rangeOf(o.headers.Range);
+        fetched.push(a);
+        const body = files[p].subarray(a, b + 1);
+        return { status: 206, headers: h, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) };
+    }
+    class Response { constructor(d) { this.d = d; } async arrayBuffer() { return this.d.buffer.slice(this.d.byteOffset, this.d.byteOffset + this.d.length); } }
+    const caches = { open: async () => ({ put: async (k, r) => store.set(k, r), match: async (k) => store.get(k) }) };
+    const nodes = {};
+    const FS = {
+        mkdirTree() {}, mkdir() {}, mount() {}, syncfs: (a, cb) => cb(),
+        createFile(parent, name) { const n = { stream_ops: {} }; nodes[parent + "/" + name] = n; return n; },
+        ErrnoError: class extends Error { constructor(e) { super("errno " + e); } },
+    };
+    const PATH = { dirname: (p) => p.slice(0, p.lastIndexOf("/")), basename: (p) => p.slice(p.lastIndexOf("/") + 1) };
+    let deps = 0;
+    const Module = {}, ENV = {};
+    const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
+        location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
+        performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1) };
+    ctx.location.pathname = "/"; ctx.location.origin = "http://t";
+    ctx.history = { replaceState() {} };
+    ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
+    vm.runInNewContext(readFileSync(new URL("lazyfs.js", import.meta.url), "utf8"), ctx);
+    Module.preRun.forEach((f) => f());
+    const read = (path, pos, len) => {
+        const out = new Uint8Array(len);
+        nodes[path].stream_ops.read(null, out, 0, len, pos);
+        return out;
+    };
+    return { Module, read, ready: async () => { while (deps) await sleep(1); } };
+}
+const settle = async (L) => { for (let i = 0; i < 2000 && (L.queueLen ? L.queueLen() : 1); i++) await sleep(2); await sleep(50); };
+const ent = (prefix) => entries.find((e) => e.name.startsWith(prefix));
+function readEntry(g, prefix) {
+    const e = ent(prefix), got = g.read("/game/merge.dat", e.off, 4096);
+    assert.deepEqual(Buffer.from(got), file.subarray(e.off, e.off + 4096), prefix + " bytes");
+}
+
+// ---- session 1: cold
+const store = new Map(), ls = new Map();
+let g = makeEnv(store, ls);
+await g.ready();
+const L = g.Module.yo2Lazy;
+g.read("/game/merge.dat", 0, toc);   // the game reads the directory first
+await settle(L);
+assert.ok(L.spans && L.spans.get("data/mini"), "directory parsed");
+const hotChunks = [...L.pinned.values()].filter((p) => p.tag === "hot").length;
+assert.ok(hotChunks >= 7, "hot set pinned: " + hotChunks);
+let before = syncXhr;
+readEntry(g, "data/mini"), readEntry(g, "data/deck"), readEntry(g, "data/bin#");
+assert.equal(syncXhr, before, "the hot set reads without a synchronous request");
+before = syncXhr;
+readEntry(g, "data/map/map_r01");   // My Room: a miss (not prefetched yet), then its lobby comes
+await settle(L);
+assert.ok([...L.pinned.values()].some((p) => p.tag === "map:a02"), "the lobby next to My Room is pinned");
+const r01miss = syncXhr - before;
+before = syncXhr;
+readEntry(g, "data/map/map_a02");   // through the door
+assert.equal(syncXhr, before, "the door's map reads without a synchronous request");
+await settle(L);
+assert.ok([...L.pinned.values()].some((p) => p.tag === "map:a01"), "a02's neighbours are pinned");
+assert.ok(![...L.pinned.values()].some((p) => p.tag === "map:x"), "nothing stale");
+assert.equal(ls.get("yo2-lazy-lobby"), "a02");
+readEntry(g, "data/avatar");   // a miss: read-ahead follows
+await settle(L);
+assert.ok(L.stats.syncMiss >= 1 && L.stats.prefetched > 0, "counters");
+assert.ok([...L.lru.keys()].length + L.pinned.size <= 64 + 128, "memory capped");
+assert.ok(store.size > 0, "chunks persisted");
+// what session 1 pins, session 2 loads before the game starts
+L.savePins();   // what the page does at pagehide
+console.log(`session 1: ${L.stats.syncMiss} sync misses (My Room ${r01miss}), ${L.stats.prefetched} prefetched, ${store.size} persisted, ${L.pinned.size} pinned`);
+
+// ---- session 2: a reload with the store and localStorage of session 1
+netFetch = 0, syncXhr = 0;
+g = makeEnv(store, ls);
+await g.ready();
+const L2 = g.Module.yo2Lazy;
+assert.ok(L2.pinned.size > 0 && L2.stats.fromStore > 0, "pins loaded from the store at boot");
+g.read("/game/merge.dat", 0, toc);
+readEntry(g, "data/mini"), readEntry(g, "data/map/map_a02");
+await settle(L2);
+assert.equal(syncXhr, 0, "a returning player's directory, hot set and lobby: no synchronous request");
+console.log(`session 2: ${syncXhr} sync, ${netFetch} network fetches, ${L2.stats.fromStore} from the store`);
+
+fetched.length = 0;
+// ---- scenes: session 3 learns what switching into the title and the login reads; session 4 (a reload) has it in
+// memory before the game asks
+const card = ent("data/card"), av = ent("data/avatar");
+const titleReads = [card.off, card.off + 2 * MB], loginReads = [av.off, card.off + 4 * MB];
+const scenes = (g, from, to, offs) => {
+    g.Module.onYo2Scene("begin", from, to);
+    for (const o of offs) g.read("/game/merge.dat", o, 64);
+    g.Module.onYo2Scene("end", from, to);
+    g.Module.onYo2Scene("begin", to, 0x63), g.Module.onYo2Scene("end", to, 0x63);   // (closes the recording window now)
+};
+let seen = [];
+const s3 = new Map(), l3 = new Map();
+g = makeEnv(s3, l3);
+await g.ready();
+g.Module.onYo2Scene = (k, f, t) => seen.push(k + f + ">" + t);   // the page's own handler still hears every event
+g.read("/game/merge.dat", 0, toc);
+scenes(g, 0x2c, 4, titleReads), scenes(g, 4, 6, loginReads);
+await settle(g.Module.yo2Lazy);
+assert.deepEqual(seen.slice(0, 2), ["begin44>4", "end44>4"], "the page handler is chained");
+assert.ok(["4", "6"].every((k) => g.Module.yo2Lazy.learned().sets[k]), "sets learned for the title and the login");
+l3.delete("yo2-lazy-pins");   // no saved working set: only what the scenes taught can be in memory
+syncXhr = 0;
+g = makeEnv(s3, l3);
+await g.ready();
+await settle(g.Module.yo2Lazy);
+g.read("/game/merge.dat", 0, toc);
+scenes(g, 0x2c, 4, titleReads), scenes(g, 4, 6, loginReads);
+assert.equal(syncXhr, 0, "a returning player's title and login reads are in memory before the game asks");
+console.log("scenes: ok");
+
+// ---- the duel deck (rt/decktap.c): its cards' big art is pinned before the duel shows them
+syncXhr = 0;
+g = makeEnv(new Map(), new Map());
+await g.ready();
+g.read("/game/merge.dat", 0, toc);
+await settle(g.Module.yo2Lazy);
+g.Module.yo2Lazy.prefetchCards([1, 9999]);   // card 0001 is in the archive, 9999 is not
+await settle(g.Module.yo2Lazy);
+assert.ok([...g.Module.yo2Lazy.pinned.values()].some((p) => p.tag === "deck"), "the deck's art is pinned");
+readEntry(g, "data/card/0001.png");
+assert.equal(syncXhr, 0, "a deck card's art reads without a synchronous request");
+console.log("deck: ok");
+
+// ---- a duel from the lobby: the generic duel effects pinned there, the NPC's deck (server) at janken, all released in
+// My Room
+g.Module.onYo2Scene("begin", 10, 12), g.Module.onYo2Scene("end", 10, 12);
+g.Module.onYo2Scene("begin", 12, 0x1e);
+await settle(g.Module.yo2Lazy);
+const tags = () => [...g.Module.yo2Lazy.pinned.values()].map((p) => p.tag);
+assert.ok(tags().includes("duelfx"), "duel effects pinned from the lobby on");
+assert.ok(tags().includes("npc"), "the NPC's cards pinned at janken");
+assert.ok(tags().includes("field"), "the duel's background, named by the server, pinned at janken");
+syncXhr = 0;
+readEntry(g, "data/y/duel/effect"), readEntry(g, "data/card/0002"), readEntry(g, "data/y2/duel/field/duelbg_a_02");
+assert.equal(syncXhr, 0, "effects and the NPC's art read without a synchronous request");
+g.Module.onYo2Scene("end", 12, 0x1e);
+g.Module.onYo2Scene("begin", 0x20, 10), g.Module.onYo2Scene("end", 0x20, 10);
+assert.ok(!tags().some((t) => ["duelfx", "duelui", "npc", "deck", "field"].includes(t)), "released back in My Room");
+console.log("duel: ok");
+
+fetched.length = 0;
+// ---- trickle: only when the server lets the HTTP cache keep game files; never kept in memory
+g = makeEnv(new Map(), new Map(), { cc: "public, max-age=31536000, immutable" });
+await g.ready();
+g.read("/game/merge.dat", 0, toc);
+await settle(g.Module.yo2Lazy);
+await sleep(300);
+const cardKeys = [...g.Module.yo2Lazy.lru.keys(), ...g.Module.yo2Lazy.pinned.keys()].filter((k) => +k.split("#")[1] >= Math.floor(card.off / MB));
+assert.equal(cardKeys.length, 0, "the trickle keeps nothing in memory");
+assert.ok(fetched.some((a) => a >= card.off), "the trickle fetched data/card");
+console.log("trickle: ok");
+
+// ---- prefetch=0: the plain lazy reads
+syncXhr = 0, netFetch = 0;
+g = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
+await g.ready();
+g.read("/game/merge.dat", 0, toc);
+readEntry(g, "data/mini");
+await sleep(50);
+assert.equal(netFetch, 0, "prefetch=0: no background fetch");
+console.log("prefetch=0: ok");
+{   // a script that wraps "the old" onYo2Scene (the live crash report): runs once per event, no recursion
+    const M = makeEnv(new Map(), new Map()).Module;
+    let n = 0;
+    const old = M.onYo2Scene;
+    M.onYo2Scene = (...a) => { n++; old(...a); };
+    M.onYo2Scene("begin", 4, 6);
+    M.onYo2Scene = M.onYo2Scene;   // self-assignment: ignored
+    M.onYo2Scene("end", 4, 6);
+    assert.equal(n, 2, "a wrapping listener runs once per event");
+    console.log("scene listeners: ok");
+}
+console.log("lazyfs_test ok");

@@ -404,6 +404,7 @@ void engCmdTurnCounter();   // FUN_00711b50
 void engCmdSetCard();   // FUN_00711d30
 // EngineCmd5.cpp
 void engCmdDraw();   // FUN_007120e0
+void engTagCmdDraw();   // FUN_00734250
 void engCmd56();   // FUN_00712440
 void engCmdShuffleDeck();   // FUN_00712460
 void engCmdReverseDecks();   // FUN_007125e0

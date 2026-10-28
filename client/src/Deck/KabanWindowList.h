@@ -47,7 +47,7 @@ int32_t group(int32_t kid);       // TODO(System) FUN_00716c30: kind -> search g
                                   //   7 spell, 8 trap, 9 token, ...)
 int32_t limit(int32_t kid);       // TODO(System) FUN_00716c10 -> FUN_0073c190: copies allowed (limited list)
 bool nameMatches(int32_t kid, const uint16_t* text);   // TODO(System) FUN_0073bcc0/FUN_0073bd30 + wcsstr
-bool textMatches(int32_t kid, const uint16_t* text);   // TODO(System) FUN_0073bc80 + wcsstr (the card text)
+bool textMatches(int32_t kid, const uint16_t* text);   // TODO(duel) FUN_0073bd30 (the card text, via FUN_00743d40) + wcsstr
 VcString miniFile(int32_t id);    // TODO(Deck A) FUN_00922010 util: the card's mini picture file name
 // FUN_007177f0: a monster (attribute < 8); id 0 is not a card
 inline bool isMonster(int32_t kid) { return kid != 0 && attribute(kid) < 8; }
@@ -55,17 +55,17 @@ inline bool isMonster(int32_t kid) { return kid != 0 && attribute(kid) < 8; }
 
 // ---------------------------------------------------------------- what the list asks the rest of the game
 // Whether one more copy of `id` may leave the trunk now (bright row) or not (dimmed to 0.5), per model mode.
-int32_t deckCopies(int32_t id);         // TODO(System) CDeckManager (DAT_012b28c4) vtbl+0x58: copies of id in the deck
-int32_t deckCopiesKonami(int32_t id);   // TODO(System) CDeckManager vtbl+0x60: copies of id's Konami id in the deck
+int32_t deckCopies(int32_t id);  // 0x00907c70 TODO(System) CDeckManager (DAT_012b28c4) vtbl+0x58: copies of id in deck
+int32_t deckCopiesKonami(int32_t id);   // 0x009066f0 TODO(System) CDeckManager vtbl+0x60: copies of its Konami id
 bool deckRefuses(int32_t id);           // TODO(Deck A) FUN_0094edf0 window: the deck window refuses this card
-int32_t tradeAvailable(int32_t id);     // TODO(System) DAT_012714b4[id*3+9] - [id*3+10]: tradable copies
+int32_t tradeAvailable(int32_t id);  // inline in the exe (in 0x009735d0) TODO(System) DAT_012714b4[id*3+9] - [id*3+10]
 int32_t tradeOffered(int32_t id);       // TODO(System) FUN_00994330: copies already in the trade offer
-int32_t tradeSlotsUsed();               // TODO(System) DAT_012b47b0+0x414: cards in the trade offer (max 10)
-bool presentHasRoom();                  // TODO(Deck B) DAT_012b3d94+0x404 < DAT_012b1e28+0x108 (present box)
-bool tpHasRoom();                       // TODO(Deck B) DAT_012b4444+0x440 < DAT_012b2180+0x108 (TP exchange)
-int32_t sceneId();                      // TODO(System) DAT_01271790+0x7c: the running scene
+int32_t tradeSlotsUsed();  // inline in the exe (in 0x009735d0) TODO(System) DAT_012b47b0+0x414: cards offered (max 10)
+bool presentHasRoom();  // inline in the exe (in 0x009735d0) TODO(Deck B) DAT_012b3d94+0x404 < DAT_012b1e28+0x108
+bool tpHasRoom();  // inline in the exe (in 0x009735d0) TODO(Deck B) DAT_012b4444+0x440 < DAT_012b2180+0x108
+int32_t sceneId();  // inline in the exe (in 0x00977450); TODO(System) DAT_01271790+0x7c: the running scene
 void sceneKabanPicked(int32_t scene, int32_t arg);   // TODO(Deck B) FUN_008d7b70 / 008f6c00 / 008ec360 / 008f1c60
-bool cardListContains(int32_t id);      // TODO(System) the deck-list check of the text search (DAT_012ae620 list)
+bool cardListContains(int32_t id);  // inline in the exe (in 0x009716e0) TODO(System) the text search's deck-list check
 int32_t deckWindowCopies(int32_t id);   // TODO(Deck A) FUN_0094ecc0 window: copies of id in the edited deck
 int32_t tradeOfferCopies(int32_t id);   // TODO(Deck B) FUN_009939c0: copies of id in the trade offer
 // The per-mode test the list repeats: may one more copy of `card` leave the trunk (row bright) or not (dimmed).
@@ -83,36 +83,36 @@ struct DragState {
 extern DragState* g_drag;   // TODO(System) DAT_012b3230
 
 // ---------------------------------------------------------------- System calls
-void mousePos(int32_t* x, int32_t* y);                     // TODO(System) app+0x148 vtbl+4
-int32_t mouseWheel();                                      // TODO(System) app+0x148 vtbl+0x58: wheel position
-void mediatorNotify(void* mediator, int32_t slot, void* colleague);   // TODO(System) IWindowTaskMediator vtbl[slot]
-void elemSetInputOff(void* elem, bool off);                // TODO(System) CElement +0x20 bit 1 (ignore the mouse)
+void mousePos(int32_t* x, int32_t* y);                     // 0x00542590 CMyMouseEx; TODO(System) app+0x148 vtbl+4
+int32_t mouseWheel();  // 0x00607780 CMyMouseEx; TODO(System) app+0x148 vtbl+0x58: wheel position
+void mediatorNotify(void* mediator, int32_t slot, void* colleague);   // inline (in 0x0096e7a0) TODO(System) vtbl[slot]
+void elemSetInputOff(void* elem, bool off);  // inline in the exe (in 0x0096e380) TODO(System) CElement +0x20 bit 1
 bool elemCreated(const void* elem);                        // TODO(System) FUN_0060e1c0
 void elemSetPos3(void* elem, float x, float y, float z);   // TODO(System) CElement +0x70/+0x74/+0x78
 void soundPlay(uint32_t id, int32_t arg);                  // TODO(System) FUN_00686560
 CSpriteElm* spriteCreate(void* parent, int32_t prio, const VcString& path);   // TODO(System) FUN_0061f030
-void spriteSetColor(CSpriteElm* s, float r, float g, float b, float a);       // TODO(System) +0xa4..+0xb0
-void spriteSetAlpha(CSpriteElm* s, float a);                                  // TODO(System) +0xb0
-void spriteSetSrc(CSpriteElm* s, int32_t u, int32_t v, int32_t w, int32_t h); // TODO(System) +0x94..+0xa0
-void spriteGetSrcSize(const CSpriteElm* s, int32_t* w, int32_t* h);           // TODO(System) +0x9c/+0xa0
-void spriteSetScale(CSpriteElm* s, float sx, float sy);    // TODO(System) +0x88/+0x8c
-void spriteSetScaleX(CSpriteElm* s, float sx);             // TODO(System) +0x88
-void spriteSetScaleY(CSpriteElm* s, float sy);             // TODO(System) +0x8c
+void spriteSetColor(CSpriteElm* s, float r, float g, float b, float a);  // inline in 0x0096e1d0 TODO(System) +0xa4..b0
+void spriteSetAlpha(CSpriteElm* s, float a);  // inline in the exe (in 0x00976cc0); TODO(System) +0xb0
+void spriteSetSrc(CSpriteElm* s, int32_t u, int32_t v, int32_t w, int32_t h); // inline in 0x00976cc0 TODO(System)
+void spriteGetSrcSize(const CSpriteElm* s, int32_t* w, int32_t* h);  // inline in 0x0096e7a0 TODO(System) +0x9c/+0xa0
+void spriteSetScale(CSpriteElm* s, float sx, float sy);  // inline in the exe (in 0x0096e2e0); TODO(System) +0x88/+0x8c
+void spriteSetScaleX(CSpriteElm* s, float sx);             // inline in the exe (in 0x0096cbc0); TODO(System) +0x88
+void spriteSetScaleY(CSpriteElm* s, float sy);             // inline in the exe (in 0x0096cbc0); TODO(System) +0x8c
 void spriteSetBlend(CSpriteElm* s, int32_t mode);          // TODO(System) FUN_0060dc20
 void elemScreenPos(const void* elem, float* x, float* y);          // TODO(System) FUN_0060dbe0
-void elemLayout(void* elem);                                       // TODO(System) CElement vtbl+0x34 (vf13)
-void elemSetFlagC7(void* elem, bool on);                           // TODO(System) CElement +0xc7
-void detailSetCard(void* detail, int32_t card);                    // TODO(System) +0x438 = card, +0x440 = -1
+void elemLayout(void* elem);  // 0x005ad6b0 KabanScroll / 0x005a29b0 FrameThin; TODO(System) CElement vtbl+0x34 (vf13)
+void elemSetFlagC7(void* elem, bool on);  // inline in the exe (in 0x009669e0); TODO(System) CElement +0xc7
+void detailSetCard(void* detail, int32_t card);  // inline in the exe (in 0x0096cae0) TODO(System) +0x438 card +0x440 -1
 void cardInfoSetCard(CWindowTaskCardInfoItem* item, int32_t id);    // TODO(System) FUN_00a12f80
 void cardInfoSetWidth(CWindowTaskCardInfoItem* item, float w);      // TODO(System) FUN_00a12f40
-CWindowTaskCardInfoItem* cardInfoItemCreate(void* parent, void* mediator, int32_t v, void* layout);
+CWindowTaskCardInfoItem* cardInfoItemCreate(void* parent, void* mediator, int32_t v, void* layout);  // 0x00a0f900
                                                                     // TODO(System) FUN_00a0f900
 CWindowTaskFrameThin* frameThinCreate(void* parent, void* mediator, int32_t v);   // TODO(System) FUN_005a0c00
 void scrollBaseSetRange(CWindowTaskKabanScroll* s, int32_t max);    // TODO(System) FUN_005ad4e0 CWindowTaskScroll
-float scrollBaseBarLength(CWindowTaskKabanScroll* s);               // TODO(System) CWindowTaskScroll vtbl+0x4c
-float scrollBasePosOf(CWindowTaskKabanScroll* s, int32_t index);    // TODO(System) CWindowTaskScroll vtbl+0x54
+float scrollBaseBarLength(CWindowTaskKabanScroll* s);  // 0x005acc60 TODO(System) CWindowTaskScroll vtbl+0x4c
+float scrollBasePosOf(CWindowTaskKabanScroll* s, int32_t index);  // 0x005ad5a0 TODO(System) CWindowTaskScroll vtbl+0x54
 void* scrollBaseConstruct(void* self);                              // TODO(System) FUN_005aaec0
-void* controllConstruct(void* self);                                // TODO(System) FUN_005de6b0 CWindowTaskControll
+void controllConstruct(void* self);                                 // TODO(System) FUN_005de6b0 CWindowTaskControll
 void controllDestruct(void* self);                                  // TODO(System) FUN_005de7e0
 void controllOnDestroy(void* self);                                 // TODO(System) FUN_005dec20 (vf06 base)
 void* modelConstruct(void* self);                                   // TODO(System) FUN_005ded60 CWindowTaskModel
@@ -139,7 +139,7 @@ void kabanSearchEnable(CWindowTaskKabanSearch* s, bool on);            // TODO(D
 void kabanSearchReset(CWindowTaskKabanSearch* s);                      // TODO(Deck A) FUN_00961880 kaban
 void kabanCardPlace(CWindowTaskKabanCard* c, float x, float y);        // TODO(Deck A) kaban: +0x374/+0x378, vf13
 void kabanCardSetDepth(CWindowTaskKabanCard* c, float z);              // TODO(Deck A) kaban: +0x384, vf13
-void kabanCardSetActive(CWindowTaskKabanCard* c, bool on);             // TODO(Deck A) kaban: +0x350
+void kabanCardSetActive(CWindowTaskKabanCard* c, bool on);  // inline in the exe (in 0x00974e60) TODO(Deck A) +0x350
 CWindowTaskDeckFigure* deckFigureCreate(void* parent, void* mediator, int32_t v);   // TODO(Deck A) FUN_00909220 parts
 CWindowTaskDeckBar* deckBarCreate(void* parent, void* mediator, int32_t v);         // TODO(Deck A) FUN_0090aca0 parts
 CWindowTaskKabanNumber* kabanNumberCreate(void* parent, void* mediator);            // TODO(Deck A) FUN_009553e0 kaban

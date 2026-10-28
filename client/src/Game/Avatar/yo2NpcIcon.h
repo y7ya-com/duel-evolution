@@ -8,7 +8,7 @@
 class CNpcStar : public CElement {
 public:
     static CNpcStar* create(CTask* parent, uint32_t priority, int32_t style);
-    void setStars(int32_t big, int32_t small);
+    void setStars(int32_t big, int32_t small);   // 0x009dac50
 
     uint8_t starBody_[0x430 - 0x340];   // 0x340 (laid out with yo2NpcIcon.cpp)
 };

@@ -127,7 +127,7 @@ def main():
         assert (rv["pid"], rv["name"], rv["level"], rv["titleId"], rv["w116"], rv["avatar0"]) == \
             ("100054", "Seto_Kaiba", "7", "11", "12", parts.hex()), rv
         assert (st["watchState"], st["match"], st["duel"], st["cancel"], st["create"], st["delete"]) == \
-            ("1", "0", "203.0.113.9:5760", "0", "0", "0"), st
+            ("1", "0", "203.0.113.9:5760", "0", "0", "-150"), st   # delete: still pending (the constructor's -150)
         fl = dict(f.split(":") for f in next(l for l in out if l.startswith("rflags")).split()[1:])
         assert (fl["2c"], fl["2d"], fl["30"], fl["2f"], fl["2a"], fl["2b"]) == ("2", "2", "2", "2", "2", "0"), fl
         a = Conn()
@@ -171,7 +171,8 @@ def main():
         whisper = W().u8(0).u8(3).u32(100051).u32(0).bytes() + LP._s("Yugi Muto", 16) + b"hola" + bytes(1)
         h.send(0x4402, whisper)
         out = run_script(exe, ["call lb.prefix=3,[W]_", "rx lobby " + frames(h.sent), "dump rooms"])
-        assert lines(out, "chat") == ["chat 2 1000 0 Yo:hello", "chat 3 100051 0 [W]_Yugi_Muto:hola"], lines(out, "chat")
+        # channel 2 shows prefix 0, which CNetLobby::clear sets to L"@0" (the UI sets real prefixes later)
+        assert lines(out, "chat") == ["chat 2 1000 0 @0Yo:hello", "chat 3 100051 0 [W]_Yugi_Muto:hola"], lines(out, "chat")
         out = run_script(exe, ["call lb.rank=12", "rx lobby " + frames(h.sent), "dump rooms"])
         assert lines(out, "chat") == []
         print("ok: chat 0x4400 -> h_chat -> 0x4402 echo, whisper prefix, nothing in My Room")

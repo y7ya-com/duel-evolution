@@ -36,6 +36,9 @@ int32_t ygSocketSelect(int32_t sock, uint32_t notify) {
 CNetGate gate;
 CNetAccount acc;
 CNetLobby lobby;
+CNetUsb usb;
+static YgoUsbKey s_usbKey;
+YgoUsbKey* appUsbKey() { return &s_usbKey; }
 
 static void open(CMessageIOBase& o) {
     o.ensureConn();
@@ -48,9 +51,13 @@ static void open(CMessageIOBase& o) {
 
 static void setup() {
     acc.init();
+    lobby.init();   // the game's CNetLobby constructor (results pending, rank 1, ...)
+    usb.init();
+    gate.init();   // its address from the (fake) system config
+    for (int i = 0; i < 16; i++) s_usbKey.code[i] = (uint8_t)(0xc0 + i);
     strcpy(acc.me.user, "duenoprueba");
     strcpy(acc.me.password, "clave-inventada1");
-    for (auto* o : {(CMessageIOBase*)&gate, (CMessageIOBase*)&acc, (CMessageIOBase*)&lobby}) open(*o);
+    for (auto* o : {(CMessageIOBase*)&gate, (CMessageIOBase*)&acc, (CMessageIOBase*)&lobby, (CMessageIOBase*)&usb}) open(*o);
 }
 
 static void build() {
@@ -196,11 +203,17 @@ void dumpPlayer(const char* k, const CPlayerInfo& p) {
 }
 
 static void dump(const std::string& what) {
+    if (what == "usb") {
+        printf("usb result=%u flags=%u,%u cards=%u,%u,%u cardResult=%d\n", usb.result, usb.flag(USB_REQ_CHECK),
+               usb.flag(USB_REQ_CARDS), s_usbKey.cards[0], s_usbKey.cards[1], s_usbKey.cards[2], s_usbKey.cardResult);
+        return;
+    }
     if (const NetCliFn* f = NetCliReg::find("dump", what)) {
         (*f)("");
     } else if (what == "gate") {
         printf("gate listing=%u result=%d flag=%u list=%d\n", gate.listing, gate.result, gate.flag(GATE_REQ_VERSION),
                gate.list() != nullptr);
+        printf("gateaddr %s %u\n", gate.host, gate.port);
         for (const CServerInfo& e : gate.servers)
             printf("srv %d %d %s %s %u %u %d %d %d %u\n", e.id, e.kind, str(e.name).c_str(), e.ip, e.port, e.players, e.lang, e.rank,
                    e.area, e.extra);
@@ -248,12 +261,14 @@ int main(int argc, char** argv) {
             g_in.insert(g_in.end(), w.begin(), w.end());
             if (a == "gate") pump(gate, [] { return gate.onRecv(); });
             else if (a == "account") pump(acc, [] { return acc.onRecv(); });
+            else if (a == "usb") pump(usb, [] { return usb.onRecv(); });
             else pump(lobby, [] { return lobby.onRecv(acc); });
         } else if (cmd == "call") {
             std::cin >> a;
             g_out.clear();
             if (a == "acc.auth") acc.sendAuth();
             else if (a == "lb.auth") lobby.sendAuth(acc);
+            else if (a == "usb.key") usb.sendKey();
             else if (a == "acc.connect") printf("connect_result %d\n", acc.connect(&gate));
             else if (a == "lb.connect") printf("connect_result %d\n", lobby.connect(&gate));
             else if (a.rfind("lb.want=", 0) == 0) sscanf(a.c_str() + 8, "%hhu,%hhu,%hhu", &lobby.rgn, &lobby.rank, &lobby.area);

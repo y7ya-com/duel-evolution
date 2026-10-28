@@ -40,7 +40,7 @@ uint32_t kindZone(int32_t kind) {
     }
 }
 
-// a position code (FUN_00742da0, the u16 builder): player | zone << 1 | index << 6 | face up << 14 | defense << 15
+// @yo2 0x00742da0 a position code (the exe writes it through a u16*): player | zone << 1 | index << 6 | face up << 14 | defense << 15
 uint16_t makeCode(uint32_t player, bool faceUp, bool defense, uint32_t zone, uint32_t index) {
     return (uint16_t)((player & 1u) | (zone & 0x1fu) << 1 | (index & 0xffu) << 6 | (uint32_t)faceUp << 14 |
                       (uint32_t)defense << 15);

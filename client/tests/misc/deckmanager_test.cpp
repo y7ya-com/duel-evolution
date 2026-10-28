@@ -24,7 +24,7 @@ bool yo2LoadFile(const char* name, std::vector<uint8_t>& out) {
     out = it->second;
     return true;
 }
-bool yo2SaveFile(const char* name, const void* data, uint32_t size) {
+bool yo2SaveFile(const char* name, const void* data, size_t size) {
     g_files[name].assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
     return true;
 }

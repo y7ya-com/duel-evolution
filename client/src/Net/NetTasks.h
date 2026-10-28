@@ -32,7 +32,7 @@ enum : int32_t { DIALOG_OK = 4000, DIALOG_NO = 0xfa1, INPUT_OK = 0xfa2, INPUT_CA
 // CNetGateTask (0xa0): connect to the gate, send the version, wait for the server list, say goodbye.
 class CNetGateTask : public CEasyTask {
 public:
-    static void spawn(CTask* parent, CTask* uiParent);   // FUN_006a89d0
+    static CNetGateTask* spawn(CTask* parent, CTask* uiParent);   // FUN_006a89d0
     CNetGateTask();
     ~CNetGateTask() override;                             // FUN_006a8e50
     bool onInit() override;                               // FUN_006a8ee0
@@ -135,7 +135,7 @@ YO2_SIZEOF(CNetAccountTask, 0xf8);
 // CNetAccountTaskReqDuellpass150 (0x78): asks the account server once for the unopened DUELPASS packs (0x3110).
 class CNetAccountTaskReqDuellpass150 : public CEasyTask {
 public:
-    static void spawn(CTask* parent);       // FUN_006a7030
+    static CNetAccountTaskReqDuellpass150* spawn(CTask* parent);   // FUN_006a7030
     ~CNetAccountTaskReqDuellpass150() override;   // FUN_006a7100
     bool onInit() override;                 // FUN_006a7120
     bool onMain() override;                 // FUN_006a7150

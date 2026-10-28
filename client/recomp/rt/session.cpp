@@ -130,11 +130,11 @@ struct Panel {
 uint32_t child(uint32_t off) { return RD32m(panel.win + off); }
 
 const float MID = 232, LEFT = 16, WIDE = 432;   // the window's centre; the column's left edge and width
-const float LINK_Y[4] = {210, 210, 216, 210};   // by mode
+const float LINK_Y[4] = {216, 216, 220, 216};   // by mode
 
 // The status line: a mark by state (the game's text has one colour, see ui_kit.h), then the text.
 void status(CPU& t, const std::string& text, Dot d = IDLE) {
-    static const char* MARK[4] = {"\u25cb", "\u25cc", "\u25cf", "\u2713"};   // ○ ◌ ● ✓
+    static const char* MARK[4] = {" ", "\u25cc", "\u25cf", "\u2713"};   // idle: nothing; ◌ ● ✓
     ui_set_text(t, panel.dot, MARK[d]);
     ui_set_text(t, panel.status, text.c_str());
 }
@@ -145,7 +145,7 @@ void centred(CPU& t, uint32_t el, float y) {
     ui_place(t, el, LEFT + 4, y);
 }
 
-// Rows (window coordinates): the header strip 8-36, then the column.
+// Rows (window coordinates): the greeting strip 8-50, then the column.
 void layout(CPU& t) {
     Mode m = panel.mode;
     bool fields = m != VERIFY;
@@ -158,24 +158,25 @@ void layout(CPU& t) {
     ui_show(panel.code_text, m == VERIFY), ui_show(panel.copy, m == VERIFY), ui_show(panel.steps, m == VERIFY);
     if (m == VERIFY) {
         ui_set_text(t, panel.note, "Your verification code");
-        centred(t, panel.note, 42);
+        centred(t, panel.note, 56);
         std::string spaced;
         for (char c : panel.code) spaced += (spaced.empty() ? "" : " "), spaced += c;
         ui_set_text(t, panel.code_text, spaced.c_str());
-        centred(t, panel.code_text, 58);
-        ui_place(t, panel.copy, MID, 104);
+        centred(t, panel.code_text, 72);
+        ui_place(t, panel.copy, MID, 118);
         std::string invite = panel.invite;
         if (!invite.compare(0, 8, "https://")) invite = invite.substr(8);
-        ui_set_text(t, panel.steps, ("1. Join our Discord: " + invite + "\n2. In #verify, tap Verify my account and paste "
-                                     "the code.\n3. Come back here and press Continue.").c_str());
-        ui_place(t, panel.steps, LEFT, 122);
+        // Three short lines: the web's DejaVu runs about 8 px a character, so a longer one wraps into Continue.
+        ui_set_text(t, panel.steps, ("1. Join our Discord: " + invite + "\n2. In #verify, tap Verify my account.\n"
+                                     "3. Paste the code, then press Continue.").c_str());
+        ui_place(t, panel.steps, LEFT, 130);
     } else if (m == RESET) {
         ui_set_text(t, panel.note, "Get a code in #reset-password on our Discord.");
-        centred(t, panel.note, 78);
+        centred(t, panel.note, 86);
     }
     uint32_t ok = child(0x47c);
     ui_set_text(t, ok, m == SIGNIN ? "Sign in" : m == SIGNUP ? "Create account" : m == VERIFY ? "Continue" : "Reset password");
-    ui_place(t, ok, MID, m == VERIFY ? 196 : 188);
+    ui_place(t, ok, MID, m == VERIFY ? 200 : 194);
     // The links: "Create account · Reset password" around the centre, else one centred "Back to sign in".
     const char* l1 = m == SIGNIN ? "Create account" : "Back to sign in";
     ui_set_text(t, panel.link1, l1);
@@ -185,33 +186,32 @@ void layout(CPU& t) {
     ui_place(t, panel.link1, m == SIGNIN ? MID - 10 - 200 : MID - 100, ly);
     ui_place(t, panel.mid, MID - 3, ly), ui_place(t, panel.link2, MID + 10, ly);
     ui_show(panel.mid, m == SIGNIN), ui_show(panel.link2, m == SIGNIN), ui_show(panel.underline, false), panel.under = 0;
-    status(t, "Link standby, authorise with Discord");
+    status(t, "");
 }
 
 void build(CPU& t) {
     for (uint32_t off : {0x44c, 0x458, 0x464, 0x470, 0x488}) ui_show(child(off), false);   // Save boxes + labels, Cancel
     uint32_t header = child(0x410);
-    ui_set_text(t, header, " ");
-    ui_set_size(t, header, 448, 28);
+    // The original greeting ("Welcome to the world of Yu-Gi-Oh! ONLINE! / Please enter ...") in the dialog's own
+    // header field, reworded, the field cut from 448 x 64 to its two lines.
+    ui_set_text(t, header, "Welcome to the world of Duel Evolution!\nPlease sign in to play.");
+    ui_set_size(t, header, 448, 42);
     // The window frame (CWindowTaskFrameBottomThick at +0x404): its lower body is +0x420 tall (184 of 264, so the
-    // header band was 80); 220 fits the slim header. Then its slot 0x34 re-lays it out, as the dialog's init does.
+    // header band was 80); 206 fits the greeting. Then its slot 0x34 re-lays it out, as the dialog's init does.
     if (uint32_t frame = child(0x404)) {
-        float body = 220;
+        float body = 206;
         memcpy(rc_mem + frame + 0x420, &body, 4);
         t.ecx = frame;
         rc_call(&t, RD32m(RD32m(frame) + 0x34), 0, nullptr);
     }
-    uint32_t title = ui_label(t, panel.win, "AUTHENTICATION"), enc = ui_label(t, panel.win, "ENCRYPTED");
-    ui_place(t, title, 20, 14);
-    ui_set_align(t, enc, 2), ui_place(t, enc, 20, 14);
     panel.discord = ui_button(t, panel.win, "Sign in with Discord", (int)WIDE, 26);
-    ui_place(t, panel.discord, MID, 58);
+    ui_place(t, panel.discord, MID, 68);
     panel.divider = ui_label(t, panel.win, "――――――――――   or   ――――――――――");
-    centred(t, panel.divider, 78);
+    centred(t, panel.divider, 88);
     // The dialog's own labels above its own inputs, on the column's left edge; OK at the column's width.
-    ui_place(t, child(0x41c), LEFT, 94), ui_place(t, child(0x428), LEFT, 132);
+    ui_place(t, child(0x41c), LEFT, 104), ui_place(t, child(0x428), LEFT, 140);
     ui_set_size(t, child(0x434), WIDE + 16, 32), ui_set_size(t, child(0x440), WIDE + 16, 32);
-    ui_place(t, child(0x434), LEFT - 8, 102), ui_place(t, child(0x440), LEFT - 8, 140);
+    ui_place(t, child(0x434), LEFT - 8, 112), ui_place(t, child(0x440), LEFT - 8, 148);
     ui_set_size(t, child(0x47c), WIDE, 26);
     panel.link1 = ui_label(t, panel.win, " ", 200), panel.underline = ui_label(t, panel.win, " ", 200);
     panel.mid = ui_label(t, panel.win, "·", 16);
@@ -222,7 +222,7 @@ void build(CPU& t) {
     panel.code_text = ui_label(t, panel.win, " ", 424, 36);
     ui_set_font_size(t, panel.code_text, 28);
     panel.dot = ui_label(t, panel.win, " ", 16), panel.status = ui_label(t, panel.win, " ");
-    ui_place(t, panel.dot, LEFT, 236), ui_place(t, panel.status, LEFT + 16, 236);
+    ui_place(t, panel.dot, LEFT, 240), ui_place(t, panel.status, LEFT + 16, 240);
     panel.built = true;
     layout(t);
 }

@@ -31,3 +31,5 @@ int32_t yaneFpsGet();
 void yaneKeyUpdate();           // CKey::Input (the app's one)
 // yaneSDK's CFile::Read (loose files, then the archives in the path list): the whole file, or false
 bool yaneReadFile(const char* name, void (*sink)(void* user, const void* data, uint32_t size), void* user);
+bool yaneFileExists(const char* name);                 // CFile::PathFileExists
+void yaneSetFileLanguage(char letter, char fallback);  // CFile::m_szLanguage: what a '?' in a file name becomes

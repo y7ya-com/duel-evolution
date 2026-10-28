@@ -11,6 +11,13 @@ static const char kHeader[] = "C:\\yugionline\\yo2\\client\\src\\Pack\\yo2CardPa
 static const char kPackDir[] = "data/cardpack/";
 
 PackTable* g_packTable = nullptr;
+// @yo2 0x0084d6b0 the __xc entry of the table's owner: its constructor is empty (0x0084d6d0); at exit (0x0084d710,
+// once: bit 0 of DAT_012ae368) it destroys and frees whatever table is left
+// @yo2 0x0084d6d0
+// @yo2 0x0084d710
+static struct PackTableOwner {
+    ~PackTableOwner() { delete g_packTable; }
+} s_packTableOwner;
 
 // @yo2 0x0084d550 static initializer: the empty table
 void packTableCreate() {
@@ -116,6 +123,7 @@ float CCardPack::completion() const {
 }
 
 // @yo2 0x0084e340
+// @yo2 0x0084fa70 vector<uint16_t>::size
 void CCardPack::cards(std::vector<uint16_t>& out) const {
     std::vector<uint8_t> raw = readPackFile(isDeck() ? ydc : iid);
     for (size_t i = 0; i < raw.size() / 2; i++)

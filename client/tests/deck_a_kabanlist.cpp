@@ -174,7 +174,7 @@ DK_STUB void scrollBaseSetRange(CWindowTaskKabanScroll* s, int32_t max) { s->ste
 DK_STUB float scrollBaseBarLength(CWindowTaskKabanScroll*) { return 16.0f; }
 DK_STUB float scrollBasePosOf(CWindowTaskKabanScroll*, int32_t i) { return (float)i * 4; }
 DK_STUB void* scrollBaseConstruct(void* s) { return s; }
-DK_STUB void* controllConstruct(void* s) { return s; }
+DK_STUB void controllConstruct(void*) {}
 DK_STUB void controllDestruct(void*) {}
 DK_STUB void controllOnDestroy(void*) {}
 DK_STUB void* modelConstruct(void* s) { return s; }

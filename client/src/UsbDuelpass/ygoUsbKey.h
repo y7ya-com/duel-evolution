@@ -16,9 +16,15 @@ struct YgoUsbKey {
     uint32_t unk00;       // 0x00 not touched here
     int32_t state;        // 0x04 State
     uint8_t code[16];     // 0x08 the DUELPASS code, from offset 0x12 of what MagicKey returns
+    uint8_t _18[0x108 - 0x18];
+    uint32_t cards[3];    // 0x108 the gift's card ids (CNetUsb 0x8205, src/Net/NetUsb.cpp)
+    uint8_t _114[4];
+    int32_t cardResult;   // 0x118 0x8205's second byte
 };
 YO2_AT(YgoUsbKey, state, 0x04);
 YO2_AT(YgoUsbKey, code, 0x08);
+YO2_AT(YgoUsbKey, cards, 0x108);
+YO2_AT(YgoUsbKey, cardResult, 0x118);
 
 // The platform side (src/UsbDuelpass/ygoUsbKeyPlatform.cpp off Windows; harness/hooks/usbduelpass.cpp inside the exe).
 struct OsVersion {

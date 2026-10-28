@@ -8,6 +8,8 @@
 #include "System/vc6.h"
 #include "System/yo2Math.h"
 
+class FieldWalkGrid;   // yo2FieldWalk.h
+
 // Where a player coming from `from` enters a map. Map 8 (the duel room) has several entries per map: leaving a room
 // puts the player at one of them at random.
 struct FieldMapEntry {
@@ -21,10 +23,13 @@ YO2_SIZEOF(FieldMapEntry, 0x10);
 
 struct FieldMapInfo {
     enum { ENTRIES = 10 };
-    char name[0x104];                       // 0x000 "Map_d01_01": the map's section in FieldMapData.txt
+    char name[0x100];                       // 0x000 "Map_d01_01": the map's section in FieldMapData.txt
+    FieldWalkGrid* grid;                    // 0x100 its walk grid (none for r01, d05)
     FieldMapEntry entries[ENTRIES];         // 0x104
 };
 YO2_SIZEOF(FieldMapInfo, 0x1a4);
+
+extern vc6::string g_fieldMapDir;   // DAT_012bb3e0 "data/Map/": where CFieldMap reads its maps
 
 enum { FIELD_MAPS = 10 };
 extern const FieldMapInfo g_fieldMaps[FIELD_MAPS];   // DAT_00d2d4d0

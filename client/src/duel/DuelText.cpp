@@ -7,6 +7,18 @@
 #include <string>
 #include <vector>
 
+#include "Game/yo2GameData.h"
+
+// The exe keeps every card / text table in a yaneSDK CFile global (0x40 bytes, ctor FUN_00525dc0); FUN_0073b640
+// fills them. Each global has a static initialiser (call the ctor wrapper, then register the atexit wrapper), the ctor
+// wrapper (ECX = the object), the atexit registration and the atexit (dtor) wrapper, in that order below. The tables
+// here stand for those globals (in the game, the i686 build, the code reads the exe's objects directly):
+//   CARD_Name_<lang>  (CFile at 0x012a12c0): @yo2 0x0073b080 @yo2 0x0073b0a0 @yo2 0x0073b0c0 @yo2 0x0073b0e0
+//   CARD_Indx_<lang>  (CFile at 0x012a1280): @yo2 0x0073b100 @yo2 0x0073b120 @yo2 0x0073b140 @yo2 0x0073b160
+//   CARD_Desc_<lang>  (CFile at 0x012a1240): @yo2 0x0073b180 @yo2 0x0073b1a0 @yo2 0x0073b1c0 @yo2 0x0073b1e0
+//   CARD_Sort_<lang>  (CFile at 0x012a1200): @yo2 0x0073b200 @yo2 0x0073b220 @yo2 0x0073b240 @yo2 0x0073b260
+//   DLG_Indx_<lang>   (CFile at 0x012a11c0): @yo2 0x0073b280 @yo2 0x0073b2a0 @yo2 0x0073b2c0 @yo2 0x0073b2e0
+//   DLG_Text_<lang>   (CFile at 0x012a1180): @yo2 0x0073b300 @yo2 0x0073b320 @yo2 0x0073b340 @yo2 0x0073b360
 #if defined(_WIN32) && defined(__i386__)
 // In the game the tables are the exe's CBinFile objects (FUN_0073b640 loads them; data at +0x18, a 4-byte header
 // skipped when +0x34 is set, FUN_00527d30). No bounds, as in the exe.
@@ -23,12 +35,17 @@ static std::vector<uint8_t> s_dlgIndx, s_dlgText, s_cardIndx, s_cardName, s_card
 #endif
 
 static bool readAll(const std::string& path, std::vector<uint8_t>& out) {
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return false;
-    out.clear();
-    uint8_t buf[4096];
-    for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) out.insert(out.end(), buf, buf + n);
-    fclose(f);
+    std::string g;
+    if (gameReadFile(path.c_str(), &g)) {   // the game's data (merge.dat), else a plain file
+        out.assign(g.begin(), g.end());
+    } else {
+        FILE* f = fopen(path.c_str(), "rb");
+        if (!f) return false;
+        out.clear();
+        uint8_t buf[4096];
+        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) out.insert(out.end(), buf, buf + n);
+        fclose(f);
+    }
     out.push_back(0);   // terminators past the end (narrow and UTF-16) so a bad offset still reads a string
     out.push_back(0);
     return true;
@@ -40,6 +57,13 @@ bool textLoad(const char* dir, char lang) {
     return readAll(d + "/dlg_indx_" + l + ".bin", s_dlgIndx) && readAll(d + "/dlg_text_" + l + ".bin", s_dlgText) &&
            readAll(d + "/card_indx_" + l + ".bin", s_cardIndx) && readAll(d + "/card_name_" + l + ".bin", s_cardName) &&
            readAll(d + "/card_sort_" + l + ".bin", s_cardSort);
+}
+
+// @yo2 0x0073b640 the card and text tables of data/bin#/ (CARD_Name_R / CARD_Indx_R aren't read: nothing uses them);
+// language -1 loads only the card properties
+void yo2LoadCardText(int32_t language) {
+    cardDbLoad("data/bin#");
+    if (language >= 0 && language < 7) textLoad("data/bin#", "JEGFISK"[language]);
 }
 
 // offset table entry k (stride bytes) into the text file; out of range = ""
@@ -185,3 +209,9 @@ void wtextStripMarks(char16_t* dst, TextRef src) {
         s = s.substr(0, i) + (i + 2 < s.size() ? s.substr(i + 2) : std::u16string());
     wput(dst, s);
 }
+
+// the duel scene's names for two of these (src/duel/SceneCommon.h)
+namespace ds {
+void dlgTextW(char16_t* out, int32_t id) { wtextStripMarks(out, id); }                                  // 0x00744a90
+void formatNumW(char16_t* out, const char16_t* fmt, int32_t n) { wtextFormatD(out, (const char*)fmt, n); }   // 0x00743ae0
+}   // namespace ds

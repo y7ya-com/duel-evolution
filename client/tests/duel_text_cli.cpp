@@ -1,13 +1,33 @@
 // Checks src/duel/DuelText.cpp (the duel's text formatting, FUN_00745e50..FUN_00746230) on literal strings.
 #include "duel/CardDB.h"
 #include "duel/DuelText.h"
+#include "Game/yo2GameData.h"
 
 #include <cstdio>
+#include <cctype>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
+
+// the game's file provider over the card directory: "data/bin#/<name>" -> <dir>/<name> lowercased (as merge.dat's
+// lookup ignores case)
+static std::string s_binDir;
+static bool binProvider(const char* path, std::string* out) {
+    std::string p = path;
+    if (p.rfind("data/bin#/", 0) != 0) return false;
+    p = p.substr(10);
+    for (char& c : p) c = (char)std::tolower((unsigned char)c);
+    std::ifstream f(s_binDir + "/" + p, std::ios::binary);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    *out = ss.str();
+    return true;
+}
 
 int main(int argc, char** argv) {
     char b[256];
@@ -44,7 +64,9 @@ int main(int argc, char** argv) {
     wtextCopy(w, (const char*)arg);
     CHECK(std::u16string(w) == u"X");
     if (argc > 1) {   // the shipped DLG/CARD text (UTF-16LE): DLG entry 2 and a card name
-        CHECK(textLoad(argv[1], 'E') && cardDbLoad(argv[1]));
+        s_binDir = argv[1];
+        gameSetFileProvider(binProvider);
+        yo2LoadCardText(1);   // E
         wtextCopy(w, 2);
         CHECK(std::u16string(w).rfind(u"@3Summoning@0 this @3monster", 0) == 0);
         wtextCopy(w, textCardName(4007));   // internal id 4007 = Blue-Eyes White Dragon

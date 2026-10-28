@@ -36,16 +36,20 @@ int CDialogCallback::onResult(CWindowTaskModel*, CALLBACK_MESSAGE_TYPE message, 
 // --- CWindowModelThin --------------------------------------------------------------------------------------------
 
 // @yo2 0x005e3ef0 CWindowModelThin::create (priority 10000)
-// @yo2 0x005e3fd0 CWindowModelThin::setup (create's position, default size 336 x 144, style)
 CWindowModelThin* CWindowModelThin::create(CTask* parent, float x, float y, int32_t style) {
     auto* w = new CWindowModelThin;
-    w->x_ = x;
-    w->callback_ = nullptr;
-    w->w_ = 336;
-    w->h_ = 144;
-    w->y_ = y;
-    w->style_ = style;
+    w->setup(x, y, style);
     return dynamic_cast<CWindowModelThin*>(w->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005e3fd0 CWindowModelThin::setup (create's position, default size 336 x 144, style)
+void CWindowModelThin::setup(float x, float y, int32_t style) {
+    x_ = x;
+    callback_ = nullptr;
+    w_ = 336;
+    h_ = 144;
+    y_ = y;
+    style_ = style;
 }
 
 // @yo2 0x005e3a80 CWindowModelThin::CWindowModelThin

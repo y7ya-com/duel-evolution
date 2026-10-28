@@ -107,7 +107,12 @@ public:
     wstring(const char16_t* s) { assign(s, s ? std::char_traits<char16_t>::length(s) : 0); }
     wstring(std::u16string_view s) { assign(s.data(), s.size()); }
     wstring(const wstring& o) { assign(o.ptr_, o.len_); }
+    wstring(wstring&& o) noexcept { swap(o); }
     ~wstring() { tidy(); }
+    wstring& operator=(wstring&& o) noexcept {
+        swap(o);
+        return *this;
+    }
     wstring& operator=(const wstring& o) {
         if (this != &o)
             assign(o.ptr_, o.len_);
@@ -130,9 +135,17 @@ public:
         return *this;
     }
 
+    // append(n, ch)
+    wstring& append(size_t n, char16_t c) {
+        std::u16string t{std::u16string_view(*this)};
+        t.append(n, c);
+        return assign(t.data(), t.size());
+    }
+
     const char16_t* c_str() const { return ptr_ ? ptr_ : u""; }
     size_t size() const { return len_; }
     bool empty() const { return len_ == 0; }
+    char16_t operator[](size_t i) const { return ptr_[i]; }
     operator std::u16string_view() const { return {c_str(), len_}; }
     bool operator==(std::u16string_view s) const { return std::u16string_view(*this) == s; }
     bool operator!=(std::u16string_view s) const { return !(*this == s); }
@@ -210,6 +223,8 @@ public:
     list& operator=(const list&) = delete;
     // @yo2 0x0062a7e0 list<CTask*>::~list
     // @yo2 0x0062a870 list<CTaskPtrBase*>::~list
+    // @yo2 0x005e35c0 list<CWindowTaskModel*>::~list
+    // @yo2 0x009beb40 list<T*>::~list (another pointer-list instance)
     ~list() {
         clear();
         ::operator delete(head_);
@@ -273,6 +288,27 @@ public:
     vector() = default;
     vector(const vector&) = delete;
     vector& operator=(const vector&) = delete;
+    // @yo2 0x00585d10 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00585d50 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00585d90 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x0058bf40 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x0058d020 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00590dc0 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00590e00 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00590e40 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00590e80 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00590ec0 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x005945c0 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00599d90 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x005d8700 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x005e3580 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x005ef940 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x005feca0 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x0060fe70 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00621940 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x006afb80 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x006afc40 vector<T*>::_Tidy (one instance per element type)
+    // @yo2 0x00834940 vector<T*>::_Tidy (one instance per element type)
     ~vector() { ::operator delete(first_); }
 
     T* begin() const { return first_; }
@@ -287,6 +323,26 @@ public:
     // @yo2 0x0062aa10 uninitialized_fill_n<CTask**>
     // @yo2 0x0062aa50 construct<CTask*>
     // @yo2 0x0062a8e0 destroy<CTask**> (empty for PODs)
+    // @yo2 0x00586180 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00586450 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00586470 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x0058ccb0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00590fd0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00590ff0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00591010 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00591030 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00591050 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x005db420 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x005db440 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x005e3700 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x005ffde0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x005ffe00 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x0060feb0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00621980 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x006b0150 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x006b02d0 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00817280 destroy<T*> (empty for PODs; one instance per element type)
+    // @yo2 0x00834a00 destroy<T*> (empty for PODs; one instance per element type)
     void push_back(const T& v) {
         if (last_ == end_) {
             size_t n = size();
@@ -305,8 +361,47 @@ public:
         --last_;
         return it;
     }
+    // @yo2 0x005d8180 vector<CDupSprite::Instance>::reserve
+    void reserve(size_t n) {
+        if (n <= static_cast<size_t>(end_ - first_))
+            return;
+        T* p = static_cast<T*>(::operator new(n * sizeof(T)));
+        T* e = uninitializedCopy(first_, last_, p);
+        ::operator delete(first_);
+        first_ = p;
+        last_ = e;
+        end_ = p + n;
+    }
+    // Grows with insert(end(), n, v) (VC6: capacity size + max(size, n)) or cuts with erase(begin() + n, end()).
+    // @yo2 0x005de100 copy<unsigned char*>
+    // @yo2 0x00586a00 vector<T>::insert(pos, n, v) (12-byte elements; one instance per type)
+    // @yo2 0x00586e00 vector<T>::insert(pos, n, v) (12-byte elements; one instance per type)
+    // @yo2 0x00587200 vector<T>::insert(pos, n, v) (12-byte elements; one instance per type)
+    // @yo2 0x00591e10 vector<T>::insert(pos, n, v) (12-byte elements; one instance per type)
+    // @yo2 0x005dbc60 vector<T>::insert(pos, n, v) (12-byte elements; one instance per type)
+    void resize(size_t n, const T& v) {
+        size_t size0 = size();
+        if (n < size0) {
+            last_ = first_ + n;
+            return;
+        }
+        if (n - size0 > static_cast<size_t>(end_ - last_)) {
+            size_t cap = size0 + (size0 < n - size0 ? n - size0 : size0);
+            T* p = static_cast<T*>(::operator new(cap * sizeof(T)));
+            T* e = uninitializedCopy(first_, last_, p);
+            ::operator delete(first_);
+            first_ = p;
+            last_ = e;
+            end_ = p + cap;
+        }
+        while (last_ != first_ + n)
+            *last_++ = v;
+    }
 
     // @yo2 0x0062a9d0 uninitialized_copy<CTask**>
+    // @yo2 0x006007f0 uninitialized_copy<T**> (the app's pointer vector)
+    // @yo2 0x00600830 uninitialized_fill_n<T**> (the app's pointer vector)
+    // @yo2 0x00601c60 construct<T*> (the app's pointer vector)
     static T* uninitializedCopy(const T* from, const T* to, T* out) {
         for (; from != to; ++from, ++out)
             *out = *from;
@@ -324,10 +419,36 @@ private:
 // so exe code can only walk trees whose nil is the exe's own. Matching that buys nothing, so only the 16-byte
 // footprint {allocator, key_compare, head, multi, size} is kept and the tree is a std::map behind the head slot.
 // ponytail: not exe-memory compatible; write a real VC6 _Tree if a diff test ever needs to walk one.
+// The exe's _Tree instances this replaces (one per key/value type):
+// @yo2 0x00587e20 _Tree::iterator::_Inc
+// @yo2 0x00587e90 _Tree::iterator::_Inc
+// @yo2 0x0059fd90 _Tree::iterator::_Inc
+// @yo2 0x005dce80 _Tree::iterator::_Inc
+// @yo2 0x00612d60 _Tree::iterator::_Inc
+// @yo2 0x00636d00 _Tree::iterator::_Inc
+// @yo2 0x00594780 _Tree::iterator::_Inc
+// @yo2 0x00585eb0 _Tree::begin
+// @yo2 0x00586490 _Tree::begin
+// @yo2 0x0059f4d0 _Tree::begin
+// @yo2 0x005db460 _Tree::begin
+// @yo2 0x00612380 _Tree::begin
+// @yo2 0x00631ce0 _Tree::begin
+// @yo2 0x00636360 _Tree::begin
+// @yo2 0x009bebb0 _Tree::begin
+// @yo2 0x005869b0 _Tree::_Erase (a subtree)
+// @yo2 0x00587b00 _Tree::_Erase (a subtree)
+// @yo2 0x005dc560 _Tree::_Erase (a subtree)
+// @yo2 0x00636880 _Tree::_Erase (a subtree)
+// @yo2 0x005864b0 _Tree::erase(iterator)
+// @yo2 0x00587600 _Tree::erase(iterator)
+// @yo2 0x005dc060 _Tree::erase(iterator)
+// @yo2 0x00594600 _Tree::erase(first, last)
+// @yo2 0x005db480 _Tree::erase(first, last)
 template <class K, class V>
 class map {
 public:
     using impl = std::map<K, V>;
+    // @yo2 0x0060fed0 map<uint32_t, uint32_t>::map (CElement's render-state maps)
     map() : tree_(new impl) {}
     map(const map&) = delete;
     map& operator=(const map&) = delete;

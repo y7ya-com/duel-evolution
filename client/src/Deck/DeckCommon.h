@@ -175,7 +175,7 @@ YO2_AT(VcVector<int>, first, 4);
 YO2_SIZEOF(VcVector<int>, 0x10);
 
 // The "invalid vector<T> subscript" throw (std::_Xran), one copy per TU in the exe.
-[[noreturn]] void vectorXran();
+[[noreturn]] void vectorXran();  // 0x00953eb0 DeckWindow's copy (one per TU)
 
 // ---------------------------------------------------------------- tasks
 // An opaque CTask (yo2Task.cpp). Window classes in src/Deck point at each other through TaskPtr<T>.

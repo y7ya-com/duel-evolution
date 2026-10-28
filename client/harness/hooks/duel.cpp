@@ -70,3 +70,22 @@ YO2_HOOK void __cdecl yo2_794ec0(int32_t j, int32_t v) { ds::duelSideJudge(j, v)
 YO2_HOOK int32_t __fastcall yo2_758540(ds::CCard* c) { return c->step(); }
 YO2_HOOK int32_t __fastcall yo2_758210(ds::CCard* c, int, const uint16_t* code) { return c->moveTo(code); }
 YO2_HOOK void __fastcall yo2_7583d0(ds::CCard* c) { c->snap(); }
+YO2_HOOK void __thiscall yo2_742e30(ds::CCard* c) { c->popCounterBadge(); }
+YO2_HOOK void __thiscall yo2_742e50(ds::CCard* c) { c->popLockBadge(); }
+YO2_HOOK void __thiscall yo2_742e70(ds::CCard* c, int32_t delta, int32_t kind) { c->popCounter(delta, kind); }
+
+// the duel's deck messages and flags (NetDuel.cpp)
+YO2_HOOK void __cdecl yo2_739ff0() { duelDeckSave(); }
+YO2_HOOK void __cdecl yo2_73a030() { duelDeckRestore(); }
+YO2_HOOK void __cdecl yo2_73a070() { duelRequestReset(); }
+YO2_HOOK void __cdecl yo2_73a090(int32_t j) { duelDefaultDeck(j); }
+YO2_HOOK void __cdecl yo2_73d340() { duelViewFusingSet(); }
+YO2_HOOK void __cdecl yo2_73d360() { duelViewFusingClear(); }
+YO2_HOOK int32_t __cdecl yo2_73d380() { return duelViewFusing(); }
+
+// the tag scenes' draw (EngineCmd5.cpp)
+YO2_HOOK void __cdecl yo2_734250() { engTagCmdDraw(); }
+
+// CCardPlane (SceneCard.cpp)
+YO2_HOOK void __thiscall yo2_763240(ds::CardPlane* p) { ds::cardPlaneDestruct(p); }
+YO2_HOOK void __thiscall yo2_7632c0(ds::CardPlane* p, int32_t id) { ds::cardPlaneSetCard(p, id); }

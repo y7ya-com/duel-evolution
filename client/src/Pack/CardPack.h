@@ -18,6 +18,9 @@ enum PackType : int32_t {
     PACK_STARTER = 4,    // starter deck: also <id>.ydc
 };
 
+// @yo2 0x00845670 PackRecord::PackRecord (the member initialisers)
+// @yo2 0x006c7670 PackRecord copy constructor (the implicit one; CNetLobby's 0x4800 list copies records with it)
+// @yo2 0x006c39b0 PackRecord::~PackRecord (the implicit one: the six strings)
 struct PackRecord {        // 0x6c, ctor FUN_00845670; CCardPack (FUN_0084d8a0) is the same layout
     int32_t id = 0;        // 0x00
     int32_t type = 0;      // 0x04 PackType
@@ -32,6 +35,16 @@ struct PackRecord {        // 0x6c, ctor FUN_00845670; CCardPack (FUN_0084d8a0) 
     bool isDeck() const { return type == PACK_DECK || type == PACK_STARTER; }
 };
 
+// The exe's MSVC6 map<int, PackRecord> (nil node DAT_0128bc70); the pieces std::map does here, some instantiated in
+// the Net translation units:
+// @yo2 0x006c3e90 map<int, PackRecord>::insert (unique key)
+// @yo2 0x006c5f20 _Tree::_Insert (link a node, rebalance)
+// @yo2 0x006c6230 _Tree::_Lrotate
+// @yo2 0x006c62b0 _Tree::_Rrotate
+// @yo2 0x006c6330 _Tree::_Buynode (0x80 bytes: links, key, value, colour)
+// @yo2 0x006c7040 construct(pair<const int, PackRecord>*, const pair&)
+// @yo2 0x00847080 pair<iterator, bool>::pair (insert's result)
+// @yo2 0x0084fa00 _Tree::iterator::operator++
 using PackTable = std::map<int32_t, PackRecord>;
 extern PackTable* g_packTable;    // DAT_012ae620
 

@@ -73,6 +73,8 @@ void windowMouseGetXY(int32_t* x, int32_t* y) {
 bool windowMouseLButton() { return st().held; }
 void windowMouseResetButton() { st().log.push_back("consume"); }
 
+void duelDefaultDeck(int32_t) {}   // NetDuel.cpp
+
 namespace ds {
 
 int32_t g_cardW = 80, g_miniW = 40, g_miniH = 56;
@@ -201,11 +203,6 @@ void spriteDraw(CSpriteElmOlder* s, int32_t x, int32_t y, int32_t alpha, const i
 }
 
 // ---------------------------------------------------------------- cards
-void cardPlaneDestruct(CardPlane*) {}
-void cardPlaneSetCard(CardPlane*, int32_t) {}
-CSpriteElmOlder* cardPlaneField(CardPlane*, int32_t, int32_t) { return nullptr; }
-CSpriteElmOlder* cardPlaneHandBig(CardPlane*, int32_t) { return nullptr; }
-CSpriteElmOlder* cardPlaneHandMini(CardPlane*, int32_t) { return nullptr; }
 // A deterministic mat: zone z of player p at (100 + 37 z + 11 i, 200 + 300 p - 5 i)
 void matPos(uint32_t p, uint32_t z, uint32_t i, int32_t* x, int32_t* y) {
     *x = 100 + 37 * (int32_t)z + 11 * (int32_t)i;
@@ -254,7 +251,6 @@ void duelAvatarPose(int32_t side, int32_t pose) {
     st().log.push_back("pose " + std::to_string(side) + " " + std::to_string(pose));
 }
 uint32_t systemTick() { return 1234; }
-void engineReset(int32_t) {}
 bool staticFieldAlive(void* t) { return t != nullptr; }
 void staticFieldRefresh(void*) { st().log.push_back("field refresh"); }
 CElement* sceneRoot() { return nullptr; }
@@ -330,3 +326,18 @@ void lpGaugeDamage(uint32_t side, int32_t amount, int32_t slot, bool) {
 void playSe(uint32_t id, int32_t) { st().log.push_back("se " + std::to_string(id)); }
 CWindowTaskModel* sceneModalWindow() { return nullptr; }
 }   // namespace ds
+
+// src/System's platform seams (yo2Widen.h): code pages as Latin-1.
+#include "System/yo2Widen.h"
+std::u16string yo2CodePageToUtf16(uint32_t, std::string_view s) {
+    std::u16string out;
+    for (char c : s)
+        out += char16_t(uint8_t(c));
+    return out;
+}
+std::string yo2Utf16ToCodePage(uint32_t, std::u16string_view s) {
+    std::string out;
+    for (char16_t c : s)
+        out += c < 0x100 ? char(c) : '?';
+    return out;
+}

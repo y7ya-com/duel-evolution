@@ -7,12 +7,12 @@
 #include <mutex>
 #include <vector>
 
+#ifndef NOMINMAX   // <d3d8.h> brings <windows.h> in (platform/win32's off Windows): no min/max macros
+#define NOMINMAX
+#endif
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
 #endif
 #include <windows.h>  // d3d8.h takes HRESULT/DWORD/RECT from it
 #endif
@@ -32,6 +32,8 @@ public:
     HRESULT setRenderState(D3DRENDERSTATETYPE state, DWORD value);
 
     IDirect3DDevice8* device() const { return dev_; }
+    // the device-lost recovery's Reset with the creation parameters (CStudioMng)
+    HRESULT reset() { return dev_->Reset(&pp_); }
     int32_t mode() const { return mode_; }
     bool multiplyAdd() const { return multiplyAdd_; }
     bool fullscreen() const { return fullscreen_; }

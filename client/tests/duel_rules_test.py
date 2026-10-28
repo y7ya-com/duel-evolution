@@ -647,7 +647,7 @@ def main():
         objs = [obj]
         # the engine and Net files one by one: one another session is still writing may not compile; it is left out
         for f in [os.path.join(HERE, "duel_rules_cli.cpp")] + sorted(glob.glob(os.path.join(SRC, "duel", "*.cpp"))) + \
-                sorted(glob.glob(os.path.join(SRC, "Net", "*.cpp"))):
+                sorted(glob.glob(os.path.join(SRC, "Net", "*.cpp"))) + [os.path.join(SRC, "Game", "yo2GameData.cpp")]:
             o = os.path.join(tmp, "o_" + os.path.basename(f) + ".o")
             r = subprocess.run(["c++", *flags, "-c", f, "-o", o], capture_output=True, text=True)
             if r.returncode:

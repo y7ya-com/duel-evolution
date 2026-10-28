@@ -87,8 +87,8 @@ enum : int32_t { TRADE_CLOSED_BY_SERVER = -1010 };   // ADDCARD/DELETECARD resul
 // TODO(System) *(DAT_012711ac + 0xc68): the player record. Its card box (+0x18ed, one count per card id 1..0xcb8;
 // 0x7125 TRADETRUNK) and the per-card "not tradeable" copies (+0x25a5; 0x7129 TRADELIMIT).
 enum { CARD_MAX = 0xcb8 };
-extern uint8_t g_playerTrunk[CARD_MAX + 1];   // index = card id (exe: +0x18ed + id - 1)
-extern uint8_t g_playerLimit[CARD_MAX + 1];   // exe: +0x25a5 + id - 1
+extern uint8_t g_playerTrunk[CARD_MAX + 1];   // inline in the exe (in 0x008fac30): index = card id (+0x18ed + id - 1)
+extern uint8_t g_playerLimit[CARD_MAX + 1];   // inline in the exe (in 0x008fac30); exe: +0x25a5 + id - 1
 
 // A card box as the deck windows keep it: 3 bytes per id from +9 {copies, not-tradeable copies, -}.
 struct CardBox {
@@ -107,7 +107,7 @@ void uiTradeYesNoDialog(int yes, int no);   // FUN_005e6a60 into +0x104 (texts 4
 void uiTradeEndDialog(int text);         // states 0xc/0xd: FUN_007fb510 + FUN_005e79f0 + the result window setup
 void uiKabanLoad(CardBox* box);          // state 4: FUN_00913e80 per card, FUN_00971270, FUN_0096feb0(9), FUN_00977310
 void uiSceneChangeSound();               // state 4: FUN_0061ca80(10, 0xee4c) + FUN_007dcc20
-void tradeApplyToDecks(CardBox* box);    // state 0xf: drop traded-away copies from the saved decks (Deck part A)
+void tradeApplyToDecks(CardBox* box);    // inline in the exe (in 0x008fac30): state 0xf, drop traded copies from decks
 void tradeLeaveScene();                  // states 0xf/0x10/0x11 tail: FUN_00686780 + FUN_006a5e80 + FUN_00a564b0
 
 // The trade window (CWindowTaskTrade, yo2TradeWindow.cpp) the scene drives; DAT_012b47b0. Its list and button

@@ -35,11 +35,12 @@ def compile_cli(tmp):
                            "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", SRC,
                            os.path.join(HERE, "deck_b_cli.cpp"), os.path.join(HERE, "deck_b_net_hooks.cpp"), *deck,
                            os.path.join(SRC, "duel", "CardDB.cpp"),   # the limitation tables Net fills
+                           os.path.join(SRC, "Game", "yo2GameData.cpp"),   # its file reader
                            os.path.join(SRC, "Game", "Avatar", "yo2AvatarData.cpp"),   # Net's CAvatarData
                            os.path.join(SRC, "System", "yo2Debug.cpp"),   # its asserts
                            # the message layer only: Net's tasks (*Task*, requests, downloads) need System and the app
                            *sorted(f for f in glob.glob(os.path.join(SRC, "Net", "*.cpp"))
-                                   if not re.search(r"Task|Request|Download|ConnectLobby|CheckDisconnect", f)), "-o", exe])
+                                   if not re.search(r"Task|Request|Download|ConnectLobby|CheckDisconnect|Usb", f)), "-o", exe])
     return exe
 
 

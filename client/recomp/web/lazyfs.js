@@ -1,7 +1,24 @@
 // --pre-js for the web build of yo2rc: mounts the game folder (yo2.exe, merge.dat, Sound.dat, ...) as lazy files in
-// MEMFS and sets the environment main.c reads. A lazy file is fetched with synchronous HTTP Range requests in 1 MB
-// chunks through one capped LRU (the YOLaucher-web/web/lazydrive.js and platform/vfs scheme), so merge.dat (~700 MB)
-// is never loaded whole. Guest file calls are plain POSIX calls on these files: k32io.c needs no web branch.
+// MEMFS and sets the environment main.c reads. A lazy file is read in 1 MB chunks; merge.dat (~700 MB) is never loaded
+// whole. Guest file calls are plain POSIX calls on these files: k32io.c needs no web branch.
+//
+// Reads are synchronous on the browser's main thread (MEMFS lives there; pthread file calls are proxied to it), so a
+// chunk not in memory is a synchronous HTTP Range request: the game stops until it arrives. Everything else here exists
+// to make that rare, without changing what the game reads:
+//   - memory: a 64 MB LRU of chunks, plus PINNED chunks a prefetch policy wants kept (capped, PIN_MAX)
+//   - prefetch: async fetch() in the background (a few at a time, off the critical path) of
+//       the hot set: the small merge.dat regions the menus and the deck editor read (thumbnails, deck UI, ...),
+//       the maps next to the current one (the exe's map table, 0xd2d4d0), so a door is already in memory,
+//       read-ahead: the next chunks after any synchronous miss
+//   - persistence: every chunk fetched is also put in the Cache API (keyed by URL, the file's ETag and the chunk), and
+//     the pinned chunks of the last session are loaded from it before the game starts: a returning player's hot set
+//     and maps are in memory from the first frame. Cache API reads are async, so they can only feed memory ahead of
+//     time, never a synchronous miss.
+//   - the HTTP cache: every request carries ?v=<ETag>, so a server that sends long-lived Cache-Control for game files
+//     lets the browser answer even a synchronous miss from disk; the low-priority card trickle (data/card, 336 MB)
+//     only runs then, to fill that cache.
+// merge.dat's directory (KCEJYUGI: count, then 268-byte entries: nibble-swapped name, offset, size, stored size) gives
+// the byte span of each folder; the policies name folders.
 //
 // Each base URL serves files.txt ("<size>\t<relative path>" per line, from `node web/serve.mjs --manifest <dir>`)
 // and every file listed, with Range support. Query parameters (all optional):
@@ -10,20 +27,83 @@
 //   http=<base URL>     WININET target: every request goes to <http><path> (YO2_HTTP)
 //   gateway=<ws URL>    Boxedwine network gateway (YO2_GATEWAY)
 //   server=<host>       every game socket connects to this host (YO2_SERVER)
+//   prefetch=0          no background fetches, no persistence (the plain lazy reads)
 //   UPPER_CASE=<value>  passed to the environment as is (RC_VERBOSE=1, RC_FRAMES=...)
+// Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements.
 Module.preRun = Module.preRun || [];
 Module.preRun.push(() => {
     const q = new URLSearchParams(location.search);
-    const CHUNK = 1 << 20, MAX_CHUNKS = 64;   // ponytail: one global 64 MB LRU, as lazydrive; per-file caps if files thrash
-    const cache = new Map();                  // "url#chunk" -> Uint8Array, in use order
+    // Opened on the live site with no query (a bookmark, a Discord return that lost it): the root page's defaults, so
+    // every entry path works. Only on the site's own host; local and test pages always pass their own.
+    if (/(^|\.)ygoevolution\.com$/.test(location.hostname) && !q.has("http")) {
+        const set = (k, v) => q.has(k) || q.set(k, v);
+        set("http", location.origin);
+        set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
+        set("fonts", "fonts/");
+        set("server", "127.0.0.1");
+        set("YO2_PORT_OFFSET", "1000");
+        history.replaceState(null, "", location.pathname + "?" + q + location.hash);
+    }
+    const CHUNK = 1 << 20, LRU_MAX = 64, PIN_MAX = 224, PARALLEL = 3;   // MB of chunks; fetches in flight
+    const prefetchOn = q.get("prefetch") !== "0";
+    const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
+    const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
+    const pinned = new Map();  // "url#chunk" -> {data, tag}
+    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
+    const missLog = [];   // the last 1000 synchronous misses (measurements: which stall, how long, which chunk)
+    const L = (Module.yo2Lazy = { stats, files, lru, pinned, missLog });
 
-    function getChunk(url, size, i) {
-        const key = url + "#" + i;
-        let c = cache.get(key);
-        if (c) { cache.delete(key); cache.set(key, c); return c; }
-        const from = i * CHUNK, to = Math.min(from + CHUNK, size) - 1;
+    const keyOf = (url, i) => url + "#" + i;
+    function memChunk(url, i) {
+        const k = keyOf(url, i), p = pinned.get(k);
+        if (p) return p.data;
+        const c = lru.get(k);
+        if (c) { lru.delete(k); lru.set(k, c); }
+        return c;
+    }
+    function remember(url, i, data, tag) {   // tag: pin it under that policy; none: the LRU
+        const k = keyOf(url, i);
+        if (tag) {
+            const p = pinned.get(k);
+            if (p) { if (p.tag === "boot") p.tag = tag; return; }   // a policy claims the boot preload; never another's pin
+            if (pinned.size >= PIN_MAX) tag = null;
+            else { lru.delete(k); pinned.set(k, { data, tag }); return; }
+        }
+        if (pinned.has(k)) return;
+        lru.set(k, data);
+        if (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
+    }
+    function unpin(test) {   // policy changed its mind: back to the LRU (the newest end)
+        for (const [k, t] of wanted) if (test(t)) wanted.delete(k);
+        for (const [k, p] of pinned) if (test(p.tag)) { pinned.delete(k); lru.set(k, p.data); }
+        while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
+    }
+    const span = (url, i) => { const f = files.get(url); return [i * CHUNK, Math.min((i + 1) * CHUNK, f.size) - 1]; };
+
+    // ---- persistence (Cache API: async only)
+    const store = prefetchOn && typeof caches !== "undefined" ? caches.open("yo2-chunks-v1").catch(() => null) : null;
+    const storeKey = (url, i) => new URL(`${url}${url.includes("?") ? "&" : "?"}chunk=${i}&v=${encodeURIComponent(files.get(url).etag)}`, location.href).href;
+    const persisted = new Set();
+    function persist(url, i, data) {
+        const f = files.get(url);
+        if (!store || !f.etag || persisted.has(keyOf(url, i))) return;
+        persisted.add(keyOf(url, i));
+        store.then((c) => c && c.put(storeKey(url, i), new Response(data))).then(() => stats.persisted++, () => {});
+    }
+    async function fromStore(url, i) {
+        const c = store && files.get(url).etag && (await store);
+        const r = c && (await c.match(storeKey(url, i)));
+        return r ? new Uint8Array(await r.arrayBuffer()) : null;
+    }
+
+    // ---- the synchronous read path
+    function getChunk(url, i) {
+        if (url === archive && sceneReads && sceneReads.size < SCENE_MAX) sceneReads.add(i);
+        let c = memChunk(url, i);
+        if (c) { stats.memHit++; return c; }
+        const [from, to] = span(url, i), t0 = performance.now();
         const x = new XMLHttpRequest();
-        x.open("GET", url, false);
+        x.open("GET", url + files.get(url).ver, false);
         x.setRequestHeader("Range", `bytes=${from}-${to}`);
         x.overrideMimeType("text/plain; charset=x-user-defined");   // the only binary sync XHR the main thread allows
         x.send(null);
@@ -31,11 +111,299 @@ Module.preRun.push(() => {
         if (x.status !== 206 || t.length !== to - from + 1) throw new FS.ErrnoError(29);   // EIO; refuses a whole-file 200
         c = new Uint8Array(t.length);
         for (let k = 0; k < t.length; k++) c[k] = t.charCodeAt(k);
-        cache.set(key, c);
-        if (cache.size > MAX_CHUNKS) cache.delete(cache.keys().next().value);
+        const ms = performance.now() - t0;
+        stats.syncMiss++, stats.syncMs += ms, stats.worstMs = Math.max(stats.worstMs, ms);
+        missLog.push([Math.round(t0), Math.round(ms), url.slice(url.lastIndexOf("/") + 1), i]);   // [t, ms, file, chunk]
+        if (missLog.length > 1000) missLog.shift();
+        remember(url, i, c, wanted.get(keyOf(url, i)));
+        persist(url, i, c);
+        onMiss(url, i);
         return c;
     }
 
+    // ---- background fetches: a priority queue, PARALLEL at a time
+    const queue = [];            // {url, i, pri, tag, keep}: lower pri first
+    const wanted = new Map();    // "url#chunk" -> the pin tag a queued or policy chunk should get
+    let running = 0, runningLow = 0;   // low: the card trickle, one at a time
+    const inflight = new Set();          // "url#chunk" being fetched
+    L.queueLen = () => queue.length + running;
+    function want(url, i, pri, tag, keep = true) {
+        const f = files.get(url);
+        if (!prefetchOn || !f || i < 0 || i * CHUNK >= f.size) return;
+        const k = keyOf(url, i);
+        if (tag) wanted.set(k, tag);
+        const m = memChunk(url, i);
+        if (m) { if (tag) remember(url, i, m, tag); return; }
+        if (inflight.has(k)) return;   // its fetch picks the tag up from `wanted`
+        const old = queue.find((j) => j.url === url && j.i === i);
+        if (old) { if (pri < old.pri) old.pri = pri; if (tag) old.tag = tag; return; }
+        queue.push({ url, i, pri, tag, keep });
+        pump();
+    }
+    function pump() {
+        while (running < PARALLEL && queue.length) {
+            queue.sort((a, b) => a.pri - b.pri);
+            if (queue[0].pri >= 9 && runningLow) break;
+            const j = queue.shift(), low = j.pri >= 9;
+            if (memChunk(j.url, j.i)) continue;
+            running++, runningLow += low;
+            fetchChunk(j).catch(() => {}).finally(() => { running--, runningLow -= low; pump(); });
+        }
+    }
+    async function fetchChunk(j) {
+        const k = keyOf(j.url, j.i);
+        if (inflight.has(k)) return;
+        inflight.add(k);
+        try { await fetchChunk2(j); } finally { inflight.delete(k); }
+    }
+    async function fetchChunk2(j) {
+        let data = j.keep ? await fromStore(j.url, j.i) : null;   // the trickle only fills the HTTP cache
+        if (data) stats.fromStore++;
+        else {
+            const [from, to] = span(j.url, j.i);
+            const r = await fetch(j.url + files.get(j.url).ver, { headers: { Range: `bytes=${from}-${to}` } });
+            if (r.status !== 206) return;
+            data = new Uint8Array(await r.arrayBuffer());
+            if (data.length !== to - from + 1) return;
+            stats.prefetched++;
+            if (j.keep) persist(j.url, j.i, data);
+        }
+        if (j.keep && !memChunk(j.url, j.i)) remember(j.url, j.i, data, j.tag || wanted.get(keyOf(j.url, j.i)));
+        if (!spans && j.url === archive) parseToc();
+    }
+
+    // ---- policies (merge.dat only)
+    // The exe's map table (yo2FieldMap.cpp, DAT_00d2d4d0): which maps a map's doors lead to. My Room (r01) leads to
+    // whichever lobby the gate picks: the last one visited, else a02 (the beginners' lobby).
+    const MAPS = ["d01_01", "d02", "d03", "d04_01", "a01", "a02", "a03", "a04", "r01", "d05"];
+    const NEXT = { d01_01: ["d02", "d03", "d04_01"], d02: ["d01_01"], d03: ["d01_01"], d04_01: ["d01_01", "d05"],
+                   a01: ["a02", "a04"], a02: ["a01", "a03"], a03: ["a02"], a04: ["a01"], d05: ["d04_01"] };
+    const HOT = ["data/mini", "data/deck", "data/common", "data/menu", "data/bin#"];   // ~40 MB
+    const AVATARS = ["data/avatar/chibi", "data/avatar/npc"];   // ~34 MB, once the player is on a map
+    const TRICKLE = ["data/card"];
+    let archive = null, spans = null, curMap = null;
+    const lastLobby = () => { try { return localStorage.getItem("yo2-lazy-lobby"); } catch { return null; } };
+    function wantSpan(dir, pri, tag, keep = true) {
+        const s = spans && spans.get(dir);
+        if (s) for (let i = Math.floor(s[0] / CHUNK); i * CHUNK < s[1]; i++) want(archive, i, pri, tag, keep);
+    }
+    function parseToc() {   // once chunks 0.. of the directory are in memory: the byte span of each folder
+        const f = files.get(archive), first = memChunk(archive, 0);
+        if (spans || !first) return;
+        const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
+        const need = Math.ceil(end / CHUNK), toc = new Uint8Array(end);
+        for (let i = 0; i < need; i++) {
+            const c = memChunk(archive, i);
+            if (!c) { for (let k = i; k < need; k++) want(archive, k, 0, "toc"); return; }   // when they arrive
+            toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
+        }
+        spans = new Map();
+        for (let e = 12; e < end; e += 268) {
+            let name = "";
+            for (let k = 0; k < 256; k++) {
+                const b = toc[e + k], c = ((b & 15) << 4) | (b >> 4);
+                if (!c) break;
+                name += String.fromCharCode(c === 92 ? 47 : c);
+            }
+            name = name.toLowerCase();
+            const off = toc[e + 256] | toc[e + 257] << 8 | toc[e + 258] << 16 | (toc[e + 259] << 24 >>> 0);
+            const len = toc[e + 264] | toc[e + 265] << 8 | toc[e + 266] << 16 | (toc[e + 267] << 24 >>> 0);
+            const parts = name.split("/"), dirs = [parts.slice(0, 2).join("/")];
+            const orig = toc[e + 260] | toc[e + 261] << 8 | toc[e + 262] << 16 | (toc[e + 263] << 24 >>> 0);
+            if (name.startsWith("data/card/") || /^data\/y2?\/duel/.test(name)) files2.set(name, [off, off + len, orig]);
+            if ((parts[1] === "map" || parts[1] === "avatar") && parts.length > 3) dirs.push(parts.slice(0, 3).join("/"));
+            if (parts[1] === "y" && parts[2] === "duel" && parts.length > 4) dirs.push(parts.slice(0, 4).join("/"));
+            for (const d of dirs) {
+                const s = spans.get(d);
+                if (s) { s[0] = Math.min(s[0], off); s[1] = Math.max(s[1], off + len); } else spans.set(d, [off, off + len]);
+            }
+        }
+        L.spans = spans;
+        if (pendingDeck) prefetchCards(pendingDeck);
+        for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
+        for (const d of HOT) wantSpan(d, 2, "hot");
+        onIdle(() => { if (cacheable) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
+    }
+    // The duel's cards: the player's deck (rt/decktap.c reads it off the exe's own 0x6601/0x6603 at the duel's setup)
+    // and the NPC's (the server, npcDeck below). A deck holds YO2 card ids; data/card/list_card.txt (LZSS in merge.dat)
+    // names each id's big art, line N for id N ("5226.png", "4044_2.png", ...). Each card's art (~100 KB) is pinned
+    // while rock-paper-scissors runs, so a card first shown mid-duel is in memory.
+    const files2 = new Map();   // the duel's files and card art: name -> [from, to) in merge.dat, original size
+    let cardNames = null;       // list_card.txt: YO2 card id -> art file name
+    function lzss(src, size) {   // Okumura's LZSS as merge.dat stores it: 4 KB ring from 0xFEE, flags LSB first (1 = byte)
+        const ring = new Uint8Array(4096), out = new Uint8Array(size);
+        let r = 0xfee, i = 0, o = 0;
+        while (i < src.length && o < size) {
+            const flags = src[i++];
+            for (let bit = 0; bit < 8 && i < src.length && o < size; bit++)
+                if (flags & (1 << bit)) { const c = src[i++]; out[o++] = c; ring[r] = c; r = (r + 1) & 0xfff; }
+                else {
+                    const b1 = src[i++], b2 = src[i++], off = b1 | ((b2 & 0xf0) << 4), len = (b2 & 0x0f) + 3;
+                    for (let k = 0; k < len && o < size; k++) { const c = ring[(off + k) & 0xfff]; out[o++] = c; ring[r] = c; r = (r + 1) & 0xfff; }
+                }
+        }
+        return out;
+    }
+    async function fileBytes(name) {   // a merge.dat entry, through the chunk cache (fetched in the background)
+        const e = files2.get(name);
+        if (!e) return null;
+        const buf = new Uint8Array(e[1] - e[0]);
+        for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) {
+            if (!memChunk(archive, i)) await fetchChunk({ url: archive, i, pri: 0, keep: true });
+            const c = memChunk(archive, i);
+            if (!c) return null;
+            const from = Math.max(e[0], i * CHUNK), to = Math.min(e[1], (i + 1) * CHUNK);
+            buf.set(c.subarray(from - i * CHUNK, to - i * CHUNK), from - e[0]);
+        }
+        return buf.length === e[2] ? buf : lzss(buf, e[2]);
+    }
+    let cardNamesLoad = null;
+    const loadCardNames = () => (cardNamesLoad = cardNamesLoad || fileBytes("data/card/list_card.txt").then((b) => {
+        let t = "";
+        for (const c of b || []) t += String.fromCharCode(c);
+        cardNames = t.split(/\r?\n/).map((x) => x.trim().toLowerCase());
+    }));
+    function pinFiles(names, tag, pri) {   // these files' chunks, pinned under `tag` (replacing that tag's others)
+        const keep = new Set();
+        for (const n of names) {
+            const e = files2.get(n);
+            if (e) for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) keep.add(i);
+        }
+        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
+        for (const i of keep) want(archive, i, pri, tag);
+        return keep.size;
+    }
+    let pendingDeck = null;
+    async function prefetchCards(ids, tag = "deck") {   // "deck": the player's (rt/decktap.c); "npc": the NPC's (the server)
+        if (!prefetchOn || !archive) return;
+        if (!spans) { if (tag === "deck") pendingDeck = ids; return; }
+        if (tag === "deck") pendingDeck = null;
+        await loadCardNames();
+        const names = [...new Set(ids.map((id) => cardNames[id]).filter(Boolean))].map((n) => "data/card/" + n);
+        stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names, tag, 2);
+    }
+    L.prefetchCards = prefetchCards;
+    L.files2 = files2;
+    L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => cardNames.indexOf(n)).filter((i) => i > 0); };
+    function mapAt(pos) {
+        for (const m of MAPS) { const s = spans.get("data/map/map_" + m); if (s && pos >= s[0] && pos < s[1]) return m; }
+        return null;
+    }
+    function enterMap(m) {   // prefetch (and pin) the maps its doors lead to; drop the rest
+        curMap = m;
+        if (/^a0\d$/.test(m)) try { localStorage.setItem("yo2-lazy-lobby", m); } catch {}
+        const next = m === "r01" ? [lastLobby() || "a02"] : [...(NEXT[m] || []), "r01"];
+        const keep = new Set([m, ...next].map((x) => "map:" + x));
+        unpin((t) => t && t.startsWith("map:") && !keep.has(t));
+        wantSpan("data/map/map_" + m, 1, "map:" + m);
+        for (const x of next) wantSpan("data/map/map_" + x, 3, "map:" + x);
+        for (const d of AVATARS) wantSpan(d, 4, "avatars");   // the other players and NPCs a lobby shows
+    }
+    function onMiss(url, i) {
+        if (url !== archive) return;
+        want(url, i + 1, 0), want(url, i + 2, 0);   // read-ahead
+        if (!spans) return parseToc();
+        const m = mapAt(i * CHUNK);
+        if (m && m !== curMap) enterMap(m);
+    }
+    function onRead(url, pos) {   // every read: the map the game is in (its files may already be in memory)
+        if (url !== archive) return;
+        if (!spans) return parseToc();
+        const m = mapAt(pos);
+        if (m && m !== curMap) enterMap(m);
+    }
+    let cacheable = false;   // the server lets the HTTP cache keep game files: trickle fills it
+    const onIdle = (f) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 30000 }) : setTimeout(f, 5000));
+
+    // ---- scenes (ovr/scene.c: Module.onYo2Scene("begin"|"end", from, to), SceneId numbers): learned per player. The
+    // chunks the game reads while switching into a scene are remembered for that scene, and which scene followed which;
+    // arriving in a scene prefetches (and pins) what the next likely scenes read, two steps ahead, from the store or
+    // the network. Login -> player select -> My Room and lobby -> janken -> duel are read the same way every time.
+    const SCENES = "yo2-lazy-scenes", SCENE_MAX = 48, BOOT = 0x2c;   // 0x2c: SCENE_NONE, before the first scene
+    // A player with nothing learned yet starts from this: a native run (login -> My Room -> lobby -> NPC duel -> result
+    // -> lobby, RC_IOTRACE + RC_SCENE_LOG) over the same merge.dat (by size). Sets are chunk numbers; BOOT's is what the
+    // exe reads before its first scene. Learned sets replace these scene by scene.
+    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
+    let learned = { etag: "", sets: {}, next: {} }, sceneReads = prefetchOn ? new Set() : null, sceneTo = BOOT;   // boot reads
+    function loadScenes() {
+        try { const l = JSON.parse(localStorage.getItem(SCENES) || "{}"); if (l.etag === files.get(archive).etag) learned = l; } catch {}
+        if (!Object.keys(learned.sets).length && files.get(archive).size === DEFAULT_SCENES.size)
+            learned = JSON.parse(JSON.stringify({ sets: DEFAULT_SCENES.sets, next: DEFAULT_SCENES.next }));
+        learned.etag = files.get(archive).etag;
+    }
+    function saveScenes() { try { localStorage.setItem(SCENES, JSON.stringify(learned)); } catch {} }
+    function prefetchAfter(scene) {   // the scenes that followed `scene` before, and theirs: their reads, pinned
+        const first = learned.next[scene] || [], second = first.flatMap((t) => learned.next[t] || []);
+        const keep = new Set();
+        for (const [list, pri] of [[first, 1], [second, 3]])
+            for (const t of list) for (const i of learned.sets[t] || []) if (!keep.has(i)) keep.add(i), want(archive, i, pri, "scene");
+        for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
+    }
+    function finishScene() {   // what the stay in a scene read (its switch, then cards and effects as they come) is its set
+        if (!sceneReads) return;
+        if (sceneReads.size) learned.sets[sceneTo] = [...sceneReads];   // the latest visit's reads
+        sceneReads = null;
+        saveScenes();
+    }
+    // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, ~14 MB): pinned from the
+    // lobby on, so a first duel's attack, chain and summon effects do not stall; released back in My Room or the title.
+    const DUELFX = ["effect", "chain", "card", "phase", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d);
+    const LOBBY = 12, JANKEN = 0x1e, HOME = [4, 6, 7, 10];
+    const DUELUI = /^data\/y\/duel\/field\/duel_(thinkicon|window|sp)|^data\/y2\/duel_[^/]*$|^data\/y2\/duelfield_/;
+    function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
+        const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
+        fetch(http + "/api/de/prefetch/duel", { credentials: "same-origin" })
+            .then((r) => (r.status === 200 ? r.json() : null))
+            .then((j) => {
+                if (!j) return;
+                if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");
+                // the duel's background, when the server names its file stem (e.g. "duelbg_a_02"): only that one
+                if (typeof j.field === "string" && /^[a-z0-9_]+$/i.test(j.field))
+                    pinFiles([...files2.keys()].filter((n) => /\/duel\/field\//.test(n) && n.split("/").pop().startsWith(j.field.toLowerCase())), "field", 2);
+            }, () => {});
+    }
+    function onScene(kind, from, to) {
+        if (!prefetchOn || !archive || !files.get(archive).etag) return;
+        if (kind === "begin" && to === JANKEN) npcDeck();
+        if (kind === "end" && to === LOBBY) {
+            for (const d of DUELFX) wantSpan(d, 5, "duelfx");
+            // and the duel's own small pictures kept with the 48 MB of backgrounds: think icons, windows, gauges
+            pinFiles([...files2.keys()].filter((n) => DUELUI.test(n)), "duelui", 5);
+        }
+        if (kind === "end" && HOME.includes(to)) unpin((t) => ["duelfx", "duelui", "npc", "deck", "field"].includes(t));
+        if (kind === "begin") {
+            finishScene();
+            sceneReads = new Set(), sceneTo = to;
+            const n = (learned.next[from] = learned.next[from] || []);
+            if (!n.includes(to)) n.push(to);
+            for (const i of learned.sets[to] || []) want(archive, i, 0, "scene");   // late, but it helps the tail
+        } else if (sceneReads && to === sceneTo) {
+            prefetchAfter(to);
+        }
+    }
+    {   // ONE stable dispatcher: assigning Module.onYo2Scene ADDS a listener (the loader, measurement scripts), so a
+        // script that wraps "the old value" gets the dispatcher back, and a re-entrant call (that wrapper calling it)
+        // is ignored instead of recursing
+        const listeners = [];
+        let busy = false;
+        const dispatch = (kind, from, to) => {
+            if (busy) return;
+            busy = true;
+            try {
+                try { onScene(kind, from, to); } catch (e) { console.log("yo2rc: lazy scene", e); }
+                for (const f of listeners) try { f(kind, from, to); } catch (e) { console.log("yo2rc: scene listener", e); }
+            } finally { busy = false; }
+        };
+        const add = (f) => { if (typeof f === "function" && f !== dispatch && !listeners.includes(f)) listeners.push(f); };
+        add(Module.onYo2Scene);
+        Object.defineProperty(Module, "onYo2Scene", { configurable: true, get: () => dispatch, set: add });
+    }
+    L.learned = () => learned;
+
+    // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
+    const lazy = [];
     function mount(dir, base) {
         if (!base.endsWith("/")) base += "/";
         const x = new XMLHttpRequest();
@@ -50,17 +418,21 @@ Module.preRun.push(() => {
             const path = dir + "/" + rel, parent = PATH.dirname(path);
             FS.mkdirTree(parent);
             const url = base + rel.split("/").map(encodeURIComponent).join("/");
+            files.set(url, { size, etag: "", ver: "" });
+            if (size >= 4 * CHUNK) lazy.push(url);   // ETag (request version, store key) for the files read in chunks
+            if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
             Object.defineProperty(node, "usedBytes", { get: () => size });
             node.stream_ops = Object.assign({}, node.stream_ops, {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
                     for (let p = pos; p < end;) {
-                        const c = getChunk(url, size, Math.floor(p / CHUNK)), at = p % CHUNK;
+                        const c = getChunk(url, Math.floor(p / CHUNK)), at = p % CHUNK;
                         const k = Math.min(end - p, c.length - at);
                         buffer.set(c.subarray(at, at + k), offset + (p - pos));
                         p += k;
                     }
+                    if (prefetchOn) onRead(url, pos);
                     return Math.max(0, end - pos);
                 },
             });
@@ -68,9 +440,73 @@ Module.preRun.push(() => {
         }
         console.log(`yo2rc: ${dir} <- ${base} (${n} files)`);
     }
+    const PINS = "yo2-lazy-pins";
+    function savePins() {   // the working set (pinned chunks, then the LRU's) to load at the next start
+        if (!prefetchOn) return;
+        const out = {};
+        const add = (k, list) => {
+            const at = k.lastIndexOf("#"), url = k.slice(0, at), f = files.get(url);
+            if (f && f.etag) (out[url] = out[url] || { etag: f.etag, pins: [], recent: [] })[list].push(+k.slice(at + 1));
+        };
+        for (const [k, p] of pinned) add(k, "pins");
+        for (const k of lru.keys()) add(k, "recent");
+        try { localStorage.setItem(PINS, JSON.stringify(out)); } catch {}
+    }
+    L.savePins = savePins;
+    async function boot() {
+        await Promise.all(lazy.map(async (url) => {
+            // never from the HTTP cache (a stale ETag would version every request wrongly); "?v=" so the reply carries
+            // the Cache-Control the versioned chunk requests get
+            const r = await fetch(url + "?v=head", { method: "HEAD", cache: "no-store" });
+            const f = files.get(url), etag = r.headers.get("ETag") || "";
+            f.etag = etag;
+            f.ver = etag ? "?v=" + encodeURIComponent(etag.replace(/\W/g, "")) : "";
+            if (/max-age=[1-9]|immutable/.test(r.headers.get("Cache-Control") || "")) cacheable = true;
+        }));
+        let saved = {};
+        try { saved = JSON.parse(localStorage.getItem(PINS) || "{}"); } catch {}
+        const loads = [];
+        for (const [url, s] of Object.entries(saved)) {
+            const f = files.get(url);
+            if (!f || f.etag !== s.etag) continue;
+            for (const [list, tag, max] of [["pins", "boot", PIN_MAX], ["recent", null, LRU_MAX]])
+                for (const i of (s[list] || []).slice(0, max))
+                    loads.push(fromStore(url, i).then((d) => d && (stats.fromStore++, remember(url, i, d, tag))));
+        }
+        // merge.dat's directory (~5 MB, read first thing): its chunks in parallel rather than one synchronous request
+        // after another, then the policies can start while the title and login screens run; likewise what the exe
+        // read before its first scene last time (learned, or the defaults)
+        if (archive && files.get(archive).etag) {
+            loadScenes();
+            const first = learned.next[BOOT] || [], early = [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])];
+            for (const sc of early)   // the patcher and the title come within frames: not after boot, during it
+                for (const i of learned.sets[sc] || []) loads.push(fetchChunk({ url: archive, i, pri: 0, tag: "boot", keep: true }));
+            const job = (i) => fetchChunk({ url: archive, i, pri: 0, tag: "toc", keep: true });
+            await job(0);
+            const c = memChunk(archive, 0);
+            if (c) {
+                const n = c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24, need = Math.ceil((12 + n * 268) / CHUNK);
+                const rest = [];
+                for (let i = 1; i < need; i++) rest.push(job(i));
+                loads.push(...rest);
+            }
+        }
+        await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 3000))]);   // never hold the start long
+        parseToc();
+        if (archive && files.get(archive).etag) prefetchAfter(BOOT);   // the title, login, ...
+        stats.pinned = pinned.size;
+        setTimeout(() => unpin((t) => t === "boot"), 120000);   // a policy re-pins what it still wants
+        setInterval(savePins, 30000);
+        addEventListener("pagehide", savePins);
+        addEventListener("pagehide", () => { if (sceneReads && sceneReads.size) { learned.sets[sceneTo] = [...sceneReads]; saveScenes(); } });
+    }
 
     mount("/game", q.get("game") || "game/");
     if (q.get("fonts")) mount("/fonts", q.get("fonts"));
+    if (prefetchOn) {
+        addRunDependency("lazy");
+        boot().catch((e) => console.log("yo2rc: lazy boot", e)).finally(() => removeRunDependency("lazy"));
+    }
     ENV.YO2_EXE = "/game/yo2.exe";
     ENV.YO2_GAME = "/game";
     // The game's own writes (options, the saved login, profiles/, the updater's lists) persist in IndexedDB:
@@ -105,7 +541,11 @@ Module.preRun.push(() => {
                 ENV.YO2_SESSION_NAME = s.name || "-";
                 if (q.get("online") === "1" || tq.get("online") === "1") ENV.YO2_AUTO_ONLINE = "1";
             } else if (s) {
-                ENV.YO2_DISCORD_URL = http + "/api/auth/sign-in/discord?return=" + encodeURIComponent(top.location.pathname);
+                // back to this very page, its query too (gateway, http, server, YO2_PORT_OFFSET...), minus our flags
+                const back = new URLSearchParams(top.location.search);
+                back.delete("online"), back.delete("error");
+                const ret = top.location.pathname + (back.size ? "?" + back : "");
+                ENV.YO2_DISCORD_URL = http + "/api/auth/sign-in/discord?return=" + encodeURIComponent(ret);
                 ENV.YO2_DE_HTTP = http;   // the typed User ID / Password sign in here before the game opens a socket
             }
             if (tq.has("online")) {   // a reload must not go online again

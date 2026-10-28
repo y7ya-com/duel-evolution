@@ -69,7 +69,7 @@ struct DuelDeckMsg {      // argument of sendDeck (0x6600/0x6601/0x6603)
     uint32_t x;           // 0x04
     uint32_t extraCount;  // 0x08
     uint16_t main[95];    // 0x0c
-    uint16_t extra[40];   // 0xca
+    uint16_t extra[31];   // 0xca (the exe keeps two of these 0x108 apart at 0x012bdf40)
 };
 
 struct DuelCardList {     // 0x6610 SELDUELLIST_DATA as stored (0x6014 bytes): the fusion table or CWindowDeckList's
@@ -243,6 +243,10 @@ void ndHexPairs(const char* s, uint16_t* out);   // FUN_00694140
 #define g_duelUi (*reinterpret_cast<uint8_t**>(0x012bb6b0))
 #define g_fusionList (*reinterpret_cast<DuelCardList*>(0x012be180))
 #define g_netDuel (*reinterpret_cast<CNetDuel**>(YO2_EXE_U32(0x012711ac) + 0xc70))
+#define g_duelDeck (reinterpret_cast<DuelDeckMsg*>(0x012bdf40))
+#define g_duelDeckSaved (*reinterpret_cast<DuelDeckMsg*>(0x012bdd80))
+#define g_duelDeckIsSaved (*reinterpret_cast<int32_t*>(0x0128d02c))
+#define g_duelViewFusing (*reinterpret_cast<int32_t*>(0x012a59d8))
 #else
 extern int32_t g_duelMode;          // DAT_012a9084: 0/1 = no clocks (local / practice)
 extern uint32_t g_turnPlayer;       // DAT_012cc2d0: whose turn it is
@@ -250,5 +254,19 @@ extern uint8_t g_sceneId;           // *(*(DAT_012711ac+0xc6c)+0x9ed): the runni
 extern uint8_t* g_duelUi;           // DAT_012bb6b0: duel UI object; +0x434 auto-focus, +0x435 focus request, +0x438 1 -> 2 on 0x6351
 extern DuelCardList g_fusionList;   // DAT_012be180 (0x6610 mode 0xfe)
 extern CNetDuel* g_netDuel;         // *(DAT_012711ac+0xc70)
+extern DuelDeckMsg g_duelDeck[2];   // DAT_012bdf40: each side's deck (sendDeck sends [0])
+extern DuelDeckMsg g_duelDeckSaved; // DAT_012bdd80: g_duelDeck[0] kept by duelDeckSave
+extern int32_t g_duelDeckIsSaved;   // DAT_0128d02c
+extern int32_t g_duelViewFusing;    // DAT_012a59d8: DUEL_VIEW 0x2c sets it, 0x36 (RUN_FUSION) clears it
 #endif
+static_assert(sizeof(DuelDeckMsg) == 0x108, "DuelDeckMsg size");
+void duelDeckSave();                // FUN_00739ff0
+void duelDeckRestore();             // FUN_0073a030
+void duelRequestReset();            // FUN_0073a070 (title's name): forget the saved deck
+void duelDefaultDeck(int32_t j);    // FUN_0073a090 the built-in deck into g_duelDeck[j]
+void duelViewFusingSet();           // FUN_0073d340
+void duelViewFusingClear();         // FUN_0073d360
+int32_t duelViewFusing();           // FUN_0073d380
+namespace vc6 { class wstring; }
+void deckListAppendText(vc6::wstring& s, int32_t n);   // FUN_0073dbf0
 extern DuelCardList& g_deckList;    // DAT_012ccb20 (0x6610 other modes) = g_eng.deckList

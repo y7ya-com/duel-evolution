@@ -368,7 +368,9 @@ bool CNetAccountTask::onMain() {
 // ---- CNetAccountTaskReqDuellpass150
 
 // @yo2 0x006a7030
-void CNetAccountTaskReqDuellpass150::spawn(CTask* parent) { (new CNetAccountTaskReqDuellpass150)->create(parent, 10000); }
+CNetAccountTaskReqDuellpass150* CNetAccountTaskReqDuellpass150::spawn(CTask* parent) {
+    return dynamic_cast<CNetAccountTaskReqDuellpass150*>((new CNetAccountTaskReqDuellpass150)->create(parent, 10000));
+}
 
 // @yo2 0x006a70d0 deleting destructor
 // @yo2 0x006a7100

@@ -205,7 +205,7 @@ def check_text(tmp):
     exe = os.path.join(tmp, "duel_text")
     subprocess.check_call(["c++", "-std=c++17", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                            "-I", SRC, os.path.join(HERE, "duel_text_cli.cpp"), os.path.join(SRC, "duel", "DuelText.cpp"),
-                           os.path.join(SRC, "duel", "CardDB.cpp"), "-o", exe])
+                           os.path.join(SRC, "duel", "CardDB.cpp"), os.path.join(SRC, "Game", "yo2GameData.cpp"), "-o", exe])
     print(subprocess.check_output([exe, CARDS], text=True).strip())
 
 

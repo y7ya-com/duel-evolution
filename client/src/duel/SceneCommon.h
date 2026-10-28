@@ -113,17 +113,17 @@ YO2_SIZEOF(CWindowModelHelp, 0x3e8);
 
 // ---------------------------------------------------------------- input (yaneSDK keys, the app's mouse)
 using Mouse = CMouseEx;                         // the app's mouse object (*(DAT_012711ac) + 0x148), yaneSDK's
-inline Mouse* appMouse() { return windowAppMouse(); }
-void mousePos(Mouse* m, int32_t* x, int32_t* y);   // TODO(System) vf01 (+0x04)
-bool mouseVf02(Mouse* m);                       // TODO(System) vf02 (+0x08)
+inline Mouse* appMouse() { return windowAppMouse(); }  // inline in the exe (in 0x0077f270): app + 0x148
+void mousePos(Mouse* m, int32_t* x, int32_t* y);   // 0x00542590 CMyMouseEx; TODO(System) vf01 (+0x04)
+bool mouseVf02(Mouse* m);                       // 0x00542620 CMyMouseEx; TODO(System) vf02 (+0x08)
 bool mouseHeld(Mouse* m);                       // TODO(System) vf03 (+0x0c): left button down
-void mouseConsume(Mouse* m);                    // TODO(System) vf06 (+0x18): the click was used
-int32_t mouseWheel(Mouse* m);                   // TODO(System) vf10 (+0x28): wheel steps
-void mouseResetWheel(Mouse* m);                 // TODO(System) vf12 (+0x30)
-bool mouseWheelMoved(Mouse* m);                 // TODO(System) vf15 (+0x3c)
-bool mouseClicked(Mouse* m);                    // TODO(System) vf16 (+0x40): left click
-bool mouseRightClicked(Mouse* m);               // TODO(System) vf18 (+0x48)
-bool mouseReleased(Mouse* m);                   // TODO(System) vf19 (+0x4c)
+void mouseConsume(Mouse* m);                    // 0x006077c0 CMyMouseEx; TODO(System) vf06 (+0x18): the click was used
+int32_t mouseWheel(Mouse* m);                   // 0x00541fd0 CMyMouseEx; TODO(System) vf10 (+0x28): wheel steps
+void mouseResetWheel(Mouse* m);                 // 0x00542010 CMyMouseEx; TODO(System) vf12 (+0x30)
+bool mouseWheelMoved(Mouse* m);                 // 0x00607690 CMyMouseEx; TODO(System) vf15 (+0x3c)
+bool mouseClicked(Mouse* m);                    // 0x006076c0 CMyMouseEx; TODO(System) vf16 (+0x40): left click
+bool mouseRightClicked(Mouse* m);               // 0x00607720 CMyMouseEx; TODO(System) vf18 (+0x48)
+bool mouseReleased(Mouse* m);                   // 0x00607750 CMyMouseEx; TODO(System) vf19 (+0x4c)
 void mouseVf542850(Mouse* m, int32_t v);        // TODO(System) FUN_00542850
 // yaneSDK FUN_00580d70 CKeyInput::isPush on the duel's key map (ECX = g_duelScene + ...). The duel's keys:
 enum : int32_t { KEY_LEFT = 3, KEY_RIGHT = 4, KEY_DECIDE = 6, KEY_CANCEL = 0x14 };
@@ -160,7 +160,7 @@ YO2_AT(PlaneLoader, table, 0x24);
 YO2_AT(PlaneLoader, names, 0x30);
 YO2_SIZEOF(PlaneLoader, 0x38);
 void planeConstruct(PlaneLoader* p, uint8_t alloc);   // FUN_00757cd0 (SceneCard.cpp; inline elsewhere)
-void planeDestruct(PlaneLoader* p);                   // TODO(System) inline ~CPlaneLoaderElm (the two auto_ptrs, dir)
+void planeDestruct(PlaneLoader* p);  // inline in the exe (in 0x00777650) TODO(System) ~CPlaneLoaderElm (auto_ptrs, dir)
 void planeDelete(PlaneLoader* p);                     // TODO(System) FUN_00651d20 vf1(1): destroy and free
 void planeEnsure(PlaneLoader* p, int32_t i);          // TODO(scene2) FUN_007d8840: load sheet i if not loaded yet
 CSpriteElmOlder* planeSprite(PlaneLoader* p, int32_t i);   // FUN_00757920 (SceneCard.cpp): ensure + the TaskPtr
@@ -178,8 +178,8 @@ void spriteDraw(CSpriteElmOlder* s, int32_t x, int32_t y, int32_t alpha, const i
 // ---------------------------------------------------------------- text
 // FUN_00605410 (System's swprintf into a new wide string) for "%s"-only formats: the select-number dialog's message
 vc6::wstring wformat4(const WChar* fmt, const WChar* a, const WChar* b, const WChar* c, const WChar* d);
-void dlgTextW(WChar* out, int32_t id);          // TODO(System) FUN_00744a90: DLG_Text id as a wide string (0x200 B)
-void formatNumW(WChar* out, const WChar* fmt, int32_t n);   // TODO(System) FUN_00743ae0: fmt with n
+void dlgTextW(WChar* out, int32_t id);          // FUN_00744a90 (DuelText.cpp): DLG_Text id as a wide string (0x200 B)
+void formatNumW(WChar* out, const WChar* fmt, int32_t n);   // FUN_00743ae0 (DuelText.cpp): fmt with n
 bool textLine(const WChar* src, WChar* out, int32_t i);     // TODO(scene2) FUN_007a0e80: line i of a "\n" list
 
 // ---------------------------------------------------------------- the duel scene's globals (SceneDuelScene.cpp)
@@ -190,7 +190,7 @@ bool textLine(const WChar* src, WChar* out, int32_t i);     // TODO(scene2) FUN_
 extern uint8_t* g_duelScene;     // DAT_012a9070: the running CDuelScene
 extern uint8_t g_duelAuto;       // DAT_012a90a4: dialogs answer their default at once (replay / auto play)
 #endif
-CElement* sceneRoot();           // TODO(scene1) the scene's base element (CDuelScene +0x74 CTaskPtr<CElement>'s task)
+CElement* sceneRoot();  // inline in the exe (in 0x00790e50) TODO(scene1) the base element (CDuelScene +0x74 CTaskPtr)
 bool duelAutoFocus();            // FUN_007943d0: g_duelUi[0x434], the cursor jumps onto new dialogs
 int32_t duelSceneFrame();        // *(g_duelScene + 0x1ec): the scene's frame counter
 

@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include "System/vc6.h"
+#include "System/yo2File.h"   // yo2SaveFile
 
 class CDeckManager final {   // no destructor in its vtable; nothing derives from it
 public:
@@ -121,6 +122,9 @@ private:
     struct Layout;
 };
 
+// The one instance (DAT_012b28c4), made by a global initializer.
+extern CDeckManager* g_deckManager;
+
 // The rule check a deck is put through before it's sent (the exe keeps it in statics, DAT_012bdf40..0x012be046):
 // add every main / side / extra card, then valid(): 40..80 main, at most 15 side and 30 extra.
 class CDeckRuleCheck {
@@ -135,7 +139,5 @@ public:
     static uint16_t s_mainIds[80], s_sideIds[15], s_extraIds[30];   // DAT_012bdf4c / 012bdfec / 012be00a
 };
 
-// TODO(System): yaneSDK CFile::Write(name, mem, size) (the counterpart of yo2File.h's yo2LoadFile).
-bool yo2SaveFile(const char* name, const void* data, uint32_t size);
 // TODO(System): the player's card box (DAT_012714b4); null before it's loaded.
 const uint8_t* appCardBox();

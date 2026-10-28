@@ -22,9 +22,15 @@ struct CMessageIOBase;
 CNetGate* appNetGate();
 CNetAccount* appNetAccount();
 CNetLobby* appNetLobby();
+struct YgoUsbKey;
+YgoUsbKey* appUsbKey();                    // +0xc5c (src/UsbDuelpass): the USB DUELPASS key and its gift
 uint32_t appWindowHandle();
 CNetDuel* appNetDuel();                    // +0xc70
-uint8_t appLanguage();                     // (*DAT_0127188c)->vtable +0xc: the language byte PSELECT sends
+// CSystemConfigManager (g_systemConfig, DAT_0127188c; System's yo2SystemConfig.h, on phase2-system): the gate's
+// address from the config file. NetAppGlue.cpp forwards them once that header is here.
+std::string appGateServer();               // 0x00622cc0 its vtable +0x44, gateServer()
+int32_t appGatePort();                     // 0x00622e40 its vtable +0x48, gatePort()
+uint8_t appLanguage();                     // 0x00622b40 (*DAT_0127188c)->vtable +0xc: the language byte PSELECT sends
 std::vector<uint32_t> appPSelectDeck();    // the deck object +0xc50: its card ids (count +0xcbdc, FUN_0085e1e0(i))
 int32_t appClothType();                    // *(DAT_012bb6b0 + 0x448): which world's clothes the avatar wears, 0 / 1
 int32_t appMyRoomArea();                   // +0xc60: a fixed My Room area, < 0 = pick one at random
@@ -39,8 +45,8 @@ void appMarkDisconnected();                // *(u8*)(DAT_012bb6b0 + 0x74) = 1
 void appFadeOut(int32_t frames, int32_t arg);
 // FUN_00a58770(rank): the avatar's world (DAT_012bb6b0 +0x448, see appClothType) for a lobby rank; the old one
 // goes to +0x44c, and FUN_00a58740(+0x44c) puts it back.
-void appSetWorldForRank(int32_t rank);
-void appRestoreWorld();
+void appSetWorldForRank(int32_t rank);     // 0x00a58770
+void appRestoreWorld();                    // 0x00a58740
 // The deck object DAT_012b28c4 (vtable +0xd4, then its main / extra / side card ids) copied into the duel's deck
 // message DAT_012bdf40 (FUN_00904d70 clears it, FUN_00904dc0 / df0 / e20 append): what duelSendMyDeck sends.
 void appPrepareDuelDeck();
@@ -55,22 +61,22 @@ CTask* uiOpenDialogOk(CTask* layer, float x, float y, int32_t id, int32_t textId
 // The dialog's vtable +0x60: the pressed button, 4000 = OK, 0xfa1 = no; -1 while open (FUN_005e75f0 sets +0x3b0).
 int32_t uiDialogResult(CTask* dialog);
 // uiOpenDialogOk with the text "<string textId>(<code>)" (L"%s(%d)": the account task's unknown-error box).
-CTask* uiOpenDialogOkCode(CTask* layer, float x, float y, int32_t id, int32_t textId, int32_t code);
+CTask* uiOpenDialogOkCode(CTask* layer, float x, float y, int32_t id, int32_t textId, int32_t code);   // 0x005e79f0
 // FUN_005e6a60: a yes/no box (4000 / 0xfa1) with string textId.
 CTask* uiOpenYesNo(CTask* layer, float x, float y, int32_t textId);
 // FUN_005e86d0: a CWindowModelInput1 (mode 4 = password, 1 = name) titled with string textId (FUN_006a5e40).
 CTask* uiOpenInput(CTask* layer, float x, float y, int32_t mode, int32_t textId);
 // The input's pressed button (+0x3dc: 0xfa2 OK / 0xfa3 cancel / -1 none), clearing it, and its text
 // (FUN_006a5bf0 + FUN_006056b0 wide -> narrow).
-int32_t uiInputResult(CTask* input);
-void uiInputClear(CTask* input);
-std::string uiInputText(CTask* input);
+int32_t uiInputResult(CTask* input);       // its +0x3dc
+void uiInputClear(CTask* input);           // +0x3dc = -1
+std::string uiInputText(CTask* input);     // 0x006a5bf0, then 0x006056b0
 
 // The typed login, two std::strings in the game-info object DAT_012bb6b0 (+0x78 user, +0x88 password):
 // FUN_006a5ea0 / FUN_006a6020 read them, FUN_006a6380 / FUN_006a6530 set them.
-std::string appLoginUser();
-std::string appLoginPassword();
-void appSetLogin(const std::string& user, const std::string& password);
+std::string appLoginUser();                // 0x006a5ea0
+std::string appLoginPassword();            // 0x006a6020
+void appSetLogin(const std::string& user, const std::string& password);   // 0x006a6380, 0x006a6530
 
 // The duel connection CNetDuel (FUN_00691050..FUN_00694460) lives on phase2-duel (src/duel/NetDuel.h), not on
 // main yet: the lobby task reaches it through these. TODO(duel): call CNetDuel directly once it's merged.

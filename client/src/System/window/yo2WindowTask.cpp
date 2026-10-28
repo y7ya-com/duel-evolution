@@ -30,9 +30,11 @@ void checkReceiver(CTask* self, CTaskMessage* msg) {
 namespace {
 struct TaskLock : CTask {
     static void clear(CTask* t, uint32_t mask) { t->*(&TaskLock::lockFlags_) &= ~mask; }
+    static void set(CTask* t, uint32_t mask) { t->*(&TaskLock::lockFlags_) |= mask; }
 };
 }  // namespace
 void windowClearLock(CTask* task, uint32_t mask) { TaskLock::clear(task, mask); }
+void windowSetLock(CTask* task, uint32_t mask) { TaskLock::set(task, mask); }
 
 void windowSetClient(int32_t originX, int32_t originY, int32_t width, int32_t height) {
     g_clientX = originX;

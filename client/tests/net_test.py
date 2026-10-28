@@ -259,6 +259,7 @@ def check_gate(exe):
                            "dump gate", "call lb.want=5,13,0", "call lb.connect", "call acc.connect"])
     mid = out.index(next(l for l in out if l.startswith("gate ")))
     assert kv(out[mid]) == {"listing": "1", "result": "0", "flag": "0", "list": "0"}, out[mid]
+    assert "gateaddr 198.51.100.4 5730" in out, out   # CNetGate's constructor: the system config's gate
     end = [i for i, l in enumerate(out) if l.startswith("gate ")][1]
     assert kv(out[end]) == {"listing": "0", "result": "0", "flag": "2", "list": "1"}, out[end]
     srvs = [l.split()[1:] for l in out[end:] if l.startswith("srv ")]
@@ -426,6 +427,26 @@ def check_lobby(exe):
           "0x5300 from pvp_hub.Hub / bloques.block_player")
 
 
+def check_usb(exe):
+    """CNetUsb, the USB DUELPASS server (gate kind 6). YOLaucher has no such server; the formats are its notes'
+    (research/lobby: 0x8202 u32 result; 0x8205 u8, s8, 3 x u16 cards -> the key object +0x108)."""
+    c = Conn()
+    c.send(0x8202, W().u32(0).bytes())
+    c.send(0x8205, W().u8(0).u8(0xfe).u16(1234).u16(5678).u16(910).bytes())
+    out = run_script(exe, ["call usb.key", "rx usb " + frames(c.sent), "dump usb"])
+    tx = next(l for l in out if l.startswith("tx "))
+    assert tx[3:] == proto.pack(0x8201, bytes(range(0xc0, 0xd0)), 1).hex(), tx
+    assert kv(next(l for l in out if l.startswith("usb "))) == {"result": "0", "flags": "2,2", "cards": "1234,5678,910",
+                                                              "cardResult": "-2"}, out
+    # a failed card list leaves the key's cards alone
+    c = Conn()
+    c.send(0x8205, W().u8(1).u8(0).u16(1).u16(2).u16(3).bytes())
+    out = run_script(exe, ["rx usb " + frames(c.sent), "dump usb"])
+    assert kv(next(l for l in out if l.startswith("usb "))) == {"result": "0", "flags": "0,2", "cards": "0,0,0",
+                                                              "cardResult": "0"}, out
+    print("ok: CNetUsb 0x8201 key, 0x8202 result, 0x8205 card list (and a failed one)")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         exe = compile_cli(tmp)
@@ -433,6 +454,7 @@ def main():
         check_gate(exe)
         check_account(exe)
         check_lobby(exe)
+        check_usb(exe)
 
 
 if __name__ == "__main__":

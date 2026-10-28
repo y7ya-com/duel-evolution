@@ -4,6 +4,17 @@
 #include <string>
 #include <vector>
 
+#include "Game/yo2GameData.h"
+
+// The exe keeps every card / text table in a yaneSDK CFile global (0x40 bytes, ctor FUN_00525dc0); FUN_0073b640
+// fills them. Each global has a static initialiser (call the ctor wrapper, then register the atexit wrapper), the ctor
+// wrapper (ECX = the object), the atexit registration and the atexit (dtor) wrapper, in that order below. The tables
+// here stand for those globals (in the game, the i686 build, the code reads the exe's objects directly):
+//   CARD_Prop         (CFile at 0x012a1140): @yo2 0x0073b380 @yo2 0x0073b3a0 @yo2 0x0073b3c0 @yo2 0x0073b3e0
+//   CARD_IntID        (CFile at 0x012a1100): @yo2 0x0073b400 @yo2 0x0073b420 @yo2 0x0073b440 @yo2 0x0073b460
+//   CARD_Genre        (CFile at 0x012a10c0): @yo2 0x0073b480 @yo2 0x0073b4a0 @yo2 0x0073b4c0 @yo2 0x0073b4e0
+//   CARD_Name_R       (CFile at 0x012a1080): @yo2 0x0073b500 @yo2 0x0073b520 @yo2 0x0073b540 @yo2 0x0073b560
+//   CARD_Indx_R       (CFile at 0x012a1040): @yo2 0x0073b580 @yo2 0x0073b5a0 @yo2 0x0073b5c0 @yo2 0x0073b5e0
 struct CardLimit { uint32_t card, a; uint8_t limit; };   // 12 B each
 struct CardPair { uint32_t b, a; };
 #if defined(_WIN32) && defined(__i386__)
@@ -42,6 +53,11 @@ static uint32_t debugFlags() { return g_debugFlags; }
 #endif
 
 static bool readAll(const std::string& path, std::vector<uint8_t>& out) {
+    std::string g;
+    if (gameReadFile(path.c_str(), &g)) {   // the game's data (merge.dat), else a plain file
+        out.assign(g.begin(), g.end());
+        return true;
+    }
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return false;
     uint8_t buf[4096];
@@ -51,7 +67,7 @@ static bool readAll(const std::string& path, std::vector<uint8_t>& out) {
 }
 
 #ifndef CARDDB_IN_EXE
-// @yo2 0x0073b640 loads the card files (names/descriptions go to the text layer, not here)
+// the card files of FUN_0073b640 (yo2LoadCardText; names and descriptions go to the text layer)
 bool cardDbLoad(const char* dir) {
     std::vector<uint8_t> p, i;
     std::string d = dir;

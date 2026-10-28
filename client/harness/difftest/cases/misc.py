@@ -79,3 +79,50 @@ def deck_rule_check(e, f, seed):
             add_extra(obj, i)
         out.append(f(obj) & 0xFF)
     return out
+
+
+
+# src/ChangeAvatar: CWindowDialogAvatarSwitch (0x9d8 bytes) and CChangeAvatarPack (0x360) members on filled objects;
+# a CAvatarData is the exe's vtable + 16 bytes.
+def avatar_data(e, rnd):
+    a = e.obj(0x14, cls="CAvatarData")
+    e.write(a + 4, bytes(rnd.randrange(256) for _ in range(16)))
+    return a
+
+
+@case(0x8A8C80, conv="thiscall", params=range(2))
+def avatar_switch_on_main(e, f, seed):
+    return f(e.obj(0x9D8, fill=bytes([seed + 1]))) & 0xFF
+
+
+@case(0x8B07A0, conv="thiscall", params=range(4))
+def avatar_switch_set_avatar(e, f, seed):
+    rnd = random.Random(seed)
+    w = e.obj(0x9D8, fill=bytes(rnd.randrange(256) for _ in range(7)))
+    f(w, avatar_data(e, rnd))
+
+
+@case(0x8B2C20, conv="thiscall", params=range(4))
+def avatar_pack_avatar(e, f, seed):
+    rnd = random.Random(seed)
+    p = e.obj(0x360, fill=bytes(rnd.randrange(256) for _ in range(11)))
+    out = avatar_data(e, rnd)
+    f(p, seed & 1, out)
+
+
+# The random face: rand() is the exe's static CRT (0xb0ab9a) on the original side and the DLL's CRT import on the
+# rewrite side; both are fed the same sequence (extremes included), so the bytes written must match.
+@case(0x8B2AF0, conv="thiscall", params=range(6))
+def avatar_pack_randomize(e, f, seed):
+    rnd = random.Random(seed)
+    values = iter([0, 0x7FFF, 5, 6, 7, 41, 42] + [rnd.randrange(0x8000) for _ in range(7)])
+
+    def rand(e):
+        v = next(values)
+        e.trace.append(("rand", v))
+        return v
+    e.on_addr(0xB0AB9A, rand, 0)
+    e.on_import("rand", rand)
+    a = avatar_data(e, rnd)
+    for _ in range(2):
+        f(e.obj(4), a)

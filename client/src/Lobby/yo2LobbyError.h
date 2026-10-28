@@ -17,6 +17,7 @@
 #include <cstdio>
 
 #include "System/vc6.h"
+#include "Net/NetUi.h"
 #include "System/window/yo2WindowDialogs.h"
 #include "System/window/yo2WindowTask.h"
 
@@ -36,6 +37,17 @@ void lobbyShellOpen(const char* url);
 vc6::string lobbyErrorMessage(int32_t code, vc6::string* url);
 
 enum { LOBBY_STATE_MAIN = 0xb };
+
+// @yo2 0x00863340 CLobbyScene::onErrorDialog, the error dialog's callback: its button (OK, 4000; 0xfa2 from an input
+// box's OK) clicks and answers the dialog. The scene's onErrorDialog is this.
+template <class Scene>
+int lobbyOnErrorDialog(Scene& s, intptr_t value) {
+    if (value == 0xfa2 || value == CDialogCallback::YES) {
+        appPlaySound(0x10000001, 0);
+        s.errChoice = 1;
+    }
+    return 1;
+}
 
 // @yo2 0x00884b70 the lobby scene's error state
 template <class Scene>

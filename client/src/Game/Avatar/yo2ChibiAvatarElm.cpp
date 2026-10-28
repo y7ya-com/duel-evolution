@@ -16,6 +16,7 @@ const CChibiAvatarElm::MotionInfo CChibiAvatarElm::kMotions[MOTIONS] = {
     {700, false, false, STAND},     // d01_03
 };
 
+// @yo2 0x009c7db0 static init entry stub (runs the next, then registers its atexit)
 // @yo2 0x009c7dd0 static init: CChibiAvatarElm::kPlayerMotionFiles
 // @yo2 0x009c8850 static init: atexit(~kPlayerMotionFiles)
 // One SWF dump per motion and facing: facings 5..7 reuse 3..1 (drawn mirrored).
@@ -43,6 +44,7 @@ const vc6::string CChibiAvatarElm::kPlayerMotionFiles[ENGINES] = {
     "data/Avatar/chibi/cm_d01_03.txt", "data/Avatar/chibi/cm_d01_03.txt",
 };
 
+// @yo2 0x009c88a0 static init entry stub (runs the next, then registers its atexit)
 // @yo2 0x009c88c0 static init: CChibiAvatarElm::kNpcMotionFiles
 // @yo2 0x009c9340 static init: atexit(~kNpcMotionFiles)
 const vc6::string CChibiAvatarElm::kNpcMotionFiles[ENGINES] = {
@@ -69,9 +71,11 @@ const vc6::string CChibiAvatarElm::kNpcMotionFiles[ENGINES] = {
     "", "",
 };
 
+// @yo2 0x009c9390 static init entry stub (runs the next, then registers its atexit)
 // @yo2 0x009c93b0 static init: the 56 player motion records (here pointers, filled by loadMotions)
 // @yo2 0x009c93e0 static init: atexit(their destructors)
 SwfMotion* CChibiAvatarElm::s_playerMotions[ENGINES];
+// @yo2 0x009c9690 static init entry stub (runs the next, then registers its atexit)
 // @yo2 0x009c96b0 static init: the 56 NPC motion records
 // @yo2 0x009c96e0 static init: atexit(their destructors)
 SwfMotion* CChibiAvatarElm::s_npcMotions[ENGINES];

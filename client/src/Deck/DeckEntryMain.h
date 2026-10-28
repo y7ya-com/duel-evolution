@@ -7,7 +7,7 @@
 namespace dk {
 
 // ---- input (app+0x148)
-bool mouseReleased();                                        // TODO(System) (app+0x148)->vf 0x4c: left button let go
+bool mouseReleased();  // 0x00607750 CMyMouseEx; TODO(System) (app+0x148)->vf 0x4c: left button let go
 
 // ---- CWindowTaskModel / dialogs (System)
 void modelSetActive(void* model, bool on);                   // TODO(System) FUN_005df6d0 (+0x35c = on, then FUN_005df430)
@@ -23,7 +23,7 @@ VcWString inputValueText(CWindowModelInputValue* v);         // TODO(System) FUN
 
 // ---- CWindowTaskListbox (System)
 bool listboxHasSelection(CWindowTaskListbox* lb);            // TODO(System) FUN_005b47b0
-int32_t listboxSelIndex(CWindowTaskListbox* lb);             // TODO(System) +0x3c0 (-1 = none)
+int32_t listboxSelIndex(CWindowTaskListbox* lb);  // inline in the exe (in 0x008e8590); TODO(System) +0x3c0 (-1 = none)
 VcWString listboxSelText(CWindowTaskListbox* lb);            // TODO(System) FUN_008e8810: copy of items[+0x3c0] (+0x3a0)
 
 // ---- strings, files, settings
@@ -33,19 +33,19 @@ VcString deckFolder();                                       // TODO(System) DAT
 void settingsSetLastDeck(const VcString& file);              // TODO(System) FUN_00814f40()->FUN_00814f60
 void settingsWrite();                                        // TODO(System) FUN_00814f40()->vf 0x00
 bool deckFileExists(const VcString& path);                   // TODO(System) FUN_00525dc0 + FUN_005273e0(path, "rb") == 0
-void deckFileDelete(const VcString& path);                   // TODO(System) DeleteFileA (KERNEL32, IAT 0x012d5ce0)
+void deckFileDelete(const VcString& path);  // inline in the exe (in 0x008df280) TODO(System) DeleteFileA IAT 0x012d5ce0
 
 // ---- CDeckObject slots that take a string or that DeckEntry.h names differently
-void deckObjSetFile(CDeckObject* d, const VcString& file);   // TODO(System) vf 0x00 (file name, "x.ydc")
-bool deckObjSetFolder(CDeckObject* d, const VcString& dir);  // TODO(System) vf 0x04 (the trunk: true = read)
-void deckObjReset(CDeckObject* d);                           // TODO(System) vf 0xc8: empty every list
-bool deckObjSave(CDeckObject* d);                            // TODO(System) vf 0xd0: write folder\file
-bool deckObjLoad(CDeckObject* d);                            // TODO(System) vf 0xd4: read folder\file
+void deckObjSetFile(CDeckObject* d, const VcString& file);   // 0x00906290 TODO(System) vf 0x00 (file name, "x.ydc")
+bool deckObjSetFolder(CDeckObject* d, const VcString& dir);  // 0x00906440 TODO(System) vf 0x04 (trunk 0x00613c30)
+void deckObjReset(CDeckObject* d);  // 0x00906cc0 CDeckManager; TODO(System) vf 0xc8: empty every list
+bool deckObjSave(CDeckObject* d);  // 0x00906dd0 CDeckManager; TODO(System) vf 0xd0: write folder\file
+bool deckObjLoad(CDeckObject* d);  // 0x00907f80 CDeckManager; TODO(System) vf 0xd4: read folder\file
 VcString deckObjName(CDeckObject* d);                        // TODO(Deck A) FUN_008e8cc0 entry: copy of its file name
 void deckSaveBegin();                                        // TODO(System) FUN_006cf0f0 on *(app+0xc6c), before a save
 
 // ---- the recipe packs (CDeckScene+0x1a0 is DAT_012b4100, a PackCatalogue*)
-PackCatalogue* appPacks();                                   // TODO(System) DAT_012b4100
+PackCatalogue* appPacks();  // inline in the exe (in 0x008da960); TODO(System) DAT_012b4100
 void packMarkSeen(PackCatalogue* c, int32_t id, int32_t v);  // TODO(Deck B) FUN_00984350
 
 // ---- leaving the editor ("exit" yes): copy the deck to the duel deck, back to the map

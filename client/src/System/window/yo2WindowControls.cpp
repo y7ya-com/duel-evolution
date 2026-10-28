@@ -1,9 +1,13 @@
 #include "System/window/yo2WindowControls.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
+#include <cwctype>
 
 #include <windows.h>   // GetAsyncKeyState, GetKeyState (platform/win32 off Windows)
 
+#include "Game/yo2HelpText.h"   // g_helpTextMng (the menu bar shows its text)
 #include "System/yo2Debug.h"
 
 namespace {
@@ -59,6 +63,10 @@ CElement* windowElement(const CTaskPtrBase& p) {
     return nullptr;
 }
 
+// @yo2 0x005d56d0 windowShow (CWindowTask.h inline: lock bit 2 off, setDisp(true, true))
+// @yo2 0x005d5700 windowHide (CWindowTask.h inline: setDisp(false, true), lock bit 2 on)
+void windowShowElement(CElement* e, bool on) { showElement(e, on, true); }
+
 // @yo2 0x005a27a0 windowNameTask (CWindowTask.h)
 void windowNameTask(CTask* task, const char* name) {
     YO2_ASSERT(task != nullptr, "%s", name);
@@ -87,6 +95,67 @@ bool CWindowTaskPictureFrame::hitTest(float x, float y) {
     float x0 = static_cast<float>(static_cast<int32_t>(worldTranslation().x));
     float y0 = static_cast<float>(static_cast<int32_t>(worldTranslation().y));
     return x > x0 && x < x0 + w_ && y > y0 && y < y0 + h_;
+}
+
+// @yo2 0x005a9150 CWindowTaskPictureFrame::onInit: 80 x 24; the corner sprites and the tile sprite, then
+// loadImages and layout
+bool CWindowTaskPictureFrame::onInit() {
+    z_ = 0;
+    x_ = y_ = 0;
+    w_ = 80;
+    h_ = 24;
+    inheritTransform_ = true;
+    setDrawMode(BLEND);
+    for (CTaskPtrBase* p : {static_cast<CTaskPtrBase*>(&topLeft_), static_cast<CTaskPtrBase*>(&top_),
+                            static_cast<CTaskPtrBase*>(&topRight_), static_cast<CTaskPtrBase*>(&left_),
+                            static_cast<CTaskPtrBase*>(&centre_), static_cast<CTaskPtrBase*>(&bottomLeft_),
+                            static_cast<CTaskPtrBase*>(&bottom_), static_cast<CTaskPtrBase*>(&bottomRight_),
+                            static_cast<CTaskPtrBase*>(&right_)})
+        p->setUser(this);
+    auto corner = [this](CTaskPtr<CSpriteElm>& s, const char* name) {
+        windowSpriteCreate(s, this, 10000);
+        windowNameTask(windowElement(s), name);
+        windowElement(s)->setDrawMode(BLEND);
+        windowElement(s)->inheritTransform_ = true;
+    };
+    corner(topLeft_, "CWindowTaskPictureFrameの左上画像");
+    windowDupCreate(top_, this, 10000);
+    windowNameTask(windowElement(top_), "CWindowTaskPictureFrameの中央上画像");
+    windowElement(top_)->setDrawMode(BLEND);
+    windowElement(top_)->inheritTransform_ = true;
+    corner(topRight_, "CWindowTaskPictureFrameの右上画像");
+    corner(bottomLeft_, "CWindowTaskPictureFrameの左下画像");
+    corner(bottomRight_, "CWindowTaskPictureFrameの右下画像");
+    loadImages();
+    CWindowTaskPictureFrame::layout();
+    return true;
+}
+
+// @yo2 0x005a94c0 CWindowTaskPictureFrame::layout
+void CWindowTaskPictureFrame::layout() {
+    pos_ = {x_, y_, z_};
+    windowDupClear(top_);
+    const Piece& tl = pieces_[0];
+    const Piece& t = pieces_[1];
+    const Piece& tr = pieces_[2];
+    const Piece& l = pieces_[3];
+    const Piece& c = pieces_[4];
+    const Piece& r = pieces_[5];
+    const Piece& bl = pieces_[6];
+    const Piece& b = pieces_[7];
+    const Piece& br = pieces_[8];
+    auto tile = [this](float x, float y, float sx, float sy, const Piece& p) {
+        windowDupAddTile(top_, {x, y, sx, sy, float(p.u), float(p.v), float(p.w), float(p.h), 0});
+    };
+    windowElement(topLeft_)->pos_ = {0, 0, 0};
+    tile(float(tl.w), 0, (w_ - float(tl.w + tr.w)) / float(t.w), 1, t);
+    windowElement(topRight_)->pos_ = {w_ - float(tr.w), 0, 0};
+    tile(0, float(tl.h), 1, (h_ - float(tl.h + bl.h)) / float(l.h), l);
+    tile(float(l.w), float(t.h), (w_ - float(r.w + l.w)) / float(c.w), (h_ - float(b.h + t.h)) / float(c.h), c);
+    tile(w_ - float(r.w), float(tr.h), 1, (h_ - float(tr.h + br.h)) / float(r.h), r);
+    windowElement(bottomLeft_)->pos_ = {0, h_ - float(bl.h), 0};
+    tile(float(bl.w), h_ - float(b.h), (w_ - float(br.w + bl.w)) / float(b.w), 1, b);
+    windowElement(bottomRight_)->pos_ = {w_ - float(br.w), h_ - float(br.h), 0};
 }
 
 // @yo2 0x005a9a20 CWindowTaskPictureFrame::handleMessage: a left click grabs the window
@@ -184,6 +253,9 @@ void CWindowTaskText::setColor(float r, float g, float b, float a) {
     e->color_[3] = a;
 }
 
+// @yo2 0x005af870 CWindowTaskText::setKeepNewlines
+void CWindowTaskText::setKeepNewlines(bool on) { windowTextElmSetKeepNewlines(text_, on); }
+
 // @yo2 0x005af690 CWindowTaskText::setArea
 void CWindowTaskText::setArea(int32_t w, int32_t h) {
     CElement* e = windowElement(text_);
@@ -224,6 +296,28 @@ void CWindowTaskText::setPos(float x, float y) {
     x_ = x;
     y_ = y;
     pos_ = {x, y, posZ_};
+}
+
+// @yo2 0x005af400 CWindowTaskText::caretPos: y is scrolled up by the lines above firstLine
+void CWindowTaskText::caretPos(int32_t col, int32_t line, float* x, float* y) const {
+    windowTextElmCaretPos(text_, col, line, x, y);
+    *y -= static_cast<float>(fontSize_ * windowTextElmFirstLine(text_));
+}
+
+// @yo2 0x005af480 CWindowTaskText::caretAt (y in the shown, scrolled text)
+void CWindowTaskText::caretAt(float x, float y, int32_t* col, int32_t* line) const {
+    float ty = static_cast<float>(static_cast<int32_t>(static_cast<float>(fontSize_ * windowTextElmFirstLine(text_)) + y));
+    windowTextElmCaretAt(text_, x, ty, col, line);
+}
+
+// @yo2 0x005af510 CWindowTaskText::caretIndex
+void CWindowTaskText::caretIndex(int32_t col, int32_t line, int32_t* index) const {
+    windowTextElmCaretIndex(text_, col, line, index);
+}
+
+// @yo2 0x005af550 CWindowTaskText::caretFromIndex
+void CWindowTaskText::caretFromIndex(int32_t index, int32_t* col, int32_t* line) const {
+    windowTextElmCaretFromIndex(text_, index, col, line);
 }
 
 // =====================================================================================================================
@@ -1219,6 +1313,31 @@ void CWindowTaskShadowText::setTextA(const char* s) {
 // @yo2 0x005afcd0 CWindowTaskShadowText::setName: the text, widened
 void CWindowTaskShadowText::setName(const vc6::string& s) { setText(widen(s.c_str()).c_str()); }
 
+// CWindowTask.h inlines (written out at each use in the exe; standalone copies e.g. 0x0083d380 / 0x0083d460)
+void CWindowTaskShadowText::setPos(int32_t x, int32_t y) {
+    x_ = x;
+    y_ = y;
+    text_->setPos(float(x), float(y));
+    shadow_->setPos(float(shadowDx_) + float(x), float(shadowDy_) + float(y));
+}
+void CWindowTaskShadowText::setArea(int32_t w, int32_t h) {
+    text_->setArea(w, h);
+    shadow_->setArea(w, h);
+}
+void CWindowTaskShadowText::setAlign(int32_t align) {
+    text_->setAlign(align);
+    shadow_->setAlign(align);
+}
+void CWindowTaskShadowText::setPageLines(int32_t lines) {
+    text_->setPageLines(lines);
+    shadow_->setPageLines(lines);
+}
+void CWindowTaskShadowText::setColors(float r, float g, float b, float a) {
+    text_->setColor(r, g, b, a);
+    shadow_->setColor(0, 0, 0, 1);
+}
+void CWindowTaskShadowText::showShadow() { showElement(shadow_.get(), true, true); }
+
 // @yo2 0x005afdc0 CWindowTaskShadowText::onControlEvent (forwarded)
 void CWindowTaskShadowText::onControlEvent(CWindowTaskControll* a) { mediator_->onControlEvent(a); }
 // @yo2 0x005afde0 CWindowTaskShadowText::onControlCommand (forwarded)
@@ -1576,7 +1695,8 @@ void CWindowTaskBackStripe::applyLooks(int32_t firstItem) {
         t.u = t.v = t.w = t.h = 8;
     for (size_t i = size_t(firstItem % 2 == 0 ? 0 : 1); i < tiles_.size(); i += 2)
         tiles_[i].u = 56;
-    for (size_t i = 0; i < tiles_.size(); i++)
+    // (the exe reads flags_ for every row, past its end when the box shows more rows than items)
+    for (size_t i = 0; i < tiles_.size() && i < flags_.size(); i++)
         if (flags_[i] == 1) {
             tiles_[i].u = 72;
             tiles_[i].v = 16;
@@ -1753,7 +1873,12 @@ void CWindowTaskListbox::addItem(const WChar* s) {
     items_->push_back(vc6::wstring(s));
     int32_t lines = itemLines(static_cast<int32_t>(items_->size()) - 1);
     lineCounts_.push_back(lines);
-    // @yo2 0x005b3dd0 CWindowTaskListbox::addItem tail: a selection flag, a re-layout if the item is in view, the range
+    addRow();
+}
+
+// @yo2 0x005b3dd0 CWindowTaskListbox::addRow (addItem's tail; the card lists call it alone, their rows being tasks):
+// a selection flag, a re-layout if the row is in view, the scroll range
+void CWindowTaskListbox::addRow() {
     selFlags_.push_back(0);
     clean_ = false;
     if (selFlags_.size() <= size_t(topItem_ + stripe_->rowCount_))
@@ -2325,5 +2450,1141 @@ bool CWindowTaskIconHide::onMain() {
 bool CWindowTaskIconHide::handleMessage(WindowMsg m) {
     if (m.msg == 0x202)   // WM_LBUTTONUP
         mediator_->onControlEvent(this);
+    return true;
+}
+
+// =====================================================================================================================
+// CWindowTaskInput
+
+namespace {
+
+// TODO(System): 0x006056f0 / 0x006054f0 convert with the UI code page (DAT_0127035c); byte by byte until then, like
+// windowWiden.
+vc6::string toMultiByte(const vc6::wstring& w) {
+    std::string n;
+    for (char16_t c : std::u16string_view(w))
+        n += static_cast<char>(c);
+    return vc6::string(n);
+}
+vc6::wstring fromMultiByte(const vc6::string& s) { return windowWiden(s.c_str()); }
+
+// TODO(System): the CRT's lead-byte bit (_mbctype & 4) for the UI code page; the byte-by-byte stand-ins make none.
+bool leadByte(uint8_t) { return false; }
+
+// 0x006058c0: byte i of s starts a double-byte character (false for a trail byte)
+bool leadByteAt(const vc6::string& s, size_t i) {
+    const char* p = s.c_str();
+    for (size_t at = 0; at < s.size();) {
+        bool lead = leadByte(static_cast<uint8_t>(p[at]));
+        if (at == i)
+            return lead;
+        if (lead && at + 1 == i)
+            return false;
+        at += lead ? 2 : 1;
+    }
+    return false;
+}
+
+// 0x00c842f8: up up down down left right left right B A
+const uint32_t kKonami[] = {VK_UP, VK_UP, VK_DOWN, VK_DOWN, VK_LEFT, VK_RIGHT, VK_LEFT, VK_RIGHT, 'B', 'A', 0};
+
+}  // namespace
+
+// @yo2 0x005c1690 CWindowTaskInput::create
+CWindowTaskInput* CWindowTaskInput::create(CTask* parent, IWindowTaskMediator* mediator, int32_t style) {
+    auto* c = new CWindowTaskInput;
+    c->style_ = style;
+    c->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskInput*>(c->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005c1760 CWindowTaskInput::CWindowTaskInput
+CWindowTaskInput::CWindowTaskInput() { setTaskName("インプットボックス(コントロール)"); }
+
+// @yo2 0x005c2120 CWindowTaskInput::~CWindowTaskInput
+// @yo2 0x005c20d0 CWindowTaskInput deleting destructor
+CWindowTaskInput::~CWindowTaskInput() = default;
+
+// @yo2 0x005c1da0 CWindowTaskInput::kind
+uint32_t CWindowTaskInput::kind() const { return 0x15; }
+
+// @yo2 0x005c1a20 CWindowTaskInput::setName (the text child's)
+void CWindowTaskInput::setName(const vc6::string& s) { text_->setName(s); }
+
+// @yo2 0x005c1b00 CWindowTaskInput::name
+vc6::string CWindowTaskInput::name() const { return text_->name(); }
+
+// @yo2 0x005c3d70 CWindowTaskInput::setAlpha: the frame back to opaque (the argument is ignored)
+void CWindowTaskInput::setAlpha(float) {
+    windowElement(fill_)->color_[3] = 1;
+    windowElement(border_)->color_[3] = 1;
+}
+
+// @yo2 0x005c1dc0 CWindowTaskInput::setText (0x005c1f00 the assignment, then layout)
+void CWindowTaskInput::setText(const WChar* s) {
+    value_ = s;
+    layout();
+}
+
+// @yo2 0x005c2280 CWindowTaskInput::onInit: black 16-pixel text, the IME, the frame pieces and the caret; 256 x 256
+bool CWindowTaskInput::onInit() {
+    inheritTransform_ = true;
+    fill_.setUser(this);
+    caret_.setUser(this);
+    border_.setUser(this);
+    text_.setUser(this);
+    text_.set(CWindowTaskText::create(this, nullptr));
+    windowNameTask(text_.get(), "CWindowTaskInputのテキスト");
+    CWindowTaskText* t = text_.get();
+    t->inheritTransform_ = true;
+    vc6::string frame = windowDataDir();
+    frame += windowFrameTexture(style_);
+    t->posZ_ = 1;
+    t->pos_.z = 1;
+    t->setFontSize(16);
+    t->setLineGap(0);
+    t->setField430(0);
+    t->setColor(0, 0, 0, 1);
+    ime_.setUser(this);
+    windowImeCreate(ime_, this, this);
+    windowNameTask(ime_.task(), "m_ime");
+    w_ = h_ = 256;
+    multiLine_ = false;
+    col_ = line_ = 0;
+    maxLen_ = 19;
+    password_ = digitsOnly_ = alnumOnly_ = false;
+    blink_ = 0;
+    submitOnEnter_ = entered_ = false;
+    konami_ = 0;
+    for (CTaskPtr<CSpriteElm>* s : {&fill_, &border_}) {
+        windowSpriteCreate(*s, this, 10000, frame);
+        windowElement(*s)->setDrawMode(BLEND);
+        windowElement(*s)->inheritTransform_ = true;
+    }
+    vc6::string cursor = windowDataDir();
+    cursor += "kasoru_01_c00.png";
+    windowSpriteCreate(caret_, this, 10000, cursor);
+    windowElement(caret_)->setDrawMode(BLEND);
+    windowElement(caret_)->inheritTransform_ = true;
+    x_ = y_ = 0;
+    z_ = 0;
+    pos_ = {0, 0, 0};
+    setRect(windowElement(fill_), 56, 8, 8, 8);
+    setRect(windowElement(border_), 80, 16, 8, 8);
+    setRect(windowElement(caret_), 0, 0, 2, 16);
+    setAlpha(0.7f);
+    layout();
+    return true;
+}
+
+// @yo2 0x005c34d0 CWindowTaskInput::layout: the fill inset by a pixel inside the border; the text box; maxLen_
+void CWindowTaskInput::layout() {
+    pos_ = {x_, y_, z_};
+    CElement* f = windowElement(fill_);
+    f->pos_ = {9, 9, 1};
+    f->scale_.x = (w_ - 16 - 1) * 0.125f;
+    f->scale_.y = (h_ - 16 - 1) * 0.125f;
+    CElement* b = windowElement(border_);
+    b->pos_ = {8, 8, 0};
+    b->scale_.x = (w_ - 16) * 0.125f;
+    b->scale_.y = (h_ - 16) * 0.125f;
+    CWindowTaskText* t = text_.get();
+    t->setPos(8, 8);
+    t->setArea(static_cast<int32_t>(w_ - 8), 16);
+    t->posZ_ = 2;
+    t->pos_.z = 2;
+    t->setPageLines(static_cast<int32_t>((h_ - 16) / static_cast<float>(t->fontSize_)));
+    vc6::string mb = toMultiByte(value_);
+    if (static_cast<int32_t>(mb.size()) > maxLen_) {
+        // cut at maxLen_ bytes, one byte earlier when that would split a double-byte character
+        size_t cut = leadByteAt(mb, maxLen_ - 1) ? maxLen_ - 1 : maxLen_;
+        mb.assign(mb.c_str(), cut);
+        value_ = fromMultiByte(mb);
+        int32_t index;
+        t->caretIndex(col_, line_, &index);
+        if (static_cast<uint32_t>(index) >= value_.size())
+            t->caretFromIndex(index, &col_, &line_);
+    }
+}
+
+// @yo2 0x005c3dc0 CWindowTaskInput::onMain: the caret blinks (every 15 frames) while focused and inside the shown
+// lines; the text shows value_, or as many '*'
+bool CWindowTaskInput::onMain() {
+    blink_ = (blink_ + 1) % 15;
+    if (blink_ == 0)
+        caretOn_ = !caretOn_;
+    CElement* c = windowElement(caret_);
+    if (g_windowFactory->focusedControl() == this && caretOn_) {
+        c->scale_.x = 1;
+        c->pos_.z = 2;
+        float x, y;
+        text_->caretPos(col_, line_, &x, &y);
+        c->pos_.x = x + 8;
+        c->pos_.y = y + 8;
+        if (line_ < text_->firstLine())
+            c->scale_.x = 0;
+        if (text_->firstLine() + text_->pageLines() <= line_)
+            c->scale_.x = 0;
+        placeIme();
+    } else {
+        c->scale_.x = 0;
+    }
+    const WChar* shown = value_.c_str();
+    if (password_) {
+        shown_ = vc6::wstring(std::u16string(value_.size(), u'*'));
+        shown = shown_.c_str();
+    }
+    text_->setText(shown);
+    layout();
+    return true;
+}
+
+// @yo2 0x005c4590 CWindowTaskInput::insert: the characters iswcntrl lets through (and '\n' on a multi-line box) go in
+// at the caret, which ends up after them; mediator slot 0
+void CWindowTaskInput::insert(const vc6::wstring& s) {
+    int32_t index;
+    text_->caretIndex(col_, line_, &index);
+    std::u16string v(value_);
+    for (char16_t ch : std::u16string_view(s)) {
+        if (ch == u'\n' ? !multiLine_ : std::iswcntrl(ch) != 0)
+            continue;
+        v.insert(v.begin() + index, ch);
+        index++;
+    }
+    value_ = vc6::wstring(v);
+    text_->setText(value_.c_str());
+    text_->caretFromIndex(index, &col_, &line_);
+    caretOn_ = true;
+    mediator_->onControlEvent(this);
+}
+
+// @yo2 0x005c4b00 CWindowTaskInput::clear
+void CWindowTaskInput::clear() {
+    value_ = vc6::wstring();
+    col_ = line_ = 0;
+}
+
+// @yo2 0x005c4c20 CWindowTaskInput::setCaret (the column clamped to the text's length)
+void CWindowTaskInput::setCaret(int32_t col, int32_t line) {
+    int32_t n = static_cast<int32_t>(value_.size());
+    col_ = col > n ? n : col;
+    line_ = line;
+}
+
+// @yo2 0x005c6710 CWindowTaskInput::caret
+void CWindowTaskInput::caret(int32_t* col, int32_t* line) const {
+    *col = col_;
+    *line = line_;
+}
+
+// @yo2 0x005c63a0 CWindowTaskInput::backspace
+void CWindowTaskInput::backspace() {
+    int32_t index;
+    text_->caretIndex(col_, line_, &index);
+    if (index <= 0)
+        return;
+    index--;
+    std::u16string v(value_);
+    v.erase(index, 1);
+    value_ = vc6::wstring(v);
+    text_->setText(value_.c_str());
+    text_->caretFromIndex(index, &col_, &line_);
+    placeIme();
+}
+
+// @yo2 0x005c6550 CWindowTaskInput::deleteChar (the one after the caret)
+void CWindowTaskInput::deleteChar() {
+    int32_t index;
+    text_->caretIndex(col_, line_, &index);
+    if (index < 0 || index >= static_cast<int32_t>(value_.size()))
+        return;
+    std::u16string v(value_);
+    v.erase(index, 1);
+    value_ = vc6::wstring(v);
+    text_->setText(value_.c_str());
+    text_->caretFromIndex(index, &col_, &line_);
+    placeIme();
+}
+
+// @yo2 0x005c6300 CWindowTaskInput::caretToMouse
+void CWindowTaskInput::caretToMouse(float x, float y) {
+    Vec3 p = worldTranslation();
+    text_->caretAt(x - (p.x + 8), y - (p.y + 8), &col_, &line_);
+}
+
+// @yo2 0x005c6230 CWindowTaskInput::placeIme: the composition window at the caret, just in front of the box
+void CWindowTaskInput::placeIme() {
+    float x, y;
+    text_->caretPos(col_, line_, &x, &y);
+    if (ime_.task())
+        windowImeSetPos(ime_, x + 8, y + 8, z_ + 1);
+}
+
+// @yo2 0x005c4c70 CWindowTaskInput::hitTest (strictly inside)
+bool CWindowTaskInput::hitTest(float x, float y) {
+    Vec3 p = worldTranslation();
+    return x > p.x && x < p.x + w_ && y > p.y && y < p.y + h_;
+}
+
+// @yo2 0x005c4d10 CWindowTaskInput::handleMessage. Every message ends with placeIme and mediator slot 0.
+bool CWindowTaskInput::handleMessage(WindowMsg m) {
+    int32_t mbLen = static_cast<int32_t>(toMultiByte(value_).size());
+    auto edited = [&] {
+        caretOn_ = true;
+        mediator_->onControlEvent(this);
+    };
+    int32_t index;
+    switch (m.msg) {
+    case WM_KEYDOWN:
+        konami_ = m.key == kKonami[konami_] ? konami_ + 1 : 0;
+        switch (m.key) {
+        case VK_LEFT:
+        case VK_RIGHT:
+            text_->caretIndex(col_, line_, &index);
+            text_->caretFromIndex(m.key == VK_LEFT ? index - 1 : index + 1, &col_, &line_);
+            caretOn_ = true;
+            break;
+        case VK_UP:
+            if (line_ > 0)
+                line_--;
+            break;
+        case VK_DOWN:
+            // the width is the CWindowTaskText's own rect_, which nothing sets (setArea sets its CTextElm's)
+            if (line_ < text_->lineCount(static_cast<float>(text_->rect_[2])) - 1)
+                line_++;
+            caretOn_ = true;
+            break;
+        case VK_DELETE:
+            deleteChar();
+            edited();
+            break;
+        case VK_HOME:
+            col_ = 0;
+            break;
+        case VK_END:
+            col_ = static_cast<int32_t>(value_.size());
+            break;
+        }
+        break;
+    case WM_CHAR:
+        switch (m.ch) {
+        case '\n':
+            break;
+        case 0x16: {   // Ctrl+V
+            vc6::string paste;
+            if (IsClipboardFormatAvailable(CF_TEXT) && OpenClipboard(nullptr)) {
+                HANDLE h = GetClipboardData(CF_TEXT);
+                if (!h) {
+                    CloseClipboard();
+                } else {
+                    paste = static_cast<const char*>(GlobalLock(h));
+                    GlobalUnlock(h);
+                    CloseClipboard();
+                    insert(fromMultiByte(paste));
+                }
+            }
+            break;
+        }
+        case '\t':
+            if (GetKeyState(VK_SHIFT) < 0)
+                mediator_->mediatorSlot3(this);
+            else
+                mediator_->mediatorSlot2(this);
+            break;
+        case '\r':
+            if (submitOnEnter_) {
+                entered_ = true;
+                mediator_->onControlEvent(this);
+                entered_ = false;
+            }
+            if (multiLine_)
+                insert(u"\n");
+            break;
+        case '\b':
+            backspace();
+            edited();
+            break;
+        default:
+            // the CRT ctype table covers 0..255: nothing above passes
+            int c = static_cast<int>(m.ch);
+            if (mbLen < maxLen_ && m.ch < 0x100 && (!alnumOnly_ || std::isalnum(c)) &&
+                (!digitsOnly_ || std::isdigit(c)) && std::isprint(c) && !std::iscntrl(c)) {
+                char one[2] = {static_cast<char>(m.ch), 0};
+                insert(fromMultiByte(one));
+            }
+        }
+        break;
+    case WM_IME_STARTCOMPOSITION:
+    case WM_IME_COMPOSITION:
+    case WM_IME_SETCONTEXT:
+    case WM_IME_NOTIFY:
+        if (ime_.task())
+            windowImeMessage(ime_, m);
+        break;
+    case WM_LBUTTONDOWN:
+        g_windowFactory->setFocus(this);
+        caretToMouse(static_cast<float>(m.x), static_cast<float>(m.y));
+        mediator_->onControlCommand(this);
+        caretOn_ = true;
+        break;
+    case WM_IME_CHAR:   // a double-byte character, lead byte high
+        if (mbLen < maxLen_ - 1 && !alnumOnly_ && !digitsOnly_) {
+            char two[3] = {static_cast<char>(m.ch >> 8), static_cast<char>(m.ch), 0};
+            vc6::wstring w = fromMultiByte(two);   // (0x00605470: the first character)
+            insert(vc6::wstring(std::u16string(1, w.empty() ? u'\0' : w.c_str()[0])));
+        }
+        break;
+    }
+    placeIme();
+    mediator_->onControlEvent(this);
+    return true;
+}
+
+// =====================================================================================================================
+// CWindowTaskIconExpand, CWindowTaskIconShrink (CWindowTaskIconArrow)
+
+// @yo2 0x005ce830 CWindowTaskIconExpand::CWindowTaskIconExpand
+CWindowTaskIconExpand::CWindowTaskIconExpand() { setTaskName("△ボタン(コントロール)"); }
+
+// @yo2 0x005cf3e0 CWindowTaskIconShrink::CWindowTaskIconShrink
+CWindowTaskIconShrink::CWindowTaskIconShrink() { setTaskName("▽ボタン(コントロール)"); }
+
+// @yo2 0x005ce770 CWindowTaskIconExpand::create
+CWindowTaskIconExpand* CWindowTaskIconExpand::create(CTask* parent, IWindowTaskMediator* mediator) {
+    auto* b = new CWindowTaskIconExpand;
+    b->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskIconExpand*>(b->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005cf320 CWindowTaskIconShrink::create
+CWindowTaskIconShrink* CWindowTaskIconShrink::create(CTask* parent, IWindowTaskMediator* mediator) {
+    auto* b = new CWindowTaskIconShrink;
+    b->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskIconShrink*>(b->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005cea00 CWindowTaskIconExpand::~CWindowTaskIconExpand
+// @yo2 0x005ce9d0 CWindowTaskIconExpand deleting destructor
+// @yo2 0x005cf5b0 CWindowTaskIconShrink::~CWindowTaskIconShrink
+// @yo2 0x005cf580 CWindowTaskIconShrink deleting destructor
+CWindowTaskIconArrow::~CWindowTaskIconArrow() = default;
+
+// @yo2 0x005ce9b0 CWindowTaskIconExpand::kind
+uint32_t CWindowTaskIconExpand::kind() const { return 0xc; }
+
+// @yo2 0x005cf560 CWindowTaskIconShrink::kind
+uint32_t CWindowTaskIconShrink::kind() const { return 0xd; }
+
+// @yo2 0x005cea70 CWindowTaskIconExpand::onInit: icon_01_c01.png, 16 x 24
+// @yo2 0x005cf620 CWindowTaskIconShrink::onInit
+bool CWindowTaskIconArrow::onInit() {
+    inheritTransform_ = true;
+    sprite_.setUser(this);
+    vc6::string path = windowDataDir();
+    path += "icon_01_c01.png";
+    framePiece(this, sprite_, path, imageName());
+    x_ = y_ = 0;
+    w_ = 16;
+    h_ = 24;
+    return true;
+}
+
+// @yo2 0x005cf150 CWindowTaskIconExpand::setLook: 0 normal, 1 hover, 2 pressed (16 x 24 cells from (0, 48))
+// @yo2 0x005cfd00 CWindowTaskIconShrink::setLook (from (0, 72))
+void CWindowTaskIconArrow::setLook(int32_t look) {
+    if (look < 0 || look > 2)
+        return;
+    setRect(windowElement(sprite_), look * 16, lookRow(), 16, 24);
+}
+
+// @yo2 0x005cf120 CWindowTaskIconExpand::layout
+// @yo2 0x005cfcd0 CWindowTaskIconShrink::layout
+void CWindowTaskIconArrow::layout() { pos_ = {x_, y_, z_}; }
+
+// @yo2 0x005cf210 CWindowTaskIconExpand::hitTest (from the whole-pixel position)
+// @yo2 0x005cfdc0 CWindowTaskIconShrink::hitTest
+bool CWindowTaskIconArrow::hitTest(float x, float y) {
+    float x0 = float(static_cast<int32_t>(worldTranslation().x));
+    float y0 = float(static_cast<int32_t>(worldTranslation().y));
+    return x > x0 && x < x0 + w_ && y > y0 && y < y0 + h_;
+}
+
+// @yo2 0x005cefa0 CWindowTaskIconExpand::onMain: IconHide's, without its check that the button is the control
+// under the mouse (the exe asks controlAt and drops the answer)
+// @yo2 0x005cfb50 CWindowTaskIconShrink::onMain
+bool CWindowTaskIconArrow::onMain() {
+    setLook(0);
+    if (!enabled_)
+        return true;
+    bool held = leftButtonHeld();
+    int32_t mx, my;
+    windowMouse(&mx, &my);
+    g_windowFactory->controlAt(mx, my);
+    if (focused_)
+        setLook(1);
+    if (!held) {
+        if (hitTest(float(mx), float(my)))
+            setLook(1);
+        wasUp_ = true;
+        return true;
+    }
+    if (!hitTest(float(mx), float(my))) {
+        pressed_ = false;
+        wasUp_ = false;
+        return true;
+    }
+    if (wasUp_)
+        pressed_ = true;
+    setLook(pressed_ ? 2 : 1);
+    wasUp_ = false;
+    return true;
+}
+
+// @yo2 0x005cf2d0 CWindowTaskIconExpand::handleMessage
+// @yo2 0x005cfe80 CWindowTaskIconShrink::handleMessage
+bool CWindowTaskIconArrow::handleMessage(WindowMsg m) {
+    if (m.msg == 0x202 && pressed_) {   // WM_LBUTTONUP
+        mediator_->onControlEvent(this);
+        pressed_ = false;
+    }
+    return true;
+}
+
+// =====================================================================================================================
+// CWindowTaskFramePlane
+
+// @yo2 0x005bed60 CWindowTaskFramePlane::CWindowTaskFramePlane
+CWindowTaskFramePlane::CWindowTaskFramePlane() { setTaskName("平らなウィンドウ(コントロール)"); }
+
+// @yo2 0x005bec90 CWindowTaskFramePlane::create
+CWindowTaskFramePlane* CWindowTaskFramePlane::create(CTask* parent, IWindowTaskMediator* mediator, int32_t style) {
+    auto* f = new CWindowTaskFramePlane;
+    f->style_ = style;
+    f->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskFramePlane*>(f->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005bf040 CWindowTaskFramePlane::~CWindowTaskFramePlane
+// @yo2 0x005bf010 CWindowTaskFramePlane deleting destructor
+CWindowTaskFramePlane::~CWindowTaskFramePlane() = default;
+
+// @yo2 0x005beff0 CWindowTaskFramePlane::kind
+uint32_t CWindowTaskFramePlane::kind() const { return 4; }
+
+// @yo2 0x005befd0 CWindowTaskFramePlane::onMain
+bool CWindowTaskFramePlane::onMain() {
+    layout();
+    return true;
+}
+
+// @yo2 0x005bf150 CWindowTaskFramePlane::onInit: the nine 8 x 8 pieces at (24, 0) of the style's texture, 70% opaque
+// (styles 5, 6: opaque)
+bool CWindowTaskFramePlane::onInit() {
+    inheritTransform_ = true;
+    for (CTaskPtr<CSpriteElm>& s : sprites_)
+        s.setUser(this);
+    vc6::string path = windowDataDir();
+    path += windowFrameTexture(style_);
+    w_ = h_ = 256;
+    static const char* const names[9] = {
+        "CWindowTaskFramePlaneの左上画像",   "CWindowTaskFramePlaneの中央上画像", "CWindowTaskFramePlaneの右上画像",
+        "CWindowTaskFramePlaneの左中央画像", "CWindowTaskFramePlaneの右中央画像", "CWindowTaskFramePlaneの左下画像",
+        "CWindowTaskFramePlaneの中央下画像", "CWindowTaskFramePlaneの右下画像",   "CWindowTaskFramePlaneの中央画像",
+    };
+    for (int i = 0; i < 9; i++)
+        framePiece(this, sprites_[i], path, names[i]);
+    x_ = y_ = 0;
+    z_ = 0;
+    pos_ = {0, 0, 0};
+    static const int32_t uv[9][2] = {{24, 0}, {32, 0}, {40, 0}, {24, 8}, {40, 8}, {24, 16}, {32, 16}, {40, 16}, {32, 8}};
+    for (int i = 0; i < 9; i++)
+        setRect(windowElement(sprites_[i]), uv[i][0], uv[i][1], 8, 8);
+    setAlpha(0.7f);
+    if (style_ == 6 || style_ == 5)
+        setAlpha(1);
+    layout();
+    return true;
+}
+
+// @yo2 0x005c1250 CWindowTaskFramePlane::layout: 8 x 8 corners, the edges and the centre stretched
+void CWindowTaskFramePlane::layout() {
+    pos_ = {x_, y_, z_};
+    float sx = (w_ - 16) * 0.125f, sy = (h_ - 16) * 0.125f;
+    const float at[9][2] = {{0, 0},      {8, 0},      {w_ - 8, 0},      {0, 8},     {w_ - 8, 8},
+                            {0, h_ - 8}, {8, h_ - 8}, {w_ - 8, h_ - 8}, {8, 8}};
+    for (int i = 0; i < 9; i++)
+        windowElement(sprites_[i])->pos_ = {at[i][0], at[i][1], 0};
+    windowElement(sprites_[1])->scale_.x = sx;
+    windowElement(sprites_[3])->scale_.y = sy;
+    windowElement(sprites_[4])->scale_.y = sy;
+    windowElement(sprites_[6])->scale_.x = sx;
+    windowElement(sprites_[8])->scale_.x = sx;
+    windowElement(sprites_[8])->scale_.y = sy;
+}
+
+// @yo2 0x005c1570 CWindowTaskFramePlane::hitTest (strictly inside)
+bool CWindowTaskFramePlane::hitTest(float x, float y) {
+    Vec3 p = worldTranslation();
+    return x > p.x && x < p.x + w_ && y > p.y && y < p.y + h_;
+}
+
+// @yo2 0x005c1610 CWindowTaskFramePlane::handleMessage
+bool CWindowTaskFramePlane::handleMessage(WindowMsg m) {
+    if (m.msg == 0x201) {
+        mediator_->onControlCommand(this);
+        mediator_->beginDrag(this, m.x, m.y);
+    }
+    return true;
+}
+
+// =====================================================================================================================
+// CWindowTaskPictureSwitch
+
+// @yo2 0x005bb130 CWindowTaskPictureSwitch::CWindowTaskPictureSwitch
+CWindowTaskPictureSwitch::CWindowTaskPictureSwitch() { setTaskName("絵スイッチ(コントロール)"); }
+
+// @yo2 0x005baf10 CWindowTaskPictureSwitch::create
+CWindowTaskPictureSwitch* CWindowTaskPictureSwitch::create(CTask* parent, CTask* owner, IWindowTaskMediator* mediator) {
+    auto* p = new CWindowTaskPictureSwitch;
+    p->owner_.setUser(p);
+    p->owner_.set(owner);
+    p->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskPictureSwitch*>(p->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005bb550 CWindowTaskPictureSwitch::~CWindowTaskPictureSwitch
+// @yo2 0x005bb500 CWindowTaskPictureSwitch deleting destructor
+CWindowTaskPictureSwitch::~CWindowTaskPictureSwitch() = default;
+
+// @yo2 0x005bb3a0 CWindowTaskPictureSwitch::kind
+uint32_t CWindowTaskPictureSwitch::kind() const { return 0x1a; }
+
+// @yo2 0x005bb4c0 CWindowTaskPictureSwitch::onControlEvent (as this control)
+void CWindowTaskPictureSwitch::onControlEvent(CWindowTaskControll*) { mediator_->onControlEvent(this); }
+// @yo2 0x005bb400 CWindowTaskPictureSwitch::onControlCommand (as this control)
+void CWindowTaskPictureSwitch::onControlCommand(CWindowTaskControll*) { mediator_->onControlCommand(this); }
+// @yo2 0x005bb440 CWindowTaskPictureSwitch::mediatorSlot2 (as this control)
+void CWindowTaskPictureSwitch::mediatorSlot2(CWindowTaskControll*) { mediator_->mediatorSlot2(this); }
+// @yo2 0x005bb480 CWindowTaskPictureSwitch::mediatorSlot3 (as this control)
+void CWindowTaskPictureSwitch::mediatorSlot3(CWindowTaskControll*) { mediator_->mediatorSlot3(this); }
+
+// @yo2 0x005bcca0 CWindowTaskPictureSwitch::onInit: the four sprites (no texture yet), a one-line centred caption
+bool CWindowTaskPictureSwitch::onInit() {
+    x_ = y_ = 0;
+    z_ = 0;
+    inheritTransform_ = true;
+    pos_ = {0, 0, 0};
+    setDrawMode(BLEND);
+    static const char* const names[4] = {
+        "CWindowTaskPictureSwitchの通常画像", "CWindowTaskPictureSwitchのマウスオーバー画像",
+        "CWindowTaskPictureSwitchのクリック画像", "CWindowTaskPictureSwitchの押し下げ画像"};
+    CTaskPtr<CSpriteElm>* sprites[4] = {&normal_, &hover_, &click_, &checkedSprite_};
+    for (CTaskPtr<CSpriteElm>* s : sprites)
+        s->setUser(this);
+    for (int i = 0; i < 4; i++) {
+        windowSpriteCreate(*sprites[i], this, 10000);
+        windowNameTask(windowElement(*sprites[i]), names[i]);
+        windowElement(*sprites[i])->setDrawMode(BLEND);
+        windowElement(*sprites[i])->inheritTransform_ = true;
+    }
+    w_ = h_ = 0;
+    text_.setUser(this);
+    text_.set(CWindowTaskText::create(this, this));
+    windowNameTask(text_.get(), "CWindowTaskPictureSwitchのテキスト");
+    CWindowTaskText* t = text_.get();
+    t->setFontSize(16);
+    t->setAlign(CWindowTaskText::CENTRE);
+    t->setFirstLine(0);
+    t->setPageLines(1);
+    t->setPos(0, 0);
+    unk364_ = 0xffffffff;
+    unk3b8_ = unk3b9_ = 0;
+    setState(NORMAL);
+    checked_ = false;
+    layout();
+    return true;
+}
+
+// @yo2 0x005bda00 CWindowTaskPictureSwitch::layout
+void CWindowTaskPictureSwitch::layout() {
+    pos_ = {x_, y_, z_};
+    w_ = float(windowElement(normal_)->rect_[2]);
+    h_ = float(windowElement(normal_)->rect_[3]);
+}
+
+// @yo2 0x005bdda0 CWindowTaskPictureSwitch::setText
+void CWindowTaskPictureSwitch::setText(const WChar* s) {
+    CWindowTaskText* t = text_.get();
+    t->setArea(static_cast<int32_t>(w_), static_cast<int32_t>(h_));
+    t->setPos(0, (h_ - 16) * 0.5f);
+    t->setText(s);
+}
+
+// @yo2 0x005bd6c0 CWindowTaskPictureSwitch::hit: inside the shown sprite (the checked one when checked_), over a
+// pixel of the normal texture with alpha (A8R8G8B8; A4R4G4B4 tests the low nibble of byte 1, as in the exe; other
+// formats: anywhere)
+bool CWindowTaskPictureSwitch::hit(int32_t x, int32_t y) const {
+    const CTaskPtr<CSpriteElm>& at = checked_ ? checkedSprite_ : normal_;
+    int32_t x0 = static_cast<int32_t>(windowElement(at)->worldTranslation().x);
+    int32_t y0 = static_cast<int32_t>(windowElement(at)->worldTranslation().y);
+    if (!(x0 < x && float(x) < float(x0) + w_ && y0 < y && float(y) < float(y0) + h_))
+        return false;
+    x -= x0;
+    y -= y0;
+    int32_t format = windowSpriteTextureFormat(normal_);
+    if (format == 0x15)
+        return windowSpriteTexturePixel(normal_, x, y, 4)[3] != 0;
+    if (format != 0x1a)
+        return true;
+    return (windowSpriteTexturePixel(normal_, x, y, 2)[1] & 0xf) != 0;
+}
+
+// @yo2 0x005bb3c0 CWindowTaskPictureSwitch::hitTest
+bool CWindowTaskPictureSwitch::hitTest(float x, float y) { return hit(static_cast<int32_t>(x), static_cast<int32_t>(y)); }
+
+// @yo2 0x005bd050 CWindowTaskPictureSwitch::onMain: NORMAL -> HOVER on entering; HOVER -> NORMAL on leaving;
+// PRESSED -> PRESSED_OUTSIDE on leaving; PRESSED_OUTSIDE -> NORMAL when the button is up, -> PRESSED when back over it
+bool CWindowTaskPictureSwitch::onMain() {
+    if (!enabled_)
+        return true;
+    bool down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    int32_t mx, my;
+    windowMouse(&mx, &my);
+    bool over = hit(mx, my);
+    justPressed_ = justReleased_ = false;
+    switch (state_) {
+    case NORMAL:
+        if (!over)
+            break;
+        state_ = HOVER;
+        onEnter();
+        break;
+    case HOVER:
+        if (down && !held_)
+            justPressed_ = held_ = true;
+        if (!over) {
+            state_ = NORMAL;
+            onLeave();
+            updateLook();
+            return true;
+        }
+        break;
+    case PRESSED:
+        if (!down && held_) {
+            justReleased_ = true;
+            held_ = false;
+        }
+        if (!over) {
+            state_ = PRESSED_OUTSIDE;
+            onLeave();
+            updateLook();
+            return true;
+        }
+        break;
+    case PRESSED_OUTSIDE:
+        if (!down) {
+            state_ = NORMAL;
+            onRelease();
+        }
+        if (!over)
+            break;
+        state_ = PRESSED;
+        onEnter();
+        break;
+    }
+    updateLook();
+    return true;
+}
+
+// @yo2 0x005bd8c0 CWindowTaskPictureSwitch::handleMessage
+bool CWindowTaskPictureSwitch::handleMessage(WindowMsg m) {
+    if (m.msg == WM_CHAR) {
+        if (m.ch == '\t') {
+            if (GetKeyState(VK_SHIFT) < 0)
+                mediator_->mediatorSlot3(this);
+            else
+                mediator_->mediatorSlot2(this);
+        } else if (m.ch == '\r') {
+            click();
+        }
+    } else if (m.msg == WM_LBUTTONDOWN) {
+        if (state_ == HOVER) {
+            state_ = PRESSED;
+            onPress();
+        }
+    } else if (m.msg == WM_LBUTTONUP && state_ == PRESSED) {
+        state_ = HOVER;
+        onRelease();
+        click();
+        unk3b8_ = 0;
+    }
+    return true;
+}
+
+// @yo2 0x005bda70 CWindowTaskPictureSwitch::click
+// @yo2 0x005bdd20 CTmWndObjEvent deleting destructor
+// @yo2 0x005bdd50 CTmWndObjEvent::~CTmWndObjEvent
+void CWindowTaskPictureSwitch::click() {
+    CTmWndObjEvent e(this);
+    if (owner_.task())
+        owner_.task()->call(&e);
+    mediator_->onControlEvent(this);
+}
+
+// @yo2 0x005bd300 CWindowTaskPictureSwitch::updateLook
+void CWindowTaskPictureSwitch::updateLook() {
+    auto show = [](const CTaskPtr<CSpriteElm>& s, bool on) { showElement(windowElement(s), on, true); };
+    bool checked = checked_ && checkedSprite_.task();
+    switch (state_) {
+    case NORMAL:
+    case PRESSED_OUTSIDE:
+        show(checkedSprite_, checked);
+        show(normal_, !checked);
+        show(hover_, false);
+        show(click_, false);
+        break;
+    case HOVER:
+        show(checkedSprite_, checked);
+        show(hover_, !checked);
+        show(normal_, false);
+        show(click_, false);
+        break;
+    case PRESSED:
+        show(normal_, false);
+        show(hover_, false);
+        show(click_, true);
+        show(checkedSprite_, false);
+        break;
+    }
+}
+
+// @yo2 0x005bc590 CWindowTaskPictureSwitch::setImages (four textures): the size is the normal texture's
+void CWindowTaskPictureSwitch::setImages(const char* normal, const char* hover, const char* click, const char* checked) {
+    windowSpriteTexture(normal_, normal);
+    windowSpriteTexture(hover_, hover);
+    windowSpriteTexture(click_, click);
+    windowSpriteTexture(checkedSprite_, checked);
+    windowSpriteTextureSize(normal_, &w_, &h_);
+    int32_t w = static_cast<int32_t>(w_), h = static_cast<int32_t>(h_);
+    for (CTaskPtr<CSpriteElm>* s : {&normal_, &hover_, &click_, &checkedSprite_})
+        setRect(windowElement(*s), 0, 0, w, h);
+}
+
+// @yo2 0x005bbf30 CWindowTaskPictureSwitch::setImages (one texture, four rectangles): the size is normal's
+void CWindowTaskPictureSwitch::setImages(const char* path, WindowRect normal, WindowRect hover, WindowRect click,
+                                         WindowRect checked) {
+    vc6::string p = path;
+    for (CTaskPtr<CSpriteElm>* s : {&normal_, &hover_, &click_, &checkedSprite_})
+        windowSpriteTexture(*s, p);
+    w_ = float(normal.w);
+    h_ = float(normal.h);
+    setRect(windowElement(normal_), normal.x, normal.y, normal.w, normal.h);
+    setRect(windowElement(hover_), hover.x, hover.y, hover.w, hover.h);
+    setRect(windowElement(click_), click.x, click.y, click.w, click.h);
+    setRect(windowElement(checkedSprite_), checked.x, checked.y, checked.w, checked.h);
+}
+
+// @yo2 0x005bb620 CWindowTaskPictureSwitch::setImageStrip: dataDir + name, cut into four rows (normal, hover,
+// click; the checked look is row 3 when count is 4, else row 2)
+void CWindowTaskPictureSwitch::setImageStrip(const char* name, int32_t count) {
+    vc6::string path = windowDataDir();
+    path += name;
+    for (CTaskPtr<CSpriteElm>* s : {&normal_, &hover_, &click_, &checkedSprite_})
+        windowSpriteTexture(*s, path);
+    float tw, th;
+    windowSpriteTextureSize(normal_, &tw, &th);
+    w_ = tw;
+    h_ = static_cast<float>(th * 0.25);
+    int32_t w = static_cast<int32_t>(w_), h = static_cast<int32_t>(h_);
+    setRect(windowElement(normal_), 0, 0, w, h);
+    setRect(windowElement(hover_), 0, h, w, h);
+    setRect(windowElement(click_), 0, static_cast<int32_t>(h_ + h_), w, h);
+    int32_t v = count == 4 ? static_cast<int32_t>(h_ * 3.0f) : static_cast<int32_t>(h_ + h_);
+    setRect(windowElement(checkedSprite_), 0, v, w, h);
+}
+
+// =====================================================================================================================
+// CWindowTaskMenubar
+
+int32_t CWindowTaskMenubar::s_count = 0;
+
+// @yo2 0x005d3bb0 CWindowTaskMenubar::create
+CWindowTaskMenubar* CWindowTaskMenubar::create(CTask* parent, IWindowTaskMediator* mediator) {
+    auto* b = new CWindowTaskMenubar;
+    b->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskMenubar*>(b->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005d3c70 CWindowTaskMenubar::CWindowTaskMenubar
+CWindowTaskMenubar::CWindowTaskMenubar() { s_count++; }
+
+// @yo2 0x005d5750 CWindowTaskMenubar::~CWindowTaskMenubar
+// @yo2 0x005d3de0 CWindowTaskMenubar deleting destructor
+CWindowTaskMenubar::~CWindowTaskMenubar() { s_count--; }
+
+// @yo2 0x005d3dc0 CWindowTaskMenubar::kind
+uint32_t CWindowTaskMenubar::kind() const { return 2; }
+
+// @yo2 0x005d3e30 CWindowTaskMenubar::onInit: at y 736; the frame over a 70% panel, the two texts between them
+bool CWindowTaskMenubar::onInit() {
+    inheritTransform_ = true;
+    pos_.x = 0;
+    pos_.y = 736;
+    vc6::string dir = windowDataDir();
+    vc6::string path = dir;
+    path += "menuber_01_c01.png";
+    frame_.setUser(this);
+    panel_.setUser(this);
+    windowSpriteCreate(frame_, this, 1000, path);
+    CElement* f = windowElement(frame_);
+    windowNameTask(f, "CWindowTaskMenubarのフレーム画像");
+    f->inheritTransform_ = true;
+    f->setDrawMode(BLEND);
+    f->color_[3] = 1;
+    f->pos_.z = 2;
+    path = dir;
+    path += "menuber_02_c01.png";
+    windowSpriteCreate(panel_, this, 10000, path);
+    CElement* p = windowElement(panel_);
+    windowNameTask(p, "CWindowTaskMenubarの文字を載せる部分の画像");
+    p->inheritTransform_ = true;
+    p->setDrawMode(BLEND);
+    p->color_[3] = 0.7f;
+    p->pos_.z = 0;
+    text1_.setUser(this);
+    text2_.setUser(this);
+    text1_.set(CWindowTaskText::create(this, nullptr));
+    windowNameTask(text1_.get(), "ヘルプテキスト１");
+    text1_->posZ_ = text1_->pos_.z = 1;
+    text2_.set(CWindowTaskText::create(this, nullptr));
+    windowNameTask(text1_.get(), "ヘルプテキスト2");   // (renames the first text; the exe's slip)
+    text2_->posZ_ = text2_->pos_.z = 1;
+    speed_ = 1;
+    scroll_ = 0;
+    width_ = 0;
+    pause_ = 30;
+    unk3b8_ = -1;
+    return true;
+}
+
+// @yo2 0x005d4f80 CWindowTaskMenubar::setMessage: both texts get a new message (multibyte, through setTextA) and
+// start over: the first at x 392, the second after it, shown only when the message has to scroll (wider than 624)
+void CWindowTaskMenubar::setMessage(const WChar* s) {
+    if (std::u16string_view(message_) == std::u16string_view(s ? s : u""))
+        return;
+    message_ = s;
+    vc6::string mb = toMultiByte(message_);
+    text1_->setTextA(mb.c_str());
+    text2_->setTextA(mb.c_str());
+    width_ = text1_->width();
+    text1_->setArea(width_, 16);
+    text2_->setArea(width_, 16);
+    scroll_ = 0;
+    pause_ = 30;
+    text1_->setPos(392, 8);
+    text2_->setPos(float(width_) + scroll_ + 704, 8);
+    windowShowElement(text2_.get(), width_ > 624);
+}
+
+// @yo2 0x005d4970 CWindowTaskMenubar::onMain: the current help text; after the pause a long one scrolls left by
+// speed_, wrapping once it is 312 pixels past its own width
+bool CWindowTaskMenubar::onMain() {
+    vc6::wstring text = g_helpTextMng->current();
+    setMessage(text.c_str());
+    if (pause_ > 0)
+        pause_--;
+    if (pause_ < 1 && width_ > 624) {
+        scroll_ -= speed_;
+        if (scroll_ < float(-312 - width_))
+            scroll_ = 0;
+        if (scroll_ > 0)
+            scroll_ = float(-311 - width_);
+        text1_->setPos(scroll_ + 392, 8);
+        text2_->setPos(float(width_) + scroll_ + 704, 8);
+    }
+    return true;
+}
+
+// @yo2 0x005d4ea0 CWindowTaskMenubar::hitTest (strictly inside the 1024 x 32 bar)
+bool CWindowTaskMenubar::hitTest(float x, float y) {
+    Vec3 p = worldTranslation();
+    return x > p.x && x < p.x + 1024 && y > p.y && y < p.y + 32;
+}
+
+// @yo2 0x005d4f30 CWindowTaskMenubar::handleMessage
+bool CWindowTaskMenubar::handleMessage(WindowMsg m) {
+    if (m.msg != WM_LBUTTONDOWN)
+        return false;
+    mediator_->onControlCommand(this);
+    return true;
+}
+
+// =====================================================================================================================
+// CWindowTaskTab
+
+// @yo2 0x005cff90 CWindowTaskTab::CWindowTaskTab
+CWindowTaskTab::CWindowTaskTab() { setTaskName("タブ(コントロール)"); }
+
+// @yo2 0x005cfed0 CWindowTaskTab::create
+CWindowTaskTab* CWindowTaskTab::create(CTask* parent, IWindowTaskMediator* mediator) {
+    auto* t = new CWindowTaskTab;
+    t->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskTab*>(t->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005d0230 CWindowTaskTab::~CWindowTaskTab
+// @yo2 0x005d0200 CWindowTaskTab deleting destructor
+CWindowTaskTab::~CWindowTaskTab() = default;
+
+// @yo2 0x005d01e0 CWindowTaskTab::kind
+uint32_t CWindowTaskTab::kind() const { return 9; }
+
+// @yo2 0x005d0310 CWindowTaskTab::onInit: a 72 x 24 unselected tab
+bool CWindowTaskTab::onInit() {
+    inheritTransform_ = true;
+    for (CTaskPtr<CSpriteElm>& p : parts_)
+        p.setUser(this);
+    text_.setUser(this);
+    for (CTaskPtr<CSpriteElm>& p : spare_)
+        p.setUser(this);
+    vc6::string path = windowDataDir();
+    path += "tab_01_c01.png";
+    static const char* const names[3] = {"CWindowTaskTabの左画像", "CWindowTaskTabの中央画像", "CWindowTaskTabの右画像"};
+    for (int i = 0; i < 3; i++)
+        framePiece(this, parts_[i], path, names[i]);
+    windowTextElmCreate(text_, this, 10000);
+    windowNameTask(windowElement(text_), "CWindowTaskTabのテキスト");
+    windowElement(text_)->inheritTransform_ = true;
+    for (int i = 0; i < 3; i++)
+        framePiece(this, spare_[i], path, names[i]);
+    setRect(windowElement(parts_[0]), 32, 0, 16, 24);
+    setRect(windowElement(parts_[1]), 48, 0, 8, 24);
+    setRect(windowElement(parts_[2]), 56, 0, 8, 24);
+    setRect(windowElement(spare_[0]), 0, 0, 16, 24);
+    setRect(windowElement(spare_[1]), 16, 0, 8, 24);
+    setRect(windowElement(spare_[2]), 24, 0, 8, 24);
+    for (CTaskPtr<CSpriteElm>& p : spare_)
+        showElement(windowElement(p), false, true);
+    x_ = y_ = 0;
+    w_ = 72;
+    h_ = 24;
+    minW_ = 72;
+    unk3d0_ = true;
+    unk3d4_ = 0;
+    setLook(1);
+    layout();
+    return true;
+}
+
+// @yo2 0x005d1de0 CWindowTaskTab::setLook
+void CWindowTaskTab::setLook(int32_t look) {
+    if (look != 0 && look != 1)
+        return;
+    int32_t u = look == 0 ? 0 : 32;
+    setRect(windowElement(parts_[0]), u, 0, 16, 24);
+    setRect(windowElement(parts_[1]), u + 16, 0, 8, 24);
+    setRect(windowElement(parts_[2]), u + 24, 0, 8, 24);
+    float* c = windowElement(text_)->color_;
+    if (look == 0)
+        c[0] = 0.2f, c[1] = 0.2f, c[2] = 1, c[3] = 1;
+    else
+        c[0] = 0.5f, c[1] = 0.5f, c[2] = 0.5f, c[3] = 1;
+}
+
+// @yo2 0x005d1c50 CWindowTaskTab::layout: the text's width + 20 (at least minW_); the text centred in 24 pixels
+void CWindowTaskTab::layout() {
+    pos_ = {x_, y_, z_};
+    int32_t w = windowTextElmWidth(text_) + 20;
+    if (float(w) < minW_)
+        w = static_cast<int32_t>(minW_);
+    w_ = float(w);
+    windowElement(parts_[0])->pos_ = {0, 0, 0};
+    windowElement(parts_[1])->pos_ = {16, 0, 0};
+    windowElement(parts_[1])->scale_.x = (w_ - 24) * 0.125f;
+    windowElement(parts_[2])->pos_ = {w_ - 8, 0, 0};
+    int32_t fontH = windowTextElmFontHeight(text_);
+    windowElement(text_)->pos_ = {16, float(24 - fontH) * 0.5f, 2};
+}
+
+// @yo2 0x005d23f0 CWindowTaskTab::hitTest (from the whole-pixel position)
+bool CWindowTaskTab::hitTest(float x, float y) {
+    float x0 = float(static_cast<int32_t>(worldTranslation().x));
+    float y0 = float(static_cast<int32_t>(worldTranslation().y));
+    return x > x0 && x < x0 + w_ && y > y0 && y < y0 + h_;
+}
+
+// @yo2 0x005d24b0 CWindowTaskTab::handleMessage
+bool CWindowTaskTab::handleMessage(WindowMsg m) {
+    if (m.msg == WM_LBUTTONDOWN) {
+        mediator_->onControlEvent(this);
+        setLook(0);
+    }
+    return true;
+}
+
+// @yo2 0x005d2500 CWindowTaskTab::setTabText
+void CWindowTaskTab::setTabText(const WChar* s) {
+    windowTextElmSetText(text_, vc6::wstring(s));
+    layout();
+}
+
+// =====================================================================================================================
+// CWindowTaskCheckbox
+
+// @yo2 0x005bdf20 CWindowTaskCheckbox::CWindowTaskCheckbox
+CWindowTaskCheckbox::CWindowTaskCheckbox() { setTaskName("チェックボックス"); }
+
+// @yo2 0x005bde60 CWindowTaskCheckbox::create
+CWindowTaskCheckbox* CWindowTaskCheckbox::create(CTask* parent, IWindowTaskMediator* mediator) {
+    auto* c = new CWindowTaskCheckbox;
+    c->mediator_ = mediator;
+    return dynamic_cast<CWindowTaskCheckbox*>(c->CTask::create(parent, 10000));
+}
+
+// @yo2 0x005be110 CWindowTaskCheckbox::~CWindowTaskCheckbox
+// @yo2 0x005be0e0 CWindowTaskCheckbox deleting destructor
+CWindowTaskCheckbox::~CWindowTaskCheckbox() = default;
+
+// @yo2 0x005be0c0 CWindowTaskCheckbox::kind
+uint32_t CWindowTaskCheckbox::kind() const { return 4; }
+
+// @yo2 0x005be190 CWindowTaskCheckbox::onInit: the box (0, 0) and the tick (16, 0) of check_01_c00.png, unchecked
+bool CWindowTaskCheckbox::onInit() {
+    inheritTransform_ = true;
+    box_.setUser(this);
+    tick_.setUser(this);
+    vc6::string path = windowDataDir();
+    path += "check_01_c00.png";
+    framePiece(this, box_, path, "CWindowTaskCheckboxの枠画像");
+    setRect(windowElement(box_), 0, 0, 16, 16);
+    framePiece(this, tick_, path, "CWindowTaskCheckboxのチェック画像");
+    setRect(windowElement(tick_), 16, 0, 16, 16);
+    pos_ = {0, 0, 0};
+    windowElement(box_)->pos_.z = 0;
+    windowElement(tick_)->pos_.z = 1;
+    w_ = h_ = 16;
+    checked_ = false;
+    setChecked(false);
+    return true;
+}
+
+// @yo2 0x005beaf0 CWindowTaskCheckbox::setChecked
+void CWindowTaskCheckbox::setChecked(bool on) {
+    checked_ = on;
+    showElement(windowElement(tick_), on, true);
+}
+
+// @yo2 0x005beb80 CWindowTaskCheckbox::hitTest (strictly inside)
+bool CWindowTaskCheckbox::hitTest(float x, float y) {
+    Vec3 p = worldTranslation();
+    return x > p.x && x < p.x + w_ && y > p.y && y < p.y + h_;
+}
+
+// @yo2 0x005bec20 CWindowTaskCheckbox::handleMessage
+bool CWindowTaskCheckbox::handleMessage(WindowMsg m) {
+    if (m.msg == WM_LBUTTONDOWN) {
+        setChecked(!checked_);
+        mediator_->onControlEvent(this);
+    }
     return true;
 }

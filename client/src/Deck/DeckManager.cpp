@@ -36,6 +36,9 @@ uint16_t* listOf(CDeckManager::Lists& l, int list) {
 uint8_t boxCopies(const uint8_t* box, uint16_t id) { return box[id * 3 + 9]; }
 }  // namespace
 
+// @yo2 0x00905e30 g_deckManager's dynamic initializer
+CDeckManager* g_deckManager = new CDeckManager;
+
 // @yo2 0x00906010 CDeckManager::CDeckManager: everything empty, the file is "deck.ydc" (folder unset)
 CDeckManager::CDeckManager() {
     clearAll();

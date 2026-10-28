@@ -15,7 +15,8 @@
 <canvas id="canvas" width="800" height="600" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
 <pre id="log"></pre>
 <script>
-  // Needs a cross-origin-isolated page (COOP same-origin + COEP require-corp) for SharedArrayBuffer, and JSPI.
+  // Needs a cross-origin-isolated page (COOP same-origin + COEP require-corp) for SharedArrayBuffer. With JSPI it runs
+  // yo2rc.js, without (Safari, Firefox) the ASYNCIFY build yo2rc-async.js (the Makefile swaps the script tag for that choice).
   const logEl = document.getElementById("log");
   const showLog = new URLSearchParams(location.search).has("log");   // ?log shows the runtime log
   if (!showLog) logEl.style.display = "none";
@@ -49,9 +50,10 @@
     }, 500);
   }
   addEventListener("error", (e) => crash("error: " + (e.message || e)));
-  addEventListener("unhandledrejection", (e) => crash("unhandled rejection: " + (e.reason?.stack || e.reason)));
+  // Firefox's and Safari's .stack leave the message out
+  addEventListener("unhandledrejection", (e) => crash("unhandled rejection: " + (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason)));
   if (!crossOriginIsolated) log("not cross-origin isolated: serve with COOP/COEP headers (web/serve.mjs does)");
-  if (!("Suspending" in WebAssembly)) log("this browser has no JSPI (WebAssembly.Suspending)");
+  if (!("Suspending" in WebAssembly)) log("no JSPI (WebAssembly.Suspending): the ASYNCIFY build");
   var Module = { canvas: document.getElementById("canvas"), print: log, printErr: log,
                  onAbort: (w) => crash("abort: " + w), onExit: (code) => code && crash("exit " + code) };
 </script>

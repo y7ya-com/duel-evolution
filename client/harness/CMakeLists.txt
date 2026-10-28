@@ -6,7 +6,7 @@ endif()
 
 file(GLOB HOOKS CONFIGURE_DEPENDS hooks/*.cpp)
 add_library(yo2rep SHARED rep/main.cpp rep/version.def ${HOOKS})
-target_link_libraries(yo2rep PRIVATE yo2core wsock32)
+target_link_libraries(yo2rep PRIVATE yo2core wsock32 d3d8)   # d3d8: CD3DDevice calls Direct3DCreate8
 set_target_properties(yo2rep PROPERTIES PREFIX "")
 # Fixed base, no relocations needed in Unicorn; no runtime DLL deps beyond msvcrt/kernel32/wsock32.
 target_link_options(yo2rep PRIVATE -static -static-libgcc -static-libstdc++

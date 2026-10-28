@@ -3,11 +3,28 @@
 All code changes land in this repo (y7ya-com/duel-evolution). The old private repos are frozen. `yo2-decomp` is still
 used for Ghidra and Konami data work, and no code goes there. `duel-evolution-private` is archived.
 
+## What may be committed (the owner's rule)
+
+- **Allowed:** everything we wrote, including code that references the game's functions by address or reproduces
+  small tables from the exe. Examples:
+  - `recomp/hooks.py` and `emit.py`'s `IMM_HOOKS`;
+  - `recomp/ovr/*` and `ovr/orig.txt` (an address list);
+  - lazyfs `FIELD_SPELLS`;
+  - the audio-slot labels in `recomp/audio-slots.md`;
+  - the hand decompilation in `client/src/`.
+- **Not allowed:**
+  - `yo2.exe`, `MagicKey.dll`, `*.dat`, `*.swf`;
+  - generated recomp C (`client/recomp/out/`, including `ovr/orig.py`'s `o_` bodies);
+  - art, audio, fonts and screenshots extracted from the game;
+  - raw Ghidra, SWF or disassembly dumps;
+  - the `server/gamedata/` tables.
+
+  The README's "Files you supply" section says how each one is regenerated. The guard enforces this list by path,
+  extension and content: a file with dozens of generated `f_`/`o_` functions, disassembly lines or Ghidra `FUN_`
+  definitions is refused wherever it is.
+
 ## Rules
 
-- **Never commit game files** or anything extracted from them: executables, archives, images, audio, fonts, card
-  tables, generated C (`client/recomp/out/`), Ghidra and decompiler dumps, `server/gamedata/`. The README's "Files you
-  supply" section says how each one is regenerated.
 - **Enable the guard** once per clone: `git config core.hooksPath .githooks` (worktrees share it). It needs `gitleaks`
   (`brew install gitleaks`).
   - `infra/guard.py` runs before every commit (`pre-commit`) and every `git am` patch (`pre-applypatch`).
@@ -43,7 +60,7 @@ from these sync bases:
 
 | Old repo, branch | Sync base | Prefix here |
 |---|---|---|
-| `yo2-decomp` `claude/recomp-496b28` | `fbffd368` | `client/` |
+| `yo2-decomp` `public-sync` (= `claude/recomp-496b28` fbffd368 + `main` d1b6f1d6 + `recomp-web` e83433e8) | `54e14ed1` | `client/` |
 | `ygo-original` (duel-evolution-private) `master` | `6c4cf63` | none (`server/`, `client/html-ui/` map 1:1) |
 | `yo2-decomp-data` `web/public/recomp/{index.html,loader.js,stage.js}` | not git | `client/web-shell/` (copy the files) |
 
@@ -52,7 +69,7 @@ ports commit by commit:
 
 ```sh
 cd ~/Documents/GitHub/yo2-decomp
-git format-patch -o /tmp/port fbffd368..<branch>
+git format-patch -o /tmp/port 54e14ed1..<branch>
 cd <your public worktree>
 git am --directory=client/ /tmp/port/*.patch      # ygo-original branches: no --directory
 ```
@@ -62,9 +79,9 @@ with its net change. Replaying it commit by commit fails, because its early patc
 
 ```sh
 cd ~/Documents/GitHub/yo2-decomp
-T=$(git merge-tree --write-tree fbffd368 <branch>)    # exits non-zero on conflicts: merge for real in the old repo first
-git diff --binary fbffd368 $T > /tmp/port.diff
-git log --no-merges --format='- %s' fbffd368..<branch> > /tmp/port.msg
+T=$(git merge-tree --write-tree 54e14ed1 <branch>)    # exits non-zero on conflicts: merge for real in the old repo first
+git diff --binary 54e14ed1 $T > /tmp/port.diff
+git log --no-merges --format='- %s' 54e14ed1..<branch> > /tmp/port.msg
 cd <your public worktree>
 git apply --index --directory=client/ /tmp/port.diff
 { echo "<area>: <branch> (ported from yo2-decomp <sha>)"; echo; cat /tmp/port.msg; } | git commit -F -

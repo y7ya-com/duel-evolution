@@ -16,6 +16,7 @@
 class CSpriteElm;
 class CDupSprite;
 class CTextElm;
+class CIME;
 
 // --- what the controls need from classes not ported yet -----------------------------------------------------------
 // TODO(System): CSpriteElm::newChild (0x0061f260): a sprite under `parent` into `to` (CTaskPtr::set).
@@ -34,6 +35,7 @@ void windowTextElmCreate(CTaskPtr<CTextElm>& to, CTask* parent, uint32_t priorit
 void windowTextElmSetText(const CTaskPtr<CTextElm>& t, const vc6::wstring& s);        // 0x00634850
 void windowTextElmSetBox(const CTaskPtr<CTextElm>& t, float w, float h);              // 0x0058bc60
 int32_t windowTextElmWidth(const CTaskPtr<CTextElm>& t);                              // 0x0058d460
+int32_t windowTextElmFontHeight(const CTaskPtr<CTextElm>& t);                         // +0x4b4
 int32_t windowTextElmLineCount(const CTaskPtr<CTextElm>& t, float width);             // 0x0058ea20 + its line list
 int32_t windowTextElmLinesFrom(const CTaskPtr<CTextElm>& t, int32_t line, float height);   // 0x0058b270
 // The fields CWindowTaskText sets (exe offsets in CTextElm for whoever ports it):
@@ -48,6 +50,17 @@ int32_t windowTextElmFirstLine(const CTaskPtr<CTextElm>& t);
 void windowTextElmSetPageLines(const CTaskPtr<CTextElm>& t, int32_t lines); // +0x754
 int32_t windowTextElmPageLines(const CTaskPtr<CTextElm>& t);
 void windowTextElmSetField430(const CTaskPtr<CTextElm>& t, int32_t v);      // +0x430, a pointer: 0 = CTextElm's own +0x434
+void windowTextElmSetKeepNewlines(const CTaskPtr<CTextElm>& t, bool on);    // +0x51c (byte)
+// The caret services of its layout object (CTextElm + 0x340): a (column, line) caret against the laid-out text.
+void windowTextElmCaretPos(const CTaskPtr<CTextElm>& t, int32_t col, int32_t line, float* x, float* y);   // 0x0058bb80
+void windowTextElmCaretAt(const CTaskPtr<CTextElm>& t, float x, float y, int32_t* col, int32_t* line);   // 0x0058bbc0
+void windowTextElmCaretIndex(const CTaskPtr<CTextElm>& t, int32_t col, int32_t line, int32_t* index);    // 0x0058bc00
+void windowTextElmCaretFromIndex(const CTaskPtr<CTextElm>& t, int32_t index, int32_t* col, int32_t* line);   // 0x0058bc30
+
+// TODO(System): CIME (0x410 bytes), the IME composition window an input box owns.
+void windowImeCreate(CTaskPtr<CIME>& to, CTask* parent, CWindowTaskControll* owner);   // CIME::create 0x00595740
+void windowImeMessage(const CTaskPtr<CIME>& ime, const WindowMsg& m);                  // vslot 14 (0x38)
+void windowImeSetPos(const CTaskPtr<CIME>& ime, float x, float y, float z);           // 0x005956b0
 
 // TODO(System): CDupSprite, one texture drawn as a list of tiles (the striped list background).
 struct WindowDupTile {
@@ -59,31 +72,50 @@ struct WindowDupTile {
 };
 static_assert(sizeof(WindowDupTile) == 0x24, "WindowDupTile");
 void windowDupCreate(CTaskPtr<CDupSprite>& to, CTask* parent, uint32_t priority, const vc6::string& texture);  // 0x005934f0
+void windowDupCreate(CTaskPtr<CDupSprite>& to, CTask* parent, uint32_t priority);   // 0x00594100 (no texture yet)
+void windowDupTexture(const CTaskPtr<CDupSprite>& d, const vc6::string& path);     // CSpriteElm::setTexture 0x0061f320
 void windowDupClear(const CTaskPtr<CDupSprite>& d);                              // 0x00593270
 void windowDupAddTile(const CTaskPtr<CDupSprite>& d, const WindowDupTile& t);    // 0x00592fb0
 // TODO(yaneSDK): CMouseEx::IsPushLButton (vslot 16 of CApp + 0x148): the left button went down since the last flush.
 bool windowMouseLeftPushed();
+// TODO(Swf): FUN_00686560, play a sound (0x1xxxxxxx sound effects; 0x10000000 a tab clicked).
+bool windowSoundPlay(uint32_t id, int32_t fadeFrames);
+// TODO(System): a sprite's texture (CSpriteElm + 0x368): its size (CSpriteElm 0x0061ec80), its D3DFORMAT
+// (0x00589570; 0x15 A8R8G8B8, 0x1a A4R4G4B4) and the bytes of its pixel (x, y) (0x00589590, bpp bytes per pixel).
+void windowSpriteTextureSize(const CTaskPtr<CSpriteElm>& s, float* w, float* h);
+int32_t windowSpriteTextureFormat(const CTaskPtr<CSpriteElm>& s);
+const uint8_t* windowSpriteTexturePixel(const CTaskPtr<CSpriteElm>& s, int32_t x, int32_t y, int32_t bpp);
 
 // A CTaskPtr's target as the CElement it is (what CTaskPtr<T>::get returns, with get's asserts).
 CElement* windowElement(const CTaskPtrBase& p);
+// CWindowTask.h idiom: show or hide an element (setDisp, propagated) with lock bit 2 (no TM_MAIN while hidden).
+void windowShowElement(CElement* e, bool on);
 // CWindowTask.h: name a freshly created part (asserts it exists).
 void windowNameTask(CTask* task, const char* name);
 // CWindowTask.h: the factory's data directory ("data/common/window/").
 vc6::string windowDataDir();
 
 // --- CWindowTaskPictureFrame: a resizable 9-slice frame; subclasses pick the texture and the piece rectangles -------
+// The four corners are sprites; the edges and the centre are tiles of one CDupSprite (top_: the other four CDupSprite
+// pointers are never set).
 class CWindowTaskPictureFrame : public CWindowTaskControll {
 public:
+    struct Piece {
+        int32_t w, h;   // size
+        int32_t u, v;   // texture origin
+    };
     CWindowTaskPictureFrame();
     ~CWindowTaskPictureFrame() override;
+    bool onInit() override;
     // @yo2 0x005a94a0 CWindowTaskPictureFrame::onMain
     bool onMain() override { return true; }
-    void layout() override = 0;   // 0x005a94c0 (CDupSprite tiling): not rewritten
+    void layout() override;   // the corners placed, the edges and the centre stretched (one tile each)
     bool handleMessage(WindowMsg m) override;
     bool hitTest(float x, float y) override;
     virtual void loadImages() = 0;   // slot 19: texture + pieces_
 
-    int32_t pieces_[36] = {};     // 0x368 the nine pieces' texture rectangles (set by loadImages)
+    // Piece order: top left, top, top right, left, centre, right, bottom left, bottom, bottom right.
+    Piece pieces_[9] = {};        // 0x368 (set by loadImages)
     float x_ = 0, y_ = 0;         // 0x3f8
     float w_ = 256, h_ = 256;     // 0x400
     CTaskPtr<CSpriteElm> topLeft_;     // 0x408
@@ -97,6 +129,7 @@ public:
     CTaskPtr<CDupSprite> right_;       // 0x468
 };
 YO2_AT(CWindowTaskPictureFrame, pieces_, 0x368);
+YO2_SIZEOF(CWindowTaskPictureFrame::Piece, 0x10);
 YO2_AT(CWindowTaskPictureFrame, x_, 0x3f8);
 YO2_AT(CWindowTaskPictureFrame, w_, 0x400);
 YO2_AT(CWindowTaskPictureFrame, topLeft_, 0x408);
@@ -132,10 +165,16 @@ public:
     void setPageLines(int32_t lines);     // lines shown at once
     int32_t pageLines() const;
     void setField430(int32_t v);          // CTextElm + 0x430 (0: back to its own default)
+    void setKeepNewlines(bool on);        // CTextElm + 0x51c
     int32_t width() const;                // of the laid-out text, in pixels
     int32_t lineCount(float width) const;
     int32_t linesFrom(int32_t line, float height) const;   // lines that fit in `height` from `line` on
     void setPos(float x, float y);   // (z stays posZ_)
+    // A (column, line) caret: its position in the text's pixels (scrolled), the caret at a point, its character index.
+    void caretPos(int32_t col, int32_t line, float* x, float* y) const;
+    void caretAt(float x, float y, int32_t* col, int32_t* line) const;
+    void caretIndex(int32_t col, int32_t line, int32_t* index) const;
+    void caretFromIndex(int32_t index, int32_t* col, int32_t* line) const;
 
     CTaskPtr<CTextElm> text_;   // 0x368
     float x_ = 0;               // 0x374
@@ -410,6 +449,13 @@ public:
     bool hitTest(float x, float y) override;
     void setText(const WChar* s) override;
     virtual void setTextA(const char* s);   // slot 19
+    // CWindowTask.h inlines the windows use (both texts; the shadow offset by shadowDx_ / shadowDy_)
+    void setPos(int32_t x, int32_t y);
+    void setArea(int32_t w, int32_t h);
+    void setAlign(int32_t align);
+    void setPageLines(int32_t lines);
+    void setColors(float r, float g, float b, float a);   // the text's; the shadow black
+    void showShadow();
     // the texts' notices go on to this control's own mediator unchanged
     void onControlEvent(CWindowTaskControll* sender) override;
     void onControlCommand(CWindowTaskControll* sender) override;
@@ -540,21 +586,23 @@ YO2_AT(CWindowTaskBackStripe, flags_, 0x3b4);
 YO2_AT(CWindowTaskBackStripe, spans_, 0x3c4);
 YO2_SIZEOF(CWindowTaskBackStripe, 0x3d8);
 
-// MSVC6 std::vector<std::wstring>: a std::vector behind the `first` slot (footprint only, like vc6::map).
-class WindowWStringList {
+// An MSVC6 std::vector<T> of a non-trivial T: a std::vector behind the `first` slot (footprint only, like vc6::map).
+template <class T>
+class WindowVector {
 public:
-    WindowWStringList() = default;
-    WindowWStringList(const WindowWStringList&) = delete;
-    WindowWStringList& operator=(const WindowWStringList&) = delete;
-    ~WindowWStringList() { delete v_; }
-    std::vector<vc6::wstring>& operator*() const { return *v_; }
-    std::vector<vc6::wstring>* operator->() const { return v_; }
+    WindowVector() = default;
+    WindowVector(const WindowVector&) = delete;
+    WindowVector& operator=(const WindowVector&) = delete;
+    ~WindowVector() { delete v_; }
+    std::vector<T>& operator*() const { return *v_; }
+    std::vector<T>* operator->() const { return v_; }
 
 private:
     [[maybe_unused]] uint8_t alloc_ = 0;
-    std::vector<vc6::wstring>* v_ = new std::vector<vc6::wstring>;
+    std::vector<T>* v_ = new std::vector<T>;
     [[maybe_unused]] uint32_t last_ = 0, end_ = 0;
 };
+using WindowWStringList = WindowVector<vc6::wstring>;   // MSVC6 std::vector<std::wstring>
 YO2_SIZEOF(WindowWStringList, 0x10);
 
 // --- CWindowTaskListbox: items shown as one text over a striped background, with a scroll bar ---------------------
@@ -590,6 +638,7 @@ public:
     virtual void clearSelection();               // slot 30
 
     void addItem(const WChar* s);
+    void addRow();   // a row without text
     void removeItem(int32_t item);
     void clear();
     void setItem(int32_t item, const WChar* s);
@@ -736,3 +785,322 @@ YO2_AT(CWindowTaskIconHide, w_, 0x37c);
 YO2_AT(CWindowTaskIconHide, pressed_, 0x384);
 YO2_AT(CWindowTaskIconHide, wasUp_, 0x386);
 YO2_SIZEOF(CWindowTaskIconHide, 0x388);
+
+// --- CWindowTaskInput: an edit box (a text on a frame, a blinking caret, the IME window) --------------------------
+class CWindowTaskInput : public CWindowTaskControll {
+public:
+    static CWindowTaskInput* create(CTask* parent, IWindowTaskMediator* mediator, int32_t style);
+    CWindowTaskInput();
+    ~CWindowTaskInput() override;
+    bool onInit() override;
+    bool onMain() override;   // caret blink, the shown text (masked for passwords)
+    void setAlpha(float a) override;
+    void setName(const vc6::string& s) override;   // the text child's
+    vc6::string name() const override;
+    uint32_t kind() const override;
+    void layout() override;   // also cuts text_ to maxLen_ (multibyte) bytes
+    bool handleMessage(WindowMsg m) override;   // editing keys, characters, Ctrl+V, Tab, Enter, the IME
+    bool hitTest(float x, float y) override;
+    void setText(const WChar* s) override;
+
+    void insert(const vc6::wstring& s);   // at the caret: printable characters (and '\n' when multiLine_)
+    void clear();                          // empty, caret home
+    void setCaret(int32_t col, int32_t line);
+    void caret(int32_t* col, int32_t* line) const;
+    void backspace();
+    void deleteChar();
+    void caretToMouse(float x, float y);
+    void placeIme();   // the IME window follows the caret
+
+    int32_t konami_ = 0;               // 0x368 progress through up up down down left right left right B A (not read)
+    CTaskPtr<CSpriteElm> fill_;        // 0x36c the frame texture's middle, stretched
+    CTaskPtr<CSpriteElm> caret_;       // 0x378 kasoru_01_c00.png
+    CTaskPtr<CSpriteElm> border_;      // 0x384
+    CTaskPtr<CWindowTaskText> text_;   // 0x390
+    vc6::wstring value_;               // 0x39c what was typed
+    vc6::wstring shown_;               // 0x3ac the '*' mask of value_ (password_)
+    CTaskPtr<CIME> ime_;               // 0x3bc
+    float x_ = 0, y_ = 0;              // 0x3c8
+    float w_ = 256, h_ = 256;          // 0x3d0
+    bool multiLine_ = true;            // 0x3d8 (false after onInit)
+    int32_t col_ = 0, line_ = 0;       // 0x3dc the caret
+    float unk3e4_ = 1;                 // 0x3e4
+    uint32_t unk3e8_ = 0, unk3ec_ = 0; // 0x3e8
+    int32_t maxLen_ = 9999;            // 0x3f0 in multibyte bytes (19 after onInit)
+    bool password_ = false;            // 0x3f4
+    bool digitsOnly_ = false;          // 0x3f5
+    bool alnumOnly_ = false;           // 0x3f6
+    int32_t blink_ = 0;                // 0x3f8 frames, mod 15
+    bool caretOn_ = false;             // 0x3fc the blink phase
+    bool submitOnEnter_ = false;       // 0x3fd Enter fires mediator slot 0 with entered_ set
+    bool entered_ = false;             // 0x3fe
+    int32_t style_ = 1;                // 0x400 windowFrameTexture
+    const void* unk404_ = nullptr;     // 0x404 an embedded one-method object (vtable 0x00be7280): Input never calls it
+};
+YO2_AT(CWindowTaskInput, konami_, 0x368);
+YO2_AT(CWindowTaskInput, fill_, 0x36c);
+YO2_AT(CWindowTaskInput, text_, 0x390);
+YO2_AT(CWindowTaskInput, value_, 0x39c);
+YO2_AT(CWindowTaskInput, ime_, 0x3bc);
+YO2_AT(CWindowTaskInput, x_, 0x3c8);
+YO2_AT(CWindowTaskInput, multiLine_, 0x3d8);
+YO2_AT(CWindowTaskInput, col_, 0x3dc);
+YO2_AT(CWindowTaskInput, maxLen_, 0x3f0);
+YO2_AT(CWindowTaskInput, password_, 0x3f4);
+YO2_AT(CWindowTaskInput, blink_, 0x3f8);
+YO2_AT(CWindowTaskInput, caretOn_, 0x3fc);
+YO2_AT(CWindowTaskInput, style_, 0x400);
+YO2_SIZEOF(CWindowTaskInput, 0x408);
+
+// --- CWindowTaskIconExpand / CWindowTaskIconShrink: a window's △ / ▽ buttons ------------------------------------
+// The exe has two copies of one class (only the texture row, kind and names differ); here they share a base.
+class CWindowTaskIconArrow : public CWindowTaskControll {
+public:
+    ~CWindowTaskIconArrow() override;
+    bool onInit() override;
+    bool onMain() override;                     // looks: normal, hover (or focused), pressed
+    void layout() override;
+    bool handleMessage(WindowMsg m) override;   // fires on a release that ends a press (mediator slot 0)
+    bool hitTest(float x, float y) override;
+    void setLook(int32_t look);
+
+    CTaskPtr<CSpriteElm> sprite_;   // 0x368
+    float x_ = 0, y_ = 0;           // 0x374
+    float w_ = 256, h_ = 256;       // 0x37c 16 x 24 after onInit
+    bool pressed_ = false;          // 0x384 the press started on the button
+    uint8_t unk385_ = 0;            // 0x385
+    bool wasUp_ = false;            // 0x386 the button was up last frame
+
+protected:
+    virtual int32_t lookRow() const = 0;           // (not in the exe) the looks' row in icon_01_c01.png
+    virtual const char* imageName() const = 0;     // (not in the exe)
+};
+YO2_AT(CWindowTaskIconArrow, sprite_, 0x368);
+YO2_AT(CWindowTaskIconArrow, x_, 0x374);
+YO2_AT(CWindowTaskIconArrow, w_, 0x37c);
+YO2_AT(CWindowTaskIconArrow, pressed_, 0x384);
+YO2_AT(CWindowTaskIconArrow, wasUp_, 0x386);
+YO2_SIZEOF(CWindowTaskIconArrow, 0x388);
+
+class CWindowTaskIconExpand : public CWindowTaskIconArrow {
+public:
+    static CWindowTaskIconExpand* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskIconExpand();
+    uint32_t kind() const override;
+
+protected:
+    int32_t lookRow() const override { return 48; }
+    const char* imageName() const override { return "CWindowTaskIconExpandの画像"; }
+};
+YO2_SIZEOF(CWindowTaskIconExpand, 0x388);
+
+class CWindowTaskIconShrink : public CWindowTaskIconArrow {
+public:
+    static CWindowTaskIconShrink* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskIconShrink();
+    uint32_t kind() const override;
+
+protected:
+    int32_t lookRow() const override { return 72; }
+    const char* imageName() const override { return "CWindowTaskIconShrinkの画像"; }
+};
+YO2_SIZEOF(CWindowTaskIconShrink, 0x388);
+
+// --- CWindowTaskFramePlane: a flat 9-slice window background ("平らなウィンドウ") --------------------------------------
+class CWindowTaskFramePlane : public CWindowTaskControll {
+public:
+    static CWindowTaskFramePlane* create(CTask* parent, IWindowTaskMediator* mediator, int32_t style);
+    CWindowTaskFramePlane();
+    ~CWindowTaskFramePlane() override;
+    bool onInit() override;
+    bool onMain() override;   // layout every frame
+    uint32_t kind() const override;
+    void layout() override;
+    bool handleMessage(WindowMsg m) override;   // a click grabs the window
+    bool hitTest(float x, float y) override;
+
+    // top left, top, top right, left, right, bottom left, bottom, bottom right, centre
+    CTaskPtr<CSpriteElm> sprites_[9];   // 0x368
+    float x_ = 0, y_ = 0;               // 0x3d4
+    float w_ = 256, h_ = 256;           // 0x3dc
+    int32_t style_ = 1;                 // 0x3e4 windowFrameTexture
+};
+YO2_AT(CWindowTaskFramePlane, sprites_, 0x368);
+YO2_AT(CWindowTaskFramePlane, x_, 0x3d4);
+YO2_AT(CWindowTaskFramePlane, w_, 0x3dc);
+YO2_AT(CWindowTaskFramePlane, style_, 0x3e4);
+YO2_SIZEOF(CWindowTaskFramePlane, 0x3e8);
+
+// --- CWindowTaskPictureSwitch: a button drawn by four sprites (normal, hover, click, checked) ----------------------
+// A texture rectangle as the exe passes it (a RECT-sized struct by value).
+struct WindowRect {
+    int32_t x, y, w, h;
+};
+// The message a picture switch sends its owner task when it is clicked (CTask::call).
+struct CTmWndObjEvent : CTaskMessage {
+    enum : int32_t { TAG = 0x1b };
+    explicit CTmWndObjEvent(CWindowTaskControll* sender) : CTaskMessage(TAG), sender(sender) {}
+    CWindowTaskControll* sender;   // 0x10
+    uint32_t unk14 = 0;            // 0x14
+};
+YO2_AT(CTmWndObjEvent, sender, 0x10);
+YO2_SIZEOF(CTmWndObjEvent, 0x18);
+
+class CWindowTaskPictureSwitch : public CWindowTaskControll, public IWindowTaskMediator {
+public:
+    enum State : int32_t { NORMAL, HOVER, PRESSED, PRESSED_OUTSIDE };
+    // owner: the task told by a CTmWndObjEvent on each click (may be null)
+    static CWindowTaskPictureSwitch* create(CTask* parent, CTask* owner, IWindowTaskMediator* mediator);
+    CWindowTaskPictureSwitch();
+    ~CWindowTaskPictureSwitch() override;
+    bool onInit() override;
+    bool onMain() override;   // the mouse: state_, the press / release edges, the look
+    uint32_t kind() const override;
+    void layout() override;   // size from the normal sprite's rectangle
+    bool handleMessage(WindowMsg m) override;   // Tab / Shift+Tab, Enter clicks; press and release
+    bool hitTest(float x, float y) override;
+    void setText(const WChar* s) override;   // the caption, centred vertically
+    // the looks: four textures, each whole (slot 19); one texture, four rectangles (slot 20); dataDir + a strip of
+    // four (count 4) or three rows (slot 21)
+    virtual void setImages(const char* normal, const char* hover, const char* click, const char* checked);
+    virtual void setImages(const char* path, WindowRect normal, WindowRect hover, WindowRect click, WindowRect checked);
+    virtual void setImageStrip(const char* name, int32_t count);
+    // @yo2 0x005bd280 CWindowTaskPictureSwitch::onEnter (slot 22, empty)
+    virtual void onEnter() {}
+    // @yo2 0x005bd2a0 CWindowTaskPictureSwitch::onLeave (slot 23, empty)
+    virtual void onLeave() {}
+    // @yo2 0x005bd2c0 CWindowTaskPictureSwitch::onPress (slot 24, empty)
+    virtual void onPress() {}
+    // @yo2 0x005bd2e0 CWindowTaskPictureSwitch::onRelease (slot 25, empty)
+    virtual void onRelease() {}
+    virtual void updateLook();    // slot 26: shows the sprite for state_ (checked_: the checked one)
+    // the caption's notices go on as this control's
+    void onControlEvent(CWindowTaskControll* sender) override;
+    void onControlCommand(CWindowTaskControll* sender) override;
+    void mediatorSlot2(CWindowTaskControll* sender) override;
+    void mediatorSlot3(CWindowTaskControll* sender) override;
+
+    bool hit(int32_t x, int32_t y) const;   // inside, and over an opaque pixel of the normal texture
+    void click();                           // the owner's CTmWndObjEvent, then mediator slot 0
+    void setState(int32_t state) { state_ = state; }   // @yo2 0x005bd030 CWindowTaskPictureSwitch::setState
+
+    CTaskPtr<CSpriteElm> normal_;    // 0x36c
+    CTaskPtr<CSpriteElm> hover_;     // 0x378
+    CTaskPtr<CSpriteElm> click_;     // 0x384
+    CTaskPtr<CSpriteElm> checkedSprite_;   // 0x390
+    CTaskPtr<CWindowTaskText> text_;       // 0x39c
+    float x_ = 0, y_ = 0;            // 0x3a8
+    float w_ = 256, h_ = 256;        // 0x3b0
+    uint8_t unk3b8_ = 0, unk3b9_ = 0, unk3ba_ = 0;   // 0x3b8
+    int32_t state_ = NORMAL;         // 0x3bc State
+    bool checked_ = false;           // 0x3c0
+    bool justPressed_ = false;       // 0x3c1 the button went down over it this frame
+    bool held_ = false;              // 0x3c2
+    bool justReleased_ = false;      // 0x3c3
+    uint8_t unk3c4_ = 0;             // 0x3c4
+    CTaskPtr<CTask> owner_;          // 0x3c8
+    uint32_t unk3d4_ = 0;            // 0x3d4
+};
+YO2_AT(CWindowTaskPictureSwitch, normal_, 0x36c);
+YO2_AT(CWindowTaskPictureSwitch, text_, 0x39c);
+YO2_AT(CWindowTaskPictureSwitch, x_, 0x3a8);
+YO2_AT(CWindowTaskPictureSwitch, w_, 0x3b0);
+YO2_AT(CWindowTaskPictureSwitch, state_, 0x3bc);
+YO2_AT(CWindowTaskPictureSwitch, checked_, 0x3c0);
+YO2_AT(CWindowTaskPictureSwitch, owner_, 0x3c8);
+YO2_SIZEOF(CWindowTaskPictureSwitch, 0x3d8);
+
+// --- CWindowTaskMenubar: the 1024 x 32 help bar at the bottom of the screen; shows (and scrolls) the current help
+// text of g_helpTextMng -------------------------------------------------------------------------------------------
+class CWindowTaskMenubar : public CWindowTaskControll {
+public:
+    static CWindowTaskMenubar* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskMenubar();   // (keeps the base's task name)
+    ~CWindowTaskMenubar() override;
+    bool onInit() override;
+    bool onMain() override;
+    uint32_t kind() const override;
+    // @yo2 0x005d3da0 CWindowTaskMenubar::layout (empty)
+    void layout() override {}
+    bool handleMessage(WindowMsg m) override;   // a click: mediator slot 1 (and taken)
+    bool hitTest(float x, float y) override;
+    void setMessage(const WChar* s);   // a new text restarts both copies (the second follows when it scrolls)
+
+    static int32_t s_count;   // DAT_0126f9d0 live menu bars
+
+    CTaskPtr<CSpriteElm> frame_;        // 0x368 menuber_01_c01.png
+    CTaskPtr<CSpriteElm> panel_;        // 0x374 menuber_02_c01.png, under the text
+    CTaskPtr<CWindowTaskText> text1_;   // 0x380
+    CTaskPtr<CWindowTaskText> text2_;   // 0x38c
+    float speed_ = 0;                   // 0x398 pixels per frame (1 after onInit)
+    vc6::wstring message_;              // 0x39c
+    float scroll_ = 0;                  // 0x3ac
+    int32_t width_ = 0;                 // 0x3b0 the message's width in pixels
+    int32_t pause_ = 0;                 // 0x3b4 frames before scrolling starts
+    int32_t unk3b8_ = 0;                // 0x3b8 -1 after onInit
+    uint32_t unk3bc_ = 0;               // 0x3bc
+};
+YO2_AT(CWindowTaskMenubar, frame_, 0x368);
+YO2_AT(CWindowTaskMenubar, text2_, 0x38c);
+YO2_AT(CWindowTaskMenubar, message_, 0x39c);
+YO2_AT(CWindowTaskMenubar, pause_, 0x3b4);
+YO2_SIZEOF(CWindowTaskMenubar, 0x3c0);
+
+// --- CWindowTaskTab: a tab (three pieces of tab_01_c01.png and a CTextElm caption); as wide as its text ---------
+class CWindowTaskTab : public CWindowTaskControll {
+public:
+    static CWindowTaskTab* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskTab();
+    ~CWindowTaskTab() override;
+    bool onInit() override;
+    // @yo2 0x005d1c30 CWindowTaskTab::onMain
+    bool onMain() override { return true; }
+    uint32_t kind() const override;
+    void layout() override;
+    bool handleMessage(WindowMsg m) override;   // a click: mediator slot 0, then the selected look
+    bool hitTest(float x, float y) override;
+    void setLook(int32_t look);           // 0 selected (blue text), 1 not (grey)
+    void setTabText(const WChar* s);      // (not the virtual setText, which the tab leaves to the base)
+
+    CTaskPtr<CSpriteElm> parts_[3];   // 0x368 left, middle, right
+    CTaskPtr<CTextElm> text_;         // 0x38c
+    CTaskPtr<CSpriteElm> spare_[3];   // 0x398 a second set, hidden and never used
+    float x_ = 0, y_ = 0;             // 0x3bc
+    float w_ = 256, h_ = 256;         // 0x3c4 72 x 24 after onInit; w_ follows the text
+    float minW_ = 0;                  // 0x3cc
+    bool unk3d0_ = true;              // 0x3d0
+    float unk3d4_ = 1;                // 0x3d4 0 after onInit
+};
+YO2_AT(CWindowTaskTab, parts_, 0x368);
+YO2_AT(CWindowTaskTab, text_, 0x38c);
+YO2_AT(CWindowTaskTab, spare_, 0x398);
+YO2_AT(CWindowTaskTab, x_, 0x3bc);
+YO2_AT(CWindowTaskTab, minW_, 0x3cc);
+YO2_SIZEOF(CWindowTaskTab, 0x3d8);
+
+// --- CWindowTaskCheckbox: a 16 x 16 check box (check_01_c00.png: the box, the tick over it) ----------------------
+class CWindowTaskCheckbox : public CWindowTaskControll {
+public:
+    static CWindowTaskCheckbox* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskCheckbox();
+    ~CWindowTaskCheckbox() override;
+    bool onInit() override;
+    // @yo2 0x005bead0 CWindowTaskCheckbox::onMain
+    bool onMain() override { return true; }
+    uint32_t kind() const override;
+    // @yo2 0x005be0a0 CWindowTaskCheckbox::layout (empty)
+    void layout() override {}
+    bool handleMessage(WindowMsg m) override;   // a click toggles it, then mediator slot 0
+    bool hitTest(float x, float y) override;
+    void setChecked(bool on);
+
+    CTaskPtr<CSpriteElm> box_;     // 0x368
+    CTaskPtr<CSpriteElm> tick_;    // 0x374 shown when checked
+    float w_ = 0, h_ = 0;          // 0x380 16 x 16 after onInit
+    bool checked_ = false;         // 0x388
+    uint32_t unk38c_ = 0;          // 0x38c
+};
+YO2_AT(CWindowTaskCheckbox, box_, 0x368);
+YO2_AT(CWindowTaskCheckbox, w_, 0x380);
+YO2_AT(CWindowTaskCheckbox, checked_, 0x388);
+YO2_SIZEOF(CWindowTaskCheckbox, 0x390);

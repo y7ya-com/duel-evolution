@@ -649,6 +649,17 @@ BOOL CreateDirectoryA(LPCSTR name, LPSECURITY_ATTRIBUTES sa);
 BOOL RemoveDirectoryA(LPCSTR name);
 DWORD GetFileAttributesA(LPCSTR name);
 HANDLE FindFirstFileA(LPCSTR pattern, LPWIN32_FIND_DATA out);
+
+// Registry (System's CRegistryManager). Declared only: the platform keeps settings in a key=value file (DESIGN.md).
+typedef LONG LSTATUS;
+typedef HKEY *PHKEY;
+#define HKEY_LOCAL_MACHINE ((HKEY)(ULONG_PTR)0x80000002)
+enum : DWORD { REG_SZ = 1, REG_BINARY = 3, REG_DWORD = 4, KEY_ALL_ACCESS = 0xf003f };
+LSTATUS RegCreateKeyExA(HKEY key, LPCSTR sub, DWORD reserved, LPSTR cls, DWORD options, DWORD access,
+                        LPSECURITY_ATTRIBUTES sa, PHKEY out, LPDWORD disposition);
+LSTATUS RegQueryValueExA(HKEY key, LPCSTR name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD size);
+LSTATUS RegSetValueExA(HKEY key, LPCSTR name, DWORD reserved, DWORD type, const BYTE* data, DWORD size);
+LSTATUS RegCloseKey(HKEY key);
 BOOL FindNextFileA(HANDLE find, LPWIN32_FIND_DATA out);
 BOOL FindClose(HANDLE find);
 DWORD GetTempPathA(DWORD n, LPSTR buf);

@@ -15,6 +15,8 @@
 
 #include "NetGate.h"
 #include "NetLobby.h"
+#include "NetUsb.h"
+#include "UsbDuelpass/ygoUsbKey.h"
 
 extern CNetGate gate;
 extern CNetAccount acc;

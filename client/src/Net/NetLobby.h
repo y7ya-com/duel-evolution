@@ -52,6 +52,10 @@ struct CDuelRoom {          // 0x18 (FUN_006c3500)
 };
 static_assert(sizeof(CDuelRoom) == 0x18, "CDuelRoom size");
 
+// The exe's CFriendSearch (vtable 0xbeb3f8, deleting dtor 0x006aae10): its virtual dtor is the only method, so the
+// _vtbl is data here.
+// @yo2 0x006aadb0 CFriendSearch::CFriendSearch: pid, found, _0a and b[] zeroed, run for each of CNetLobby::matching[100]
+// @yo2 0x006aadf0 CFriendSearch::~CFriendSearch (resets the _vtbl)
 struct MatchEntry {         // 0x14, matching server (0x3604)
     uint32_t _00;
     int32_t pid;            // 0x04
@@ -92,6 +96,7 @@ static_assert(sizeof(ShopPurchase) == 0x14, "ShopPurchase size");
 struct Mark5310 { int32_t pid; uint32_t ab; };   // recorded 0x5310 (a | b << 8)
 
 struct CChampsData {        // tournament ("CHAMPIONSHIP") state, CNetLobby+0x35fc (YOLaucher research/torneos)
+    void clear();           // the fields FUN_006aac20 (its constructor, which also clears the pages) and FUN_006ab5e0 zero
     uint32_t _vtbl;         // 0x00
     int32_t serial;         // 0x04 (+0x3600)
     char name[104];         // 0x08 100 B + NUL
@@ -126,6 +131,7 @@ static_assert(sizeof(CChampsData) == 0xe0, "CChampsData size");
 
 struct TourSlot { int32_t pid; uint8_t side, result, wins, _7; };   // side 1/2 (bit 0x80), result 1/2 (0x40), wins
 struct TourPage {           // one 0x48-byte page of the tournament bracket (CNetLobby+0x36dc, 0x49 of them)
+    void clear();           // FUN_006abde0
     uint32_t _vtbl;
     uint8_t count, b5;      // 0x04
     uint8_t _06[2];
@@ -134,6 +140,7 @@ struct TourPage {           // one 0x48-byte page of the tournament bracket (CNe
 static_assert(sizeof(TourPage) == 0x48, "TourPage size");
 
 struct CChampsEntryList {   // one tournament entrant (CNetLobby+0x4b64, 0x200 of them)
+    void clear();           // FUN_006abda0 (not the avatars)
     uint32_t _vtbl;         // 0x00
     int32_t pid;            // 0x04
     char name[17];          // 0x08
@@ -300,7 +307,9 @@ struct CNetLobby : CMessageIOBase {
     int32_t playersChanged;     // 0x9b8
     uint8_t _9bc[0x9d0 - 0x9bc];   // 0x9bc portable: the duel room list (CDuelRoomList); see rooms
     uint8_t roomsChanged;       // 0x9d0 set by 0x3113
-    uint8_t _9d1[0x9ec - 0x9d1];   // 0x9d8 portable: the block vector (CBlockList); see blocks
+    uint8_t _9d1[3];
+    int32_t u9d4;               // 0x9d4 only cleared (FUN_006ab5e0)
+    uint8_t _9d8[0x9ec - 0x9d8];   // 0x9d8 portable: the block vector (CBlockList); see blocks
     uint8_t rgn, rank, area;    // 0x9ec gate entry wanted: b1 / b2 / b3 (YOLaucher puerta.py)
     uint8_t block;              // 0x9ef ENTERBLOCKRESULT
     uint8_t block2, block3;     // 0x9f0
@@ -320,7 +329,9 @@ struct CNetLobby : CMessageIOBase {
     uint8_t watchState;         // 0xd8a 1 = offered, 2 = auto duel, 3 = watching
     uint8_t ownRoom;            // 0xd8b 1 = one of the listed rooms is mine
     CDuelRoom* myRoom;          // 0xd8c
-    uint8_t _d90[8];
+    uint8_t ud90, ud91, ud92;   // 0xd90 set together by FUN_006ae4d0, only from clear() (3, 0, 0); nothing reads them
+    uint8_t _d93;
+    int32_t ud94;               // 0xd94 only cleared
     int32_t eventId;            // 0xd98 0x5000
     int32_t eventKind;          // 0xd9c
     uint8_t eventNew;           // 0xda0
@@ -406,7 +417,7 @@ struct CNetLobby : CMessageIOBase {
     std::vector<std::unique_ptr<CDuelRoom>> rooms;   // smart_ptr vector in the exe, so myRoom stays valid
     std::vector<uint16_t> cardPacks;                  // 0x4800 pack ids (the exe keeps Pack/'s info record per id)
     std::list<ChatLine> chat;
-    std::u16string chatPrefix[9];
+    std::u16string chatPrefix[9];   // @yo2 0x006ab000 the VC6 wstring's default ctor, run 9 times
     // Social
     std::vector<TeamMember> teamMembers;        // 0x11c0 in the exe
     std::string teamName;                       // 0x11d0
@@ -416,11 +427,25 @@ struct CNetLobby : CMessageIOBase {
     // Shop
     std::vector<ShopItem> shopItems;      // exe +0x1190
     std::vector<ShopPurchase> purchased;  // exe +0x11b0
+    // inline in the exe's header (copies in the pack check scene's TU):
+    // @yo2 0x008584d0
+    uint8_t roomRank() const { return rank; }
+    // @yo2 0x008585b0
+    std::vector<ShopPurchase>& purchases() { return purchased; }
+    // @yo2 0x00858570
+    // @yo2 0x00859680 vector<0x14-byte record>::size (one copy for ShopItem and ShopPurchase)
+    size_t purchaseCount() const { return purchased.size(); }
+    // @yo2 0x008585d0
+    size_t shopItemCount() const { return shopItems.size(); }
+    // @yo2 0x008584f0
+    void clearPurchases() { purchased.clear(); }
     std::deque<Mark5310> marks;           // exe +0xdb9c
 
     COnlinePlayer* findPlayer(int32_t pid);
     bool takeResult(int32_t* out, int k);           // FUN_006adfb0
-    void resetResults();                            // the results part of FUN_006ab5e0
+    void init();                                    // FUN_006aa2e0 the constructor's body (members: C++'s)
+    void clear();                                   // FUN_006ab5e0 every lobby state back to "not connected"
+    void setD90(uint8_t d91, uint8_t d90, uint8_t d92);   // FUN_006ae4d0
     void clearDuelAbort();                          // FUN_006adf90
     COnlinePlayer& newPlayer();                       // FUN_006c33d0
 

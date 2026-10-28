@@ -19,6 +19,12 @@ PATH = re.compile(r"^(server/gamedata/(?!README\.md$)|client/recomp/out/|client/
                   r"client/web-shell/(loader|fonts)/)|(^|/)build[^/]*/|(^|/)(decompiled|islands|ghidra-proj|swfdump|"
                   r"swf_golden|trace|openjoey)/|(^|/)(functions2?\.jsonl|labels\.tsv|vtables\.tsv|\.dev\.vars|\.env)$|"
                   r"\.(gpr|rep)$")
+# generated or dumped code, wherever it is copied: recomp chunks (f_ functions) and orig.py's o_ bodies, disassembly
+# listings, Ghidra decompiler output. A hand override or a decomp file with a few of these is fine; dozens are a dump.
+DUMPS = [(re.compile(rb"RC_FUNC\(f_[0-9a-f]{8}\)|void o_[0-9a-f]{8}\(CPU"), 10, "generated recomp C"),
+         (re.compile(rb"(?m)^\s*(?:0x)?00[0-9a-fA-F]{6}[:\s]+(?:[0-9a-fA-F]{2}\s)*\s*(?:mov|push|pop|call|jmp|lea|cmp|"
+                     rb"test|add|sub|xor|ret|and|or|j[a-z]{1,3})\b"), 50, "disassembly dump"),
+         (re.compile(rb"(?m)^[A-Za-z_][\w \*]*\b(?:FUN|thunk_FUN)_00[0-9a-f]{6}\s*\("), 20, "Ghidra decompiler dump")]
 
 
 def git(*a, binary=False):
@@ -36,6 +42,9 @@ def problems(path, data):
         yield "MZ/PE executable"
     elif b"\0" in data[:8192]:
         yield "binary file (NUL bytes)"
+    for rx, most, what in DUMPS:
+        if len(rx.findall(data)) > most:
+            yield what
     if len(data) > MAX:
         yield f"over 1 MB ({len(data)} bytes)"
 

@@ -1,5 +1,5 @@
 """Checks for the misc session's rewrites (src/Misc, src/login, src/Deck/DeckManager, ...). Each tests/misc/*_test.cpp
-names the src files it needs on a `// sources:` line (paths under src/, space separated); it is built with them on the
+names the src files it needs on a `// sources:` line (globs under src/, space separated); it is built with them on the
 host (ASan + UBSan) and run under tools/memcap.py, then the test and its sources are compiled for i686
 (i686-w64-mingw32-g++ -fsyntax-only), where the YO2_AT / YO2_SIZEOF layout asserts are live.
 Run: python3 -I tests/misc/run.py [filter]"""
@@ -29,12 +29,26 @@ def run(cmd, capped=False):
 
 
 with tempfile.TemporaryDirectory() as tmp:
+    # mingw has the real d3d8.h but no d3dx8.h: platform/win32's declarations, as tests/system/run.py does
+    with open(os.path.join(ROOT, "platform", "win32", "d3dx8.h")) as f:
+        d3dx = f.read().replace('#include "d3d8.h"', "#include <d3d8.h>")
+    with open(os.path.join(tmp, "d3dx8.h"), "w") as f:
+        f.write(d3dx)
     for t in TESTS:
         m = re.search(r"^// sources:(.*)$", open(t).read(), re.M)
-        srcs = [os.path.join(ROOT, "src", s) for s in (m.group(1).split() if m else [])]
+        srcs = sorted(f for s in (m.group(1).split() if m else []) for f in glob.glob(os.path.join(ROOT, "src", s)))
+        srcs.append(os.path.join(HERE, "codepage_stubs.cpp"))   # System's code-page seams (platform's in the game)
+        srcs.append(os.path.join(ROOT, "src", "Game", "yo2HelpText.cpp"))   # the menu bar reads HelpTextMng (Game)
         exe = os.path.join(tmp, os.path.basename(t)[:-4])
-        run(["c++", *FLAGS, *HOST, t, *srcs, "-o", exe])
+        objs = []   # the sources as an archive: the linker takes only what the test reaches
+        for i, f in enumerate(srcs):
+            objs.append(os.path.join(tmp, f"{os.path.basename(t)}.{i}.o"))
+            run(["c++", *FLAGS, *HOST, "-c", f, "-o", objs[-1]])
+        lib = [os.path.join(tmp, os.path.basename(t) + ".a")] if objs else []
+        if objs:
+            run(["ar", "rcs", lib[0], *objs])
+        run(["c++", *FLAGS, *HOST, t, *lib, "-o", exe])
         print(run([exe], capped=True).strip())
         for f in [t, *srcs]:
-            run(["i686-w64-mingw32-g++", *FLAGS, "-fsyntax-only", f])
+            run(["i686-w64-mingw32-g++", *FLAGS, "-idirafter", tmp, "-fsyntax-only", f])
 print(f"misc: {len(TESTS)} tests, i686 layout ok")

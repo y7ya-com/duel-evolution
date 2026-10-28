@@ -40,6 +40,7 @@ public:
 
     // the members' targets, unchecked (a dynamic_cast of the pointer, null when it is gone)
     CPbinDictionary* pbinDictionary() const;
+    CWADictionary* waDictionary() const;
     CFukiDictionary* fukiDictionary() const;
 
     // @yo2 0x00a58740 CGameMng::setLobbyRank (the previous one kept)
@@ -48,6 +49,9 @@ public:
         lobbyRank_ = rank;
     }
     bool modeIsLobby() const;   // unk9c_ is 0 or 1
+    int32_t rankForLobbyKind(int32_t kind) const;   // 1 or 0 by kind; lobbyRank_ for kind 12 (and on error)
+    // @yo2 0x00a58770 CGameMng::setLobbyRankFor
+    void setLobbyRankFor(int32_t kind) { setLobbyRank(rankForLobbyKind(kind)); }
     void setRoomEntry(int32_t id, const int32_t values[3], uint8_t flag);   // replaces id's, or adds one
     bool findRoomEntry(int32_t id, int32_t values[3], uint8_t* flag) const;   // either output may be null
 
@@ -74,7 +78,8 @@ public:
     alignas(4) uint8_t players_[2][0x1a8] = {};   // 0xe4
     bool unk434_ = true;               // 0x434
     bool unk435_ = false;              // 0x435
-    bool unk436_ = true, unk437_ = true;   // 0x436
+    bool unk436_ = true;               // 0x436
+    uint8_t unk437_ = 1;               // 0x437 0, 1 or 2 (the duel settings)
     bool unk438_ = false;              // 0x438
     CTaskPtr<CWADictionary> waDict_;   // 0x43c "アバター辞書データ"
     int32_t lobbyRank_ = 0;            // 0x448
@@ -122,5 +127,7 @@ extern CGameMng* g_gameMng;   // DAT_012bb6b0
 void avatarValidate(CAvatarData* data, int world, bool checkSeries);
 // Lobby ids 0x33..0x5f: three per lobby kind (sub 0, 1, 2); false for any other id. Either output may be null.
 bool lobbyKindOf(int32_t lobbyId, int32_t* kind, int32_t* sub);
+// The area (map) of a lobby block: by the lobby kind's group, the block number (0..31) picks the area.
+int32_t lobbyBlockArea(int32_t kind, int32_t block);
 // Copies an avatar's bytes except the clothes and the duel disk (6 and 8).
 void avatarCopyLooks(const CAvatarData& from, CAvatarData* to);

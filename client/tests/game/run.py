@@ -19,6 +19,8 @@ GAME = sorted(f for d in ("Game", "MyRoom", "ChangeAvatar", "PlayerSelect")
               for f in glob.glob(os.path.join(ROOT, "src", d, "**", "*.cpp"), recursive=True))
 SYSTEM = sorted(glob.glob(os.path.join(ROOT, "src", "System", "**", "*.cpp"), recursive=True))
 NET = sorted(glob.glob(os.path.join(ROOT, "src", "Net", "*.cpp")))
+# the card database the card lists read (src/duel, self-contained)
+CARDS = [os.path.join(ROOT, "src", "duel", f) for f in ("CardDB.cpp", "DuelText.cpp")]
 VFS = [os.path.join(ROOT, "platform", "vfs", "vfs.cpp"), os.path.join(HERE, "platform_stubs.cpp")]
 args = sys.argv[1:]
 if "--src" in args:
@@ -55,7 +57,7 @@ with tempfile.TemporaryDirectory() as tmp:
         return lib
 
     # src/Game too, so a test links only the Game objects it reaches (and only their stand-ins)
-    libs = [archive("game", GAME), archive("net", NET), archive("system", SYSTEM)]
+    libs = [archive("game", GAME), archive("cards", CARDS), archive("net", NET), archive("system", SYSTEM)]
     vfs = [os.path.join(tmp, "vfs_" + os.path.basename(v) + ".o") for v in VFS]
     for v, o in zip(VFS, vfs):
         run(["c++", *FLAGS, *HOST, *san, "-c", v, "-o", o])

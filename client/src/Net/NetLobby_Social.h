@@ -22,7 +22,7 @@ void lobbyMailSent(const LobbyMail& m);
 // Menu bar (FUN_00a564e0 opens the CWindowModelMenu): maintenance icon FUN_00a7fb70(0), event icon FUN_00a800a0(kind).
 void lobbyMenuMaintenance();
 void lobbyMenuEvent(int32_t kind);
-bool lobbyInDuel();                                      // (*DAT_0127188c)->vtable[0xd8 / 4]()
+bool lobbyInDuel();                                      // 0x00623a30 (*DAT_0127188c)->vtable[0xd8 / 4]()
 // What an EVENTINFO kind turns on: DAT_012bb6b0 + 0x4e9 / + 0x4ea flags, FUN_00a5a9c0, FUN_00a5a9e0.
 enum LobbyEventEffect { EVENT_FLAG_4E9, EVENT_FLAG_4EA, EVENT_CALL_A5A9C0, EVENT_CALL_A5A9E0 };
 void lobbyEventEffect(LobbyEventEffect e);

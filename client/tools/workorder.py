@@ -27,6 +27,11 @@ T = os.path.join(DATA, "trace")
 # trace phase -> play order: 1 boot+title, 2 login, 3 My Room, 5 lobby, 6 NPC dialog, 7 shop, 4 deck editor, 8 duel
 RANK = {1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 7: 6, 4: 7, 8: 8}
 SKIP = {"Test", "Patcher"}   # README Scope: not rebuilt, stubbed
+# trace/TRIAGE.md: debug/test/patcher/USB classes outside those folders are skipped too; Swf is reimplemented, not decompiled
+SKIP_CLASSES = re.compile(r"CSoundTest|CTaskCapture|CNetUsb|CPatcherScene|CPatchMgr|CPatchFileRoot|CMapTestScene|"
+                          r"CShinkiLobbyTestScene|CUgajinTestScene|CTKTestScene|CWindowTaskDebug")
+SKIP |= {"UsbDuelpass"}
+REIMPL = {"Swf"}
 # Compiler/header boilerplate copied into every object file; rows with these bodies are status "hdr", owned by the
 # header owner as marker lists (they come for free from the declarations): call/jmp initializer stub, guarded local
 # static, its atexit callback, jmp initializer stub, atexit registration, scalar deleting destructor.
@@ -219,6 +224,25 @@ for t in tables:
     for loc in t[2]:
         table_of[loc] = t
 
+# class of each function: its own virtuals name it; a function between two own-virtuals of one class belongs to it
+# (MSVC emits a class's methods together). Ambiguous: "Prev|Next".
+own = {}
+for vt, (name, slots) in vtables.items():
+    for x in slots:
+        own.setdefault(x, set()).add(name)
+own = {x: next(iter(c)) for x, c in own.items() if len(c) == 1}
+own_at = sorted(own)
+
+
+def class_of(a):
+    if a in own:
+        return own[a]
+    i = bisect.bisect_right(own_at, a) - 1
+    p = own[own_at[i]] if i >= 0 else "?"
+    n = own[own_at[i + 1]] if i + 1 < len(own_at) else "?"
+    return p if p == n else f"{p}|{n}"
+
+
 # --- layers: one hop from code that ran (transitive closure through never-run code is layer 4: unplayed features)
 ran = set(phase)
 layer = {a: "1" for a in ran}
@@ -333,14 +357,16 @@ rows = []
 for a in GAME:
     kind, src, name, size = labels[a]
     L = layer[a]
-    status = "skip" if src in SKIP else "done" if a in done else "hdr" if body_hash(a, size) in HDR else "todo"
+    cls = class_of(a)
+    status = ("skip" if src in SKIP or all(SKIP_CLASSES.fullmatch(c) for c in cls.split("|")) else
+              "done" if a in done else "hdr" if body_hash(a, size) in HDR else "reimpl" if src in REIMPL else "todo")
     core = ORDER[L] == 0 and src not in SKIP
-    rows.append((0 if core else 1, ORDER[L], rank.get(a, 9), src, a, L, size, samples.get(a, 0), status, name, via[a]))
+    rows.append((0 if core else 1, ORDER[L], rank.get(a, 9), src, a, L, size, samples.get(a, 0), status, name, via[a], cls))
 rows.sort()
 with open(os.path.join(T, "WORKORDER.tsv"), "w") as out:
-    out.write("seq\taddr\tlayer\tvia\tcore\tphase\tfolder\tsize\tsamples\tstatus\tname\n")
-    for i, (c, _, r, src, a, L, size, smp, status, name, how) in enumerate(rows):
-        out.write(f"{i}\t{a:08x}\t{L}\t{how}\t{'core' if c == 0 else 'later'}\t{r} {PH[r]}\t{src}\t{size}\t{smp}\t{status}\t{name}\n")
+    out.write("seq\taddr\tlayer\tvia\tcore\tphase\tfolder\tsize\tsamples\tstatus\tname\tclass\n")
+    for i, (c, _, r, src, a, L, size, smp, status, name, how, cls) in enumerate(rows):
+        out.write(f"{i}\t{a:08x}\t{L}\t{how}\t{'core' if c == 0 else 'later'}\t{r} {PH[r]}\t{src}\t{size}\t{smp}\t{status}\t{name}\t{cls}\n")
 
 # --- summary
 cnt = collections.Counter((r[5]) for r in rows)

@@ -2,6 +2,7 @@
 // yo2text_?.bin, which holds NUL-terminated strings ('?' = the language code). Every UI string is fetched by index.
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "vc6.h"
@@ -11,7 +12,7 @@ public:
     CStringDB() = default;
     virtual ~CStringDB() = default;
     virtual vc6::string get(uint32_t index) const;
-    // slot 1 (0x61fb80): get() widened to the UI code page; comes with the text/IME code
+    virtual std::u16string getW(uint32_t index) const;
     virtual bool load();
     uint32_t count() const { return static_cast<uint32_t>(idx_.size() / 4); }
 

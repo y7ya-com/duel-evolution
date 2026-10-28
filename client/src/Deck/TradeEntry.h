@@ -106,10 +106,10 @@ void lobbySetReq(CNetLobby* lb, int k, uint8_t v);         // FUN_00901880: req 
 void uiTradeWindowOpen(const char* partner);   // FUN_00992b20 (CWindowTaskTrade setup with the partner's name)
 void uiSound(uint32_t id);                     // FUN_00686560
 void uiDialogClose(TaskPtrSlot* dlg, int line);   // FUN_005df6d0 + FUN_006286b0
-int32_t uiDialogAnswer(TaskPtrSlot* dlg);      // vtable +0x60 of the dialog: the button id pressed, 0 = none
-bool uiCancelKey();                            // the input object's vtable +0x48 (right click / escape)
-bool uiMouseReleased();                        // the input object's vtable +0x4c
-void uiMousePos(int32_t* x, int32_t* y);       // the input object's vtable +0x04
+int32_t uiDialogAnswer(TaskPtrSlot* dlg);  // 0x005e65f0 DialogOk/YesNo vtable +0x60: the button id pressed, 0 = none
+bool uiCancelKey();  // 0x00607720 CMyMouseEx; the input object's vtable +0x48 (right click / escape)
+bool uiMouseReleased();                        // 0x00607750 CMyMouseEx; the input object's vtable +0x4c
+void uiMousePos(int32_t* x, int32_t* y);       // 0x00542590 CMyMouseEx; the input object's vtable +0x04
 bool uiCloseButton(int32_t msg);               // FUN_006654c0("deck_botton5") on a CTmSwfObjEvent
 void kabanOffer(int32_t card, int n);          // FUN_00970a80: n copies leave the card box
 void kabanReturn(int32_t card, int n);         // FUN_009702c0

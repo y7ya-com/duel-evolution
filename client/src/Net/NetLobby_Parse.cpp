@@ -54,8 +54,137 @@ bool CNetLobby::takeResult(int32_t* out, int k) {
     return true;
 }
 
-void CNetLobby::resetResults() {
+// Destructors and deleting destructors of the lobby's / account's member records: the implicit ones here (their
+// _vtbl is data; the containers and strings they free are C++ members):
+// @yo2 0x0068e3f0 CPlayerBinData deleting destructor
+// @yo2 0x0068e440 CUserInfoBase (CMyUser's base) deleting destructor
+// @yo2 0x006aaa00 CTradeData deleting destructor
+// @yo2 0x006aaaa0 CChampsEntryList::~CChampsEntryList (its two CAvatarData)
+// @yo2 0x006aab60 CChampsTourList (TourPage) deleting destructor
+// @yo2 0x006aab90 CChampsData::~CChampsData (the 0x200 entries and 0x49 pages, CNetLobby members here)
+// @yo2 0x006aae10 CFriendSearch deleting destructor
+
+// @yo2 0x006abde0 TourPage::clear
+// @yo2 0x006aab00 CChampsTourList::CChampsTourList (TourPage): the same clear
+void TourPage::clear() {
+    count = 0;
+    for (TourSlot& t : slot) t.pid = 0, t.side = t.result = t.wins = 0;
+}
+
+// @yo2 0x006abda0 CChampsEntryList::clear
+void CChampsEntryList::clear() {
+    pid = 0;
+    memset(name, 0, sizeof name);
+    wins = status = 0;
+    memset(country, 0, 4);
+}
+
+void CChampsData::clear() {
+    serial = 0;
+    memset(name, 0, 101);
+    day = 0;
+    u74 = u78 = 0;
+    maxPlayers = entries = rounds = 0;
+    memset(champion, 0, sizeof champion);
+    u9c = 0;
+    memset(runnerUp, 0, sizeof runnerUp);
+    lotteryState = 0;
+    phase = 0;
+    phaseState = 0;
+    roundPhase = 0;
+    roundState = lotResult = 0;
+    timer = alive = audience = state = udc = 0;
+}
+
+// @yo2 0x006ae4d0
+void CNetLobby::setD90(uint8_t d91, uint8_t d90, uint8_t d92) {
+    ud91 = d91;
+    ud90 = d90;
+    ud92 = d92;
+}
+
+// @yo2 0x006aa9c0 CTradeData::clear (CNetLobby+0x1bb4): the partner
+static void tradeDataClear(CNetLobby& l) {
+    l.tradePartner = 0;
+    memset(l.tradePartnerName, 0, sizeof l.tradePartnerName);
+    l.confirmResult = l.tradeEndOk = 0;
+}
+
+// The member containers' constructors and clears in the exe (std containers here):
+// @yo2 0x006af9b0 vector<smart_ptr<COnlinePlayer>> (CLobbyPlayerList +0x9a0) constructor
+// @yo2 0x006aaf90 vector<smart_ptr<...>>::_Tidy (destroy the elements, free the block)
+// @yo2 0x006af9e0 vector<smart_ptr<CDuelRoom>> (CDuelRoomList +0x9c0) constructor
+// @yo2 0x006afa10 vector<smart_ptr<CDuelRoom>>::clear
+// @yo2 0x006afab0 vector<smart_ptr<LobbyBlock>> (CBlockList +0x9dc) constructor
+// @yo2 0x006afae0 vector<smart_ptr<LobbyBlock>>::clear
+// @yo2 0x006afe30 deque<MoveRecord> (+0xdb6c) constructor
+// @yo2 0x006afe70 deque<Mark5310> (+0xdb9c) constructor
+// @yo2 0x006b0290 list<ChatLine> head node (+0x3550)
+// @yo2 0x006aaa30 CChampsEntryList::CChampsEntryList (its avatars, then clear())
+// @yo2 0x006aa2e0 CNetLobby::CNetLobby: the base, the trade record's defaults and the tournament data; the member
+// containers are C++'s; then clear()
+// @yo2 0x006aac20 CChampsData::CChampsData (the fields and the 0x49 bracket pages)
+void CNetLobby::init() {
+    CMessageIOBase::init();
+    tradeDataClear(*this);
+    ownMoveCard = 0xffff;
+    ownMoveOp = 0xff;
+    ownStatus = 0;
+    otherMoveCard = 0xffff;
+    otherMoveOp = 0xff;
+    otherStatus = 0;
+    offered = 0;
+    offerCancelled = 0;
+    _1bd9 = 0;
+    champs.clear();
+    for (TourPage& p : tourPage) p.clear();
+    clear();
+}
+
+// @yo2 0x006ab5e0 CNetLobby::clear
+// @yo2 0x006b0030 vector<smart_ptr<COnlinePlayer>>::erase(first, last) (players.clear() here)
+// @yo2 0x006b03c0 deque<MoveRecord>::pop_front (moves.clear())
+// @yo2 0x006b0480 deque<Mark5310>::pop_front (marks.clear())
+void CNetLobby::clear() {
+    conn = nullptr;
+    rgn = 0;
+    rank = 1;
+    area = 0;
+    pidByName = 0;
+    ud94 = 0;
     for (int32_t& r : results) r = RESULT_PENDING;
+    players.clear();
+    playerReset(&rival);
+    playerReset(&info);
+    maintSeconds = maintTime = 0;
+    eventId = eventKind = 0;
+    eventNew = 0;
+    ownRoom = 0;
+    myRoom = nullptr;
+    u9d4 = 0;
+    setD90(0, 3, 0);
+    newMail = 0;
+    champs.clear();
+    for (TourPage& p : tourPage) p.clear();
+    for (CChampsEntryList& e : tourEntry) e.clear();
+    tourDuelStart = 0;
+    recordMoves = 0;
+    moves.clear();
+    moveCount = 0;
+    marks.clear();
+    markCount = 0;
+    chatPrefix[0] = u"@0";
+    chatPrefix[3] = u"@5";
+    packGot = packOpened = usbPackGot = 0;
+    dpAuthTries = 0;
+    dpCard = 0;
+    dpExtra = 0;
+    dpGain = 0;
+    dpPack = 0;
+    npcPresentType = 0;
+    inTeam = myTeamAuthority = 0;
+    joinApplied = 0;
+    teamCreateResult = 0;
 }
 
 // @yo2 0x006adf90

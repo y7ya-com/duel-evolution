@@ -40,7 +40,7 @@ const char* taskInstName(const void* task);              // TODO(System) FUN_006
 void elemSetPos(void* elem, float x, float y);           // TODO(System) CElement position (x, y) in its parent
 void elemGetPos(const void* elem, float* x, float* y);   // TODO(System) CElement position
 void elemSetVisible(void* elem, bool on);                // TODO(System) FUN_0060e170 CElement::setVisible(on, notify=1)
-bool elemVisible(const void* elem);                      // TODO(System) CElement +0xc4
+bool elemVisible(const void* elem);  // inline in the exe (in 0x0094c2c0); TODO(System) CElement +0xc4
 void elemSetAlpha(void* elem, float a);                  // TODO(System) CElement alpha (0..1)
 void elemSetPrio(void* elem, int32_t prio);              // TODO(System) CElement draw priority
 

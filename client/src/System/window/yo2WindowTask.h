@@ -14,6 +14,7 @@
 
 #include "System/yo2EasyTask.h"
 #include "System/yo2Element.h"
+#include "System/yo2TagConverter.h"
 #include "System/yo2TaskPtr.h"
 
 class CWindowTaskModel;
@@ -173,6 +174,12 @@ public:
     // @yo2 0x005df730 CWindowTaskModel::windowSlot20 (empty)
     virtual void windowSlot20(uint32_t) {}                      // slot 20
 
+    // @yo2 0x006a5b60 CWindowTaskModel::setSize (CWindowTask.h inline)
+    void setSize(float w, float h) {
+        w_ = w;
+        h_ = h;
+        layout();
+    }
     void bringToFront();
     bool isTop() const;
     void setCallback(const CWindowCallback& cb);
@@ -275,7 +282,7 @@ public:
     vc6::vector<CWindowTaskControll*> controls_;   // 0x00 front to back
     vc6::list<CWindowTaskModel*> windows_;         // 0x10 front to back
     vc6::string dataDir_;                          // 0x1c "data/common/window/"
-    uint8_t images_[0x284] = {};                   // 0x2c TODO(window): the window parts' image cache (vptr 0x00be8a5c)
+    AtConverter tags_;                             // 0x2c the @-tag styles every text texture uses (vptr 0x00be8a5c)
     CWindowTaskModel* captured_ = nullptr;         // 0x2b0 the window being dragged
 };
 YO2_AT(CWindowTaskFactory, windows_, 0x10);
@@ -287,6 +294,7 @@ extern CWindowTaskFactory* g_windowFactory;   // DAT_0126fa8c
 
 // task->lockFlags_ &= ~mask (the exe clears bit 2 to let a window that is shown get TM_MAIN again).
 void windowClearLock(CTask* task, uint32_t mask);
+void windowSetLock(CTask* task, uint32_t mask);   // task->lockFlags_ |= mask (bit 2: hidden, no TM_MAIN)
 
 // The game window's client area, for scaling mouse positions to 1024 x 768 (the exe asks Win32 each time).
 void windowSetClient(int32_t originX, int32_t originY, int32_t width, int32_t height);

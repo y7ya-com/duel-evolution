@@ -7,6 +7,8 @@ public:
     // @yo2 0x0064b350 CEasyTask::CEasyTask
     CEasyTask() = default;
     // @yo2 0x005e33c0 CEasyTask deleting destructor
+    // @yo2 0x005e32e0 CEasyTask::~CEasyTask
+    // @yo2 0x005e3420 CEasyTask::~CEasyTask (CWindowTaskDebug's copy)
     ~CEasyTask() override = default;
 
     int32_t receive(CTaskMessage* msg) override;

@@ -30,27 +30,27 @@ bool swfEventIs(const void* msg, const char* objName);         // TODO(System) F
 void controllConstruct(void* self);                            // TODO(System) FUN_005de6b0 CWindowTaskControll ctor
 void controllDestruct(void* self);                             // TODO(System) FUN_005de7e0 CWindowTaskControll dtor
 void controllReceive(void* self, void* msg);                   // TODO(System) FUN_005dea50 CWindowTaskControll::receive
-void mediatorNotify(void* mediator, int slot, void* colleague);   // TODO(System) IWindowTaskMediator vtable slot
+void mediatorNotify(void* mediator, int slot, void* colleague);   // inline (in 0x00956970) TODO(System) vtbl[slot]
 void playSe(uint32_t id, int32_t arg);                         // TODO(System) FUN_00686560 sound effect
 CTextElm* textCreate(void* parent, int32_t prio);              // TODO(System) FUN_00634470 new CTextElm + create
 void textSetText(CTextElm* t, const VcWString& s);             // TODO(System) FUN_00634850 CTextElm::setText
 void elemSetAnchor(void* elem, int32_t mode);                  // TODO(System) FUN_0060dc20 anchor (2 = centre?)
 CSpriteElm* spriteCreate(void* parent, int32_t prio, const VcString& path);   // TODO(System) FUN_0061f030
 void modelShow(void* model, bool on);                          // TODO(System) FUN_005df6d0 CWindowModel open/close
-int32_t modelResult(void* model);                              // TODO(System) CWindowModel result (+0x404, slot 24)
-void modelRelayout(void* model);                               // TODO(System) CWindowModel vtable slot 9
+int32_t modelResult(void* model);  // 0x0077a7a0 TODO(System) result (vf 0x60; InputValue: +0x404 inline in 0x0095c480)
+void modelRelayout(void* model);  // 0x00927360 TODO(System) vtable slot 9 (InputValue; list models e.g. 0x00a1eff0)
 void modelSetScale(void* model, float s);                      // TODO(System) FUN_008da8f0
 void modelSetColor(void* model, float r, float g, float b, float a);   // TODO(System) FUN_005e5630
-void frameSetScale(void* frame, float s);                      // TODO(System) frame vtable slot 9 (0x24)
+void frameSetScale(void* frame, float s);  // 0x00595010 TODO(System) frame (FrameBottomThick) slot 9 (0x24)
 void frameSetSize(void* frame, int32_t w, int32_t h);          // TODO(System) FUN_006a5b60 (float bits as ints)
 void inputValueSetPos(void* model, float x, float y);          // TODO(System) FUN_0064d340
 VcWString inputValueText1(void* model);                        // TODO(System) FUN_00766800 the first text field
 void inputGetText(CWindowTaskInput* in, VcWString* out);       // TODO(System) FUN_005e9e40 CWindowTaskInput::getText
 bool inputValueSortOn(void* model);                            // TODO(System) FUN_0077ef50 listbox, FUN_005b47b0
 int32_t inputValueSortIndex(void* model);                      // TODO(System) FUN_0077ef50 listbox +0x3c0
-bool listboxChecked(void* model, int32_t i);                   // TODO(System) model+0x3a4 listbox, slot 29 (0x74)
-int32_t listboxCount(void* model);                             // TODO(System) model+0x3a4 listbox, slot 25 (0x64)
-int32_t listboxValue(void* model, int32_t i);                  // TODO(System) model+0x3a4 listbox, data[i] at +0x404
+bool listboxChecked(void* model, int32_t i);  // 0x005b4760 TODO(System) model+0x3a4 listbox, slot 29 (0x74)
+int32_t listboxCount(void* model);  // 0x005b2840 TODO(System) model+0x3a4 listbox, slot 25 (0x64)
+int32_t listboxValue(void* model, int32_t i);  // inline in the exe (in 0x0095c480) TODO(System) data[i] at +0x404
 void* listCardTypeCreate(void* parent);                        // TODO(System) FUN_00a1e710(parent, 1, 0, 1)
 void* listCardAttrCreate(void* parent);                        // TODO(System) FUN_00a1dd10(parent, 1, 0, 1)
 void* listCardIconCreate(void* parent);                        // TODO(System) FUN_00a1f100(parent, 1, 0, 1)

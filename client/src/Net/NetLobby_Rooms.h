@@ -10,4 +10,4 @@ std::u16string lobbyWiden(const char* s);
 void lobbyAutoDuelStarted(int32_t pid);
 // FUN_0085e1a0 (Lobby/) on *(DAT_012711ac + 0xc50): the friend list's player ids (count at +0x65ec).
 int lobbyFriendCount();
-uint32_t lobbyFriendId(int i);
+uint32_t lobbyFriendId(int i);   // 0x0085e1a0

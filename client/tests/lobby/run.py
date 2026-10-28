@@ -14,7 +14,8 @@ from memcap import run_capped  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 src = lambda *d: sorted(f for x in d for f in glob.glob(os.path.join(ROOT, "src", x, "**", "*.cpp"), recursive=True))
-LOBBY, SYSTEM, GAME, NET = src("Lobby"), src("System"), src("Game"), src("Net")
+LOBBY, SYSTEM, GAME = src("Lobby"), src("System"), src("Game")
+NET = [f for f in src("Net") if os.sep + "app" + os.sep not in f]   # src/Net/app: the game's glue, not the tests'
 TESTS = sorted(t for t in glob.glob(os.path.join(HERE, "*_test.cpp")) if len(sys.argv) < 2 or sys.argv[1] in t)
 # lobby_stubs.cpp (FriendBase / duel menu / error tests), platform_stubs.cpp + net_hooks_stub.cpp (the player-list
 # family's), and the merge.dat VFS

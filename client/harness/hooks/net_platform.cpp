@@ -39,3 +39,8 @@ int32_t ygConnectAsync(const char* host, uint16_t port, YgConn* c, uint32_t noti
 int32_t ygSocketSelect(int32_t sock, uint32_t notify) {
     return WSAAsyncSelect((SOCKET)sock, (HWND)(uintptr_t)notify, 0x1401, FD_READ | FD_CLOSE) == SOCKET_ERROR ? -1 : 0;
 }
+
+// CNetGate::init's system config (NetUi.h). Inside yo2.exe the exe's own CNetGate constructor runs, never ours.
+#include "Net/NetUi.h"
+std::string appGateServer() { return ""; }
+int32_t appGatePort() { return 0; }

@@ -1,11 +1,11 @@
 #include "Game/yo2GameManager.h"
 
 #include "Game/Avatar/yo2AvatarData.h"
+#include "Game/Avatar/yo2WaistUpAvatar.h"
 #include "Game/yo2EventManager.h"
 #include "Game/yo2PlayerBin.h"
 #include "System/yo2Debug.h"
 
-// @yo2 0x00a54800 the TU's static initialiser (atexit)
 CGameMng* g_gameMng;
 
 // @yo2 0x00a54850 CGameMng::create: the one instance (asserts there is none yet)
@@ -30,6 +30,9 @@ CGameMng::~CGameMng() { g_gameMng = nullptr; }
 
 // @yo2 0x00a58710 CGameMng::pbinDictionary
 CPbinDictionary* CGameMng::pbinDictionary() const { return dynamic_cast<CPbinDictionary*>(pbinDict_.task()); }
+
+// @yo2 0x00a586b0 CGameMng::waDictionary
+CWADictionary* CGameMng::waDictionary() const { return dynamic_cast<CWADictionary*>(waDict_.task()); }
 
 // @yo2 0x00a586e0 CGameMng::fukiDictionary
 CFukiDictionary* CGameMng::fukiDictionary() const { return dynamic_cast<CFukiDictionary*>(fukiDict_.task()); }
@@ -133,4 +136,39 @@ bool lobbyKindOf(int32_t lobbyId, int32_t* kind, int32_t* sub) {
     if (sub)
         *sub = i % 3;
     return true;
+}
+
+// @yo2 0x00a587a0 CGameMng::rankForLobbyKind
+int32_t CGameMng::rankForLobbyKind(int32_t kind) const {
+    switch (kind) {
+    case 1: case 9: case 10: case 11: case 14: case 16: case 17: case 20: return 1;
+    case 7: case 8: case 13: case 15: return 0;
+    case 12: return lobbyRank_;
+    default:
+        YO2_ASSERT(false, "Lobby Rank Setting Error.");
+        return lobbyRank_;
+    }
+}
+
+// @yo2 0x00a58960 lobbyBlockArea
+int32_t lobbyBlockArea(int32_t kind, int32_t block) {
+    switch (kind) {
+    case 1: case 9: case 10: case 11: case 14: case 16: case 17: case 20:
+        if (block < 8) return 4;
+        if (block < 16) return 5;
+        if (block < 24) return 6;
+        if (block < 32) return 7;
+        break;
+    case 7: case 8: case 13: case 15:
+        if (block < 7) return 0;
+        if (block < 14) return 1;
+        if (block < 20) return 2;
+        if (block < 26) return 3;
+        if (block < 32) return 9;
+        break;
+    case 12: return 8;
+    default: YO2_ASSERT(false, "Lobby Rank Setting Error."); break;
+    }
+    YO2_ASSERT(false, "Lobby Block Setting Error.");
+    return 0;
 }

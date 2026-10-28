@@ -16,6 +16,14 @@ int main() {
     m->unk9c_ = 1;
     CHECK(m->modeIsLobby());
 
+    // lobby rank and block areas
+    m->setLobbyRank(5);
+    CHECK(m->rankForLobbyKind(9) == 1 && m->rankForLobbyKind(15) == 0 && m->rankForLobbyKind(12) == 5);
+    m->setLobbyRankFor(1);
+    CHECK(m->lobbyRank_ == 1 && m->prevLobbyRank_ == 5);
+    CHECK(lobbyBlockArea(1, 0) == 4 && lobbyBlockArea(20, 23) == 6 && lobbyBlockArea(9, 31) == 7);
+    CHECK(lobbyBlockArea(7, 6) == 0 && lobbyBlockArea(8, 19) == 2 && lobbyBlockArea(13, 26) == 9 && lobbyBlockArea(12, 99) == 8);
+
     // room entries: replaced by id, added otherwise
     const int32_t v1[3] = {1, 2, 3}, v2[3] = {7, 8, 9};
     m->setRoomEntry(10, v1, 1);
