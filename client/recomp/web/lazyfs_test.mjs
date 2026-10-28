@@ -35,6 +35,7 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
+const syncFaults = [];   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function rangeOf(h) { const m = /bytes=(\d+)-(\d+)/.exec(h); return [+m[1], +m[2]]; }
@@ -53,9 +54,11 @@ function makeEnv(store, ls, opts = {}) {
                 return;
             }
             syncXhr++;
+            const fail = syncFaults.shift();   // a stalled or broken mobile read: "throw" | a status | "short"
+            if (fail === "throw") throw Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
             const [a, b] = rangeOf(this.h.Range);
-            this.status = 206;
-            this.responseText = files[p].subarray(a, b + 1).toString("latin1");
+            this.status = typeof fail === "number" ? fail : 206;
+            this.responseText = typeof fail === "number" ? "" : files[p].subarray(a, fail === "short" ? b : b + 1).toString("latin1");
         }
     }
     async function fetch(url, o = {}) {
@@ -250,5 +253,26 @@ console.log("prefetch=0: ok");
     M.onYo2Scene("end", 4, 6);
     assert.equal(n, 2, "a wrapping listener runs once per event");
     console.log("scene listeners: ok");
+}
+{   // a sync read that times out, drops (status 0), 503s or comes back short is asked again; EIO only after 3 tries
+    const r = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
+    await r.ready();
+    const L = r.Module.yo2Lazy;
+    syncFaults.push("throw", 0);
+    r.read("/game/merge.dat", 0, toc);   // rc_init's first read (the iPhone boot failure)
+    readEntry(r, "data/mini");
+    syncFaults.push(503, "short");
+    readEntry(r, "data/deck");
+    assert.equal(L.stats.syncRetry, 4, "four failed tries, each asked again");
+    assert.deepEqual([...L.missLog[0].slice(2)], ["merge.dat", 0, 2, "0"], "telemetry: the failed tries and the last error");
+    syncFaults.push("throw", "throw", "throw");
+    assert.throws(() => readEntry(r, "data/common"), /errno 29/, "EIO after 3 failed tries");
+    assert.equal(L.stats.syncFail, 1);
+    assert.deepEqual([...L.missLog.at(-1).slice(2)], ["merge.dat", Math.floor(ent("data/common").off / MB), 3, "TimeoutError"]);
+    syncFaults.push(404);
+    assert.throws(() => readEntry(r, "data/menu"), /errno 29/, "a 404 is not asked again");
+    assert.equal(syncFaults.length, 0);
+    readEntry(r, "data/menu");   // and the next read works
+    console.log("sync retry: ok");
 }
 console.log("lazyfs_test ok");
