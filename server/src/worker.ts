@@ -55,6 +55,8 @@ routes.all("/__admin/*", async (c) => {
 // The rate is counted in a tiny R2 object per (hour, hashed IP). GET /__crashes, /__stalls (admin role) list them
 // (key, size, uploaded); ?key=<key> returns one.
 // ponytail: read-modify-write, so a burst can slip one or two past the cap; a Durable Object if that matters
+const ipFamily = (r: Request) => ((r.headers.get("cf-connecting-ip") ?? "").includes(":") ? "v6" : "v4");
+
 for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stall", "stalls", 16384, 30]] as const) {
   const prefix = `private/${dir}/`;
   routes.post(`/__${path}`, async (c) => {
@@ -63,14 +65,17 @@ for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stal
     if (+(c.req.header("content-length") ?? 0) > max) return c.body(null, 413);
     const body = await c.req.text();
     if (body.length > max) return c.body(null, 413);
-    try { JSON.parse(body); } catch { return c.body(null, 400); }
+    let row: unknown;
+    try { row = JSON.parse(body); } catch { return c.body(null, 400); }
     const now = new Date().toISOString();
     const ip = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(c.req.header("cf-connecting-ip") ?? "?")));
     const rateKey = `${prefix}_rate/${now.slice(0, 13)}/${[...ip.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
     const n = +((await (await bucket.get(rateKey))?.text()) || 0);
     if (n >= perHour) return c.body(null, 429);
     await bucket.put(rateKey, String(n + 1));
-    await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, body, { httpMetadata: { contentType: "application/json" } });
+    // the client's IP family: one ISP's IPv6 route to the zone ran at ~76 KB/s against 0.8 MB/s over IPv4 (2026-10-28)
+    const out = row && typeof row === "object" && !Array.isArray(row) ? JSON.stringify({ ...row, ip_family: ipFamily(c.req.raw) }) : body;
+    await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, out, { httpMetadata: { contentType: "application/json" } });
     return c.body(null, 204);
   });
   routes.all(`/__${path}`, (c) => c.body(null, 405));
@@ -153,6 +158,12 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // R2 through this Worker streamed at ~130 KB/s live (2026-10-28), against a sync read the game waits on. The Cache API
   // refuses 206, so a chunk is kept as a 200 under its URL + range, and turned back into the 206 here.
   const range = c.req.header("range");
+  const t0 = Date.now();
+  /** A range's body, timed to its last byte (the player's download, not only R2): one log line per range, for
+   *  `wrangler tail` (src/do.ts LOG is separate). */
+  const timed = (b: ReadableStream, how: string, bytes: number) => b.pipeThrough(new TransformStream({
+    flush: () => console.log(`[range] ${ipFamily(c.req.raw)} ${how} ${rel} ${bytes} B ${Date.now() - t0} ms`),
+  }));
   const edgeKey = c.req.method !== "GET" ? null
     : range && url.searchParams.has("v") ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&range=${encodeURIComponent(range)}`)
     : !range && hashed ? new Request(url.origin + url.pathname) : null;
@@ -162,7 +173,7 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
     if (hit) {
       const h = new Headers(hit.headers);
       h.set("Content-Range", h.get("X-Content-Range") ?? ""), h.delete("X-Content-Range");
-      return new Response(hit.body, { status: 206, headers: h });
+      return new Response(timed(hit.body!, "hit", +(h.get("Content-Length") ?? 0)), { status: 206, headers: h });
     }
   }
   const get = (k: string) => bucket.get(k, { range: c.req.raw.headers, onlyIf: c.req.raw.headers });
@@ -191,9 +202,9 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
       const [out, keep] = body.tee(), stored = new Headers(headers);
       stored.set("X-Content-Range", headers.get("Content-Range")!), stored.delete("Content-Range");
       c.executionCtx.waitUntil(caches.default.put(edgeKey, new Response(keep, { headers: stored })));
-      return new Response(out, { status: 206, headers });
+      return new Response(timed(out, "miss", length), { status: 206, headers });
     }
-    return new Response(c.req.method === "HEAD" ? null : body, { status: 206, headers });
+    return new Response(c.req.method === "HEAD" ? null : timed(body, "r2", length), { status: 206, headers });
   }
   headers.set("Content-Length", String(obj.size));
   if (edgeKey && hashed) {
