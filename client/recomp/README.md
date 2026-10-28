@@ -220,4 +220,5 @@ step (up to ~300 ms of CPU for one click in a lobby), with a heap that pops the 
 `speed.c` clears text pages with memset. `RC_ASTAR=compare` / `RC_MATH=compare` run original and override on every call
 and log any byte that differs.
 Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it
-with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours).
+with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours; under
+ASan, Homebrew's sdl2-compat finds SDL3 only through the libSDL3.dylib link the build puts beside the binary).

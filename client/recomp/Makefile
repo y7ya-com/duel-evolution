@@ -84,6 +84,9 @@ $(B)/cobj/%.o: %.c | $(B)
 
 $(B)/yo2rc: $(RT_C_OBJS) $(RT_CXX_OBJS) $(B)/ovr_orig.o $(B)/librc.a
 	clang++ $(SANFLAGS) $(RT_C_OBJS) $(B)/ovr_orig.o $(RT_CXX_OBJS) $(B)/librc.a $(SDL_LIBS) -o $@
+ifdef SAN
+	ln -sf $(shell sdl2-config --prefix)/lib/libSDL3.dylib $(B)/   # under ASan sdl2-compat finds SDL3 only beside the exe
+endif
 
 # ---- web (Emscripten, browser MVP): `make web` -> build-web/yo2rc.{html,js,wasm}; `node web/serve.mjs` serves it.
 # Guest address == wasm address (rt.c: rc_mem = 0): Emscripten's own data sits above the guest's 1 GB, in a fixed
