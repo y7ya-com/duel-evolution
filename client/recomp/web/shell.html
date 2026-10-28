@@ -36,22 +36,16 @@
       frames: Module.yo2Presents | 0, url: location.pathname }) }).catch(() => {});
   // A page loaded during a ship can pair one build's JS with the other's wasm (the files are replaced one by one): that
   // fails before the first frame with a link error. Reload once (reported as nonfatal) instead of the crash screen.
-  const SKEW = /ASM_CONSTS|LinkError|import .* is not a function/;
+  const SKEW = /ASM_CONSTS|LinkError|Import #\d|import .* is not a function/;
   function crash(why) {
     if (crashed) return;
     crashed = true;
     let again = false;
-    try { again = !(Module.yo2Presents | 0) && SKEW.test(why) && !sessionStorage.getItem("yo2-skew") && (sessionStorage.setItem("yo2-skew", "1"), true); } catch (e) {}
+    // at most once a minute, so a real link error still ends in the crash report
+    try { again = !(Module.yo2Presents | 0) && SKEW.test(why) && Date.now() - (+sessionStorage.getItem("yo2-skew") || 0) > 60000 &&
+      (sessionStorage.setItem("yo2-skew", String(Date.now())), true); } catch (e) {}
     if (again) { report(why, false); setTimeout(() => location.reload(), 1000); return; }
     console.log("yo2rc crash: " + String(why).slice(0, 2000));
-    // a page and runtime from two different ships (a tab that loaded mid-upload) fail before the first frame: reload
-    // once instead of reporting (at most once a minute, so a real link error still ends in a report)
-    if (!(window.Module?.yo2Presents | 0) && /ASM_CONSTS|LinkError|Import #\d/.test(String(why))) try {
-      if (Date.now() - (+sessionStorage.getItem("yo2reload") || 0) > 60000) {
-        sessionStorage.setItem("yo2reload", String(Date.now()));
-        return location.reload();
-      }
-    } catch (e) {}
     setTimeout(() => {   // let the guest stack lines that follow the trap line arrive
       report(why, true);
       if (!dispatchEvent(new CustomEvent("yo2crash", { detail: why, cancelable: true }))) return;
