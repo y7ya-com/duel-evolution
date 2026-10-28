@@ -4,6 +4,7 @@
 // stack, and a second yield per frame: rt/web.c already yields after each Present), so its asyncify sleeps are off.
 if (typeof document !== "undefined") {
     Module.rcAsyncOnly = new Set(__RC_ASYNC_ONLY__);
+    Module.rcAsyncNames = new Set(__RC_ASYNC_NAMES__);   // the same functions by name (WebKit names some frames)
     Module.preRun = Module.preRun || [];
     Module.preRun.push(() => { ENV.SDL_EMSCRIPTEN_ASYNCIFY = "0"; });
 }

@@ -163,7 +163,7 @@ WEB_ASYNC_DEPS := $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/lib
 define async_link
 em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(filter-out --shell-file web/shell.html,$(1)) -o $@
 python3 -I web/wasmnames.py $(@:.js=.wasm) $(WB)/async-only.json > $(@:.js=-idx.json)
-python3 -I -c 'import sys; p, l = sys.argv[1:]; s = open(p).read(); assert "__RC_ASYNC_ONLY__" in s; open(p, "w").write(s.replace("__RC_ASYNC_ONLY__", open(l).read().strip()))' $@ $(@:.js=-idx.json)
+python3 -I -c 'import sys; p, l, n = sys.argv[1:]; s = open(p).read(); assert "__RC_ASYNC_ONLY__" in s and "__RC_ASYNC_NAMES__" in s; open(p, "w").write(s.replace("__RC_ASYNC_ONLY__", open(l).read().strip()).replace("__RC_ASYNC_NAMES__", open(n).read().strip()))' $@ $(@:.js=-idx.json) $(WB)/async-only.json
 endef
 $(WB)/yo2rc-async.js: $(WEB_ASYNC_DEPS)
 	$(call async_link,$(WEB_ASYNC_LDFLAGS))

@@ -28,8 +28,13 @@ if (typeof document !== "undefined") (() => {
         if (record) for (const n of f) seen.add(n);
         if (!only) return 1;
         // by function index: every engine prints "wasm-function[N]", WebKit drops many names
+        // iOS WebKit prints some frames by name instead ("yo2rc-ios.wasm.wasm-function[rc_icall]"): check those by name
         const idx = Module.rcYieldRaw.split("\n").filter((l) => /wasm-function\[/.test(l));
-        const badAt = idx.findIndex((l) => !only.has(Number(/wasm-function\[(\d+)\]/.exec(l)[1])));
+        const instrumented = (l) => {
+            const id = (/wasm-function\[([^\]]*)\]/.exec(l) || [])[1] || "";
+            return /^\d+$/.test(id) ? only.has(Number(id)) : !!Module.rcAsyncNames && Module.rcAsyncNames.has(id);
+        };
+        const badAt = idx.findIndex((l) => !instrumented(l));
         if (badAt < 0) return 1;
         const bad = f[badAt] || idx[badAt];
         skipped++;
