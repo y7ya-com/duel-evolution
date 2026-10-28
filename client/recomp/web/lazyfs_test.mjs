@@ -10,8 +10,8 @@ const MB = 1 << 20;
 const layout = [["data/bin#/a.bin", 1], ["data/mini/0001.png", 3], ["data/deck/bg.png", 1], ["data/common/c.png", 1],
     ["data/menu/m.png", 1], ["data/map/map_r01/r.png", 2], ["data/map/map_a02/a.png", 3], ["data/map/map_a01/b.png", 4],
     ["data/map/map_a03/c.png", 2], ["data/avatar/x.png", 2], ["data/card/0001.png", 6], ["data/y/duel/effect/a.png", 2], ["data/card/0002.png", 2],
-    ["data/y2/duel/field/duelbg_a_02.png", 1]];
-const listCard = "0000.png\r\n0001.png\r\n0002.png\r\n";   // list_card.txt: line N = YO2 card id N's art
+    ["data/y2/duel/field/duelbg_a_02.png", 1], ["data/y2/duel/field/duel_filed_01.png", 1]];
+const listCard = "0000.png\r\n0001.png\r\n0002.png\r\n4336.png\r\n";   // id 3: a Field Spell (card number 4336 -> 01)   // list_card.txt: line N = YO2 card id N's art
 const toc = 12 + (layout.length + 1) * 268;
 let off = 8 * MB;   // past the directory, so entries start on later chunks
 const entries = layout.map(([name, mb]) => { const e = { name, off, len: mb * MB - 100 }; off += mb * MB; return e; });
@@ -60,7 +60,7 @@ function makeEnv(store, ls, opts = {}) {
     }
     async function fetch(url, o = {}) {
         if (pathOf(url) === "api/de/prefetch/duel")   // the server's NPC deck for the duel being set up
-            return { status: 200, headers: { get: () => null }, json: async () => ({ npc: 35, cards: [2], field: "duelbg_a_02" }) };
+            return { status: 200, headers: { get: () => null }, json: async () => ({ npc: 35, cards: [2, 3], fields: [3] }) };
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
@@ -197,15 +197,17 @@ console.log("deck: ok");
 
 // ---- a duel from the lobby: the generic duel effects pinned there, the NPC's deck (server) at janken, all released in
 // My Room
+readEntry(g, "data/map/map_a02");   // the lobby's map: its area picks the duel's base background
 g.Module.onYo2Scene("begin", 10, 12), g.Module.onYo2Scene("end", 10, 12);
 g.Module.onYo2Scene("begin", 12, 0x1e);
 await settle(g.Module.yo2Lazy);
 const tags = () => [...g.Module.yo2Lazy.pinned.values()].map((p) => p.tag);
 assert.ok(tags().includes("duelfx"), "duel effects pinned from the lobby on");
 assert.ok(tags().includes("npc"), "the NPC's cards pinned at janken");
-assert.ok(tags().includes("field"), "the duel's background, named by the server, pinned at janken");
+assert.ok(tags().includes("field"), "the duel's backgrounds pinned at janken");
 syncXhr = 0;
 readEntry(g, "data/y/duel/effect"), readEntry(g, "data/card/0002"), readEntry(g, "data/y2/duel/field/duelbg_a_02");
+readEntry(g, "data/y2/duel/field/duel_filed_01");   // the NPC's Field Spell background
 assert.equal(syncXhr, 0, "effects and the NPC's art read without a synchronous request");
 g.Module.onYo2Scene("end", 12, 0x1e);
 g.Module.onYo2Scene("begin", 0x20, 10), g.Module.onYo2Scene("end", 0x20, 10);

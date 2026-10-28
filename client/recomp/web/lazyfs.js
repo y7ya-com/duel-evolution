@@ -212,7 +212,7 @@ Module.preRun.push(() => {
             const orig = toc[e + 260] | toc[e + 261] << 8 | toc[e + 262] << 16 | (toc[e + 263] << 24 >>> 0);
             if (name.startsWith("data/card/") || /^data\/y2?\/duel/.test(name)) files2.set(name, [off, off + len, orig]);
             if ((parts[1] === "map" || parts[1] === "avatar") && parts.length > 3) dirs.push(parts.slice(0, 3).join("/"));
-            if (parts[1] === "y" && parts[2] === "duel" && parts.length > 4) dirs.push(parts.slice(0, 4).join("/"));
+            if ((parts[1] === "y" || parts[1] === "y2") && parts[2] === "duel" && parts.length > 4) dirs.push(parts.slice(0, 4).join("/"));
             for (const d of dirs) {
                 const s = spans.get(d);
                 if (s) { s[0] = Math.min(s[0], off); s[1] = Math.max(s[1], off + len); } else spans.set(d, [off, off + len]);
@@ -347,11 +347,30 @@ Module.preRun.push(() => {
         sceneReads = null;
         saveScenes();
     }
-    // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, ~14 MB): pinned from the
+    // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, and data/y2/duel's effects: ~19 MB): pinned from the
     // lobby on, so a first duel's attack, chain and summon effects do not stall; released back in My Room or the title.
-    const DUELFX = ["effect", "chain", "card", "phase", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d);
+    const DUELFX = ["effect", "chain", "card", "phase", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d)
+        .concat(["data/y2/duel/effect", "data/y2/duel/card"]);   // coin, tribute, summon effects; special card effects (~5 MB)
     const LOBBY = 12, JANKEN = 0x1e, HOME = [4, 6, 7, 10];
     const DUELUI = /^data\/y\/duel\/field\/duel_(thinkicon|window|sp)|^data\/y2\/duel_[^/]*$|^data\/y2\/duelfield_/;
+    // The duel's backgrounds (data/y2/duel/field, duel_field.txt): the base one is the area's (duelbg_a_02 for lobby a02,
+    // duelbg_d_04 for d04_01, ...); a Field Spell replaces it with duel_filed_NN, NN from the exe's card-number table
+    // (FUN_00704100; a YO2 id's card number is its art name in list_card.txt). Only those few are pinned, not the folder.
+    const FIELD_SPELLS = { 4336: 1, 4337: 2, 4338: 3, 4339: 4, 4340: 5, 4341: 6, 4899: 7, 4932: 8, 4933: 9, 4934: 10, 4935: 11,
+        4936: 12, 4937: 13, 5276: 14, 5329: 15, 5387: 16, 5533: 17, 5791: 18, 5982: 19, 6207: 20, 6271: 21, 6399: 22, 6642: 23,
+        6668: 24, 6758: 27, 6759: 26, 6775: 25, 6823: 28, 7003: 29, 7004: 30, 7079: 31, 7129: 32, 7164: 33, 7307: 34, 7457: 35,
+        7624: 37, 7626: 38, 7627: 36 };
+    async function fieldBackgrounds(fieldIds) {   // fieldIds: the NPC deck's Field Spells (YO2 ids, from the server)
+        await loadCardNames();
+        const names = [];
+        const area = /^([ad])0(\d)/.exec(curMap || "");
+        if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
+        for (const id of fieldIds) {
+            const nn = FIELD_SPELLS[parseInt(cardNames[id] || "", 10)];
+            if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
+        }
+        stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(names, "field", 2);
+    }
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
         fetch(http + "/api/de/prefetch/duel", { credentials: "same-origin" })
@@ -359,14 +378,12 @@ Module.preRun.push(() => {
             .then((j) => {
                 if (!j) return;
                 if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");
-                // the duel's background, when the server names its file stem (e.g. "duelbg_a_02"): only that one
-                if (typeof j.field === "string" && /^[a-z0-9_]+$/i.test(j.field))
-                    pinFiles([...files2.keys()].filter((n) => /\/duel\/field\//.test(n) && n.split("/").pop().startsWith(j.field.toLowerCase())), "field", 2);
+                if (Array.isArray(j.fields)) fieldBackgrounds(j.fields.map(Number));
             }, () => {});
     }
     function onScene(kind, from, to) {
         if (!prefetchOn || !archive || !files.get(archive).etag) return;
-        if (kind === "begin" && to === JANKEN) npcDeck();
+        if (kind === "begin" && to === JANKEN) fieldBackgrounds([]), npcDeck();
         if (kind === "end" && to === LOBBY) {
             for (const d of DUELFX) wantSpan(d, 5, "duelfx");
             // and the duel's own small pictures kept with the 48 MB of backgrounds: think icons, windows, gauges
