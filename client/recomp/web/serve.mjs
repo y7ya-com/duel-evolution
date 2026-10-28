@@ -42,7 +42,12 @@ http.createServer((req, res) => {
     const file = path.resolve(root, url.slice(prefix.length) || "yo2rc.html");
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile())
         return res.writeHead(404, h).end();
-    const size = fs.statSync(file).size;
+    const st = fs.statSync(file), size = st.size;
+    // an ETag and Cache-Control like the live server's (server/src/worker.ts; multipart style, "-1"): lazyfs's scene
+    // policies, store and card trickle need them
+    const etag = `${size.toString(16)}${Math.floor(st.mtimeMs).toString(16)}-1`, v = new URL(req.url, "http://x").searchParams.get("v");
+    h.ETag = `"${etag}"`;
+    h["Cache-Control"] = v && v.replace(/\W/g, "") === etag.replace(/\W/g, "") ? "public, max-age=31536000, immutable" : "no-cache";
     h["Content-Type"] = types[path.extname(file)] || "application/octet-stream";
     const m = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || "");
     if (m) {

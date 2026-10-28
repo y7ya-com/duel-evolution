@@ -168,6 +168,7 @@ Module.preRun.push(() => {
             if (r.status !== 206) return;
             data = new Uint8Array(await r.arrayBuffer());
             if (data.length !== to - from + 1) return;
+            if (/max-age=[1-9]|immutable/.test(r.headers.get("Cache-Control") || "")) cacheable = true;   // the versioned reply
             stats.prefetched++;
             if (j.keep) persist(j.url, j.i, data);
         }
@@ -225,7 +226,8 @@ Module.preRun.push(() => {
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
         for (const d of HOT) wantSpan(d, 2, "hot");
-        onIdle(() => { if (cacheable) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
+        // ponytail: not on phones and tablets (data/card is 336 MB of their data plan)
+        onIdle(() => { if (cacheable && !small) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
     }
     // The duel's cards: the player's deck (rt/decktap.c reads it off the exe's own 0x6601/0x6603 at the duel's setup)
     // and the NPC's (the server, npcDeck below). A deck holds YO2 card ids; data/card/list_card.txt (LZSS in merge.dat)
@@ -316,7 +318,7 @@ Module.preRun.push(() => {
         const m = mapAt(pos);
         if (m && m !== curMap) enterMap(m);
     }
-    let cacheable = false;   // the server lets the HTTP cache keep game files: trickle fills it
+    let cacheable = false;   // the server lets the HTTP cache keep game files (a ?v= reply says so): trickle fills it
     const onIdle = (f) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 30000 }) : setTimeout(f, 5000));
 
     // ---- scenes (ovr/scene.c: Module.onYo2Scene("begin"|"end", from, to), SceneId numbers): learned per player. The

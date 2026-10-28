@@ -155,9 +155,11 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   headers.set("Content-Type", TYPES[key.split(".").pop() ?? ""] ?? "application/octet-stream");
   headers.set("ETag", obj.httpEtag);
   headers.set("Accept-Ranges", "bytes");
-  // ?v=<ETag> (the client's prefetch) names this exact version: cache it for good; a stale v gets the usual headers
-  const v = url.searchParams.get("v")?.replace(/^W\//, "").replace(/"/g, "");
-  headers.set("Cache-Control", v && v === obj.etag ? "public, max-age=31536000, immutable"
+  // ?v=<ETag> (the client's prefetch) names this exact version: cache it for good; a stale v gets the usual headers.
+  // Compared as word characters only: lazyfs sends the ETag that way, and a multipart upload's ("<md5>-14", merge.dat)
+  // never matched, so every live chunk went out no-cache
+  const v = url.searchParams.get("v")?.replace(/\W/g, "");
+  headers.set("Cache-Control", v && v === obj.etag.replace(/\W/g, "") ? "public, max-age=31536000, immutable"
     : key.endsWith(".zip") ? "public, max-age=86400" : "no-cache");
   if (!("body" in obj)) return new Response(null, { status: 304, headers });
   const body = (obj as R2ObjectBody).body;
