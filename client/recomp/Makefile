@@ -102,11 +102,6 @@ WEB_LDFLAGS := $(WEB_LINK_OPT) -pthread -sJSPI -sPTHREAD_POOL_SIZE=8 \
   --pre-js web/lazyfs.js --pre-js web/yieldguard.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --shell-file web/shell.html
 
 web: $(WB)/yo2rc.html
-# the script tag Emscripten writes, swapped for one that picks the build: iOS/iPadOS (or ?ios) the small ASYNCIFY build
-# (make web-ios), else JSPI if the browser has it (and the page has no ?async), else ASYNCIFY (make web-async). Firefox
-# always gets ASYNCIFY: its JSPI (on by default from 158) breaks the synchronous Range XHRs from a suspended stack and
-# its WebGL refuses views of the JSPI build's 2 GB heap
-WEB_PICK := <script>{const s = document.createElement("script"), q = new URLSearchParams(location.search), ios = q.has("ios") || /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" \&\& navigator.maxTouchPoints > 1; s.async = true; s.src = ios ? "yo2rc-ios.js" : "Suspending" in WebAssembly \&\& navigator.userAgent.indexOf("Firefox/") < 0 \&\& !q.has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
 
 $(WB)/%.o: $(OUT)/%.c rt/rc.h
 	@mkdir -p $(WB)
@@ -133,8 +128,8 @@ $(WB)/ovr_orig.o: $(B)/ovr_orig.c rt/rc.h
 
 $(WB)/yo2rc.html: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js web/sfx.js web/shell.html
 	em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WEB_LDFLAGS) -o $@
-	sed -i.bak 's#<script async type="text/javascript" src="yo2rc.js"></script>#$(WEB_PICK)#' $@ && rm -f $@.bak
-	grep -q yo2rc-async.js $@
+	sed -i.bak 's#<script async type="text/javascript" src="yo2rc.js"></script>##' $@ && rm -f $@.bak
+	! grep -q 'src="yo2rc.js"' $@   # shell.html's script picks the build
 
 # ASYNCIFY fallback (WebKit/Safari and Firefox have no JSPI yet): the same objects, but the guest main thread's yields
 # (emscripten_sleep, rt/web.c) unwind and rewind the wasm stack through Binaryen's asyncify instead of suspending.

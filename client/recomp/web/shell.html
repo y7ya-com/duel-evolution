@@ -57,6 +57,38 @@
   var Module = { canvas: document.getElementById("canvas"), print: log, printErr: log,
                  onAbort: (w) => crash("abort: " + w), onExit: (code) => code && crash("exit " + code) };
 </script>
+<script id="pick">
+  // Which build (the Makefile drops Emscripten's own script tag; infra/ship-client.sh puts the stage and loader
+  // scripts just before this one): iOS/iPadOS (or ?ios) the 1 GB ASYNCIFY build (make web-ios), else JSPI if the
+  // browser has it (and the page has no ?async), else ASYNCIFY (make web-async).
+  // Firefox always gets ASYNCIFY: its JSPI (on by default from 158) breaks the synchronous Range XHRs from a suspended
+  // stack and its WebGL refuses views of the JSPI build's 2 GB heap.
+  // Each build creates its whole shared memory at boot. Phones (32-bit Chrome) often can't reserve the JSPI build's 2 GB
+  // ("WebAssembly.Memory(): could not allocate memory"), so V8 tries that size first and falls back to the 1 GB build
+  // (ASYNCIFY runs in Chrome too). The trial memory is garbage at once: V8 collects it if the real one needs the room.
+  // Not tried on WebKit, which commits all of it. A memory the build itself can't get ends in a message, not a crash.
+  {
+    const q = new URLSearchParams(location.search);
+    const ios = q.has("ios") || /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    const s = document.createElement("script");
+    s.async = true;
+    s.src = ios ? "yo2rc-ios.js" : "Suspending" in WebAssembly && !navigator.userAgent.includes("Firefox/") && !q.has("async") ? "yo2rc.js" : "yo2rc-async.js";
+    if (s.src.endsWith("/yo2rc.js")) try { new WebAssembly.Memory({ initial: 32768, maximum: 32768, shared: true }); }
+      catch (e) { log("no room for a 2 GB memory (" + e.message + "): the 1 GB build"); s.src = "yo2rc-ios.js"; }
+    addEventListener("yo2crash", (e) => {
+      if (!/could not allocate memory|out of memory/i.test(e.detail)) return;
+      e.preventDefault();
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+        "gap:16px;padding:0 16px;text-align:center;background:#000;color:#fff;font:18px sans-serif;z-index:10";
+      d.innerHTML = "<div>This device doesn't have enough free memory for the game.<br>Close other apps and tabs, then try again.</div>" +
+        '<button style="font:16px sans-serif;padding:8px 20px">Reload</button>';
+      d.querySelector("button").onclick = () => location.reload();
+      document.body.append(d);
+    });
+    document.body.append(s);
+  }
+</script>
 {{{ SCRIPT }}}
 </body>
 </html>
