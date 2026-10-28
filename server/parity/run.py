@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.dirname(HERE)
 EMU = os.environ.get("YO2EMU", os.path.join(os.path.expanduser("~"), "Documents", "GitHub", "YOLaucher-web", "tools", "yo2emu"))
 OUT = os.path.join(HERE, "_out")
-OFFSET = 4300   # other sessions run test servers at +0..+1100 (and their language ports above)
+OFFSET = int(os.environ.get("PARITY_OFFSET", "4300"))   # same for base and ts runs; other sessions run test servers at +0..+1100 (and their language ports above)
 WRANGLER_PORT = 8797
 PY = os.environ.get("PY312", "python3.12")
 sys.path.insert(0, EMU)

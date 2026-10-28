@@ -48,6 +48,7 @@ function peerFor(ip) {
   ws.onmessage = (e) => {
     if (typeof e.data === "string") {
       const m = JSON.parse(e.data);
+      if (m.type === "ka") { console.log(`keepalive ${ip}`); return; } // the server's 30 s WebSocket keepalive
       const s = p.socks.get(m.id);
       if (!s) return;
       if (m.type === "open") { if (m.status === 0) s.resume(); else s.destroy(); }

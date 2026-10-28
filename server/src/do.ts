@@ -9,6 +9,8 @@ import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 
+const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
+
 export class WorldDO extends DurableObject<Env> {
   private srv!: Server;
   /** D1 write-through of the game state (db/d1.ts); null without a DB binding or without the migrations applied. */
@@ -83,7 +85,10 @@ export class WorldDO extends DurableObject<Env> {
       if (typeof e.data === "string") world.onText(id, e.data);
       else world.onBinary(id, new Uint8Array(e.data as ArrayBuffer));
     });
-    const bye = () => world.closePeer(id);
+    // keepalive: a text frame every 30 s, so a WebSocket whose client is asleep (a hidden tab sends its 60 s heartbeats
+    // late) never sits idle long enough for the edge to close it. The client drops text frames without an "id".
+    const ka = setInterval(() => { try { ws.send(KEEPALIVE); } catch { /* closing */ } }, KEEPALIVE_S * 1000);
+    const bye = () => { clearInterval(ka); world.closePeer(id); };
     ws.addEventListener("close", bye);
     ws.addEventListener("error", bye);
     return new Response(null, { status: 101, webSocket: client });

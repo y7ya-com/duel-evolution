@@ -80,3 +80,31 @@ def run_predeploy(offset, host="127.0.0.1"):
     S.pvp_duel(fc, A, B)
     S.step(not (A.errors + B.errors), "message numbering")
     return [("predeploy", True)]
+
+
+def run_afk(offset, host="127.0.0.1", minutes=float(__import__("os").environ.get("AFK_MIN", "4"))):
+    """An idle player (owner bug: AFK players dropped): like the real client, 5731 stays open after its 0x0003 and every
+    open connection sends 0x0005 every 60 s; the client cuts a connection that receives nothing for 120 s
+    (FUN_0068d080), so each heartbeat must get its reply. Idles in a room for `minutes` (AFK_MIN)."""
+    A = fc.FakeClient("A", fc.owner_key_from_log(), host, offset)
+    A.gate()
+    a = fc.Link(A, A.P(5731))                       # the real client's account socket: the whole flow, then kept open
+    a.send(0x3001); a.wait(0x3002)
+    a.send(0x3003, A.key); a.wait(0x3004)
+    n = len(a.msgs); a.send(0x3020, bytes([0]) + b"Afk".ljust(16, b"\0")); a.wait(0x3022, start=n)
+    n = len(a.msgs); a.send(0x3100, bytes([0])); a.wait(0x3103, start=n, timeout=8)
+    n = len(a.msgs); a.send(0x3114, bytes([0])); a.wait(0x4234, start=n)
+    a.send(0x0003)
+    pid = A.enter_room()
+    res = []
+    fc.check(res, "AFK: in a room", pid is not None)
+    t_end = time.time() + minutes * 60
+    while time.time() < t_end:
+        time.sleep(60)
+        for name, link, reply in (("5731", a, 0x3113), ("room", A.room, 0x0004)):
+            n = len(link.msgs)
+            link.send(0x0005)
+            fc.check(res, f"AFK {int((time.time() - t_end) / 60 + minutes)} min: {name} answers 0x0005 with 0x{reply:04x}",
+                     link.wait(reply, start=n, timeout=10) is not None)
+    fc.check(res, "AFK: numbering", not A.errors, "; ".join(A.errors[:3]))
+    return res
