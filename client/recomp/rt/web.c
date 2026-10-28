@@ -13,6 +13,7 @@
 
 static uint32_t last_yield;
 double rc_slept_ms, rc_waitobj_ms;   // the main thread's time yielded / in WaitFor* since the last frame (web/stall.js)
+static int rc_yields;                // and how many yields
 
 // web/yieldguard.js: 0 when the ASYNCIFY build could not unwind this stack (a frame it did not instrument)
 EM_JS(int, web_yield_ok, (void), { return Module.rcYieldOk ? Module.rcYieldOk() : 1; });
@@ -25,7 +26,7 @@ void rc_web_sleep(uint32_t ms) {
     if (!web_yield_ok()) { emscripten_main_thread_process_queued_calls(); return; }
     double t0 = emscripten_get_now();
     emscripten_sleep(ms);
-    rc_slept_ms += emscripten_get_now() - t0;
+    rc_slept_ms += emscripten_get_now() - t0, rc_yields++;
     last_yield = rc_ticks_ms();
 }
 
@@ -36,9 +37,9 @@ void rc_web_sleep(uint32_t ms) {
 extern double rc_decode_ms, rc_upload_ms;
 void rc_web_frame(void) {
     if (!emscripten_is_main_runtime_thread()) return;
-    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3); },
-           rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms);
-    rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = 0;
+    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3, $4); },
+           rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms, rc_yields);
+    rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = 0, rc_yields = 0;
     rc_web_sleep(0);
 }
 

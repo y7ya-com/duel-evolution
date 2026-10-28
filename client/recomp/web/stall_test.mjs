@@ -24,6 +24,12 @@ ctx.document.hidden = true, listeners.visibilitychange();   // hiding flushes th
 assert.equal(posts.length, 1), assert.equal(posts[0].stalls.length, 1), assert.equal(posts[0].build, "b1");
 frame(5000), (ctx.document.hidden = false), frame(16);
 assert.equal(Module.yo2Stalls.length, 1, "a frame the tab spent hidden is not a stall");
+ctx.document.hidden = true, listeners.visibilitychange(), frame(16);
+frame(4000), frame(3000);   // hidden since before these frames (Chrome's 1 s background timers)
+assert.equal(Module.yo2Stalls.length, 1, "frames of a tab hidden all along are not stalls");
+ctx.document.hidden = false, frame(16), (now += 100), listeners.visibilitychange(), frame(2000);
+assert.equal(Module.yo2Stalls.length, 1, "nor one the tab came back during");
+frame(16);
 
 Module.yo2NetIO(1), (now += 3000), Module.yo2NetIO(0);
 assert.equal(Module.yo2Stalls.length, 1, "a slow reply outside a duel is not recorded");
