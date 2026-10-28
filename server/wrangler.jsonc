@@ -1,0 +1,43 @@
+{
+  // The TypeScript server (DESIGN.md, DEPLOY.md). The top level is for local `wrangler dev` only (pre-deploy checks,
+  // parity); production is `--env production`, the only thing ever deployed.
+  "name": "duel-evolution-dev",
+  "account_id": "b8772d7be936c70234ce641c0ec7728b", // same account as the production worker (original.ygoevolution.com)
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  // Auth (AUTH.md, DEPLOY.md): secrets BETTER_AUTH_SECRET (scripts/auth-secrets.sh) and DISCORD_CLIENT_ID/SECRET;
+  // parity/predeploy.py passes throwaway ones (and TEST_SIGNIN_SECRET) to its own wrangler dev.
+  "vars": {
+    "PORT_OFFSET": "1000",
+    "PUBLIC_ORIGIN": "http://localhost:8787",
+    "DEPLOY_ENV": "staging", // enables the test sign-in (with TEST_SIGNIN_SECRET); never set in production
+    "NPC_AI": "py", // the py-faithful NPC brain until the NPC AI's A/B is in (then "ai", in its own deploy)
+    "CLIENT_PREFIX": "recomp-de/" // the client build production serves (game data from recomp/)
+  },
+  "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],
+  // the site's bucket: the client files (recomp-de/, recomp/), the duel engine data under duel-evolution/engine/
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "ygo-original" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "duel-evolution", "database_id": "16083d0e-3dcc-46af-b747-f7326f648ff3", "migrations_dir": "migrations" }],
+  // Production (DEPLOY.md): `--env production`, original.ygoevolution.com/*. Its route runs before the old Worker's
+  // Custom Domain (kept for rollback). Nothing here is inherited from the top level.
+  "env": {
+    "production": {
+      "name": "duel-evolution",
+      "routes": [{ "pattern": "original.ygoevolution.com/*", "zone_name": "ygoevolution.com" }],
+      "vars": {
+        "PORT_OFFSET": "1000",
+        "PUBLIC_ORIGIN": "https://original.ygoevolution.com",
+        "DEPLOY_ENV": "production",
+        "NPC_AI": "py", // the 2008-faithful NPC brain until the new NPC AI's A/B is in (src/duel/ai)
+        "CLIENT_PREFIX": "recomp-de/" // the sign-in client build; game data from recomp/ (src/worker.ts)
+      },
+      "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],
+      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "ygo-original" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "duel-evolution-prod", "database_id": "1cea5a55-494c-4edb-8ce4-e726121d3f53", "migrations_dir": "migrations" }]
+    }
+  }
+}

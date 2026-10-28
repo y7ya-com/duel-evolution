@@ -1,0 +1,153 @@
+// research/equipos, research/intercambio, research/torneos: their protocol summaries (C = seen in the client) as cases
+// -> src/game/teams.ts, trade.ts, tournaments.ts. These modules carry no dated/ID notes of their own; the cases below
+// are the client-visible points of each docstring.
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { harness, be32, cat, cstr, i32, str, u16, u32, type Client, type Harness } from "./notes-harness.ts";
+
+afterEach(() => { vi.useRealTimers(); });
+
+async function players(h: Harness, n: number): Promise<Client[]> {
+  const cs = Array.from({ length: n }, (_, i) => h.client(`P${i}`));
+  for (const [i, c] of cs.entries()) await c.account(0, `Player${i}`);
+  for (const c of cs) await c.enterRoom();
+  return cs;
+}
+const ask = async (X: Client, mid: number, data: ArrayLike<number>, reply: number) => {
+  const n = X.room!.mark(); X.room!.send(mid, data); return (await X.room!.wait(reply, n))!;
+};
+
+describe("teams (research/equipos)", () => {
+  it("0x4550 TEAMCREATE -> 0x4551 code (0 ok, 1 name taken — case-insensitive, 4 bad name) + 0x4566 (ends the wait)", async () => {
+    const h = harness();
+    const [A, B] = await players(h, 2);
+    let n = A.room!.mark(); A.room!.send(0x4550, str("Dragones", 16));
+    expect(i32((await A.room!.wait(0x4551, n))!)).toBe(0);
+    expect(await A.room!.wait(0x4566, n)).not.toBeNull();
+    expect(i32(await ask(B, 0x4550, str("dragones", 16), 0x4551))).toBe(1);
+    expect(i32(await ask(B, 0x4550, str("", 16), 0x4551))).toBe(4);
+    n = A.room!.mark(); A.room!.send(0x4550, str("Otro", 16));
+    expect(i32((await A.room!.wait(0x4551, n))!)).toBe(1);           // already in a team
+  });
+
+  it("0x4558 TEAMLIST -> 0x4564 (s32 members, u32 team, name16, flag16) + 0x4559 (u32 pid, name16, u8 authority: leader 0x0e) + 0x4565", async () => {
+    const h = harness();
+    const [A] = await players(h, 1);
+    await ask(A, 0x4550, str("Dragones", 16), 0x4566);
+    const n = A.room!.mark(); A.room!.send(0x4558); await A.room!.wait(0x4565, n);
+    const hd = A.room!.all(0x4564, n)[0], ms = A.room!.all(0x4559, n)[0];
+    expect([hd.length, i32(hd), cstr(hd.subarray(8, 24))]).toEqual([40, 1, "Dragones"]);
+    expect([u32(ms), cstr(ms.subarray(4, 20)), ms[20]]).toEqual([A.pid, "Player0", 0x0e]);
+  });
+
+  it("invite: 0x4554 -> the invitee gets 0x4567 (inviter pid, his name, team, team name); 0x4568 yes -> 0x4561 to the members", async () => {
+    const h = harness();
+    const [A, B] = await players(h, 2);
+    await ask(A, 0x4550, str("Dragones", 16), 0x4566);
+    const m = B.room!.mark();
+    A.room!.send(0x4554, be32(B.pid!));
+    const inv = (await B.room!.wait(0x4567, m))!;
+    const tid = u32(inv, 20);
+    expect([u32(inv), cstr(inv.subarray(4, 20)), cstr(inv.subarray(24, 40))]).toEqual([A.pid, "Player0", "Dragones"]);
+    const n = A.room!.mark();
+    B.room!.send(0x4568, cat(be32(1), be32(u32(inv)), be32(tid)));
+    const note = (await A.room!.wait(0x4561, n))!;
+    expect([u32(note), u32(note, 4), cstr(note.subarray(8, 24))]).toEqual([tid, B.pid, "Player1"]);
+  });
+
+  it("LIST5 / 0x3112 carry the real team (u32 team, name16, flag16); team chat (0x4400 kind 5) reaches the members", async () => {
+    const h = harness();
+    const [A, B, C] = await players(h, 3);
+    await ask(A, 0x4550, str("Dragones", 16), 0x4566);
+    const m = B.room!.mark(); A.room!.send(0x4554, be32(B.pid!));
+    const inv = (await B.room!.wait(0x4567, m))!;
+    B.room!.send(0x4568, cat(be32(1), be32(u32(inv)), be32(u32(inv, 20))));
+    await h.tick(1000);
+    let n = C.room!.mark(); C.room!.send(0x4220, be32(0xffffffff)); await C.room!.wait(0x4224, n);
+    const l5 = cat(...C.room!.all(0x4223, n));
+    const ents = Array.from({ length: l5.length / 40 }, (_, i) => [u32(l5, 40 * i), cstr(l5.subarray(40 * i + 8, 40 * i + 24))]);
+    expect(ents).toContainEqual([A.pid, "Dragones"]);
+    const k = C.room!.mark(); n = B.room!.mark();
+    A.room!.send(0x4400, cat([0, 5], be32(0), be32(0), be32(0), str("hey", 3), [0]));
+    expect(await B.room!.wait(0x4402, n)).not.toBeNull();
+    await h.tick(1000);
+    expect(C.room!.all(0x4402, k)).toEqual([]);
+  });
+
+  it("0x4552 TEAMDISBAND: the leader gets 0x4553 s32 0, the members 0x4560 u32 team; a non-leader 0x4553 = 1", async () => {
+    const h = harness();
+    const [A, B] = await players(h, 2);
+    await ask(A, 0x4550, str("Dragones", 16), 0x4566);
+    const m = B.room!.mark(); A.room!.send(0x4554, be32(B.pid!));
+    const inv = (await B.room!.wait(0x4567, m))!;
+    B.room!.send(0x4568, cat(be32(1), be32(u32(inv)), be32(u32(inv, 20))));
+    await h.tick(1000);
+    expect(i32(await ask(B, 0x4552, [], 0x4553))).toBe(1);
+    const k = B.room!.mark();
+    expect(i32(await ask(A, 0x4552, [], 0x4553))).toBe(0);
+    expect(u32((await B.room!.wait(0x4560, k))!)).toBe(u32(inv, 20));
+  });
+});
+
+describe("trade (research/intercambio)", () => {
+  const t = (sub: number, body: ArrayLike<number> = []) => cat([sub >> 8, sub & 0xff], body);
+
+  it("REQTRADE to someone not online -> 0x7103 s32 −493 «No se pudo enviar» (its only error value)", async () => {
+    const h = harness();
+    const [A] = await players(h, 1);
+    expect(i32(await ask(A, 0x7000, t(0x7102, be32(4321)), 0x7103))).toBe(-493);
+  });
+
+  it("the whole trade: offer 0x7104, accept 0x7105, trunk 0x7125 + 7 × 0x7126 (never 8) + 0x7127, cards, ready 0x7118, confirm -> 0x7120 3 + 0x7121 1 and the cards move", async () => {
+    const h = harness();
+    const [A, B] = await players(h, 2);
+    const setTrunk = (i: number, trunk: Record<string, number>) => {
+      const st = h.state(); (Object.values(st.accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk = trunk; h.game.store.saveRaw(st);
+    };
+    setTrunk(0, { 1: 1 }); setTrunk(1, { 2: 1 });
+    let m = B.room!.mark();
+    expect(i32(await ask(A, 0x7000, t(0x7102, be32(B.pid!)), 0x7103))).toBe(0);
+    const off = (await B.room!.wait(0x7104, m))!;
+    expect([u32(off), cstr(off.subarray(4, 20))]).toEqual([A.pid, "Player0"]);
+    let n = A.room!.mark();
+    B.room!.send(0x7000, t(0x7105, be32(1)));
+    expect(i32((await A.room!.wait(0x7105, n, undefined, 3000))!)).toBe(0);
+    for (const X of [A, B]) {
+      const k = X.room!.mark(); X.room!.send(0x7000, t(0x7132)); await X.room!.wait(0x7131, k);
+      expect(X.room!.all(0x7126, k).map((d) => d.length)).toEqual([512, 512, 512, 512, 512, 512, 0xb8]);
+      const j = X.room!.mark(); X.room!.send(0x7000, t(0x7101)); await X.room!.wait(0x7133, j);
+    }
+    m = B.room!.mark();
+    A.room!.send(0x7000, t(0x7113, [0, 1]));
+    const mv = (await B.room!.wait(0x7116, m))!;
+    expect([u16(mv), mv[2]]).toEqual([1, 0]);
+    B.room!.send(0x7000, t(0x7122));
+    n = A.room!.mark();
+    B.room!.send(0x7000, t(0x7113, [0, 2]));
+    await A.room!.wait(0x7116, n);
+    A.room!.send(0x7000, t(0x7122));
+    n = A.room!.mark(); m = B.room!.mark();
+    A.room!.send(0x7000, t(0x7117, [0])); B.room!.send(0x7000, t(0x7117, [0]));
+    expect(await A.room!.wait(0x7118, n)).not.toBeNull();
+    const conf = (mine: number, theirs: number) => cat([1], be32(mine), ...new Array(9).fill(be32(-1)), be32(theirs), ...new Array(9).fill(be32(-1)));
+    A.room!.send(0x7000, t(0x7119, conf(1, 2))); B.room!.send(0x7000, t(0x7119, conf(2, 1)));
+    const end = (await A.room!.wait(0x7121, n))!;
+    expect([...A.room!.all(0x7120, n)[0], end[0]]).toEqual([3, 1]);
+    const tr = (i: number) => (Object.values(h.state().accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk;
+    expect([tr(0), tr(1)]).toEqual([{ 2: 1 }, { 1: 1 }]);
+  });
+});
+
+describe("tournaments (research/torneos)", () => {
+  it("07-10 TOURNAMENT_ON: the bracket burst is answered with data: 0x5115 STATUS 25 B, 0x5113 TIMER, 0x5114 PCOUNTER 20 B, 0x5111 LIST × 4 chunks", async () => {
+    const h = harness();
+    const [A] = await players(h, 1);
+    const st = await ask(A, 0x5115, [], 0x5115);
+    expect(st.length).toBe(25);
+    expect((await ask(A, 0x5113, [], 0x5113)).length).toBe(4);
+    expect((await ask(A, 0x5114, [], 0x5114)).length).toBe(20);
+    const n = A.room!.mark(); A.room!.send(0x5111); await h.tick(3000);
+    const ls = A.room!.all(0x5111, n);
+    expect(ls.length).toBe(4);
+    expect(ls.map((d) => d[16])).toEqual([0, 1, 2, 3]);
+  });
+});

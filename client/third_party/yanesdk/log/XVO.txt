@@ -1,0 +1,124 @@
+メール等から抜粋してます
+
+----------
+Wed, 27 Nov 2002 05:49:00
+・yaneAcm     ：Open時にオーバーアクセスしてしまうバグを修正。(by ENRA)
+・yaneTimer   ：CTimeBase::timeBeginPeriodMinでtimerが腐っているか見るようにした。(by ENRA)
+・yaneCDDA    ：CCDDA::ConvertFromMealTimeの計算式を正しいものに修正した。(by ENRA)
+----------
+Thu, 18 July 2002 04:41:00
+・yaneGTL     ：24/32bppのαブレンドのアルゴリズムを変更し、高速化した。(by ENRA)
+・yaneFastDraw：DirtyRectに対応。(by KAIZA)
+----------
+Thu, 13 Jun 2002 03:37:33
+・yaneMemory：クリティカルセクションの破棄がうまくいっていなかったバグを修正。(by ENRA)
+----------
+Sun, 02 Jun 2002 10:11:36
+・yaneFile：MakeFullnameが漢字ファイル名の'/'を変換出来なかったバグを修正。(by ENRA)
+----------
+Wed, 29 May 2002 22:40:31
+・yaneStringScanner：GetNextStrをマルチバイト対応にした。(by ENRA)
+----------
+Mon, 27 May 2002 20:32:09
+・yaneFastPlane     ：MorphFastBlt/RotateFastBltを作った。 (by ENRA)
+・yaneSceneTransiter：トランジション完了をOnSimpleDrawで感知するようにした。
+                      こうしないとフレームスキップが起きると完全なトランジションが
+                      行われなくなる。 (by ENRA)
+----------
+Wed, 22 May 2002 14:05:57
+・yaneTextDraw：縦書きに完全対応。 (by tapooh & ENRA)
+----------
+Tue, 21 May 2002 11:51:38
+・yaneTextDIB32/yaneTextFastPlane：縦書きに対応。(by tapooh)
+・yaneTextDraw：縦書きに不完全対応。行送りが逆^^; (by ENRA)
+----------
+Thu, 16 May 2002 16:57:39
+・yaneStringScanner：SkipTo,SkipTo2を全角対応にした。(by ENRA)
+----------
+Fri, 26 Apr 2002 09:40:00
+・yaneDirectDraw：HELで初期化できなかったときはHALで初期化するように修正。(by KAIZA)
+----------
+Fri, 19 Apr 2002 13:15:00
+・yaneScenarioView：ver1.57仕様に戻した。スキップキーをCtrlキーに変更した。
+・描画関係        ：8bpp,16bppモードでの不具合を修正。
+・yaneGUISlider   ：横型の時描画エラーが出るバグを修正。(by みちばな)
+----------
+Sat, 12 Apr 2002 22:52:00
+・yaneFile ：yaneSDK3rdのものを一部修正して、それに置き換えた。
+・描画関係 ：Clipping関数でlpClipの値が不正になるバグを修正。
+・yaneMovie：CFastPlaneに対応。(by tyuyu)
+----------
+Sat, 23 Mar 2002 11:12:00
+・yaneFastDraw ：Millenium G400/450などでGetSurfaceType出来ない問題を修正。
+・yaneRegion   ：リソースリークを修正。
+・yaneMIDIInput：Initializeがまずかった。
+----------
+Mon, 18 Mar 2002 02:42:00
+・yaneSound：m_bLoopを初期化してなかった^^;
+----------
+Tue, 12 Mar 2002 22:30:00
+・yaneMemory      ：終了時に落ちるバグを修正。
+・yaneScenarioView：選択ができないバグを修正。
+・yaneMovieDS.h   ：リンク指定が抜けていたので追加。
+----------
+Thu, 8 Mar 2002 21:23:00
+・yaneRegion：#ifdefによる処理の切り分けを忘れていた。
+----------
+Thu, 8 Mar 2002 20:50:00
+・yaneMemory：new,deleteにクリティカルセクション導入。
+・CFastPlane：RotateBltで、nRate==0の時に落ちないようにした。
+　転送後サイズが0になる時は、そのままreturnするようにした。
+----------
+Thu, 7 Mar 2002 19:41:00
+・CFastPlane：MorphBltのクリッピングルーチンを修正。
+　RotateBltを追加。
+・CFastPlane.cppを５つに分割。これでヒープを食い尽くさなくなった。
+----------
+Mon, 4 Mar 2002 16:46:00
+・CPCMReaderFactoryに致命的なメモリリークがあった。要再ビルド。
+・OggVorbisPluginに不具合があって一部環境で落ちていたのを修正。
+　Pluginの仕様を一部修正。以前のyaneSDK2ndでビルドされた物とは
+　互換性があります。
+・OggVorbisPluginを改良。Oggファイルをメモリ上に読み込んで再生できます。
+
+・CPlane,CDIB32,CFastPlaneのクリッピングルーチンに不具合があったので修正。
+　lpClipRectを指定し、かつそのRectが転送先Rectからはみ出ていた場合、
+　正しくクリッピングされていなかった。
+
+・CSound::Loadで、Load時にm_bLoopをfalseにしていたのをコメントアウト。
+----------
+Fri, 1 Mar 2002 15:58:00
+・コンパイル時にyaneSound.h/yaneStreamSound.hのあたりでsmart_ptr<T>::Deleteが
+　実行できないという頭の悪いWarningが出るのに対処しました。
+
+・CSceneControl::OnDrawがCScene::OnSimpleDraw/CScene::OnSimpleMoveの存在を
+　仮定しているのはまずいので、CScene::OnDrawを呼ぶように修正しました。
+----------
+Fri, 1 Mar 2002 15:00:24
+yaneSDK2nd に付属の CRegion,CRegionHook を修正してみました。
+
+修正点は、
+・CFastPlane に対応
+・operator +,operator - を operator +=,operator -= に変更
+・ウインドウに設定するリージョンにコピーしたものを使用することによる安全性を
+　確保です。
+
+安全第一で作りましたので、いくつか無駄なコピーがありますが、
+可変リージョンのアニメーションなんかも安全に行えるようになっています。
+----------
+Fri, 22 Feb 2002 01:01:50
+あと、yaneSDK のソースファイルのうち
+
+・yaneFastPlane.cpp
+・yaneFastPlane.h
+・yaneGTL.h
+
+を変更しましたが、yaneFastPlane.cpp では、
+CFastPlane::Blt をベースにして
+CFastPlane::MorphBlt を作成しました
+
+（炎羅コメント）
+　これによって、またヒープを使い切ってしまうようになりました^^;
+　コンパイルオプションを/Zm200から/Zm250（私は/Zm300でやってます）
+　に変えてください。
+----------

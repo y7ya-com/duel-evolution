@@ -1,0 +1,8 @@
+// Local-only harness for scripts/engine_workerd/check.mjs (never deployed).
+{
+  "name": "engine-workerd-check",
+  "main": "worker.js",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "rules": [{ "type": "Data", "globs": ["**/*.pack"], "fallthrough": true }]
+}

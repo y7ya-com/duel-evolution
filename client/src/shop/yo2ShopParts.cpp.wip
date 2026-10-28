@@ -1,0 +1,616 @@
+// yo2shopEntry.cpp, part 1: digits, the price and mileage plates, the purchase confirmation window.
+#include <cstdio>
+#include <utility>
+
+#include "System/yo2Debug.h"
+#include "shop/yo2shopEntry.h"
+
+namespace {
+constexpr uint32_t kPriority = 10000;
+
+// "<n>MP"
+vc6::string mpText(int32_t n) {
+    char buf[0x100];
+    std::snprintf(buf, sizeof buf, "%d", n);
+    vc6::string s = buf;
+    s += "MP";
+    return s;
+}
+}  // namespace
+
+// ================================================================ CShopNumber
+
+CShopNumber::CShopNumber() = default;
+
+// @yo2 0x00ae7e60 CShopNumber::~CShopNumber
+// @yo2 0x00ae7e30 CShopNumber deleting destructor
+CShopNumber::~CShopNumber() = default;
+
+// @yo2 0x00ae7d20 CShopNumber::New
+CShopNumber* CShopNumber::newChild(CTask* parent, CTask* layer) {
+    auto* n = new CShopNumber;
+    n->layer_ = layer;
+    return dynamic_cast<CShopNumber*>(n->create(parent, kPriority));
+}
+
+// @yo2 0x00ae7ef0 CShopNumber::onInit: the base element, the cell table, the sprite showing cell 0
+bool CShopNumber::onInit() {
+    base_.setUser(this);
+    base_.set(CElement::newChild(layer_, kPriority));
+    windowNameTask(base_.task(), "数値テキストベースエレメント");  // "number text base element"
+    base_.get()->inheritTransform_ = true;
+    for (int i = 0; i < 15; ++i)
+        cells_[i] = {i % 8 * 16, i / 8 * 16, 16, 16};
+    glyph_ = 0;
+    sprite_.setUser(this);
+    sprite_.set(CSpriteElm::newChild(base_.get(), kPriority));
+    windowNameTask(sprite_.task(), "数字");  // "digit"
+    CSpriteElm* s = sprite_.get();
+    s->inheritTransform_ = true;
+    s->setDrawMode(CElement::BLEND);
+    s->setTexture("data/shop/shop_number_01_c01.png");
+    s->pos_ = {0, 0, 1};
+    s->rect_[0] = 0;
+    s->rect_[1] = 0;
+    s->rect_[2] = 16;
+    s->rect_[3] = 16;
+    setGlyph(0);
+    return true;
+}
+
+// @yo2 0x00ae8740 CShopNumber::onMain
+bool CShopNumber::onMain() { return true; }
+
+// @yo2 0x00ae8970 CShopNumber::onDestroy
+void CShopNumber::onDestroy() {
+    if (base_.task())
+        base_.get()->destroy(kShopFile, 0x1c2);
+}
+
+// @yo2 0x00ae8760 CShopNumber::setGlyph: the sprite shows cell 0..14
+void CShopNumber::setGlyph(int32_t cell) {
+    glyph_ = cell;
+    if (cell < 0)
+        glyph_ = 0;
+    if (glyph_ > 14)
+        glyph_ = 14;
+    sprite_.get()->rect_[0] = cells_[glyph_].x;
+    sprite_.get()->rect_[1] = cells_[glyph_].y;
+}
+
+// @yo2 0x00ae8800 CShopNumber::setChar: digits, then '%' 11, 'M' 12, 'P' 13, '@' 14; anything else is 0
+void CShopNumber::setChar(char c) {
+    switch (c) {
+    case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+        setGlyph(c - '0');
+        return;
+    case '%':
+        setGlyph(11);
+        return;
+    case 'M':
+        setGlyph(12);
+        return;
+    case 'P':
+        setGlyph(13);
+        return;
+    case '@':
+        setGlyph(14);
+        return;
+    default:
+        setGlyph(0);
+        return;
+    }
+}
+
+struct CShopNumber::Layout {
+    YO2_AT(CShopNumber, layer_, 0x070);
+    YO2_AT(CShopNumber, base_, 0x074);
+    YO2_AT(CShopNumber, cells_, 0x080);
+    YO2_AT(CShopNumber, glyph_, 0x170);
+    YO2_AT(CShopNumber, sprite_, 0x174);
+};
+
+// ================================================================ CShopNumberString
+
+CShopNumberString::CShopNumberString() = default;
+
+// @yo2 0x00ae8ae0 CShopNumberString::~CShopNumberString
+// @yo2 0x00ae8ab0 CShopNumberString deleting destructor
+CShopNumberString::~CShopNumberString() = default;
+
+// @yo2 0x00ae89c0 CShopNumberString::New
+CShopNumberString* CShopNumberString::newChild(CTask* parent, CTask* layer) {
+    auto* s = new CShopNumberString;
+    s->layer_ = layer;
+    return dynamic_cast<CShopNumberString*>(s->create(parent, kPriority));
+}
+
+// @yo2 0x00ae8b60 CShopNumberString::onInit
+bool CShopNumberString::onInit() {
+    base_.setUser(this);
+    base_.set(CElement::newChild(layer_, kPriority));
+    windowNameTask(base_.task(), "数値テキストベースエレメント");
+    base_.get()->inheritTransform_ = true;
+    for (CShopNumber*& d : digits_)
+        d = nullptr;
+    length_ = 0;
+    unk100_ = 0;
+    return true;
+}
+
+// @yo2 0x00ae8c00 CShopNumberString::onMain
+bool CShopNumberString::onMain() { return true; }
+
+// @yo2 0x00ae9050 CShopNumberString::onDestroy
+void CShopNumberString::onDestroy() {
+    if (base_.task())
+        base_.get()->destroy(kShopFile, 0x210);
+}
+
+// @yo2 0x00ae8c20 CShopNumberString::setNumber (itoa base 10)
+void CShopNumberString::setNumber(int32_t n) {
+    char buf[0x100];
+    std::snprintf(buf, sizeof buf, "%d", n);
+    setText(buf);
+}
+
+// @yo2 0x00ae8d50 CShopNumberString::setText: one CShopNumber per character, the rest destroyed
+void CShopNumberString::setText(const vc6::string& s) {
+    for (int32_t i = 0; i < kMaxDigits; ++i) {
+        if (static_cast<size_t>(i) < s.size())
+            setDigit(i, s.c_str()[i]);
+        else
+            clearDigit(i);
+    }
+    length_ = static_cast<int32_t>(s.size());
+}
+
+// @yo2 0x00ae8f30 CShopNumberString::setDigit: made on first use, 14 pixels per position
+void CShopNumberString::setDigit(int32_t i, char c) {
+    if (!digits_[i]) {
+        digits_[i] = CShopNumber::newChild(this, base_.get());
+        windowNameTask(digits_[i], "数字列のひとけた");  // "one digit of the number string"
+    }
+    digits_[i]->base_.get()->pos_ = {static_cast<float>(i * 14), 0, 0};
+    digits_[i]->setChar(c);
+}
+
+// @yo2 0x00ae9000 CShopNumberString::clearDigit
+void CShopNumberString::clearDigit(int32_t i) {
+    if (digits_[i]) {
+        digits_[i]->destroy(kShopFile, 0x20a);
+        digits_[i] = nullptr;
+    }
+}
+
+struct CShopNumberString::Layout {
+    YO2_AT(CShopNumberString, layer_, 0x070);
+    YO2_AT(CShopNumberString, base_, 0x074);
+    YO2_AT(CShopNumberString, digits_, 0x080);
+    YO2_AT(CShopNumberString, unk100_, 0x100);
+    YO2_AT(CShopNumberString, length_, 0x104);
+};
+
+// ================================================================ CShopPricePlate
+
+CShopPricePlate::CShopPricePlate() = default;
+
+// @yo2 0x00ae9270 CShopPricePlate::~CShopPricePlate
+// @yo2 0x00ae9240 CShopPricePlate deleting destructor
+CShopPricePlate::~CShopPricePlate() = default;
+
+// @yo2 0x00ae90a0 CShopPricePlate::New
+CShopPricePlate* CShopPricePlate::newChild(CTask* parent, CTask* layer, IWindowTaskMediator* mediator, int32_t kind) {
+    auto* p = new CShopPricePlate;
+    p->layer_ = layer;
+    p->mediator_ = mediator;
+    p->kind_ = kind;
+    return dynamic_cast<CShopPricePlate*>(p->create(parent, kPriority));
+}
+
+// @yo2 0x00ae9330 CShopPricePlate::onInit: the tag button and its two texts
+bool CShopPricePlate::onInit() {
+    enabled_ = true;
+    state_ = UP;
+    price_ = 0;
+    count_ = 10;
+    index_ = 0;
+    rate_ = -1.0f;
+    base_.setUser(this);
+    base_.set(CElement::newChild(layer_, kPriority));
+    windowNameTask(base_.task(), "値段プレートベースエレメント");  // "price plate base element"
+
+    tag_.setUser(this);
+    tag_.set(CWindowTaskPictureSwitch::create(base_.get(), this, this));
+    windowNameTask(tag_.task(), "値段プレート");  // "price plate"
+    tag_.get()->inheritTransform_ = true;
+    if (kind_ == 0)
+        tag_.get()->setImages("data/shop/shop_pricetag_06_c01.png", "data/shop/shop_pricetag_04_c01.png",
+                              "data/shop/shop_pricetag_05_c01.png", "data/shop/shop_pricetag_05_c01.png");
+    else
+        tag_.get()->setImages("data/shop/shop_pricetag_01_c01.png", "data/shop/shop_pricetag_02_c01.png",
+                              "data/shop/shop_pricetag_03_c01.png", "data/shop/shop_pricetag_03_c01.png");
+    tag_.get()->pos_ = {0, 0, 0};
+
+    priceText_.setUser(this);
+    priceText_.set(CWindowTaskText::create(base_.get(), this));
+    priceText_.get()->setPos(10, 216);
+    priceText_.get()->z_ = 3.0f;
+    priceText_.get()->pos_.z = 3.0f;
+
+    rateText_.setUser(this);
+    rateText_.set(CWindowTaskText::create(base_.get(), this));
+    rateText_.get()->setPos(10, 236);
+    rateText_.get()->z_ = 3.0f;
+    rateText_.get()->pos_.z = 3.0f;
+    return true;
+}
+
+// @yo2 0x00ae9640 CShopPricePlate::onMain
+bool CShopPricePlate::onMain() { return true; }
+
+// @yo2 0x00ae9f60 CShopPricePlate::onDestroy
+void CShopPricePlate::onDestroy() {
+    if (base_.task())
+        base_.get()->destroy(kShopFile, 0x307);
+}
+
+// @yo2 0x00ae9da0 CShopPricePlate::onControlEvent: the tag was clicked; tell the owner (this plate is the sender)
+void CShopPricePlate::onControlEvent(IWindowTaskColleague*) {
+    if (enabled_)
+        mediator_->onControlEvent(this);
+}
+
+// @yo2 0x00ae9220 CShopPricePlate::onControlCommand (empty)
+void CShopPricePlate::onControlCommand(IWindowTaskColleague*) {}
+
+// @yo2 0x00ae9660 CShopPricePlate::setPrice: "<n>MP"
+void CShopPricePlate::setPrice(int32_t mp) {
+    price_ = mp;
+    priceText_.get()->setText(yo2Widen(mpText(mp).c_str()).c_str());
+}
+
+// @yo2 0x00ae99f0 CShopPricePlate::setCount
+void CShopPricePlate::setCount(int32_t n) { count_ = n; }
+
+// @yo2 0x00ae9a10 CShopPricePlate::setIndex (above count_: count_ - 1; below 0: 0)
+void CShopPricePlate::setIndex(int32_t i) {
+    index_ = i;
+    if (count_ < i)
+        index_ = count_ - 1;
+    if (index_ < 0)
+        index_ = 0;
+}
+
+// @yo2 0x00ae9a60 CShopPricePlate::setRate: "<rate * 100, one decimal> %"
+void CShopPricePlate::setRate(float rate) {
+    rate_ = rate;
+    char buf[0x40];
+    std::snprintf(buf, sizeof buf, "%0.1f %%", static_cast<double>(rate * 100.0f));
+    rateText_.get()->setText(yo2Widen(buf).c_str());
+}
+
+// @yo2 0x00ae9de0 CShopPricePlate::setVisible
+void CShopPricePlate::setVisible(bool on) {
+    if (on) {
+        TaskLockFlags::of(base_.get()) &= ~2u;
+        base_.get()->setDisp(true, true);
+    } else {
+        TaskLockFlags::of(base_.get()) |= 2u;
+        base_.get()->setDisp(false, true);
+    }
+}
+
+// @yo2 0x00ae9e60 CShopPricePlate::isDown
+bool CShopPricePlate::isDown() const { return state_ == DOWN; }
+
+// @yo2 0x00ae9e80 CShopPricePlate::setState: DOWN latches the tag down, UP/HOVER release it
+void CShopPricePlate::setState(int32_t s) {
+    state_ = s;
+    if (s == UP || s == HOVER)
+        tag_.get()->latched_ = 0;
+    else if (s == DOWN)
+        tag_.get()->latched_ = 1;
+}
+
+// @yo2 0x00ae9ef0 CShopPricePlate::buttonState: DOWN when latched, else the tag's own state (UP / HOVER)
+int32_t CShopPricePlate::buttonState() const {
+    if (tag_.get()->latched_ == 1)
+        return DOWN;
+    if (tag_.get()->state_ == 0)
+        return UP;
+    return tag_.get()->state_ == 1;
+}
+
+struct CShopPricePlate::Layout {
+    YO2_AT(CShopPricePlate, mediator_, 0x078);
+    YO2_AT(CShopPricePlate, layer_, 0x07c);
+    YO2_AT(CShopPricePlate, base_, 0x080);
+    YO2_AT(CShopPricePlate, state_, 0x08c);
+    YO2_AT(CShopPricePlate, tag_, 0x090);
+    YO2_AT(CShopPricePlate, priceText_, 0x09c);
+    YO2_AT(CShopPricePlate, rateText_, 0x0a8);
+    YO2_AT(CShopPricePlate, enabled_, 0x0b4);
+    YO2_AT(CShopPricePlate, price_, 0x0b8);
+    YO2_AT(CShopPricePlate, count_, 0x0bc);
+    YO2_AT(CShopPricePlate, index_, 0x0c0);
+    YO2_AT(CShopPricePlate, rate_, 0x0c4);
+    YO2_AT(CShopPricePlate, kind_, 0x0c8);
+};
+
+// ================================================================ CShopMileagePlate
+
+CShopMileagePlate::CShopMileagePlate() = default;
+
+// @yo2 0x00aea1a0 CShopMileagePlate::~CShopMileagePlate
+// @yo2 0x00aea170 CShopMileagePlate deleting destructor
+CShopMileagePlate::~CShopMileagePlate() = default;
+
+// @yo2 0x00ae9fd0 CShopMileagePlate::New
+CShopMileagePlate* CShopMileagePlate::newChild(CTask* parent, CTask* layer) {
+    auto* p = new CShopMileagePlate;
+    p->layer_ = layer;
+    return dynamic_cast<CShopMileagePlate*>(p->create(parent, kPriority));
+}
+
+namespace {
+// One of the plate's texts: right-aligned, 200 x 24, at (12, y); the shadow is hidden.
+void makeMileageText(CTaskPtr<CWindowTaskShadowText>& ptr, CTaskUser* user, CElement* parent,
+                     IWindowTaskMediator* mediator, float y) {
+    ptr.setUser(user);
+    ptr.set(CWindowTaskShadowText::create(parent, mediator));
+    windowNameTask(ptr.task(), "決定テキスト");  // "decision text"
+    CWindowTaskShadowText* t = ptr.get();
+    t->inheritTransform_ = true;
+    t->shadow()->hide();
+    t->setPos(12, y);
+    t->setArea(200, 24);
+    t->setAlign(2);
+    t->setFontSize(24);
+    t->baseZ_ = 1.0f;
+    t->pos_.z = 1.0f;
+}
+}  // namespace
+
+// @yo2 0x00aea260 CShopMileagePlate::onInit: the plate (shop_money_01) and its two texts
+bool CShopMileagePlate::onInit() {
+    base_.setUser(this);
+    base_.set(CElement::newChild(layer_, kPriority));
+    windowNameTask(base_.task(), "");
+    base_.get()->inheritTransform_ = true;
+
+    plate_.setUser(this);
+    plate_.set(CSpriteElm::newChild(base_.get(), kPriority));
+    windowNameTask(plate_.task(), "商品の種類を載せるプレート");  // "the plate the item kinds go on"
+    plate_.get()->inheritTransform_ = true;
+    plate_.get()->setTexture("data/shop/shop_money_01_c01.png");
+    plate_.get()->pos_ = {0, 0, 0};
+    plate_.get()->setDrawMode(CElement::BLEND);
+
+    makeMileageText(top_, this, base_.get(), this, 7);
+    makeMileageText(bottom_, this, base_.get(), this, 48);
+    return true;
+}
+
+// @yo2 0x00aeadc0 CShopMileagePlate::onMain
+bool CShopMileagePlate::onMain() { return true; }
+
+// @yo2 0x00aeb480 CShopMileagePlate::onDestroy
+void CShopMileagePlate::onDestroy() {
+    if (base_.task())
+        base_.get()->destroy(kShopFile, 0x357);
+}
+
+// @yo2 0x00aea150 CShopMileagePlate::onControlEvent (empty)
+void CShopMileagePlate::onControlEvent(IWindowTaskColleague*) {}
+// @yo2 0x00aea130 CShopMileagePlate::onControlCommand (empty)
+void CShopMileagePlate::onControlCommand(IWindowTaskColleague*) {}
+
+// @yo2 0x00aeade0 CShopMileagePlate::setTop: "<n>MP"
+void CShopMileagePlate::setTop(int32_t mp) {
+    topMp_ = mp;
+    top_.get()->setTextA(mpText(mp).c_str());
+}
+
+// @yo2 0x00aeb130 CShopMileagePlate::setBottom: "<n>MP"
+void CShopMileagePlate::setBottom(int32_t mp) {
+    bottomMp_ = mp;
+    bottom_.get()->setTextA(mpText(mp).c_str());
+}
+
+struct CShopMileagePlate::Layout {
+    YO2_AT(CShopMileagePlate, layer_, 0x074);
+    YO2_AT(CShopMileagePlate, base_, 0x078);
+    YO2_AT(CShopMileagePlate, plate_, 0x084);
+    YO2_AT(CShopMileagePlate, top_, 0x090);
+    YO2_AT(CShopMileagePlate, bottom_, 0x09c);
+    YO2_AT(CShopMileagePlate, topMp_, 0x0a8);
+    YO2_AT(CShopMileagePlate, bottomMp_, 0x0ac);
+};
+
+// ================================================================ CShopConfirmWindow
+
+CShopConfirmWindow::CShopConfirmWindow() = default;
+
+// @yo2 0x00aeb770 CShopConfirmWindow::~CShopConfirmWindow
+// @yo2 0x00aeb740 CShopConfirmWindow deleting destructor
+CShopConfirmWindow::~CShopConfirmWindow() = default;
+
+// @yo2 0x00aeb4d0 CShopConfirmWindow::New
+CShopConfirmWindow* CShopConfirmWindow::newChild(CTask* parent, CTask* layer) {
+    auto* w = new CShopConfirmWindow;
+    w->layer_ = layer;
+    return dynamic_cast<CShopConfirmWindow*>(w->create(parent, kPriority));
+}
+
+namespace {
+CWindowTaskText* makeText(CTaskPtr<CWindowTaskText>& ptr, CTaskUser* user, CElement* parent,
+                          IWindowTaskMediator* mediator, const char* name) {
+    ptr.setUser(user);
+    ptr.set(CWindowTaskText::create(parent, mediator));
+    windowNameTask(ptr.task(), name);
+    return ptr.get();
+}
+
+CWindowTaskPictureSwitch* makeButton(CTaskPtr<CWindowTaskPictureSwitch>& ptr, CTaskUser* user, CElement* parent,
+                                     CTask* owner, IWindowTaskMediator* mediator, const char* name, float x) {
+    ptr.setUser(user);
+    ptr.set(CWindowTaskPictureSwitch::create(parent, owner, mediator));
+    windowNameTask(ptr.task(), name);
+    CWindowTaskPictureSwitch* b = ptr.get();
+    b->setImages("data/shop/shop_btn2_01_c01.png", "data/shop/shop_btn2_02_c01.png", "data/shop/shop_btn2_03_c01.png",
+                 "data/shop/shop_btn2_03_c01.png");
+    b->pos_ = {x, 217, 1};
+    return b;
+}
+}  // namespace
+
+// @yo2 0x00aeb920 CShopConfirmWindow::onInit: frame, OK / Cancel, the message, ten item lines and a scroll bar
+bool CShopConfirmWindow::onInit() {
+    result_ = NONE;
+    base_.setUser(this);
+    base_.set(CElement::newChild(layer_, kPriority));
+    base_.get()->pos_ = {300, 330, 51005};
+
+    frame_.setUser(this);
+    frame_.set(CSpriteElm::newChild(base_.get(), kPriority));
+    windowNameTask(frame_.task(), "確認ウィンドウ");  // "confirmation window"
+    frame_.get()->setTexture("data/shop/shop_win_01_c00.png");
+    frame_.get()->inheritTransform_ = true;
+    frame_.get()->pos_ = {0, 0, 0};
+
+    makeButton(ok_, this, base_.get(), this, this, "確認ウィンドウOKボタン", 39);
+    CWindowTaskText* t = makeText(okText_, this, base_.get(), this, "確認ウィンドウOKテキスト");
+    t->setTextId(4000);  // "OK"
+    t->setPos(39, 224);
+    t->setArea(110, 32);
+    t->setAlign(1);
+    t->z_ = 3.0f;
+    t->pos_.z = 3.0f;
+
+    makeButton(cancel_, this, base_.get(), this, this, "確認ウィンドウCancelボタン", 338);
+    t = makeText(cancelText_, this, base_.get(), this, "確認ウィンドウOKテキスト");  // (sic)
+    t->setTextId(0xfa1);  // "Cancel"
+    t->setPos(338, 224);
+    t->setArea(110, 32);
+    t->setAlign(1);
+    t->z_ = 3.0f;
+    t->pos_.z = 3.0f;
+
+    scroll_.setUser(this);
+    scroll_.set(CWindowTaskScroll::create(base_.get(), this, 0));
+    windowNameTask(scroll_.task(), "確認ウィンドウスクロールバー");  // "confirmation window scroll bar"
+    scroll_.get()->x_ = 448;
+    scroll_.get()->y_ = 17;
+    scroll_.get()->length_ = 190;
+    scroll_.get()->baseZ_ = 1.0f;
+    scroll_.get()->layout();
+
+    t = makeText(message_, this, base_.get(), this, "確認ウィンドウの確認テキスト");  // "confirmation text"
+    t->setFontSize(15);
+    t->setLineGap(1);
+    t->setPos(16, 16);
+    t->setArea(300, 32);
+    t->z_ = 1.0f;
+    t->pos_.z = 1.0f;
+
+    for (int i = 0; i < kLines; ++i) {
+        t = makeText(lines_[i], this, base_.get(), this, "確認ウィンドウ商品名リスト");  // "item name list"
+        t->setFontSize(16);
+        t->setPos(24, static_cast<float>(48 + 16 * i));
+        t->setArea(512, 16);
+        t->z_ = 1.0f;
+        t->pos_.z = 1.0f;
+    }
+    return true;
+}
+
+// @yo2 0x00aecef0 CShopConfirmWindow::onMain
+bool CShopConfirmWindow::onMain() { return true; }
+
+// @yo2 0x00aed6c0 CShopConfirmWindow::onDestroy
+void CShopConfirmWindow::onDestroy() {
+    if (base_.task())
+        base_.get()->destroy(kShopFile, 0x3fa);
+}
+
+// @yo2 0x00aeb720 CShopConfirmWindow::onControlCommand (empty)
+void CShopConfirmWindow::onControlCommand(IWindowTaskColleague*) {}
+
+// @yo2 0x00aed480 CShopConfirmWindow::onControlEvent: OK / Cancel (with their sounds), or the scroll bar moved
+void CShopConfirmWindow::onControlEvent(IWindowTaskColleague* sender) {
+    if (base_.get()->isLocked(2))  // hidden
+        return;
+    if (sender == static_cast<IWindowTaskColleague*>(dynamic_cast<CWindowTaskPictureSwitch*>(ok_.task()))) {
+        result_ = OK;
+        appPlaySound(0x10000001, 0);
+        return;
+    }
+    if (sender == static_cast<IWindowTaskColleague*>(dynamic_cast<CWindowTaskPictureSwitch*>(cancel_.task()))) {
+        result_ = CANCEL;
+        appPlaySound(0x10000002, 0);
+        return;
+    }
+    if (sender == static_cast<IWindowTaskColleague*>(dynamic_cast<CWindowTaskScroll*>(scroll_.task())))
+        showLines();
+}
+
+// @yo2 0x00aecf10 CShopConfirmWindow::setCart: one line per cart line ("<name>  x<count>  <count * cost>MP"),
+// the scroll bar over the ones past ten, and the total
+void CShopConfirmWindow::setCart(ShopVec<ShopCartLine> cart) {
+    for (auto& line : lines_)
+        line.get()->setText(u"");
+    cart_ = cart;
+    lineTexts_.clear();
+    int32_t total = 0;
+    for (const ShopCartLine& l : cart_) {
+        std::u16string name = yo2Widen(shopItemName(l.item).c_str());
+        lineTexts_.push_back(yo2FormatW(u"%s@>320/x%d@>360/%dMP", name.c_str(), l.count,
+                                        l.count * static_cast<int32_t>(l.item.cost)));
+        total += static_cast<int32_t>(l.item.cost) * l.count;
+    }
+    scroll_.get()->setMax(static_cast<int32_t>(lineTexts_.size()) - kLines);
+    showLines();
+    total_ = total;
+}
+
+// @yo2 0x00aed5b0 CShopConfirmWindow::showLines: the ten lines from the scroll position on
+void CShopConfirmWindow::showLines() {
+    for (int i = 0; i < kLines; ++i) {
+        size_t at = static_cast<size_t>(scroll_.get()->value_ + i);
+        if (lineTexts_.size() <= at)
+            return;
+        lines_[i].get()->setText(lineTexts_[at].c_str());
+    }
+}
+
+// @yo2 0x00aed410 CShopConfirmWindow::setVisible (only the lock bit: the window keeps drawing state)
+void CShopConfirmWindow::setVisible(bool on) {
+    if (on) {
+        TaskLockFlags::of(base_.get()) &= ~2u;
+        lockFlags_ &= ~2u;
+    } else {
+        TaskLockFlags::of(base_.get()) |= 2u;
+        lockFlags_ |= 2u;
+    }
+}
+
+// @yo2 0x00aed710 CShopConfirmWindow::message: the "buy for <total> MP?" text
+vc6::string CShopConfirmWindow::message() const { return shopConfirmMessage(total_); }
+
+struct CShopConfirmWindow::Layout {
+    YO2_AT(CShopConfirmWindow, layer_, 0x074);
+    YO2_AT(CShopConfirmWindow, base_, 0x078);
+    YO2_AT(CShopConfirmWindow, frame_, 0x084);
+    YO2_AT(CShopConfirmWindow, ok_, 0x090);
+    YO2_AT(CShopConfirmWindow, cancel_, 0x09c);
+    YO2_AT(CShopConfirmWindow, okText_, 0x0a8);
+    YO2_AT(CShopConfirmWindow, cancelText_, 0x0b4);
+    YO2_AT(CShopConfirmWindow, lines_, 0x0c0);
+    YO2_AT(CShopConfirmWindow, scroll_, 0x138);
+    YO2_AT(CShopConfirmWindow, message_, 0x144);
+    YO2_AT(CShopConfirmWindow, cart_, 0x150);
+    YO2_AT(CShopConfirmWindow, lineTexts_, 0x160);
+    YO2_AT(CShopConfirmWindow, result_, 0x170);
+    YO2_AT(CShopConfirmWindow, total_, 0x174);
+};

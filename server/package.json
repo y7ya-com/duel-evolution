@@ -1,0 +1,32 @@
+{
+  "name": "@duel-evolution/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply duel-evolution --local"
+  },
+  "dependencies": {
+    "better-auth": "1.7.10",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.13",
+    "ocgcore-wasm": "0.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260621.1",
+    "@types/node": "20.19.43",
+    "drizzle-kit": "0.31.10",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9",
+    "wrangler": "4.103.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  }
+}

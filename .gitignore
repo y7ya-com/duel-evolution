@@ -1,0 +1,20 @@
+.DS_Store
+node_modules/
+.wrangler/
+.dev.vars
+.env*
+!.env.example
+# Konami's files and everything extracted from them: never committed (README: "Files you supply")
+*.exe
+*.dll
+*.dat
+*.swf
+*.7z
+server/gamedata/*
+!server/gamedata/README.md
+client/html-ui/assets/
+client/html-ui/golden*/
+client/html-ui/diff*/
+client/web-shell/loader/
+client/web-shell/fonts/
+infra/out/

@@ -1,0 +1,23 @@
+// mmreg.h for non-Windows: the format tags yaneSDK's ACM/MP3 code names.
+#pragma once
+#include "mmsystem.h"
+
+#define WAVE_FORMAT_UNKNOWN 0x0000
+#define WAVE_FORMAT_ADPCM 0x0002
+#define WAVE_FORMAT_IEEE_FLOAT 0x0003
+#define WAVE_FORMAT_ALAW 0x0006
+#define WAVE_FORMAT_MULAW 0x0007
+#define WAVE_FORMAT_IMA_ADPCM 0x0011
+#define WAVE_FORMAT_MPEG 0x0050
+#define WAVE_FORMAT_MPEGLAYER3 0x0055
+#define MPEGLAYER3_WFX_EXTRA_BYTES 12
+#define MPEGLAYER3_ID_MPEG 1
+#define MPEGLAYER3_FLAG_PADDING_ISO 0x00000000
+#define MPEGLAYER3_FLAG_PADDING_ON 0x00000001
+#define MPEGLAYER3_FLAG_PADDING_OFF 0x00000002
+typedef struct mpeglayer3waveformat_tag {
+    WAVEFORMATEX wfx;
+    WORD wID;
+    DWORD fdwFlags;
+    WORD nBlockSize, nFramesPerBlock, nCodecDelay;
+} MPEGLAYER3WAVEFORMAT, *LPMPEGLAYER3WAVEFORMAT;

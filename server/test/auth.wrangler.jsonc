@@ -1,0 +1,6 @@
+// D1 only, for test/auth.test.ts (getPlatformProxy: a miniflare D1 in memory).
+{
+  "name": "de-auth-test",
+  "compatibility_date": "2026-06-01",
+  "d1_databases": [{ "binding": "DB", "database_name": "de-auth-test", "database_id": "de-auth-test" }]
+}

@@ -1,0 +1,486 @@
+{
+"0x3001": [],
+"0x3100": [
+{
+"id": "0x3103",
+"name": "YG_MSG_TRUNKDATAEND",
+"n": 0
+}
+],
+"0x3110": [
+{
+"id": "0x3111",
+"name": "YG_MSG_DUELPASSPURCHASERESULT",
+"n": 4
+}
+],
+"0x3114": [
+{
+"id": "0x3114",
+"name": "YG_MSG_GETPBIN",
+"n": 128
+}
+],
+"0x3603": [
+{
+"id": "0x3604",
+"name": "YG_MSG_MATCHINGSVR_PLAYERSEARCHRESULT",
+"n": 8
+}
+],
+"0x4100": [
+{
+"id": "0x4101",
+"name": "YG_MSG_PSELECTRESULT",
+"n": 133
+}
+],
+"0x4150": [
+{
+"id": "0x4160",
+"name": null,
+"n": 137
+}
+],
+"0x4170": [
+{
+"id": "0x4171",
+"name": null,
+"n": 4
+}
+],
+"0x4172": [
+{
+"id": "0x4173",
+"name": null,
+"n": 4
+}
+],
+"0x4174": [
+{
+"id": "0x4175",
+"name": null,
+"n": 4
+}
+],
+"0x4200": [
+{
+"id": "0x4201",
+"name": "YG_MSG_BLOCKLIST",
+"n": 2
+}
+],
+"0x4202": [
+{
+"id": "0x4203",
+"name": "YG_MSG_ENTERBLOCKRESULT",
+"n": 7
+}
+],
+"0x4210": [
+{
+"id": "0x4211",
+"name": "YG_MSG_BLOCKPLAYERLISTSTART",
+"n": 4
+},
+{
+"id": "0x4213",
+"name": "YG_MSG_BLOCKPLAYERLISTEND",
+"n": 0
+}
+],
+"0x4214": [
+{
+"id": "0x4215",
+"name": "YG_MSG_BLOCKPLAYERLIST2_START",
+"n": 4
+},
+{
+"id": "0x4217",
+"name": "YG_MSG_BLOCKPLAYERLIST2_END",
+"n": 0
+}
+],
+"0x4218": [
+{
+"id": "0x4219",
+"name": "YG_MSG_BLOCKPLAYERLIST3_START",
+"n": 4
+},
+{
+"id": "0x421b",
+"name": "YG_MSG_BLOCKPLAYERLIST3_END",
+"n": 0
+}
+],
+"0x421c": [
+{
+"id": "0x421d",
+"name": "YG_MSG_BLOCKPLAYERLIST4_START",
+"n": 4
+},
+{
+"id": "0x421f",
+"name": "YG_MSG_BLOCKPLAYERLIST4_END",
+"n": 0
+}
+],
+"0x4221": [
+{
+"id": "0x4222",
+"name": "YG_MSG_BLOCKPLAYERLIST5_START",
+"n": 4
+},
+{
+"id": "0x4224",
+"name": "YG_MSG_BLOCKPLAYERLIST5_END",
+"n": 0
+}
+],
+"0x4230": [
+{
+"id": "0x4231",
+"name": "YG_MSG_NPCINFOLIST_START",
+"n": 4
+},
+{
+"id": "0x4233",
+"name": "YG_MSG_NPCINFOLIST_END",
+"n": 0
+}
+],
+"0x4280": [
+{
+"id": "0x4282",
+"name": "YG_MSG_DUELROOMLISTSTART",
+"n": 4
+},
+{
+"id": "0x4286",
+"name": "YG_MSG_DUELROOMLISTEND",
+"n": 0
+}
+],
+"0x4288": [
+{
+"id": "0x428a",
+"name": "YG_MSG_CREATEROOMRESULT",
+"n": 4
+}
+],
+"0x4290": [
+{
+"id": "0x4292",
+"name": "YG_MSG_DELETEROOMRESULT",
+"n": 4
+}
+],
+"0x42a0": [
+{
+"id": "0x42a2",
+"name": "YG_MSG_RESETAUTOWAITRESULT",
+"n": 4
+}
+],
+"0x4300": [
+{
+"id": "0x4301",
+"name": "YG_MSG_REQMATCHRESULT",
+"n": 4
+}
+],
+"0x4303": [],
+"0x4304": [
+{
+"id": "0x4309",
+"name": "YG_MSG_CANCELREQMATCHRESULT",
+"n": 4
+}
+],
+"0x430a": [],
+"0x4320": [
+{
+"id": "0x4321",
+"name": "YG_MSG_REQWATCHRESULT",
+"n": 21,
+"hex": "000000010000000000000000000000000000000000"
+}
+],
+"0x4400": [],
+"0x4410": [],
+"0x4424": [],
+"0x4428": [],
+"0x4500": [
+{
+"id": "0x4501",
+"name": "YG_MSG_GETPIDBYPNAMERESULT",
+"n": 8,
+"hex": "0000000100000000"
+}
+],
+"0x4510": [
+{
+"id": "0x4511",
+"name": "YG_MSG_REQFRIENDRESULT",
+"n": 4
+}
+],
+"0x4513": [],
+"0x4530": [
+{
+"id": "0x4531",
+"name": "YG_MSG_ADDBLACKRESULT",
+"n": 4
+}
+],
+"0x4540": [
+{
+"id": "0x4541",
+"name": "YG_MSG_DELBLACKRESULT",
+"n": 4
+}
+],
+"0x4550": [
+{
+"id": "0x4551",
+"name": "YG_MSG_TEAMCREATERESULT",
+"n": 4
+},
+{
+"id": "0x4566",
+"name": "YG_MSG_TEAMCREATERESULTEND",
+"n": 4
+}
+],
+"0x4552": [
+{
+"id": "0x4553",
+"name": "YG_MSG_TEAMDISBANDRESULT",
+"n": 4
+}
+],
+"0x4554": [],
+"0x4556": [],
+"0x4558": [
+{
+"id": "0x4564",
+"name": "YG_MSG_TEAMLISTRESULT_BEGIN",
+"n": 40
+},
+{
+"id": "0x4565",
+"name": "YG_MSG_TEAMLISTRESULT_END",
+"n": 4
+}
+],
+"0x4568": [],
+"0x4569": [],
+"0x4600": [
+{
+"id": "0x4601",
+"name": "YG_MSG_SENDMAILRESULT",
+"n": 4
+}
+],
+"0x4610": [
+{
+"id": "0x4611",
+"name": "YG_MSG_RCVMAILLISTSTART",
+"n": 4
+},
+{
+"id": "0x4613",
+"name": "YG_MSG_RCVMAILLISTEND",
+"n": 0
+}
+],
+"0x4620": [
+{
+"id": "0x4621",
+"name": "YG_MSG_GETMAILCOUNTRESULT",
+"n": 4
+}
+],
+"0x4802": [
+{
+"id": "0x4803",
+"name": "YG_MSG_SELECTCARDPACKRESULT",
+"n": 4
+}
+],
+"0x4901": [
+{
+"id": "0x4800",
+"name": "YG_MSG_CARDPACKLISTNOTICE",
+"n": 0
+}
+],
+"0x4902": [
+{
+"id": "0x4903",
+"name": "YG_MSG_PURCHASE_PACK_OPEN_RESULT",
+"n": 8
+}
+],
+"0x4904": [
+{
+"id": "0x4905",
+"name": "YG_MSG_PRESENT_PACK_OPEN_RESULT",
+"n": 4
+}
+],
+"0x4910": [
+{
+"id": "0x4803",
+"name": "YG_MSG_SELECTCARDPACKRESULT",
+"n": 4
+}
+],
+"0x4915": [
+{
+"id": "0x4803",
+"name": "YG_MSG_SELECTCARDPACKRESULT",
+"n": 4
+}
+],
+"0x5100": [
+{
+"id": "0x5100",
+"name": "YG_MSG_TOUR_INFO",
+"n": 128
+}
+],
+"0x5107": [
+{
+"id": "0x5108",
+"name": "YG_MSG_TOUR_ENTRY_START",
+"n": 12
+},
+{
+"id": "0x5110",
+"name": "YG_MSG_TOUR_ENTRY_END",
+"n": 0
+}
+],
+"0x5111": [
+{
+"id": "0x5111",
+"name": "YG_MSG_TOUR_LIST",
+"n": 17
+}
+],
+"0x5112": [
+{
+"id": "0x5112",
+"name": "YG_MSG_TOUR_ENDRESULT",
+"n": 152
+}
+],
+"0x5113": [
+{
+"id": "0x5113",
+"name": "YG_MSG_TOUR_TIMER",
+"n": 4
+}
+],
+"0x5114": [
+{
+"id": "0x5114",
+"name": "YG_MSG_TOUR_PCOUNTER",
+"n": 20
+}
+],
+"0x5115": [
+{
+"id": "0x5115",
+"name": "YG_MSG_TOUR_STATUS",
+"n": 25
+}
+],
+"0x5200": [],
+"0x5202": [],
+"0x5204": [
+{
+"id": "0x5205",
+"name": "YG_MSG_ITEMGET_RESULT",
+"n": 8
+}
+],
+"0x5208": [
+{
+"id": "0x5213",
+"name": "YG_MSG_SHOPLISTNOTICE(inicio)",
+"n": 0
+},
+{
+"id": "0x5214",
+"name": "YG_MSG_SHOPLISTNOTICE(fin)",
+"n": 0
+}
+],
+"0x5210": [
+{
+"id": "0x5212",
+"name": "YG_MSG_PURCHASE_SHOP_ITEM_RESULT",
+"n": 4,
+"hex": "00000001"
+},
+{
+"id": "0x5211",
+"name": "YG_MSG_SHOPRESULTEND",
+"n": 4,
+"hex": "00000001"
+}
+],
+"0x5320": [
+{
+"id": "0x5340",
+"name": null,
+"n": 29
+}
+],
+"0x5400": [
+{
+"id": "0x5401",
+"name": "YG_MSG_SD_GET_RESULT",
+"n": 4
+}
+],
+"0x7000": [],
+"0x8101": [
+{
+"id": "0x8102",
+"name": "YG_MSG_DPAUTHRESULT",
+"n": 10
+}
+],
+"0x8203": [
+{
+"id": "0x8204",
+"name": "YG_MSG_USBDPAUTHRESULT",
+"n": 9
+}
+],
+"0x8301": [
+{
+"id": "0x8302",
+"name": "YG_MSG_TPPRESENTINFORESULT",
+"n": 2
+}
+],
+"0x8303": [
+{
+"id": "0x8304",
+"name": "YG_MSG_TPCARDGETRESULT",
+"n": 13,
+"hex": "00000001000000000000000000"
+}
+],
+"0x8401": [
+{
+"id": "0x8402",
+"name": "YG_MSG_STARTUP_PRESENTGET_RESULT",
+"n": 7
+}
+]
+}

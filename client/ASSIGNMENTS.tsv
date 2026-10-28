@@ -1,0 +1,11 @@
+# lo	hi	folder	owner	funcs	KB   (2026-10-27, from trace/WORKORDER.tsv: core todo rows in [lo,hi], any folder label; `coverage.py --assigned <owner>` lists them in work order)
+0x00580000	0x00664a2f	*	phase0b-headers		
+0x00688f00	0x006894ff	*	phase0b-headers		
+0x00689500	0x006e0cef	*	phase2-net	251	27
+0x00840000	0x008a796f	*	phase2-net	353	182
+0x006e0cf0	0x007effff	*	duel	860	320
+0x007f0000	0x0083ffff	*	misc	275	129
+0x008a7970	0x009bd1bf	*	misc	346	81
+0x00664a30	0x00688eff	Swf	misc			# Swf: clean reimplementation behind the same interface (owner decision 2026-10-27), see src/Swf/REIMPLEMENTED.txt
+0x009bd1c0	0x00a5ffff	*	phase1-yanesdk	621	234
+0x00a60000	0x00b3ffff	*	game-b	541	263

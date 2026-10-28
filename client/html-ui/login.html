@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Login (2008 dialog)</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div id="stage"><img id="bg" src="assets/backdrop.png" alt=""></div>
+<script type="module">
+// The in-game 2008 login dialog (CWindowLogin), every position from the recompiled client's logged draw calls.
+import { loadGlyphs, windowFrame, text, measure, input, checkbox, button, blinkAll } from './ui.js';
+await loadGlyphs();
+const st = document.getElementById('stage');
+windowFrame(st, 256, 256, 464, 264, 64);
+text(st, [['Welcome to the world of Yu-Gi-Oh! ONLINE!', 310, 264], [' Please enter your User ID and your Password!', 300, 280]]);
+text(st, [['User ID', 264, 336]]);
+text(st, [['Password', 264, 400]]);
+const user = input(st, 328, 360, 320);
+const pass = input(st, 328, 424, 320, { mask: true });
+text(st, [['Save User ID', 680 - measure('Save User ID'), 384]]);
+text(st, [['Save Password', 680 - measure('Save Password'), 448]]);
+const saveUser = checkbox(st, 680, 384), savePass = checkbox(st, 680, 448);
+const ok = button(st, 376, 480, 80, 'OK', () => st.dispatchEvent(new CustomEvent('login', { detail: { user: user.value, pass: pass.value, saveUser: saveUser.checked, savePass: savePass.checked } })));
+const cancel = button(st, 536, 480, 80, 'Cancel', () => st.dispatchEvent(new CustomEvent('cancel')));
+user.native.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pass.focus(); } });
+pass.native.addEventListener('keydown', e => { if (e.key === 'Enter') ok.press(); if (e.key === 'Tab') { e.preventDefault(); user.focus(); } });
+user.focus();   // the game opens with the caret in User ID
+let blink = blinkAll([user, pass]);
+// Test hook (tools/diff.mjs): put every widget in a golden's state, caret frozen.
+window.__state = s => {
+  clearInterval(blink);
+  if (s.bg) document.getElementById('bg').src = s.bg;
+  user.set(s.user || '', s.focus === 'user', s.caret);
+  pass.set(s.pass || '', s.focus === 'pass', s.caret);
+  saveUser.set(!!s.saveUser); savePass.set(!!s.savePass);
+  ok.state(s.ok || 0); cancel.state(s.cancel || 0);
+  return new Promise(r => { const i = document.getElementById('bg'); i.complete ? r() : i.onload = r; });
+};
+window.__ready = true;
+</script>
+</body>
+</html>

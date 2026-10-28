@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>yo2rc</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 12px monospace; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  canvas { display: block; outline: none; }
+  #log { position: fixed; left: 0; right: 0; bottom: 0; max-height: 30vh; overflow: auto; margin: 0; padding: 4px 8px;
+         white-space: pre-wrap; background: rgba(0, 0, 0, .7); pointer-events: none; }   /* clicks reach the game */
+</style>
+</head>
+<body>
+<canvas id="canvas" width="800" height="600" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<pre id="log"></pre>
+<script>
+  // Needs a cross-origin-isolated page (COOP same-origin + COEP require-corp) for SharedArrayBuffer, and JSPI.
+  const logEl = document.getElementById("log");
+  const showLog = new URLSearchParams(location.search).has("log");   // ?log shows the runtime log
+  if (!showLog) logEl.style.display = "none";
+  const tail = [];   // the last 200 lines, for crash reports
+  const log = (s) => {
+    tail.push(s); if (tail.length > 200) tail.shift();
+    if (showLog) { logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+    console.log(s);
+    if (/^(rc_trap at|MISSING IMPORT|guest fault|host fault)/.test(s)) crash(s);
+  };
+  // A guest trap (it logs, then exits), an abort or an uncaught error: report it once to /__crash, then tell the
+  // player instead of leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
+  let crashed = false;
+  function crash(why) {
+    if (crashed) return;
+    crashed = true;
+    console.log("yo2rc crash: " + String(why).slice(0, 2000));
+    setTimeout(() => {   // let the guest stack lines that follow the trap line arrive
+      const body = JSON.stringify({ why: String(why).slice(0, 2000), log: tail.join("\n").slice(-60000),
+        build: document.querySelector('meta[name="yo2-build"]')?.content || "", ua: navigator.userAgent,
+        frames: Module.yo2Presents | 0, url: location.pathname });
+      fetch("/__crash", { method: "POST", body, keepalive: true, headers: { "Content-Type": "application/json" } })
+        .catch(() => {});
+      if (!dispatchEvent(new CustomEvent("yo2crash", { detail: why, cancelable: true }))) return;
+      const d = document.createElement("div");
+      d.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;" +
+        "justify-content:center;gap:16px;background:rgba(0,0,0,.85);color:#fff;font:18px sans-serif;z-index:10";
+      d.innerHTML = '<div>Something went wrong.</div><button style="font:16px sans-serif;padding:8px 20px">Reload</button>';
+      d.querySelector("button").onclick = () => location.reload();
+      document.body.append(d);
+    }, 500);
+  }
+  addEventListener("error", (e) => crash("error: " + (e.message || e)));
+  addEventListener("unhandledrejection", (e) => crash("unhandled rejection: " + (e.reason?.stack || e.reason)));
+  if (!crossOriginIsolated) log("not cross-origin isolated: serve with COOP/COEP headers (web/serve.mjs does)");
+  if (!("Suspending" in WebAssembly)) log("this browser has no JSPI (WebAssembly.Suspending)");
+  var Module = { canvas: document.getElementById("canvas"), print: log, printErr: log,
+                 onAbort: (w) => crash("abort: " + w), onExit: (code) => code && crash("exit " + code) };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

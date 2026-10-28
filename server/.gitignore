@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+# the engine's EDOPro scripts pack (20 MB) is rebuilt by scripts/engine_gamedata.mjs and lives in R2
+gamedata/engine/scripts.pack
+.DS_Store
+__pycache__/
+parity/_out/
+*.sql.local
+.dev.vars

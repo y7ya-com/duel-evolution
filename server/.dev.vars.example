@@ -1,0 +1,6 @@
+# cp .dev.vars.example .dev.vars (wrangler dev). Turnstile keys are Cloudflare's always-pass test keys.
+DEV=1
+PUBLIC_ORIGIN=http://localhost:8787
+BETTER_AUTH_SECRET=dev-only-secret-change-me-0123456789abcdef
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET=1x0000000000000000000000000000000AA

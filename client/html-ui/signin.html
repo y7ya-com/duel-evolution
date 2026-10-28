@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign in</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<div id="stage"><img id="bg" src="assets/backdrop.png" alt=""></div>
+<script type="module">
+// The sign-in panel (the other game's login layout) from the 2008 dialog's own pieces: its window, buttons, inputs and
+// glyphs (ui.js), on the same column as the in-game version (recomp rt/session.cpp): the dialog's window at 256,256,
+// 464 x 264 with a 42 px header band, a 432 px column at x 272 (window 16) centred on window 232.
+// ?header=greeting: the in-game panel's own header (the greeting) and no idle status, for diffing against it.
+import { loadGlyphs, windowFrame, text, measure, input, button, blinkAll } from './ui.js';
+await loadGlyphs();
+const st = document.getElementById('stage'), q = new URLSearchParams(location.search);
+const X = 256, Y = 256, LEFT = X + 16, WIDE = 432, MID = X + 232, RIGHT = LEFT + WIDE;
+const centre = (s, cx, y) => text(st, [[s, cx - Math.floor(measure(s) / 2), y]]);
+const emit = (type, detail) => st.dispatchEvent(new CustomEvent(type, { detail }));
+
+windowFrame(st, X, Y, 464, 264, 42);
+if (q.get('header') === 'greeting') {   // the dialog's header field: lines centred on window 224, from its top
+  centre('Welcome to the world of Duel Evolution!', X + 224, Y + 8);
+  centre('Please sign in to play.', X + 224, Y + 24);
+} else {
+  text(st, [['Authentication', LEFT, Y + 21]]);
+  text(st, [['Encrypted', RIGHT - measure('Encrypted'), Y + 21]]);
+}
+// buttons: the in-game kit sizes them 432 x 26, but the game draws its switch 24 high about the same centre
+const discord = button(st, LEFT, Y + 56, WIDE, 'Sign in with Discord', () => emit('discord'));
+centre('――――――――――   or   ――――――――――', MID, Y + 88);
+text(st, [['Username', LEFT, Y + 104]]);
+text(st, [['Password', LEFT, Y + 140]]);
+const user = input(st, LEFT, Y + 120, WIDE);
+const pass = input(st, LEFT, Y + 156, WIDE, { mask: true });
+const signIn = button(st, LEFT, Y + 182, WIDE, 'Sign in', () => emit('login', { user: user.value, pass: pass.value }));
+// "Create account · Reset password" around the centre; a hovered link is underlined with '_' (the game's text has
+// one colour, so hover can't recolour it)
+function link(s, x, y, ev) {
+  const t = text(st, [[s, x, y]]), w = measure(s);
+  let u = null;
+  t.style.cursor = 'default';
+  t.addEventListener('pointerenter', () => { u = text(st, [['_'.repeat(Math.floor(w / 7.5)), x, y + 3]]); u.style.pointerEvents = 'none'; });
+  t.addEventListener('pointerleave', () => { u?.remove(); u = null; });
+  t.addEventListener('click', () => emit(ev));
+  return t;
+}
+link('Create account', MID - 10 - measure('Create account'), Y + 216, 'create');
+text(st, [['·', MID - 3, Y + 216]]);
+link('Reset password', MID + 10, Y + 216, 'reset');
+// the status line: a mark (◌ busy, ● error, ✓ done) and one line of text
+let statusEls = [];
+function status(msg, mark = ' ') {
+  statusEls.forEach(e => e.remove());
+  statusEls = [text(st, [[mark, LEFT, Y + 240]]), text(st, [[msg || ' ', LEFT + 16, Y + 240]])];
+}
+window.setStatus = status;   // (window.status is the old status-bar string)
+status(q.get('header') === 'greeting' ? '' : 'Link standby, authorise with Discord');
+
+user.native.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pass.focus(); } });
+pass.native.addEventListener('keydown', e => { if (e.key === 'Enter') signIn.press(); if (e.key === 'Tab') { e.preventDefault(); user.focus(); } });
+user.focus();
+let blink = blinkAll([user, pass]);
+window.__state = s => {   // test hook (tools/diff.mjs)
+  clearInterval(blink);
+  if (s.bg) document.getElementById('bg').src = s.bg;
+  user.set(s.user || '', s.focus === 'user', s.caret);
+  pass.set(s.pass || '', s.focus === 'pass', s.caret);
+  discord.state(s.discord || 0); signIn.state(s.signin || 0);
+  if (s.status !== undefined) status(s.status, s.mark);
+  return new Promise(r => { const i = document.getElementById('bg'); i.complete ? r() : i.onload = r; });
+};
+window.__ready = true;
+</script>
+</body>
+</html>

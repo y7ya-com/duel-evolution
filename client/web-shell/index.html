@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Duel Evolution</title>
+<meta name="description" content="Duel Evolution: the online card-dueling game, in your browser.">
+<style>html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 15px system-ui, sans-serif; }
+  p { position: fixed; inset: 0; margin: auto; height: 2em; text-align: center; }</style>
+<p id="msg" hidden></p>
+<script>
+  // The site root: the game client (yo2rc.html, the recompiled exe). Same-origin updater HTTP (/yo2/, /app/ -> the game server),
+  // the network gateway at /net, game ports with the server's +1000 offset, DejaVu Sans for GDI text. Extra query
+  // params (e.g. ?RC_VERBOSE=1, ?log) pass through.
+  if (!window.crossOriginIsolated || !("Suspending" in WebAssembly) || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    const m = document.getElementById("msg");
+    m.textContent = "This browser can't run the game. Open this page in a current desktop Chrome or Edge.";
+    m.hidden = false;
+  } else {
+    fetch("__warm", { keepalive: true }).catch(() => {});   // wake the game server while the client boots (survives the redirect)
+    const q = new URLSearchParams(location.search);
+    const set = (k, v) => q.has(k) || q.set(k, v);
+    set("http", location.origin);
+    set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
+    set("fonts", "fonts/");
+    set("server", "127.0.0.1");
+    set("YO2_PORT_OFFSET", "1000");
+    location.replace("yo2rc.html?" + q);
+  }
+</script>

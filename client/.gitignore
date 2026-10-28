@@ -1,0 +1,11 @@
+/build*/
+__pycache__/
+*.pyc
+.DS_Store
+harness/.venv/
+recomp/.venv/
+recomp/out/
+recomp/build/
+recomp/build-web/
+recomp/rt/codepages.inc
+recomp/run/
