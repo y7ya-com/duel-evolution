@@ -50,12 +50,12 @@ Module.preRun.push(() => {
     }
     // MB of chunks; background fetches in flight (one: it never takes the link from a synchronous read). Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
     const small = matchMedia("(pointer: coarse)").matches;
-    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 1, SYNC_TRIES = 3;
+    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 1, SYNC_TRIES = 3, PAGE = 64 << 10, PAGES_MAX = 256, CARD_AHEAD = 256 << 10;
     const prefetchOn = q.get("prefetch") !== "0";
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
     const pinned = new Map();  // "url#chunk" -> {data, tag}
-    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
+    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, syncBytes: 0, pageHit: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
     const missLog = [];   // the last 1000 synchronous misses (measurements: which stall, how long, which chunk)
     const L = (Module.yo2Lazy = { stats, files, lru, pinned, missLog });
 
@@ -113,13 +113,11 @@ Module.preRun.push(() => {
     }
 
     // ---- the synchronous read path
-    function getChunk(url, i) {
-        if (url === archive && sceneReads && sceneReads.size < SCENE_MAX) sceneReads.add(i);
-        let c = memChunk(url, i);
-        if (c) { stats.memHit++; return c; }
-        const [from, to] = span(url, i), t0 = performance.now(), name = url.slice(url.lastIndexOf("/") + 1);
-        // A mobile network can stall or drop one read (iOS: "TimeoutError" thrown by send, or status 0): the same Range
-        // is asked again before the game sees EIO, which ends the session. A sync XHR on the page can't take a timeout.
+    // One synchronous Range read [from, to] of url (logged as chunk i): asked again on a timeout, a drop or a 5xx.
+    // A mobile network can stall or drop one read (iOS: "TimeoutError" thrown by send, or status 0), and the game ends
+    // the session on EIO. A sync XHR on the page can't take a timeout.
+    function syncRange(url, from, to, i) {
+        const t0 = performance.now(), name = url.slice(url.lastIndexOf("/") + 1);
         for (const ac of aborts.values()) ac.abort();   // the background yields the link (fetchChunk queues it again)
         let t = null, err = "", tries = 0;
         while (t === null && tries < SYNC_TRIES) {
@@ -142,13 +140,55 @@ Module.preRun.push(() => {
         if (missLog.length > 1000) missLog.shift();
         if (t === null) { stats.syncFail++; throw new FS.ErrnoError(29); }   // EIO
         if (tries > 1) stats.syncRetry += tries - 1;
-        c = new Uint8Array(t.length);
+        const c = new Uint8Array(t.length);
         for (let k = 0; k < t.length; k++) c[k] = t.charCodeAt(k);
-        stats.syncMiss++, stats.syncMs += ms, stats.worstMs = Math.max(stats.worstMs, ms);
+        stats.syncMiss++, stats.syncMs += ms, stats.syncBytes += c.length, stats.worstMs = Math.max(stats.worstMs, ms);
+        return c;
+    }
+    function getChunk(url, i) {   // the whole chunk, synchronously
+        let c = memChunk(url, i);
+        if (c) { stats.memHit++; return c; }
+        const [from, to] = span(url, i);
+        c = syncRange(url, from, to, i);
         remember(url, i, c, wanted.get(keyOf(url, i)));
         persist(url, i, c);
         onMiss(url, i);
         return c;
+    }
+    // Bytes [at, at + n) of chunk i. Big card art (data/card, ~100 KB per card, read scattered while the player scrolls
+    // a card list: field stalls of 1-4 whole-chunk misses, 2-4.8 s at ~1 MB/s, scenes 0x24-0x27) not in memory: ONE
+    // synchronous read of the PAGE-sized pages from the read on, CARD_AHEAD at least (a whole card and the CRT's
+    // buffered read after it), within the chunk. No whole chunk or read-ahead follows: the next card is anywhere.
+    // Everything else reads whole chunks (a 3-client soak: pages everywhere cost more requests, each paying the
+    // latency, than the bytes they saved).
+    const pages = new Map();   // "url#chunk/page" -> Uint8Array, in use order (PAGES_MAX)
+    // data/card's span (contiguous in merge.dat): the game reads it through the CRT's buffered reads, a few KB, then
+    // ~150 KB running past the file's end into the next card's (mvp-iotrace-deck)
+    const inCardArt = (pos, n) => { const c = spans && spans.get("data/card"); return !!c && c[0] <= pos && pos + n <= c[1]; };
+    function chunkBytes(url, i, at, n) {
+        if (url === archive && sceneReads && sceneReads.size < SCENE_MAX) sceneReads.add(i);
+        const c = memChunk(url, i);
+        if (c) return stats.memHit++, c.subarray(at, at + n);
+        const p0 = Math.floor(at / PAGE), p1 = Math.floor((at + n - 1) / PAGE), pk = (pg) => keyOf(url, i) + "/" + pg;
+        if (!prefetchOn || url !== archive || !inCardArt(i * CHUNK + at, n) || (p1 - p0 + 1) * PAGE * 2 > CHUNK)
+            return getChunk(url, i).subarray(at, at + n);
+        let a = p0;
+        while (a <= p1 && pages.has(pk(a))) a++;
+        if (a <= p1) {   // a page the read needs is missing: it, through the look-ahead, in one request
+            const [from, to] = span(url, i);
+            let b = Math.min(Math.floor((at + Math.max(n, CARD_AHEAD) - 1) / PAGE), Math.floor((to - from) / PAGE));
+            while (b > p1 && pages.has(pk(b))) b--;
+            const d = syncRange(url, from + a * PAGE, Math.min(from + (b + 1) * PAGE - 1, to), i);
+            for (let pg = a; pg <= b; pg++) pages.set(pk(pg), d.subarray((pg - a) * PAGE, (pg - a + 1) * PAGE));
+            while (pages.size > PAGES_MAX) pages.delete(pages.keys().next().value);
+        } else stats.pageHit++;
+        const out = new Uint8Array(n);
+        for (let pg = p0; pg <= p1; pg++) {
+            const d = pages.get(pk(pg)), lo = Math.max(at, pg * PAGE), hi = Math.min(at + n, pg * PAGE + d.length);
+            pages.delete(pk(pg)), pages.set(pk(pg), d);   // in use order
+            out.set(d.subarray(lo - pg * PAGE, hi - pg * PAGE), lo - at);
+        }
+        return out;
     }
 
     // ---- background fetches: a priority queue, PARALLEL at a time
@@ -483,9 +523,8 @@ Module.preRun.push(() => {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
                     for (let p = pos; p < end;) {
-                        const c = getChunk(url, Math.floor(p / CHUNK)), at = p % CHUNK;
-                        const k = Math.min(end - p, c.length - at);
-                        buffer.set(c.subarray(at, at + k), offset + (p - pos));
+                        const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
+                        buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
                         p += k;
                     }
                     if (prefetchOn) onRead(url, pos);

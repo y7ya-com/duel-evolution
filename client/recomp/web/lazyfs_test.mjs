@@ -35,7 +35,8 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
-let aborted = 0;   // background fetches a synchronous read aborted
+let aborted = 0;
+const syncSizes = [];   // bytes of every synchronous request   // background fetches a synchronous read aborted
 const syncFaults = [], fetchFaults = [];   // fetchFaults: (range) => true drops that background fetch, once   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -58,6 +59,7 @@ function makeEnv(store, ls, opts = {}) {
             const fail = syncFaults.shift();   // a stalled or broken mobile read: "throw" | a status | "short"
             if (fail === "throw") throw Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
             const [a, b] = rangeOf(this.h.Range);
+            syncSizes.push(b - a + 1);
             this.status = typeof fail === "number" ? fail : 206;
             this.responseText = typeof fail === "number" ? "" : files[p].subarray(a, fail === "short" ? b : b + 1).toString("latin1");
         }
@@ -269,6 +271,28 @@ await settle(g.Module.yo2Lazy);
 assert.ok(aborted >= 1, "the background fetch in flight was aborted");
 assert.ok([...g.Module.yo2Lazy.pinned.values()].filter((p) => p.tag === "hot").length >= 7, "and fetched again");
 console.log("sync read yields: ok");
+
+// ---- big card art (data/card) not in memory: one request of the pages from the read on (256 KB: the card and the CRT's
+// buffered read after it), nothing more; elsewhere whole chunks
+g = makeEnv(new Map(), new Map());
+await g.ready();
+g.read("/game/merge.dat", 0, toc);
+await settle(g.Module.yo2Lazy);
+syncXhr = 0, syncSizes.length = 0, fetched.length = 0;
+const off1 = ent("data/card/0001").off;
+let got = g.read("/game/merge.dat", off1 + 38556, 512);   // the CRT's small read, then ~150 KB past it (mvp-iotrace-deck)
+assert.deepEqual(Buffer.from(got), file.subarray(off1 + 38556, off1 + 38556 + 512));
+assert.equal(syncXhr, 1), assert.ok(syncSizes[0] >= 256 << 10 && syncSizes[0] < MB, "the look-ahead, not the chunk: " + syncSizes[0]);
+got = g.read("/game/merge.dat", off1 + 39068, 159744);
+assert.deepEqual(Buffer.from(got), file.subarray(off1 + 39068, off1 + 39068 + 159744));
+assert.equal(syncXhr, 1, "the buffered read after it: already there");
+await settle(g.Module.yo2Lazy);
+assert.ok(!fetched.some((a) => a >= off1 && a < off1 + MB), "no whole chunk follows (the next card is anywhere)");
+syncSizes.length = 0;
+readEntry(g, "data/avatar/x.png");   // not card art: the whole chunk
+assert.equal(syncSizes[0], MB, "elsewhere a miss reads the whole chunk");
+await settle(g.Module.yo2Lazy);   // its read-ahead, before the next test counts fetches
+console.log("card pages: ok");
 
 // ---- prefetch=0: the plain lazy reads
 syncXhr = 0, netFetch = 0;
