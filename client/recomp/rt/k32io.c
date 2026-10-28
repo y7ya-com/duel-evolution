@@ -13,6 +13,7 @@
 
 #include "win.h"
 #ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
 #include <emscripten/threading.h>
 void rc_web_sleep(uint32_t ms);
 #endif
@@ -432,10 +433,19 @@ static uint32_t wait_many(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms)
     pthread_mutex_unlock(&rc_sync_mu);
     return 0x102;   // WAIT_TIMEOUT
 }
+#ifdef __EMSCRIPTEN__
+extern double rc_waitobj_ms;   // rt/web.c: the main thread's WaitFor* time per frame (web/stall.js)
+#endif
 static uint32_t wait_counted(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms) {   // idle while blocked
     int idle = ms && !rc_is_main_thread(c);
     if (idle) rc_thread_busy(-1);
+#ifdef __EMSCRIPTEN__
+    double t0 = emscripten_get_now();
+#endif
     uint32_t r = wait_many(c, n, hs, all, ms);
+#ifdef __EMSCRIPTEN__
+    if (emscripten_is_main_runtime_thread()) rc_waitobj_ms += emscripten_get_now() - t0;
+#endif
     if (idle) rc_thread_busy(1);
     return r;
 }

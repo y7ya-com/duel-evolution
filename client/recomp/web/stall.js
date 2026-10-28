@@ -11,6 +11,8 @@
 //   under     audio worklet underruns during it (web/sfx.js)
 //   js        JS heap growth (Chrome only), bytes
 //   decode    image decoding on the main thread (ovr/decode.c), ms; upload: texture uploads (rt d3d8), ms
+//   slept     ms the game yielded (Sleep, idle, WaitFor* polling: it was waiting, not working); waitObj: of that,
+//             in WaitFor* (a guest thread or event it waited on). xhr includes guest threads' ("thread <path>")
 //   sw        a scene event (ovr/scene.c begin/end) fell inside it
 // A wait (kind "wait") is the server's side in a duel (janken 0x1e, duel 0x1c): the game sent and nothing came back
 // for over 2 s, frames still drawn (the NPC thinking, the opponent, the server). ponytail: any reply ends it, and a
@@ -28,14 +30,15 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
     Module.onYo2Scene = (kind, from, to) => { scene = to; swAt = performance.now(); };   // adds a listener (lazyfs.js)
     const since = (log, t0) => (log || []).filter((e) => e[0] + e[1] >= t0).map((e) => e.slice(1));
     const sum = (l) => l.reduce((a, e) => a + e[0], 0);
-    Module.yo2Frame = (decode, upload) => {
+    Module.yo2Frame = (decode, upload, slept, waitObj) => {
         const now = performance.now(), u = Module.yo2Sfx?.underruns?.() | 0, r = Module.yo2NetRx | 0;
         const js = performance.memory?.usedJSHeapSize | 0;
         frame++;
         if (last && now - last > LIMIT && hiddenAt < last && all.length - waits < CAP) {
             const miss = since(Module.yo2Lazy?.missLog, last), xhr = since(Module.yo2Xhr, last);
             const s = { t: Math.round(last), ms: Math.round(now - last), f: frame, scene, sw: swAt >= last, duel: Module.yo2Lazy?.duel || "",
-                decode: Math.round(decode || 0), upload: Math.round(upload || 0), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
+                decode: Math.round(decode || 0), upload: Math.round(upload || 0), slept: Math.round(slept || 0),
+                waitObj: Math.round(waitObj || 0), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
                 net: { rx: r - rx, backlog: (Module.yo2NetRx | 0) - (Module.yo2NetRead | 0) }, under: u - under,
                 js: js - (Module.yo2Js | 0) };
             push(s);

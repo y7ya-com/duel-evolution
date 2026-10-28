@@ -12,6 +12,7 @@
 #include "win.h"
 
 static uint32_t last_yield;
+double rc_slept_ms, rc_waitobj_ms;   // the main thread's time yielded / in WaitFor* since the last frame (web/stall.js)
 
 // web/yieldguard.js: 0 when the ASYNCIFY build could not unwind this stack (a frame it did not instrument)
 EM_JS(int, web_yield_ok, (void), { return Module.rcYieldOk ? Module.rcYieldOk() : 1; });
@@ -22,20 +23,22 @@ void rc_web_sleep(uint32_t ms) {
     // a stack the ASYNCIFY build can't unwind: no yield, but still run the calls workers proxied to this thread, or a
     // wait on a loader thread that needs one (GL, files) never ends
     if (!web_yield_ok()) { emscripten_main_thread_process_queued_calls(); return; }
+    double t0 = emscripten_get_now();
     emscripten_sleep(ms);
+    rc_slept_ms += emscripten_get_now() - t0;
     last_yield = rc_ticks_ms();
 }
 
 // after each Present: let the browser composite the frame and deliver input
 // Every Present: Module.yo2Presents counts frames for the page (the loader shows "Loading..." when it stops moving:
 // the game presents every frame unless a scene change or a load blocks it). Module.yo2Frame: web/stall.js's timer,
-// with the frame's image decode (ovr/decode.c) and texture upload (platform/gfx/d3d8.cpp) time.
+// with the frame's image decode (ovr/decode.c), texture upload (platform/gfx/d3d8.cpp), yielded and WaitFor* time.
 extern double rc_decode_ms, rc_upload_ms;
 void rc_web_frame(void) {
     if (!emscripten_is_main_runtime_thread()) return;
-    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1); },
-           rc_decode_ms, rc_upload_ms);
-    rc_decode_ms = rc_upload_ms = 0;
+    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3); },
+           rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms);
+    rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = 0;
     rc_web_sleep(0);
 }
 
@@ -48,7 +51,7 @@ void rc_web_idle(void) {
 // the same "every host goes to one server" rewrite as the native build. The body comes back as x-user-defined text
 // (each char's low byte is the byte), the only binary form a synchronous XHR allows on the main thread.
 // Module.yo2Xhr: the last 100 as [start, ms, path] (web/stall.js).
-EM_JS_DEPS(rc_web, "$UTF8ToString,malloc");
+EM_JS_DEPS(rc_web, "$UTF8ToString,malloc,free");
 EM_JS(int, web_xhr, (const char *verb, const char *url, const uint8_t *body, uint32_t nbody, uint8_t **resp,
                      uint32_t *nresp), {
     const x = new XMLHttpRequest();
@@ -72,7 +75,17 @@ int rc_web_http(const char *verb, const char *path, const uint8_t *body, uint32_
     snprintf(url, sizeof url, "%s%s", base ? base : "", path);
     *resp = NULL;
     *nresp = 0;
-    return web_xhr(verb, url, body, nbody, resp, nresp);
+    if (emscripten_is_main_runtime_thread()) return web_xhr(verb, url, body, nbody, resp, nresp);
+    // a guest thread's (the updater's): its time goes to the page's Module.yo2Xhr too, the start on the page's clock
+    double t0 = EM_ASM_DOUBLE({ return performance.timeOrigin + performance.now(); });
+    int st = web_xhr(verb, url, body, nbody, resp, nresp);
+    double ms = EM_ASM_DOUBLE({ return performance.timeOrigin + performance.now(); }) - t0;
+    MAIN_THREAD_ASYNC_EM_ASM({
+        const l = (Module.yo2Xhr = Module.yo2Xhr || []);
+        l.push([Math.round($0 - performance.timeOrigin), Math.round($1), "thread " + UTF8ToString($2)]); _free($2);
+        if (l.length > 100) l.shift();
+    }, t0, ms, strdup(path));
+    return st;
 }
 
 // the host stack is the guest call stack: the f_XXXXXXXX / imp_ frames of the wasm stack trace (--profiling-funcs)
