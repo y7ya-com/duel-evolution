@@ -47,12 +47,12 @@ Module.preRun.push(() => {
     }
     // MB of chunks; fetches in flight. Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
     const small = matchMedia("(pointer: coarse)").matches;
-    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 3;
+    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 3, SYNC_TRIES = 3;
     const prefetchOn = q.get("prefetch") !== "0";
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
     const pinned = new Map();  // "url#chunk" -> {data, tag}
-    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
+    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
     const missLog = [];   // the last 1000 synchronous misses (measurements: which stall, how long, which chunk)
     const L = (Module.yo2Lazy = { stats, files, lru, pinned, missLog });
 
@@ -114,20 +114,33 @@ Module.preRun.push(() => {
         if (url === archive && sceneReads && sceneReads.size < SCENE_MAX) sceneReads.add(i);
         let c = memChunk(url, i);
         if (c) { stats.memHit++; return c; }
-        const [from, to] = span(url, i), t0 = performance.now();
-        const x = new XMLHttpRequest();
-        x.open("GET", url + files.get(url).ver, false);
-        x.setRequestHeader("Range", `bytes=${from}-${to}`);
-        x.overrideMimeType("text/plain; charset=x-user-defined");   // the only binary sync XHR the main thread allows
-        x.send(null);
-        const t = x.responseText;
-        if (x.status !== 206 || t.length !== to - from + 1) throw new FS.ErrnoError(29);   // EIO; refuses a whole-file 200
+        const [from, to] = span(url, i), t0 = performance.now(), name = url.slice(url.lastIndexOf("/") + 1);
+        // A mobile network can stall or drop one read (iOS: "TimeoutError" thrown by send, or status 0): the same Range
+        // is asked again before the game sees EIO, which ends the session. A sync XHR on the page can't take a timeout.
+        let t = null, err = "", tries = 0;
+        while (t === null && tries < SYNC_TRIES) {
+            tries++;
+            const x = new XMLHttpRequest();
+            try {
+                x.open("GET", url + files.get(url).ver, false);
+                x.setRequestHeader("Range", `bytes=${from}-${to}`);
+                x.overrideMimeType("text/plain; charset=x-user-defined");   // the only binary sync XHR the main thread allows
+                x.send(null);
+            } catch (e) { err = e && e.name || "send"; continue; }
+            const r = x.responseText;
+            if (x.status === 206 && r.length === to - from + 1) t = r;
+            else if (x.status === 206 || x.status === 0 || x.status >= 500) err = x.status + (x.status === 206 ? " short" : "");
+            else { err = String(x.status); break; }   // 4xx, or a whole-file 200: asking again won't help
+        }
+        const ms = performance.now() - t0;
+        // [t, ms, file, chunk] (web/stall.js), plus the failed tries and the last error when a try failed
+        missLog.push(tries > 1 || t === null ? [Math.round(t0), Math.round(ms), name, i, tries - (t === null ? 0 : 1), err] : [Math.round(t0), Math.round(ms), name, i]);
+        if (missLog.length > 1000) missLog.shift();
+        if (t === null) { stats.syncFail++; throw new FS.ErrnoError(29); }   // EIO
+        if (tries > 1) stats.syncRetry += tries - 1;
         c = new Uint8Array(t.length);
         for (let k = 0; k < t.length; k++) c[k] = t.charCodeAt(k);
-        const ms = performance.now() - t0;
         stats.syncMiss++, stats.syncMs += ms, stats.worstMs = Math.max(stats.worstMs, ms);
-        missLog.push([Math.round(t0), Math.round(ms), url.slice(url.lastIndexOf("/") + 1), i]);   // [t, ms, file, chunk]
-        if (missLog.length > 1000) missLog.shift();
         remember(url, i, c, wanted.get(keyOf(url, i)));
         persist(url, i, c);
         onMiss(url, i);
@@ -274,10 +287,11 @@ Module.preRun.push(() => {
     }
     let cardNamesLoad = null;
     const loadCardNames = () => (cardNamesLoad = cardNamesLoad || fileBytes("data/card/list_card.txt").then((b) => {
+        if (!b) throw new Error("list_card.txt not read");
         let t = "";
         for (const c of b || []) t += String.fromCharCode(c);
         cardNames = t.split(/\r?\n/).map((x) => x.trim().toLowerCase());
-    }));
+    }).catch(() => { cardNamesLoad = null; }));   // a dropped connection: no names this time, the next call asks again
     function pinFiles(names, tag, pri) {   // these files' chunks, pinned under `tag` (replacing that tag's others)
         const keep = new Set();
         for (const n of names) {
@@ -295,12 +309,12 @@ Module.preRun.push(() => {
         if (!spans) { if (tag === "deck") pendingDeck = ids; return; }
         if (tag === "deck") pendingDeck = null;
         await loadCardNames();
-        const names = [...new Set(ids.map((id) => cardNames[id]).filter(Boolean))].map((n) => "data/card/" + n);
+        const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))].map((n) => "data/card/" + n);
         stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names, tag, 2);
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
-    L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => cardNames.indexOf(n)).filter((i) => i > 0); };
+    L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => (cardNames || []).indexOf(n)).filter((i) => i > 0); };
     function mapAt(pos) {
         for (const m of MAPS) { const s = spans.get("data/map/map_" + m); if (s && pos >= s[0] && pos < s[1]) return m; }
         return null;
@@ -381,7 +395,7 @@ Module.preRun.push(() => {
         const area = /^([ad])0(\d)/.exec(curMap || "");
         if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
         for (const id of fieldIds) {
-            const nn = FIELD_SPELLS[parseInt(cardNames[id] || "", 10)];
+            const nn = FIELD_SPELLS[parseInt((cardNames || [])[id] || "", 10)];
             if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
         }
         stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(names, "field", 2);

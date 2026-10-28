@@ -4,7 +4,8 @@
 //   t, ms     when (ms since load) and how long; f the frame number
 //   scene     ovr/scene.c's SceneId the game is in (0x1c duel, 0x1e janken, 12 lobby, 10 My Room)
 //   duel      "npc" | "pvp" once a duel was set up (the NPC prefetch answered 200 / 204), "" before
-//   miss      lazyfs's synchronous chunk misses inside it: [ms, file, chunk] (web/lazyfs.js missLog), missMs their sum
+//   miss      lazyfs's synchronous chunk misses inside it: [ms, file, chunk] (web/lazyfs.js missLog), missMs their sum;
+//             a miss that needed more than one try adds [..., failed tries, last error]
 //   xhr       the game's synchronous HTTP (WININET, rt/web.c): [ms, path], xhrMs their sum
 //   net       WebSocket: bytes that arrived during it (they wait for the main thread), backlog still unread after it
 //   under     audio worklet underruns during it (web/sfx.js)
