@@ -100,8 +100,9 @@ WEB_LDFLAGS := $(WEB_LINK_OPT) -pthread -sJSPI -sPTHREAD_POOL_SIZE=8 \
 
 web: $(WB)/yo2rc.html
 # the script tag Emscripten writes, swapped for one that picks the build: JSPI if the browser has it (and the page has no
-# ?async), else ASYNCIFY (make web-async)
-WEB_PICK := <script>{const s = document.createElement("script"); s.async = true; s.src = "Suspending" in WebAssembly \&\& !new URLSearchParams(location.search).has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
+# ?async), else ASYNCIFY (make web-async). Firefox always gets ASYNCIFY: its JSPI (on by default from 158) breaks the
+# synchronous Range XHRs from a suspended stack and its WebGL refuses views of the JSPI build's 2 GB heap
+WEB_PICK := <script>{const s = document.createElement("script"); s.async = true; s.src = "Suspending" in WebAssembly \&\& navigator.userAgent.indexOf("Firefox/") < 0 \&\& !new URLSearchParams(location.search).has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
 
 $(WB)/%.o: $(OUT)/%.c rt/rc.h
 	@mkdir -p $(WB)
