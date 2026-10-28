@@ -99,10 +99,11 @@ WEB_LDFLAGS := $(WEB_LINK_OPT) -pthread -sJSPI -sPTHREAD_POOL_SIZE=8 \
   --pre-js web/lazyfs.js --pre-js web/yieldguard.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --shell-file web/shell.html
 
 web: $(WB)/yo2rc.html
-# the script tag Emscripten writes, swapped for one that picks the build: JSPI if the browser has it (and the page has no
-# ?async), else ASYNCIFY (make web-async). Firefox always gets ASYNCIFY: its JSPI (on by default from 158) breaks the
-# synchronous Range XHRs from a suspended stack and its WebGL refuses views of the JSPI build's 2 GB heap
-WEB_PICK := <script>{const s = document.createElement("script"); s.async = true; s.src = "Suspending" in WebAssembly \&\& navigator.userAgent.indexOf("Firefox/") < 0 \&\& !new URLSearchParams(location.search).has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
+# the script tag Emscripten writes, swapped for one that picks the build: iOS/iPadOS (or ?ios) the small ASYNCIFY build
+# (make web-ios), else JSPI if the browser has it (and the page has no ?async), else ASYNCIFY (make web-async). Firefox
+# always gets ASYNCIFY: its JSPI (on by default from 158) breaks the synchronous Range XHRs from a suspended stack and
+# its WebGL refuses views of the JSPI build's 2 GB heap
+WEB_PICK := <script>{const s = document.createElement("script"), q = new URLSearchParams(location.search), ios = q.has("ios") || /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" \&\& navigator.maxTouchPoints > 1; s.async = true; s.src = ios ? "yo2rc-ios.js" : "Suspending" in WebAssembly \&\& navigator.userAgent.indexOf("Firefox/") < 0 \&\& !q.has("async") ? "yo2rc.js" : "yo2rc-async.js"; document.body.append(s);}</script>
 
 $(WB)/%.o: $(OUT)/%.c rt/rc.h
 	@mkdir -p $(WB)
@@ -150,14 +151,26 @@ web-async: $(WB)/yo2rc-async.js
 $(WB)/async-only.json: web/async-only.txt
 	@mkdir -p $(WB)
 	python3 -I -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in open(sys.argv[1]) if l.strip() and not l.startswith("#")]))' $< > $@
-$(WB)/yo2rc-async.js: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WB)/async-only.json web/asyncguard.js web/wasmnames.py web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js
-	em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(filter-out --shell-file web/shell.html,$(WEB_ASYNC_LDFLAGS)) -o $@
-	python3 -I web/wasmnames.py $(WB)/yo2rc-async.wasm $(WB)/async-only.json > $(WB)/async-only-idx.json
-	python3 -I -c 'import sys; p, l = sys.argv[1:]; s = open(p).read(); assert "__RC_ASYNC_ONLY__" in s; open(p, "w").write(s.replace("__RC_ASYNC_ONLY__", open(l).read().strip()))' $@ $(WB)/async-only-idx.json
+# iOS Safari refuses a 2 GB shared WebAssembly.Memory ("Out of memory", WebKit bug 255103), so iOS gets the same
+# ASYNCIFY link in 1 GB: Emscripten's data from 704 MB (GLOBAL_BASE), the guest below it (rt.c clamps the arena to
+# __global_base: 128-704 MB; a title -> lobby -> NPC duel run peaks at ~320 MB in use), 320 MB above for the runtime.
+WEB_IOS_LDFLAGS := $(subst -sGLOBAL_BASE=1073741824,-sGLOBAL_BASE=738197504,$(subst =$(WEB_ASYNC_MEM),=1073741824,$(WEB_ASYNC_LDFLAGS)))
+WEB_ASYNC_DEPS := $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WB)/async-only.json web/asyncguard.js web/wasmnames.py web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js
+# $(call async_link,<flags>): link $@ (yo2rc-*.js) and write the instrumented functions' indices into it
+define async_link
+em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(filter-out --shell-file web/shell.html,$(1)) -o $@
+python3 -I web/wasmnames.py $(@:.js=.wasm) $(WB)/async-only.json > $(@:.js=-idx.json)
+python3 -I -c 'import sys; p, l = sys.argv[1:]; s = open(p).read(); assert "__RC_ASYNC_ONLY__" in s; open(p, "w").write(s.replace("__RC_ASYNC_ONLY__", open(l).read().strip()))' $@ $(@:.js=-idx.json)
+endef
+$(WB)/yo2rc-async.js: $(WEB_ASYNC_DEPS)
+	$(call async_link,$(WEB_ASYNC_LDFLAGS))
+web-ios: $(WB)/yo2rc-ios.js
+$(WB)/yo2rc-ios.js: $(WEB_ASYNC_DEPS)
+	$(call async_link,$(WEB_IOS_LDFLAGS))
 
 clean:
 	rm -rf $(B) $(WB)
-.PHONY: all clean web web-async
+.PHONY: all clean web web-async web-ios
 
 # header dependencies of the C++ runtime objects (platform/win32/d3d8.h etc.): a struct change rebuilds its users
 -include $(RT_CXX_OBJS:.o=.d)

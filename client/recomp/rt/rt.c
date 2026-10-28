@@ -465,6 +465,11 @@ void rc_init(const char *exe) {
     {
         extern uint32_t rc_heap_hi;
         if (getenv("RC_HEAP_MB")) rc_heap_hi = RC_HEAP_LO + ((uint32_t)atoi(getenv("RC_HEAP_MB")) << 20);
+#ifdef __EMSCRIPTEN__
+        // the guest ends where Emscripten's own data starts (-sGLOBAL_BASE): 1 GB, or lower in the small iOS build
+        extern char __global_base;
+        if ((uint32_t)(uintptr_t)&__global_base < rc_heap_hi) rc_heap_hi = (uint32_t)(uintptr_t)&__global_base;
+#endif
     }
     if (getenv("YO2_TEXLOADERS")) {
         int n = atoi(getenv("YO2_TEXLOADERS"));

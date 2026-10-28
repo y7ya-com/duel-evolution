@@ -198,6 +198,7 @@
         }
     };
     addEventListener("resize", () => { if (scene) place(); });
+    window.visualViewport?.addEventListener("resize", () => { if (scene) place(); });   // phones: keyboard, rotation (stage.js)
     function showStuck() {
         status("This is taking longer than usual.");
         stuck = document.createElement("button");

@@ -44,7 +44,9 @@ Module.preRun.push(() => {
         set("YO2_PORT_OFFSET", "1000");
         history.replaceState(null, "", location.pathname + "?" + q + location.hash);
     }
-    const CHUNK = 1 << 20, LRU_MAX = 64, PIN_MAX = 224, PARALLEL = 3;   // MB of chunks; fetches in flight
+    // MB of chunks; fetches in flight. Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
+    const small = matchMedia("(pointer: coarse)").matches;
+    const CHUNK = 1 << 20, LRU_MAX = small ? 32 : 64, PIN_MAX = small ? 112 : 224, PARALLEL = 3;
     const prefetchOn = q.get("prefetch") !== "0";
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order

@@ -9,20 +9,21 @@
 #define NG ((RC_HEAP_HI - RC_HEAP_LO) / GRAN)
 static uint32_t run_len[NG];   // at a run's first granule: its length in granules (0 = free / not a start)
 static uint8_t used[NG];
-static uint32_t rover;
 void rc_mem_report(const char *when);
-static uint32_t used_granules, peak_granules;
+static uint32_t used_granules, peak_granules, top_granule;   // top: the highest granule ever handed out
 static uint64_t carved, small_live, large_live;   // rc_mem_report: bytes carved for small classes, requested live
 uint32_t rc_heap_hi = RC_HEAP_HI;              // RC_HEAP_MB caps the range (native runs can mimic the wasm 1 GB guest)
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 
-// ponytail: first-fit over a granule map with a rover; a free-run index if allocation ever shows up in profiles
+// Lowest-address first fit, as Windows' VirtualAlloc searches. Not next-fit: wasm memory never goes back to the system,
+// so a rover sweeping the whole range left every granule it passed resident (phones kill a tab that big).
+// ponytail: a linear scan of the granule map; a free-run index if allocation ever shows up in profiles
 uint32_t rc_valloc(uint32_t size) {
     uint32_t n = (size + GRAN - 1) / GRAN;
     if (!n) n = 1;
     pthread_mutex_lock(&mu);
-    for (int pass = 0; pass < 2; pass++) {
-        uint32_t i = pass ? 0 : rover, run = 0, ng = (rc_heap_hi - RC_HEAP_LO) / GRAN;
+    {
+        uint32_t i = 0, run = 0, ng = (rc_heap_hi - RC_HEAP_LO) / GRAN;
         for (; i < ng; i++) {
             run = used[i] ? 0 : run + 1;
             if (run == n) {
@@ -31,7 +32,7 @@ uint32_t rc_valloc(uint32_t size) {
                 run_len[s] = n;
                 used_granules += n;
                 if (used_granules > peak_granules) peak_granules = used_granules;
-                rover = i + 1;
+                if (i + 1 > top_granule) top_granule = i + 1;
                 pthread_mutex_unlock(&mu);
                 uint32_t a = RC_HEAP_LO + s * GRAN;
                 rc_commit(a, n * GRAN);
@@ -234,8 +235,9 @@ uint32_t rc_hrealloc(uint32_t p, uint32_t n, int zero) {
 
 void rc_mem_report(const char *when) {   // guest memory in use / high-water, in MB
     extern unsigned rc_stacks_made, rc_stacks_freed;
-    rc_log("guest memory %s: %u MB in use, peak %u MB (of %u MB); thread stacks %u made, %u freed", when,
-           used_granules * (GRAN >> 10) >> 10, peak_granules * (GRAN >> 10) >> 10, (rc_heap_hi - RC_HEAP_LO) >> 20,
+    rc_log("guest memory %s: %u MB in use, peak %u MB, top %u MB (of %u MB); thread stacks %u made, %u freed", when,
+           used_granules * (GRAN >> 10) >> 10, peak_granules * (GRAN >> 10) >> 10, top_granule * (GRAN >> 10) >> 10,
+           (rc_heap_hi - RC_HEAP_LO) >> 20,
            rc_stacks_made, rc_stacks_freed);
     rc_log("  heap: small blocks %u MB live in %u MB carved; large blocks %u MB live", (unsigned)(small_live >> 20),
            (unsigned)(carved >> 20), (unsigned)(large_live >> 20));

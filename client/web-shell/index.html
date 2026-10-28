@@ -1,19 +1,20 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Duel Evolution</title>
 <meta name="description" content="Duel Evolution: the online card-dueling game, in your browser.">
 <style>html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 15px system-ui, sans-serif; }
-  p { position: fixed; inset: 0; margin: auto; height: 2em; text-align: center; }</style>
+  p { position: fixed; inset: 0; margin: auto; height: 4em; padding: 0 16px; text-align: center; }</style>
 <p id="msg" hidden></p>
 <script>
   // The site root: the game client (yo2rc.html, the recompiled exe). Same-origin updater HTTP (/yo2/, /app/ -> the game server),
   // the network gateway at /net, game ports with the server's +1000 offset, DejaVu Sans for GDI text. Extra query
   // params (e.g. ?RC_VERBOSE=1, ?log) pass through.
-  // Chrome/Edge run the JSPI build, Safari/Firefox the ASYNCIFY one (yo2rc.html picks). Only these are truly missing:
+  // Chrome/Edge run the JSPI build, Safari/Firefox the ASYNCIFY one, iPhone/iPad its 1 GB variant (yo2rc.html picks).
+  // Phones and tablets are welcome: stage.js does touch, the on-screen keyboard and the layout. Only these are truly missing:
   const gl2 = (() => { try { return !!document.createElement("canvas").getContext("webgl2"); } catch (e) { return false; } })();
-  const why = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "The game needs a desktop browser for now."
-    : !window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined" ? "This browser blocks the shared memory the game needs. Update it, or open the page in current desktop Chrome, Edge, Firefox or Safari."
-    : !gl2 ? "This browser has no WebGL 2 (or it is turned off). Turn on hardware acceleration, or try another desktop browser."
+  const why = !window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined" ? "This browser blocks the shared memory the game needs. Update it, or open the page in current Chrome, Edge, Firefox or Safari."
+    : !gl2 ? "This browser has no WebGL 2 (or it is turned off). Turn on hardware acceleration, or try another browser."
     : "";
   if (why) {
     const m = document.getElementById("msg");
