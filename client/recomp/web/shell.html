@@ -34,6 +34,14 @@
     if (crashed) return;
     crashed = true;
     console.log("yo2rc crash: " + String(why).slice(0, 2000));
+    // a page and runtime from two different ships (a tab that loaded mid-upload) fail before the first frame: reload
+    // once instead of reporting (at most once a minute, so a real link error still ends in a report)
+    if (!(window.Module?.yo2Presents | 0) && /ASM_CONSTS|LinkError|Import #\d/.test(String(why))) try {
+      if (Date.now() - (+sessionStorage.getItem("yo2reload") || 0) > 60000) {
+        sessionStorage.setItem("yo2reload", String(Date.now()));
+        return location.reload();
+      }
+    } catch (e) {}
     setTimeout(() => {   // let the guest stack lines that follow the trap line arrive
       const body = JSON.stringify({ why: String(why).slice(0, 2000), log: tail.join("\n").slice(-60000),
         build: document.querySelector('meta[name="yo2-build"]')?.content || "", ua: navigator.userAgent,
