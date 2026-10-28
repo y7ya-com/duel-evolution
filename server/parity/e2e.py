@@ -25,7 +25,7 @@ NPC_DUEL = ("3700:move 635 344;3720:click 635 344;4020:click 512 383;4030:text R
             "9690:move 362 62;9700:click 362 62;10290:move 512 170;10300:click 512 170;10450:click 512 170;10740:move 427 436;"
             "10750:click 427 436;11290:move 250 680;11300:click 250 680;12080:move 512 290;12090:click 512 290")
 
-RECOMP = os.environ.get("RECOMP", "/Users/y/Documents/GitHub/yo2-decomp/.claude/worktrees/recomp-496b28/recomp")
+RECOMP = os.environ.get("RECOMP", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "client", "recomp"))
 D = os.path.join(R.OUT, "e2e")
 
 

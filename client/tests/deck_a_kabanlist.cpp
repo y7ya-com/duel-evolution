@@ -464,7 +464,7 @@ int cmd(int argc, char** argv) {
 
 int selftestWithCards() {
     const char* csv = getenv("YO2_CARDS_CSV");
-    loadCards(csv ? csv : "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu/research/ia/cards_yo2.csv");
+    loadCards(csv ? csv : "cards_yo2.csv");
     return selftest();
 }
 

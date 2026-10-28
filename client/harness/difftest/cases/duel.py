@@ -10,7 +10,7 @@ import struct
 
 from core import case
 
-CARDS = os.environ.get("YO2_CARD_BIN", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
+CARDS = os.environ.get("YO2_CARD_BIN", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
                        "CHG/merge/data/bin#")
 _PROP = open(os.path.join(CARDS, "card_prop.bin"), "rb").read()
 _INTID = open(os.path.join(CARDS, "card_intid.bin"), "rb").read()

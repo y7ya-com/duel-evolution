@@ -57,7 +57,7 @@ analyzer seems to read only `__thiscall` this-accesses, so these are `_pad_`. Tr
 - More CNetLobby ranges the generated header leaves as padding (all used by the lobby parsers; names and offsets in
   src/Net/NetLobby.h): +0x534..+0x7cb (pack/present bookkeeping, deck NPCBIN/PBIN copies), +0x8a4..+0x97c (results
   of mileage, packs, SD, TP, presents, NPC info, shop), +0x1210..+0x139f (cards just received), +0x35ec..+0x35f5
-  (DUELPASS result), +0xdb64 and +0xdbc4..+0xdbd4 (tournament / USB / NPC-present bytes). CNetLobby ends at 0xdbd8.
+  (DUELPASS result; a removed feature), +0xdb64 and +0xdbc4..+0xdbd4 (tournament / USB / NPC-present bytes). CNetLobby ends at 0xdbd8.
 
 ## 5. Names (in case the generator gets a naming table)
 

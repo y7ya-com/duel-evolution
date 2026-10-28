@@ -34,7 +34,7 @@ because it assigns folders by `__FILE__` strings:
   writes into a global).
 - **Lobby parsers for the other ~140 messages** (123 functions in yo2NetLobby_Parse.cpp): rooms 0x428x, matches
   0x43xx, chat 0x4402, friends/teams 0x45xx, mail 0x46xx, packs 0x48xx/0x49xx, tournaments 0x51xx, shop/mileage 0x52xx,
-  trades 0x71xx, DUELPASS 0x8102/0x8204, presents 0x83xx/0x8402, 0x4140/0x4160/0x4180/0x4181/0x5340. Not blocked,
+  trades 0x71xx, DUELPASS 0x8102/0x8204 (removed feature), presents 0x83xx/0x8402, 0x4140/0x4160/0x4180/0x4181/0x5340. Not blocked,
   just next round. The dispatcher `CNetLobby::onRecv` (FUN_006ac020) is therefore partial and has no marker.
 - **STL template instances** (63 functions, 0x6c3400..0x6c7b30: vector/deque/list insert/erase/copy for the lobby's
   containers): replaced by std::vector/std::deque, no markers. Swapping them in-exe needs MSVC6 layouts (0b/1).

@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-EMU = os.environ.get("YO2EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 
 
 def main():

@@ -16,9 +16,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
-CARDS = os.environ.get("YO2_CARD_BIN", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
+CARDS = os.environ.get("YO2_CARD_BIN", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
                        "CHG/merge/data/bin#")
-EMU = os.environ.get("YO2_EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2_EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 sys.path.insert(0, EMU)
 sys.path.insert(0, os.path.join(EMU, "research", "traductor"))
 import proto  # noqa: E402

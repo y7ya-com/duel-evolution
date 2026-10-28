@@ -10,7 +10,7 @@ import struct
 import capstone
 from capstone import x86 as X
 
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 EXE = os.path.join(DATA, "yo2.exe")
 
 b = open(EXE, "rb").read()

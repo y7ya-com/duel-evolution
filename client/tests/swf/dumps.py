@@ -6,8 +6,8 @@ Used by tests/swf/run.py and harness/difftest/cases_swf.py.
 import os
 import struct
 
-MERGE = os.environ.get("YO2_MERGE_DAT", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/merge.dat")
-EXE = os.environ.get("YO2_EXE", "/Users/y/Documents/GitHub/yo2-decomp-data/yo2.exe")
+MERGE = os.environ.get("YO2_MERGE_DAT", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/merge.dat")
+EXE = os.environ.get("YO2_EXE", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data/yo2.exe")
 CACHE = os.environ.get("YO2_SWF_DUMPS", os.path.join(os.path.dirname(EXE), "swfdump"))
 _SWAP = bytes(((x & 15) << 4) | (x >> 4) for x in range(256))   # TOC names are nibble-swapped
 

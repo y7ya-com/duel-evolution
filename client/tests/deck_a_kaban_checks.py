@@ -6,7 +6,7 @@ import csv
 import os
 import subprocess
 
-EMU = os.environ.get("YO2_EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2_EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 KS_MATCH, KS_SORT_DOWN, KS_SORT_UP = 0x1e, 0x1f, 0x20
 SPELL, TRAP = 27, 29   # csv kind of magic / trap cards
 

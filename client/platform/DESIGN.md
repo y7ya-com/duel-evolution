@@ -59,7 +59,7 @@ From the import table (323 imports, `KERNEL32` 146, `USER32` 66, `GDI32` 30, `WI
 | Shell / process | `ShellExecuteA` `CreateProcessA` `GetCommandLineA` `SetUnhandledExceptionFilter` `OutputDebugStringA` | — | `SDL_OpenURL`; `CreateProcessA` (updater) is a stub | `window.open` |
 | File dialogs | `GetOpenFileNameA` `GetSaveFileNameA` | `CFileDialog` | Later (tinyfiledialogs) | `<input type=file>` / blob download |
 | COM images | `CreateStreamOnHGlobal`, `OLEAUT32` #418 (`OleLoadPicture`) | — | stb_image | Same |
-| Duel Pass USB | `MagicKey.dll` `GetDuelPassCode` | `CWindowModelDuelpassUSB` `CRegistryManagerUSB` | Stub returns "no key" | Same |
+| Duel Pass USB (removed feature) | `MagicKey.dll` `GetDuelPassCode` | `CWindowModelDuelpassUSB` `CRegistryManagerUSB` | Stub returns "no key" | Same |
 
 ## 2. Direct3D 8
 

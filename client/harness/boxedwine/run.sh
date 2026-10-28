@@ -11,10 +11,10 @@
 # it reads or writes (Wine zip, root, game folder, log) lives in its container, $W.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-DATA=${YO2_DATA:-/Users/y/Documents/GitHub/yo2-decomp-data}
+DATA=${YO2_DATA:-$HOME/Documents/GitHub/yo2-decomp-data}
 BW=$DATA/boxedwine
 W=~/Library/Containers/org.boxedwine/Data/yo2
-SEVENZ=${YO2_7Z:-/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/yo2_2008-11_Extracted.7z}
+SEVENZ=${YO2_7Z:-$HOME/Documents/GitHub/duel-evolution-restore/extraction/recovery/yo2_2008-11_Extracted.7z}
 SECS=${SECS:-180}
 # The Wine filesystem 26R1's own catalog (boxedwine.org/v2/26R1/filesV2.xml) installs on Mac. v2/22 (Wine 11, built for
 # Boxedwine master) wedges 26R1: explorer spins on "Vulkan not compiled into Boxedwine" before any DllMain runs.
@@ -34,7 +34,7 @@ if [ ! -f "$G/yo2.exe" ]; then
   R=$(dirname "$SEVENZ")
   cp -c "$R/merge.dat" "$R/merge.log" "$G/"
   cp -c "$DATA/yo2.exe" "$DATA/MagicKey.dll" "$G/"
-  cp -c "/Users/y/Documents/GitHub/duel-evolution-restore/Yu-Gi-Oh! ONLINE 2/"{Sound.dat,TestData.dat} "$G/"
+  cp -c "$HOME/Documents/GitHub/duel-evolution-restore/Yu-Gi-Oh! ONLINE 2/"{Sound.dat,TestData.dat} "$G/"
   7zz e -y -o"$G" "$SEVENZ" system.bin >/dev/null
   (cd "$G" && 7zz h -scrcCRC32 merge.dat Sound.dat system.bin TestData.dat MagicKey.dll yo2.exe | grep -E '^[0-9A-F]{8} ')
 fi
@@ -42,7 +42,7 @@ fi
 rm -f "$G/yo2rep.log" "$G/yo2net.log"
 cp "$HERE/../../build-i686/harness/yo2rep.dll" "$G/version.dll"
 # YOLaucher's network DLL (127.0.0.1 redirects), chain-loaded by yo2rep as yo2net.dll; flags from its build_dll.ps1.
-D=${YOLAUNCHER:-/Users/y/Documents/GitHub/YOLaucher-web}/tools/yo2emu/launcher/juego/dll
+D=${YOLAUNCHER:-$HOME/Documents/GitHub/YOLaucher-web}/tools/yo2emu/launcher/juego/dll
 i686-w64-mingw32-gcc -O2 -s -shared -nostdlib -ffreestanding -fno-builtin -fno-stack-protector \
   -Wl,--entry,_DllMain@12 "$D/yo2net.c" "$D/version.def" -lkernel32 -luser32 -lgdi32 -o "$TMPDIR/yo2net.dll"
 cp "$TMPDIR/yo2net.dll" "$G/"   # ld can't write into the sandbox container directly

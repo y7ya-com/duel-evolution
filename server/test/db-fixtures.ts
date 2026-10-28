@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { State } from "../src/game/store.ts";
 
-const PY_STATE = "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu/state.json";
+const PY_STATE = process.env.HOME + "/Documents/GitHub/YOLaucher-web/tools/yo2emu/state.json";
 const OUT = join(import.meta.dirname, "..", "parity", "_out");
 
 /** Every state.json py wrote that exists here (the parity outputs are gitignored; the py checkout is local). */

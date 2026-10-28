@@ -30,7 +30,7 @@ TESTS = sorted(t for t in glob.glob(os.path.join(HERE, "*_test.cpp")) if not arg
 HOST = ["-isystem", os.path.join(ROOT, "platform", "win32")]  # Win32/D3D8 stand-ins off Windows; i686 uses the real headers
 FLAGS = ["-std=c++17", "-Wall", "-Wextra", "-I" + os.path.join(ROOT, "src"), "-I" + os.path.join(ROOT, "platform"),
          "-I" + HERE]
-os.environ.setdefault("YO2_MERGE_DAT", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/merge.dat")
+os.environ.setdefault("YO2_MERGE_DAT", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/merge.dat")
 
 
 def run(cmd):

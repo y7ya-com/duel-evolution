@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 HEADLESS = "/opt/homebrew/opt/ghidra/libexec/support/analyzeHeadless"
 JAVA_HOME = "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
 SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ghidra_scripts")

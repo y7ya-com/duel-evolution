@@ -35,8 +35,8 @@ from memcap import run_capped  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 DC = os.environ.get("YO2_DC", os.path.join(HERE, "..", "..", "phase2-duel-tools", "dc"))
-EXE = os.environ.get("YO2_EXE", "/Users/y/Documents/GitHub/yo2-decomp-data/yo2.exe")
-CARDS = os.environ.get("YO2_CARD_BIN", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
+EXE = os.environ.get("YO2_EXE", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data/yo2.exe")
+CARDS = os.environ.get("YO2_CARD_BIN", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
                        "CHG/merge/data/bin#")
 DEFAULT_FILES = ["EngineRules2.cpp", "EngineRules3.cpp"]
 BASE, SIZE = 0x012c7880, 0xb2e4
@@ -237,7 +237,7 @@ def exe_reader():
     return read
 
 
-CACHE = [os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data") + "/decompiled",
+CACHE = [os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data") + "/decompiled",
          os.path.join(os.path.dirname(DC), "islands_decompiled")]
 
 

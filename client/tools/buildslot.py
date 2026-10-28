@@ -2,7 +2,7 @@
 the cores and free memory stays >= 20%, at most SLOTS at once machine-wide, at nice 5. A `make -jN` gets -j sized to
 the idle cores. Waits until admitted. A command already inside a slot (YO2_BUILDSLOT set) runs straight away.
 
-    python3 -I /Users/y/Documents/GitHub/yo2-decomp/tools/buildslot.py cmd args...
+    python3 -I client/tools/buildslot.py cmd args...
 
 YO2_BUILDSLOT_CPU (default 0.8) and YO2_BUILDSLOT_MEM (default 20) change the thresholds.
 """
@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 SLOTS = 6                 # ponytail: a hard cap on top of the resource gate, so a burst of jobs can't all start at once
 STAGGER = 3.0             # seconds between admissions machine-wide: a new job's load shows up before the next check
 CPU_CAP = float(os.environ.get("YO2_BUILDSLOT_CPU", "0.8"))

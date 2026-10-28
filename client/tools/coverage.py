@@ -8,7 +8,7 @@ import os
 import re
 import sys
 
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 MARK = re.compile(r"@yo2\s+0x([0-9a-fA-F]+)")
 

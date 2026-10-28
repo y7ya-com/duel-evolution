@@ -157,7 +157,7 @@ an "Audio" entry (`ovr/audiomenu.c`: the exe's never-shown entry 6) that opens t
 reread on each Audio click, fed to the slot API in `rt/audioslots.h` (until playback links it, `rt/audioui.c`'s weak
 stand-ins log the calls). `RC_NOAUDIOMENU=1` leaves the menu as it was.
 
-## No DUELPASS (PvP is free)
+## DUELPASS removed (PvP is free)
 
 `ovr/nodp.c`: the owner removed DUELPASS points (DP) from the game. The client's DP gates (FUN_00863ec0 ×3: create /
 accept a duel or match, "You do not have enough DUELPASS Points"; FUN_00863750: the own room deleted after a duel) all

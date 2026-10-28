@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-EMU = os.environ.get("YO2_EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2_EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 MAIN, SIDE, EXTRA = 0, 1, 2
 
 

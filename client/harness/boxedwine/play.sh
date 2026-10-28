@@ -7,7 +7,7 @@
 #   harness/boxedwine/play.sh            # then drive the Boxedwine window; the server log is $SRV/2*.log
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-EMU=${YO2EMU_DIR:-/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu}
+EMU=${YO2EMU_DIR:-$HOME/Documents/GitHub/YOLaucher-web/tools/yo2emu}
 SRV=${SRV:-$TMPDIR/yo2play}
 USER_=qasmoke PASS_=qasmoke26                          # made-up test login, only ever seeded into $SRV/state.json
 

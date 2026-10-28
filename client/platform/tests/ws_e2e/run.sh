@@ -6,7 +6,7 @@
 set -u
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 : "${GATEWAY:?set GATEWAY to network-gateway.mjs}"
-YO2EMU=${YO2EMU:-/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu}
+YO2EMU=${YO2EMU:-$HOME/Documents/GitHub/YOLaucher-web/tools/yo2emu}
 NODE=${NODE:-node}
 BUILD=${BUILD:-$REPO/build-web}
 LOG=${TMPDIR:-/tmp}/ws_e2e.$$

@@ -25,7 +25,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 INC = os.path.join(HERE, "..", "include")
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 TOOLS = os.environ.get("YO2_TOOLS", os.path.join(HERE, "..", "..", "phase2-duel-tools"))
 DC = os.path.join(TOOLS, "dc")
 LO, HI = 0x00750000, 0x008c6ab0   # the duel scene: all of duel from 0x751d20 on (round 2 ownership)

@@ -6,6 +6,7 @@
 # yo2rc.html gets client/web-shell/stage.js (fit-to-window + fullscreen) and loader.js (loading screen; NOLOADER=1
 # leaves it out) just before the runtime script, the product name as its title and the build id for crash reports.
 # The wasm goes up first, so a new js never meets an old wasm. Needs `wrangler login` on the site's Cloudflare account.
+# DRY=1: prepare infra/out/<prefix>/ and list the uploads, upload nothing.
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd); BUILD=0
 [ "${1:-}" = --build ] && { BUILD=1; shift; }
@@ -30,6 +31,7 @@ FILES="yo2rc.wasm yo2rc.js yo2rc.html BUILD.txt"
 [ $X = recomp ] && { cp $C/web-shell/index.html $C/web-shell/stage.js $C/web-shell/loader.js $O/; FILES="$FILES stage.js loader.js index.html"; }
 cd $R/server
 for f in $FILES; do
+  [ -n "${DRY:-}" ] && { echo "would upload $X/$f ($(wc -c < $O/$f | tr -d ' ') bytes)"; continue; }
   npx wrangler r2 object put "ygo-original/$X/$f" --file $O/$f --remote 2>&1 | grep -q "Upload complete" || { echo "upload $f failed"; exit 1; }
   echo "uploaded $X/$f"
 done

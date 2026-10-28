@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("YO2_PROTO_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu/yo2srv/red"))
+sys.path.insert(0, os.environ.get("YO2_PROTO_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu/yo2srv/red"))
 import proto  # noqa: E402
 
 CLI = r'''

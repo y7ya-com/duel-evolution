@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     rc_nospeed = getenv("RC_NOSPEED") != NULL;
     rc_game_dir = getenv("YO2_GAME");
     rc_write_dir = getenv("YO2_WRITE");
-    if (!exe) exe = "/Users/y/Documents/GitHub/yo2-decomp-data/yo2.exe";
+    if (!exe) exe = "../game/yo2.exe";   // the game folder below (YO2_EXE overrides)
     // not the Boxedwine container itself: macOS stops a new binary there on an "access other apps' data" prompt
     if (!rc_game_dir) rc_game_dir = "../game";   // run/game: an APFS clone (cp -cR) of the Boxedwine copy
     if (!rc_write_dir) rc_write_dir = "rc-overlay";

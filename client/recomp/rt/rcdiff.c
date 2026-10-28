@@ -26,7 +26,7 @@ static void diff(const uint8_t *a, const uint8_t *b, uint32_t base, uint32_t n) 
 }
 
 int main(int argc, char **argv) {
-    rc_init(argc > 2 ? argv[2] : "/Users/y/Documents/GitHub/yo2-decomp-data/yo2.exe");
+    rc_init(argc > 2 ? argv[2] : "../game/yo2.exe");
     rc_commit(ARENA, ARENA_N);
     snap = malloc(DATA_N);
     memcpy(snap, rc_mem + DATA_LO, DATA_N);

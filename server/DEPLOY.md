@@ -10,13 +10,25 @@ Only production is deployed: `wrangler.jsonc` `env.production`, live at `origina
 The top level of wrangler.jsonc is for local `wrangler dev` only. The former staging Worker `duel-evolution-next` and its
 D1 `duel-evolution` are idle with no route; they were kept, not deleted.
 
+## The web client
+
+`infra/ship-client.sh [--build] [prefix]` from the public repo: builds (or takes) `client/recomp/build-web/`, adds the
+web shell (`client/web-shell/stage.js`, `loader.js`), the title and the build id to `yo2rc.html` and uploads it to R2
+`ygo-original/<prefix>/` (default `recomp-de/`, the `CLIENT_PREFIX` production serves). `DRY=1` prepares
+`infra/out/<prefix>/` and lists the uploads without uploading. Shipping to `recomp/` also uploads `index.html`,
+`stage.js` and `loader.js`; the loading-screen art (`loader/`) and the game files there are uploaded by hand.
+
 ## Check locally, then deploy
 
 1. **Locally** (localhost, where test accounts are fine):
    - `python3.12 -I parity/run.py base|ts|diff <scenario>` (parity with py);
    - `python3.12 -I parity/predeploy.py`, which starts its own `wrangler dev` (two signed-in players, an NPC duel, a PvP match).
-2. **Deploy** from a clean worktree of the commit, so other sessions' unfinished edits stay out:
+2. **Deploy** from a clean worktree of the public repo (y7ya-com/duel-evolution) at the commit, so other sessions'
+   unfinished edits stay out. `server/gamedata/` is not in the repo: fetch it first (maintainers, `wrangler login`).
    ```bash
+   infra/fetch-private.sh                     # from the repo root: server/gamedata/ and the other private files
+   cd server && pnpm install --frozen-lockfile
+   npx wrangler deploy --env production --dry-run --outdir /tmp/de-dry   # optional: bundle + bindings, uploads nothing
    npx wrangler d1 migrations apply duel-evolution-prod --remote --env production   # only when migrations/ changed
    npx wrangler deploy --env production
    scripts/prod_check.sh

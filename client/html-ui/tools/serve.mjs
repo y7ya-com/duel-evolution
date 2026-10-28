@@ -5,7 +5,7 @@
 import { createServer } from 'node:http';
 import { createReadStream, statSync, readFileSync } from 'node:fs';
 const PORT = +(process.argv[2] || 8931), LIVE = 'https://original.ygoevolution.com';
-const PUB = process.env.PUB || '/Users/y/Documents/GitHub/yo2-decomp-data/web/public/recomp', FONTS = '/Users/y/Documents/GitHub/yo2-decomp-data/web/public/recomp/fonts', GAME = '/Users/y/Documents/GitHub/yo2-decomp-data/web/game';
+const PUB = process.env.PUB || process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web/public/recomp', FONTS = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web/public/recomp/fonts', GAME = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web/game';
 const HOOK = new URL('hook.js', import.meta.url).pathname;
 const MIME = { html: 'text/html', js: 'text/javascript', wasm: 'application/wasm', txt: 'text/plain', png: 'image/png', json: 'application/json' };
 createServer(async (req, res) => {

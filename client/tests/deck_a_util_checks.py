@@ -8,7 +8,7 @@ import csv
 import os
 import subprocess
 
-EMU = os.environ.get("YO2_EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2_EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 FRAME = {"normal": 0, "token": 0, "fusión": 3, "fusión-efecto": 3, "ritual": 2, "ritual-efecto": 2,
          "mágica": 4, "trampa": 5}   # everything else (effect, toon, spirit, union, gemini, token-effect) is 1
 

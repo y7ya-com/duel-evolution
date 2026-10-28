@@ -20,7 +20,7 @@ from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBP, UC_X86_REG_EBX, U
                                UC_X86_REG_FS, UC_X86_REG_GDTR, UC_X86_REG_CS, UC_X86_REG_SS, UC_X86_REG_DS,
                                UC_X86_REG_ES, UC_X86_REG_GS)
 
-EXE = os.environ.get("YO2_EXE", "/Users/y/Documents/GitHub/yo2-decomp-data/yo2.exe")
+EXE = os.environ.get("YO2_EXE", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data/yo2.exe")
 DLL = os.environ.get("YO2_REP", os.path.join(os.path.dirname(__file__), "../../build-i686/harness/yo2rep.dll"))
 
 STUBS = 0x7F000000          # 8-byte slot per import / hooked name; slot 0 is the return sentinel

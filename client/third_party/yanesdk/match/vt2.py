@@ -1,7 +1,7 @@
 """vtables with COL offset: writes vt2.json {class: [[offset, vtable_va, [targets]]...]}"""
 import collections, json, re, struct
 import os
-R=os.environ.get('YO2_DATA', '/Users/y/Documents/GitHub/yo2-decomp-data')
+R=os.environ.get('YO2_DATA', os.path.expanduser("~") + '/Documents/GitHub/yo2-decomp-data')
 b = open(f"{R}/yo2.exe", "rb").read()
 pe = struct.unpack_from("<I", b, 0x3c)[0]
 nsec = struct.unpack_from("<H", b, pe + 6)[0]

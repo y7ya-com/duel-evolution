@@ -19,9 +19,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
 DC = os.environ.get("YO2_DC", os.path.join(HERE, "..", "..", "phase2-duel-tools", "dc"))
-CARDS = os.environ.get("YO2_CARD_BIN", "/Users/y/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
+CARDS = os.environ.get("YO2_CARD_BIN", os.path.expanduser("~") + "/Documents/GitHub/duel-evolution-restore/extraction/recovery/out_2008/"
                        "CHG/merge/data/bin#")
-CSV = os.environ.get("YO2_CARD_CSV", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu/research/ia/cards_yo2.csv")
+CSV = os.environ.get("YO2_CARD_CSV", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu/research/ia/cards_yo2.csv")
 FILES = sorted(glob.glob(os.path.join(SRC, "duel", "EngineCards*.cpp")))
 
 SHIMS = {"0073c010": "db_kind", "0073bf80": "db_attr", "0073bf20": "db_race", "0073bfe0": "db_icon",

@@ -26,7 +26,7 @@ if (process.argv[2] === "--manifest") {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const roots = {
-    "/game/": process.env.YO2_GAME || "/Users/y/Library/Containers/org.boxedwine/Data/yo2/game",
+    "/game/": process.env.YO2_GAME || process.env.HOME + "/Library/Containers/org.boxedwine/Data/yo2/game",
     "/": path.join(here, "..", "build-web"),
 };
 const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".txt": "text/plain" };

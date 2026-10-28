@@ -21,7 +21,7 @@ import os
 import re
 import struct
 
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 T = os.path.join(DATA, "trace")
 # trace phase -> play order: 1 boot+title, 2 login, 3 My Room, 5 lobby, 6 NPC dialog, 7 shop, 4 deck editor, 8 duel

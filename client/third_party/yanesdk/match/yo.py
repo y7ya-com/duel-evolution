@@ -1,6 +1,6 @@
 import json,re,collections
 import os as _o0; WT=_o0.environ.get('YANE_WT', _o0.path.join(_o0.path.dirname(_o0.path.abspath(__file__)), '..'))
-D=_o0.environ.get('YO2_DATA', '/Users/y/Documents/GitHub/yo2-decomp-data') + '/'
+D=_o0.environ.get('YO2_DATA', _o0.path.expanduser("~") + '/Documents/GitHub/yo2-decomp-data') + '/'
 F={}
 for l in open(D+'functions2.jsonl'):
     j=json.loads(l)

@@ -18,7 +18,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "src")
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 ISLANDS = os.environ.get("YO2_ISLANDS", os.path.join(HERE, "..", "..", "phase2-duel-tools", "islands.tsv"))
 RANGES = [(0x008da960, 0x008ebb40), (0x00909590, 0x00934720), (0x009354e0, 0x0097c8e0)]
 # the atexit destructors of deckEntry.cpp's last string table sit just past the first range (DeckTables.h)

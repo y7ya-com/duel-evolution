@@ -12,7 +12,7 @@ import re
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-DATA = os.environ.get("YO2_DATA", "/Users/y/Documents/GitHub/yo2-decomp-data")
+DATA = os.environ.get("YO2_DATA", os.path.expanduser("~") + "/Documents/GitHub/yo2-decomp-data")
 CRT = {0xb08e6d: "operator_delete", 0xb09654: "operator_new", 0xb0c267: "atoi", 0xb0db2c: "strtok",
        0xb0ae12: "exit", 0xb0a648: "fseek", 0xb0a701: "ftell", 0xb09f60: "fclose", 0xb1c1dc: "std::_Xlen",
        0xb08e2c: "atexit", 0x60cff0: "yo2AssertFailed", 0x423a40: "string::_Tidy", 0x423ae0: "string::_Grow",

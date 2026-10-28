@@ -11,7 +11,7 @@ import csv
 import os
 import subprocess
 
-EMU = os.environ.get("YO2_EMU_DIR", "/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu")
+EMU = os.environ.get("YO2_EMU_DIR", os.path.expanduser("~") + "/Documents/GitHub/YOLaucher-web/tools/yo2emu")
 CSV = os.path.join(EMU, "research", "ia", "cards_yo2.csv")
 
 TABS = {   # tab -> the csv kind names on it

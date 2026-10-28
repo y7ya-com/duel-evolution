@@ -7,7 +7,7 @@
 #   YO2REP=off harness/boxedwine/smoke.sh      # the same run on the untouched original, for comparison
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-EMU=${YO2EMU_DIR:-/Users/y/Documents/GitHub/YOLaucher-web/tools/yo2emu}
+EMU=${YO2EMU_DIR:-$HOME/Documents/GitHub/YOLaucher-web/tools/yo2emu}
 A=~/Library/Containers/org.boxedwine/Data/yo2/smoke   # automation dir: must be inside the app's sandbox container
 SRV=$TMPDIR/yo2smoke                                   # server state, log and token files (never the YOLaucher repo)
 EXPECT=${EXPECT:-lobby}

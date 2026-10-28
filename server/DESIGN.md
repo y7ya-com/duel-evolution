@@ -133,7 +133,7 @@ Parity covers game behaviour; these differences are intended. The parity harness
 INTENTIONAL):
 - **PvP is free.** There is no duel-point economy: no room or match gates, no per-duel charge, and no starting
   grants. The client's balance fields (0x4101, 0x4140) carry the one neutral `WIRE_UNUSED_DP`.
-- **No DUELPASS.** There are no codes and no passes: 0x3111 carries `WIRE_UNUSED_DP`, 0x8102 always answers
+- **DUELPASS removed.** There are no codes and no passes: 0x3111 carries `WIRE_UNUSED_DP`, 0x8102 always answers
   "invalid code", and 0x4903 always answers "no pack".
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
