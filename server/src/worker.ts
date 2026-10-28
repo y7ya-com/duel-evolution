@@ -146,14 +146,19 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   const pre = /^[\w-]+\/$/.test(c.env.CLIENT_PREFIX ?? "") && c.env.CLIENT_PREFIX !== "private/" ? c.env.CLIENT_PREFIX! : "recomp/";
   const rel = decodeURIComponent(path.slice(1)).replace(/(^|\/)$/, "$1index.html");
   const key = pre + rel;
+  // A content-hashed client file (ship-client.sh: yo2rc-<10 hex>.wasm, loader-<10 hex>.js, ...) never changes under
+  // its name: immutable, and kept whole in the edge cache like the chunks below.
+  const hashed = /^[\w-]+-[0-9a-f]{10}\.(js|wasm)$/.test(rel);
   // A versioned range (lazyfs's 1 MB chunks, ?v=<ETag>) comes from the edge cache once any player in that colo read it:
   // R2 through this Worker streamed at ~130 KB/s live (2026-10-28), against a sync read the game waits on. The Cache API
   // refuses 206, so a chunk is kept as a 200 under its URL + range, and turned back into the 206 here.
   const range = c.req.header("range");
-  const edgeKey = range && url.searchParams.has("v") && c.req.method === "GET"
-    ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&range=${encodeURIComponent(range)}`) : null;
+  const edgeKey = c.req.method !== "GET" ? null
+    : range && url.searchParams.has("v") ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&range=${encodeURIComponent(range)}`)
+    : !range && hashed ? new Request(url.origin + url.pathname) : null;
   if (edgeKey) {
     const hit = await caches.default.match(edgeKey);
+    if (hit && !range) return hit;
     if (hit) {
       const h = new Headers(hit.headers);
       h.set("Content-Range", h.get("X-Content-Range") ?? ""), h.delete("X-Content-Range");
@@ -173,7 +178,7 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // Compared as word characters only: lazyfs sends the ETag that way, and a multipart upload's ("<md5>-14", merge.dat)
   // never matched, so every live chunk went out no-cache
   const v = url.searchParams.get("v")?.replace(/\W/g, "");
-  headers.set("Cache-Control", v && v === obj.etag.replace(/\W/g, "") ? "public, max-age=31536000, immutable"
+  headers.set("Cache-Control", hashed || (v && v === obj.etag.replace(/\W/g, "")) ? "public, max-age=31536000, immutable"
     : key.endsWith(".zip") ? "public, max-age=86400" : "no-cache");
   if (!("body" in obj)) return new Response(null, { status: 304, headers });
   const body = (obj as R2ObjectBody).body;
@@ -191,6 +196,11 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
     return new Response(c.req.method === "HEAD" ? null : body, { status: 206, headers });
   }
   headers.set("Content-Length", String(obj.size));
+  if (edgeKey && hashed) {
+    const [out, keep] = body.tee();
+    c.executionCtx.waitUntil(caches.default.put(edgeKey, new Response(keep, { headers })));
+    return new Response(out, { headers });
+  }
   return new Response(c.req.method === "HEAD" ? null : body, { headers });
 });
 routes.all("*", (c) => c.text("method not allowed", 405));

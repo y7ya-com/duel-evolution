@@ -1,8 +1,9 @@
 """Pre-deploy check against a local `wrangler dev` (DEPLOY.md): the sources (a clean worktree with PARITY_SRC, else
 this checkout), the engine data seeded into local R2, the real session gate (no DEV). Two test users sign in through
 the test sign-in (DEPLOY_ENV=staging, a throwaway TEST_SIGNIN_SECRET) and play through the bridge: gate, accounts (a
-new player each), lobby, an NPC duel to the end (fake_client's auto play + surrender), back to the lobby; then a PvP
-match (B opens a room, A challenges and surrenders), both back in the lobby.
+new player each), with production's PROGRESSION: each picks 40 starter cards (0x8401); lobby, NPC duels to the end
+against NPCs 84, 51 and 54 (fake_client's auto play + surrender), back to the lobby; then a PvP match (B opens a
+room, A challenges and surrenders), both back in the lobby; last, a deck with unowned cards is refused (0x649b).
 
   python3.12 -I parity/predeploy.py
 
@@ -69,13 +70,35 @@ def prefetch(cookie):
         return r.status, (json.loads(body) if body else None)
 
 
-def npc_duel(fc, A, cookies=None):
+def starter_present(X, cards):
+    """PROGRESSION (production's setting): a new character owns nothing and picks its 40 starter cards (0x8401)."""
+    n = len(X.room.msgs)
+    X.room.send(0x8401, struct.pack(">B%dH" % len(cards), len(cards), *cards))
+    d = X.room.wait(0x8402, start=n, timeout=15)
+    step(d is not None and struct.unpack(">i", d[:4])[0] == 0, f"{X.name}: progression: picks {len(cards)} starter cards (0x8401 -> 0x8402 s32 0)")
+
+
+def npc_duel(fc, A, cookies=None, npc=84):
     na = len(A.room.msgs)
-    A.room.send(0x4288, fc.room_msg(84))
-    step(A.room.wait(0x43a0, start=na, timeout=15) is not None, "NPC challenge (0x43a0)")
+    A.room.send(0x4288, fc.room_msg(npc))
+    step(A.room.wait(0x43a0, start=na, timeout=15) is not None, f"NPC {npc}: challenge (0x43a0)")
     if cookies:
         npc_prefetch(cookies)
     return _npc_duel_rest(fc, A)
+
+
+def npc_refused(fc, A, deck, npc=84):
+    """A deck with cards A doesn't own: the duel never starts, 0x649b code 1 at 0x6100 (the real client goes to the map)."""
+    na = len(A.room.msgs)
+    A.room.send(0x4288, fc.room_msg(npc))
+    step(A.room.wait(0x43a0, start=na, timeout=15) is not None, f"NPC {npc}: challenge (0x43a0)")
+    step(fc.duel_link(A, deck), "duel port: booked check (0x6007)")
+    A.duel.wait(0x600c, timeout=15)
+    n = len(A.duel.msgs)
+    A.duel.send(0x6100)
+    d = A.duel.wait(0x649b, start=n, timeout=15)
+    step(d is not None and d[0] == 1, f"progression: a deck with unowned cards is refused before the duel (0x649b {d and d.hex()})")
+    A.duel.send(0x0003)
 
 
 def npc_prefetch(cookies):
@@ -133,7 +156,8 @@ def main():
                    cwd=snap, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     wr = subprocess.Popen(["nice", "npx", "wrangler", "dev", "--local", "--port", str(PORT), "--persist-to", os.path.join(D, "wr"),
                            "--var", f"PUBLIC_ORIGIN:{ORIGIN}", "--var", f"TEST_SIGNIN_SECRET:{SECRET}",
-                           "--var", f"BETTER_AUTH_SECRET:{secrets.token_urlsafe(48)}", "--var", "DEPLOY_ENV:staging"],
+                           "--var", f"BETTER_AUTH_SECRET:{secrets.token_urlsafe(48)}", "--var", "DEPLOY_ENV:staging",
+                           "--var", "PROGRESSION:1"],
                           cwd=snap, stdout=open(os.path.join(D, "server.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
     br = None
     try:
@@ -151,8 +175,18 @@ def main():
             X.wait_s = 15.0
         player(fc, A, "Predeploy")
         player(fc, B, "Predeploy B")
+        # fake_client duels with NPC 51's and 54's decks, which the 2008 list refuses (285 forbidden, 707, 2663): the
+        # players pick 40 legal cards of NPC 51's deck as their startup present and duel with those
+        unowned = fc.npc_deck_ids(51)
+        starter = [c for c in unowned[0] if c != 285][:40]
+        fc.npc_deck_ids = lambda nid: (starter, [])
+        for X in (A, B):
+            starter_present(X, starter)
         npc_duel(fc, A, cookies)
+        for npc in (51, 54):   # their own decks break the list: only the player's deck is checked
+            npc_duel(fc, A, npc=npc)
         pvp_duel(fc, A, B)
+        npc_refused(fc, A, unowned)
         errs = A.errors + B.errors
         step(not errs, "message numbering: " + ("; ".join(errs[:3]) or "ok"))
     finally:
