@@ -1,6 +1,6 @@
 // yo2Menu.cpp, the main menu's parts: CWindowTaskFrameMain, CWindowTaskFrameMove, CWindowTaskButtonMain.
 #include "Game/yo2Menu.h"
-#include "Game/yo2TgtAvaListDlg.h"
+#include "Game/yo2GameCtrl.h"
 
 namespace {
 struct TaskLockBits : CTask {

@@ -1,0 +1,107 @@
+// yo2Menu.cpp: CWindowModelMenu, the menu bar along the bottom of the screen: up to five 80 x 32 buttons on the left
+// (main menu, duel, move, config, return), the scrolling message bar (CWindowTaskMenubar) with the help text of the
+// highest HelpText, and up to eight notice icons (maintenance, mail, friend, duel room, offer, event, tournament,
+// team) from x 232. Its owner polls the "pushed" flags.
+#pragma once
+#include <cstdint>
+
+#include "Game/yo2HelpText.h"
+#include "Game/yo2MenuNotice.h"
+#include "System/window/yo2WindowControls.h"
+
+class CWindowModelMenu : public CWindowTaskModel {
+public:
+    enum Button : int32_t { NONE, MAIN, DUEL, DUEL2, MOVE, CONFIG, RETURN };   // what a button slot shows
+    enum Notice : int32_t {
+        MAINTENANCE, MAIL, FRIEND, DUELROOM, OFFER, EVENT, TOUR, TEAM
+    };
+    enum { BUTTONS = 5, NOTICES = 8 };
+
+    // (the exe passes 0 and 736: onInit places it there anyway)
+    static CWindowModelMenu* create(CTask* parent, float x, float y);
+    CWindowModelMenu();
+    ~CWindowModelMenu() override;
+    bool onInit() override;
+    // @yo2 0x00a7e8f0 CWindowModelMenu::onMain
+    bool onMain() override { return true; }
+    // @yo2 0x00a7e3f0 CWindowModelMenu::applyZ
+    void applyZ() override { layout(); }
+    // @yo2 0x00a7e910 CWindowModelMenu::layout
+    void layout() override { pos_.z = z_; }
+    int32_t maxZ() const override;
+    void setText(const WChar* s) override;   // the message bar's text
+    void onControlEvent(CWindowTaskControll* sender) override;   // a button or an icon was pushed
+    // @yo2 0x00a7e440 CWindowModelMenu::onControlCommand
+    void onControlCommand(CWindowTaskControll*) override { bringToFront(); }
+    // @yo2 0x00a7e460 CWindowModelMenu::mediatorSlot2 (empty)
+    void mediatorSlot2(CWindowTaskControll*) override {}
+    // @yo2 0x00a7e480 CWindowModelMenu::mediatorSlot3 (empty)
+    void mediatorSlot3(CWindowTaskControll*) override {}
+
+    // the buttons (slot 0..4)
+    void setButton(int32_t slot, int32_t button);   // Button; NONE removes it
+    void clearButtons();
+    void enableButton(int32_t slot, bool on);
+    void checkButton(int32_t slot, bool on);
+    bool buttonPushed(int32_t slot) const;
+    void clearButtonPushed(int32_t slot);
+    // the notice icons (Notice)
+    void showNotice(int32_t i);
+    void hideNotice(int32_t i);
+    void hideNotices();
+    bool noticeShown(int32_t i) const { return shown_[i]; }          // @yo2 0x00a7ff60 CWindowModelMenu::noticeShown
+    bool noticePushed(int32_t i) const { return noticePushed_[i]; }  // @yo2 0x00a7ff40 CWindowModelMenu::noticePushed
+    void clearNoticePushed(int32_t i) { noticePushed_[i] = false; }  // @yo2 0x00a7ffb0 CWindowModelMenu::clearNoticePushed
+    bool noticePressed(int32_t i) const;   // the icon's pressed_ flag
+    // the event lobby the event notice is about: odd kinds open it (and set eventRank_), even ones close it; 11 / 12
+    // open / close the second (sub) notice
+    void setEvent(int32_t kind);
+    void showEventNotice(bool on);
+    void showSubNotice(bool on);
+
+    CTaskPtr<CWindowTaskMenubar> menubar_;          // 0x398
+    CWindowTaskPictureSwitch* buttons_[BUTTONS] = {};   // 0x3a4
+    int32_t hasButton_[BUTTONS] = {};               // 0x3b8 set by enableButton
+    bool pushed_[BUTTONS] = {};                     // 0x3cc
+    CNoticeIconBase* notices_[NOTICES] = {};        // 0x3d4
+    bool shown_[NOTICES] = {};                      // 0x3f4
+    bool noticePushed_[NOTICES] = {};               // 0x3fc
+    CTaskPtr<CWindowTaskText> text_;                // 0x404 (392, 8)
+    HelpTextMng* helpMng_ = nullptr;                // 0x410 g_helpTextMng
+    HelpText help_;                                 // 0x414 the event notice's
+    uint32_t unk430_ = 0;                           // 0x430
+    HelpText subHelp_;                              // 0x434 the sub notice's
+    uint32_t unk450_ = 0;                           // 0x450
+    bool eventShown_ = false;                       // 0x454
+    bool eventOn_ = false;                          // 0x455 (showEventNotice)
+    int32_t eventRank_ = 0;                         // 0x458 -1: none
+    uint8_t unk45c_ = 0;                            // 0x45c
+    bool subShown_ = false;                         // 0x45d
+    int32_t eventSub_ = 0;                          // 0x460 -1: none
+    uint8_t unk464_ = 0;                            // 0x464
+    bool subOn_ = false;                            // 0x465 (showSubNotice)
+
+    static int32_t s_buttonsMade;   // DAT_012bbaa4
+
+private:
+    CWindowTaskPictureSwitch* newButton(int32_t button);
+    CNoticeIconBase* newNotice(int32_t i);
+    void placeNotices();
+};
+YO2_AT(CWindowModelMenu, menubar_, 0x398);
+YO2_AT(CWindowModelMenu, buttons_, 0x3a4);
+YO2_AT(CWindowModelMenu, hasButton_, 0x3b8);
+YO2_AT(CWindowModelMenu, pushed_, 0x3cc);
+YO2_AT(CWindowModelMenu, notices_, 0x3d4);
+YO2_AT(CWindowModelMenu, shown_, 0x3f4);
+YO2_AT(CWindowModelMenu, noticePushed_, 0x3fc);
+YO2_AT(CWindowModelMenu, text_, 0x404);
+YO2_AT(CWindowModelMenu, helpMng_, 0x410);
+YO2_AT(CWindowModelMenu, help_, 0x414);
+YO2_AT(CWindowModelMenu, subHelp_, 0x434);
+YO2_AT(CWindowModelMenu, eventShown_, 0x454);
+YO2_AT(CWindowModelMenu, eventRank_, 0x458);
+YO2_AT(CWindowModelMenu, subShown_, 0x45d);
+YO2_AT(CWindowModelMenu, eventSub_, 0x460);
+YO2_AT(CWindowModelMenu, subOn_, 0x465);
+YO2_SIZEOF(CWindowModelMenu, 0x468);

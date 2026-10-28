@@ -128,3 +128,117 @@ YO2_AT(CMainMenu, duelpass_, 0x420);
 YO2_AT(CMainMenu, active_, 0x42c);
 YO2_AT(CMainMenu, shown_, 0x42e);
 YO2_SIZEOF(CMainMenu, 0x440);
+
+// --- CWindowModelMove: "where to go", a list of choice buttons (six rows, a scroll bar) in a move frame ------------
+// Picking a button sets picked_ (its index); the × hides the window.
+class CWindowModelMove : public CWindowTaskModel {
+public:
+    static CWindowModelMove* create(CTask* parent, int32_t kind);
+    CWindowModelMove();
+    ~CWindowModelMove() override;
+    bool onInit() override;
+    // @yo2 0x00a6ad80 CWindowModelMove::onMain
+    bool onMain() override { return true; }
+    // @yo2 0x00a6a930 CWindowModelMove::applyZ
+    void applyZ() override { pos_.z = z_; }
+    void layout() override;
+    int32_t maxZ() const override;
+    void onControlEvent(CWindowTaskControll* sender) override;
+    // @yo2 0x00a6a950 CWindowModelMove::onControlCommand
+    void onControlCommand(CWindowTaskControll*) override { bringToFront(); }
+    // @yo2 0x00a6a970 CWindowModelMove::mediatorSlot2 (empty)
+    void mediatorSlot2(CWindowTaskControll*) override {}
+    // @yo2 0x00a6a990 CWindowModelMove::mediatorSlot3 (empty)
+    void mediatorSlot3(CWindowTaskControll*) override {}
+
+    CWindowTaskTextSwitch* newItem();
+    void addItem(const WChar* text);
+
+    CTaskPtr<CWindowTaskFrameMove> frame_;      // 0x398 "外出先リストウィンドウのフレーム"
+    CTaskPtr<CWindowTaskScrollBase> scroll_;    // 0x3a4 a CWindowResultScroll "外出先リスト用スクロールバー"
+    CTaskPtr<CWindowTaskIconHide> close_;       // 0x3b0 "外出先リスト用×ボタン"
+    vc6::vector<CWindowTaskTextSwitch*> items_; // 0x3bc
+    int32_t picked_ = 0;                        // 0x3cc -1 after onInit
+    int32_t rows_ = 0;                          // 0x3d0 6 after onInit
+    int32_t kind_ = 0;                          // 0x3d4 the frame's (CWindowTaskFrameMove::kind_)
+};
+YO2_AT(CWindowModelMove, frame_, 0x398);
+YO2_AT(CWindowModelMove, scroll_, 0x3a4);
+YO2_AT(CWindowModelMove, close_, 0x3b0);
+YO2_AT(CWindowModelMove, items_, 0x3bc);
+YO2_AT(CWindowModelMove, picked_, 0x3cc);
+YO2_AT(CWindowModelMove, kind_, 0x3d4);
+YO2_SIZEOF(CWindowModelMove, 0x3d8);
+
+// --- CWindowTaskFramePlace: the place plate's frame, lobbyname_win_01_c01.png (a 224 x 52 body, 16-pixel ends) -----
+class CWindowTaskFramePlace : public CWindowTaskPictureFrame {
+public:
+    static CWindowTaskFramePlace* create(CTask* parent, IWindowTaskMediator* mediator);
+    CWindowTaskFramePlace();
+    ~CWindowTaskFramePlace() override;
+    void loadImages() override;
+    void setSize(float w, float h);
+
+    uint32_t unk474_ = 0;   // 0x474
+};
+YO2_SIZEOF(CWindowTaskFramePlace, 0x478);
+
+// --- CWindowModelPlace: the plate at the top showing where the player is: the lobby and the map, each with its ----
+// player count (refreshed every 5 seconds while shown)
+class CWindowModelPlace : public CWindowTaskModel {
+public:
+    static CWindowModelPlace* create(CTask* parent);
+    CWindowModelPlace();
+    ~CWindowModelPlace() override;
+    bool onInit() override;
+    bool onMain() override;
+    void layout() override;
+    // @yo2 0x00a8e7d0 CWindowModelPlace::refresh (the names and counts again, through layout)
+    void refresh() { layout(); }
+    int32_t maxZ() const override;
+    // @yo2 0x00a8e7f0 CWindowModelPlace::onControlEvent (empty)
+    void onControlEvent(CWindowTaskControll*) override {}
+    // @yo2 0x00a8d2f0 CWindowModelPlace::onControlCommand
+    void onControlCommand(CWindowTaskControll*) override { bringToFront(); }
+    // @yo2 0x00a8d310 CWindowModelPlace::mediatorSlot2 (empty)
+    void mediatorSlot2(CWindowTaskControll*) override {}
+    // @yo2 0x00a8d330 CWindowModelPlace::mediatorSlot3 (empty)
+    void mediatorSlot3(CWindowTaskControll*) override {}
+
+    CTaskPtr<CWindowTaskFramePlace> frame_;        // 0x398 "場所表示フレーム"
+    CTaskPtr<CWindowTaskShadowText> lobbyName_;    // 0x3a4 "ロビー表示"
+    CTaskPtr<CWindowTaskShadowText> mapName_;      // 0x3b0 "マップ表示"
+    CTaskPtr<CWindowTaskShadowText> lobbyCount_;   // 0x3bc "ロビー人数表示" "(n/1000)"
+    CTaskPtr<CWindowTaskShadowText> mapCount_;     // 0x3c8 "マップ人数表示" "(n/32)"
+    int32_t lastUpdate_ = 0;                       // 0x3d4 time() of the last count refresh
+    int32_t lobbyPlayers_ = 0;                     // 0x3d8
+    int32_t mapPlayers_ = 0;                       // 0x3dc
+    vc6::string unk3e0_;                           // 0x3e0
+    vc6::string unk3f0_;                           // 0x3f0
+};
+YO2_AT(CWindowModelPlace, frame_, 0x398);
+YO2_AT(CWindowModelPlace, lobbyCount_, 0x3bc);
+YO2_AT(CWindowModelPlace, lastUpdate_, 0x3d4);
+YO2_AT(CWindowModelPlace, unk3e0_, 0x3e0);
+YO2_SIZEOF(CWindowModelPlace, 0x400);
+
+// --- CWindowModelGoEvent: "go to the event lobby?" (はい / いいえ); a player below level 2 only gets an OK button --
+// It holds GameCtrl's CTRL_MOVE_MENU2 while open and closes on a right click.
+class CWindowModelGoEvent : public CWindowModelDialogYesNo {
+public:
+    static CWindowModelGoEvent* create(CTask* parent, bool fromTournament);
+    CWindowModelGoEvent();
+    ~CWindowModelGoEvent() override;
+    bool onInit() override;
+    bool onMain() override;
+    void onDestroy() override;
+    void onControlEvent(CWindowTaskControll* sender) override;   // the answer goes to the window's callback
+
+    uint32_t unk408_ = 0;                 // 0x408
+    CTaskPtr<CWindowTaskTextSwitch> ok_;  // 0x40c "レベルが低いから参加できないときのボタン"
+    bool fromTournament_ = false;         // 0x418 with sub-kind 0xb: the tournament's text
+    uint8_t unk419_[7] = {};
+};
+YO2_AT(CWindowModelGoEvent, ok_, 0x40c);
+YO2_AT(CWindowModelGoEvent, fromTournament_, 0x418);
+YO2_SIZEOF(CWindowModelGoEvent, 0x420);

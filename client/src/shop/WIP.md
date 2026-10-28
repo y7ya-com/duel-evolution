@@ -11,3 +11,7 @@ the 14 POD vector instances by difftest (`harness/difftest/cases/shop.py`, 14/14
 constructors and the copy constructor were fixed to copy the allocator byte), ShopLineVec (0xb027f0 / 0xb025f0) by
 `tests/ui_shop/shopvec_test.cpp`. `yo2ShopParts.cpp.wip` and the classes in `yo2shopEntry.h` are still unchecked
 (no markers count from them); game-b ports them in work order.
+
+CShopPricePlate (16 rows) is checked against the exe and ported to yo2ShopPlates.cpp (tests/ui_shop/shopnumber_test).
+
+CShopConfirmWindow (14 rows) is checked and ported to yo2ShopConfirm.cpp (tests/ui_shop/shopconfirm_test); ShopCartLine moved there.

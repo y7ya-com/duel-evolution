@@ -2,13 +2,19 @@
 #include <windows.h>
 
 #include <cmath>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "Game/yo2AppAccess.h"
 #include "Game/yo2Menu.h"
-#include "Game/yo2TgtAvaListDlg.h"
+#include "Game/yo2MenuNotice.h"
+#include "Game/yo2GameCtrl.h"
+#include "Game/yo2WorldMngExtern.h"
+#include "Net/NetLobby.h"
 #include "System/yo2StringDB.h"
+#include "System/window/yo2WindowControlsB.h"
 #include "System/yo2ZSort.h"
 #include "game_test.h"
 
@@ -18,7 +24,8 @@ struct Win : CWindowTaskModel {
     int commands = 0;
     void layout() override {}
     int32_t maxZ() const override { return static_cast<int32_t>(z_); }
-    void onControlEvent(CWindowTaskControll*) override {}
+    int events = 0;
+    void onControlEvent(CWindowTaskControll*) override { events++; }
     void onControlCommand(CWindowTaskControll*) override { commands++; }
 };
 
@@ -70,11 +77,36 @@ struct FakeText : CStringDB {
     vc6::string get(uint32_t id) const override { return yo2Format("T%u", id); }
 };
 
+uint8_t appDuelSetting(AppDuelSetting) { return 0; }   // (yo2DuelWindows.o comes with the duel button)
+CWindowTaskScrollBase* duelResultScrollCreate(CTask* p, IWindowTaskMediator* m, int32_t) {
+    return CWindowTaskScroll::create(p, m, 0);
+}
+
+static int32_t g_eventRank = 5, g_eventSub = 0;
+int32_t menuBarEventRank() { return g_eventRank; }
+int32_t menuBarEventSub() { return g_eventSub; }
+static uint8_t g_level = 3;
+uint8_t accountPlayerLevel() { return g_level; }
+static bool g_rightPushed;
+bool appMouseRightPushed() { return g_rightPushed; }
+
+static CNetLobby* g_lobby;
+CNetLobby* appNetLobby() { return g_lobby; }
+static int32_t g_map = 4;
+int32_t& gameCurrentMap() { return g_map; }
+int32_t lobbyPlayerCount() { return 321; }
+vc6::wstring lobbyDisplayName(uint8_t rank, uint8_t area) { return windowWiden(yo2Format("L%d.%d", rank, area)); }
+uint8_t blockDisplayNumber(uint8_t block) { return block * 2; }
+vc6::wstring mapDisplayName(int32_t map) { return windowWiden(yo2Format("MapName%d", map)); }
+int32_t gameMapPlayers() { return 17; }
+
 static bool approx(float a, float b) { return std::fabs(a - b) < 1e-4f; }
 static CElement* el(const CTaskPtrBase& p) { return windowElement(p); }
 static bool rectIs(const CElement* e, int u, int v, int w, int h) {
     return e->rect_[0] == u && e->rect_[1] == v && e->rect_[2] == w && e->rect_[3] == h;
 }
+
+static bool hidden(CElement* e) { return !e->disp_; }
 
 static void frameMain(Win* w) {
     CWindowTaskFrameMain* f = CWindowTaskFrameMain::create(w, w);
@@ -122,7 +154,6 @@ static void buttonMain(Win* w) {
     CHECK(b->pieces_[4].uv[4][0] == 104 && b->pieces_[8].uv[3][0] == 88 && b->pieces_[8].uv[3][1] == 16);
 }
 
-static bool hidden(CElement* e) { return !e->disp_; }
 
 static void mainMenu(CTask* root) {
     g_configOff = {2, 7};   // comment + title, friends + teams switched off
@@ -214,6 +245,143 @@ static void mainMenu(CTask* root) {
     g_configOff.clear();
 }
 
+static void moveWindow(CTask* root) {
+    CWindowModelMove* m = CWindowModelMove::create(root, 3);
+    CHECK(m && m->taskName() == "CWindowModelMove" && m->kind_ == 3 && m->frame_->kind_ == 3);
+    CHECK(m->frame_->instName() == "外出先リストウィンドウのフレーム" && m->picked_ == -1 && m->rows_ == 6);
+    CHECK(m->x_ == 364 && m->pos_.y == 178 && m->w_ == 296 && m->h_ == 188 && m->topmost_ && m->modal_);
+    CHECK(m->maxZ() == static_cast<int32_t>(m->z_ + 2) && m->close_->z_ == 2);
+    // empty: the frame is 38 wide (no items) and 188 high (h_ is more than 6 rows' 186)
+    CHECK(m->frame_->w_ == 38 && m->frame_->h_ == 188 && m->scroll_->length_ == 158 && m->close_->x_ == 14);
+    for (int i = 0; i < 8; i++)
+        m->addItem(u"Area");
+    CHECK(m->items_.size() == 8 && m->scroll_->max_ == 2);
+    CWindowTaskTextSwitch* first = m->items_[0];
+    CHECK(first->instName() == "外出先リスト用選択しボタンのひとつ" && first->minW_ == 258 && first->z_ == 2);
+    CHECK(first->caption_->text_->fontSize_ == 16);
+    CHECK(first->y_ == 24 && m->items_[5]->y_ == 154 && !hidden(m->items_[5]) && hidden(m->items_[6]));
+    CHECK(m->frame_->w_ == static_cast<float>(static_cast<int32_t>(first->w_) + 38));
+    CHECK(m->close_->x_ == m->frame_->w_ - 24 && m->scroll_->x_ == m->close_->x_);
+    m->scroll_->setValue(2);
+    m->onControlEvent(m->scroll_.get());
+    CHECK(hidden(m->items_[0]) && hidden(m->items_[1]) && m->items_[2]->y_ == 24 && !hidden(m->items_[7]));
+    m->onControlEvent(m->items_[3]);
+    CHECK(m->picked_ == 3 && !hidden(m));
+    m->onControlEvent(m->close_.get());
+    CHECK(hidden(m));
+}
+
+static std::u16string textOf(CWindowTaskShadowText* t) { return std::u16string(elmOf(t->text_.get())->text); }
+
+static void placePlate(CTask* root) {
+    auto lobby = std::make_unique<CNetLobby>();
+    g_lobby = lobby.get();
+    g_lobby->rank = 3, g_lobby->area = 5, g_lobby->block = 2;
+    CWindowModelPlace* p = CWindowModelPlace::create(root);
+    CHECK(p && p->taskName() == "場所表示" && hidden(p) && p->maxZ() == static_cast<int32_t>(p->z_ + 5));
+    CWindowTaskFramePlace* f = p->frame_.get();
+    CHECK(f->taskName() == "デュエルメニュー背景" && f->instName() == "場所表示フレーム" && f->w_ == 260 && f->h_ == 52);
+    CHECK(f->topLeft_.get()->texture == "data/common/window/lobbyname_win_01_c01.png");
+    CHECK(f->pieces_[3].w == 224 && f->pieces_[3].h == 52 && f->pieces_[4].u == 224 && f->pieces_[5].u == 240);
+    CHECK(rectIs(f->topLeft_.get(), 0, 0, 1, 1) && f->top_.get()->texture == f->topLeft_.get()->texture);
+    CHECK(p->lobbyCount_->x_ == 140 && p->lobbyCount_->y_ == 9 && p->mapName_->y_ == 26 && p->lobbyName_->x_ == 20);
+    CHECK(p->lobbyCount_->text_->align() == CWindowTaskText::RIGHT && p->mapName_->text_->align() == CWindowTaskText::LEFT);
+    CHECK(p->lobbyName_->instName() == "ロビー表示" && p->mapCount_->instName() == "マップ人数表示");
+    // shown: the names and counts; the counts and the frame follow the longer name
+    windowShow(p);
+    elmOf(p->lobbyName_->text_.get())->width = 60;
+    elmOf(p->mapName_->text_.get())->width = 90;
+    p->refresh();
+    CHECK(textOf(p->lobbyName_.get()) == u"L3.5" && textOf(p->lobbyCount_.get()) == u"(321/1000)");
+    CHECK(textOf(p->mapName_.get()) == u"MapName4[5]" && textOf(p->mapCount_.get()) == u"(17/32)");
+    CHECK(p->lobbyCount_->x_ == 110 && p->mapCount_->x_ == 110 && p->mapCount_->y_ == 26 && f->w_ == 230);
+    CHECK(p->mapCount_->shadow_->x_ == 110 + p->mapCount_->shadowDx_);
+    // onMain: the counts only, at most every 5 seconds
+    g_lobby->players.resize(3);
+    p->onMain();
+    CHECK(textOf(p->lobbyCount_.get()) == u"(321/1000)");
+    p->lastUpdate_ -= 10;
+    p->onMain();
+    CHECK(textOf(p->lobbyCount_.get()) == u"(3/1000)" && p->lobbyPlayers_ == 3);
+    g_lobby = nullptr;
+}
+
+static void noticeIcons(Win* w) {
+    CNoticeIconMail* m = CNoticeIconMail::create(w, w);
+    CHECK(m && m->taskName() == "メール通知アイコン" && m->mediator_ == w && m->kind() == 0x1c);
+    CHECK(CNoticeIconTeam::create(w, w)->taskName() == "チーム申し込み通知アイコン");
+    CNoticeIconMaintenance* mt = CNoticeIconMaintenance::create(w, w);
+    CHECK(mt->taskName() == "メンテ通知アイコン");
+    m->pos_ = {100, 200, 0};
+    m->updateMatrix();
+    CHECK(m->hitTest(101, 201) && m->hitTest(131, 231) && !m->hitTest(100, 210) && !m->hitTest(132, 210));
+    m->z_ = 5;
+    m->layout();
+    CHECK(m->pos_.z == static_cast<float>(m->z()));
+    WindowMsg msg{};
+    msg.msg = 0x202;
+    CHECK(!m->handleMessage(msg));
+    msg.msg = 0x201;
+    int before = w->events;
+    CHECK(m->handleMessage(msg) && m->pressed_ && m->pressFrames_ == 1 && w->events == before + 1);
+    m->onMain();   // the frame of the press
+    CHECK(m->pressed_ && m->pressFrames_ == 0);
+    m->onMain();
+    CHECK(!m->pressed_ && m->pressFrames_ == -1);
+}
+
+struct Answer {
+    std::vector<intptr_t> got;
+    int onResult(CWindowTaskModel*, CALLBACK_MESSAGE_TYPE, intptr_t v) {
+        got.push_back(v);
+        return 0;
+    }
+};
+
+static void goEvent(CTask* root) {
+    g_gameCtrl.reset();
+    g_gameCtrl.enter(CTRL_ERROR);
+    CHECK(!CWindowModelGoEvent::create(root, false));   // the mode can't be taken
+    g_gameCtrl.reset();
+    CWindowModelGoEvent* w = CWindowModelGoEvent::create(root, false);
+    CHECK(w && w->taskName() == "イベントロビー移動ウィンドウ" && g_gameCtrl.now() == CTRL_MOVE_MENU2);
+    CHECK(w->w_ == 300 && std::u16string(elmOf(w->textField_->text_.get())->text) == u"T7038" && !w->ok_);
+    CHECK(w->yes_->disp_ && w->onMain());
+    Answer a;
+    w->setCallback(CCallbackM3<Answer, int, CWindowTaskModel*, CALLBACK_MESSAGE_TYPE, intptr_t>(&a, &Answer::onResult));
+    w->onControlEvent(w->yes_);
+    w->onControlEvent(w->no_);
+    CHECK(a.got.size() == 2 && a.got[0] == 4000 && a.got[1] == 0xfa1 && g_sounds.back() == 0x10000002);
+    g_rightPushed = true;
+    CHECK(!w->onMain());
+    g_rightPushed = false;
+    w->destroy(__FILE__, __LINE__);
+    CHECK(g_gameCtrl.now() == CTRL_NONE);
+    // below level 2: the OK button only; the tournament's text with sub-kind 0xb
+    g_level = 1, g_eventSub = 0xb;
+    CWindowModelGoEvent* low = CWindowModelGoEvent::create(root, true);
+    CHECK(low->ok_ && !low->yes_->disp_ && !low->no_->disp_ && low->ok_->z_ == 3);
+    CHECK(low->ok_->instName() == "レベルが低いから参加できないときのボタン");
+    low->destroy(__FILE__, __LINE__);
+    CTask::flushDeleted();
+    g_level = 3, g_eventSub = 0;
+}
+
+static void frameDuel(CTask* root) {
+    struct Med : IWindowTaskMediator {
+        void onControlEvent(CWindowTaskControll*) override {}
+        void onControlCommand(CWindowTaskControll*) override {}
+    } med;
+    CWindowTaskFrameDuel* f = CWindowTaskFrameDuel::create(root, &med);
+    CHECK(f && f->taskName() == "デュエルメニュー背景" && f->mediator_ == &med);
+    CHECK(f->topLeft_.get()->texture == "data/common/window/duel_win_01_c01.png" && f->top_.get()->texture == f->topLeft_.get()->texture);
+    CHECK(f->pieces_[4].w == 64 && f->pieces_[4].h == 8 && f->pieces_[4].u == 100 && f->pieces_[4].v == 152);
+    CHECK(f->pieces_[8].w == 100 && f->pieces_[8].h == 48 && f->pieces_[8].u == 108 && f->pieces_[8].v == 160);
+    CHECK(rectIs(f->topLeft_.get(), 0, 0, 100, 152) && rectIs(f->topRight_.get(), 108, 0, 100, 152));
+    CHECK(rectIs(f->bottomLeft_.get(), 0, 160, 100, 48) && rectIs(f->bottomRight_.get(), 108, 160, 100, 48));
+    f->destroy(__FILE__, __LINE__);
+}
+
 int main() {
     CZSortSet layers;
     g_zsortSet = &layers;
@@ -226,7 +394,12 @@ int main() {
     frameMain(w);
     frameMove(w);
     buttonMain(w);
+    noticeIcons(w);
     mainMenu(root);
+    moveWindow(root);
+    placePlate(root);
+    frameDuel(root);
+    goEvent(root);
     root->destroy(__FILE__, __LINE__);
     CTask::flushDeleted();
     g_stringDB = nullptr;

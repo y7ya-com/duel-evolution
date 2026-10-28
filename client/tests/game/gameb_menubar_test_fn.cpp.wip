@@ -1,0 +1,51 @@
+static void menuBar(CTask* root) {
+    auto lobby = std::make_unique<CNetLobby>();
+    g_lobby = lobby.get();
+    g_lobby->rank = 3;
+    CSystemConfigManager config;
+    g_systemConfig = &config;
+    CWindowModelMenu* m = CWindowModelMenu::create(root, 0, 736);
+    g_gameMng->menu_.set(m);
+    CHECK(m && m->taskName() == "CWindowModelMenu" && m->x_ == 0 && m->y_ == 736 && m->w_ == 384 && m->h_ == 32);
+    CHECK(m->menubar_.get() && m->text_->x_ == 392 && m->text_->pos_.z == 1 && m->eventRank_ == -1 && m->modal_);
+    // buttons: one row of menuicon_02_c01.png each, 80 apart
+    m->setButton(0, CWindowModelMenu::MAIN);
+    m->setButton(2, CWindowModelMenu::MOVE);
+    CWindowTaskPictureSwitch* b = m->buttons_[2];
+    CHECK(b->instName() == "CWindowModelMenuのMENUBAR_MENU_MOVEボタン" && b->x_ == 160 && b->pos_.x == 160);
+    CHECK(b->w_ == 80 && b->h_ == 32 && b->z_ == 10 && !b->isLocked(2));
+    CHECK(rectIs(b->normal_.get(), 0, 0x60, 80, 32) && rectIs(b->hover_.get(), 80, 0x60, 80, 32));
+    CHECK(b->normal_.get()->texture == "data/common/window/menuicon_02_c01.png");
+    m->onControlEvent(b);
+    CHECK(m->buttonPushed(2) && !m->buttonPushed(0));
+    m->clearButtonPushed(2);
+    m->enableButton(2, false);
+    CHECK(!m->buttonPushed(2) && !b->enabled_ && m->hasButton_[2] == 1 && m->hasButton_[1] == 0);
+    m->setButton(2, CWindowModelMenu::NONE);
+    CHECK(!m->buttons_[2]);
+    // notices: from x 232, 36 apart
+    m->showNotice(CWindowModelMenu::MAIL);
+    m->showNotice(CWindowModelMenu::TEAM);
+    CHECK(m->notices_[1]->pos_.x == 232 && m->notices_[7]->pos_.x == 268 && m->notices_[7]->pos_.y == -16);
+    CHECK(m->notices_[7]->instName() == "CWindowModelMenuのMENUBAR_NOTICE_TEAMボタン");
+    m->onControlEvent(m->notices_[7]);
+    CHECK(m->noticePushed(7) && !m->noticePushed(1));
+    for (int i : {0, 2, 3, 4})
+        m->showNotice(i);
+    CHECK(m->notices_[0]->pos_.x == 232 && m->notices_[7]->pos_.x == 232 + 5 * 18);
+    m->hideNotices();
+    CHECK(!m->notices_[1] && !m->noticeShown(7));
+    // the event notice: kind 5 opens it (rank 3 is no event lobby), 6 closes it
+    m->setEvent(5);
+    CHECK(m->eventRank_ == 5 && m->eventShown_ && m->noticeShown(CWindowModelMenu::EVENT) && m->help_.priority_ == 11);
+    m->setEvent(6);
+    CHECK(m->eventRank_ == -1 && !m->eventShown_ && !m->noticeShown(CWindowModelMenu::EVENT) && m->help_.priority_ == 9);
+    m->setEvent(11);
+    CHECK(m->eventSub_ == 11 && m->noticeShown(CWindowModelMenu::TOUR) && m->subHelp_.priority_ == 12);
+    g_lobby->rank = 8;   // in an event lobby: no notices
+    m->setEvent(7);
+    CHECK(m->eventRank_ == 7 && !m->noticeShown(CWindowModelMenu::EVENT) && !m->noticeShown(CWindowModelMenu::TOUR));
+    m->destroy(__FILE__, __LINE__);
+    g_systemConfig = nullptr;
+    g_lobby = nullptr;
+}

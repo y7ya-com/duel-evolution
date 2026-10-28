@@ -40,7 +40,7 @@ public:
         START_TOURNAMENT = 22,  // a CTourMng of kind 0xb
         IN_TOURNAMENT = 23,
         QUIT = 24,            // nothing more to do (quit_ is set)
-        ERROR = 25,           // the error box is up; QUIT once it is answered
+        ERROR_BOX = 25,       // the error box is up; QUIT once it is answered
     };
 
     static CWorldMng* create(CTask* parent, uint32_t priority);
@@ -78,6 +78,7 @@ public:
     void startTournament();
     void inTournament();
     void errorBox();
+    void clearRecs();
 
     // 0x44-byte records kept at 0xcc; nothing in this file adds any.
     struct Rec {
@@ -98,12 +99,13 @@ public:
     CTaskPtr<CTask> tour_;         // 0xb4 CTourMng "トーナメント管理"
     CTaskPtr<CWindowModelDialogOk> errDlg_;   // 0xc0 "エラーダイアログ"
     vc6::vector<Rec> recs_;        // 0xcc
+    uint32_t unkDC_ = 0;           // 0xdc
 
 private:
     void connectRandom(uint8_t rank, int32_t next);
-    void spawnGuns(int32_t kind, const char* name, int line);
+    void spawnGuns(int32_t kind, const char* name);
     void openErrorBox();
-    void leaveLobby();   // the 0x5310 "left" notice for the current block
+    void leaveBlock();   // the 0x5310 notice that the player left the current block
     static CWorldMng* s_instance;   // DAT_012bc8d0
 };
 YO2_AT(CWorldMng, state_, 0x70);

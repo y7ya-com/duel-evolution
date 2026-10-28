@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 
+#include "System/vc6.h"
 #include "System/yo2EasyTask.h"
 
 struct CPlayerBinData;   // src/Net/NetAccount.h: the player's PBIN bits
@@ -43,6 +44,10 @@ public:
     int32_t slot(uint32_t pbin) const;
     int32_t nameText(uint32_t pbin) const;
     int32_t series(uint32_t pbin) const;
+    // An avatar part's name as the shop and the item windows show it: "<slot> - <name>(<male / female>)" (texts
+    // 0xc97.. for the slot, nameText, 0xca7 / 0xca8); "-----" and false for anything that isn't a male or female part.
+    // (The exe swprintfs into the caller's buffer; here it is a string.)
+    bool displayName(uint32_t pbin, vc6::wstring* out) const;
 
     PbinInfo info_[COUNT] = {};   // 0x70
 };

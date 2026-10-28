@@ -1,7 +1,7 @@
-// yo2TgtAvaListDlg.cpp: GameCtrl (UI mode arbitration) and CTgtAvaListDlg's construction.
+// yo2GameCtrl.cpp: GameCtrl (UI mode arbitration). CTgtAvaListDlg is in gameb_tgtava_test.cpp.
 #include <cstring>
 
-#include "Game/yo2TgtAvaListDlg.h"
+#include "Game/yo2GameCtrl.h"
 #include "game_test.h"
 
 int main() {
@@ -31,11 +31,5 @@ int main() {
     c.reset();
     CHECK(c.now() == CTRL_NONE);
 
-    CTask* root = CTask::createRoot();
-    auto* d = new CTgtAvaListDlg;
-    CHECK(d->CTask::create(root, 100) == d && d->taskName() == "CTgtAvaListDlg");
-    CHECK(d->flags_ == 0 && !d->list_ && !d->avatarMng_ && !d->target_ && d->avatars_.empty());
-    root->destroy(__FILE__, __LINE__);
-    CTask::flushDeleted();
     std::printf("world_tgtavalist_test ok\n");
 }

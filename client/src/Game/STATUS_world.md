@@ -92,21 +92,7 @@ constructor inlined, destructors, receive). The message text comes from System's
 The CTaskPtr<CWindowModelDialogWithBtns> get / deleting dtor copies after the block (0x00a60560, 0x00a60790) are
 System template instances.
 
-## yo2TgtAvaListDlg.cpp (0x00ad8ec0..0x00adaf50, 24 functions: 9 rewritten)
+## yo2TgtAvaListDlg.cpp (0x00ad8ec0..0x00adaf50)
 
-Rewritten: CTgtAvaListDlg's constructor and destructors, and GameCtrl (DAT_012bc618, the UI-mode arbiter; table
-DAT_00bf3f48) whose six methods sit in this object (callers all over the game: CGameMng's "NowCtrl" dump, the menus,
-the duel and trade windows). The coordinator may want GameCtrl in its own header; it is here because of where the
-exe put it.
-
-| Address | What | Why not |
-|---|---|---|
-| 0x00ad8ec0 | CTgtAvaListDlg::create(parent, priority, flags, CChibiAvatarMng*) | blocked: CTaskPtr<CChibiAvatarMng>::set needs the class (Test/Avatar owner) |
-| 0x00ad90d0 | CTgtAvaListDlg::open(x, y, ...): enter(CTRL_AVATAR_LIST), collect the avatars under the cursor (CChibiAvatarMng 0x009d3190), fill and show the list | blocked: window framework (CWindowModelList) + avatar classes |
-| 0x00ad9a00 | CTgtAvaListDlg::close: un-highlight the avatars, leave(CTRL_AVATAR_LIST), hide the list | blocked: avatar classes + window framework |
-| 0x00ad9e80 | CTgtAvaListDlg::onInit (builds the CWindowModelList) | blocked: window framework |
-| 0x00ada5b0 | CTgtAvaListDlg::onMain (pick -> player info / NPC talk via 0x0085f890 / 0x0089a920 / 0x0085f8c0 / 0x0089f790) | blocked: window framework + avatar classes |
-| 0x00ada780 | CTgtAvaListDlg::onDestroy (close, leave, destroy the list) | blocked: close() |
-| 0x00ada7f0, 0x00adaa90, 0x00adac90, 0x00adacd0, 0x00adad10, 0x00adad40 | std::vector<CChibiAvatar*> free / capacity, copy x2, find, remove_copy (MSVC6 instances) | used only by the blocked open(); vc6::vector stands for the vector itself |
-
-0x00ada830 (get), 0x00adaa60 (deleting dtor), 0x00adaac0 (set) are CTaskPtr<T> copies counted under System.
+Rewritten completely by game-b (CTgtAvaListDlg: tests/game/gameb_tgtava_test.cpp). GameCtrl, its own object right
+after this one in the exe, moved to yo2GameCtrl.{h,cpp}; yo2TgtAvaListDlg.h still includes it for older callers.

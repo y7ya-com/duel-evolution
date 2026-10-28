@@ -1,0 +1,333 @@
+// yo2Menu.cpp: CWindowModelMenu, the menu bar (see yo2MenuBar.h).
+#include "Game/yo2MenuBar.h"
+
+#include "Game/yo2GameManager.h"
+#include "Net/NetLobby.h"
+#include "Net/NetUi.h"
+#include "System/yo2Debug.h"
+#include "System/yo2SystemConfig.h"
+
+int32_t CWindowModelMenu::s_buttonsMade;
+
+// @yo2 0x00a7e190 CWindowModelMenu::CWindowModelMenu
+CWindowModelMenu::CWindowModelMenu() { setTaskName("CWindowModelMenu"); }
+
+// @yo2 0x00a7e590 CWindowModelMenu::create
+// @yo2 0x00a7e670 CWindowModelMenu::setPos (inline: x_, y_)
+CWindowModelMenu* CWindowModelMenu::create(CTask* parent, float x, float y) {
+    auto* m = new CWindowModelMenu;
+    m->x_ = x;
+    m->y_ = y;
+    return dynamic_cast<CWindowModelMenu*>(m->CTask::create(parent, 10000));
+}
+
+// @yo2 0x00a7e4f0 CWindowModelMenu::~CWindowModelMenu
+// @yo2 0x00a7e4a0 CWindowModelMenu deleting destructor
+CWindowModelMenu::~CWindowModelMenu() = default;
+
+// @yo2 0x00a7e6a0 CWindowModelMenu::onInit: 384 x 32 at (0, 736); the message bar, the text at (392, 8)
+bool CWindowModelMenu::onInit() {
+    x_ = 0;
+    y_ = 736;
+    inheritTransform_ = true;
+    pos_.x = 0;
+    pos_.z = z_;
+    pos_.y = 736;
+    w_ = 384;
+    h_ = 32;
+    help_.setPriority(0);
+    subHelp_.setPriority(0);
+    menubar_.setUser(this);
+    menubar_.set(CWindowTaskMenubar::create(this, this));
+    menubar_->pos_.z = 0;
+    menubar_->pos_.x = menubar_->pos_.y = 0;
+    helpMng_ = g_helpTextMng;
+    helpMng_->setMenubar(menubar_.get());
+    for (int i = 0; i < BUTTONS; i++) {
+        buttons_[i] = nullptr;
+        hasButton_[i] = 0;
+        pushed_[i] = false;
+    }
+    for (int i = 0; i < NOTICES; i++) {
+        notices_[i] = nullptr;
+        shown_[i] = noticePushed_[i] = false;
+    }
+    text_.setUser(this);
+    text_.set(CWindowTaskText::create(this, this));
+    CWindowTaskText* t = text_.get();
+    t->x_ = t->pos_.x = 392;
+    t->y_ = t->pos_.y = 8;
+    t->posZ_ = t->pos_.z = 1;
+    eventShown_ = false;
+    eventOn_ = true;
+    eventRank_ = -1;
+    unk45c_ = 0;
+    subShown_ = false;
+    subOn_ = true;
+    eventSub_ = -1;
+    modal_ = true;
+    layout();
+    return true;
+}
+
+// @yo2 0x00a7e410 CWindowModelMenu::maxZ
+int32_t CWindowModelMenu::maxZ() const { return static_cast<int32_t>(z_ + 5.0f); }
+
+// @yo2 0x00a7e3b0 CWindowModelMenu::setText
+void CWindowModelMenu::setText(const WChar* s) {
+    text_->setText(s);
+    layout();
+}
+
+// @yo2 0x00a80010 CWindowModelMenu::onControlEvent
+void CWindowModelMenu::onControlEvent(CWindowTaskControll* sender) {
+    for (int i = 0; i < BUTTONS; i++)
+        if (sender == buttons_[i] && sender)
+            pushed_[i] = true;
+    for (int i = 0; i < NOTICES; i++)
+        if (sender == notices_[i] && sender)
+            noticePushed_[i] = true;
+}
+
+// @yo2 0x00a7e930 CWindowModelMenu::newButton: an 80 x 32 picture switch from menuicon_02_c01.png, one row per
+// button (normal, hover, pressed / checked across); the duel buttons are hidden when the config says so
+CWindowTaskPictureSwitch* CWindowModelMenu::newButton(int32_t button) {
+    static const struct {
+        int32_t row;
+        const char* name;
+    } kButtons[] = {
+        {0, nullptr},
+        {0x00, "CWindowModelMenuのMENUBAR_MENU_MAINボタン"},
+        {0x40, "CWindowModelMenuのMENUBAR_MENU_DUELボタン"},
+        {0x20, "CWindowModelMenuのMENUBAR_MENU_DUELボタン"},
+        {0x60, "CWindowModelMenuのMENUBAR_MENU_MOVEボタン"},
+        {0x80, "CWindowModelMenuのMENUBAR_MENU_CONFIGボタン"},
+        {0xa0, "CWindowModelMenuのMENUBAR_MENU_RETURNボタン"},
+    };
+    YO2_ASSERT(button >= NONE && button <= RETURN, "不明なメニューIDが指定されました。");
+    if (button <= NONE || button > RETURN)
+        return nullptr;
+    vc6::string path = windowDataDir();
+    path += "menuicon_02_c01.png";
+    CWindowTaskPictureSwitch* b = CWindowTaskPictureSwitch::create(this, this, this);
+    windowNameTask(b, kButtons[button].name);
+    int32_t v = kButtons[button].row;
+    b->setImages(path.c_str(), WindowRect{0, v, 80, 32}, WindowRect{80, v, 80, 32}, WindowRect{160, v, 80, 32},
+                 WindowRect{160, v, 80, 32});
+    b->w_ = 80;
+    b->h_ = 32;
+    b->layout();
+    b->z_ = b->pos_.z = 10;
+    b->clearLockFlags(2);
+    b->setDisp(true, true);
+    if (g_systemConfig->noDuelMenu() && (button == DUEL || button == DUEL2)) {
+        b->setDisp(false, true);
+        b->setLockFlags(2);
+        b->enabled_ = false;
+    }
+    return b;
+}
+
+// @yo2 0x00a7f870 CWindowModelMenu::setButton: the old one destroyed, the new one at x = slot * 80
+void CWindowModelMenu::setButton(int32_t slot, int32_t button) {
+    if (buttons_[slot])
+        buttons_[slot]->destroy(__FILE__, __LINE__);
+    buttons_[slot] = newButton(button);
+    s_buttonsMade++;
+    if (CWindowTaskPictureSwitch* b = buttons_[slot]) {
+        b->y_ = b->pos_.y = 0;
+        b->x_ = b->pos_.x = static_cast<float>(slot * 80);
+    }
+    pushed_[slot] = false;
+}
+
+// @yo2 0x00a7fb40 CWindowModelMenu::clearButtons
+void CWindowModelMenu::clearButtons() {
+    for (int i = 0; i < BUTTONS; i++)
+        setButton(i, NONE);
+}
+
+// @yo2 0x00a7f930 CWindowModelMenu::enableButton
+void CWindowModelMenu::enableButton(int32_t slot, bool on) {
+    if (buttons_[slot])
+        buttons_[slot]->enabled_ = on;
+    hasButton_[slot] = buttons_[slot] != nullptr;
+    pushed_[slot] = false;
+}
+
+// @yo2 0x00a7fac0 CWindowModelMenu::checkButton
+void CWindowModelMenu::checkButton(int32_t slot, bool on) {
+    if (buttons_[slot])
+        buttons_[slot]->checked_ = on;
+}
+
+// @yo2 0x00a7f9d0 CWindowModelMenu::buttonPushed
+bool CWindowModelMenu::buttonPushed(int32_t slot) const { return pushed_[slot]; }
+
+// @yo2 0x00a7fb00 CWindowModelMenu::clearButtonPushed (only with a button there)
+void CWindowModelMenu::clearButtonPushed(int32_t slot) {
+    if (buttons_[slot])
+        pushed_[slot] = false;
+}
+
+// @yo2 0x00a7fb70 CWindowModelMenu::showNotice
+void CWindowModelMenu::showNotice(int32_t i) {
+    if (i < 0 || i >= NOTICES)   // (the exe allows 8, one past the arrays)
+        return;
+    shown_[i] = true;
+    noticePushed_[i] = false;
+    placeNotices();
+}
+
+// @yo2 0x00a7fbb0 CWindowModelMenu::hideNotice
+void CWindowModelMenu::hideNotice(int32_t i) {
+    if (i < 0 || i >= NOTICES)
+        return;
+    shown_[i] = false;
+    noticePushed_[i] = false;
+    placeNotices();
+}
+
+// @yo2 0x00a7ff10 CWindowModelMenu::hideNotices
+void CWindowModelMenu::hideNotices() {
+    for (bool& s : shown_)
+        s = false;
+    placeNotices();
+}
+
+// @yo2 0x00a7ff80 CWindowModelMenu::noticePressed
+bool CWindowModelMenu::noticePressed(int32_t i) const { return notices_[i] && notices_[i]->pressed_; }
+
+// @yo2 0x00a7fbf0 CWindowModelMenu::placeNotices: every icon made again, the shown ones from x 232, 36 apart (27 /
+// 21 / 18 for four / five / six of them)
+void CWindowModelMenu::placeNotices() {
+    for (CNoticeIconBase*& n : notices_)
+        if (n) {
+            n->destroy(__FILE__, __LINE__);
+            n = nullptr;
+        }
+    int32_t count = 0;
+    for (bool s : shown_)
+        count += s;
+    int32_t step = count == 4 ? 27 : count == 5 ? 21 : count == 6 ? 18 : 36;
+    int32_t x = 232;
+    for (int i = 0; i < NOTICES; i++) {
+        if (!shown_[i]) {
+            notices_[i] = nullptr;
+            noticePushed_[i] = false;
+            continue;
+        }
+        CNoticeIconBase* n = notices_[i] = newNotice(i);
+        n->pos_.y = -16;
+        n->pos_.z = 3;
+        n->pos_.x = static_cast<float>(x);
+        x += step;
+    }
+}
+
+// @yo2 0x00a7fd00 CWindowModelMenu::newNotice
+CNoticeIconBase* CWindowModelMenu::newNotice(int32_t i) {
+    CNoticeIconBase* n = nullptr;
+    const char* name = nullptr;
+    switch (i) {
+    case MAINTENANCE: n = CNoticeIconMaintenance::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_MAINTENANCEボタン"; break;
+    case MAIL: n = CNoticeIconMail::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_MAILEボタン"; break;
+    case FRIEND: n = CNoticeIconFriend::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_FRIENDボタン"; break;
+    case DUELROOM: n = CNoticeIconDuelroom::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_DUELROOMボタン"; break;
+    case OFFER: n = CNoticeIconOffer::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_OFFERボタン"; break;
+    case EVENT: n = CNoticeIconEvent::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_EVENTボタン"; break;
+    case TOUR: n = CNoticeIconTour::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_TOURボタン"; break;
+    case TEAM: n = CNoticeIconTeam::create(this, this), name = "CWindowModelMenuのMENUBAR_NOTICE_TEAMボタン"; break;
+    default: return nullptr;
+    }
+    windowNameTask(n, name);
+    return n;
+}
+
+// @yo2 0x00a800a0 CWindowModelMenu::setEvent: the event notice's help text and lobby rank (odd kinds open it, the
+// even one after closes it); 11 / 12 the sub notice's. Not while the maintenance notice is up, and not in the event
+// lobbies themselves.
+void CWindowModelMenu::setEvent(int32_t kind) {
+    if (noticeShown(MAINTENANCE))
+        return;
+    static const struct {
+        int32_t kind;
+        uint32_t text;
+    } kTexts[] = {{1, 0x1b72}, {2, 0x1b6e}, {3, 0x1b72}, {4, 0x1b72}, {5, 0xbed},  {6, 0x11d4}, {7, 0x1b84},
+                  {8, 0x11d5}, {9, 0x1b72}, {10, 0x1b72}, {13, 0x1b72}, {14, 0x1b6e}, {15, 0x1b76}, {16, 0x11d4},
+                  {17, 0x1b98}, {18, 0x11d7}, {21, 0x1ba4}, {22, 0x11d7}};
+    if (kind == 11) {
+        subHelp_.setText(windowText(0x1bcd));
+        subHelp_.setPriority(12);
+        eventSub_ = 11;
+        subShown_ = true;
+    } else if (kind == 12) {
+        subHelp_.setText(windowText(0x1bce));
+        subHelp_.setPriority(10);
+        hideNotice(TOUR);
+        eventSub_ = -1;
+        subShown_ = false;
+    } else {
+        for (const auto& t : kTexts)
+            if (t.kind == kind) {
+                help_.setText(windowText(t.text));
+                if (kind & 1) {
+                    eventRank_ = kind;
+                } else {
+                    hideNotice(EVENT);
+                    eventRank_ = -1;
+                }
+            }
+    }
+    eventShown_ = eventRank_ != -1;
+    help_.setPriority(eventShown_ ? 11 : 9);
+    // (the exe goes through g_gameMng's menu bar, which is this one)
+    CWindowModelMenu* bar = dynamic_cast<CWindowModelMenu*>(g_gameMng->menu_.task());
+    uint8_t rank = appNetLobby()->rank;
+    bool eventLobby = rank == 7 || rank == 9 || rank == 0xf || rank == 0x10 || rank == 0x11 || rank == 0x14 ||
+                      rank == 10 || rank == 8;
+    if (eventLobby || !eventShown_)
+        hideNotice(EVENT);
+    else
+        bar->showNotice(EVENT);
+    if (rank == 8 || !subShown_)
+        hideNotice(TOUR);
+    else
+        bar->showNotice(TOUR);
+    if (!eventShown_)
+        hideNotice(EVENT);
+    if (!subShown_)
+        hideNotice(TOUR);
+}
+
+// @yo2 0x00a80a90 CWindowModelMenu::showEventNotice
+void CWindowModelMenu::showEventNotice(bool on) {
+    if (on) {
+        if (eventShown_) {
+            showNotice(EVENT);
+            help_.setPriority(11);
+            eventOn_ = true;
+            return;
+        }
+    } else {
+        hideNotice(EVENT);
+        help_.hide();
+    }
+    eventOn_ = on;
+}
+
+// @yo2 0x00a80b10 CWindowModelMenu::showSubNotice
+void CWindowModelMenu::showSubNotice(bool on) {
+    if (on) {
+        if (subShown_) {
+            showNotice(TOUR);
+            subHelp_.setPriority(11);
+            subOn_ = true;
+            return;
+        }
+    } else {
+        hideNotice(TOUR);
+        subHelp_.hide();
+    }
+    subOn_ = on;
+}

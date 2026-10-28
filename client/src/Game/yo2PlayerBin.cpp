@@ -2,9 +2,11 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "Game/yo2GameData.h"
 #include "Net/NetAccount.h"
+#include "System/window/yo2WindowTask.h"
 #include "System/yo2Debug.h"
 
 // @yo2 0x00ad5130 CPbinDictionary::create (new + CTask::create at priority 10000)
@@ -109,4 +111,26 @@ int32_t CPbinDictionary::nameText(uint32_t pbin) const {
 int32_t CPbinDictionary::series(uint32_t pbin) const {
     YO2_ASSERT(pbin <= 0x3ff, "GetPbinDetailInfo() PBIN ERROR");
     return info_[pbin].series;
+}
+
+// @yo2 0x00ad65e0 CPbinDictionary::displayName
+bool CPbinDictionary::displayName(uint32_t pbin, vc6::wstring* out) const {
+    PbinInfo info = {};
+    getInfo(pbin, &info);
+    static const uint32_t kSlotText[9] = {0xc97, 0xc99, 0xc9e, 0xc9f, 0xca0, 0xca3, 0xca5, 0xcad, 0xc9a};
+    if ((info.kind != 1 && info.kind != 2) || info.slot < 1 || info.slot > 9) {
+        *out = u"-----";
+        return false;
+    }
+    vc6::wstring gender = windowText(info.kind == 1 ? 0xca7 : 0xca8);
+    vc6::wstring name = windowText(static_cast<uint32_t>(info.nameText));
+    vc6::wstring slot = windowText(kSlotText[info.slot - 1]);
+    std::u16string s{std::u16string_view(slot)};
+    s += u" - ";
+    s += std::u16string_view(name);
+    s += u"(";
+    s += std::u16string_view(gender);
+    s += u")";
+    *out = std::u16string_view(s);
+    return true;
 }
