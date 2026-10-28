@@ -146,6 +146,20 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   const pre = /^[\w-]+\/$/.test(c.env.CLIENT_PREFIX ?? "") && c.env.CLIENT_PREFIX !== "private/" ? c.env.CLIENT_PREFIX! : "recomp/";
   const rel = decodeURIComponent(path.slice(1)).replace(/(^|\/)$/, "$1index.html");
   const key = pre + rel;
+  // A versioned range (lazyfs's 1 MB chunks, ?v=<ETag>) comes from the edge cache once any player in that colo read it:
+  // R2 through this Worker streamed at ~130 KB/s live (2026-10-28), against a sync read the game waits on. The Cache API
+  // refuses 206, so a chunk is kept as a 200 under its URL + range, and turned back into the 206 here.
+  const range = c.req.header("range");
+  const edgeKey = range && url.searchParams.has("v") && c.req.method === "GET"
+    ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&range=${encodeURIComponent(range)}`) : null;
+  if (edgeKey) {
+    const hit = await caches.default.match(edgeKey);
+    if (hit) {
+      const h = new Headers(hit.headers);
+      h.set("Content-Range", h.get("X-Content-Range") ?? ""), h.delete("X-Content-Range");
+      return new Response(hit.body, { status: 206, headers: h });
+    }
+  }
   const get = (k: string) => bucket.get(k, { range: c.req.raw.headers, onlyIf: c.req.raw.headers });
   // a staged client holds only its own files: the game data (game/, fonts/, …) comes from recomp/
   const obj = (await get(key)) ?? (pre === "recomp/" ? null : await get("recomp/" + rel));
@@ -168,6 +182,12 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
     const offset = r.offset ?? 0, length = r.length ?? obj.size - offset;
     headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${obj.size}`);
     headers.set("Content-Length", String(length));
+    if (edgeKey && length <= 4 << 20 && headers.get("Cache-Control")!.includes("immutable")) {   // this version, chunk-sized
+      const [out, keep] = body.tee(), stored = new Headers(headers);
+      stored.set("X-Content-Range", headers.get("Content-Range")!), stored.delete("Content-Range");
+      c.executionCtx.waitUntil(caches.default.put(edgeKey, new Response(keep, { headers: stored })));
+      return new Response(out, { status: 206, headers });
+    }
     return new Response(c.req.method === "HEAD" ? null : body, { status: 206, headers });
   }
   headers.set("Content-Length", String(obj.size));
