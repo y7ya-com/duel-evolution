@@ -159,8 +159,9 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // refuses 206, so a chunk is kept as a 200 under its URL + range, and turned back into the 206 here.
   const range = c.req.header("range");
   const t0 = Date.now();
-  /** A range's body, timed to its last byte (the player's download, not only R2): one log line per range, for
-   *  `wrangler tail` (src/do.ts LOG is separate). */
+  /** A range's body, timed until its last byte leaves this Worker (R2 or the cache, not the player's download: the
+   *  edge buffers it, so a slow route to the player shows only in web/stall.js's rows): one log line per range, for
+   *  `wrangler tail duel-evolution` (src/do.ts LOG is separate). */
   const timed = (b: ReadableStream, how: string, bytes: number) => b.pipeThrough(new TransformStream({
     flush: () => console.log(`[range] ${ipFamily(c.req.raw)} ${how} ${rel} ${bytes} B ${Date.now() - t0} ms`),
   }));
