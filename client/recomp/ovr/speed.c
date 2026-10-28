@@ -147,6 +147,28 @@ void f_00589590(CPU *restrict c) {
     c->esp += 16;
 }
 
+// ---- CD3DTextTexture::clearPage (0x58e970, stdcall page): lock the page, zero width x height texels, unlock. Its loop
+// rereads both size globals for every texel (4-12% of a scene switch, which makes the scene's text pages); here one
+// memset does the same stores between the same Lock and Unlock calls.
+void o_0058e970(CPU *restrict c);
+void f_0058e970(CPU *restrict c) {
+    if (rc_nospeed) { o_0058e970(c); return; }
+    uint32_t ret = RD32m(c->esp), tex = RD32m(c->esp + 4), esi = c->esi, s = c->esp - 0x10;
+    c->esp = s;   // the D3DLOCKED_RECT (pitch, bits), below the stack
+    PUSHm(c, 0); PUSHm(c, 0); PUSHm(c, s); PUSHm(c, 0); PUSHm(c, tex);
+    gcall(c, RD32m(RD32m(tex) + 0x40), 0x58e989u);   // LockRect(0, &lr, NULL, 0)
+    if ((int32_t)c->eax >= 0) {
+        int32_t n = (int32_t)RD32m(0xc82ebc) * (int32_t)RD32m(0xc82ec0);   // g_textPageWidth * g_textPageHeight
+        if (n > 0) memset(G(RD32m(s + 4)), 0, (size_t)n * 4);
+        PUSHm(c, 0); PUSHm(c, tex);
+        gcall(c, RD32m(RD32m(tex) + 0x44), 0x58e9c7u);   // UnlockRect(0)
+    }
+    c->esp = s + 0x10;
+    c->esi = esi;
+    c->ret_to = ret;
+    c->esp += 8;
+}
+
 // ---- __RTDynamicCast (0xb0b20e, cdecl: object, VfDelta, source type, target type, isReference): task accessors
 // dynamic_cast on every use (8% of the main thread while loading). The result depends only on the subobject's vftable
 // (complete type and position), VfDelta and the two types, so the offset (or "fails") is cached per thread and the

@@ -212,4 +212,12 @@ A8R8G8B8, no filter, image top left in a power-of-two texture) with stb_image in
 times them.
 Profiling: `RC_FRAMESTATS=1` logs fps, the worst present-to-present gap and the main thread's CPU per frame every 30
 frames; `RC_PROF=<ms>` (macOS) samples the main thread every millisecond and logs the `f_` functions behind any frame
-slower than `<ms>`.
+slower than `<ms>`; with `RC_PROF_DUMP=<file>` every sample is also tallied per scene and written at `RC_FRAMES`, and
+`tools/profsum.py <file>` ranks the guest functions, host leaves and inclusive frames of each scene.
+`ovr/path.c` replaces the avatar's walk path search (A*, 0xa04a30), which re-sorted its whole open list after every
+step (up to ~300 ms of CPU for one click in a lobby), with a heap that pops the nodes in the same order (~0.6 ms);
+`ovr/math.c` replaces D3DX's x87 matrix product (0xb58a89, 6-11% of every scene) with the same arithmetic in C;
+`speed.c` clears text pages with memset. `RC_ASTAR=compare` / `RC_MATH=compare` run original and override on every call
+and log any byte that differs.
+Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it
+with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours).

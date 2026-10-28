@@ -864,6 +864,7 @@ extern "C" void rc_present_hook(void) {
     }
     if (maxFrames >= 0 && frame >= maxFrames) {
         rc_log("RC_FRAMES reached (%d)", frame);
+        rc_prof_end();
         fflush(stderr);
         _exit(0);
     }

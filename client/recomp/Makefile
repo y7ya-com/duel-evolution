@@ -1,6 +1,12 @@
 # Build the recompiled yo2 (run through tools/buildslot.py). `make -j2` at most: the Mac is shared.
 OUT := out
 B := build
+# SAN=1: build-san/yo2rc, with the runtime, the overrides and the platform code under ASan+UBSan (the generated chunks
+# as usual: ccache hits). Guest memory is one host mapping, so this checks our C/C++, not the game's own heap.
+ifdef SAN
+B := build-san
+SANFLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
+endif
 # ccache when installed: one cache for every worktree (the generated chunks build with -g0 and relative paths, so a
 # chunk any session already compiled is a hit). Web: EM_COMPILER_WRAPPER wraps emcc's own clang.
 CCACHE := $(shell command -v ccache 2>/dev/null)
@@ -41,7 +47,7 @@ $(B)/%.o: $(OUT)/%.c rt/rc.h | $(B)
 $(B)/librc.a: $(RC_OBJS) $(B)/rc_table.o
 	rm -f $@ && ar rcs $@ $^
 
-RT_CFLAGS := -O1 -g -Wall -Wno-unused-function -Irt -I$(OUT)
+RT_CFLAGS := -O1 -g -Wall -Wno-unused-function -Irt -I$(OUT) $(SANFLAGS)
 
 $(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c $(RT_HDRS) $(B)/librc.a
 	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c $(B)/librc.a -o $@
@@ -55,12 +61,12 @@ $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 
 $(B)/cxx/%.o: %.cpp $(RT_HDRS) | $(B)
 	mkdir -p $(dir $@)
-	$(CXX) -MMD -MP -std=c++17 -O1 -g -Wall -Wno-unused-function $(SDL_CFLAGS) $(PLAT_INC) -Irt -I$(OUT) -c $< -o $@
+	$(CXX) -MMD -MP -std=c++17 -O1 -g -Wall -Wno-unused-function $(SANFLAGS) $(SDL_CFLAGS) $(PLAT_INC) -Irt -I$(OUT) -c $< -o $@
 
 RT_CXX_OBJS := $(patsubst %.cpp,$(B)/cxx/%.o,$(subst ../,up/,$(RT_CXX)))
 $(B)/cxx/up/%.o: ../%.cpp | $(B)
 	mkdir -p $(dir $@)
-	$(CXX) -MMD -MP -std=c++17 -O1 -g -w $(SDL_CFLAGS) $(PLAT_INC) -c $< -o $@
+	$(CXX) -MMD -MP -std=c++17 -O1 -g -w $(SANFLAGS) $(SDL_CFLAGS) $(PLAT_INC) -c $< -o $@
 
 # originals an override still calls (ovr/orig.txt), copied out of out/ as o_XXXXXXXX
 $(B)/ovr_orig.c: ovr/orig.txt ovr/orig.py $(RC_SRCS) | $(B)
@@ -77,7 +83,7 @@ $(B)/cobj/%.o: %.c | $(B)
 -include $(RT_C_OBJS:.o=.d)
 
 $(B)/yo2rc: $(RT_C_OBJS) $(RT_CXX_OBJS) $(B)/ovr_orig.o $(B)/librc.a
-	clang++ $(RT_C_OBJS) $(B)/ovr_orig.o $(RT_CXX_OBJS) $(B)/librc.a $(SDL_LIBS) -o $@
+	clang++ $(SANFLAGS) $(RT_C_OBJS) $(B)/ovr_orig.o $(RT_CXX_OBJS) $(B)/librc.a $(SDL_LIBS) -o $@
 
 # ---- web (Emscripten, browser MVP): `make web` -> build-web/yo2rc.{html,js,wasm}; `node web/serve.mjs` serves it.
 # Guest address == wasm address (rt.c: rc_mem = 0): Emscripten's own data sits above the guest's 1 GB, in a fixed

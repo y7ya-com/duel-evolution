@@ -41,6 +41,7 @@ void rc_ovr_init(void);                                     // ovr/: after loadi
 void rc_deck_tap(const uint8_t *buf, int len);              // decktap.c: outgoing 0x6601/0x6603
 void rc_prof_start(void);                                   // prof.c (RC_PROF)
 void rc_prof_frame(int frame, double start_ms, double end_ms);
+void rc_prof_end(void);                                     // prof.c: RC_PROF_DUMP written
 
 extern RcFn rc_host_fns[RC_HOST_MAX];
 extern uint32_t rc_image_base, rc_image_size, rc_entry;

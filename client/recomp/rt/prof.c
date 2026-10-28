@@ -1,6 +1,9 @@
 // RC_PROF=<ms> (profiling, macOS): a sampler thread stops the game's main thread every millisecond and records its
 // host call stack (frame-pointer walk); a frame slower than <ms> logs the functions found on most of its samples.
 // The host stack is the guest call stack (f_XXXXXXXX frames), so this names the guest functions behind a hitch.
+// RC_PROF_DUMP=<file> (with RC_PROF): every sample is also tallied per scene (ovr/scene.c; 0x100|to while switching)
+// and written at RC_FRAMES: per function its leaf samples, its innermost-f_ samples and its inclusive samples; samples
+// parked in a kernel wait count as idle. tools/profsum.py ranks them.
 #include "rt.h"
 #ifdef __APPLE__
 #include <dlfcn.h>
@@ -8,6 +11,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -17,6 +21,44 @@ static struct Sample { double t; int n; void *pc[DEPTH]; } ring[RING];
 static volatile unsigned head;
 static mach_port_t target;
 static double thresh;
+
+static const char *sym(void *pc);
+__attribute__((weak)) int rc_scene_now(void) { return -1; }
+
+// the RC_PROF_DUMP tally (sampler thread only)
+static FILE *dump;
+static struct Agg { const char *name; int scene, self, gself, incl; } agg[1 << 16];
+static struct Agg *tally(const char *name, int scene) {
+    unsigned h = ((unsigned)((uintptr_t)name >> 3) * 2654435761u ^ (unsigned)scene * 40503u) >> 16;
+    while (agg[h].name && (agg[h].name != name || agg[h].scene != scene)) h = (h + 1) & 0xffff;
+    if (!agg[h].name) agg[h].name = name, agg[h].scene = scene;
+    return &agg[h];
+}
+static int idle_leaf(const char *n) {
+    return !strncmp(n, "__psynch", 8) || !strncmp(n, "__semwait", 9) || !strncmp(n, "mach_msg", 8) ||
+           !strncmp(n, "__ulock", 7) || !strncmp(n, "__nanosleep", 11) || !strncmp(n, "__select", 8);
+}
+static void tally_sample(const struct Sample *s) {
+    static const char *TOTAL = "(total)", *IDLE = "(idle)";
+    int scene = rc_scene_now();
+    const char *seen[DEPTH];
+    int ns = 0, guest = 0;
+    if (!s->n) return;
+    const char *leaf = sym(s->pc[0]);
+    if (idle_leaf(leaf)) { tally(IDLE, scene)->self++; return; }
+    tally(TOTAL, scene)->self++;
+    for (int k = 0; k < s->n; k++) {
+        const char *name = sym(s->pc[k]);
+        int dup = 0;
+        for (int j = 0; j < ns; j++) dup |= seen[j] == name;
+        if (dup) continue;
+        seen[ns++] = name;
+        struct Agg *a = tally(name, scene);
+        a->incl++;
+        if (!k) a->self++;
+        if (!guest && name[0] == 'f' && name[1] == '_') guest = 1, a->gself++;
+    }
+}
 
 static double now_ms(void) {
     struct timespec ts;
@@ -49,6 +91,7 @@ static void *sampler(void *arg) {
         } else
             s->n = 0;
         thread_resume(target);
+        if (dump) tally_sample(s);
         s->t = now_ms();
         head++;
     }
@@ -59,13 +102,14 @@ void rc_prof_start(void) {   // from the game's main thread
     const char *e = getenv("RC_PROF");
     if (!e || target) return;
     thresh = atof(e);
+    if (getenv("RC_PROF_DUMP")) dump = fopen(getenv("RC_PROF_DUMP"), "w");
     target = mach_thread_self();
     pthread_t t;
     pthread_create(&t, NULL, sampler, NULL);
 }
 
-static const char *sym(void *pc) {   // dladdr is slow (a linear symbol search): cache it per return address
-    static struct { void *pc; const char *name; } cache[1 << 16];
+struct SymCache { void *pc; const char *name; };
+static const char *sym_in(struct SymCache *cache, void *pc) {   // dladdr is slow (a linear symbol search): cache it per address
     unsigned h = (unsigned)((uintptr_t)pc >> 2) * 2654435761u >> 16;
     while (cache[h].pc && cache[h].pc != pc) h = (h + 1) & 0xffff;
     if (!cache[h].pc) {
@@ -74,6 +118,22 @@ static const char *sym(void *pc) {   // dladdr is slow (a linear symbol search):
         cache[h].pc = pc;
     }
     return cache[h].name;
+}
+// one cache per thread that symbolizes: the main thread (rc_prof_frame) and the sampler (the dump's tally)
+static const char *sym(void *pc) {
+    static struct SymCache main_cache[1 << 16], sampler_cache[1 << 16];
+    return sym_in(pthread_mach_thread_np(pthread_self()) == target ? main_cache : sampler_cache, pc);
+}
+
+void rc_prof_end(void) {   // RC_FRAMES reached: write the tally (the sampler is stopped by suspending it first)
+    if (!dump) return;
+    FILE *f = dump;
+    dump = NULL;
+    usleep(5000);   // let a tally in progress finish
+    for (int i = 0; i < 1 << 16; i++)
+        if (agg[i].name)
+            fprintf(f, "%x\t%d\t%d\t%d\t%s\n", agg[i].scene, agg[i].self, agg[i].gself, agg[i].incl, agg[i].name);
+    fclose(f);
 }
 
 struct Hit { const char *name; int n; };
@@ -112,6 +172,7 @@ void rc_prof_frame(int frame, double start, double end) {
     rc_log("%s", line);
 }
 #else
+void rc_prof_end(void) {}
 void rc_prof_start(void) {}
 void rc_prof_frame(int frame, double start, double end) { (void)frame, (void)start, (void)end; }
 #endif

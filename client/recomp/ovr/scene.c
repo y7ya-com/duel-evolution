@@ -66,6 +66,8 @@ static int fader_black(void) {
     return to[3] > 0.5f && to[0] + to[1] + to[2] < 0.1f;
 }
 
+int rc_scene_now(void) { return pending ? 0x100 | to_id : to_id; }   // rt/prof.c
+
 // dev_Present (rt/d3d8.cpp), after the frame is shown, on the guest main thread
 void rc_scene_present(void) {
     presents++;
