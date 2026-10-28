@@ -59,6 +59,9 @@ export interface Config {
   /** PLACE_ORDER: the zone order of automatic placement (src/duel/zones.ts): "centre" (default, the official 2,1,3,0,4)
    *  or "py" (py's first free zone from the left, parity runs only). */
   placeOrder: PlaceOrder;
+  /** PROGRESSION=1: the 2008 card progression (persist.ts setProgression): new and reset characters start with the
+   *  starter cards instead of every card, NPC chains give their prize cards, and the deck check blocks unowned cards. */
+  progression: boolean;
 }
 
 export function configFrom(env: Record<string, unknown>): Config {
@@ -81,5 +84,6 @@ export function configFrom(env: Record<string, unknown>): Config {
     npcAi: s("NPC_AI")?.trim().toLowerCase() === "py" ? "py" : "ai",
     npcAiSpy: flag("NPC_AI_SPY", false),
     placeOrder: placeOrderFrom(s("PLACE_ORDER")),
+    progression: flag("PROGRESSION", false),
   };
 }

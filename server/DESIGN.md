@@ -135,6 +135,11 @@ INTENTIONAL):
   grants. The client's balance fields (0x4101, 0x4140) carry the one neutral `WIRE_UNUSED_DP`.
 - **DUELPASS removed.** There are no codes and no passes: 0x3111 carries `WIRE_UNUSED_DP`, 0x8102 always answers
   "invalid code", and 0x4903 always answers "no pack".
+- **Cards are earned, as in 2008, but MP comes from duels** (`PROGRESSION=1`, persist.ts). py started every
+  character with every card (×3). Now a character starts with no cards and the Startup Present 40 right (the client's
+  card pick at login, 0x8401), buys packs with MP, gets NPC chain prize cards, and the deck check blocks a deck with
+  unowned cards (0x649b code 1: the client goes back to the map). Each duel pays MP (NPC win 300, PvP win 500, any
+  loss or draw 100): placeholders, as 2008's amounts are not known. Parity runs keep it off.
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with

@@ -10,7 +10,7 @@ import { NpcWatch } from "./npcWatch.ts";
 
 export function installDuel(g: Game): DuelPort {
   const c = g.cfg;
-  const port = (g.duel = new DuelPort(g, { pause: c.duelPause, test: c.pvpTest, reserva: c.duelReserva, deckCheck: c.deckCheck }));
+  const port = (g.duel = new DuelPort(g, { pause: c.duelPause, test: c.pvpTest, reserva: c.duelReserva, deckCheck: c.deckCheck ?? (c.progression ? "bloquear" : null) }));
   g.pvp = new Matches(g, c.duelPause, c.pvpTest);
   g.nw = new NpcWatch(g, c.duelPause);
   g.duelBegin = (cc, rival, mode) => port.duelBegin(cc, rival, mode);

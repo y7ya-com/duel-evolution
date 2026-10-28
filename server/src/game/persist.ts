@@ -143,6 +143,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   if (p !== null && !p.name) p.name = st.players?.[s] ?? "";
   if (p !== null) {
     p.rec ??= {};
+    progressionReset(p);
   }
   return p;
 }
@@ -159,7 +160,38 @@ export function myName(st: State): string {
   return (st.profiles?.[s] ?? {}).name || st.players?.[s] || "Duelista";
 }
 
+// ---- progression (config.ts PROGRESSION): the 2008 way of getting cards instead of py's "every card, 3 copies"
+let PROGRESSION = false;
+export const setProgression = (on: boolean) => { PROGRESSION = on; };
+export const progression = () => PROGRESSION;
+/** The "Startup Present 40" right (yo2pbinmap 784, py research/lobby NOTES.md 0x8401): at login the client offers its
+ *  presentEntry card pick, up to 40 cards (one legal deck), and 0x8402 puts them in the trunk (lobby.ts). */
+export const STARTER_RIGHT = 0x310;
+const STARTUP_PRESENT_RANGE = [782, 791];
+/** Bumped to restart every character again; 1 = the progression launch ("reset everyone", the owner's call). */
+const PROGRESSION_EPOCH = 1;
+/** A character from before progression (or before the current epoch) restarts: empty trunk, the startup present right
+ *  again (its "GET済み" bit cleared), at least the starting MP. Everything else (record, NPCs, avatar) is kept. */
+export function progressionReset(p: P): boolean {
+  if (!PROGRESSION || int(p.prog ?? 0) >= PROGRESSION_EPOCH) return false;
+  p.trunk = {};
+  p.pbin = (p.pbin ?? []).filter((b: number) => b < STARTUP_PRESENT_RANGE[0] || b > STARTUP_PRESENT_RANGE[1]);
+  pbinSet(p, STARTER_RIGHT);
+  const r = (p.rec ??= {});
+  r.mp = Math.max(int(r.mp ?? 0), START_MP);
+  p.prog = PROGRESSION_EPOCH;
+  return true;
+}
+// ponytail: placeholders until the 2008 amounts are found (py gives 0); the only place MP is earned
+const MP_WIN_NPC = 300, MP_WIN_PVP = 500, MP_LOSS = 100;
+/** MP for a finished duel (progression only: parity runs keep py's 0). */
+export function mpReward(p: P, result: string, pvp: boolean): void {
+  if (!PROGRESSION) return;
+  recInc((p.rec ??= {}), "mp", result === "win" ? (pvp ? MP_WIN_PVP : MP_WIN_NPC) : MP_LOSS);
+}
+
 export function seedTrunk(p: P, mode: string = startValues().baul ?? TRUNK_START): void {
+  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; pbinSet(p, STARTER_RIGHT); return; }
   if (mode === "all3") p.trunk = Object.fromEntries([...VALID].sort((a, b) => a - b).map((i) => [String(i), 3]));
   // "deck" reads the local client's deck.ydc: not on a server
 }
@@ -457,7 +489,7 @@ export function npcRewards(p: P, nid: number, oldB3: number, newB3: number): [nu
   if (oldB3 < CHAIN_THRESHOLD && CHAIN_THRESHOLD <= newB3) {
     if ("comp_got" in pb) {
       bits.push(pb.comp_got);
-      if (PRIZE_CARDS) cards.push(...structureDeckCards(10000 + int(nid)));
+      if (PRIZE_CARDS || PROGRESSION) cards.push(...structureDeckCards(10000 + int(nid)));
     }
     const base = chainBase(nid);
     const name = base !== null ? FAMOUS_BASE[base] : undefined;
@@ -695,6 +727,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);
+  mpReward(p, result, false);
   let present = 0, pkg: P | null = null;
   if (npc > 0 && npc < NPCBIN_MAX) {
     let e = npcbinGet(p, npc);

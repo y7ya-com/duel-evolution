@@ -22,6 +22,7 @@ import { duelServices, installDuel } from "./duel/install.ts";
 function wire(g: Game): Game {
   g.admin = new Admin(g);
   PP.setStartValues(() => g.admin.data.start);
+  PP.setProgression(g.cfg.progression);
   g.ph = makeHandlers(g, {
     gameConn: () => {
       const s = g.curSess();

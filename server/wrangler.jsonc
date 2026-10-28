@@ -32,7 +32,8 @@
         "PUBLIC_ORIGIN": "https://original.ygoevolution.com",
         "DEPLOY_ENV": "production",
         "NPC_AI": "py", // the 2008-faithful NPC brain until the new NPC AI's A/B is in (src/duel/ai)
-        "CLIENT_PREFIX": "recomp-de/" // the sign-in client build; game data from recomp/ (src/worker.ts)
+        "CLIENT_PREFIX": "recomp-de/", // the sign-in client build; game data from recomp/ (src/worker.ts)
+        "PROGRESSION": "1" // the 2008 card progression (starter present, owned-only decks, MP from duels; config.ts)
       },
       "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],

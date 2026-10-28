@@ -46,6 +46,7 @@ web shell (`client/web-shell/stage.js`, `loader.js`), the title and the build id
 | `PUBLIC_ORIGIN` | `https://original.ygoevolution.com` | `vars` |
 | `NPC_AI` | `py` until the NPC AI's A/B is in | `vars` |
 | `CLIENT_PREFIX` | `recomp-de/` | `vars` |
+| `PROGRESSION` | `1`: the 2008 card progression (since 2026-10-28; every character before it restarted, after a D1 export to R2 `private/backups/`) | `vars` |
 
 - **Discord redirect URI:** `https://original.ygoevolution.com/api/auth/callback/discord`, already added by the owner.
   The Discord API can't set it (`PATCH /applications/@me` returns 200 but ignores `redirect_uris`).

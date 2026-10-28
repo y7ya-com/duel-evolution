@@ -856,6 +856,7 @@ export class PvpMatch {
       const stats = tally ? tally.forPlayer(k) : null;
       PP.applyDuelStats(p, stats, lpLeft, surr === null ? null : surr === k ? "me" : "opp");
       const name = res === DFM.RESULT_WIN ? "win" : res === DFM.RESULT_LOSE ? "lose" : "draw";
+      PP.mpReward(p, name, true);
       const lv = this.xpLevels();
       return PP.pvpXp(p, lv[1 - k], name, this.bo3(), mres, last, lv[k]);
     } catch (e) { this.log(`[EXC] ${this.name}: puntuación: ${errStr(e)}`); return null; }
