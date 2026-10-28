@@ -29,7 +29,8 @@
 //   server=<host>       every game socket connects to this host (YO2_SERVER)
 //   prefetch=0          no background fetches, no persistence (the plain lazy reads)
 //   UPPER_CASE=<value>  passed to the environment as is (RC_VERBOSE=1, RC_FRAMES=...)
-// Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements.
+// Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements; .duel is
+// "npc" / "pvp" once a duel is being set up.
 Module.preRun = Module.preRun || [];
 Module.preRun.push(() => {
     const q = new URLSearchParams(location.search);
@@ -376,7 +377,7 @@ Module.preRun.push(() => {
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
         fetch(http + "/api/de/prefetch/duel", { credentials: "same-origin" })
-            .then((r) => (r.status === 200 ? r.json() : null))
+            .then((r) => ((L.duel = r.status === 200 ? "npc" : r.status === 204 ? "pvp" : ""), r.status === 200 ? r.json() : null))   // web/stall.js
             .then((j) => {
                 if (!j) return;
                 if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");

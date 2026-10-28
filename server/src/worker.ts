@@ -49,52 +49,55 @@ routes.all("/__admin/*", async (c) => {
   return toWorld(c.env, c.req.raw, new URL(c.req.url).pathname, fwd);
 });
 
-// client crash reports (the page shell POSTs once per crash): JSON up to 64 KB -> R2 private/crashes/<iso-ts>-<rand>.json.
-// Never echoes anything; private/ is never served. 10 per IP per hour, counted in a tiny R2 object per (hour, hashed IP).
+// client reports, stored privately (private/ is never served) and never echoed:
+//   /__crash  the page shell POSTs once per crash: JSON up to 64 KB -> R2 private/crashes/<iso-ts>-<rand>.json, 10 per IP per hour
+//   /__stall  web/stall.js POSTs batches of long frames (anonymous): JSON up to 16 KB -> private/stalls/, 30 per IP per hour
+// The rate is counted in a tiny R2 object per (hour, hashed IP). GET /__crashes, /__stalls (admin role) list them
+// (key, size, uploaded); ?key=<key> returns one.
 // ponytail: read-modify-write, so a burst can slip one or two past the cap; a Durable Object if that matters
-const CRASH_MAX = 65536;
-routes.post("/__crash", async (c) => {
-  const bucket = c.env.BUCKET;
-  if (!bucket) return c.body(null, 503);
-  if (+(c.req.header("content-length") ?? 0) > CRASH_MAX) return c.body(null, 413);
-  const body = await c.req.text();
-  if (body.length > CRASH_MAX) return c.body(null, 413);
-  try { JSON.parse(body); } catch { return c.body(null, 400); }
-  const now = new Date().toISOString();
-  const ip = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(c.req.header("cf-connecting-ip") ?? "?")));
-  const rateKey = `private/crashes/_rate/${now.slice(0, 13)}/${[...ip.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-  const n = +((await (await bucket.get(rateKey))?.text()) || 0);
-  if (n >= 10) return c.body(null, 429);
-  await bucket.put(rateKey, String(n + 1));
-  await bucket.put(`private/crashes/${now}-${crypto.randomUUID().slice(0, 8)}.json`, body, { httpMetadata: { contentType: "application/json" } });
-  return c.body(null, 204);
-});
-routes.all("/__crash", (c) => c.body(null, 405));
-
-// the stored crash reports, for the admin role: GET /__crashes lists them (key, size, uploaded); ?key=<key> returns one
-routes.get("/__crashes", async (c) => {
-  if (c.env.DEV !== "1") {
-    const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
-    if (!v) return c.text("sign in first", 401);
-    if (!v.roles.includes("admin")) return c.text("forbidden", 403);
-  }
-  const bucket = c.env.BUCKET;
-  if (!bucket) return c.text("not found", 404);
-  const key = c.req.query("key");
-  if (key) {
-    if (!key.startsWith("private/crashes/") || key.includes("/_rate/")) return c.text("bad key", 400);
-    const o = await bucket.get(key);
-    return o ? new Response(o.body, { headers: { "content-type": "application/json" } }) : c.body(null, 404);
-  }
-  const out: { key: string; size: number; uploaded: Date }[] = [];
-  let cursor: string | undefined;
-  do {
-    const r = await bucket.list({ prefix: "private/crashes/", cursor });
-    for (const o of r.objects) if (!o.key.includes("/_rate/")) out.push({ key: o.key, size: o.size, uploaded: o.uploaded });
-    cursor = r.truncated ? r.cursor : undefined;
-  } while (cursor);
-  return c.json(out);
-});
+for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stall", "stalls", 16384, 30]] as const) {
+  const prefix = `private/${dir}/`;
+  routes.post(`/__${path}`, async (c) => {
+    const bucket = c.env.BUCKET;
+    if (!bucket) return c.body(null, 503);
+    if (+(c.req.header("content-length") ?? 0) > max) return c.body(null, 413);
+    const body = await c.req.text();
+    if (body.length > max) return c.body(null, 413);
+    try { JSON.parse(body); } catch { return c.body(null, 400); }
+    const now = new Date().toISOString();
+    const ip = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(c.req.header("cf-connecting-ip") ?? "?")));
+    const rateKey = `${prefix}_rate/${now.slice(0, 13)}/${[...ip.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    const n = +((await (await bucket.get(rateKey))?.text()) || 0);
+    if (n >= perHour) return c.body(null, 429);
+    await bucket.put(rateKey, String(n + 1));
+    await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, body, { httpMetadata: { contentType: "application/json" } });
+    return c.body(null, 204);
+  });
+  routes.all(`/__${path}`, (c) => c.body(null, 405));
+  routes.get(`/__${dir}`, async (c) => {
+    if (c.env.DEV !== "1") {
+      const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+      if (!v) return c.text("sign in first", 401);
+      if (!v.roles.includes("admin")) return c.text("forbidden", 403);
+    }
+    const bucket = c.env.BUCKET;
+    if (!bucket) return c.text("not found", 404);
+    const key = c.req.query("key");
+    if (key) {
+      if (!key.startsWith(prefix) || key.includes("/_rate/")) return c.text("bad key", 400);
+      const o = await bucket.get(key);
+      return o ? new Response(o.body, { headers: { "content-type": "application/json" } }) : c.body(null, 404);
+    }
+    const out: { key: string; size: number; uploaded: Date }[] = [];
+    let cursor: string | undefined;
+    do {
+      const r = await bucket.list({ prefix, cursor });
+      for (const o of r.objects) if (!o.key.includes("/_rate/")) out.push({ key: o.key, size: o.size, uploaded: o.uploaded });
+      cursor = r.truncated ? r.cursor : undefined;
+    } while (cursor);
+    return c.json(out);
+  });
+}
 
 // old /recomp/ links (the site used to live there): same page and files at the root
 routes.get("/recomp/*", (c) => {

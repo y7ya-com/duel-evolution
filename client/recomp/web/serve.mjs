@@ -1,6 +1,7 @@
 // Local server for the web build: cross-origin isolated (COOP/COEP, for SharedArrayBuffer) with HTTP Range.
 //   node web/serve.mjs [port]            / -> build-web/, /game/ -> $YO2_GAME (files.txt made on the fly)
 //   node web/serve.mjs --manifest <dir>  print <dir>'s files.txt (for the R2 copy)
+//   YO2_DELAY=<ms> YO2_KBPS=<KB/s>      a slow network for /game/ Range reads: latency + size at that rate (stall repros)
 // The game files are Konami's: this binds to 127.0.0.1 only.
 import fs from "node:fs";
 import http from "node:http";
@@ -47,8 +48,12 @@ http.createServer((req, res) => {
     if (m) {
         const from = Number(m[1]), to = Math.min(m[2] ? Number(m[2]) : size - 1, size - 1);
         if (from > to) return res.writeHead(416, { ...h, "Content-Range": `bytes */${size}` }).end();
-        res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
-        return req.method === "HEAD" ? res.end() : fs.createReadStream(file, { start: from, end: to }).pipe(res);
+        const send = () => {
+            res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
+            req.method === "HEAD" ? res.end() : fs.createReadStream(file, { start: from, end: to }).pipe(res);
+        };
+        const ms = prefix === "/game/" ? +(process.env.YO2_DELAY || 0) + (to - from + 1) / (+process.env.YO2_KBPS || Infinity) : 0;
+        return ms ? setTimeout(send, ms) : send();
     }
     res.writeHead(200, { ...h, "Content-Length": size });
     req.method === "HEAD" ? res.end() : fs.createReadStream(file).pipe(res);

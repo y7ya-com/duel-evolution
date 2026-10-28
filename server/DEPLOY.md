@@ -112,6 +112,7 @@ Every path the old Worker (`ygo-original`, with its container) answered, and wha
 | `/__warm` | ported: `ok` (nothing to warm up) |
 | `/__crash` (client crash reports → R2 `private/crashes/`) | ported: same storage, same limits (64 KB, 10 per IP per hour) |
 | `/__crashes` (crash report list, BUNDLE_SECRET) | ported: needs the admin role instead of BUNDLE_SECRET |
+| `/__stall`, `/__stalls` (web/stall.js long-frame batches → R2 `private/stalls/`) | new: 16 KB, 30 per IP per hour; the list needs the admin role |
 | `/recomp`, `/recomp/*` (301 to the root) | ported |
 | `/__bundle`, `/__state`, `/__log`, `/__restart` | dropped by design: the container's bundle, state backup, log and restart |
 | `/__upload/*` (multipart R2 upload, UPLOAD_SECRET) | dropped: files are uploaded with wrangler |
