@@ -287,10 +287,11 @@ Module.preRun.push(() => {
     }
     let cardNamesLoad = null;
     const loadCardNames = () => (cardNamesLoad = cardNamesLoad || fileBytes("data/card/list_card.txt").then((b) => {
+        if (!b) throw new Error("list_card.txt not read");
         let t = "";
         for (const c of b || []) t += String.fromCharCode(c);
         cardNames = t.split(/\r?\n/).map((x) => x.trim().toLowerCase());
-    }));
+    }).catch(() => { cardNamesLoad = null; }));   // a dropped connection: no names this time, the next call asks again
     function pinFiles(names, tag, pri) {   // these files' chunks, pinned under `tag` (replacing that tag's others)
         const keep = new Set();
         for (const n of names) {
@@ -308,12 +309,12 @@ Module.preRun.push(() => {
         if (!spans) { if (tag === "deck") pendingDeck = ids; return; }
         if (tag === "deck") pendingDeck = null;
         await loadCardNames();
-        const names = [...new Set(ids.map((id) => cardNames[id]).filter(Boolean))].map((n) => "data/card/" + n);
+        const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))].map((n) => "data/card/" + n);
         stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names, tag, 2);
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
-    L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => cardNames.indexOf(n)).filter((i) => i > 0); };
+    L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => (cardNames || []).indexOf(n)).filter((i) => i > 0); };
     function mapAt(pos) {
         for (const m of MAPS) { const s = spans.get("data/map/map_" + m); if (s && pos >= s[0] && pos < s[1]) return m; }
         return null;
@@ -394,7 +395,7 @@ Module.preRun.push(() => {
         const area = /^([ad])0(\d)/.exec(curMap || "");
         if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
         for (const id of fieldIds) {
-            const nn = FIELD_SPELLS[parseInt(cardNames[id] || "", 10)];
+            const nn = FIELD_SPELLS[parseInt((cardNames || [])[id] || "", 10)];
             if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
         }
         stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(names, "field", 2);
