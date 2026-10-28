@@ -451,6 +451,8 @@ std::vector<InputEv> inputs;
 // FUN_009cd5c0 numbers the exits 0 blue, 1 cyan, 2 purple, 3 blue2. RC_WALK_DUMP=1 writes the grid as walk_<frame>.ppm.
 struct Walk {
     bool on = false, held = false;
+    float lx = 0, ly = 0;            // where the avatar was when it last moved
+    int still = 0;                   // frames held without moving
     int exit = -1, tx = 0, ty = 0, until = 0, frame0 = 0;
     uint32_t ctrl = 0, fm = 0, npc = 0;   // npc: the element of `walkto npc NAME`'s avatar
     std::string npc_name;
@@ -528,11 +530,11 @@ uint8_t cell_class(int cx, int cy) {
 bool goal(int cx, int cy) {
     return walk.exit >= 0 ? cell_class(cx, cy) == 3 + walk.exit : cx == walk.tx / CELL && cy == walk.ty / CELL;
 }
-// Walkable with some clearance: no wall (or other exit) within 2 cells; a goal cell always is.
-bool open(int cx, int cy) {
+// Walkable with some clearance: no wall (or other exit) within r cells; a goal cell always is.
+bool open(int cx, int cy, int r) {
     if (goal(cx, cy)) return true;
-    for (int dy = -2; dy <= 2; dy++)
-        for (int dx = -2; dx <= 2; dx++) {
+    for (int dy = -r; dy <= r; dy++)
+        for (int dx = -r; dx <= r; dx++) {
             uint8_t k = cell_class(cx + dx, cy + dy);
             if (k == 2 || (k >= 3 && k != 3 + walk.exit)) return false;
         }
@@ -622,23 +624,29 @@ void walk_step(int frame) {
     }
     int reach = walk.npc_name.empty() ? 12 : 90;   // near an avatar, not overlapping it (a click there lists both)
     if (walk.exit < 0 && std::abs(px - walk.tx) < reach && std::abs(py - walk.ty) < reach) return walk_end("arrived", frame);
-    // BFS from the avatar's cell to the nearest goal cell
+    // BFS from the avatar's cell to the nearest goal cell, keeping 2 cells off the walls; from a cell that close to a
+    // wall (a spawn by a door) nothing has that clearance, so then again with none (else it steered straight into the
+    // wall and never moved)
     int sx = (int)px / CELL, sy = (int)py / CELL, n = walk.w * walk.h, found = -1;
-    std::vector<int> prev(n, -1);
-    std::deque<int> q;
     if (sx < 0 || sy < 0 || sx >= walk.w || sy >= walk.h) return;
-    prev[sy * walk.w + sx] = sy * walk.w + sx;
-    q.push_back(sy * walk.w + sx);
-    while (!q.empty() && found < 0) {
-        int i = q.front(); q.pop_front();
-        for (int d = 0; d < 8; d++) {
-            static const int DX[] = {1, -1, 0, 0, 1, 1, -1, -1}, DY[] = {0, 0, 1, -1, 1, -1, 1, -1};
-            int x = i % walk.w + DX[d], y = i / walk.w + DY[d], j = y * walk.w + x;
-            if (x < 0 || y < 0 || x >= walk.w || y >= walk.h || prev[j] >= 0 || !open(x, y)) continue;
-            prev[j] = i;
-            if (goal(x, y)) { found = j; break; }
-            q.push_back(j);
+    std::vector<int> prev;
+    for (int r = 2; r >= 0 && found < 0; r -= 2) {
+        prev.assign(n, -1);
+        std::deque<int> q;
+        prev[sy * walk.w + sx] = sy * walk.w + sx;
+        q.push_back(sy * walk.w + sx);
+        while (!q.empty() && found < 0) {
+            int i = q.front(); q.pop_front();
+            for (int d = 0; d < 8; d++) {
+                static const int DX[] = {1, -1, 0, 0, 1, 1, -1, -1}, DY[] = {0, 0, 1, -1, 1, -1, 1, -1};
+                int x = i % walk.w + DX[d], y = i / walk.w + DY[d], j = y * walk.w + x;
+                if (x < 0 || y < 0 || x >= walk.w || y >= walk.h || prev[j] >= 0 || !open(x, y, r)) continue;
+                prev[j] = i;
+                if (goal(x, y)) { found = j; break; }
+                q.push_back(j);
+            }
         }
+        if (found < 0 && r == 2 && (frame - walk.frame0) % 60 == 0) rc_log("walkto: no clear path, trying close to walls");
     }
     // steer at the path cell 6 ahead (or the goal), the cursor 120 px from the avatar in that direction
     float wx = (float)walk.tx, wy = (float)walk.ty;
@@ -657,6 +665,16 @@ void walk_step(int frame) {
     mx = mx < 0 ? 0 : mx > 1023 ? 1023 : mx;
     my = my < 0 ? 0 : my > 767 ? 767 : my;
     walk_mouse(mx, my, true);
+    // A press the game dropped (e.g. while an NPC popup was closing) never starts the walk: held 30 frames without
+    // moving, the button is released and pressed again.
+    if (std::abs(px - walk.lx) + std::abs(py - walk.ly) > 1) walk.lx = px, walk.ly = py, walk.still = 0;
+    else if (walk.held && ++walk.still >= 30) {
+        rc_log("walkto: not moving at (%.0f,%.0f), pressing again", px, py);
+        platformTestButtons(0);
+        rc_post(0, 0x205 /*WM_RBUTTONUP*/, 0, 0);
+        walk.held = false, walk.still = 0;
+        return;
+    }
     if (!walk.held) {
         walk.held = true;
         platformTestButtons(2);

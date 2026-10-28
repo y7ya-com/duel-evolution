@@ -19,7 +19,9 @@ EM_JS(int, web_yield_ok, (void), { return Module.rcYieldOk ? Module.rcYieldOk() 
 // Sleep / GetMessage / WaitFor* polling: a suspension on the main thread, a real sleep on a worker
 void rc_web_sleep(uint32_t ms) {
     if (!emscripten_is_main_runtime_thread()) { usleep(ms * 1000u); return; }
-    if (!web_yield_ok()) return;
+    // a stack the ASYNCIFY build can't unwind: no yield, but still run the calls workers proxied to this thread, or a
+    // wait on a loader thread that needs one (GL, files) never ends
+    if (!web_yield_ok()) { emscripten_main_thread_process_queued_calls(); return; }
     emscripten_sleep(ms);
     last_yield = rc_ticks_ms();
 }

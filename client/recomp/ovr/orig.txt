@@ -13,3 +13,4 @@
 006a6eb0  # the 0x3004 result's text id (autherr.c: -255 has no text)
 006a8f70  # the gate task (gateerr.c: logs a gate failure and its text id)
 005df750  # the dialogs' text by id (msgtext.c: an id with no text gets a message)
+0068d080  # a connection's 120 s receive timeout (keepalive.c: off on the web)

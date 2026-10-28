@@ -1,7 +1,7 @@
-# Functions on the wasm stack when the guest main thread yields (rt/web.c), recorded with ?yieldlog (web/yieldguard.js)
-# over title, login, My Room, lobby, NPC dialog, rock-paper-scissors. The ASYNCIFY build adds these to what Binaryen's
-# own analysis instruments (host code that reaches a wait directly); the guest frames reach one only through rc_icall.
-# A yield from a stack with an uninstrumented frame is skipped and logged ("not in web/async-only.txt"): add it here.
+# The only functions the ASYNCIFY build (make web-async) instruments: the wasm frames on the stack when the guest main
+# thread yields (rt/web.c), recorded with ?yieldlog (web/yieldguard.js) over title, login, My Room, lobby (and its map
+# load: f_00588dd0, seen in Firefox), NPC dialog, rock-paper-scissors. A yield from a stack with any other frame is
+# skipped and logged ("not in web/async-only.txt"): add that name here and relink.
 (anonymous namespace)::peek(unsigned int, unsigned int, unsigned int, unsigned int, bool)
 dev_Present
 f_0042b4c0
@@ -10,6 +10,7 @@ f_0042b8a0
 f_00530600
 f_0057f060
 f_00588500
+f_00588dd0
 f_0059ac20
 f_0059b550
 f_0059de80
