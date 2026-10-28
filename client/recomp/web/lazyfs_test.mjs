@@ -240,7 +240,7 @@ console.log("duel: ok");
 
 fetched.length = 0;
 // ---- trickle: only when the server lets the HTTP cache keep game files; never kept in memory
-g = makeEnv(new Map(), new Map(), { cc: "public, max-age=31536000, immutable" });
+g = makeEnv(new Map(), new Map(), { cc: "public, max-age=31536000, immutable", search: "?trickle=1" });
 await g.ready();
 g.read("/game/merge.dat", 0, toc);
 await settle(g.Module.yo2Lazy);
@@ -248,6 +248,13 @@ await sleep(300);
 const cardKeys = [...g.Module.yo2Lazy.lru.keys(), ...g.Module.yo2Lazy.pinned.keys()].filter((k) => +k.split("#")[1] >= Math.floor(card.off / MB));
 assert.equal(cardKeys.length, 0, "the trickle keeps nothing in memory");
 assert.ok(fetched.some((a) => a >= card.off), "the trickle fetched data/card");
+fetched.length = 0;
+g = makeEnv(new Map(), new Map(), { cc: "public, max-age=31536000, immutable" });
+await g.ready();
+g.read("/game/merge.dat", 0, toc);
+await settle(g.Module.yo2Lazy);
+await sleep(300);
+assert.ok(!fetched.some((a) => a >= card.off), "no trickle without ?trickle=1");
 console.log("trickle: ok");
 
 // ---- prefetch=0: the plain lazy reads

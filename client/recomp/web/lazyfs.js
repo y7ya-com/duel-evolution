@@ -16,7 +16,8 @@
 //     time, never a synchronous miss.
 //   - the HTTP cache: every request carries ?v=<ETag>, so a server that sends long-lived Cache-Control for game files
 //     lets the browser answer even a synchronous miss from disk; the low-priority card trickle (data/card, 336 MB)
-//     only runs then, to fill that cache.
+//     only runs then, to fill that cache, and only with ?trickle=1: on for every player, it multiplied the origin's
+//     load (live 2026-10-28, rolled back).
 // merge.dat's directory (KCEJYUGI: count, then 268-byte entries: nibble-swapped name, offset, size, stored size) gives
 // the byte span of each folder; the policies name folders.
 //
@@ -28,6 +29,7 @@
 //   gateway=<ws URL>    Boxedwine network gateway (YO2_GATEWAY)
 //   server=<host>       every game socket connects to this host (YO2_SERVER)
 //   prefetch=0          no background fetches, no persistence (the plain lazy reads)
+//   trickle=1           the data/card trickle (off by default)
 //   UPPER_CASE=<value>  passed to the environment as is (RC_VERBOSE=1, RC_FRAMES=...)
 // Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements; .duel is
 // "npc" / "pvp" once a duel is being set up.
@@ -249,8 +251,9 @@ Module.preRun.push(() => {
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
         for (const d of HOT) wantSpan(d, 2, "hot");
-        // ponytail: not on phones and tablets (data/card is 336 MB of their data plan)
-        onIdle(() => { if (cacheable && !small) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
+        // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
+        // has to be measured (and capped) before it is on by default
+        onIdle(() => { if (cacheable && !small && q.get("trickle") === "1") for (const d of TRICKLE) wantSpan(d, 9, null, false); });
     }
     // The duel's cards: the player's deck (rt/decktap.c reads it off the exe's own 0x6601/0x6603 at the duel's setup)
     // and the NPC's (the server, npcDeck below). A deck holds YO2 card ids; data/card/list_card.txt (LZSS in merge.dat)
