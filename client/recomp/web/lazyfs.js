@@ -76,9 +76,19 @@ Module.preRun.push(() => {
         lru.set(k, data);
         if (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
-    function unpin(test) {   // policy changed its mind: back to the LRU (the newest end)
+    // a policy lets a pin go: another policy that still wants the chunk takes it over, else
+    // back to the LRU (the newest end). A chunk two policies want (a scene set and the duel effects) keeps one tag.
+    const wants = new Map();   // "url#chunk" -> every policy tag that asked for it (want)
+    function release(k, p) {
+        const w = wants.get(k);
+        if (w) w.delete(p.tag);
+        if (w && w.size) p.tag = w.values().next().value;
+        else pinned.delete(k), lru.set(k, p.data);
+    }
+    function unpin(test) {   // policy changed its mind
         for (const [k, t] of wanted) if (test(t)) wanted.delete(k);
-        for (const [k, p] of pinned) if (test(p.tag)) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [, w] of wants) for (const t of w) if (test(t)) w.delete(t);
+        for (const [k, p] of pinned) if (test(p.tag)) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
     const span = (url, i) => { const f = files.get(url); return [i * CHUNK, Math.min((i + 1) * CHUNK, f.size) - 1]; };
@@ -134,7 +144,7 @@ Module.preRun.push(() => {
         const f = files.get(url);
         if (!prefetchOn || !f || i < 0 || i * CHUNK >= f.size) return;
         const k = keyOf(url, i);
-        if (tag) wanted.set(k, tag);
+        if (tag) wanted.set(k, tag), (wants.get(k) || wants.set(k, new Set()).get(k)).add(tag);
         const m = memChunk(url, i);
         if (m) { if (tag) remember(url, i, m, tag); return; }
         if (inflight.has(k)) return;   // its fetch picks the tag up from `wanted`
@@ -274,7 +284,7 @@ Module.preRun.push(() => {
             const e = files2.get(n);
             if (e) for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) keep.add(i);
         }
-        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
         for (const i of keep) want(archive, i, pri, tag);
         return keep.size;
@@ -343,7 +353,7 @@ Module.preRun.push(() => {
         const keep = new Set();
         for (const [list, pri] of [[first, 1], [second, 3]])
             for (const t of list) for (const i of learned.sets[t] || []) if (!keep.has(i)) keep.add(i), want(archive, i, pri, "scene");
-        for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
     function finishScene() {   // what the stay in a scene read (its switch, then cards and effects as they come) is its set
