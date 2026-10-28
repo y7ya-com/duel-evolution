@@ -45,23 +45,38 @@
         box.style.width = game.offsetWidth + "px"; box.style.height = game.offsetHeight + "px";
     }
 
-    // wasm download progress: count the bytes of the .wasm response as the runtime streams it
+    // wasm download progress: count the bytes of the .wasm response as the runtime streams it. Phones drop the 40 MB
+    // download now and then: a failed request is tried once more, and a body that breaks off resumes once from the
+    // byte it reached (a Range request: the site serves ranges of the uncompressed file even when the full response
+    // is zstd, so the decoded count is the offset). Emscripten itself fetches again once if streaming fails.
     const realFetch = window.fetch;
     window.fetch = async function (input, init) {
-        const r = await realFetch.call(this, input, init);
         const url = String((input && input.url) || input);
-        if (!/\.wasm(\?|$)/.test(url) || !r.body) return r;
+        if (!/\.wasm(\?|$)/.test(url)) return realFetch.call(this, input, init);
+        const r = await realFetch.call(this, input, init).catch(() => realFetch.call(this, input, init));
+        if (!r.ok || !r.body) return r;
         const total = +r.headers.get("content-length") || 0;
-        let got = 0;
-        const counted = r.body.pipeThrough(new TransformStream({
-            transform(chunk, c) {
-                got += chunk.byteLength;
-                status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
-                c.enqueue(chunk);
+        let got = 0, reader = r.body.getReader(), resumed = false;
+        const body = new ReadableStream({
+            async pull(c) {
+                for (;;) {
+                    try {
+                        const { done, value } = await reader.read();
+                        if (done) { status("Starting…"); return c.close(); }
+                        got += value.byteLength;
+                        status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
+                        return c.enqueue(value);
+                    } catch (e) {
+                        if (resumed) throw e;
+                        resumed = true;
+                        const r2 = await realFetch(url, { credentials: "same-origin", headers: { Range: `bytes=${got}-` } }).catch(() => null);
+                        if (!r2 || r2.status !== 206 || !(r2.headers.get("content-range") || "").startsWith(`bytes ${got}-`)) throw e;
+                        reader = r2.body.getReader();
+                    }
+                }
             },
-            flush() { status("Starting…"); },
-        }));
-        return new Response(counted, { status: r.status, statusText: r.statusText, headers: r.headers });
+        });
+        return new Response(body, { status: r.status, statusText: r.statusText, headers: r.headers });
     };
 
     // real frames: count animation frames in which the game issued WebGL draw calls
@@ -138,8 +153,9 @@
     // Still booting, or a scene still loading, after STUCK_MS: offer a reload.
     const STUCK_MS = 45000;
     const t0 = performance.now();
-    let last = 0, shown = true, stuck = null, booted = false, scene = false, stuckTimer = 0, offTimer = 0;
+    let last = 0, shown = true, stuck = null, booted = false, scene = false, stuckTimer = 0, offTimer = 0, dropped = false;
     function tick(now) {
+        if (dropped) return;   // the download failed: keep the message up
         place();
         if (drew) { drew = false; frames++; }
         if (frames >= NEED || now - t0 > FALLBACK_MS) { window.fetch = realFetch; booted = true; hide(); return; }
@@ -208,5 +224,19 @@
         stuck.onclick = () => location.reload();
         box.append(stuck);
     }
+    // the download failed for good (Emscripten aborts: "both async and sync fetching of the wasm failed"): say so on the
+    // loading screen, and a tap anywhere reloads, instead of shell.html's "Something went wrong" (pointerup: stage.js
+    // swallows the touches, so no click comes)
+    addEventListener("yo2crash", (e) => {
+        if (booted || !/fetching of the wasm failed|Load failed|Failed to fetch|NetworkError/i.test(e.detail)) return;
+        e.preventDefault();
+        dropped = true;
+        if (stuck) { stuck.remove(); stuck = null; }
+        clearTimeout(stuckTimer);
+        status("Connection dropped. Tap to retry.");
+        box.style.pointerEvents = "auto";
+        box.style.cursor = "pointer";
+        box.onpointerup = () => location.reload();
+    });
     requestAnimationFrame(tick);
 })();
