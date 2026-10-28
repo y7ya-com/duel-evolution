@@ -47,6 +47,13 @@ EM_JS(int, de_post, (const char* url, const char* json, char* out, int nout), {
     stringToUTF8(x.responseText || "", out, nout);
     return x.status;
 });
+// Synchronous same-origin GET: the body (empty on failure).
+EM_JS(void, de_get, (const char* url, char* out, int nout), {
+    const x = new XMLHttpRequest();
+    x.open("GET", UTF8ToString(url), false);
+    try { x.send(); } catch (e) { stringToUTF8("", out, nout); return; }
+    stringToUTF8(x.status == 200 ? x.responseText || "" : "", out, nout);
+});
 #endif
 
 
@@ -77,6 +84,61 @@ int de_call(const char* path, const std::string& json, std::string& body) {
 #endif
     rc_log("session: %s -> %d", path, st);
     return st;
+}
+
+// The Discord server invite (GET /api/de/discord-invite): the reset view has no register answer to take it from.
+std::string discord_invite() {
+#ifdef __EMSCRIPTEN__
+    const char* base = getenv("YO2_DE_HTTP");
+    std::string url = std::string(base ? base : "") + "/api/de/discord-invite";
+    static char out[512];
+    de_get(url.c_str(), out, sizeof out);
+    std::string body = out;
+#else
+    std::string body = "{\"inviteUrl\":\"https://discord.gg/test\"}";
+#endif
+    size_t a = body.find("\"inviteUrl\":\"");
+    if (a == std::string::npos) return "";
+    a += 13;
+    size_t b = body.find('"', a);
+    return b == std::string::npos ? "" : body.substr(a, b - a);
+}
+
+// "Open Discord": popup blockers let window.open run only inside the browser's own click, but the game sees a click a
+// frame later, in its loop. So the URL is armed while the mouse is over the button, and a capture-phase click listener
+// on the canvas (installed once) opens it inside the real gesture, then disarms. After the game's own click the outcome
+// is read for a few frames (WebKit dispatches the click after the game has seen the release): 1 opened, 2 blocked
+// (window.open gave null), still 0 = no browser click seen. Not "noopener": with it
+// window.open always returns null, so a block would be invisible; the page's COOP same-origin cuts the new tab off
+// from the game anyway, and the opener is cleared too.
+void arm_open(const char* url) {
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        const c = Module.canvas;
+        if (c && !Module.yo2OpenHooked) {
+            Module.yo2OpenHooked = true;
+            c.addEventListener("click", () => {
+                const u = Module.yo2OpenOnClick;
+                if (!u) return;
+                Module.yo2OpenOnClick = null;
+                let w = null;
+                try { w = window.open(u, "_blank"); if (w) w.opener = null; } catch (e) {}
+                Module.yo2OpenResult = w ? 1 : 2;
+            }, true);
+        }
+        Module.yo2OpenOnClick = $0 ? UTF8ToString($0) : null;
+        if ($0) Module.yo2OpenResult = 0;
+    }, url);
+#else
+    (void)url;
+#endif
+}
+int open_result() {
+#ifdef __EMSCRIPTEN__
+    return EM_ASM_INT({ return Module.yo2OpenResult | 0; });
+#else
+    return 0;
+#endif
 }
 
 // A string field of a flat JSON object ("" when absent).
@@ -119,11 +181,13 @@ struct Panel {
     uint32_t scene = 0, win = 0;
     Mode mode = SIGNIN;
     bool built = false, signed_in = false;
-    uint32_t discord = 0, divider = 0, link1 = 0, mid = 0, link2 = 0, copy = 0, note = 0, code_text = 0, steps = 0;
+    uint32_t discord = 0, divider = 0, link1 = 0, mid = 0, link2 = 0, copy = 0, open = 0, note = 0, code_text = 0, steps = 0;
     uint32_t dot = 0, status = 0, underline = 0;
     float link1_w = 0, link2_w = 0;   // the links' hover boxes (labels have no hover of their own)
     int under = 0;   // the link underlined: 0 none, 1, 2
-    uint32_t prev1 = 0, prev2 = 0, prevd = 0, prevc = 0;   // pressed while over (ui_pressed)
+    uint32_t prev1 = 0, prev2 = 0, prevd = 0, prevc = 0, prevo = 0;   // pressed while over (ui_pressed)
+    bool armed = false;   // the Open Discord URL is armed for the browser's click (arm_open)
+    int open_wait = 0;    // frames left to read the browser click's outcome
     std::string user, pass, code, invite;
 } panel;
 
@@ -131,6 +195,7 @@ uint32_t child(uint32_t off) { return RD32m(panel.win + off); }
 
 const float MID = 232, LEFT = 16, WIDE = 432;   // the window's centre; the column's left edge and width
 const float LINK_Y[4] = {210, 210, 216, 210};   // by mode
+const int OPEN_W = 112;   // the Open Discord button
 
 // The status line: a mark by state (the game's text has one colour, see ui_kit.h), then the text.
 void status(CPU& t, const std::string& text, Dot d = IDLE) {
@@ -156,6 +221,7 @@ void layout(CPU& t) {
     ui_set_text(t, child(0x428), m == RESET ? "New password" : "Password");
     ui_show(panel.note, m == VERIFY || m == RESET);
     ui_show(panel.code_text, m == VERIFY), ui_show(panel.copy, m == VERIFY), ui_show(panel.steps, m == VERIFY);
+    ui_show(panel.open, m == VERIFY || m == RESET);
     if (m == VERIFY) {
         ui_set_text(t, panel.note, "Your verification code");
         centred(t, panel.note, 42);
@@ -163,15 +229,15 @@ void layout(CPU& t) {
         for (char c : panel.code) spaced += (spaced.empty() ? "" : " "), spaced += c;
         ui_set_text(t, panel.code_text, spaced.c_str());
         centred(t, panel.code_text, 58);
-        ui_place(t, panel.copy, MID, 104);
-        std::string invite = panel.invite;
-        if (!invite.compare(0, 8, "https://")) invite = invite.substr(8);
-        ui_set_text(t, panel.steps, ("1. Join our Discord: " + invite + "\n2. In #verify, tap Verify my account and paste "
-                                     "the code.\n3. Come back here and press Continue.").c_str());
+        ui_place(t, panel.copy, MID - 46, 104), ui_place(t, panel.open, MID + 10 + OPEN_W / 2, 104);
+        ui_set_text(t, panel.steps, "1. Open Discord and join the server.\n2. In #verify, tap Verify my account.\n"
+                                    "3. Paste the code, then press Continue.");
         ui_place(t, panel.steps, LEFT, 122);
-    } else if (m == RESET) {
-        ui_set_text(t, panel.note, "Get a code in #reset-password on our Discord.");
-        centred(t, panel.note, 78);
+    } else if (m == RESET) {   // the note on the left, Open Discord at the column's right edge
+        ui_set_text(t, panel.note, "Get a code in #reset-password.");
+        ui_set_align(t, panel.note, 0);
+        ui_place(t, panel.note, LEFT, 78);
+        ui_place(t, panel.open, LEFT + WIDE - OPEN_W / 2, 85);
     }
     uint32_t ok = child(0x47c);
     ui_set_text(t, ok, m == SIGNIN ? "Sign in" : m == SIGNUP ? "Create account" : m == VERIFY ? "Continue" : "Reset password");
@@ -218,6 +284,8 @@ void build(CPU& t) {
     panel.link2 = ui_label(t, panel.win, "Reset password", 200);
     panel.link2_w = 14 * UI_CHAR_W;
     panel.copy = ui_button(t, panel.win, "Copy", 72, 22);
+    panel.open = ui_button(t, panel.win, "Open Discord", OPEN_W, 20);
+    panel.invite = discord_invite();
     panel.note = ui_label(t, panel.win, " "), panel.steps = ui_label(t, panel.win, " ", 424, 64);
     panel.code_text = ui_label(t, panel.win, " ", 424, 36);
     ui_set_font_size(t, panel.code_text, 28);
@@ -248,7 +316,9 @@ std::string reason(int st, const std::string& body) {
 // The register answer: a code -> the verify view.
 bool to_verify(CPU& t, int st, const std::string& body) {
     if (st != 200) return false;
-    panel.code = field(body, "code"), panel.invite = field(body, "inviteUrl");
+    panel.code = field(body, "code");
+    std::string inv = field(body, "inviteUrl");
+    if (!inv.empty()) panel.invite = inv;
     to(t, VERIFY);
     return true;
 }
@@ -331,6 +401,20 @@ void panel_frame(int frame, uint32_t scene) {
     }
     if (ui_pressed(over1, panel.prev1)) to(t, panel.mode == SIGNIN ? SIGNUP : SIGNIN);
     if (ui_pressed(over2, panel.prev2)) to(t, RESET);
+    // Open Discord: armed while hovered (arm_open), the outcome read on the game's own click.
+    bool open_over = !panel.invite.empty() && (panel.mode == VERIFY || panel.mode == RESET) && RD32m(panel.open + 0x3e8) != 0;
+    if (open_over != panel.armed) arm_open(open_over ? panel.invite.c_str() : nullptr), panel.armed = open_over;
+    if (ui_clicked(panel.open, panel.prevo)) panel.open_wait = 15;
+    if (panel.open_wait > 0) {
+        int r = open_result();
+        if (r || !--panel.open_wait) {
+            std::string shown = panel.invite.compare(0, 8, "https://") ? panel.invite : panel.invite.substr(8);
+            if (r == 1) status(t, "Discord opened in a new tab.", OK);
+            else status(t, shown.empty() ? "Join our Discord server." : "Open " + shown + " in your browser.", r == 2 ? ERR : IDLE);
+            rc_log("session: Open Discord -> %d", r);
+            panel.open_wait = 0;
+        }
+    }
     if (ui_clicked(panel.copy, panel.prevc)) {
 #ifdef __EMSCRIPTEN__
         EM_ASM({ try { navigator.clipboard.writeText(UTF8ToString($0)); } catch (e) {} }, panel.code.c_str());
