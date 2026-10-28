@@ -46,6 +46,9 @@ RT_CFLAGS := -O1 -g -Wall -Wno-unused-function -Irt -I$(OUT)
 $(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c $(RT_HDRS) $(B)/librc.a
 	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c $(B)/librc.a -o $@
 
+mem_test: $(B)/mem_test
+$(B)/mem_test: rt/mem_test.c rt/mem.c $(RT_HDRS) | $(B)
+	$(CC) $(RT_CFLAGS) -pthread rt/mem_test.c rt/mem.c -o $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@

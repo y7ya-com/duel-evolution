@@ -14,6 +14,9 @@ static uint32_t used_granules, peak_granules, top_granule;   // top: the highest
 static uint64_t carved, small_live, large_live;   // rc_mem_report: bytes carved for small classes, requested live
 uint32_t rc_heap_hi = RC_HEAP_HI;              // RC_HEAP_MB caps the range (native runs can mimic the wasm 1 GB guest)
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+#define QUAR (64u << 20 >> 16)    // granules of freed runs held back (rc_vfree)
+#define QUAR_RUNS (QUAR + 1)      // a run is >= 1 granule, so at most QUAR + 1 runs are queued
+static uint32_t quar[QUAR_RUNS], quar_n[QUAR_RUNS], quar_head, quar_tail, quar_granules;
 
 // Lowest-address first fit, as Windows' VirtualAlloc searches. Not next-fit: wasm memory never goes back to the system,
 // so a rover sweeping the whole range left every granule it passed resident (phones kill a tab that big).
@@ -22,7 +25,12 @@ uint32_t rc_valloc(uint32_t size) {
     uint32_t n = (size + GRAN - 1) / GRAN;
     if (!n) n = 1;
     pthread_mutex_lock(&mu);
-    {
+    for (int pass = 0; pass < 2; pass++) {   // the second pass after releasing the whole quarantine (rc_vfree)
+        if (pass) {
+            if (!quar_granules) break;
+            for (; quar_head != quar_tail; quar_head = (quar_head + 1) % QUAR_RUNS) memset(used + quar[quar_head], 0, quar_n[quar_head]);
+            quar_granules = 0;
+        }
         uint32_t i = 0, run = 0, ng = (rc_heap_hi - RC_HEAP_LO) / GRAN;
         for (; i < ng; i++) {
             run = used[i] ? 0 : run + 1;
@@ -78,8 +86,20 @@ void rc_vfree(uint32_t a) {
     // zero before the granules are free again: zeroing after the unlock wiped whatever another thread had
     // just allocated there (heap chunks: list nodes with header/next cleared)
     memset(rc_mem + a, 0, (size_t)n * GRAN);   // VirtualAlloc hands out zeroed pages
-    memset(used + s, 0, n);
     run_len[s] = 0;
+    // Quarantine: the run stays taken (and zero) until QUAR granules of later frees are queued behind it. The game
+    // touches memory just after freeing it (an exited thread's stack/TEB, ...); next-fit never reused a run that
+    // soon, and handing it straight out again hung a desktop soak in 1 of 2 runs (phase3, after the red door).
+    // ponytail: a FIFO of runs; QUAR (64 MB) bounds the extra residency
+    if (n) {
+        quar[quar_tail] = s, quar_n[quar_tail] = n, quar_tail = (quar_tail + 1) % QUAR_RUNS;
+        quar_granules += n;
+        while (quar_granules > QUAR) {   // release the oldest
+            memset(used + quar[quar_head], 0, quar_n[quar_head]);
+            quar_granules -= quar_n[quar_head];
+            quar_head = (quar_head + 1) % QUAR_RUNS;
+        }
+    }
     used_granules -= n;
     pthread_mutex_unlock(&mu);
 }
