@@ -106,7 +106,7 @@
         Promise.resolve(p).then(() => coarse && screen.orientation?.lock?.("landscape")).catch(() => {});
     }
     function toggle() {   // must run inside the click / key handler: fullscreen needs a user gesture
-        if (fsEl()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        if (fsEl()) Promise.resolve((document.exitFullscreen || document.webkitExitFullscreen).call(document)).catch(() => {});   // rejects when already leaving
         else enterFs();
         canvas.focus();
     }

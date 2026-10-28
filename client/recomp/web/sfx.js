@@ -65,7 +65,7 @@
                 })
                 .catch((e) => console.warn("sfx: no AudioWorklet, effects stay silent", e));
             const gesture = () => {
-                ctx.resume();
+                ctx.resume().catch(() => {});
                 for (const e of ["pointerdown", "keydown", "touchstart"]) window.removeEventListener(e, gesture, true);
             };
             for (const e of ["pointerdown", "keydown", "touchstart"]) window.addEventListener(e, gesture, true);

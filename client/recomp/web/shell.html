@@ -27,12 +27,22 @@
     console.log(s);
     if (/^(rc_trap at|MISSING IMPORT|guest fault|host fault)/.test(s)) crash(s);
   };
-  // A guest trap (it logs, then exits), an abort or an uncaught error: report it once to /__crash, then tell the
-  // player instead of leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
+  // A guest trap (it logs, then exits), an abort or an exit: report it once to /__crash, then tell the player instead of
+  // leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
   let crashed = false;
+  const report = (why, fatal) => fetch("/__crash", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ why: String(why).slice(0, 2000), fatal, log: tail.join("\n").slice(-60000),
+      build: document.querySelector('meta[name="yo2-build"]')?.content || "", ua: navigator.userAgent,
+      frames: Module.yo2Presents | 0, url: location.pathname }) }).catch(() => {});
+  // A page loaded during a ship can pair one build's JS with the other's wasm (the files are replaced one by one): that
+  // fails before the first frame with a link error. Reload once (reported as nonfatal) instead of the crash screen.
+  const SKEW = /ASM_CONSTS|LinkError|import .* is not a function/;
   function crash(why) {
     if (crashed) return;
     crashed = true;
+    let again = false;
+    try { again = !(Module.yo2Presents | 0) && SKEW.test(why) && !sessionStorage.getItem("yo2-skew") && (sessionStorage.setItem("yo2-skew", "1"), true); } catch (e) {}
+    if (again) { report(why, false); setTimeout(() => location.reload(), 1000); return; }
     console.log("yo2rc crash: " + String(why).slice(0, 2000));
     // a page and runtime from two different ships (a tab that loaded mid-upload) fail before the first frame: reload
     // once instead of reporting (at most once a minute, so a real link error still ends in a report)
@@ -43,11 +53,7 @@
       }
     } catch (e) {}
     setTimeout(() => {   // let the guest stack lines that follow the trap line arrive
-      const body = JSON.stringify({ why: String(why).slice(0, 2000), log: tail.join("\n").slice(-60000),
-        build: document.querySelector('meta[name="yo2-build"]')?.content || "", ua: navigator.userAgent,
-        frames: Module.yo2Presents | 0, url: location.pathname });
-      fetch("/__crash", { method: "POST", body, keepalive: true, headers: { "Content-Type": "application/json" } })
-        .catch(() => {});
+      report(why, true);
       if (!dispatchEvent(new CustomEvent("yo2crash", { detail: why, cancelable: true }))) return;
       const d = document.createElement("div");
       d.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;" +
@@ -57,9 +63,28 @@
       document.body.append(d);
     }, 500);
   }
-  addEventListener("error", (e) => crash("error: " + (e.message || e)));
+  // An uncaught JS error or rejection is the crash only if the game stops with it: one from a page callback (audio, the
+  // loader, an extension) leaves the guest running. Once the game draws, it waits for the next Present: one comes ->
+  // reported as nonfatal (3 per page), the game goes on; 20 checks 250 ms apart with none -> crash. A check only runs
+  // when the main thread is free and the page visible, so a long synchronous read or a hidden tab is not mistaken for a
+  // dead game. Before the first frame (a failed download, a boot error) it is the crash at once.
+  let nonfatal = 0;
+  function failed(why) {
+    if (crashed) return;
+    const at = Module.yo2Presents | 0;
+    if (!at) return crash(why);
+    let checks = 20;
+    const check = () => {
+      if (crashed) return;
+      if ((Module.yo2Presents | 0) > at) { console.log("yo2rc nonfatal: " + why); if (nonfatal++ < 3) report(why, false); return; }
+      if (!document.hidden && --checks <= 0) return crash(why);
+      setTimeout(check, 250);
+    };
+    setTimeout(check, 250);
+  }
+  addEventListener("error", (e) => failed("error: " + (e.message || e)));
   // Firefox's and Safari's .stack leave the message out
-  addEventListener("unhandledrejection", (e) => crash("unhandled rejection: " + (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason)));
+  addEventListener("unhandledrejection", (e) => failed("unhandled rejection: " + (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason)));
   if (!crossOriginIsolated) log("not cross-origin isolated: serve with COOP/COEP headers (web/serve.mjs does)");
   if (!("Suspending" in WebAssembly)) log("no JSPI (WebAssembly.Suspending): the ASYNCIFY build");
   var Module = { canvas: document.getElementById("canvas"), print: log, printErr: log,

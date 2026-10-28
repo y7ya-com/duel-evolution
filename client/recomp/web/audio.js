@@ -77,7 +77,7 @@
         return ctx;
     }
     const gesture = () => {
-        context().resume().then(() => update(0.5, true));
+        context().resume().then(() => update(0.5, true), () => {});
         for (const e of ["pointerdown", "keydown", "touchstart"]) window.removeEventListener(e, gesture, true);
     };
     for (const e of ["pointerdown", "keydown", "touchstart"]) window.addEventListener(e, gesture, true);
@@ -180,7 +180,7 @@
         },
         preview(id, on) {
             const s = slotOf(id);
-            if (on) { context().resume().then(() => { previewing = s; update(0.3); }); return; }
+            if (on) { context().resume().then(() => { previewing = s; update(0.3); }, () => {}); return; }
             if (previewing === s) { previewing = -1; update(0.3); }
         },
         current: () => cur,

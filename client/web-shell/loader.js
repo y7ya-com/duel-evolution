@@ -106,7 +106,7 @@
             ring = m;
             apply(ring.frames[0]); rf = 1;
         }
-    });
+    }).catch(() => { ring = null; });   // a broken ring.json: the backdrop without the ring
     function apply(ops) {
         for (const o of ops) {
             if (o.rm) { list.delete(o.d); continue; }
