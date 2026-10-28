@@ -113,7 +113,9 @@ Discord. A shared Discord bot forwards the `/verify` and `/reset` commands to th
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Issues and pull requests are welcome; `CONTRIBUTING.md` has the details. Enable the guard once per clone:
+`git config core.hooksPath .githooks` (needs `gitleaks`). It refuses game files, extracted data, binaries, files over
+1 MB and secrets on every commit and patch (`infra/guard.py`); CI runs the same checks.
 
 - Never commit game files or anything extracted from them (see *Files you supply*). The `.gitignore` covers the
   usual paths; check `git status` before you commit.

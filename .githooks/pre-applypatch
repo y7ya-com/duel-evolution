@@ -1,0 +1,3 @@
+#!/bin/sh
+# git am / format-patch ports (CONTRIBUTING.md) skip pre-commit: the same guard on what the patch staged
+exec python3 "$(git rev-parse --show-toplevel)/infra/guard.py" --staged

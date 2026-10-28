@@ -1,0 +1,3 @@
+#!/bin/sh
+# refuses Konami files, extracted data and secrets (infra/guard.py); enable once per clone: git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/infra/guard.py" --staged
