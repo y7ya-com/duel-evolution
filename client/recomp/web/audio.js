@@ -113,7 +113,7 @@
         gain.connect(out);
         const v = voice = {gain, src: null, slot, list: c.shuffle ? shuffled(c.files.slice()) : c.files.slice(), item: 0};
         const next = async (skips = 0) => {
-            if (my !== token || skips > v.list.length) return;
+            if (my !== token || !v.list.length || skips > v.list.length) return;   // a slot emptied while it played
             if (v.item >= v.list.length) {
                 if (!c.loop) return;
                 v.item = 0;
@@ -167,7 +167,7 @@
                 await decode(f).catch((e) => { buffers.delete(f); throw new Error(`${f.name || "file"} can't be played (${e.message || e})`); });
             const sameFiles = c.files.length === old.files.length && c.files.every((f, i) => f === old.files[i]);
             const onlyVolume = sameFiles && c.shuffle === old.shuffle && c.loop === old.loop;
-            if (c.files.length) cfg.set(s, c); else cfg.delete(s);
+            if (c.files.length) cfg.set(s, c); else { cfg.delete(s); if (previewing === s) previewing = -1; }
             await tx("readwrite", (st) => (c.files.length ? st.put(c, s) : st.delete(s)));
             if (onlyVolume) { if (voice && voice.slot === s) voice.gain.gain.setTargetAtTime(c.volume, ctx.currentTime, 0.05); }
             else update(0.5, s === playingSlot);   // restarts the slot if it plays; starts it if it now should

@@ -102,4 +102,13 @@ assert.equal(A.listSlots()[0].files.length, 0);
 assert.equal(store.has(0), false);
 await A.master(0.7);
 assert.equal(A.master(), 0.7);
+// crash report 1f33c45: preview a looping slot, then clear it -> was an unhandled rejection in next()
+let unhandled = null;
+process.on("unhandledRejection", (e) => { unhandled = e; });
+await A.set("my_room", { files: [file("room.mp3", 50)] });
+A.preview("my_room", true);
+await tick();
+await A.set("my_room", { files: [] });
+await tick();
+assert.equal(unhandled, null);
 console.log("audio.js: all checks pass");
