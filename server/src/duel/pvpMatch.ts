@@ -265,6 +265,8 @@ export class PvpMatch {
   deckTold: [boolean, boolean] | null = null;
   decksUsed: Deck[] | null = null;
   private xpLv: number[] | null = null;
+  /** When the duel started (s), for the economy's minimum PvP length. */
+  private t0 = 0;
   private chain: Promise<void> = Promise.resolve();
 
   constructor(readonly hub: Matches, sa: Session, sb: Session) {
@@ -484,6 +486,7 @@ export class PvpMatch {
     const [clock, why] = this.clockCfg();
     this.needStart = false;
     this.firsts.push(first);
+    this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     this.statsAttach();
@@ -823,7 +826,7 @@ export class PvpMatch {
       const st = this.g.loadState();
       const p = PP.profile(st, PP.activeSlot(st))!;
       if (played) {
-        xp = this.xp(p, k, res, last, mres);
+        xp = this.xp(p, k, res, last, mres, turns);
         pvpRecord(this.g, p, res, turns);
       }
       if (last) [packs, card] = this.card(p, why, lob !== null, this.bo3());
@@ -845,7 +848,7 @@ export class PvpMatch {
     void PVP_DUELLOG_FINISH;
   }
 
-  private xp(p: P, k: number, res: number, last: boolean, mres: string | null): P | null {
+  private xp(p: P, k: number, res: number, last: boolean, mres: string | null, turns = 0): P | null {
     try {
       const surr = this.surr;
       const lp = this.ps?.lastLp;
@@ -856,7 +859,7 @@ export class PvpMatch {
       const stats = tally ? tally.forPlayer(k) : null;
       PP.applyDuelStats(p, stats, lpLeft, surr === null ? null : surr === k ? "me" : "opp");
       const name = res === DFM.RESULT_WIN ? "win" : res === DFM.RESULT_LOSE ? "lose" : "draw";
-      PP.mpReward(p, name, true);
+      PP.mpReward(this.g, p, name, turns, { opp: this.sess[1 - k]?.acct ?? null, secs: this.t0 ? now() - this.t0 : 0 });
       const lv = this.xpLevels();
       return PP.pvpXp(p, lv[1 - k], name, this.bo3(), mres, last, lv[k]);
     } catch (e) { this.log(`[EXC] ${this.name}: puntuación: ${errStr(e)}`); return null; }

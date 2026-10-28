@@ -76,7 +76,7 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
   const p = PP.profile(st, PP.activeSlot(st))!;
   const owned = new Set<number>(p.pbin ?? []);
   const plan: [number, number, number, [number, number][] | null][] = [];
-  let total = 0;
+  let total = 0, packs = 0;
   for (const [iid, num] of cart) {
     if (!(iid > 0 && iid <= cat.length) || num === 0) { g.log(`[tienda] item ${iid} x${num} not valid: skipped`); continue; }
     const it = cat[iid - 1], kind = it[4];
@@ -89,6 +89,7 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
     const cards = shopPurchase(g, kind, prm, num);
     if (!cards.length) continue;
     plan.push([iid, kind, prm, cards]); total += cost * num;
+    if (kind === 1) packs += num;
   }
   const mp = plan.length ? p.rec.mp : 0;
   const bought = plan.filter(([, kind]) => kind !== 2).flatMap(([, , , cards]) => cards!);
@@ -103,6 +104,7 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
   if (!plan.length) return fail("empty cart");
   if (mp < total) return fail(`balance ${mp} < total ${total}`);
   p.rec.mp = mp - total;
+  PP.mpSpent(g, p, total, packs);
   PP.onShopPurchase(g, p, bought);
   for (const [, kind, prm] of plan) if (kind === 2) PP.pbinSet(p, prm);
   for (const bit of recipes) PP.pbinSet(p, bit);

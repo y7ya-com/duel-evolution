@@ -171,27 +171,67 @@ const STARTUP_PRESENT_RANGE = [782, 791];
 /** Bumped to restart every character again; 1 = the progression launch ("reset everyone", the owner's call). */
 const PROGRESSION_EPOCH = 1;
 /** A character from before progression (or before the current epoch) restarts: empty trunk, the startup present right
- *  again (its "GET済み" bit cleared), at least the starting MP. Everything else (record, NPCs, avatar) is kept. */
+ *  again (its "GET済み" bit cleared), the starting MP. Everything else (record, NPCs, avatar, titles) is kept. */
 export function progressionReset(p: P): boolean {
   if (!PROGRESSION || int(p.prog ?? 0) >= PROGRESSION_EPOCH) return false;
   p.trunk = {};
   p.pbin = (p.pbin ?? []).filter((b: number) => b < STARTUP_PRESENT_RANGE[0] || b > STARTUP_PRESENT_RANGE[1]);
   pbinSet(p, STARTER_RIGHT);
   const r = (p.rec ??= {});
-  r.mp = Math.max(int(r.mp ?? 0), START_MP);
+  r.mp = ECON.START_MP;
   p.prog = PROGRESSION_EPOCH;
   return true;
 }
-// ponytail: placeholders until the 2008 amounts are found (py gives 0); the only place MP is earned
-const MP_WIN_NPC = 300, MP_WIN_PVP = 500, MP_LOSS = 100;
-/** MP for a finished duel (progression only: parity runs keep py's 0). */
-export function mpReward(p: P, result: string, pvp: boolean): void {
+// ---- the MP economy (progression only; parity runs keep py's 0 per duel). The owner's MVP values (2026-10-28, set
+// by the coordinator as "healthy values"); shop prices are unchanged (shop.ts: booster 200, beginner packs 1001-1003
+// 100, structure decks 7000+ 1000, avatar items as they were).
+export const ECON = {
+  START_MP: 5000, // 25 boosters on top of the 40-card startup present: a fun first session, not half the shop
+  NPC_WIN: 150, NPC_LOSS: 50, // a booster every ~1.3 NPC wins, about one pack per 10 minutes of play
+  PVP_WIN: 250, PVP_LOSS: 100, // real duels pay a bit more than NPCs; a loss pays less than a win, so throwing doesn't pay
+  PVP_MIN_TURNS: 3, PVP_MIN_S: 120, // a PvP duel shorter than both (early surrender, disconnect) pays nobody
+  PAIR_DAY_MAX: 5, // rewarded PvP duels a UTC day against the same account; after that the pair earns 0
+  FIRST_WIN: 300, // bonus on the first rewarded win of the UTC day
+  SOFT_CAP: 40, SOFT_RATE: 0.25, // after 40 rewarded duels in a UTC day, every reward pays 25%
+} as const;
+// ponytail: the day's counters live on the character (p.econ, D1 state_extras), not the account: an account's 4
+// characters each get their own caps. Move them to the account (store.ts ACCT_KEYS) if the [economia] log shows farming.
+function econToday(g: Game | null, p: P): P {
+  const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
+  if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0 };
+  return p.econ;
+}
+const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${what}; `
+  + `${e.day}: ${e.duels} duels, ${e.wins} wins, +${e.earned} MP, -${e.spent} MP, ${e.packs} packs`);
+
+/** MP for a finished duel, after the guards; pvp = null for an NPC duel. Returns what was paid. */
+export function mpReward(g: Game | null, p: P, result: string, turns: number, pvp: { opp: string | null; secs: number } | null = null): number {
+  if (!PROGRESSION) return 0;
+  const e = econToday(g, p), win = result === "win", E = ECON;
+  let mp: number = pvp ? (win ? E.PVP_WIN : E.PVP_LOSS) : (win ? E.NPC_WIN : E.NPC_LOSS), why = "";
+  if (pvp && turns < E.PVP_MIN_TURNS && pvp.secs < E.PVP_MIN_S) { mp = 0; why = " short"; }
+  else if (pvp && pvp.opp && (e.pairs[pvp.opp] ?? 0) >= E.PAIR_DAY_MAX) { mp = 0; why = " pair cap"; }
+  if (mp) {
+    if (pvp?.opp) e.pairs[pvp.opp] = (e.pairs[pvp.opp] ?? 0) + 1;
+    if (win && !e.wins) mp += E.FIRST_WIN;
+    if (e.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
+    e.duels++; if (win) e.wins++;
+    e.earned += mp;
+    recInc((p.rec ??= {}), "mp", mp);
+  }
+  econLog(g, e, `+${mp} MP (${pvp ? "pvp" : "npc"} ${result}, ${turns} turns${pvp ? `, ${Math.round(pvp.secs)} s` : ""}${why})`);
+  return mp;
+}
+/** A shop purchase, for the [economia] log and the day's counters. */
+export function mpSpent(g: Game | null, p: P, mp: number, packs: number): void {
   if (!PROGRESSION) return;
-  recInc((p.rec ??= {}), "mp", result === "win" ? (pvp ? MP_WIN_PVP : MP_WIN_NPC) : MP_LOSS);
+  const e = econToday(g, p);
+  e.spent += mp; e.packs += packs;
+  econLog(g, e, `-${mp} MP (${packs} packs)`);
 }
 
 export function seedTrunk(p: P, mode: string = startValues().baul ?? TRUNK_START): void {
-  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; pbinSet(p, STARTER_RIGHT); return; }
+  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; pbinSet(p, STARTER_RIGHT); (p.rec ??= {}).mp = ECON.START_MP; return; }
   if (mode === "all3") p.trunk = Object.fromEntries([...VALID].sort((a, b) => a - b).map((i) => [String(i), 3]));
   // "deck" reads the local client's deck.ydc: not on a server
 }
@@ -727,7 +767,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);
-  mpReward(p, result, false);
+  mpReward(g, p, result, int(turns || 0));
   let present = 0, pkg: P | null = null;
   if (npc > 0 && npc < NPCBIN_MAX) {
     let e = npcbinGet(p, npc);

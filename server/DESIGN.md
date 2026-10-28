@@ -138,8 +138,11 @@ INTENTIONAL):
 - **Cards are earned, as in 2008, but MP comes from duels** (`PROGRESSION=1`, persist.ts). py started every
   character with every card (×3). Now a character starts with no cards and the Startup Present 40 right (the client's
   card pick at login, 0x8401), buys packs with MP, gets NPC chain prize cards, and the deck check blocks a deck with
-  unowned cards (0x649b code 1: the client goes back to the map). Each duel pays MP (NPC win 300, PvP win 500, any
-  loss or draw 100): placeholders, as 2008's amounts are not known. Parity runs keep it off.
+  unowned cards (0x649b code 1: the client goes back to the map). 2008's MP amounts are not known, so the economy
+  is the owner's MVP (`persist.ts` ECON, every value explained there): 5000 MP to start, NPC win 150 / loss 50, PvP
+  win 250 / loss 100, +300 for the day's first win, nothing for a PvP duel under 3 turns and 2 minutes, at most 5
+  rewarded duels a day against the same account, and 25% after 40 rewarded duels a day. Each reward and purchase is
+  an `[economia]` log line with the day's totals. Parity runs keep it off.
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with
