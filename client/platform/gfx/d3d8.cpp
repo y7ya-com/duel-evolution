@@ -6,6 +6,7 @@
 //   shader does view * projection and texture stage 0, driven by uniforms. That is all the game uses (DESIGN.md §2).
 // - Textures keep their pixels on the CPU (B,G,R,A, as LockRect hands them out) and are uploaded lazily, as stored,
 //   on the GL thread when drawn; the shader swizzles. Loader threads never touch GL.
+#include <chrono>
 #include "d3d8.h"
 
 #include <cstddef>
@@ -137,6 +138,8 @@ static GLuint compile(GLenum type, const char* body) {
 static std::vector<GLuint> deadTextures, deadFbos, deadRenderbuffers;
 static uint32_t rbEpoch;   // bumped when renderbuffers are deleted: GL may hand their names out again
 static std::thread::id glThread;   // the thread that created the device (its GL context is current there)
+extern "C" double rc_upload_ms;   // texture upload time (the GL thread) since the last frame (web/stall.js)
+double rc_upload_ms;
 static bool onGlThread() { return std::this_thread::get_id() == glThread; }
 
 static D3DMATRIX identity() {
@@ -338,8 +341,10 @@ void IDirect3DTexture8::sync() {
     if (shadow.empty() || isLocked || dirty.right <= dirty.left) return;
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, level0.w);
+    auto t0 = std::chrono::steady_clock::now();
     glTexSubImage2D(GL_TEXTURE_2D, 0, dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top,
                     GL_RGBA, GL_UNSIGNED_BYTE, shadow.data() + ((size_t)dirty.top * level0.w + dirty.left) * 4);
+    rc_upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     dirty = RECT{};
 }

@@ -2,11 +2,14 @@
 //   text   {"type":"open","id":N,"host":"127.0.0.1","port":5730}  -> {"type":"open","id":N,"status":0}
 //   text   {"type":"close","id":N}                                <-> {"type":"close","id":N} / {"type":"error",...}
 //   binary [1][id u32 BE][payload]                                 both directions, TCP stream bytes
+// Module.yo2NetRx / yo2NetRead count the bytes received and read (web/stall.js: what piled up during a long frame);
+// Module.yo2NetIO(1 = sent | 0 = received) times the server's replies (web/stall.js).
 #include "net.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <emscripten/em_asm.h>
 #include <emscripten/websocket.h>
 #include <map>
 #include <string>
@@ -66,7 +69,9 @@ static EM_BOOL onMessage(int, const EmscriptenWebSocketMessageEvent* e, void*) {
         if (e->numBytes < 5 || e->data[0] != 1) return EM_TRUE;   // type 2 = UDP, unused
         uint32_t id = (uint32_t)e->data[1] << 24 | e->data[2] << 16 | e->data[3] << 8 | e->data[4];
         auto it = gSockets.find(id);
-        if (it != gSockets.end()) it->second->rx.insert(it->second->rx.end(), e->data + 5, e->data + e->numBytes);
+        if (it == gSockets.end()) return EM_TRUE;
+        it->second->rx.insert(it->second->rx.end(), e->data + 5, e->data + e->numBytes);
+        EM_ASM({ Module.yo2NetRx = (Module.yo2NetRx | 0) + $0; if (Module.yo2NetIO) Module.yo2NetIO(0); }, e->numBytes - 5);
         return EM_TRUE;
     }
     const char* js = (const char*)e->data;
@@ -121,6 +126,7 @@ static int recvCb(void* ctx, uint8_t* buf, int len) {
     int n = (int)(avail < (size_t)len ? avail : (size_t)len);
     memcpy(buf, s->rx.data() + s->rxPos, n);
     s->rxPos += n;
+    EM_ASM({ Module.yo2NetRead = (Module.yo2NetRead | 0) + $0; }, n);
     if (s->rxPos == s->rx.size()) { s->rx.clear(); s->rxPos = 0; }
     return n;
 }
@@ -132,6 +138,7 @@ static int sendCb(void* ctx, const uint8_t* buf, int len) {
     f[0] = 1;
     f[1] = s->id >> 24; f[2] = s->id >> 16; f[3] = s->id >> 8; f[4] = s->id;
     memcpy(f.data() + 5, buf, len);
+    EM_ASM({ if (Module.yo2NetIO) Module.yo2NetIO(1); });
     return emscripten_websocket_send_binary(gWs, f.data(), (uint32_t)f.size()) == EMSCRIPTEN_RESULT_SUCCESS ? len : -2;
 }
 

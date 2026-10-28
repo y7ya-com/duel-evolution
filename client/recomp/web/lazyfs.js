@@ -29,7 +29,8 @@
 //   server=<host>       every game socket connects to this host (YO2_SERVER)
 //   prefetch=0          no background fetches, no persistence (the plain lazy reads)
 //   UPPER_CASE=<value>  passed to the environment as is (RC_VERBOSE=1, RC_FRAMES=...)
-// Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements.
+// Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements; .duel is
+// "npc" / "pvp" once a duel is being set up.
 Module.preRun = Module.preRun || [];
 Module.preRun.push(() => {
     const q = new URLSearchParams(location.search);
@@ -75,9 +76,19 @@ Module.preRun.push(() => {
         lru.set(k, data);
         if (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
-    function unpin(test) {   // policy changed its mind: back to the LRU (the newest end)
+    // a policy lets a pin go: another policy that still wants the chunk takes it over, else
+    // back to the LRU (the newest end). A chunk two policies want (a scene set and the duel effects) keeps one tag.
+    const wants = new Map();   // "url#chunk" -> every policy tag that asked for it (want)
+    function release(k, p) {
+        const w = wants.get(k);
+        if (w) w.delete(p.tag);
+        if (w && w.size) p.tag = w.values().next().value;
+        else pinned.delete(k), lru.set(k, p.data);
+    }
+    function unpin(test) {   // policy changed its mind
         for (const [k, t] of wanted) if (test(t)) wanted.delete(k);
-        for (const [k, p] of pinned) if (test(p.tag)) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [, w] of wants) for (const t of w) if (test(t)) w.delete(t);
+        for (const [k, p] of pinned) if (test(p.tag)) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
     const span = (url, i) => { const f = files.get(url); return [i * CHUNK, Math.min((i + 1) * CHUNK, f.size) - 1]; };
@@ -133,7 +144,7 @@ Module.preRun.push(() => {
         const f = files.get(url);
         if (!prefetchOn || !f || i < 0 || i * CHUNK >= f.size) return;
         const k = keyOf(url, i);
-        if (tag) wanted.set(k, tag);
+        if (tag) wanted.set(k, tag), (wants.get(k) || wants.set(k, new Set()).get(k)).add(tag);
         const m = memChunk(url, i);
         if (m) { if (tag) remember(url, i, m, tag); return; }
         if (inflight.has(k)) return;   // its fetch picks the tag up from `wanted`
@@ -167,6 +178,7 @@ Module.preRun.push(() => {
             if (r.status !== 206) return;
             data = new Uint8Array(await r.arrayBuffer());
             if (data.length !== to - from + 1) return;
+            if (/max-age=[1-9]|immutable/.test(r.headers.get("Cache-Control") || "")) cacheable = true;   // the versioned reply
             stats.prefetched++;
             if (j.keep) persist(j.url, j.i, data);
         }
@@ -224,7 +236,8 @@ Module.preRun.push(() => {
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
         for (const d of HOT) wantSpan(d, 2, "hot");
-        onIdle(() => { if (cacheable) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
+        // ponytail: not on phones and tablets (data/card is 336 MB of their data plan)
+        onIdle(() => { if (cacheable && !small) for (const d of TRICKLE) wantSpan(d, 9, null, false); });
     }
     // The duel's cards: the player's deck (rt/decktap.c reads it off the exe's own 0x6601/0x6603 at the duel's setup)
     // and the NPC's (the server, npcDeck below). A deck holds YO2 card ids; data/card/list_card.txt (LZSS in merge.dat)
@@ -271,7 +284,7 @@ Module.preRun.push(() => {
             const e = files2.get(n);
             if (e) for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) keep.add(i);
         }
-        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
         for (const i of keep) want(archive, i, pri, tag);
         return keep.size;
@@ -315,7 +328,7 @@ Module.preRun.push(() => {
         const m = mapAt(pos);
         if (m && m !== curMap) enterMap(m);
     }
-    let cacheable = false;   // the server lets the HTTP cache keep game files: trickle fills it
+    let cacheable = false;   // the server lets the HTTP cache keep game files (a ?v= reply says so): trickle fills it
     const onIdle = (f) => (typeof requestIdleCallback === "function" ? requestIdleCallback(f, { timeout: 30000 }) : setTimeout(f, 5000));
 
     // ---- scenes (ovr/scene.c: Module.onYo2Scene("begin"|"end", from, to), SceneId numbers): learned per player. The
@@ -340,7 +353,7 @@ Module.preRun.push(() => {
         const keep = new Set();
         for (const [list, pri] of [[first, 1], [second, 3]])
             for (const t of list) for (const i of learned.sets[t] || []) if (!keep.has(i)) keep.add(i), want(archive, i, pri, "scene");
-        for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) { pinned.delete(k); lru.set(k, p.data); }
+        for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
     function finishScene() {   // what the stay in a scene read (its switch, then cards and effects as they come) is its set
@@ -376,7 +389,7 @@ Module.preRun.push(() => {
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
         fetch(http + "/api/de/prefetch/duel", { credentials: "same-origin" })
-            .then((r) => (r.status === 200 ? r.json() : null))
+            .then((r) => ((L.duel = r.status === 200 ? "npc" : r.status === 204 ? "pvp" : ""), r.status === 200 ? r.json() : null))   // web/stall.js
             .then((j) => {
                 if (!j) return;
                 if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");

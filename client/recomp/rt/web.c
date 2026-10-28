@@ -28,10 +28,14 @@ void rc_web_sleep(uint32_t ms) {
 
 // after each Present: let the browser composite the frame and deliver input
 // Every Present: Module.yo2Presents counts frames for the page (the loader shows "Loading..." when it stops moving:
-// the game presents every frame unless a scene change or a load blocks it).
+// the game presents every frame unless a scene change or a load blocks it). Module.yo2Frame: web/stall.js's timer,
+// with the frame's image decode (ovr/decode.c) and texture upload (platform/gfx/d3d8.cpp) time.
+extern double rc_decode_ms, rc_upload_ms;
 void rc_web_frame(void) {
     if (!emscripten_is_main_runtime_thread()) return;
-    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; });
+    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1); },
+           rc_decode_ms, rc_upload_ms);
+    rc_decode_ms = rc_upload_ms = 0;
     rc_web_sleep(0);
 }
 
@@ -43,13 +47,16 @@ void rc_web_idle(void) {
 // WININET on fetch: a synchronous XHR (allowed on the main thread and workers) to YO2_HTTP + the request's path,
 // the same "every host goes to one server" rewrite as the native build. The body comes back as x-user-defined text
 // (each char's low byte is the byte), the only binary form a synchronous XHR allows on the main thread.
+// Module.yo2Xhr: the last 100 as [start, ms, path] (web/stall.js).
 EM_JS_DEPS(rc_web, "$UTF8ToString,malloc");
 EM_JS(int, web_xhr, (const char *verb, const char *url, const uint8_t *body, uint32_t nbody, uint8_t **resp,
                      uint32_t *nresp), {
     const x = new XMLHttpRequest();
-    x.open(UTF8ToString(verb), UTF8ToString(url), false);
+    const u = UTF8ToString(url), t0 = performance.now(), log = (Module.yo2Xhr = Module.yo2Xhr || []);
+    x.open(UTF8ToString(verb), u, false);
     x.overrideMimeType("text/plain; charset=x-user-defined");
     try { x.send(nbody ? HEAPU8.slice(body, body + nbody) : null); } catch (e) { return 0; }
+    finally { log.push([Math.round(t0), Math.round(performance.now() - t0), new URL(u, location.href).pathname]); if (log.length > 100) log.shift(); }
     const t = x.responseText, p = _malloc(t.length + 1);
     for (let i = 0; i < t.length; i++) HEAPU8[p + i] = t.charCodeAt(i) & 0xff;
     HEAPU32[resp >> 2] = p;

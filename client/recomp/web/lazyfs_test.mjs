@@ -85,7 +85,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1) };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }) };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -198,6 +198,10 @@ console.log("deck: ok");
 // ---- a duel from the lobby: the generic duel effects pinned there, the NPC's deck (server) at janken, all released in
 // My Room
 readEntry(g, "data/map/map_a02");   // the lobby's map: its area picks the duel's base background
+// an effects chunk a learned scene set wants too (janken's): the scene pins it first
+const Lfx = g.Module.yo2Lazy, fx = Math.floor(Lfx.spans.get("data/y/duel/effect")[0] / (1 << 20));
+const fxKey = [...Lfx.files.keys()].find((u) => /merge\.dat$/.test(u)) + "#" + fx;
+Lfx.learned().sets[0x1e] = [fx], (Lfx.learned().next[12] = [0x1e]);
 g.Module.onYo2Scene("begin", 10, 12), g.Module.onYo2Scene("end", 10, 12);
 g.Module.onYo2Scene("begin", 12, 0x1e);
 await settle(g.Module.yo2Lazy);
@@ -210,6 +214,7 @@ readEntry(g, "data/y/duel/effect"), readEntry(g, "data/card/0002"), readEntry(g,
 readEntry(g, "data/y2/duel/field/duel_filed_01");   // the NPC's Field Spell background
 assert.equal(syncXhr, 0, "effects and the NPC's art read without a synchronous request");
 g.Module.onYo2Scene("end", 12, 0x1e);
+assert.equal(Lfx.pinned.get(fxKey)?.tag, "duelfx", "the scene lets it go, the duel effects keep it pinned");
 g.Module.onYo2Scene("begin", 0x20, 10), g.Module.onYo2Scene("end", 0x20, 10);
 assert.ok(!tags().some((t) => ["duelfx", "duelui", "npc", "deck", "field"].includes(t)), "released back in My Room");
 console.log("duel: ok");

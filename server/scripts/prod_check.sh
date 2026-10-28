@@ -30,6 +30,8 @@ c=$(code "$B/api/de/session"); ok "$([ "$c" = 200 ] || [ "$c" = 401 ] && echo 1)
 c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}' "$B/__crash"); ok "$([ "$c" = 204 ] && echo 1)" "POST /__crash stores a report ($c, want 204; one marked prod_check)"
 c=$(code "$B/__crash"); ok "$([ "$c" = 405 ] && echo 1)" "GET /__crash ($c, want 405)"
 c=$(code "$B/__crashes"); ok "$([ "$c" = 401 ] && echo 1)" "/__crashes needs a session ($c, want 401)"
+c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}' "$B/__stall"); ok "$([ "$c" = 204 ] && echo 1)" "POST /__stall stores a batch ($c, want 204; one marked prod_check)"
+c=$(code "$B/__stalls"); ok "$([ "$c" = 401 ] && echo 1)" "/__stalls needs a session ($c, want 401)"
 c=$(code "$B/private/crashes/"); ok "$([ "$c" = 404 ] && echo 1)" "private/ is never served ($c, want 404)"
 c=$(code "$B/api/de/prefetch/duel"); ok "$([ "$c" = 204 ] && echo 1)" "/api/de/prefetch/duel without a session ($c, want 204)"
 c=$(code "$B/__warm"); ok "$([ "$c" = 200 ] && echo 1)" "/__warm ($c)"

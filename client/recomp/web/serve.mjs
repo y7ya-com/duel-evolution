@@ -1,6 +1,7 @@
 // Local server for the web build: cross-origin isolated (COOP/COEP, for SharedArrayBuffer) with HTTP Range.
 //   node web/serve.mjs [port]            / -> build-web/, /game/ -> $YO2_GAME (files.txt made on the fly)
 //   node web/serve.mjs --manifest <dir>  print <dir>'s files.txt (for the R2 copy)
+//   YO2_DELAY=<ms> YO2_KBPS=<KB/s>      a slow network for /game/ Range reads: latency + size at that rate (stall repros)
 // The game files are Konami's: this binds to 127.0.0.1 only.
 import fs from "node:fs";
 import http from "node:http";
@@ -41,14 +42,23 @@ http.createServer((req, res) => {
     const file = path.resolve(root, url.slice(prefix.length) || "yo2rc.html");
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile())
         return res.writeHead(404, h).end();
-    const size = fs.statSync(file).size;
+    const st = fs.statSync(file), size = st.size;
+    // an ETag and Cache-Control like the live server's (server/src/worker.ts; multipart style, "-1"): lazyfs's scene
+    // policies, store and card trickle need them
+    const etag = `${size.toString(16)}${Math.floor(st.mtimeMs).toString(16)}-1`, v = new URL(req.url, "http://x").searchParams.get("v");
+    h.ETag = `"${etag}"`;
+    h["Cache-Control"] = v && v.replace(/\W/g, "") === etag.replace(/\W/g, "") ? "public, max-age=31536000, immutable" : "no-cache";
     h["Content-Type"] = types[path.extname(file)] || "application/octet-stream";
     const m = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || "");
     if (m) {
         const from = Number(m[1]), to = Math.min(m[2] ? Number(m[2]) : size - 1, size - 1);
         if (from > to) return res.writeHead(416, { ...h, "Content-Range": `bytes */${size}` }).end();
-        res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
-        return req.method === "HEAD" ? res.end() : fs.createReadStream(file, { start: from, end: to }).pipe(res);
+        const send = () => {
+            res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
+            req.method === "HEAD" ? res.end() : fs.createReadStream(file, { start: from, end: to }).pipe(res);
+        };
+        const ms = prefix === "/game/" ? +(process.env.YO2_DELAY || 0) + (to - from + 1) / (+process.env.YO2_KBPS || Infinity) : 0;
+        return ms ? setTimeout(send, ms) : send();
     }
     res.writeHead(200, { ...h, "Content-Length": size });
     req.method === "HEAD" ? res.end() : fs.createReadStream(file).pipe(res);

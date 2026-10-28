@@ -99,7 +99,7 @@ WEB_LDFLAGS := $(WEB_LINK_OPT) -pthread -sJSPI -sPTHREAD_POOL_SIZE=8 \
   -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=2MB -sASSERTIONS=0 -sENVIRONMENT=web,worker \
   -sUSE_SDL=2 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -lwebsocket.js -lidbfs.js \
   -sFORCE_FILESYSTEM=1 '-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=$$ENV' --profiling-funcs \
-  --pre-js web/lazyfs.js --pre-js web/yieldguard.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --shell-file web/shell.html
+  --pre-js web/lazyfs.js --pre-js web/yieldguard.js --pre-js web/audio.js --pre-js web/audiopage.js --pre-js web/sfx.js --pre-js web/stall.js --shell-file web/shell.html
 
 web: $(WB)/yo2rc.html
 
@@ -126,7 +126,7 @@ $(WB)/ovr_orig.o: $(B)/ovr_orig.c rt/rc.h
 	@mkdir -p $(WB)
 	emcc $(WEB_CFLAGS) -c $< -o $@
 
-$(WB)/yo2rc.html: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js web/sfx.js web/shell.html
+$(WB)/yo2rc.html: $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js web/sfx.js web/stall.js web/shell.html
 	em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WEB_LDFLAGS) -o $@
 	sed -i.bak 's#<script async type="text/javascript" src="yo2rc.js"></script>##' $@ && rm -f $@.bak
 	! grep -q 'src="yo2rc.js"' $@   # shell.html's script picks the build
@@ -153,7 +153,7 @@ $(WB)/async-only.json: web/async-only.txt
 # ASYNCIFY link in 1 GB: Emscripten's data from 704 MB (GLOBAL_BASE), the guest below it (rt.c clamps the arena to
 # __global_base: 128-704 MB; a title -> lobby -> NPC duel run peaks at ~320 MB in use), 320 MB above for the runtime.
 WEB_IOS_LDFLAGS := $(subst -sGLOBAL_BASE=1073741824,-sGLOBAL_BASE=738197504,$(subst =$(WEB_ASYNC_MEM),=1073741824,$(WEB_ASYNC_LDFLAGS)))
-WEB_ASYNC_DEPS := $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WB)/async-only.json web/asyncguard.js web/wasmnames.py web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js
+WEB_ASYNC_DEPS := $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(WB)/async-only.json web/asyncguard.js web/wasmnames.py web/lazyfs.js web/yieldguard.js web/audio.js web/audiopage.js web/sfx.js web/stall.js
 # $(call async_link,<flags>): link $@ (yo2rc-*.js) and write the instrumented functions' indices into it
 define async_link
 em++ $(WEB_RT_C_OBJS) $(WEB_RT_CXX_OBJS) $(WB)/ovr_orig.o $(WB)/librc.a $(filter-out --shell-file web/shell.html,$(1)) -o $@

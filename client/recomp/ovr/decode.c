@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten/threading.h>
+#endif
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
@@ -67,7 +70,12 @@ static uint32_t com(CPU *c, uint32_t obj, uint32_t slot, int n, const uint32_t *
 // ponytail: unlocked counters (loader threads race them); they only feed the log
 static struct { unsigned calls, fast, same, differ; double ms; } st[3];   // jpeg, png, other
 
+double rc_decode_ms;   // decode time on the page's main thread since the last frame (rt/web.c -> web/stall.js)
+
 static void tally(const char *k, double ms, int fast) {
+#ifdef __EMSCRIPTEN__
+    if (emscripten_is_main_runtime_thread()) rc_decode_ms += ms;
+#endif
     int i = k[0] == 'j' ? 0 : k[0] == 'p' ? 1 : 2;
     st[i].calls++, st[i].fast += fast, st[i].ms += ms;
     if (logging && (st[0].calls + st[1].calls + st[2].calls) % 50 == 0)
