@@ -7,7 +7,6 @@ import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
 
 export const PID_BASE = 1000;
-export const MAX_ACCOUNTS = 64;          // py YO2_MAX_SESIONES
 export const SESSION_RELEASE_S = 120;    // py YO2_SESION_LIBERAR_S
 export const DUEL_STATE = 0x67;
 const LIST_SELF = true;
@@ -94,13 +93,13 @@ export class Hub {
     if (canUseAccount(peerUser, this.g.store.ownerOf(acct, this.g.cfg.ownerAcct)) === "refuse") { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     if (!known && this.g.cfg.loginStrict) { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     let code: number | null = null, busy: Conn | null = null;
-    if (!this.sessions.has(acct) && this.sessions.size >= MAX_ACCOUNTS) this.sweep();
+    if (!this.sessions.has(acct) && this.sessions.size >= this.g.cfg.maxSessions) this.sweep();
     let s = this.sessions.get(acct) ?? null;
     if (s && LOGIN_EN_USO) busy = this.inUseBy(s, c);
     if (busy) { s = null; code = AUTH_IN_USE; }
     else if (!s) {
-      if (this.sessions.size >= MAX_ACCOUNTS) {
-        this.log(`[hub] limit of ${MAX_ACCOUNTS} sessions: 0x3003 of ${acct.slice(0, 6)}… refused (−200)`);
+      if (this.sessions.size >= this.g.cfg.maxSessions) {
+        this.log(`[hub] limit of ${this.g.cfg.maxSessions} sessions: 0x3003 of ${acct.slice(0, 6)}… refused (−200)`);
         code = AUTH_SERVER_FULL;
       } else {
         const [idx, owner] = this.g.registerAccount(acct, peerUser);

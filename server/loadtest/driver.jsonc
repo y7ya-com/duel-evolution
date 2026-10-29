@@ -1,0 +1,12 @@
+{
+  // The load driver (README.md): POST /run with x-load-key; reaches the load server only (service binding).
+  "name": "duel-evolution-loadgen",
+  "account_id": "b8772d7be936c70234ce641c0ec7728b",
+  "main": "driver.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "services": [{ "binding": "TARGET", "service": "duel-evolution-load" }],
+  "durable_objects": { "bindings": [{ "name": "LOAD", "class_name": "LoadDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LoadDO"] }]
+}

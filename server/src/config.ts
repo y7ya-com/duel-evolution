@@ -43,6 +43,8 @@ export interface Config {
   paritySeed: number | null;
   /** py YO2_PVP_TEST: the test instance (0x7ffe/0x7ffd, no NPC rock-paper-scissors luck, deck check off). */
   pvpTest: boolean;
+  /** Sessions at once (py YO2_MAX_SESIONES, 64); MAX_SESSIONS raises it (the load test). */
+  maxSessions: number;
   /** Upper bound (s) on the pause after each sent message, duel included. py sleeps 0.25 s after most messages (about
    *  10 s of a login); the recompiled client plays fine at 0.002-0.02 s. null = py's own pauses (SEND_PACE=py, parity runs). */
   sendPace: number | null;
@@ -77,6 +79,7 @@ export function configFrom(env: Record<string, unknown>): Config {
     dev: s("DEV") === "1",
     paritySeed: s("PARITY_SEED") ? Number(s("PARITY_SEED")) : null,
     pvpTest: flag("PVP_TEST", false),
+    maxSessions: Number(s("MAX_SESSIONS")) || 64,
     sendPace: s("SEND_PACE") === "py" ? null : Number(s("SEND_PACE") ?? 0.005) || 0,
     duelPause: Number(s("DUEL_PAUSE")) || 0.05,
     duelReserva: (s("DUEL_RESERVA") || "vigilar").trim().toLowerCase(),

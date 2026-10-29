@@ -1,0 +1,25 @@
+{
+  // The load-test server (README.md): the production code with an empty D1 of its own, no route and no workers.dev,
+  // so only the driver reaches it (service binding). Test sign-in on (DEPLOY_ENV staging): never point this at prod.
+  "name": "duel-evolution-load",
+  "account_id": "b8772d7be936c70234ce641c0ec7728b",
+  "main": "../src/worker.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": {
+    "PORT_OFFSET": "1000",
+    "PUBLIC_ORIGIN": "https://load.invalid",
+    "DEPLOY_ENV": "staging",
+    "NPC_AI": "py",
+    "CLIENT_PREFIX": "recomp-de/",
+    "PVP_TEST": "1", // PvP players auto-play (0x7ffe) and surrender at any turn; the duel engine is the real one
+    "PROGRESSION": "1", // as production: new characters start with the 40 starter cards
+    "DECK_CHECK": "off", // the simulated players duel with an NPC deck they don't own
+    "MAX_SESSIONS": "1000" // production keeps py's 64
+  },
+  "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "ygo-original" }], // read only: the duel engine data
+  "d1_databases": [{ "binding": "DB", "database_name": "duel-evolution-load", "database_id": "D1_ID", "migrations_dir": "../migrations" }]
+}
