@@ -42,6 +42,7 @@ IMP(WSOCK32, ord4) {   // connect(s, sockaddr*, len): blocking, as the exe's con
         RET(3, 0xffffffffu);
     }
     ws[i].ns = s;
+    rc_cw_open(i);
     RET(3, 0);
 }
 IMP(WSOCK32, ord3) {   // closesocket
@@ -51,14 +52,17 @@ IMP(WSOCK32, ord3) {   // closesocket
         ws[i].used = 0;
         ws[i].ns = NULL;
         memset(&as[i], 0, sizeof as[i]);
+        rc_cw_close(i);
     }
     RET(1, 0);
 }
+static int raw_recv(int i, uint8_t *b, int n) { int k = rc_web_sock_recv(ws[i].ns, b, n); return k < -1 ? -2 : k; }
+static int raw_send(int i, const uint8_t *b, int n) { return rc_web_sock_send(ws[i].ns, b, n) < 0 ? -2 : n; }
 IMP(WSOCK32, ord16) {   // recv(s, buf, len, flags): blocking until WSAAsyncSelect made the socket non-blocking
     int i = fd_of(ARG(0));
     if (i <= 0 || !ws[i].ns) { last_err = 10057; RET(4, 0xffffffffu); }   // WSAENOTCONN
     int k;
-    while ((k = rc_web_sock_recv(ws[i].ns, G(ARG(1)), (int)ARG(2))) == -1 && !as[i].msg) rc_web_sleep(5);
+    while ((k = rc_cw_recv(i, G(ARG(1)), (int)ARG(2), raw_recv, raw_send)) == -1 && !as[i].msg) rc_web_sleep(5);
     as[i].armed_read = 1;   // Windows re-enables FD_READ after each recv
     if (k == -1) { last_err = 10035; RET(4, 0xffffffffu); }   // WSAEWOULDBLOCK
     if (k < 0) { last_err = 10054; RET(4, 0xffffffffu); }     // WSAECONNRESET
@@ -67,7 +71,8 @@ IMP(WSOCK32, ord16) {   // recv(s, buf, len, flags): blocking until WSAAsyncSele
 IMP(WSOCK32, ord19) {   // send(s, buf, len, flags)
     rc_deck_tap(G(ARG(1)), (int)ARG(2));   // decktap.c: the duel deck, for the card-art prefetch
     int i = fd_of(ARG(0));
-    int k = i > 0 && ws[i].ns ? rc_web_sock_send(ws[i].ns, G(ARG(1)), (int)ARG(2)) : -2;
+    int k = i > 0 && ws[i].ns ? (rc_cw_v2(i) ? rc_cw_send(i, G(ARG(1)), (int)ARG(2), raw_send)
+                                             : rc_web_sock_send(ws[i].ns, G(ARG(1)), (int)ARG(2))) : -2;
     if (k < 0) { last_err = 10054; RET(4, 0xffffffffu); }
     RET(4, (uint32_t)k);
 }
@@ -99,7 +104,7 @@ IMP(WSOCK32, ord101) {   // WSAAsyncSelect(s, hwnd, msg, events)
 void rc_net_poll(void) {
     for (int i = 1; i < MAXS; i++) {
         if (!as[i].msg || as[i].closed || !as[i].armed_read || !ws[i].ns) continue;
-        int ev = rc_web_sock_event(ws[i].ns);
+        int ev = rc_web_sock_event(ws[i].ns) | (rc_cw_pending(i) ? 1 : 0);   // + frames the codec holds for the exe
         if ((ev & 1) && (as[i].events & 1)) {
             as[i].armed_read = 0;
             rc_post(as[i].hwnd, as[i].msg, SOCK_BASE + i, 1);

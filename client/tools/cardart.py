@@ -11,6 +11,7 @@ passcode; list_card.txt (inside each archive) points every card index at its fil
   python3 -I cardart.py match ...same...                         -> <gamedata>/cards.json (index, passcode, art)
   python3 -I cardart.py sheet ...same... --out <png> [--all]     contact sheet of matches to review by eye
   python3 -I cardart.py pack ...same... --out <game dir>         -> <game>/merge/data/{card,mini}.dat
+  python3 -I cardart.py table ...same... --out <game dir>        -> <game>/merge/data/card_passcode.bin (rt/cardwire.cpp)
 
 Needs Pillow and numpy. Downloads go to --cache (never the repo); cards.json is Konami-derived (server/gamedata/,
 private).
@@ -300,9 +301,29 @@ def pack(a):
         print(f"{out}/{d}.dat: {len(entries)} entries, {sum(len(b) for _, b in entries) / 1e6:.1f} MB")
 
 
+def table(a):
+    """The card wire's table (rt/cardwire.cpp): "YO2CARDS", u32 count, u32 placeholder index for a hidden monster /
+    spell / trap (the translator's), then per card index u32 passcode + u16 Konami internal id, little-endian."""
+    m = Merge(a.merge)
+    prop = m.read("data/bin#/card_prop.bin")
+    n = len(prop) // 8
+    by = {c["i"]: c for c in json.load(open(os.path.join(a.gamedata, "cards.json")))}
+    ph = json.load(open(os.path.join(a.gamedata, "translator.json")))["placeholders"]
+    out = bytearray(b"YO2CARDS" + struct.pack("<IIII", n, ph["monster"], ph["spell"], ph["trap"]))
+    for i in range(n):
+        c = by.get(i)
+        out += struct.pack("<IH", c["pc"] if c else 0, c["internal"] if c else 0)
+    path = os.path.join(a.out, "merge", "data", "card_passcode.bin")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "wb").write(out)
+    h = 2166136261   # FNV-1a, as the codec and the server compare it
+    for b in out: h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    print(f"{path}: {n} cards, hash {h:08x}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("cmd", choices=["fetch", "match", "sheet", "pack"])
+    ap.add_argument("cmd", choices=["fetch", "match", "sheet", "pack", "table"])
     ap.add_argument("--merge", required=True)
     ap.add_argument("--gamedata", required=True)
     ap.add_argument("--cache", required=True)
@@ -310,7 +331,7 @@ def main():
     ap.add_argument("--all", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.cache, exist_ok=True)
-    {"fetch": fetch, "match": match, "sheet": sheet, "pack": pack}[a.cmd](a)
+    {"fetch": fetch, "match": match, "sheet": sheet, "pack": pack, "table": table}[a.cmd](a)
 
 
 if __name__ == "__main__":
