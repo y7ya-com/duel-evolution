@@ -30,3 +30,4 @@
 00adcda0  # CWorldMng::waitMyRoom (freemode.c: FREE DUEL joins a lobby instead of My Room)
 00804bf0  # CLoginScene::onInit (rt/session.cpp: the sign-in panel before the first draw)
 00806860  # CLoginScene::onMain (rt/session.cpp: the panel after each step)
+006bfa80  # 0x7127 TRADETRUNKEND (starterdeck.c: an open Edit Deck follows the pushed trunk)
