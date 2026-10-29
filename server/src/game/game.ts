@@ -10,7 +10,7 @@ import type { Npc } from "./npcs.ts";
 import type { Lobby } from "./lobby.ts";
 
 /** What the lobby needs from the PvP matches (py pvp_match.Matches); ported with the PvP module. */
-export interface PvpLike { byPid(pid: number): unknown; reserve(a: Session, b: Session): void; watchRequest(peer: string, pid: number): unknown }
+export interface PvpLike { byPid(pid: number): unknown; reserve(a: Session, b: Session): void; watchRequest(peer: string, pid: number, who?: Session | null): unknown }
 export interface NpcWatchLike { watchRequest(peer: string, pid: number): unknown; forget(peer: string): void }
 import { Clock } from "../util/clock.ts";
 import AUTO from "../data/auto_replies.json";

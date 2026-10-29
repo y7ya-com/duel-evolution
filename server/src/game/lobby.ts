@@ -386,7 +386,7 @@ export class Lobby {
     const pid = data.length >= 4 ? u32(data) : 0;
     const pvp = this.g.pvp, nw = this.g.nw;
     const ok = () => c.send(0x4321, new W().u32(0).s(this.g.cfg.publicIp, 15).u16(this.g.ports.duel + this.g.cfg.portOffset).bytes());
-    if (WATCH && pvp && pvp.watchRequest(c.peer, pid)) { nw?.forget(c.peer); ok(); return true; }
+    if (WATCH && pvp && pvp.watchRequest(c.peer, pid, this.sess(c))) { nw?.forget(c.peer); ok(); return true; }
     if (WATCH && nw && nw.watchRequest(c.peer, pid)) { ok(); return true; }
     c.send(0x4321, new W().u32(1).s("", 15).u16(0).bytes());
     return true;

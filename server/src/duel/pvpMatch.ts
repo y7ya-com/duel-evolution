@@ -190,10 +190,12 @@ export class Matches {
 
   drop(m: PvpMatch): void { for (const p of m.pids) if (this.pids.get(p) === m) this.pids.delete(p); }
 
-  watchRequest(peer: string, pid: number): PvpMatch | null {
+  watchRequest(peer: string, pid: number, who: Session | null = null): PvpMatch | null {
     if (!PVP_WATCH) return null;
     const m = this.byPid(pid);
     if (!m || m.done) return null;
+    // the stream is player 0's own view (its hand included): never to a player of that match
+    if (who && m.sess.includes(who)) { this.log(`[pvp] ${m.name}: a player of the match asks to watch it: refused`); return null; }
     this.watchReq.set(peer, [m, now()]);
     return m;
   }

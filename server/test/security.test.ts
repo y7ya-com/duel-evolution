@@ -210,3 +210,16 @@ describe("NPC duel results", () => {
     } finally { PP.setProgression(false); }
   });
 });
+
+describe("PvP spectators", () => {
+  it("a player of the match can't watch it (the stream is player 0's own view)", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const [a, b, c] = ["alice", "bob", "carol"].map((n) => h.client(n, n, "pw", `user-${n}`));
+    for (const x of [a, b, c]) { await x.account(0, x.name); await x.enterRoom(); }
+    const [sa, sb, sc] = [a, b, c].map((x) => h.game.hub.byPid(x.pid!)!);
+    h.game.pvp!.reserve(sa, sb);
+    expect(h.game.pvp!.watchRequest(b.id, a.pid!, sb)).toBeNull();
+    expect(h.game.pvp!.watchRequest(a.id, b.pid!, sa)).toBeNull();
+    expect(h.game.pvp!.watchRequest(c.id, a.pid!, sc)).not.toBeNull();
+  });
+});
