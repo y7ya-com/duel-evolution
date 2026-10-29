@@ -193,7 +193,7 @@
                 // UNITY DECK" for "Dark Magicians"), so the text points at the list, not the name. A deck the 2008 limit list
                 // trims loads 37-39 cards ("Cards Missing") and needs the substitutes from the trunk to reach 40.
                 // ">" not "→": the glyph atlas (ui/glyphs-dejavu16.json) has no arrow.
-                done: [`✓ ${name} is yours!`, "Reload to get its cards, then Edit Deck > Structure Deck to load it."],
+                done: [`✓ ${name} is yours!`, "Its cards are in your Trunk."],
                 error: [`● ${msg}`],
             }[view];
             const w = Math.min(L.w - 16, 440), tw = w - 32;
@@ -207,16 +207,8 @@
             if (view === "confirm") {
                 btn(top, x + 16, by, "Yes, take it", claim);
                 btn(top, x + w - 16 - 96, by, "Back", back);
-            } else if (view === "done") {   // the trunk only refreshes on a new login: reload, signed in straight back (online=1)
-                const rw = Math.max(96, measure("Reload now") + 32);
-                btn(top, x + Math.floor((w - rw) / 2), by, "Reload now", reload);
-            }
+            } else if (view === "done") btn(top, x + Math.floor((w - 96) / 2), by, "OK", close);
             else if (view === "error") btn(top, x + Math.floor((w - 96) / 2), by, "OK", done ? close : back);
-        }
-
-        function reload() {
-            const u = new URLSearchParams(location.search); u.set("online", "1");
-            location.replace(location.pathname + "?" + u);
         }
 
         function back() {
@@ -232,7 +224,11 @@
                 const r = await fetch(API + "/claim", { method: "POST", credentials: "same-origin",
                     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: deck.id }) });
                 const j = await r.json().catch(() => ({}));
-                if (r.ok && j.ok !== false) { done = true; view = "done"; }
+                if (r.ok && j.ok !== false) {
+                    done = true; view = "done";
+                    // in place, no reload: the game takes the deck now; the server's trunk push (0x7125-27) refreshes an open Edit Deck
+                    try { Module.yo2InstallStarterDeck?.(j.deck ?? deck); } catch (e) { console.warn("starter: install", e); }
+                }
                 else {
                     if (r.status === 409) done = true;
                     msg = r.status === 409 ? "This character already has its starter deck."
