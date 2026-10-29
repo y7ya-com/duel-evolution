@@ -45,17 +45,34 @@
         box.style.width = game.offsetWidth + "px"; box.style.height = game.offsetHeight + "px";
     }
 
-    // wasm download progress: count the bytes of the .wasm response as the runtime streams it. Phones drop the 40 MB
-    // download now and then: a failed request is tried once more, and a body that breaks off resumes once from the
-    // byte it reached (a Range request: the site serves ranges of the uncompressed file even when the full response
-    // is zstd, so the decoded count is the offset). Emscripten itself fetches again once if streaming fails.
+    // wasm download progress: count the bytes of the .wasm response as the runtime streams it. The first fetch hands
+    // the network Response itself to instantiateStreaming and counts a clone(): a Response we build has no URL, and
+    // V8/WebKit cache the compiled module (a warm boot skips the compile) only for one that comes from the HTTP cache.
+    // Phones drop the 40 MB download now and then: Emscripten then fetches again (instantiateArrayBuffer), and that
+    // fetch is tried once more on failure and, if its body breaks off, resumes once from the byte it reached (a Range
+    // request: the site serves ranges of the uncompressed file even when the full response is compressed, so the
+    // decoded count is the offset).
     const realFetch = window.fetch;
+    const counted = new Set();
+    const progress = (got, total) => status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
     window.fetch = async function (input, init) {
         const url = String((input && input.url) || input);
         if (!/\.wasm(\?|$)/.test(url)) return realFetch.call(this, input, init);
         const r = await realFetch.call(this, input, init).catch(() => realFetch.call(this, input, init));
         if (!r.ok || !r.body) return r;
         const total = +r.headers.get("content-length") || 0;
+        if (!counted.has(url)) {
+            counted.add(url);
+            const c = r.clone().body.getReader();
+            (async () => {
+                for (let got = 0; ;) {
+                    const { done, value } = await c.read();
+                    if (done) return status("Starting…");
+                    progress(got += value.byteLength, total);
+                }
+            })().catch(() => {});
+            return r;
+        }
         let got = 0, reader = r.body.getReader(), resumed = false;
         const body = new ReadableStream({
             async pull(c) {
@@ -63,8 +80,7 @@
                     try {
                         const { done, value } = await reader.read();
                         if (done) { status("Starting…"); return c.close(); }
-                        got += value.byteLength;
-                        status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
+                        progress(got += value.byteLength, total);
                         return c.enqueue(value);
                     } catch (e) {
                         if (resumed) throw e;

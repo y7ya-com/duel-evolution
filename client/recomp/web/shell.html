@@ -102,6 +102,11 @@
     s.src = ios ? "yo2rc-ios.js" : "Suspending" in WebAssembly && !navigator.userAgent.includes("Firefox/") && !q.has("async") ? "yo2rc.js" : "yo2rc-async.js";
     if (s.src.endsWith("/yo2rc.js")) try { new WebAssembly.Memory({ initial: 32768, maximum: 32768, shared: true }); }
       catch (e) { log("no room for a 2 GB memory (" + e.message + "): the 1 GB build"); s.src = "yo2rc-ios.js"; }
+    // start the wasm download now, beside the runtime script, not once that script has run (Emscripten's own
+    // fetch(…, { credentials: "same-origin" }) then takes this response: crossorigin "anonymous" is the same mode)
+    const pre = document.createElement("link");
+    pre.rel = "preload"; pre.as = "fetch"; pre.crossOrigin = "anonymous"; pre.href = s.src.replace(/\.js$/, ".wasm");
+    document.head.append(pre);
     addEventListener("yo2crash", (e) => {
       if (!/could not allocate memory|out of memory/i.test(e.detail)) return;
       e.preventDefault();
