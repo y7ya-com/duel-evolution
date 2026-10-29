@@ -287,7 +287,7 @@ static void decode(CPU *restrict c) {
     uint32_t hr = com(c, a[0], 20, 7, ct);
     if (!hr) {
         uint32_t tex = RD32m(s + 4);
-        uint32_t lk[] = {0, s + 8, 0, 0};
+        uint32_t lk[] = {0, s + 8, 0, 0x2000};   // D3DLOCK_DISCARD: the loop below writes every texel (rt/d3d8.cpp)
         hr = com(c, tex, 16, 4, lk);
         if (!hr) {
             uint8_t *bits = G(RD32m(s + 12));

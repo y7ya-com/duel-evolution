@@ -63,28 +63,48 @@ uint32_t mirror_get(size_t n) {
 }
 void mirror_put(uint32_t m) { if (m) sparMirrors.emplace(rc_hsize(m), m); }
 
-uint32_t lock_mirror(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, uint32_t out) {
+// D3DLOCK_DISCARD: the caller writes every byte of the rect before the unlock (the exe never passes it; ovr/decode.c's
+// texture fill and ovr/speed.c's clearPage do), so the old texels are not copied in.
+// RC_DISCARD=compare fills the mirror with a poison word instead and counts, on unlock, the texels still holding it.
+const uint32_t kPoison = 0x5ca1ab1e;
+bool discard_compare() {
+    static int m = -1;
+    if (m < 0) m = getenv("RC_DISCARD") && !strcmp(getenv("RC_DISCARD"), "compare");
+    return m;
+}
+
+uint32_t lock_mirror(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, uint32_t out, bool discard = false) {
     uint32_t i = idx(g);
     if (!lockBuf[i] || rc_hsize(lockBuf[i]) < n) {
         mirror_put(lockBuf[i]);
         lockBuf[i] = mirror_get(n);
     }
-    memcpy(G(lockBuf[i]), lr.pBits, n);
+    if (!discard) memcpy(G(lockBuf[i]), lr.pBits, n);
+    else if (discard_compare()) for (size_t k = 0; k + 4 <= n; k += 4) memcpy(G(lockBuf[i] + (uint32_t)k), &kPoison, 4);
     WR32m(out, (uint32_t)lr.Pitch);
     WR32m(out + 4, lockBuf[i]);
     return lockBuf[i];
 }
 
-struct Locked { void* bits; size_t n; bool peek; };
+struct Locked { void* bits; size_t n; bool peek, discard; };
 std::vector<Locked> locks;   // by index: where to copy the mirror back
-void remember(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, bool peek = false) {
+void remember(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, bool peek = false, bool discard = false) {
     uint32_t i = idx(g);
     if (locks.size() <= i) locks.resize(i + 1);
-    locks[i] = {lr.pBits, n, peek};
+    locks[i] = {lr.pBits, n, peek, discard};
 }
 void copy_back(uint32_t g) {
     uint32_t i = idx(g);
-    if (i < locks.size() && locks[i].bits && lockBuf[i]) memcpy(locks[i].bits, G(lockBuf[i]), locks[i].n);
+    if (i >= locks.size() || !locks[i].bits || !lockBuf[i]) return;
+    if (locks[i].discard && discard_compare()) {
+        static unsigned calls, texels, left;
+        size_t k = 0, m = 0;
+        for (; k + 4 <= locks[i].n; k += 4) m += !memcmp(G(lockBuf[i] + (uint32_t)k), &kPoison, 4);
+        calls++, texels += (unsigned)(k / 4), left += (unsigned)m;
+        if (m) rc_log("discard compare: lock %u: %zu of %zu texels not written", calls, m, k / 4);
+        if (!(calls & (calls - 1)) && calls >= 64) rc_log("discard compare: %u locks, %u texels, %u not written", calls, texels, left);
+    }
+    memcpy(locks[i].bits, G(lockBuf[i]), locks[i].n);
 }
 // D3DLOCK_READONLY on a texture: read the shadow in place. No platform lock, so nothing is copied back on unlock and the
 // texture is not marked dirty (the platform re-uploads every unlocked rect to GL). CD3DSprite's per-frame mouse hit test
@@ -416,11 +436,12 @@ M(tex, LockRect) {
     D3DLOCKED_RECT lr{};
     const RECT* r = ARG(3) ? (const RECT*)G(ARG(3)) : nullptr;
     bool peek = (ARG(4) & 0x10) && !rc_nospeed;   // D3DLOCK_READONLY
+    bool discard = (ARG(4) & 0x2000) && !peek && !rc_nospeed;   // D3DLOCK_DISCARD
     HRESULT hr = peek ? peek_rect(t, ARG(1), &lr, r) : t->LockRect(ARG(1), &lr, r, ARG(4));
     if (!hr) {
         size_t n = rect_bytes(ARG(3), lr.Pitch, t->level0.h);
-        remember(ARG(0), lr, n, peek);
-        lock_mirror(ARG(0), lr, n, ARG(2));
+        remember(ARG(0), lr, n, peek, discard);
+        lock_mirror(ARG(0), lr, n, ARG(2), discard);
     }
     RET(5, hr);
 }
