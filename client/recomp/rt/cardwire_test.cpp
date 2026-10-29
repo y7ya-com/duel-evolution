@@ -33,7 +33,7 @@ static std::vector<Frame> framesOf(Bytes b) {
     assert(b.empty());
     return out;
 }
-static Stream* v2Stream(const Table& t, uint32_t helloParam = 7) {
+static Stream* v2Stream(const Table& t, uint32_t helloParam = 0) {
     Stream* s = new Stream;
     s->c.t = &t;
     Bytes hi;
@@ -92,7 +92,7 @@ int main() {
         CHECK(rep.size() == 1 && rep[0].id == HELLO_C && be32(&rep[0].data[2]) == t.hash, "hello reply on mismatch");
         CHECK(s.c.mode == Conn::PASS && framesOf(s.toExe).size() == 1, "mismatch: v1, the next frame passed on");
     }
-    Stream& s = *v2Stream(t, 7);
+    Stream& s = *v2Stream(t);
     {
         auto rep = framesOf(s.rawOut);
         s.rawOut.clear();
@@ -104,8 +104,8 @@ int main() {
         Bytes d2 = rec6202(0, 0x48, {9, 73915052, 0}, 0, 1 << 1, 0);
         Bytes d3 = rec6202(0x1b, 0x33, {0x4b}, 0, 0, 1);
         d.insert(d.end(), d2.begin(), d2.end());
-        auto out = serve(s, {{0x6202, 100, d}, {0x6202, 101, d3}});
-        CHECK(out.size() == 2 && out[0].param == 7 && out[1].param == 8, "renumbered from the hello's number");
+        auto out = serve(s, {{0x6202, 7, d}, {0x6202, 8, d3}});   // a connection continuing the exe's count at #7
+        CHECK(out.size() == 2 && out[0].param == 7 && out[1].param == 8, "numbered from the server's first frame");
         CHECK(out[0].data.size() == 80 && be32(&out[0].data[8 + 12]) == 1 && be32(&out[0].data[40 + 8 + 4]) == 3902,
               "6202 slots: index %u, internal %u", be32(&out[0].data[20]), be32(&out[0].data[52]));
         CHECK(out[1].data.size() == 40 && s.c.announce, "hints: announce");

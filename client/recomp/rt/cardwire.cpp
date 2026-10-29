@@ -26,7 +26,8 @@
 //                         exe one message per exe 0x6013, as the server does
 //   C 0x6423              u32 internal id -> passcode while a 0x6202 hint's card-name request lasts (v <= 1 ends it)
 // The exe checks that every inbound frame's param is the previous one + 1: on a v2 connection the codec numbers what
-// it delivers itself (the swallowed hello lends its number to the next frame).
+// it delivers itself, from the number of the server's first frame after the hello (the hello is #0 and spends none:
+// a connection that continues the exe's count, GATE_SEQ, starts there).
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -111,6 +112,7 @@ struct Conn {
     const Table* t = nullptr;
     enum { FIRST, PASS, V2 } mode = FIRST;
     uint32_t nextIn = 0;        // the param the exe expects next (v2)
+    bool haveIn = false;        // nextIn known: set by the server's first frame after the hello
     uint32_t lastOut = 0;       // the exe's last outbound param (for frames the codec sends itself)
     bool announce = false;      // the next 0x6423 answer is a declared card
     // trunk tables being collected: start message, (passcode, count) pairs
@@ -414,10 +416,11 @@ static void onServerBytes(Stream& s, const uint8_t* p, size_t n) {
                 s.rawIn.clear();
                 return;
             }
-            s.c.mode = Conn::V2, s.c.nextIn = f.param;   // the hello's number goes to the exe's next frame
+            s.c.mode = Conn::V2;
             CW_LOG("cardwire: v2 (table %08x)", s.c.t->hash);
             continue;
         }
+        if (!s.c.haveIn) s.c.nextIn = f.param, s.c.haveIn = true;   // the server numbers by the exe's count
         std::vector<Frame> out, ack;
         fromServer(s.c, f, out, ack);
         for (auto& o : out) { o.param = s.c.nextIn++; Bytes b = encode(o); s.toExe.insert(s.toExe.end(), b.begin(), b.end()); }

@@ -67,7 +67,7 @@ function makeEnv(store, ls, opts = {}) {
     }
     async function fetch(url, o = {}) {
         if (pathOf(url) === "api/de/prefetch/duel")   // the server's NPC deck for the duel being set up
-            return { status: 200, headers: { get: () => null }, json: async () => ({ npc: 35, cards: [2, 3], fields: [3] }) };
+            return { status: 200, headers: { get: () => null }, json: async () => opts.duel ?? { npc: 35, cards: [2, 3], fields: [3] } };
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
@@ -379,8 +379,25 @@ console.log("prefetch=0: ok");
         assert.equal(L.stats.fieldFiles, 1, "card 3's Field Spell, by merge.dat's card number 4336 (no map yet: no area)");
         assert.ok([...L.pinned.entries()].some(([k, p]) => p.tag === "npc" && k.includes("card.dat")), "the NPC's art from card.dat");
         console.log("2x card art: ok");
+        // a server on the card wire names the NPC's cards by passcode: art by name in card.dat, Field Spells by the
+        // internal id in card_passcode.bin (24094653: internal 4336, the Field Spell number of duel_filed_01)
+        const tbl = Buffer.alloc(24 + 6 * 3);
+        tbl.write("YO2CARDS", 0, "latin1"), tbl.writeUInt32LE(3, 8);
+        [[67105242, 4007], [89631139, 4041], [24094653, 4336]].forEach(([pc, int], k) => { tbl.writeUInt32LE(pc, 24 + 6 * k), tbl.writeUInt16LE(int, 28 + 6 * k); });
+        files["cards/merge/data/card_passcode.bin"] = tbl;
+        const r2 = makeEnv(new Map(), new Map(), { duel: { npc: 35, cards: [89631139, 24094653], fields: [24094653], ids: "passcode" } });
+        await r2.ready();
+        const L2 = r2.Module.yo2Lazy;
+        r2.read("/game/merge.dat", 0, toc);
+        await settle(L2);
+        r2.Module.onYo2Scene("begin", 12, 0x1e);
+        await settle(L2);
+        const npc = [...L2.pinned.entries()].filter(([, p]) => p.tag === "npc").map(([k]) => k);
+        assert.ok(npc.length >= 3 && npc.every((k) => k.includes("card.dat")), "passcodes: the NPC's art from card.dat by name: " + npc);
+        assert.equal(L2.stats.fieldFiles, 1, "passcodes: the Field Spell through card_passcode.bin");
+        console.log("2x card art, passcode prefetch: ok");
     } finally {
-        delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"];
+        delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"], delete files["cards/merge/data/card_passcode.bin"];
     }
 }
 console.log("lazyfs_test ok");

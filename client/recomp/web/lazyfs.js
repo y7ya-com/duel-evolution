@@ -487,14 +487,36 @@ Module.preRun.push(() => {
         7624: 37, 7626: 38, 7627: 36 };
     async function fieldBackgrounds(fieldIds) {   // fieldIds: the NPC deck's Field Spells (YO2 ids, from the server)
         await loadCardNames();
+        fieldsByNumber(fieldIds.map((id) => parseInt((cardNumbers || [])[id] || "", 10)));
+    }
+    function fieldsByNumber(numbers) {   // Konami card numbers (internal ids) of the Field Spells
         const names = [];
         const area = /^([ad])0(\d)/.exec(curMap || "");
         if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
-        for (const id of fieldIds) {
-            const nn = FIELD_SPELLS[parseInt((cardNumbers || [])[id] || "", 10)];
+        for (const n of numbers) {
+            const nn = FIELD_SPELLS[n];
             if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
         }
         stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(mergeFiles(names), "field", 2);
+    }
+    // The card wire's table (merge/data/card_passcode.bin, cards/: tools/cardart.py `table`): passcode -> internal id,
+    // for a server that names cards by passcode (its prefetch reply says ids: "passcode")
+    let pcTableLoad = null, pcInternal = null;
+    const loadPcTable = () => (pcTableLoad = pcTableLoad || (async () => {
+        const url = [...files.keys()].find((u) => /merge\/data\/card_passcode\.bin$/i.test(u));
+        const b = url && (await entryBytes(url, [0, files.get(url).size]));
+        if (!b || b.length < 24) throw new Error("card_passcode.bin not read");
+        const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint32(8, true);
+        pcInternal = new Map();
+        for (let i = 0; i < n && 24 + 6 * i + 6 <= b.length; i++) pcInternal.set(dv.getUint32(24 + 6 * i, true), dv.getUint16(28 + 6 * i, true));
+    })().catch(() => { pcTableLoad = null; }));
+    async function prefetchPasscodes(pcs, fields, tag) {   // card.dat names every card's art by its passcode
+        if (!prefetchOn || !cardArc) return;
+        await cardToc();
+        const names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
+        stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
+        await loadPcTable();
+        if (pcInternal) fieldsByNumber(fields.map((pc) => pcInternal.get(pc)));
     }
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
@@ -502,6 +524,7 @@ Module.preRun.push(() => {
             .then((r) => ((L.duel = r.status === 200 ? "npc" : r.status === 204 ? "pvp" : ""), r.status === 200 ? r.json() : null))   // web/stall.js
             .then((j) => {
                 if (!j) return;
+                if (j.ids === "passcode") return prefetchPasscodes((j.cards || []).map(Number), (j.fields || []).map(Number), "npc");
                 if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");
                 if (Array.isArray(j.fields)) fieldBackgrounds(j.fields.map(Number));
             }, () => {});
