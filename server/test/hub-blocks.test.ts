@@ -2,11 +2,11 @@
 // block, global chat crosses them, the gate counts the whole room, and a player joins the block of its friends.
 import { expect, it } from "vitest";
 import { BLOCK_CAP, baseKey } from "../src/game/hub.ts";
-import { harness, cat, str } from "./notes-harness.ts";
+import { harness, cat, str, type Client } from "./notes-harness.ts";
 
 it("past BLOCK_CAP a room opens block #2; moves stay in a block, global chat crosses, friends join friends", async () => {
   const h = harness();
-  const cs = [];
+  const cs: Client[] = [];
   for (let i = 0; i < BLOCK_CAP + 2; i++) {
     const c = h.client(`P${i}`, `user${i}`); await c.account(0, `P${i}`); await c.enterRoom(); cs.push(c);
   }
