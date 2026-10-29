@@ -8,7 +8,7 @@ import YDC from "../../gamedata/ydc.json";
 import SHOP from "../../gamedata/shop.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
-import { freeTrunk, isFree, PRESENT_RIGHTS } from "./freemode.ts";
+import { freeTrunk, isFree } from "./freemode.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
@@ -856,7 +856,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       const p = profile(st, data.length ? data[0] : 0)!;
       pendingClear(p);
       g.saveState(st);
-      c.send(0x3114, pbinBytes(isFree(c.sess) ? { pbin: (p.pbin ?? []).filter((b: number) => !PRESENT_RIGHTS.has(int(b))) } : p));
+      c.send(0x3114, pbinBytes(p));
       c.send(0x4234, npcbinBytes(p));
     },
     h_pselect(c: Conn, data: Uint8Array) {

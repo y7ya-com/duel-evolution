@@ -109,23 +109,4 @@ describe.skipIf(!have)("free mode", () => {
     expect(sent).toEqual([0x5212, 0x5211]);
     expect(refuse(g, c, 0x4200, new Uint8Array(0))).toBe(false);
   });
-
-  it("a free session's PBIN leaves out the Startup Present right (the profile keeps it)", () => {
-    const g = srv.game, w = srv.world;
-    const st = g.store.loadRaw();
-    st.accounts.aaaa.profiles["0"].pbin = [PP.STARTER_RIGHT];
-    g.store.saveRaw(st);
-    const pbin = (free: boolean) => {
-      const got: Uint8Array[] = [];
-      const c = new Conn(w, w.seqTable, 5731, "peer-p", () => true, DUEL_PORT);
-      const s = g.hub.sessions.get("aaaa")!;
-      s.ext.free = free;
-      c.sess = s;
-      (c as any).send = (mid: number, d: Uint8Array) => { if (mid === 0x3114) got.push(d); };
-      g.withCtx(s, () => g.ph!.h_getpbin(c, Uint8Array.of(0)));
-      return (got[0][PP.STARTER_RIGHT >> 3] >> (PP.STARTER_RIGHT & 7)) & 1;
-    };
-    expect([pbin(true), pbin(false)]).toEqual([0, 1]);
-    expect(g.store.loadRaw().accounts.aaaa.profiles["0"].pbin).toContain(PP.STARTER_RIGHT);
-  });
 });

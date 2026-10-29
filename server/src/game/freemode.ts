@@ -44,10 +44,6 @@ export function modeAgrees(s: Session, c: Conn, live: boolean): boolean {
   return true;
 }
 
-/** The Startup Present's rights (lobby.ts STARTUP_PRESENT_BITS): left out of a free session's PBIN, or the client
- *  opens the present (an MMO gift free mode refuses) when it comes back from a duel. The profile keeps them. */
-export const PRESENT_RIGHTS = new Set([0x30e, 0x310, 0x312, 0x314, 0x316]);
-
 let ALL: Record<string, number> | null = null;
 /** Every card x3 (the 2008 editor's per-card limit), as a trunk. */
 export function freeTrunk(valid: Iterable<number>): Record<string, number> {
