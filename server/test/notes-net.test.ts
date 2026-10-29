@@ -60,6 +60,7 @@ describe("conexion.py Conn", () => {
     a.send(0x3001); await a.wait(0x3002);
     a.send(0x3003, A.key); await a.wait(0x3004);
     expect(a.msgs[0].param).toBe(1);
+    expect([...h.game.hub.sessions.values()].map((s) => s.ext.free)).toEqual([true]);   // server.ts onControl -> freemode.ts
     expect(A.errors()).toEqual([]);
   });
 

@@ -8,7 +8,6 @@ import type { Game } from "../game/game.ts";
 import type { Session } from "../game/hub.ts";
 import * as PP from "../game/persist.ts";
 import { cardmap, DECK_CARDS } from "./data.ts";
-import { DECK_CARDS } from "./data.ts";
 import { freeTrunk, isFree } from "../game/freemode.ts";
 import { duelsvrinfomsg } from "./lockstep.ts";
 

@@ -17,6 +17,7 @@ import { Trades } from "./game/trade.ts";
 import { Tournaments } from "./game/tournaments.ts";
 import { Admin } from "./game/admin.ts";
 import { duelServices, installDuel } from "./duel/install.ts";
+import { modeFrame } from "./game/freemode.ts";
 
 /** py arranque.cargar: the cross-module wiring of one Game. */
 function wire(g: Game): Game {
@@ -97,6 +98,8 @@ export function buildServer(cfg: Config, initial: State | null, log: (s: string)
       if (svc === "duel") return duel.duelHandler;
       return undefined;
     },
+    // client control frames (0xCAxx, out of band): 0xCA10 = this connection is free mode (game/freemode.ts)
+    onControl(c, id, d) { const g = srv.game; modeFrame(c, id, d, (s) => g.log(s)); },
     onConnClosed(c) {
       const g = srv.game;
       g.ctx = (c.sess as Session | null) ?? g.NO_SESSION;

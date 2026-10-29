@@ -5,7 +5,6 @@ import { dataFrame, ECONNREFUSED, parseControl, readDataFrame } from "./net/gate
 import { hex, MAX_DATA, pack, Reader, W, type Msg } from "./net/proto.ts";
 import { cardmap } from "./duel/data.ts";
 import { PORTS, type Config } from "./config.ts";
-import { modeFrame } from "./game/freemode.ts";
 
 export type Handler = (c: Conn, msgId: number, param: number, data: Uint8Array) => void;
 
@@ -200,7 +199,7 @@ export class World implements ConnHost {
     if (vs.closed) return;
     this.log(`[srv:${c.port}] <- 0x${m.id.toString(16).padStart(4, "0")} #${m.param} len=${m.data.length}` +
       (m.id === 0x3003 ? "" : ` ${hex(m.data.subarray(0, 24))}`));
-    if (modeFrame(c, m.id, m.data, (s) => this.log(s))) return; // free mode's first frame (game/freemode.ts)
+    c.ext.rx = true; // the client's first frame was served: a later 0xCA10 sets no mode (game/freemode.ts modeFrame)
     c.sawClient(m.param);
     if (m.id === 0x0003) c.bye = true;
     if (c.ext.bookedFail) return; // duel ticket refused: nothing else from here is served

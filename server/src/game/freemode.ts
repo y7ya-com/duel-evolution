@@ -25,14 +25,14 @@ export const FREEMODE_MSG = 0xca10;
 
 export const isFree = (s: unknown): boolean => !!(s && typeof s === "object" && (s as Session).ext?.free);
 
-/** world.ts, before anything else: true = the frame was the mode frame (consumed, never counted as the client's). */
-export function modeFrame(c: Conn, msgId: number, data: Uint8Array, log: (s: string) => void): boolean {
+/** server.ts onControl (the client's 0xCAxx frames, out of band, never counted): 0xCA10 sets the mode only before the
+ *  connection's first real frame was served (world.ts marks c.ext.rx) and only once. */
+export function modeFrame(c: Conn, msgId: number, data: Uint8Array, log: (s: string) => void): void {
+  if (msgId !== FREEMODE_MSG) return;
   const first = !c.ext.rx;
   c.ext.rx = true;
-  if (msgId !== FREEMODE_MSG) return false;
   if (first && data.length >= 1 && data[0] === 1) c.ext.free = true;
   log(`[free] ${c.port}: 0xCA10 ${first ? (c.ext.free ? "free mode" : "ignored (not 1)") : "ignored (not the first frame)"}`);
-  return true;
 }
 
 /** hub.login / attach: the session's mode follows a connection only while none of its other connections lives. */

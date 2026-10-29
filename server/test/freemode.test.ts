@@ -22,7 +22,8 @@ const have = ["engine/scripts.pack", "translator.json", "brain_cards.json", "due
 const ROOM_PORT = 5740;
 
 interface Client { s: Session; lobby: Conn; duel: Conn; got: { lobby: [number, Uint8Array][]; duel: [number, Uint8Array][] } }
-const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u16(x); return w.bytes(); };
+const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u32(x); return w.bytes(); };   // passcodes
+const SNATCH_STEAL = 45986603;   // forbidden on the 2008 list
 
 describe.skipIf(!have)("free mode", () => {
   let srv: Server;
@@ -69,7 +70,7 @@ describe.skipIf(!have)("free mode", () => {
     const st = srv.game.store.loadRaw();
     for (const [a, n] of [["aaaa", "Alfa"], ["bbbb", "Beta"]]) st.accounts[a].profiles = { "0": { ...PP.blankProfile(n), prog: 1 } };
     srv.game.store.saveRaw(st);
-    const legal = { main: NPC_DECKS["51"].main.filter((x) => x !== 285), extra: NPC_DECKS["51"].extra };   // owns none of it
+    const legal = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };   // owns none of it
     const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
     for (const [c, d] of [[A, legal], [B, NPC_DECKS["51"]]] as [Client, { main: number[]; extra: number[] }][]) {
       await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
@@ -79,7 +80,7 @@ describe.skipIf(!have)("free mode", () => {
       await send(c, 0x600b);
     }
     await until(() => has(A, 0x6005) && has(B, 0x6005));
-    expect([...m.deckBad!]).toEqual([1]);   // B kept card 285 (forbidden); A's unowned deck passes
+    expect([...m.deckBad!]).toEqual([1]);   // B kept Snatch Steal (forbidden); A's unowned deck passes
 
     await srv.world.run(() => { m.finish(0, 0, DFM.WHY_LP, 5); m.finish(1, 1, DFM.WHY_LP, 5); });
     const after = srv.game.store.loadRaw();
@@ -92,10 +93,10 @@ describe.skipIf(!have)("free mode", () => {
   it("a session keeps its mode while it lives; free blocks and economy are apart", () => {
     const g = srv.game, w = srv.world;
     const s = new Session("cccc", 3, false), c = new Conn(w, w.seqTable, ROOM_PORT, "peer-c", () => true, DUEL_PORT);
-    expect(modeFrame(c, 0xca10, Uint8Array.of(1), () => {})).toBe(true);
+    modeFrame(c, 0xca10, Uint8Array.of(1), () => {});
     expect(c.ext.free).toBe(true);
     const late = new Conn(w, w.seqTable, ROOM_PORT, "peer-l", () => true, DUEL_PORT);
-    modeFrame(late, 0x4100, new Uint8Array(2), () => {});
+    late.ext.rx = true;   // world.ts served its first real frame
     modeFrame(late, 0xca10, Uint8Array.of(1), () => {});
     expect(late.ext.free).toBeUndefined();   // only a connection's first frame sets the mode
     expect(modeAgrees(s, c, true)).toBe(false);   // an MMO session that lives: no free connection joins it
