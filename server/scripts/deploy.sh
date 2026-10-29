@@ -2,7 +2,7 @@
 # The production deploy (DEPLOY.md): at most one per ~2 h, players warned first. A deploy restarts the WorldDO, which
 # drops every game connection; this warns them in the game, then closes their sockets with 4012 "server-update"
 # (the web client reconnects by itself), then deploys and checks.
-#   DEPLOY_TOKEN=... scripts/deploy.sh [warning seconds, default 120]
+#   DEPLOY_TOKEN=... [DEPLOY_TEXT=...] scripts/deploy.sh [warning seconds, default 120]
 # DEPLOY_TOKEN is the Worker secret of the same name (wrangler secret put DEPLOY_TOKEN --env production).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,7 +13,9 @@ api() { local body=${2:-'{}'}; curl -sf -X POST -H "x-de-deploy: $DEPLOY_TOKEN" 
 echo "online now: $(api online)"
 if [ "$W" -gt 0 ]; then
   api maintenance "{\"seconds\":$W}" >/dev/null
-  echo "warned: $(api announce "{\"text\":\"Server update in $((W / 60)) min. You'll be reconnected automatically.\"}")"
+  # the reconnecting web client (yo2-browser's shell) isn't live everywhere yet: DEPLOY_TEXT changes the line
+  T=${DEPLOY_TEXT:-"Server update in $((W / 60)) min. If you are disconnected, reload the page."}
+  echo "warned: $(api announce "$(python3 -c 'import json, sys; print(json.dumps({"text": sys.argv[1]}))' "$T")")"
   sleep "$W"
 fi
 echo "closed with 4012: $(api shutdown)"
