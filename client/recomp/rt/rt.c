@@ -456,8 +456,7 @@ void rc_vwait(uint32_t ms) {   // block until the guest clock has advanced by ms
 
 uint32_t rc_texloaders = 4;   // emit.py IMM_HOOKS: texture loader threads (YO2_TEXLOADERS, 128 = original)
 uint32_t rc_first_scene = 4;   // IMM_HOOKS (rt/debrand.cpp): the title, not the KONAMI logo
-int rc_online_pressed;         // set by ONLINE (rc_online_scene); rt/session.cpp answers the login dialog
-uint32_t rc_online_scene(void) { rc_online_pressed = 1; return 6; }   // ONLINE: the login, not the rules page
+uint32_t rc_online_scene(void) { return 6; }   // ONLINE: the login (rt/session.cpp), not the rules page
 
 void rc_init(const char *exe) {
     pthread_key_create(&cur_key, NULL);

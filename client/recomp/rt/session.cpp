@@ -1,13 +1,17 @@
-// The new server's sign-in, in the game's own UI (the page's web/lazyfs.js asks <http>/api/de/session at boot):
-//  - signed in (YO2_SESSION_NAME): the new server binds the game's WebSocket to the site's session cookie and ignores
-//    the 0x3003 credentials, so the player never sees the 2008 login dialog. YO2_SESSION_PASS (default "-") is only
-//    for a native test against the legacy run.py, which checks them;
-//  - signed out (YO2_DISCORD_URL): the 2008 login dialog is rearranged into Duel Evolution's sign-in panel, built from
-//    this game's own widgets (see Panel below): Discord, then name + password, create account (verified by a code run
-//    as /verify in Discord), reset password (a code from /reset in Discord). Every request goes to the site first
-//    (<YO2_DE_HTTP>/api/...), before the scene opens a socket, so all of them are bound to the session;
+// The new server's sign-in, in the game's own UI (the page's web/lazyfs.js asks <http>/api/de/session at boot).
+// The 2008 User ID / Password dialog is never shown as it was: every time the login scene (6) waits on it, however the
+// scene was reached (ONLINE, back from Discord, or the game's own way back to it after a failed or refused login), the
+// dialog is first rearranged into Duel Evolution's sign-in panel, then
+//  - signed in (the site is asked each time; natively YO2_SESSION_NAME): it is answered unseen. The new
+//    server binds the game's WebSocket to the site's session cookie and ignores the 0x3003 credentials.
+//    YO2_SESSION_PASS (default "-") is only for a native test against the legacy run.py, which checks them;
+//  - signed out (anything else, a failed session check too): the panel, built from this game's own widgets (see
+//    Panel below): Discord, then name + password, create account (verified by a code run as /verify in Discord),
+//    reset password (a code from /reset in Discord). Every request goes to the site first (<YO2_DE_HTTP>/api/...),
+//    before the scene opens a socket, so all of them are bound to the session;
 //  - back from Discord (YO2_AUTO_ONLINE): the patcher goes straight to the login scene instead of the title.
-// ONLINE still opens the login scene (CLoginScene, vtable 0xbede6c); in its state 2 (the dialog waiting) the two input
+// Natively (no page) only with YO2_SESSION_NAME or YO2_DISCORD_URL (on()).
+// ONLINE opens the login scene (CLoginScene, vtable 0xbede6c); in its state 2 (the dialog waiting) the two input
 // boxes of its CWindowLogin (+0x434 user ID, +0x440 password: CWindowTaskInput, vtable 0xbe812c) get the text, the
 // window is hidden and its result (+0x3b0, read through vtable slot 0x60) becomes OK (0xfa2). The scene then runs its
 // own OK path: the Save boxes, the gate list, CNetAccountTask::login -> 0x3003, the player list, Select Player.
@@ -25,8 +29,8 @@ extern "C" {
 }
 #include "ui_kit.h"
 
-extern "C" int rc_readable(uint32_t a);   // mem.c: inside the image or an allocated granule
-extern "C" int rc_online_pressed;   // rt.c: ONLINE was pressed (emit.py IMM_HOOKS at 0x7fa658); answered once per press
+extern "C" int rc_frame_no;   // rt/user32.cpp: the present count, for logs
+extern "C" void o_00804bf0(CPU* c), o_00806860(CPU* c);   // the originals (ovr/orig.txt)
 extern "C" uint32_t rc_first_scene;   // rt.c: the patcher's next scene (emit.py IMM_HOOKS at 0x6deebc)
 
 namespace {
@@ -35,7 +39,16 @@ const char* session_name() {
     return n && *n ? n : nullptr;
 }
 
-int any(uint32_t) { return 1; }
+// Web: always. Natively (no page) only with YO2_SESSION_NAME or YO2_DISCORD_URL: the legacy run.py tests type into
+// the real dialog.
+bool on() {
+#ifdef __EMSCRIPTEN__
+    return true;
+#else
+    static bool o = session_name() || getenv("YO2_DISCORD_URL");
+    return o;
+#endif
+}
 
 #ifdef __EMSCRIPTEN__
 // Synchronous same-origin JSON POST (the browser adds Origin and the cookie): the status, the body into out.
@@ -151,6 +164,26 @@ std::string field(const std::string& json, const char* key) {
     return b == std::string::npos ? "" : json.substr(a, b - a);
 }
 
+// Who is signed in, each time the dialog waits. Web: the site is asked (GET /api/de/session): the page's boot check may
+// have failed, or the session lapsed since; with no answer at all, the boot check's on the first visit. Natively there
+// is no site: YO2_SESSION_NAME the first time, then the panel.
+const char* signed_in_as(bool again) {
+#ifdef __EMSCRIPTEN__
+    const char* base = getenv("YO2_DE_HTTP");
+    std::string url = std::string(base ? base : "") + "/api/de/session";
+    static char out[1024];
+    de_get(url.c_str(), out, sizeof out);
+    static std::string name;
+    std::string body = out;
+    if (body.empty()) return again ? nullptr : session_name();
+    if (body.find("\"signedIn\":true") == std::string::npos) return nullptr;
+    name = field(body, "name");
+    return name.empty() ? "-" : name.c_str();
+#else
+    return again ? nullptr : session_name();
+#endif
+}
+
 void navigate(const char* url) {
     rc_log("session: to %s", url);
 #ifdef __EMSCRIPTEN__
@@ -163,7 +196,7 @@ void navigate(const char* url) {
 
 struct Init {   // back from Discord: past the title straight to the (auto-answered) login
     Init() {
-        if (getenv("YO2_AUTO_ONLINE") && session_name()) rc_first_scene = 6, rc_online_pressed = 1;
+        if (getenv("YO2_AUTO_ONLINE") && session_name()) rc_first_scene = 6;
     }
 } init;
 
@@ -181,6 +214,9 @@ struct Panel {
     uint32_t scene = 0, win = 0;
     Mode mode = SIGNIN;
     bool built = false, signed_in = false;
+    bool shown = false;   // the dialog has waited before in this scene: a wait after that follows a failed login
+    bool away = false;    // the scene went past its dialog (state > 3) since
+    const char* who = nullptr;   // signed in as, asked when the window comes up (signed_in_as)
     uint32_t discord = 0, divider = 0, link1 = 0, mid = 0, link2 = 0, copy = 0, open = 0, note = 0, code_text = 0, steps = 0;
     uint32_t dot = 0, status = 0, underline = 0;
     float link1_w = 0, link2_w = 0;   // the links' hover boxes (labels have no hover of their own)
@@ -371,7 +407,8 @@ void submit(CPU& t) {
     if (!why.empty()) status(t, why, ERR);
 }
 
-void panel_frame(int frame, uint32_t scene) {
+// After the scene's onInit (the window was just made) and each onMain, before the frame is drawn.
+void login_scene(uint32_t scene) {
     CPU* cur = rc_cur();
     if (!cur) return;
     CPU t = *cur;
@@ -379,17 +416,36 @@ void panel_frame(int frame, uint32_t scene) {
     if (!win || RD32m(win) != 0xbedda4) return;
     if (panel.scene != scene || panel.win != win) panel = Panel(), panel.scene = scene, panel.win = win;
     uint32_t st = RD32m(scene + 0x80);
-    if (!panel.built) {
-        if (st != 2) return;
+    if (st > 3) panel.away = true;
+    if (st == 3 && panel.built) return submit(t);
+    if (st > 2) return;
+    if (!panel.built) {   // as soon as the window is up (onInit), before the game first draws it
         build(t);
-        rc_log("session: sign-in panel at frame %d", frame);
+        if ((panel.who = signed_in_as(false))) WR32m(win + 0x20, RD32m(win + 0x20) | 1);   // signed in: never seen
+    }
+    if (st != 2) return;
+    if (!panel.shown || panel.away) {   // the dialog waits: straight in while signed in, else the panel
+        bool again = panel.shown;
+        const char* name = again ? signed_in_as(true) : panel.who;
+        panel.shown = true, panel.away = false, panel.signed_in = false;
+        if (name) {
+            const char* pass = getenv("YO2_SESSION_PASS");
+            ui_set_input(t, child(0x434), name);
+            ui_set_input(t, child(0x440), pass && *pass ? pass : "-");
+            WR32m(win + 0x20, RD32m(win + 0x20) | 1);   // hidden, as the OK path leaves it
+            WR32m(win + 0x3b0, 0xfa2);                  // OK
+            panel.signed_in = true;                     // submit() sends nothing
+            rc_log("session: signed in as %s, login dialog answered at frame %d", name, rc_frame_no);
+            return;
+        }
+        rc_log("session: sign-in panel at frame %d%s", rc_frame_no, again ? " (after a failed login)" : "");
+        if (again) ui_set_input(t, child(0x440), ""), status(t, "Couldn't connect. Try again.", ERR);
         return;
     }
-    if (st == 3) return submit(t);
-    if (st != 2) return;
     if (ui_clicked(panel.discord, panel.prevd)) {
         status(t, "Waiting for Discord…", BUSY);
-        navigate(getenv("YO2_DISCORD_URL"));
+        const char* d = getenv("YO2_DISCORD_URL");   // unset only if the page's session check failed
+        navigate(d && *d ? d : "/api/auth/sign-in/discord?return=%2F");
     }
     // A link under the mouse is underlined (a row of '_' under it).
     float ly = LINK_Y[panel.mode], x1 = panel.mode == SIGNIN ? MID - 10 - panel.link1_w : MID - panel.link1_w / 2;
@@ -428,40 +484,15 @@ void panel_frame(int frame, uint32_t scene) {
 }
 }   // namespace
 
-extern "C" void rc_session_frame(int frame) {
-    static const char* name = session_name();
-    static const char* discord = getenv("YO2_DISCORD_URL");
-    static uint32_t scene;
-    if ((!name && !discord) || !rc_online_pressed) return;
-    if (!scene || RD32m(scene) != 0xbede6c) {
-        if (!(scene = rc_heap_find(0xbede6c, any))) return;   // every frame, only between ONLINE and the dialog
-    }
-    if (!name) {   // signed out: the panel until the scene is past the gate
-        if (RD32m(scene + 0x80) > 3) rc_online_pressed = 0, panel = Panel();
-        else panel_frame(frame, scene);
-        return;
-    }
-    if (RD32m(scene + 0x80) != 2) return;
-    uint32_t win = RD32m(scene + 0x94);   // CTaskPtr<CWindowLogin> at +0x90: the task at +4
-    if (!win || RD32m(win) != 0xbedda4) {   // the live scene's pointer: null or a live task
-        rc_log("session: login window %08x vtable %08x, not CWindowLogin", win, win ? RD32m(win) : 0);
-        rc_online_pressed = 0;
-        return;
-    }
-    uint32_t user = RD32m(win + 0x434), password = RD32m(win + 0x440);
-    if (!user || RD32m(user) != 0xbe812c || !password || RD32m(password) != 0xbe812c) {
-        rc_log("session: login boxes %08x %08x are not CWindowTaskInput", user, password);
-        rc_online_pressed = 0;
-        return;
-    }
-    const char* pass = getenv("YO2_SESSION_PASS");
-    CPU* cur = rc_cur();
-    if (!cur) return;
-    CPU t = *cur;   // a scratch copy: the calls run below the current stack pointer
-    ui_set_input(t, user, name);
-    ui_set_input(t, password, pass && *pass ? pass : "-");
-    WR32m(win + 0x20, RD32m(win + 0x20) | 1);   // hidden, as the OK path leaves it
-    WR32m(win + 0x3b0, 0xfa2);                  // OK
-    rc_log("session: signed in as %s, login dialog answered at frame %d", name, frame);
-    rc_online_pressed = 0;
+// CLoginScene::onInit (0x804bf0, thiscall) makes the window; ::onMain (0x806860) runs the scene's states. The panel
+// follows each of them at once, so the game never draws a frame of the 2008 dialog.
+extern "C" void f_00804bf0(CPU* c) {
+    uint32_t scene = c->ecx;
+    o_00804bf0(c);
+    if (on()) login_scene(scene);
+}
+extern "C" void f_00806860(CPU* c) {
+    uint32_t scene = c->ecx;
+    o_00806860(c);
+    if (on()) login_scene(scene);
 }

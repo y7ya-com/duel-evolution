@@ -433,7 +433,6 @@ U(wvsprintfW) { RET(3, put_w(ARG(0), gformat(wide_fmt(ARG(1)).c_str(), ARG(2), t
 // ---- headless screenshots: RC_SHOT=frame[,frame..] writes shot_<frame>.bmp; RC_FRAMES=n exits after n frames
 #include "d3d8.h"
 extern "C" void rc_screenshot(int frame);
-extern "C" void rc_session_frame(int frame);   // rt/session.cpp
 // RC_INPUT="<frame>:<cmd>;...": input scripted inside the program (headless runs; never real input). Commands, in
 // game pixels: `move x y`, `click x y` (button up 4 frames later), `down`/`up x y`, `rdown`/`rup x y` (right button:
 // hold it to walk the avatar), `text abc` (WM_CHAR each), `key enter|tab|bs|esc`, `walkto exit N|X Y|npc NAME [frames]`, `clicknpc NAME` (below);
@@ -819,7 +818,6 @@ extern "C" void rc_present_hook(void) {
             fclose(f);
         }
     walk_step(frame);
-    rc_session_frame(frame);
     for (int s : shots)
         if (s == frame) rc_screenshot(frame);
     if (rc_fastforward) {
