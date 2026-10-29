@@ -5,6 +5,7 @@
 #include <array>
 #include <map>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -190,9 +191,23 @@ M(d3d, CreateDevice) {
     IDirect3DDevice8* dev = nullptr;
     HRESULT hr = THIS(IDirect3D8)->CreateDevice(ARG(1), (D3DDEVTYPE)ARG(2), nullptr, ARG(4), &pp, &dev);
     WR32m(ARG(6), hr ? 0 : (g_gdev = wrap(dev, vt_dev)));
-    rc_log("d3d8: CreateDevice %ux%u windowed=%u flags=%x -> %x (shell %08x, vtable %08x)", pp.BackBufferWidth,
-           pp.BackBufferHeight, pp.Windowed, ARG(4), (unsigned)hr, g_gdev, vt_dev);
+    rc_log("d3d8: CreateDevice %ux%u windowed=%u flags=%x -> %x (shell %08x, vtable %08x), render scale %u", pp.BackBufferWidth,
+           pp.BackBufferHeight, pp.Windowed, ARG(4), (unsigned)hr, g_gdev, vt_dev, dev ? dev->scale : 0);
     RET(7, hr);
+}
+
+// ovr/decode.c: the render scale (2x card art only pays off above 1) and a texture's high-resolution pixels
+extern "C" int rc_render_scale(void) {
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    IDirect3DDevice8* d = g_gdev ? host<IDirect3DDevice8>(g_gdev) : nullptr;
+    return d ? (int)d->scale : 1;
+}
+extern "C" void rc_texture_hq(uint32_t gtex, const uint8_t* bgra, size_t n, int scale) {
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    IDirect3DTexture8* t = host<IDirect3DTexture8>(gtex);
+    if (!t || n != (size_t)t->level0.w * scale * t->level0.h * scale * 4) return;
+    t->hq.assign(bgra, bgra + n);
+    t->hqScale = (UINT)scale;
 }
 
 // ---------------------------------------------------------------- IDirect3DDevice8
@@ -224,10 +239,13 @@ extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R b
     for (size_t i = 0; i < px.size(); i += 4) sum += px[i] + px[i + 1] + px[i + 2];
     return (int)(sum / (px.size() / 4 * 3));
 }
-extern "C" void rc_screenshot(int frame) {   // back buffer -> shot_<frame>.bmp (32-bit BGRA, top-down)
+// back buffer -> shot_<frame>.bmp (32-bit BGRA, top-down); RC_SHOT_NATIVE=1: at the render scale's resolution
+extern "C" void rc_screenshot(int frame) {
     std::vector<uint8_t> px;
-    if (!g_dev || !g_dev->backBuffer || !g_dev->backBuffer->read(px)) { rc_log("screenshot %d: no back buffer", frame); return; }
-    int32_t w = (int32_t)g_dev->backBuffer->w, h = (int32_t)g_dev->backBuffer->h;
+    static const bool native = getenv("RC_SHOT_NATIVE") != nullptr;
+    if (!g_dev || !g_dev->backBuffer || !g_dev->backBuffer->read(px, native)) { rc_log("screenshot %d: no back buffer", frame); return; }
+    UINT s = native ? g_dev->backBuffer->scale : 1;
+    int32_t w = (int32_t)(g_dev->backBuffer->w * s), h = (int32_t)(g_dev->backBuffer->h * s);
     char name[64];
     snprintf(name, sizeof name, "shot_%d.bmp", frame);
     FILE* f = fopen(name, "wb");

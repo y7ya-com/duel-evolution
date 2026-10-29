@@ -164,13 +164,18 @@ Module.preRun.push(() => {
     const pages = new Map();   // "url#chunk/page" -> Uint8Array, in use order (PAGES_MAX)
     // data/card's span (contiguous in merge.dat): the game reads it through the CRT's buffered reads, a few KB, then
     // ~150 KB running past the file's end into the next card's (mvp-iotrace-deck)
-    const inCardArt = (pos, n) => { const c = spans && spans.get("data/card"); return !!c && c[0] <= pos && pos + n <= c[1]; };
+    // (card.dat, the 2x art, is all card art)
+    const inCardArt = (url, pos, n) => {
+        if (url === cardArc) return true;
+        const c = url === archive && spans && spans.get("data/card");
+        return !!c && c[0] <= pos && pos + n <= c[1];
+    };
     function chunkBytes(url, i, at, n) {
         if (url === archive && sceneReads && sceneReads.size < SCENE_MAX) sceneReads.add(i);
         const c = memChunk(url, i);
         if (c) return stats.memHit++, c.subarray(at, at + n);
         const p0 = Math.floor(at / PAGE), p1 = Math.floor((at + n - 1) / PAGE), pk = (pg) => keyOf(url, i) + "/" + pg;
-        if (!prefetchOn || url !== archive || !inCardArt(i * CHUNK + at, n) || (p1 - p0 + 1) * PAGE * 2 > CHUNK)
+        if (!prefetchOn || !inCardArt(url, i * CHUNK + at, n) || (p1 - p0 + 1) * PAGE * 2 > CHUNK)
             return getChunk(url, i).subarray(at, at + n);
         let a = p0;
         while (a <= p1 && pages.has(pk(a))) a++;
@@ -258,6 +263,42 @@ Module.preRun.push(() => {
     const AVATARS = ["data/avatar/chibi", "data/avatar/npc"];   // ~34 MB, once the player is on a map
     const TRICKLE = ["data/card"];
     let archive = null, spans = null, curMap = null;
+    // 2x card art (tools/cardart.py): merge/data/card.dat and mini.dat, KCEJYUGI archives the exe opens before
+    // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
+    // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
+    let cardArc = null, miniArc = null;
+    const cardFiles = new Map();   // card.dat entry name -> [from, to)
+    function* tocEntries(toc, end) {   // [name (lower case, '/'), offset, stored size, size] per directory entry
+        for (let e = 12; e < end; e += 268) {
+            let name = "";
+            for (let k = 0; k < 256; k++) {
+                const b = toc[e + k], c = ((b & 15) << 4) | (b >> 4);
+                if (!c) break;
+                name += String.fromCharCode(c === 92 ? 47 : c);
+            }
+            const u32 = (o) => toc[e + o] | toc[e + o + 1] << 8 | toc[e + o + 2] << 16 | (toc[e + o + 3] << 24 >>> 0);
+            yield [name.toLowerCase(), u32(256), u32(264), u32(260)];
+        }
+    }
+    let cardTocLoad = null;
+    const cardToc = () => (cardTocLoad = cardTocLoad || (async () => {   // card.dat's directory (~870 KB: chunk 0)
+        await fetchChunk({ url: cardArc, i: 0, pri: 0, tag: "toc", keep: true });
+        const first = memChunk(cardArc, 0);
+        if (!first) throw new Error("card.dat directory not read");
+        const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
+        const toc = new Uint8Array(end);
+        for (let i = 0; i * CHUNK < end; i++) {
+            if (!memChunk(cardArc, i)) await fetchChunk({ url: cardArc, i, pri: 0, tag: "toc", keep: true });
+            const c = memChunk(cardArc, i);
+            if (!c) throw new Error("card.dat directory not read");
+            toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
+        }
+        for (const [name, off, len] of tocEntries(toc, end)) cardFiles.set(name, [off, off + len]);
+    })().catch((e) => { cardTocLoad = null; throw e; }));
+    function wantFile(url, pri, tag) {   // every chunk of a lazy file
+        const f = files.get(url);
+        if (f) for (let i = 0; i * CHUNK < f.size; i++) want(url, i, pri, tag);
+    }
     const lastLobby = () => { try { return localStorage.getItem("yo2-lazy-lobby"); } catch { return null; } };
     function wantSpan(dir, pri, tag, keep = true) {
         const s = spans && spans.get(dir);
@@ -274,18 +315,8 @@ Module.preRun.push(() => {
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
         }
         spans = new Map();
-        for (let e = 12; e < end; e += 268) {
-            let name = "";
-            for (let k = 0; k < 256; k++) {
-                const b = toc[e + k], c = ((b & 15) << 4) | (b >> 4);
-                if (!c) break;
-                name += String.fromCharCode(c === 92 ? 47 : c);
-            }
-            name = name.toLowerCase();
-            const off = toc[e + 256] | toc[e + 257] << 8 | toc[e + 258] << 16 | (toc[e + 259] << 24 >>> 0);
-            const len = toc[e + 264] | toc[e + 265] << 8 | toc[e + 266] << 16 | (toc[e + 267] << 24 >>> 0);
+        for (const [name, off, len, orig] of tocEntries(toc, end)) {
             const parts = name.split("/"), dirs = [parts.slice(0, 2).join("/")];
-            const orig = toc[e + 260] | toc[e + 261] << 8 | toc[e + 262] << 16 | (toc[e + 263] << 24 >>> 0);
             if (name.startsWith("data/card/") || /^data\/y2?\/duel/.test(name)) files2.set(name, [off, off + len, orig]);
             if ((parts[1] === "map" || parts[1] === "avatar") && parts.length > 3) dirs.push(parts.slice(0, 3).join("/"));
             if ((parts[1] === "y" || parts[1] === "y2") && parts[2] === "duel" && parts.length > 4) dirs.push(parts.slice(0, 4).join("/"));
@@ -297,10 +328,15 @@ Module.preRun.push(() => {
         L.spans = spans;
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
-        for (const d of HOT) wantSpan(d, 2, "hot");
+        for (const d of HOT) if (!(miniArc && d === "data/mini")) wantSpan(d, 2, "hot");
+        if (miniArc) wantFile(miniArc, 2, "hot");
         // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
         // has to be measured (and capped) before it is on by default
-        onIdle(() => { if (cacheable && !small && q.get("trickle") === "1") for (const d of TRICKLE) wantSpan(d, 9, null, false); });
+        onIdle(() => {
+            if (!cacheable || small || q.get("trickle") !== "1") return;
+            if (cardArc) { const f = files.get(cardArc); for (let i = 0; i * CHUNK < f.size; i++) want(cardArc, i, 9, null, false); }
+            else for (const d of TRICKLE) wantSpan(d, 9, null, false);
+        });
     }
     // The duel's cards: the player's deck (rt/decktap.c reads it off the exe's own 0x6601/0x6603 at the duel's setup)
     // and the NPC's (the server, npcDeck below). A deck holds YO2 card ids; data/card/list_card.txt (LZSS in merge.dat)
@@ -322,45 +358,55 @@ Module.preRun.push(() => {
         }
         return out;
     }
-    async function fileBytes(name) {   // a merge.dat entry, through the chunk cache (fetched in the background)
-        const e = files2.get(name);
-        if (!e) return null;
+    async function entryBytes(url, e) {   // [from, to, size?) of a lazy archive, through the chunk cache
         const buf = new Uint8Array(e[1] - e[0]);
         for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) {
-            if (!memChunk(archive, i)) await fetchChunk({ url: archive, i, pri: 0, keep: true });
-            const c = memChunk(archive, i);
+            if (!memChunk(url, i)) await fetchChunk({ url, i, pri: 0, keep: true });
+            const c = memChunk(url, i);
             if (!c) return null;
             const from = Math.max(e[0], i * CHUNK), to = Math.min(e[1], (i + 1) * CHUNK);
             buf.set(c.subarray(from - i * CHUNK, to - i * CHUNK), from - e[0]);
         }
-        return buf.length === e[2] ? buf : lzss(buf, e[2]);
+        return e[2] === undefined || buf.length === e[2] ? buf : lzss(buf, e[2]);
     }
+    async function fileBytes(name) {   // a merge.dat entry, through the chunk cache (fetched in the background)
+        const e = files2.get(name);
+        return e ? entryBytes(archive, e) : null;
+    }
+    // A card's art: merge.dat's data/card/<name>, or with card.dat its <passcode>.jpg there
+    const artEntry = (name) => (cardArc ? [cardArc, cardFiles.get(name)] : [archive, files2.get("data/card/" + name)]);
+    let cardNumbers = null;     // merge.dat's list_card.txt: YO2 card id -> Konami card number ("4336.png"), for the fields
+    const lines = (b) => { let t = ""; for (const c of b) t += String.fromCharCode(c); return t.split(/\r?\n/).map((x) => x.trim().toLowerCase()); };
     let cardNamesLoad = null;
-    const loadCardNames = () => (cardNamesLoad = cardNamesLoad || fileBytes("data/card/list_card.txt").then((b) => {
-        if (!b) throw new Error("list_card.txt not read");
-        let t = "";
-        for (const c of b || []) t += String.fromCharCode(c);
-        cardNames = t.split(/\r?\n/).map((x) => x.trim().toLowerCase());
-    }).catch(() => { cardNamesLoad = null; }));   // a dropped connection: no names this time, the next call asks again
-    function pinFiles(names, tag, pri) {   // these files' chunks, pinned under `tag` (replacing that tag's others)
-        const keep = new Set();
-        for (const n of names) {
-            const e = files2.get(n);
-            if (e) for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) keep.add(i);
-        }
-        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
+    const loadCardNames = () => (cardNamesLoad = cardNamesLoad || (async () => {
+        const orig = await fileBytes("data/card/list_card.txt");
+        if (!orig) throw new Error("list_card.txt not read");
+        cardNumbers = lines(orig);
+        if (!cardArc) return void (cardNames = cardNumbers);
+        await cardToc();
+        const e = cardFiles.get("list_card.txt"), b = e && (await entryBytes(cardArc, e));
+        if (!b) throw new Error("card.dat list_card.txt not read");
+        cardNames = lines(b);
+    })().catch(() => { cardNamesLoad = null; }));   // a dropped connection: no names this time, the next call asks again
+    // these files' chunks ([url, [from, to)] each), pinned under `tag` (replacing that tag's others)
+    function pinFiles(entries, tag, pri) {
+        const keep = new Map();   // "url#i" -> [url, i]
+        for (const [url, e] of entries)
+            if (e) for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) keep.set(keyOf(url, i), [url, i]);
+        for (const [k, p] of pinned) if (p.tag === tag && !keep.has(k)) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
-        for (const i of keep) want(archive, i, pri, tag);
+        for (const [url, i] of keep.values()) want(url, i, pri, tag);
         return keep.size;
     }
+    const mergeFiles = (names) => names.map((n) => [archive, files2.get(n)]);
     let pendingDeck = null;
     async function prefetchCards(ids, tag = "deck") {   // "deck": the player's (rt/decktap.c); "npc": the NPC's (the server)
         if (!prefetchOn || !archive) return;
         if (!spans) { if (tag === "deck") pendingDeck = ids; return; }
         if (tag === "deck") pendingDeck = null;
         await loadCardNames();
-        const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))].map((n) => "data/card/" + n);
-        stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names, tag, 2);
+        const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))];
+        stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
@@ -445,10 +491,10 @@ Module.preRun.push(() => {
         const area = /^([ad])0(\d)/.exec(curMap || "");
         if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
         for (const id of fieldIds) {
-            const nn = FIELD_SPELLS[parseInt((cardNames || [])[id] || "", 10)];
+            const nn = FIELD_SPELLS[parseInt((cardNumbers || [])[id] || "", 10)];
             if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
         }
-        stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(names, "field", 2);
+        stats.fieldFiles = names.length, stats.fieldChunks = pinFiles(mergeFiles(names), "field", 2);
     }
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
@@ -466,7 +512,7 @@ Module.preRun.push(() => {
         if (kind === "end" && to === LOBBY) {
             for (const d of DUELFX) wantSpan(d, 5, "duelfx");
             // and the duel's own small pictures kept with the 48 MB of backgrounds: think icons, windows, gauges
-            pinFiles([...files2.keys()].filter((n) => DUELUI.test(n)), "duelui", 5);
+            pinFiles(mergeFiles([...files2.keys()].filter((n) => DUELUI.test(n))), "duelui", 5);
         }
         if (kind === "end" && HOME.includes(to)) unpin((t) => ["duelfx", "duelui", "npc", "deck", "field"].includes(t));
         if (kind === "begin") {
@@ -517,6 +563,8 @@ Module.preRun.push(() => {
             files.set(url, { size, etag: "", ver: "" });
             if (size >= 4 * CHUNK) lazy.push(url);   // ETag (request version, store key) for the files read in chunks
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
+            if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
+            if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
             Object.defineProperty(node, "usedBytes", { get: () => size });
             node.stream_ops = Object.assign({}, node.stream_ops, {
@@ -597,6 +645,9 @@ Module.preRun.push(() => {
     }
 
     mount("/game", q.get("game") || "game/");
+    // The 2x card art (merge/data/card.dat, mini.dat) has its own manifest: the exe opens those archives before
+    // merge.dat, so only a build that can show 2x art (ovr/decode.c) may mount them; a tab of an older one never sees them
+    try { mount("/game", q.get("cards") || "cards/"); } catch (e) { console.log("yo2rc: no 2x card art:", e.message); }
     if (q.get("fonts")) mount("/fonts", q.get("fonts"));
     if (prefetchOn) {
         addRunDependency("lazy");

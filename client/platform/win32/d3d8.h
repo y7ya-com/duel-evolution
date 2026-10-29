@@ -132,6 +132,7 @@ public:
     IDirect3DDevice8* dev = nullptr;
     IDirect3DTexture8* owner = nullptr;   // level 0 of this texture: refcount and pixels live there
     UINT w = 0, h = 0;
+    UINT scale = 1;                       // GL storage is w*scale x h*scale (the back buffer + its depth: render scale)
     D3DFORMAT fmt = D3DFMT_UNKNOWN;
     D3DPOOL pool = D3DPOOL_SYSTEMMEM;
     DWORD usage = 0;
@@ -139,7 +140,9 @@ public:
     uint32_t glFbo = 0, glColor = 0;      // back buffer: FBO + colour renderbuffer
     uint32_t glDepth = 0;                 // depth surfaces: renderbuffer
     uint64_t fboDepth = ~0ull;            // render targets: depth attached to their FBO, as rbEpoch << 32 | renderbuffer
-    bool read(std::vector<uint8_t>& bgra);   // whole surface as B,G,R,A rows (GPU surfaces are read back)
+    // whole surface as B,G,R,A rows (GPU surfaces are read back); a scaled one is box-filtered to w x h unless native
+    // (then out is w*scale x h*scale)
+    bool read(std::vector<uint8_t>& bgra, bool native = false);
     bool write(const RECT& r, const uint8_t* bgra, int pitch);   // into a CPU-backed surface or texture level
     ~IDirect3DSurface8() override;
 };
@@ -157,6 +160,12 @@ public:
     IDirect3DSurface8 level0;             // refcount forwards to the texture
     uint32_t glTex = 0, glFbo = 0, glFboDepth = 0;
     std::vector<uint8_t> shadow;          // managed textures: B,G,R,A copy that LockRect hands out
+    // High-resolution pixels (B,G,R,A, hqScale x level0's size) that GL holds instead of the shadow, mipmapped: the
+    // game sees level0 (layout, UVs, hit tests on the shadow), the screen at a render scale gets the detail.
+    // Read-only textures only (card art): once GL has them, shadow edits are not uploaded.
+    std::vector<uint8_t> hq;
+    UINT hqScale = 1;
+    bool hqMips = false;                  // glTex holds the high-resolution mip chain
     RECT locked{};
     RECT dirty{};                         // shadow rect not yet uploaded (empty: clean)
     bool isLocked = false;
@@ -203,6 +212,7 @@ public:
     bool init(const D3DPRESENT_PARAMETERS& pp);
     ~IDirect3DDevice8() override;
     D3DPRESENT_PARAMETERS pp{};
+    UINT scale = 1;                       // render scale: the back buffer is rasterised at scale x its size
     IDirect3DSurface8* backBuffer = nullptr;
     IDirect3DSurface8* autoDepth = nullptr;
     IDirect3DSurface8* target = nullptr;

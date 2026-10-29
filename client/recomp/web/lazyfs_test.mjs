@@ -50,9 +50,10 @@ function makeEnv(store, ls, opts = {}) {
         send() {
             const p = pathOf(this.url);
             if (p.startsWith("api/")) { this.status = 404; this.responseText = ""; return; }   // the legacy site: no session service
-            if (p === "game/files.txt") {
-                this.status = 200;
-                this.responseText = Object.entries(files).map(([k, b]) => `${b.length}\t${k.slice(5)}`).join("\n");
+            if (p.endsWith("files.txt")) {   // game/ and cards/ (the 2x card art, when a test adds it)
+                const dir = p.slice(0, -"files.txt".length), list = Object.entries(files).filter(([k]) => k.startsWith(dir));
+                this.status = list.length ? 200 : 404;
+                this.responseText = list.map(([k, b]) => `${b.length}\t${k.slice(dir.length)}`).join("\n");
                 return;
             }
             syncXhr++;
@@ -334,5 +335,52 @@ console.log("prefetch=0: ok");
     assert.equal(syncFaults.length, 0);
     readEntry(r, "data/menu");   // and the next read works
     console.log("sync retry: ok");
+}
+{   // 2x card art (tools/cardart.py): cards/ = merge/data/card.dat + mini.dat, mounted into /game. The thumbnails are pinned from mini.dat (not
+    // merge.dat's data/mini), a deck's art from card.dat by its list_card.txt, a Field Spell's background still by
+    // merge.dat's card numbers
+    const arc = (list) => {   // a KCEJYUGI archive of [name, bytes]
+        const head = 12 + list.length * 268, out = Buffer.alloc(head + list.reduce((n, [, b]) => n + b.length, 0));
+        out.write("KCEJYUGI", 0, "latin1"), out.writeUInt32LE(list.length, 8);
+        let at = head;
+        list.forEach(([name, b], k) => {
+            const e = 12 + k * 268;
+            for (let c = 0; c < name.length; c++) { const x = name.charCodeAt(c); out[e + c] = ((x & 15) << 4) | (x >> 4); }
+            out.writeUInt32LE(at, e + 256), out.writeUInt32LE(b.length, e + 260), out.writeUInt32LE(b.length, e + 264);
+            b.copy(out, at), at += b.length;
+        });
+        return out;
+    };
+    const fill = (n, seed) => { const b = Buffer.alloc(n); for (let i = 0; i < n; i += 4) b.writeUInt32LE((i * 2654435761 + seed) >>> 0, i); return b; };
+    const list = Buffer.from("0000.png\r\n89631139.jpg\r\n67105242.jpg\r\n24094653.jpg\r\n", "latin1");
+    const cardDat = arc([["list_card.txt", list], ["24094653.jpg", fill(MB, 1)], ["67105242.jpg", fill(2 * MB, 2)], ["89631139.jpg", fill(2 * MB, 3)]]);
+    files["cards/merge/data/card.dat"] = cardDat;
+    files["cards/merge/data/mini.dat"] = arc([["list_card.txt", list], ["89631139.jpg", fill(5 * MB, 4)]]);
+    try {
+        const r = makeEnv(new Map(), new Map());
+        await r.ready();
+        const L = r.Module.yo2Lazy;
+        r.read("/game/merge.dat", 0, toc);
+        await settle(L);
+        const hot = [...L.pinned.entries()].filter(([, p]) => p.tag === "hot").map(([k]) => k);
+        const miniChunks = Math.ceil(files["cards/merge/data/mini.dat"].length / MB);
+        assert.equal(hot.filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole");
+        const mini = ent("data/mini");
+        assert.ok(!hot.some((k) => k.endsWith("merge.dat#" + Math.floor((mini.off + MB) / MB))), "merge.dat's data/mini is not");
+        syncXhr = 0;
+        await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
+        await settle(L);
+        const deck = [...L.pinned.entries()].filter(([, p]) => p.tag === "deck").map(([k]) => k);
+        assert.ok(deck.length >= 2 && deck.every((k) => k.includes("card.dat")), "the deck's art pinned from card.dat: " + deck);
+        const at = cardDat.length - 2 * MB, got = r.read("/game/merge/data/card.dat", at, 4096);
+        assert.deepEqual(Buffer.from(got), cardDat.subarray(at, at + 4096), "card.dat bytes");
+        r.Module.onYo2Scene("begin", 12, 0x1e);   // rock-paper-scissors: the NPC's deck (cards 2, 3) and its Field Spell (3)
+        await settle(L);
+        assert.equal(L.stats.fieldFiles, 1, "card 3's Field Spell, by merge.dat's card number 4336 (no map yet: no area)");
+        assert.ok([...L.pinned.entries()].some(([k, p]) => p.tag === "npc" && k.includes("card.dat")), "the NPC's art from card.dat");
+        console.log("2x card art: ok");
+    } finally {
+        delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"];
+    }
 }
 console.log("lazyfs_test ok");

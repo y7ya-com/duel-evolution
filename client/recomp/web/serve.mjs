@@ -1,5 +1,6 @@
 // Local server for the web build: cross-origin isolated (COOP/COEP, for SharedArrayBuffer) with HTTP Range.
 //   node web/serve.mjs [port]            / -> build-web/, /game/ -> $YO2_GAME (files.txt made on the fly)
+//   YO2_CARDS=<dir>                     /cards/ -> the 2x card art (<dir>/merge/data/{card,mini}.dat, tools/cardart.py)
 //   node web/serve.mjs --manifest <dir>  print <dir>'s files.txt (for the R2 copy)
 //   YO2_DELAY=<ms> YO2_KBPS=<KB/s>      a slow network for /game/ Range reads: latency + size at that rate (stall repros);
 //   YO2_SHARED=1                        ...through one shared link: active transfers split YO2_KBPS evenly (contention;
@@ -31,6 +32,7 @@ if (process.argv[2] === "--manifest") {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const roots = {
     "/game/": process.env.YO2_GAME || process.env.HOME + "/Library/Containers/org.boxedwine/Data/yo2/game",
+    ...(process.env.YO2_CARDS ? { "/cards/": process.env.YO2_CARDS } : {}),
     "/": process.env.YO2_WEB || path.join(here, "..", "build-web"),
 };
 const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm", ".txt": "text/plain" };
@@ -51,7 +53,7 @@ http.createServer((req, res) => {
     const url = decodeURIComponent(new URL(req.url, "http://x").pathname);
     const prefix = Object.keys(roots).find((p) => url.startsWith(p));
     const root = path.resolve(roots[prefix]);
-    if (prefix === "/game/" && url === "/game/files.txt") return res.writeHead(200, h).end(manifest(root));
+    if (prefix !== "/" && url === prefix + "files.txt") return res.writeHead(200, h).end(manifest(root));
     const file = path.resolve(root, url.slice(prefix.length) || "yo2rc.html");
     if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile())
         return res.writeHead(404, h).end();

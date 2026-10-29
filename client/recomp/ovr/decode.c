@@ -25,6 +25,23 @@
 #include "../../platform/third_party/stb_image.h"
 
 void o_00b400b3(CPU *restrict c);
+void o_00b3ced6(CPU *restrict c);
+int rc_render_scale(void);                                                  // rt/d3d8.cpp
+void rc_texture_hq(uint32_t tex, const uint8_t *bgra, size_t n, int scale);
+
+// 2x card art (tools/cardart.py: merge/data/card.dat 400x580, mini.dat 100x144, JPEG). The game lays it out at its
+// 1x size (200x290, 50x72); the texture's GL pixels are the 2x ones when the render scale is 2 (platform/gfx).
+// ponytail: the sizes are the marker (no 2008 image has them); a tag in the file if other 2x assets ever come
+static int hq_card(uint32_t w, uint32_t h) { return (w == 400 && h == 580) || (w == 100 && h == 144); }
+
+// D3DXGetImageInfoFromFileInMemory(data, size, info): 2x card art reports its 1x size
+void f_00b3ced6(CPU *restrict c) {
+    uint32_t info = RD32m(c->esp + 12);
+    o_00b3ced6(c);
+    if (c->eax || !info || !hq_card(RD32m(info), RD32m(info + 4))) return;
+    WR32m(info, RD32m(info) / 2);
+    WR32m(info + 4, RD32m(info + 4) / 2);
+}
 
 enum { MODE_NEW, MODE_ORIG, MODE_COMPARE };
 static int mode = -1, logging;
@@ -94,10 +111,13 @@ void f_00b400b3(CPU *restrict c) {
     for (int i = 0; i < 15; i++) a[i] = RD32m(c->esp + 4 + 4 * i);
     const uint8_t *data = G(a[1]);
     const char *k = kind(data, a[2]);
+    int iw = 0, ih = 0, in = 0;
+    int hq = k[0] == 'j' && stbi_info_from_memory(data, (int)a[2], &iw, &ih, &in) && hq_card((uint32_t)iw, (uint32_t)ih);
     int shape = a[5] == 1 && a[6] == 0 && a[7] == 0x15 && a[9] == 1 && a[10] == 1 && a[11] == 0 && !a[12] && !a[13] &&
-                a[3] && a[3] <= 4096 && a[4] && a[4] <= 4096 && k[0] == 'p';
-    // ponytail: PNG only, the one format compare mode has verified (no JPEG reaches this call so far); > 4096 the
-    // platform refuses, so those take D3DX's own failure path
+                a[3] && a[3] <= 4096 && a[4] && a[4] <= 4096 && (k[0] == 'p' || hq);
+    // ponytail: PNG only, the one format compare mode has verified (the 2008 data has no JPEG), plus our 2x card art
+    // (D3DX would clip it to the 1x texture: it never goes to the original); > 4096 the platform refuses, so those
+    // take D3DX's own failure path
     double t0 = now_ms();
     if (logging && !shape) {   // each argument combination the fast path refuses, once
         static uint32_t seen[64][3];
@@ -111,7 +131,7 @@ void f_00b400b3(CPU *restrict c) {
                    k, a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13]);
         }
     }
-    if (mode != MODE_NEW || !shape) {
+    if ((mode != MODE_NEW && !hq) || !shape) {
         o_00b400b3(c);
         if (mode == MODE_COMPARE && shape && c->eax == 0) {   // the same bytes through stb, against what D3DX made
             int w, h, n;
@@ -157,9 +177,22 @@ void f_00b400b3(CPU *restrict c) {
     }
     int w, h, n;
     uint8_t *px = stbi_load_from_memory(data, (int)a[2], &w, &h, &n, 4);
+    uint8_t *big = NULL;   // 2x card art: px becomes its 1x box-filtered copy (what the game reads and hit-tests)
+    if (px && hq) {
+        int lw = w / 2, lh = h / 2;
+        uint8_t *small = malloc((size_t)lw * lh * 4);
+        for (int y = 0; y < lh; y++)
+            for (int x = 0; x < lw; x++)
+                for (int j = 0; j < 4; j++) {
+                    const uint8_t *p = px + ((size_t)(2 * y) * w + 2 * x) * 4 + j;
+                    small[((size_t)y * lw + x) * 4 + j] = (uint8_t)((p[0] + p[4] + p[w * 4] + p[w * 4 + 4] + 2) / 4);
+                }
+        big = px, px = small, w = lw, h = lh;
+    }
     if (!px || (uint32_t)w > a[3] || (uint32_t)h > a[4]) {   // not the plain shape after all: the original
         if (logging) rc_log("decode: original for %s, image %dx%d into %ux%u", k, px ? w : -1, px ? h : -1, a[3], a[4]);
         stbi_image_free(px);
+        stbi_image_free(big);
         o_00b400b3(c);
         tally(k, now_ms() - t0, 0);
         return;
@@ -185,11 +218,24 @@ void f_00b400b3(CPU *restrict c) {
             uint32_t u[] = {0};
             com(c, tex, 17, 1, u);
             WR32m(a[14], tex);
+            if (big && rc_render_scale() >= 2) {   // the GL texture gets the 2x pixels, laid out like the 1x ones
+                uint32_t tw = a[3] * 2, th = a[4] * 2;
+                size_t sz = (size_t)tw * th * 4;
+                uint8_t *hqb = calloc(sz, 1);
+                for (int y = 0; y < 2 * h; y++) {
+                    const uint8_t *p = big + (size_t)y * 2 * w * 4;
+                    uint8_t *d = hqb + (size_t)y * tw * 4;
+                    for (int x = 0; x < 2 * w; x++, p += 4, d += 4) d[0] = p[2], d[1] = p[1], d[2] = p[0], d[3] = p[3];
+                }
+                rc_texture_hq(tex, hqb, sz, 2);
+                free(hqb);
+            }
         } else {
             com(c, tex, 2, 0, NULL);   // Release
         }
     }
     stbi_image_free(px);
+    stbi_image_free(big);
     c->esp = s + 0x40;
     c->eax = hr;
     c->ret_to = ret;

@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 
@@ -239,7 +240,7 @@ HRESULT IDirect3DSurface8::LockRect(D3DLOCKED_RECT* l, const RECT* r, DWORD flag
 
 HRESULT IDirect3DSurface8::UnlockRect() { return owner ? owner->UnlockRect(0) : D3D_OK; }
 
-bool IDirect3DSurface8::read(std::vector<uint8_t>& out) {
+bool IDirect3DSurface8::read(std::vector<uint8_t>& out, bool native) {
     if (!bits.empty()) { out = bits; return true; }
     if (owner && !owner->shadow.empty()) { out = owner->shadow; return true; }
     if (!onGlThread()) return false;
@@ -253,12 +254,26 @@ bool IDirect3DSurface8::read(std::vector<uint8_t>& out) {
         fbo = owner->glFbo;
     }
     if (!fbo) return false;
-    std::vector<uint8_t> rgba((size_t)w * h * 4);
+    UINT pw = w * scale, ph = h * scale;
+    std::vector<uint8_t> rgba((size_t)pw * ph * 4);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glPixelStorei(GL_PACK_ALIGNMENT, 4);
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());   // rows already top first
+    glReadPixels(0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());   // rows already top first
     dev->bindTarget();
-    bgraToRgba(rgba.data(), w * 4, w, h, false, out);   // the swap is its own inverse
+    if (scale > 1 && !native) {   // what the game drew, at its own size: the mean of each scale x scale block
+        std::vector<uint8_t> small((size_t)w * h * 4);
+        for (UINT y = 0; y < h; y++)
+            for (UINT x = 0; x < w; x++)
+                for (int k = 0; k < 4; k++) {
+                    unsigned sum = 0;
+                    for (UINT j = 0; j < scale; j++)
+                        for (UINT i = 0; i < scale; i++) sum += rgba[(((size_t)(y * scale + j) * pw) + x * scale + i) * 4 + k];
+                    small[((size_t)y * w + x) * 4 + k] = (uint8_t)((sum + scale * scale / 2) / (scale * scale));
+                }
+        rgba.swap(small);
+        pw = w, ph = h;
+    }
+    bgraToRgba(rgba.data(), pw * 4, pw, ph, false, out);   // the swap is its own inverse
     return true;
 }
 
@@ -338,6 +353,19 @@ void IDirect3DTexture8::sync() {
     } else {
         glBindTexture(GL_TEXTURE_2D, glTex);
     }
+    if (!hq.empty() && !isLocked) {   // the high-resolution pixels replace level 0, with a mip chain for minified draws
+        auto t0 = std::chrono::steady_clock::now();
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, level0.w * hqScale, level0.h * hqScale, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     hq.data());
+        glGenerateMipmap(GL_TEXTURE_2D);
+        rc_upload_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::vector<uint8_t>().swap(hq);
+        hqMips = true;
+        sampler[1] = -1;   // the min filter gets its mipmap form
+    }
+    if (hqMips) { dirty = RECT{}; return; }   // the shadow (hit tests) stays on the CPU
     if (shadow.empty() || isLocked || dirty.right <= dirty.left) return;
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, level0.w);
@@ -351,8 +379,19 @@ void IDirect3DTexture8::sync() {
 
 // ---------------------------------------------------------------- device
 
+// YO2_RENDER_SCALE=1|2, else 2 when the drawable has at least 1.5 physical pixels per game pixel each way (a HiDPI
+// screen, or a big window), so card art and text get the detail instead of a stretched 1x frame.
+// ponytail: decided once, at CreateDevice; a window later moved to another screen keeps it.
+static UINT renderScale(UINT w, UINT h) {
+    if (const char* e = getenv("YO2_RENDER_SCALE")) return atoi(e) >= 2 ? 2 : 1;
+    int dw = 0, dh = 0;
+    platformDrawableSize(&dw, &dh);
+    return 2 * (UINT)dw >= 3 * w && 2 * (UINT)dh >= 3 * h ? 2 : 1;
+}
+
 bool IDirect3DDevice8::init(const D3DPRESENT_PARAMETERS& p) {
     pp = p;
+    scale = renderScale(pp.BackBufferWidth, pp.BackBufferHeight);
     glThread = std::this_thread::get_id();
     GLuint vs = compile(GL_VERTEX_SHADER, VS), fs = compile(GL_FRAGMENT_SHADER, FS);
     glProgram = glCreateProgram();
@@ -389,9 +428,10 @@ bool IDirect3DDevice8::init(const D3DPRESENT_PARAMETERS& p) {
     backBuffer->fmt = D3DFMT_X8R8G8B8;
     backBuffer->pool = D3DPOOL_DEFAULT;
     backBuffer->usage = D3DUSAGE_RENDERTARGET;
+    backBuffer->scale = scale;
     glGenRenderbuffers(1, &backBuffer->glColor);
     glBindRenderbuffer(GL_RENDERBUFFER, backBuffer->glColor);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, backBuffer->w, backBuffer->h);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, backBuffer->w * scale, backBuffer->h * scale);
     glGenFramebuffers(1, &backBuffer->glFbo);
     glBindFramebuffer(GL_FRAMEBUFFER, backBuffer->glFbo);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, backBuffer->glColor);
@@ -403,7 +443,8 @@ bool IDirect3DDevice8::init(const D3DPRESENT_PARAMETERS& p) {
         autoDepth->fmt = pp.AutoDepthStencilFormat;
         autoDepth->pool = D3DPOOL_DEFAULT;
         autoDepth->usage = D3DUSAGE_DEPTHSTENCIL;
-        autoDepth->glDepth = depthBuffer(autoDepth->w, autoDepth->h);
+        autoDepth->scale = scale;
+        autoDepth->glDepth = depthBuffer(autoDepth->w * scale, autoDepth->h * scale);
     }
 
     // D3D8 defaults
@@ -464,8 +505,8 @@ HRESULT IDirect3DDevice8::Present(const RECT*, const RECT*, HWND, const void*) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
     glColorMask(1, 1, 1, 1);
-    glBlitFramebuffer(0, 0, backBuffer->w, backBuffer->h, 0, dh, dw, 0, GL_COLOR_BUFFER_BIT,
-                      dw == (int)backBuffer->w && dh == (int)backBuffer->h ? GL_NEAREST : GL_LINEAR);
+    int bw = (int)(backBuffer->w * scale), bh = (int)(backBuffer->h * scale);
+    glBlitFramebuffer(0, 0, bw, bh, 0, dh, dw, 0, GL_COLOR_BUFFER_BIT, dw == bw && dh == bh ? GL_NEAREST : GL_LINEAR);
     platformPresent();
     if (!deadTextures.empty()) glDeleteTextures((GLsizei)deadTextures.size(), deadTextures.data());
     if (!deadFbos.empty()) glDeleteFramebuffers((GLsizei)deadFbos.size(), deadFbos.data());
@@ -617,7 +658,7 @@ void IDirect3DDevice8::bindTarget() {
     }
     glBindFramebuffer(GL_FRAMEBUFFER, t->glFbo);
     GLuint rb = 0;
-    if (depth && depth->w == target->w && depth->h == target->h) {
+    if (depth && depth->w * depth->scale == target->w && depth->h * depth->scale == target->h) {   // texture: scale 1
         rb = depth->glDepth;
     } else if (depth) {   // WebGL2 wants equal attachment sizes: give the texture a depth buffer of its own
         if (!t->glFboDepth) t->glFboDepth = depthBuffer(target->w, target->h);
@@ -671,7 +712,8 @@ HRESULT IDirect3DDevice8::Clear(DWORD count, const D3DRECT* rects, DWORD flags, 
             x1 = x1 < rects[i].x2 ? x1 : rects[i].x2; y1 = y1 < rects[i].y2 ? y1 : rects[i].y2;
         }
         if (x1 <= x0 || y1 <= y0) continue;
-        glScissor(x0, y0, x1 - x0, y1 - y0);   // top-first storage: D3D rows are GL rows
+        int s = (int)target->scale;
+        glScissor(x0 * s, y0 * s, (x1 - x0) * s, (y1 - y0) * s);   // top-first storage: D3D rows are GL rows
         glClear(mask);
     }
     glDisable(GL_SCISSOR_TEST);
@@ -780,7 +822,10 @@ void IDirect3DDevice8::applyState() {
     glUseProgram(glProgram);
     bindTarget();
     glDisable(GL_SCISSOR_TEST);
-    glViewport(vp.X, vp.Y, vp.Width, vp.Height);
+    // the render scale is only the GL viewport: vertices stay in game pixels (uPixel's half-pixel shift included),
+    // so a game pixel covers scale x scale screen pixels and a scale-x texture maps texel for pixel
+    UINT s = target->scale;
+    glViewport(vp.X * s, vp.Y * s, vp.Width * s, vp.Height * s);
     glDepthRangef(vp.MinZ, vp.MaxZ);
     D3DMATRIX vpm = mul(view, proj);
     glUniformMatrix4fv(u[U_VIEWPROJ], 1, GL_FALSE, &vpm.m[0][0]);
@@ -836,13 +881,15 @@ void IDirect3DDevice8::applyState() {
         return;
     }
     texture->sync();   // binds it, uploading what changed since
+    bool mips = texture->hqMips;
     auto filter = [](DWORD f) { return (int32_t)(f >= D3DTEXF_LINEAR ? GL_LINEAR : GL_NEAREST); };
     auto wrap = [](DWORD a) {
         return (int32_t)(a == D3DTADDRESS_WRAP ? GL_REPEAT : a == D3DTADDRESS_MIRROR ? GL_MIRRORED_REPEAT
                                                                                        : GL_CLAMP_TO_EDGE);
     };
-    int32_t want[4] = {filter(tss[D3DTSS_MAGFILTER]), filter(tss[D3DTSS_MINFILTER]), wrap(tss[D3DTSS_ADDRESSU]),
-                       wrap(tss[D3DTSS_ADDRESSV])};
+    int32_t minf = filter(tss[D3DTSS_MINFILTER]);
+    if (mips) minf = minf == GL_LINEAR ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+    int32_t want[4] = {filter(tss[D3DTSS_MAGFILTER]), minf, wrap(tss[D3DTSS_ADDRESSU]), wrap(tss[D3DTSS_ADDRESSV])};
     static const GLenum names[4] = {GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S,
                                     GL_TEXTURE_WRAP_T};
     for (int i = 0; i < 4; i++)
