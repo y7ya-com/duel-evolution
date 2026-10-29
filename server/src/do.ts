@@ -112,6 +112,7 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(this.srv.game.store.loadRaw());
     }
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 });
+    if (!this.srv.world.canOpen(request.headers.get("x-de-user"))) return new Response("too many game connections", { status: 429 });
     const { 0: client, 1: ws } = new WebSocketPair();
     ws.accept();
     (ws as unknown as { binaryType: string }).binaryType = "arraybuffer"; // newer compat dates default to Blob

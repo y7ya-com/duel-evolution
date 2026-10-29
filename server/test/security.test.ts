@@ -6,6 +6,7 @@ import type { Session } from "../src/game/hub.ts";
 import * as PP from "../src/game/persist.ts";
 import SHOP from "../gamedata/shop.json";
 import { makeDf, WHY_SURRENDER } from "../src/duel/duelfin.ts";
+import { MAX_PEERS_PER_USER } from "../src/world.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -106,6 +107,20 @@ describe("floods", () => {
     const burst = new Uint8Array(one.length * 5000);
     for (let i = 0; i < 5000; i++) burst.set(one, i * one.length);
     l.raw(burst);
+    await h.tick(50);
+    expect(l.closedByServer).toBe(true);
+  });
+
+  it("a 1 MB frame of tiny messages costs one parse, not seconds (the singleton DO serves everyone)", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const l = h.client("alice", "alice", "pw", "user-a").link(5731);
+    await h.tick(50);
+    const one = pack(0x0005, new Uint8Array(0), 1), n = Math.floor((1 << 20) / one.length);
+    const frame = new Uint8Array(one.length * n);
+    for (let i = 0; i < n; i++) frame.set(one, i * one.length);
+    const t = performance.now();
+    l.raw(frame);
+    expect(performance.now() - t).toBeLessThan(250);
     await h.tick(50);
     expect(l.closedByServer).toBe(true);
   });
@@ -221,5 +236,17 @@ describe("PvP spectators", () => {
     expect(h.game.pvp!.watchRequest(b.id, a.pid!, sb)).toBeNull();
     expect(h.game.pvp!.watchRequest(a.id, b.pid!, sa)).toBeNull();
     expect(h.game.pvp!.watchRequest(c.id, a.pid!, sc)).not.toBeNull();
+  });
+});
+
+describe("connections per user", () => {
+  it("a DE user holds at most MAX_PEERS_PER_USER game WebSockets; a closed one frees its place", () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const w = h.srv.world, nop = () => true;
+    for (let i = 0; i < MAX_PEERS_PER_USER; i++) { expect(w.canOpen("user-a")).toBe(true); w.openPeer(`p${i}`, "user-a", nop, nop); }
+    expect(w.canOpen("user-a")).toBe(false);
+    expect(w.canOpen("user-b")).toBe(true);
+    w.closePeer("p0");
+    expect(w.canOpen("user-a")).toBe(true);
   });
 });
