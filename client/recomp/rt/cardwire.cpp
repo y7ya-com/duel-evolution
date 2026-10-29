@@ -500,6 +500,16 @@ extern "C" int rc_cw_send(int s, const uint8_t* p, int n, int (*rawSend)(int, co
     }
     return n;
 }
+// Free mode (ovr/freemode.c), a Duel Evolution addition: a socket opened while the player is in it tells the server
+// first, before the exe's own first frame: 0xCA10 FREEMODE (u8 1). The server takes a connection's mode only from its
+// first frame and keeps a session's mode fixed (server/src/net/conn.ts).
+extern "C" int rc_free(void);
+extern "C" void rc_cw_mode(int s, int (*rawSend)(int, const uint8_t*, int)) {
+    if (!rc_free()) return;
+    cw::Bytes f = cw::encode({0xCA10, 0, {1}});
+    rawSend(s, f.data(), (int)f.size());
+    CW_LOG("cardwire: socket %d opened in free mode", s);
+}
 extern "C" int rc_cw_v2(int s) { return s >= 0 && s < 64 && g_s[s] && g_s[s]->c.mode == cw::Conn::V2; }
 extern "C" int rc_cw_pending(int s) { return s >= 0 && s < 64 && g_s[s] ? (int)g_s[s]->toExe.size() : 0; }
 #endif

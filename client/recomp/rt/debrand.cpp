@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -23,7 +24,8 @@ extern "C" {
 #include "win.h"
 }
 
-extern "C" uint32_t rc_first_scene;   // emit.py IMM_HOOKS, defined in rt.c
+extern "C" uint32_t rc_first_scene;
+void rc_free_title(VfsArchive* a, const std::function<void(const std::string&, const void*, size_t)>& put);   // rt/freetitle.cpp   // emit.py IMM_HOOKS, defined in rt.c
 
 namespace {
 const uint8_t CLEAR_PNG[] = {
@@ -31,7 +33,7 @@ const uint8_t CLEAR_PNG[] = {
     0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00,
     0x00, 0x00, 0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x00, 0x02, 0x00, 0x00, 0x05, 0x00,
     0x01, 0x7a, 0x5e, 0xab, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
-const int TITLE_DROP[] = {21, 23, 25, 29, 33};
+const int TITLE_DROP[] = {21, 23, 25, 29, 33};   // 29 and 33 stay in free mode (rt/freetitle.cpp)
 
 void put(const std::string& name, const void* data, size_t n) {   // name: the archive's, "data\title\x.png"
     char out[1024];
@@ -51,7 +53,7 @@ std::string lower(std::string s) {
 }
 
 // The dump is one "SWF::Element::Tag::<Name>->new(...)" block per tag; drop the placements of TITLE_DROP's depths.
-std::string filter_title(const std::string& t) {
+std::string filter_title(const std::string& t, bool free_mode) {
     const std::string sep = "\nSWF::Element::Tag::";
     std::string out;
     size_t at = 0;
@@ -64,7 +66,7 @@ std::string filter_title(const std::string& t) {
             (!tag.compare(sep.size(), 12, "PlaceObject2") || !tag.compare(sep.size(), 13, "RemoveObject2"))) {
             size_t d = tag.find("Depth => ");
             int depth = d == std::string::npos ? -1 : atoi(tag.c_str() + d + 9);
-            for (int x : TITLE_DROP) drop |= depth == x;
+            for (int x : TITLE_DROP) drop |= depth == x && !(free_mode && (x == 29 || x == 33));
         }
         if (!drop) out += tag;
         at = next;
@@ -94,9 +96,11 @@ extern "C" void rc_debrand(void) {
     }
     std::vector<uint8_t> t;
     if (const VfsEntry* e = vfsFind(a, "data\\title\\title_flash_01.txt"); e && vfsReadAll(a, *e, &t)) {
-        std::string f = filter_title(std::string(t.begin(), t.end()));
+        bool free_mode = !getenv("RC_NOFREEMODE");
+        std::string f = filter_title(std::string(t.begin(), t.end()), free_mode);
         put(e->name, f.data(), f.size());
         rc_log("debrand: %d images cleared, title movie %zu -> %zu bytes", n, t.size(), f.size());
     }
+    rc_free_title(a, put);
     vfsUnmount(a);
 }
