@@ -31,8 +31,11 @@ web shell (`client/web-shell/stage.js`, `loader.js`), the title and the build id
    npx wrangler deploy --env production --dry-run --outdir /tmp/de-dry   # optional: bundle + bindings, uploads nothing
    npx wrangler d1 migrations apply duel-evolution-prod --remote --env production   # only when migrations/ changed
    npx wrangler deploy --env production
-   scripts/prod_check.sh
+   scripts/post_deploy.sh                     # Workers Logs: query strings redacted again (every deploy resets it)
+   scripts/prod_check.sh                      # both hosts and www
    ```
+   predeploy.py takes `PREDEPLOY_PORT` / `PARITY_CTL_PORT` when another run holds 8798 / 6999, and must print
+   "pre-deploy check passed" (don't pipe it without `set -o pipefail`).
    A deploy restarts the WorldDO, which drops the open game connections. The state is safe: every save is written
    through to D1.
 
