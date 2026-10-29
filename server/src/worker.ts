@@ -7,7 +7,7 @@ import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
 import type { AuthEnv } from "./auth/env.ts";
 import { verifySession } from "./auth/auth.ts";
-import { gateUpgrade } from "./auth/binding.ts";
+import { gateUpgrade, originAllowed } from "./auth/binding.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 
 export { WorldDO } from "./do.ts";
@@ -123,6 +123,23 @@ routes.get("/api/de/prefetch/duel", async (c) => {
   const fwd = new Request(c.req.raw);
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/prefetch", fwd);
+});
+
+// the free starter deck (game/starter.ts): the web client's picker, for the signed-in player's active character
+routes.get("/api/de/starter", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/starter", fwd);
+});
+routes.post("/api/de/starter/claim", async (c) => {
+  if (!originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/starter/claim", fwd);
 });
 
 // the account API (src/auth)

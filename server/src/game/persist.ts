@@ -8,7 +8,7 @@ import YDC from "../../gamedata/ydc.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 
-type P = Record<string, any>; // a profile, py shape
+export type P = Record<string, any>; // a profile, py shape
 
 export const MAX_CARD = 0xcb8;
 export const CARD_ID_MAX = 3255;
@@ -164,19 +164,22 @@ export function myName(st: State): string {
 let PROGRESSION = false;
 export const setProgression = (on: boolean) => { PROGRESSION = on; };
 export const progression = () => PROGRESSION;
-/** The "Startup Present 40" right (yo2pbinmap 784, py research/lobby NOTES.md 0x8401): at login the client offers its
- *  presentEntry card pick, up to 40 cards (one legal deck), and 0x8402 puts them in the trunk (lobby.ts). */
+/** The "Startup Present 40" right (yo2pbinmap 784, py research/lobby NOTES.md 0x8401): at login the client offered
+ *  its presentEntry pick of any 40 cards. Retired (owner, 2026-10-29): new characters claim a free structure deck
+ *  instead (starter.ts); a character that claimed the pick (bit + 1) keeps its cards, an unclaimed right is dropped. */
 export const STARTER_RIGHT = 0x310;
 const STARTUP_PRESENT_RANGE = [782, 791];
 /** Bumped to restart every character again; 1 = the progression launch ("reset everyone", the owner's call). */
 const PROGRESSION_EPOCH = 1;
-/** A character from before progression (or before the current epoch) restarts: empty trunk, the startup present right
- *  again (its "GET済み" bit cleared), the starting MP. Everything else (record, NPCs, avatar, titles) is kept. */
+/** A character from before progression (or before the current epoch) restarts: empty trunk, no startup present
+ *  bits (so it can claim the starter deck), the starting MP. Everything else (record, NPCs, avatar, titles) is kept.
+ *  An unclaimed old startup present right is dropped (no 40-card pick offer at login; the starter deck replaces it). */
 export function progressionReset(p: P): boolean {
+  if (PROGRESSION && pbinTest(p, STARTER_RIGHT) && !pbinTest(p, STARTER_RIGHT + 1)) pbinSet(p, STARTER_RIGHT, false);
   if (!PROGRESSION || int(p.prog ?? 0) >= PROGRESSION_EPOCH) return false;
   p.trunk = {};
   p.pbin = (p.pbin ?? []).filter((b: number) => b < STARTUP_PRESENT_RANGE[0] || b > STARTUP_PRESENT_RANGE[1]);
-  pbinSet(p, STARTER_RIGHT);
+  delete p.starter;
   const r = (p.rec ??= {});
   r.mp = ECON.START_MP;
   p.prog = PROGRESSION_EPOCH;
@@ -186,7 +189,7 @@ export function progressionReset(p: P): boolean {
 // by the coordinator as "healthy values"); shop prices are unchanged (shop.ts: booster 200, beginner packs 1001-1003
 // 100, structure decks 7000+ 1000, avatar items as they were).
 export const ECON = {
-  START_MP: 5000, // 25 boosters on top of the 40-card startup present: a fun first session, not half the shop
+  START_MP: 5000, // 25 boosters on top of the free starter deck (starter.ts): a fun first session, not half the shop
   NPC_WIN: 150, NPC_LOSS: 50, // a booster every ~1.3 NPC wins, about one pack per 10 minutes of play
   PVP_WIN: 250, PVP_LOSS: 100, // real duels pay a bit more than NPCs; a loss pays less than a win, so throwing doesn't pay
   PVP_MIN_TURNS: 3, PVP_MIN_S: 120, // a PvP duel shorter than both (early surrender, disconnect) pays nobody
@@ -231,7 +234,7 @@ export function mpSpent(g: Game | null, p: P, mp: number, packs: number): void {
 }
 
 export function seedTrunk(p: P, mode: string = startValues().baul ?? TRUNK_START): void {
-  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; pbinSet(p, STARTER_RIGHT); (p.rec ??= {}).mp = ECON.START_MP; return; }
+  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; (p.rec ??= {}).mp = ECON.START_MP; return; }
   if (mode === "all3") p.trunk = Object.fromEntries([...VALID].sort((a, b) => a - b).map((i) => [String(i), 3]));
   // "deck" reads the local client's deck.ydc: not on a server
 }

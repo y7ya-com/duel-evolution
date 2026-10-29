@@ -1,0 +1,116 @@
+// The free starter deck (owner's call, 2026-10-29, replacing the 40-card Startup Present): a new character picks ONE of
+// the game's structure decks (the shop's 7000+ products) on the web client's HTML picker, through
+// GET /api/de/starter and POST /api/de/starter/claim (worker.ts -> WorldDO, do.ts). Once per character: p.starter =
+// the deck id. A character that already claimed the old 40-card pick (its "GET済み" bit) keeps those cards and has no
+// starter claim. Names and blurbs are ours (the client holds none on the server side); covers are each deck's ace.
+// 7 of the 9 products hold cards the 2008 list forbids or limits (Graceful Charity, Magician of Faith, ...): each
+// copy over the limit is swapped for one more copy of a legal card of the same deck, so the 40 cards given are a
+// deck that passes the deck check as it is (the deck itself is built in the client's Edit Deck).
+import YDC from "../../gamedata/ydc.json";
+import * as PP from "./persist.ts";
+import { cardmap, duelCore } from "../duel/data.ts";
+import { check } from "../duel/deckCheck.ts";
+import type { Game } from "./game.ts";
+import type { Session } from "./hub.ts";
+
+/** id -> [name, blurb, cover (YO2 id)]: the structure decks the shop sells (shop.json packs 7000-8999). */
+export const STARTER_DECKS: Record<number, [string, string, number]> = {
+  7001: ["Elemental HEROes", "Fuse HERO monsters into Flame Wingman and friends.", 2118],
+  7003: ["Dark Magicians", "Spellcasters led by Dark Magician and Dark Magician Girl.", 803],
+  7005: ["Ancient Gear", "Heavy machines that shut down your opponent's spells and traps.", 2089],
+  8001: ["Iron Warriors", "Gearfried, Cyber Raider and a solid warrior beatdown.", 591],
+  8002: ["Raw Power", "Big attackers like Giant Orc and Lei Lei: hit hard, hit first.", 1449],
+  8003: ["Dark World", "Fiends that power up when they're discarded.", 2252],
+  8004: ["Black Flame Dragons", "Level up Horus from LV4 to LV8.", 1901],
+  8005: ["Dimension Shift", "Banish your opponent's monsters with the D.D. crew.", 1570],
+  8006: ["Flip Control", "Flip effects and Chaos Necromancer for a patient game.", 1665],
+};
+
+const TYPE_MONSTER = 0x1, TYPE_SPELL = 0x2;
+const ydc = YDC as Record<string, { main: number[]; extra: number[] }>;
+
+/** Deck k (YO2 ids) with every copy over the 2008 limit list swapped for a legal card of the same deck. */
+export function legalDeck(k: number): { main: number[]; extra: number[] } {
+  const own = (l: number[]) => { const t: Record<string, number> = {}; for (const c of l) t[c] = (t[c] ?? 0) + 1; return t; };
+  const d = { main: [...ydc[k].main], extra: [...ydc[k].extra] };
+  const bad = check(d.main, d.extra, own([...d.main, ...d.extra])).filter((x) => x.regla === "lista");
+  const limited = new Set(bad.map((x) => x.id!));
+  for (const x of bad) {
+    const id = x.id!;
+    for (let i = 0; i < x.usa - x.max; i++) {
+      const list = d.extra.includes(id) ? d.extra : d.main;
+      list.splice(list.indexOf(id), 1);
+      const n = own(d.main);
+      const sub = Object.keys(n).map(Number).filter((c) => !limited.has(c) && n[c] < 3).sort((a, b) => n[b] - n[a] || a - b)[0];
+      if (sub && list === d.main) d.main.push(sub);
+    }
+  }
+  return d;
+}
+type Card = { id: number; name: string; n: number; type: "monster" | "spell" | "trap" | "extra" };
+let CATALOG: { id: number; name: string; blurb: string; cover: number; cards: Card[] }[] | null = null;
+
+/** The decks with passcodes, names and counts (main, then extra); built once the duel engine is up. */
+export function starterCatalog() {
+  if (CATALOG) return CATALOG;
+  const cm = cardmap(), dc = duelCore();
+  const code = (y: number) => cm.yo2_to_code(y) ?? 0;
+  const decks = Object.fromEntries(Object.keys(STARTER_DECKS).map((k) => [k, legalDeck(Number(k))]));
+  const all = Object.values(decks).flatMap((d) => [...d.main, ...d.extra]).map(code);
+  const info = new Map((dc?.cardinfo([...new Set(all)]) ?? []).map((c) => [Number(c.code), c]));
+  const out = Object.entries(STARTER_DECKS).map(([k, [name, blurb, cover]]) => {
+    const cards: Card[] = [];
+    for (const [list, extra] of [[decks[k].main, false], [decks[k].extra, true]] as [number[], boolean][]) {
+      const n = new Map<number, number>();
+      for (const y of list) n.set(code(y), (n.get(code(y)) ?? 0) + 1);
+      for (const [pc, count] of n) {
+        const c = info.get(pc), t = Number(c?.type ?? 0);
+        cards.push({ id: pc, name: String(c?.name ?? pc), n: count,
+          type: extra ? "extra" : t & TYPE_MONSTER ? "monster" : t & TYPE_SPELL ? "spell" : "trap" });
+      }
+    }
+    return { id: Number(k), name, blurb, cover: code(cover), cards };
+  });
+  if (dc) CATALOG = out; // without the engine (names missing) try again next time
+  return out;
+}
+
+export const starterClaimable = (p: PP.P) => PP.progression() && !p.starter && !PP.pbinTest(p, PP.STARTER_RIGHT + 1);
+
+/** The live session of a DE user with its character chosen, or why not. */
+function active(g: Game, userId: string): Session | string {
+  if (!PP.progression()) return "off";
+  const acct = g.store.accountOfUser(userId);
+  const s = acct ? g.hub.sessions.get(acct) : undefined;
+  return !s ? "not-in-game" : s.slot === null ? "no-character" : s;
+}
+
+/** GET /api/de/starter */
+export function starterInfo(g: Game, userId: string): Record<string, unknown> {
+  const s = active(g, userId);
+  if (typeof s === "string") return { claimable: false, reason: s };
+  const p = g.withCtx(s, () => PP.profile(g.loadState(), s.slot!, false));
+  if (!p) return { claimable: false, reason: "no-character" };
+  if (!starterClaimable(p)) return { claimable: false, reason: "claimed" };
+  return { claimable: true, decks: starterCatalog() };
+}
+
+/** POST /api/de/starter/claim: [http status, body]. Runs inside one World handler, so check-then-write is atomic. */
+export function starterClaim(g: Game, userId: string, id: number): [number, Record<string, unknown>] {
+  const s = active(g, userId);
+  if (typeof s === "string") return [409, { error: s }];
+  if (!(id in STARTER_DECKS) || !ydc[String(id)]) return [400, { error: "bad deck" }];
+  const deck = legalDeck(id);
+  return g.withCtx(s, () => {
+    const st = g.loadState();
+    const p = PP.profile(st, s.slot!, false);
+    if (!p) return [409, { error: "no-character" }];
+    if (!starterClaimable(p)) return [409, { error: "claimed" }];
+    const cards = [...deck.main, ...deck.extra];
+    PP.trunkAdd(g, p, cards, 1, `starter deck ${id}`);
+    p.starter = id;
+    g.saveState(st);
+    g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);
+    return [200, { ok: true, id, cards: cards.length }];
+  });
+}

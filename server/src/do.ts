@@ -8,6 +8,7 @@ import type { Env } from "./env.ts";
 import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
+import { starterClaim, starterInfo } from "./game/starter.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -61,6 +62,18 @@ export class WorldDO extends DurableObject<Env> {
       const out = user ? await new Promise<ReturnType<NonNullable<typeof this.srv.game.duel>["prefetchFor"]>>((res) =>
         this.srv.world.run(() => res(this.srv.game.duel?.prefetchFor(user) ?? null))) : null;
       return out ? Response.json(out, { headers: { "Cache-Control": "no-store" } }) : new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
+      // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const claim = url.pathname.endsWith("/claim") ? ((await request.json().catch(() => ({}))) as { id?: unknown }) : null;
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        const g = this.srv.game;
+        try { res(claim ? starterClaim(g, user, Number(claim.id)) : [200, starterInfo(g, user)]); }
+        catch (e) { console.error(`[starter] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__dev/state" && this.env.DEV === "1") {
       // parity runs: start from the same state.json as py (never enabled outside wrangler dev). With D1 in use, the

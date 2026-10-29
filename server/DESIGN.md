@@ -136,9 +136,12 @@ INTENTIONAL):
 - **DUELPASS removed.** There are no codes and no passes: 0x3111 carries `WIRE_UNUSED_DP`, 0x8102 always answers
   "invalid code", and 0x4903 always answers "no pack".
 - **Cards are earned, as in 2008, but MP comes from duels** (`PROGRESSION=1`, persist.ts). py started every
-  character with every card (×3). Now a character starts with no cards and the Startup Present 40 right (the client's
-  card pick at login, 0x8401), buys packs with MP, gets NPC chain prize cards, and the deck check blocks a deck with
-  unowned cards (0x649b code 1: the client goes back to the map). 2008's MP amounts are not known, so the economy
+  character with every card (×3). Now a character starts with no cards and claims ONE free structure deck (one of
+  the shop's nine, made legal for the 2008 list) on the web client's picker (`GET /api/de/starter`,
+  `POST /api/de/starter/claim`, game/starter.ts; once per character, `p.starter`), buys packs with MP, gets NPC
+  chain prize cards, and the deck check blocks a deck with unowned cards (0x649b code 1: the client goes back to the
+  map). The 2008 Startup Present (0x8401, a free pick of ANY 40 cards) is refused; characters that claimed it keep
+  those cards and get no starter deck. 2008's MP amounts are not known, so the economy
   is the owner's MVP (`persist.ts` ECON, every value explained there): 5000 MP to start, NPC win 150 / loss 50, PvP
   win 250 / loss 100, +300 for the day's first win, nothing for a PvP duel under 3 turns and 2 minutes, at most 5
   rewarded duels a day against the same account, and 25% after 40 rewarded duels a day. Each reward and purchase is

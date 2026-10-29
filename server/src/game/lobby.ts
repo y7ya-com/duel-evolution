@@ -719,6 +719,12 @@ export class Lobby {
   }
   private hStartupPresent(c: Conn, data: Uint8Array): boolean {
     if (!STARTUP_PRESENT) return false;
+    if (PP.progression()) {
+      // retired with progression: the starter deck (starter.ts) replaces the pick, and this took ANY valid card id
+      this.log(`[lobby] 0x8401 Startup Present refused (retired: the starter deck replaces it)`);
+      c.send(0x8402, new W().u32(1).u8(0).bytes());
+      return true;
+    }
     const st = this.g.loadState();
     const p = PP.profile(st, mySlot(this.g, st));
     const [r, cards] = this.startupPresentResult(data, p);

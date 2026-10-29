@@ -1,9 +1,10 @@
 """Pre-deploy check against a local `wrangler dev` (DEPLOY.md): the sources (a clean worktree with PARITY_SRC, else
 this checkout), the engine data seeded into local R2, the real session gate (no DEV). Two test users sign in through
 the test sign-in (DEPLOY_ENV=staging, a throwaway TEST_SIGNIN_SECRET) and play through the bridge: gate, accounts (a
-new player each), with production's PROGRESSION: each picks 40 starter cards (0x8401); lobby, NPC duels to the end
+new player each), with production's PROGRESSION: each claims a free structure deck; lobby, NPC duels to the end
 against NPCs 84, 51 and 54 (fake_client's auto play + surrender), back to the lobby; then a PvP match (B opens a
 room, A challenges and surrenders), both back in the lobby; last, a deck with unowned cards is refused (0x649b).
+The starter deck comes from the web picker's /api/de/starter (once; the old 0x8401 40-card pick is refused).
 
   python3.12 -I parity/predeploy.py
 
@@ -70,12 +71,35 @@ def prefetch(cookie):
         return r.status, (json.loads(body) if body else None)
 
 
-def starter_present(X, cards):
-    """PROGRESSION (production's setting): a new character owns nothing and picks its 40 starter cards (0x8401)."""
+def api(path, cookie, body=None, origin=ORIGIN):
+    """(status, JSON or None) of /api/de/<path>: GET, or POST with a JSON body."""
+    h = {"User-Agent": UA, "Cookie": cookie, **({"Origin": origin} if origin else {}), **({"Content-Type": "application/json"} if body is not None else {})}
+    req = urllib.request.Request(BASE + "/api/de/" + path, headers=h, method="POST" if body is not None else "GET",
+                                 data=json.dumps(body).encode() if body is not None else None)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            st, raw = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        st, raw = e.code, e.read()
+    return st, (json.loads(raw) if raw else None)
+
+
+def starter_deck(X, cookie, deck):
+    """PROGRESSION (production's setting): a new character owns nothing; the 40-card Startup Present (0x8401) is
+    refused, and it claims one free structure deck through the web picker's endpoints, once."""
     n = len(X.room.msgs)
-    X.room.send(0x8401, struct.pack(">B%dH" % len(cards), len(cards), *cards))
+    X.room.send(0x8401, struct.pack(">BH", 1, 1))
     d = X.room.wait(0x8402, start=n, timeout=15)
-    step(d is not None and struct.unpack(">i", d[:4])[0] == 0, f"{X.name}: progression: picks {len(cards)} starter cards (0x8401 -> 0x8402 s32 0)")
+    step(d is not None and struct.unpack(">i", d[:4])[0] == 1, f"{X.name}: progression: the old Startup Present pick is refused (0x8402 s32 1)")
+    st, info = api("starter", cookie)
+    step(st == 200 and info["claimable"] and len(info["decks"]) == 9 and all(len(x["cards"]) for x in info["decks"]),
+         f"{X.name}: GET /api/de/starter: claimable, {len(info['decks']) if info and info.get('decks') else 0} decks ({st})")
+    step(api("starter/claim", cookie, {"id": deck}, origin=None)[0] == 403, f"{X.name}: a claim without our Origin is refused (403)")
+    st, out = api("starter/claim", cookie, {"id": deck})
+    step(st == 200 and out["cards"] == 40, f"{X.name}: claims structure deck {deck} ({st} {out})")
+    st, out = api("starter/claim", cookie, {"id": deck})
+    st2, info = api("starter", cookie)
+    step(st == 409 and info == {"claimable": False, "reason": "claimed"}, f"{X.name}: a second claim is refused ({st} {out}; {info})")
 
 
 def npc_duel(fc, A, cookies=None, npc=84):
@@ -175,13 +199,13 @@ def main():
             X.wait_s = 15.0
         player(fc, A, "Predeploy")
         player(fc, B, "Predeploy B")
-        # fake_client duels with NPC 51's and 54's decks, which the 2008 list refuses (285 forbidden, 707, 2663): the
-        # players pick 40 legal cards of NPC 51's deck as their startup present and duel with those
+        # fake_client duels with NPC 51's and 54's decks, which the players don't own (and the 2008 list refuses): the
+        # players claim structure deck 8001 (40 legal cards as sold) as their free starter deck and duel with it
         unowned = fc.npc_deck_ids(51)
-        starter = [c for c in unowned[0] if c != 285][:40]
-        fc.npc_deck_ids = lambda nid: (starter, [])
-        for X in (A, B):
-            starter_present(X, starter)
+        sd = json.load(open(os.path.join(R.SERVER, "gamedata", "ydc.json")))["8001"]
+        fc.npc_deck_ids = lambda nid: (sd["main"], sd["extra"])
+        for X, who in ((A, "A"), (B, "B")):
+            starter_deck(X, cookies[who], 8001)
         npc_duel(fc, A, cookies)
         for npc in (51, 54):   # their own decks break the list: only the player's deck is checked
             npc_duel(fc, A, npc=npc)
