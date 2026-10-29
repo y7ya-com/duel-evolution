@@ -232,6 +232,7 @@ static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
 extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
+extern "C" void rc_imgfail(const char* what, uint32_t hr, const char* detail, uint32_t data, uint32_t size);   // ovr/imgfail.c
 extern "C" void rc_web_frame(void);
 extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R bytes, -1 when unreadable (RC_SCENE_LOG)
     std::vector<uint8_t> px;
@@ -301,6 +302,11 @@ M(dev, CreateTexture) {
 M(dev, CreateImageSurface) {
     IDirect3DSurface8* s = nullptr;
     HRESULT hr = DEV->CreateImageSurface(ARG(1), ARG(2), (D3DFORMAT)ARG(3), &s);
+    if (hr) {
+        char d[48];
+        snprintf(d, sizeof d, "size %ux%u format %u", ARG(1), ARG(2), ARG(3));
+        rc_imgfail("CreateImageSurface", hr, d, 0, 0);
+    }
     WR32m(ARG(4), hr ? 0 : wrap(s, vt_surf));
     RET(5, hr);
 }

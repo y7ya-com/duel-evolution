@@ -28,6 +28,7 @@ void o_00b400b3(CPU *restrict c);
 void o_00b3ced6(CPU *restrict c);
 int rc_render_scale(void);                                                  // rt/d3d8.cpp
 void rc_texture_hq(uint32_t tex, const uint8_t *bgra, size_t n, int scale);
+void rc_imgfail(const char *what, uint32_t hr, const char *detail, uint32_t data, uint32_t size);
 
 // 2x card art (tools/cardart.py: merge/data/card.dat 400x580, mini.dat 100x144, JPEG). The game lays it out at its
 // 1x size (200x290, 50x72); the texture's GL pixels are the 2x ones when the render scale is 2 (platform/gfx).
@@ -36,8 +37,9 @@ static int hq_card(uint32_t w, uint32_t h) { return (w == 400 && h == 580) || (w
 
 // D3DXGetImageInfoFromFileInMemory(data, size, info): 2x card art reports its 1x size
 void f_00b3ced6(CPU *restrict c) {
-    uint32_t info = RD32m(c->esp + 12);
+    uint32_t data = RD32m(c->esp + 4), size = RD32m(c->esp + 8), info = RD32m(c->esp + 12);
     o_00b3ced6(c);
+    if (c->eax) rc_imgfail("D3DXGetImageInfoFromFileInMemory", c->eax, "", data, size);   // imgfail.c
     if (c->eax || !info || !hq_card(RD32m(info), RD32m(info + 4))) return;
     WR32m(info, RD32m(info) / 2);
     WR32m(info + 4, RD32m(info + 4) / 2);

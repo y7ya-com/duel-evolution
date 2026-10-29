@@ -23,3 +23,6 @@
 00686be0  # the sound effects' load (sedefer.c: after the first frame)
 00b0ce0d  # the CRT _heap_alloc (heap.c: RC_NOSPEED, RC_HEAP=compare)
 00b097fa  # the CRT free (heap.c: RC_NOSPEED)
+0059de80  # CD3DTextureManager's loader (imgfail.c: the file a failing load names)
+00b3d5f6  # D3DXCheckTextureRequirements (imgfail.c: logs a failure)
+00b3eb13  # D3DXLoadSurfaceFromFileInMemory (imgfail.c: logs a failure)
