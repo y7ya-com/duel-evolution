@@ -14,6 +14,8 @@ import pickle
 import sys
 import time
 
+from capstone import x86 as X
+
 import cfg
 import emit
 import image as I
@@ -62,8 +64,27 @@ def hooks_on(addrs):
     return {h: v for h, v in IMM_HOOKS.items() if h in addrs}
 
 
+def text_reads(f):
+    """.text bytes the code reads as data, as (va, n): jump tables, and the byte tables in front of two-level
+    switches (`mov cl, [eax + tbl]`). The boot copies only these (rc_textdata) and never reads .text from the exe."""
+    out = []
+    for a, i in f.insns.items():
+        for op in i.operands:
+            if op.type != X.X86_OP_MEM or op.mem.base in (X.X86_REG_ESP, X.X86_REG_EBP):
+                continue
+            d = op.mem.disp & 0xFFFFFFFF
+            if not I.in_text(d):
+                continue
+            if a in f.tables:   # cfg.jump_table: up to 16 bytes of negative slots before, 2 skipped slots
+                out.append((d - 16, 4 * len(f.tables[a]) + 32))
+            else:   # ponytail: a register index can reach 255 elements past the table
+                out.append((d, op.size * (256 if op.mem.base or op.mem.index else 1)))
+    return out
+
+
 work = sorted(only or E, reverse=True)
 done, defined, referenced = set(), set(), set()
+tdata = []
 problems = collections.Counter()
 prob_list = []
 codes = {}
@@ -84,8 +105,9 @@ while work:
         continue
     done.add(a)
     ent = cache.get(a)
-    if ent is not None and hooks_on(set(ent["addrs"])) == ent["hooks"]:   # cached: same discovery, no decode/emit
+    if ent is not None and "tdata" in ent and hooks_on(set(ent["addrs"])) == ent["hooks"]:   # cached: no decode/emit
         hits += 1
+        tdata += ent["tdata"]
         for c in ent["calls"]:
             if c not in E and I.in_text(c):
                 E.add(c)
@@ -102,6 +124,8 @@ while work:
         continue
     f = cfg.Func(a, E)
     calls = sorted(f.calls | f.tails)
+    td = text_reads(f)
+    tdata += td
     addrs = array.array("I", sorted(f.insns))
     for c in f.calls | f.tails:
         if c not in E and I.in_text(c):
@@ -121,7 +145,7 @@ while work:
     codes[a] = code
     if not only:
         cache[a] = {"code": code, "addrs": addrs, "hooks": hooks_on(set(addrs)), "calls": calls,
-                    "eprob": list(e.problems), "fprob": [tuple(k) for k in f.problems]}
+                    "eprob": list(e.problems), "fprob": [tuple(k) for k in f.problems], "tdata": td}
 if not only:
     tmp = CACHE + ".tmp"
     with open(tmp, "wb") as fc:
@@ -188,6 +212,22 @@ for d, n in sorted(set(I.imports.values())):
     k = ARGS.get(n, -1)
     k = 0 if k is None else k   # cdecl: the caller pops
     fo.write(f'RC_WEAK void {s}(CPU *c) {{ rc_missing_import(c, "{d}!{n}", {k}); }}\n')
+# what the boot copies into the image instead of reading the exe's .text: its headers and text_reads' ranges
+tlo, thi = I.TLO, I.THI
+runs = []
+for va, n in sorted((max(va, tlo), min(va + n, thi) - max(va, tlo)) for va, n in tdata):
+    if n <= 0:
+        continue
+    if runs and va <= runs[-1][0] + runs[-1][1]:
+        runs[-1][1] = max(runs[-1][1], va + n - runs[-1][0])
+    else:
+        runs.append([va, n])
+hdr = I.b[:I.off(tlo)]
+blob = hdr + b"".join(I.b[I.off(va):I.off(va) + n] for va, n in runs)
+fo.write(f"const RcTextData rc_textdata[] = {{\n  {{0x{I.BASE:x}u, {len(hdr)}u}},\n")
+fo.write("".join(f"  {{0x{va:x}u, {n}u}},\n" for va, n in runs))
+fo.write("};\nconst unsigned rc_textdata_n = sizeof rc_textdata / sizeof rc_textdata[0];\nconst uint8_t rc_textdata_bytes[] = {")
+fo.write(",".join(str(x) for x in blob) + "};\n")
 write_if_changed(os.path.join(args.out, "rc_table.c"), fo.getvalue())
 
 with open(os.path.join(args.out, "problems.tsv"), "w") as fo:

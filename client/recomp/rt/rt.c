@@ -168,31 +168,33 @@ static uint16_t rd16f(const uint8_t *b, size_t o) { uint16_t v; memcpy(&v, b + o
 
 uint32_t rc_image_base, rc_image_size, rc_entry;
 
+// The headers and the .text bytes read as data come from the build (gen.py: rc_textdata); the file is read for the
+// data sections only. .text (8 MB, the recompiled code needs none of it) and .reloc are never read: on the web each
+// byte is a download before the first frame.
 static void load_image(const char *path) {
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        perror(path);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *b = malloc(n);
-    if (fread(b, 1, n, f) != (size_t)n) abort();
-    fclose(f);
+    const uint8_t *b = rc_textdata_bytes;   // rc_textdata[0]: the headers, at the image base
     uint32_t pe = rd32f(b, 0x3c);
     uint16_t nsec = rd16f(b, pe + 6), opt = rd16f(b, pe + 20);
     rc_image_base = rd32f(b, pe + 52);
     rc_image_size = rd32f(b, pe + 80);
     rc_entry = rc_image_base + rd32f(b, pe + 40);
     rc_commit(rc_image_base, rc_image_size);
-    memcpy(rc_mem + rc_image_base, b, rd32f(b, pe + 84));   // headers
+    for (unsigned i = 0, o = 0; i < rc_textdata_n; o += rc_textdata[i++].n) memcpy(rc_mem + rc_textdata[i].va, b + o, rc_textdata[i].n);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        perror(path);
+        exit(1);
+    }
     for (int i = 0; i < nsec; i++) {
         size_t o = pe + 24 + opt + i * 40;
-        uint32_t va = rd32f(b, o + 12), rsz = rd32f(b, o + 16), raw = rd32f(b, o + 20), vsz = rd32f(b, o + 8);
-        memcpy(rc_mem + rc_image_base + va, b + raw, rsz < vsz ? rsz : vsz);
+        uint32_t va = rd32f(b, o + 12), rsz = rd32f(b, o + 16), raw = rd32f(b, o + 20), vsz = rd32f(b, o + 8), ch = rd32f(b, o + 36);
+        if (ch & 0x02000020) continue;   // IMAGE_SCN_CNT_CODE (.text), IMAGE_SCN_MEM_DISCARDABLE (.reloc)
+        if (fseek(f, raw, SEEK_SET) || fread(rc_mem + rc_image_base + va, 1, rsz < vsz ? rsz : vsz, f) != (rsz < vsz ? rsz : vsz)) {
+            fprintf(stderr, "%s: short read of section %d\n", path, i);
+            exit(1);
+        }
     }
-    free(b);
+    fclose(f);
     // IAT: each slot gets a magic address that dispatch maps back to the import shim
     for (unsigned i = 0; i < rc_imports_n; i++) WR32m(rc_imports[i].iat, RC_IMPORT_MAGIC + i * 4);
 }
