@@ -4,6 +4,7 @@ import { W } from "../net/proto.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 import * as PP from "./persist.ts";
+import { SANCTION_TRADE } from "./lobby.ts";
 
 const SUB = { TRADESTART: 0x7101, REQTRADE: 0x7102, OFFERREPLY: 0x7105, CANCELREQ: 0x7108, USEREXIT: 0x7112, ADDCARD: 0x7113,
   DELETECARD: 0x7114, SETSTATUS: 0x7117, LASTCONFIRM: 0x7119, ARRIVE: 0x7122, CLEAR: 0x7128, READY: 0x7132 };
@@ -111,6 +112,7 @@ export class Trades {
     else if (o === s) why = "with itself";
     else if (this.tradeOf(s) || this.tradeOf(o)) why = "already trading";
     else if ((o.state || 0) >= 0x67 && (o.state || 0) <= 0x6a) why = "in a duel";
+    else if ((this.g.admin.flagsOf(s.acct) | this.g.admin.flagsOf(o.acct)) & SANCTION_TRADE) why = "trade sanction";
     if (why) { this.g.log(`[intercambio] REQTRADE -> ${pid}: -493 (${why})`); c.send(M.REQTRADERESULT, s32(REQ_FAIL), SEND_PAUSE); return; }
     const t = new Trade(s!, c, o!);
     this.trades.set(s!.pid!, t); this.trades.set(o!.pid!, t);

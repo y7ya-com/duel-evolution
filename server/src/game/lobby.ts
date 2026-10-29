@@ -36,6 +36,8 @@ export const DEFAULT_PARTS = hexb("0000203040608090b820000000000000");
 const ROOM_STATE = 100, DUEL_STATE = 0x67;
 // ponytail: mail, friends and black list are one server-wide list each in the shared root state (py's single player),
 // copied on every state load: bounded here so no player can grow them; per-account lists when they matter
+/** admin sanction bits (0x3004, db/admin.ts): the client greys out chat and trade, the server holds them. */
+export const SANCTION_CHAT = 0x20, SANCTION_TRADE = 0x40;
 const MAIL_MAX = 1000, MAIL_PER_TO = 50, PID_LIST_MAX = 200;
 const pushCapped = (l: number[], pid: number) => { l.push(pid); l.splice(0, Math.max(0, l.length - PID_LIST_MAX)); };
 export const DEFAULT_COUNTRY = "ES";
@@ -434,6 +436,7 @@ export class Lobby {
     const msg = cat(head, text, Uint8Array.of(0));
     c.send(0x4402, msg);
     const s = this.sess(c), hub = this.g.hub;
+    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) { this.log(`[admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`); return true; }
     if (s && s.pid !== null) {
       const tell = (o: Session) => { const lc = o.lobby; if (lc && !lc.closed) lc.post(0x4402, msg); };
       if (kind === 0 && s.block !== null) for (const o of hub.others(s)) tell(o);

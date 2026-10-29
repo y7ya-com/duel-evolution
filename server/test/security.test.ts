@@ -158,3 +158,29 @@ describe("the shared lobby lists (mail, friends, black list)", () => {
     expect(lob.black.length).toBeLessThanOrEqual(200);
   }, 60_000);
 });
+
+describe("moderation", () => {
+  it("a banned DE account can't log back in, and its chat and trade sanctions hold on the server", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b");
+    await a.account(0, "Alice"); await b.account(0, "Bob");
+    await a.enterRoom(); const pb = await b.enterRoom();
+    // sanctions: 0x20 chat, 0x40 trade (db/admin.ts)
+    h.game.admin.setFlags("u:user-a", 0x60);
+    let n = b.room!.mark();
+    a.room!.send(0x4400, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ...Array.from("hello all", (ch) => ch.charCodeAt(0)), 0]);
+    await h.tick(500);
+    expect(b.room!.all(0x4402, n)).toEqual([]);
+    n = b.room!.mark();
+    a.room!.send(0x7000, [0x71, 0x02, ...be32(pb!)]);
+    await h.tick(500);
+    expect(b.room!.all(0x7104, n)).toEqual([]);
+    h.game.admin.ban("u:user-a", "test");
+    await h.tick(2000);
+    const l = a.link(5731);
+    l.send(0x3001); await l.wait(0x3002);
+    l.send(0x3003, a.key);
+    const r = await l.wait(0x3004);
+    expect(r && new DataView(r.buffer, r.byteOffset).getInt32(0)).toBe(-246);
+  });
+});
