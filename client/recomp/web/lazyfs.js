@@ -544,6 +544,28 @@ Module.preRun.push(() => {
     }
     L.learned = () => learned;
 
+    // ---- Sound.dat's sound effects: ovr/sedefer.c loads them (5.7 MB in /SE/) at the first Present at which this
+    // says they're in memory, not before the first frame. Its first call fetches them, ahead of everything but the
+    // scenes' sets; they stay pinned until the load. Anything in the way (no Sound.dat, no prefetch, 30 s gone by)
+    // answers 1: the game then reads them as it always did.
+    let sound = null, seChunks = null, seAsked = 0;   // Sound.dat; its directory's chunk, then the folder's chunks
+    L.sounds = () => {
+        if (!sound || !prefetchOn || !files.get(sound).etag) return 1;
+        if (!seChunks) seChunks = [0], seAsked = performance.now(), want(sound, 0, 1, "se");
+        const toc = seChunks.length === 1 && memChunk(sound, 0);
+        if (toc) {
+            let lo = Infinity, hi = 0;
+            const n = toc[8] | toc[9] << 8 | toc[10] << 16 | toc[11] << 24;
+            for (const [name, off, len] of tocEntries(toc, Math.min(12 + n * 268, toc.length - 267)))
+                if (name.startsWith("se/")) lo = Math.min(lo, off), hi = Math.max(hi, off + len);
+            if (!hi) return 1;
+            for (let i = Math.floor(lo / CHUNK); i * CHUNK < hi; i++) seChunks.push(i), want(sound, i, 1, "se");
+        }
+        const ready = seChunks.length > 1 && seChunks.every((i) => memChunk(sound, i));
+        return ready || performance.now() - seAsked > 30000 ? 1 : 0;
+    };
+    L.soundsLoaded = () => unpin((t) => t === "se");
+
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
     function mount(dir, base) {
@@ -565,6 +587,7 @@ Module.preRun.push(() => {
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
             if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
+            if (/(^|\/)sound\.dat$/i.test(rel)) sound = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
             Object.defineProperty(node, "usedBytes", { get: () => size });
             node.stream_ops = Object.assign({}, node.stream_ops, {
@@ -619,6 +642,8 @@ Module.preRun.push(() => {
         // merge.dat's directory (~5 MB, read first thing): its chunks in parallel rather than one synchronous request
         // after another, then the policies can start while the title and login screens run; likewise what the exe
         // read before its first scene last time (learned, or the defaults)
+        // Sound.dat's directory (the BGM init checks its files before the first frame; chunk 0), alongside
+        if (sound && files.get(sound).etag) loads.push(fetchChunk({ url: sound, i: 0, pri: 0, tag: "se", keep: true }));
         if (archive && files.get(archive).etag) {
             loadScenes();
             const first = learned.next[BOOT] || [], early = [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])];

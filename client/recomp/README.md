@@ -176,6 +176,11 @@ an "Audio" entry (`ovr/audiomenu.c`: the exe's never-shown entry 6) that opens t
 reread on each Audio click, fed to the slot API in `rt/audioslots.h` (until playback links it, `rt/audioui.c`'s weak
 stand-ins log the calls). `RC_NOAUDIOMENU=1` leaves the menu as it was.
 
+Sound effects: `ovr/sedefer.c` moves the game's load of all 41 (5.7 MB of Sound.dat, read before the first frame)
+to a later Present: on the web once `web/lazyfs.js` has them in memory (`Module.yo2Lazy.sounds()`, fetched in the
+background after the first frame), natively at the first. An effect the game plays before that is skipped.
+`RC_SE_EAGER=1` loads them at the original point.
+
 ## DUELPASS removed (PvP is free)
 
 `ovr/nodp.c`: the owner removed DUELPASS points (DP) from the game. The client's DP gates (FUN_00863ec0 ×3: create /

@@ -383,4 +383,42 @@ console.log("prefetch=0: ok");
         delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"];
     }
 }
+// ---- Sound.dat (ovr/sedefer.c): its directory comes with the boot preload; sounds() fetches /SE/ and says 1 once it
+// is all in memory (pinned until soundsLoaded); the game's reads of it then make no synchronous request
+{
+    const snd = Buffer.alloc(6 * MB), se = [["bgm\\b.wav", MB, 2 * MB], ["se\\a.wav", 3 * MB + 10, 1000], ["se\\b.wav", 4 * MB + 5, MB]];
+    for (let i = 0; i < snd.length; i += 4) snd.writeUInt32LE((i * 40503) >>> 0, i);
+    snd.write("KCEJYUGI", 0, "latin1"), snd.writeUInt32LE(se.length, 8);
+    se.forEach(([name, o, n], k) => {
+        const at = 12 + k * 268;
+        snd.fill(0, at, at + 268);
+        for (let c = 0; c < name.length; c++) { const b = name.charCodeAt(c); snd[at + c] = ((b & 15) << 4) | (b >> 4); }
+        snd.writeUInt32LE(o, at + 256), snd.writeUInt32LE(n, at + 260), snd.writeUInt32LE(n, at + 264);
+    });
+    files["game/Sound.dat"] = snd;
+    try {
+        const s = makeEnv(new Map(), new Map());
+        await s.ready();
+        const L = s.Module.yo2Lazy;
+        let before = syncXhr;
+        s.read("/game/Sound.dat", 0, 12 + 3 * 268);   // the BGM init, before the first frame
+        assert.equal(syncXhr, before, "Sound.dat's directory came with the boot preload");
+        assert.equal(L.sounds(), 0, "the effects aren't in memory yet");
+        await settle(L);
+        assert.equal(L.sounds(), 1, "the effects are in memory");
+        assert.deepEqual([...L.pinned.entries()].filter(([k, p]) => p.tag === "se").map(([k]) => +k.split("#")[1]).sort(), [0, 3, 4, 5]);
+        before = syncXhr;
+        const got = s.read("/game/Sound.dat", 4 * MB + 5, MB);
+        assert.deepEqual(Buffer.from(got), snd.subarray(4 * MB + 5, 5 * MB + 5), "Sound.dat bytes");
+        assert.equal(syncXhr, before, "the load reads them without a synchronous request");
+        L.soundsLoaded();
+        assert.ok(![...L.pinned.values()].some((p) => p.tag === "se"), "unpinned after the load");
+        const off = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
+        await off.ready();
+        assert.equal(off.Module.yo2Lazy.sounds(), 1, "prefetch=0: the game reads them as it asks");
+        console.log("Sound.dat effects: ok");
+    } finally {
+        delete files["game/Sound.dat"];
+    }
+}
 console.log("lazyfs_test ok");
