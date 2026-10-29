@@ -9,6 +9,7 @@ import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo } from "./game/starter.ts";
+import { logLevel } from "./util/loglevel.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -20,7 +21,9 @@ export class WorldDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const log = env.LOG === "1" ? (s: string) => console.log(s) : () => {};
+    // without LOG=1 (production) only errors, protocol anomalies and the economy reach Workers Logs (util/loglevel.ts)
+    const log = env.LOG === "1" ? (s: string) => console.log(s)
+      : (s: string) => { const l = logLevel(s); if (l === "error") console.error(s); else if (l) console.warn(s); };
     void ctx.blockConcurrencyWhile(() => bootDuel(env.BUCKET, log)); // the duel engine (async once; src/duel/boot.ts)
     const cfg = configFrom(env as unknown as Record<string, unknown>);
     const db = env.DB;

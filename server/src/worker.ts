@@ -180,7 +180,7 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
    *  edge buffers it, so a slow route to the player shows only in web/stall.js's rows): one log line per range, for
    *  `wrangler tail duel-evolution` (src/do.ts LOG is separate). */
   const timed = (b: ReadableStream, how: string, bytes: number) => b.pipeThrough(new TransformStream({
-    flush: () => console.log(`[range] ${ipFamily(c.req.raw)} ${how} ${rel} ${bytes} B ${Date.now() - t0} ms`),
+    flush: () => { if (Math.random() < 0.2) console.log(`[range] ${ipFamily(c.req.raw)} ${how} ${rel} ${bytes} B ${Date.now() - t0} ms`); }, // 1 in 5
   }));
   // A hashed .wasm with its pre-compressed sidecar <key>.br (ship-client.sh, brotli -q 9): sent as it is, ~30% smaller
   // than the edge's own brotli (6.7 -> 4.7 MB a cold boot). Its own edge-cache key, so a client without br never

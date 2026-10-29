@@ -26,6 +26,9 @@
   "env": {
     "production": {
       "name": "duel-evolution",
+      // Workers Logs: every invocation (sampling drops whole WebSocket connections, errors included); the WorldDO
+      // logs only errors, protocol anomalies and [economia] (src/do.ts), [range] lines 1 in 5. ~1-2M events/month.
+      "observability": { "enabled": true, "head_sampling_rate": 1 },
       "routes": [{ "pattern": "original.ygoevolution.com/*", "zone_name": "ygoevolution.com" }, { "pattern": "ygoevolution.com/*", "zone_name": "ygoevolution.com" }, { "pattern": "www.ygoevolution.com/*", "zone_name": "ygoevolution.com" }],
       "vars": {
         "PORT_OFFSET": "1000",
