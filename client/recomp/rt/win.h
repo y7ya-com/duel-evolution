@@ -20,6 +20,7 @@ typedef struct RcHandle {
     pthread_t th;
     uint32_t exit_code;
     int closed;             // H_THREAD: CloseHandle'd (the slot stays, see rc_handle_new)
+    int pooled;             // H_FILE: a read of the game folder, its fd kept for the next open (dirpath = its path)
 } RcHandle;
 
 extern RcHandle rc_handles[RC_MAX_HANDLES];

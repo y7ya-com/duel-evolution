@@ -33,12 +33,52 @@ IMP(KERNEL32, QueryPerformanceCounter) {
 }
 
 // ---------------------------------------------------------------- files
+// Reads of the game folder (which never changes) keep their fd when closed: the exe reopens merge.dat for every asset
+// it loads (~400 opens a scene switch). The next read of that path takes it back, rewound. ponytail: 8 fds, the oldest
+// closed when full.
+static pthread_mutex_t fd_pool_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct { char path[1024]; int fd; } fd_pool[8];
+static unsigned fd_pool_next;
+static int fd_pool_take(const char *path) {
+    int fd = -1;
+    pthread_mutex_lock(&fd_pool_mu);
+    for (int i = 0; i < 8 && fd < 0; i++)
+        if (fd_pool[i].path[0] && !strcmp(fd_pool[i].path, path)) fd = fd_pool[i].fd, fd_pool[i].path[0] = 0;
+    pthread_mutex_unlock(&fd_pool_mu);
+    if (fd >= 0) lseek(fd, 0, SEEK_SET);
+    return fd;
+}
+static void fd_pool_put(const char *path, int fd) {
+    pthread_mutex_lock(&fd_pool_mu);
+    int i = 0;
+    while (i < 8 && fd_pool[i].path[0]) i++;
+    if (i == 8) i = fd_pool_next++ & 7, close(fd_pool[i].fd);
+    snprintf(fd_pool[i].path, sizeof fd_pool[i].path, "%s", path);
+    fd_pool[i].fd = fd;
+    pthread_mutex_unlock(&fd_pool_mu);
+}
 IMP(KERNEL32, CreateFileA) {
     const char *g = GS(ARG(0));
     uint32_t access = ARG(1), disp = ARG(4);
     char p[1024];
     int wr = (access & 0x40000000u) != 0;
     int exists = rc_host_path(g, 0, p, sizeof p);
+    // a read of a file the lookup did not find fails as its open would (ENOENT), without the stat and the open: ~1900
+    // probes for missing archives per lobby entry. RC_PATHS=compare opens anyway and logs any other outcome.
+    if (!wr && !exists && disp == 3 && !rc_nospeed) {
+        static int cmp = -1;
+        if (cmp < 0) cmp = getenv("RC_PATHS") && !strcmp(getenv("RC_PATHS"), "compare");
+        if (cmp) {
+            int fd = open(p, O_RDONLY), e = errno;
+            static unsigned n, bad;
+            if (fd >= 0 || e != ENOENT) bad++, rc_log("paths compare: %s: missing, but open gives fd %d errno %d", p, fd, e);
+            if (fd >= 0) close(fd);
+            if (!(++n & 1023)) rc_log("paths compare: %u missing files, %u differ", n, bad);
+        }
+        if (rc_verbose) rc_log("CreateFileA(%s) -> %s missing", g, p);
+        err(c, 2);
+        RET(7, 0xffffffffu);
+    }
     if (wr) {
         char w[1024];
         int in_overlay = rc_host_path(g, 1, w, sizeof w);
@@ -61,14 +101,21 @@ IMP(KERNEL32, CreateFileA) {
     case 4: fl |= O_CREAT; break;                                                      // OPEN_ALWAYS
     case 5: fl |= O_TRUNC; break;                                                      // TRUNCATE_EXISTING
     }
-    struct stat st;
-    if (!stat(p, &st) && S_ISDIR(st.st_mode)) { err(c, 5); RET(7, 0xffffffffu); }
-    int fd = open(p, fl, 0644);
+    size_t gl = strlen(rc_game_dir);
+    int pool = !wr && exists && disp == 3 && !rc_nospeed && !strncmp(p, rc_game_dir, gl) && p[gl] == '/';
+    int fd = pool ? fd_pool_take(p) : -1;
+    if (fd < 0) {
+        struct stat st;
+        if (!stat(p, &st) && S_ISDIR(st.st_mode)) { err(c, 5); RET(7, 0xffffffffu); }
+        fd = open(p, fl, 0644);
+    }
     if (wr) rc_path_changed();
     if (rc_verbose) rc_log("CreateFileA(%s) -> %s fd=%d", g, p, fd);
     if (fd < 0) { err(c, win_err(errno)); RET(7, 0xffffffffu); }
     uint32_t h = rc_handle_new(H_FILE);
     rc_handle(h)->fd = fd;
+    rc_handle(h)->pooled = pool;
+    if (pool) snprintf(rc_handle(h)->dirpath, sizeof rc_handle(h)->dirpath, "%s", p);
     err(c, (disp == 2 || disp == 4) && exists ? 183 : 0);
     RET(7, h);
 }
@@ -169,7 +216,8 @@ IMP(KERNEL32, SetFileTime) { RET(4, 1); }
 IMP(KERNEL32, CloseHandle) {
     RcHandle *r = rc_handle(ARG(0));
     if (!r) RET(1, ARG(0) == 0x10);
-    if (r->type == H_FILE || r->type == H_MAPPING) close(r->fd);
+    if (r->type == H_FILE && r->pooled) fd_pool_put(r->dirpath, r->fd), r->pooled = 0;
+    else if (r->type == H_FILE || r->type == H_MAPPING) close(r->fd);
     if (r->type == H_FIND && r->dir) closedir(r->dir);
     if (r->type != H_THREAD) r->type = H_FREE;   // thread handles stay waitable after exit (rc_handle_new)
     else r->closed = 1;
