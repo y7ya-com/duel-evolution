@@ -305,9 +305,12 @@ std::string login_json(const std::string& user, const std::string& pass) {
 }
 // The status line's messages (one line of the column).
 std::string reason(int st, const std::string& body) {
+    if (st == 0) return "Can't reach the server. Check your connection.";
     if (st == 401) return "Wrong username or password.";
+    if (st == 409 && body.find("NAME_PENDING") != std::string::npos) return "Name awaits its /verify. Use its password.";
     if (st == 409) return "That username is taken.";
     if (st == 429) return "Too many tries. Wait a bit.";
+    if (st == 403) return "Refused (403). Reload the page and try again.";
     if (st == 400 && body.find("BAD_CODE") != std::string::npos) return "Code wrong or expired.";
     if (st == 400 && body.find("BAD_PASSWORD") != std::string::npos) return "Passwords: 10-128 characters.";
     if (st == 400) return "Names: 3-16 of a-z 0-9 _ -";
@@ -348,7 +351,7 @@ void submit(CPU& t) {
         break;
     case VERIFY:
         st = de_call("/api/auth/sign-in/username", login_json(panel.user, panel.pass), body);
-        if (st == 403) why = "Not verified on Discord yet.";
+        if (st == 403) why = "Not verified yet: run /verify in #verify.";
         else if (st != 200) why = reason(st, body);
         break;
     case RESET:
