@@ -186,21 +186,28 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // than the edge's own brotli (6.7 -> 4.7 MB a cold boot). Its own edge-cache key, so a client without br never
   // gets it; a Range (loader.js resuming a dropped download at a decoded offset) stays on the plain object.
   if (hashed && rel.endsWith(".wasm") && !range && c.req.method === "GET" && /\bbr\b/.test(c.req.header("accept-encoding") ?? "")) {
-    const brKey = new Request(`${url.origin}${url.pathname}?enc=br`);
-    const hit = await caches.default.match(brKey);
-    if (hit) return new Response(hit.body, { headers: hit.headers, encodeBody: "manual" });
-    const o = await bucket.get(key + ".br");
-    if (o) {
-      const h = new Headers(ISOLATION);
+    // the edge cache keeps the br bytes as an opaque body (stored with Content-Encoding it decodes them, and the edge
+    // then re-compresses at its own, weaker level): the encoding is added only on the way out
+    const brKey = new Request(`${url.origin}${url.pathname}?enc=br1`);
+    const send = (body: ReadableStream | null, from: Headers) => {
+      const h = new Headers(from);
       h.set("Content-Type", "application/wasm");
       h.set("Content-Encoding", "br");
       h.set("Vary", "Accept-Encoding");
+      return new Response(body, { headers: h, encodeBody: "manual" });
+    };
+    const hit = await caches.default.match(brKey);
+    if (hit) return send(hit.body, hit.headers);
+    const o = await bucket.get(key + ".br");
+    if (o) {
+      const h = new Headers(ISOLATION);
+      h.set("Content-Type", "application/octet-stream");
       h.set("Content-Length", String(o.size));
       h.set("ETag", o.httpEtag);
       h.set("Cache-Control", "public, max-age=31536000, immutable");
       const [out, keep] = o.body.tee();
-      c.executionCtx.waitUntil(caches.default.put(brKey, new Response(keep, { headers: h, encodeBody: "manual" })));
-      return new Response(out, { headers: h, encodeBody: "manual" });
+      c.executionCtx.waitUntil(caches.default.put(brKey, new Response(keep, { headers: h })));
+      return send(out, h);
     }
   }
   const edgeKey = c.req.method !== "GET" ? null

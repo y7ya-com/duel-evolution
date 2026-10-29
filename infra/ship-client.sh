@@ -59,12 +59,17 @@ up() {
     echo "uploaded $X/$f"
   done
 }
-up $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED)
+# each wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9 is
+# ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). Up before the page, checked live below like the rest.
+for f in $(grep '\.wasm$' $O/HASHED); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
+up $(grep '\.wasm$' $O/HASHED | sed 's/$/.br/') $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED)
 SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 md5() { python3 -c 'import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())'; }
 if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   for f in $(cat $O/HASHED); do
     [ "$(curl -sf "$SITE/$f" | md5)" = "$(md5 < $O/$f)" ] || { echo "live $SITE/$f does not match: page not swapped"; exit 1; }
+    case $f in *.wasm) [ "$(curl -sf -H 'Accept-Encoding: br' "$SITE/$f" | brotli -dc | md5)" = "$(md5 < $O/$f)" ] \
+      || { echo "live $SITE/$f (br) does not match: page not swapped"; exit 1; };; esac
   done
   echo "hashed files live and checked"
 fi
