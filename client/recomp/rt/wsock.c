@@ -19,6 +19,13 @@ static struct { uint32_t hwnd, msg, events; int armed_read, closed; } as[MAXS]; 
 #define last_err (c->thread->last_error)   // WSAGetLastError is GetLastError: per thread (the connect thread
                                            // and the main thread use sockets at once)
 void rc_post(uint32_t hwnd, uint32_t msg, uint32_t w, uint32_t l);
+// cardwire.cpp: real passcodes on the wire (a v2 server), the exe's card ids inside; a pass-through otherwise
+void rc_cw_open(int s);
+void rc_cw_close(int s);
+int rc_cw_recv(int s, uint8_t *out, int n, int (*raw)(int, uint8_t *, int), int (*rawSend)(int, const uint8_t *, int));
+int rc_cw_send(int s, const uint8_t *p, int n, int (*rawSend)(int, const uint8_t *, int));
+int rc_cw_pending(int s);
+int rc_cw_v2(int s);
 
 static int fd_of(uint32_t s) { return s >= SOCK_BASE && s < SOCK_BASE + MAXS ? (int)(s - SOCK_BASE) : -1; }
 static int wsa_err(int e) {
@@ -67,23 +74,46 @@ IMP(WSOCK32, ord4) {   // connect(s, sockaddr*, len): the guest's is {u16 family
     int fd = fd_of(ARG(0));
     rc_log("wsock: connect %s:%u", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port));
     if (connect(fd, (struct sockaddr *)&sa, sizeof sa) < 0) { last_err = wsa_err(errno); RET(3, 0xffffffffu); }
+    rc_cw_open(fd);
     RET(3, 0);
 }
 IMP(WSOCK32, ord3) {   // closesocket
     int fd = fd_of(ARG(0));
-    if (fd >= 0) { close(fd); memset(&as[fd], 0, sizeof as[fd]); }
+    if (fd >= 0) { close(fd); memset(&as[fd], 0, sizeof as[fd]); rc_cw_close(fd); }
     RET(1, 0);
+}
+static int raw_err;   // errno of the codec's last raw recv/send
+static int raw_recv(int fd, uint8_t *b, int n) {
+    ssize_t k = recv(fd, b, n, 0);
+    raw_err = errno;
+    return k >= 0 ? (int)k : errno == EWOULDBLOCK ? -1 : -2;
+}
+static int raw_send_all(int fd, const uint8_t *b, int n) {   // the codec's frames go out whole
+    for (int at = 0; at < n;) {
+        ssize_t k = send(fd, b + at, n - at, 0);
+        if (k < 0 && errno == EWOULDBLOCK) { struct pollfd p = {fd, POLLOUT, 0}; poll(&p, 1, 100); continue; }
+        if (k < 0) { raw_err = errno; return -2; }
+        at += (int)k;
+    }
+    return n;
 }
 IMP(WSOCK32, ord16) {   // recv(s, buf, len, flags)
     int fd = fd_of(ARG(0));
-    ssize_t k = recv(fd, G(ARG(1)), ARG(2), 0);
+    int k = rc_cw_recv(fd, G(ARG(1)), (int)ARG(2), raw_recv, raw_send_all);
     if (fd >= 0) as[fd].armed_read = 1;   // Windows re-enables FD_READ after each recv
-    if (k < 0) { last_err = wsa_err(errno); RET(4, 0xffffffffu); }
+    if (k == -1) { last_err = 10035; RET(4, 0xffffffffu); }   // WSAEWOULDBLOCK
+    if (k < 0) { last_err = wsa_err(raw_err); RET(4, 0xffffffffu); }
     RET(4, (uint32_t)k);
 }
 IMP(WSOCK32, ord19) {   // send(s, buf, len, flags)
     rc_deck_tap(G(ARG(1)), (int)ARG(2));   // decktap.c: the duel deck, for the web's card-art prefetch
-    ssize_t k = send(fd_of(ARG(0)), G(ARG(1)), ARG(2), 0);
+    int fd = fd_of(ARG(0));
+    if (rc_cw_v2(fd)) {
+        int k = rc_cw_send(fd, G(ARG(1)), (int)ARG(2), raw_send_all);
+        if (k < 0) { last_err = wsa_err(raw_err); RET(4, 0xffffffffu); }
+        RET(4, (uint32_t)k);
+    }
+    ssize_t k = send(fd, G(ARG(1)), ARG(2), 0);
     if (k < 0) { last_err = wsa_err(errno); RET(4, 0xffffffffu); }
     RET(4, (uint32_t)k);
 }
@@ -114,6 +144,11 @@ IMP(WSOCK32, ord101) {   // WSAAsyncSelect(s, hwnd, msg, events): socket becomes
 void rc_net_poll(void) {
     for (int fd = 0; fd < MAXS; fd++) {
         if (!as[fd].msg || as[fd].closed || !as[fd].armed_read) continue;
+        if (rc_cw_pending(fd) && (as[fd].events & 1)) {   // frames the codec already holds for the exe
+            as[fd].armed_read = 0;
+            rc_post(as[fd].hwnd, as[fd].msg, SOCK_BASE + fd, 1);
+            continue;
+        }
         struct pollfd p = {fd, POLLIN, 0};
         if (poll(&p, 1, 0) <= 0) continue;
         char b;
