@@ -55,7 +55,7 @@ Module.preRun.push(() => {
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
     const pinned = new Map();  // "url#chunk" -> {data, tag}
-    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, syncBytes: 0, pageHit: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
+    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, syncBytes: 0, pageHit: 0, artPlaceholder: 0, artFilled: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
     const missLog = [];   // the last 1000 synchronous misses (measurements: which stall, how long, which chunk)
     const L = (Module.yo2Lazy = { stats, files, lru, pinned, missLog });
 
@@ -281,24 +281,81 @@ Module.preRun.push(() => {
         }
     }
     let cardTocLoad = null;
+    // a chunk into memory, fetched again when a synchronous read aborted it (up to 5 tries)
+    const fetchSure = async (url, i, tag) => { for (let k = 0; k < 5 && !memChunk(url, i); k++) await fetchChunk({ url, i, pri: 0, tag, keep: true }); };
     const cardToc = () => (cardTocLoad = cardTocLoad || (async () => {   // card.dat's directory (~870 KB: chunk 0)
-        await fetchChunk({ url: cardArc, i: 0, pri: 0, tag: "toc", keep: true });
+        await fetchSure(cardArc, 0, "toc");
         const first = memChunk(cardArc, 0);
         if (!first) throw new Error("card.dat directory not read");
         const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
         const toc = new Uint8Array(end);
         for (let i = 0; i * CHUNK < end; i++) {
-            if (!memChunk(cardArc, i)) await fetchChunk({ url: cardArc, i, pri: 0, tag: "toc", keep: true });
+            await fetchSure(cardArc, i, "toc");
             const c = memChunk(cardArc, i);
             if (!c) throw new Error("card.dat directory not read");
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
         }
         for (const [name, off, len] of tocEntries(toc, end)) cardFiles.set(name, [off, off + len]);
     })().catch((e) => { cardTocLoad = null; throw e; }));
+    // ---- card art without waiting (card.dat). A read inside a JPEG entry that isn't all in memory gets a placeholder
+    // JPEG of the same 400x580 instead (padded with zeros to the entry's length), with the entry's offset in its comment
+    // ("yo2-placeholder:<10 digits>"); its chunks go first in the background queue. ovr/decode.c makes the texture from
+    // the placeholder as usual and, each frame, asks artBytes(offset) for the real bytes and fills that same texture.
+    // The game's frame never waits for card art (field: card lists froze 2-4.8 s per card at ~1 MB/s).
+    // ?cardsync=1: the synchronous read as before.
+    const artAsync = prefetchOn && !q.has("cardsync");
+    const PLACEHOLDER = Uint8Array.from(atob("/9j//gAceW8yLXBsYWNlaG9sZGVyOjAwMDAwMDAwMDD/4AAQSkZJRgABAQAASABIAAD/wAARCAJEAZADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwAJCQkJCQkQCQkQFhAQEBYeFhYWFh4mHh4eHh4mLiYmJiYmJi4uLi4uLi4uNzc3Nzc3QEBAQEBISEhISEhISEhI/9sAQwELDAwSERIfEREfSzMqM0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tL/90ABAAZ/9oADAMBAAIRAxEAPwDjqKKa7qilmOAK7DAdRVf7Xb/3v0NH2u3/AL36GldBYsUVX+12/wDe/Q0fa7f+9+hougsWKKr/AGu3/vfoaPtdv/e/Q0XQWLFFV/tdv/e/Q0fa7f8AvfoaLoLFiiq/2u3/AL36Gj7Xb/3v0NF0FixRVf7Xb/3v0NH2u3/vfoaLoLFiiq/2u3/vfoaPtdv/AHv0NF0FixRVf7Xb/wB79DR9rt/736Gi6CxYoqv9rt/736Gj7Xb/AN79DRdBYsUVX+12/wDe/Q0fa7f+9+hougsWKKr/AGu3/vfoaPtdv/e/Q0XQWLFFV/tdv/e/Q0fa7f8AvfoaLoLFiiq/2u3/AL36Gj7Xb/3v0NF0FixRVf7Xb/3v0NH2u3/vfoaLoLFiiq/2u3/vfoaPtdv/AHv0NF0FixRVf7Xb/wB79DR9rt/736Gi6CxYoqv9rt/736Gj7Xb/AN79DRdBYsUVX+12/wDe/Q0fa7f+9+hougsWKKr/AGu3/vfoaPtdv/e/Q0XQWLFFV/tdv/e/Q0fa7f8AvfoaLoLFiiq/2u3/AL36Gj7Xb/3v0NF0FixRVf7Xb/3v0NH2u3/vfoaLoLFiiq/2u3/vfoaPtdv/AHv0NF0FixRTUdXUMpyDTqYH/9Djqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//R46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//0uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP/9Pjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYU7Y3pTasUAQ7G9KNjelTUUWFch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6UbG9KmoosFyHY3pRsb0qaiiwXIdjelGxvSpqKLBch2N6U2rFV6BhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//V46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9fjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//Q46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0eOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Ljqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//T46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1OOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Xjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//W46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1+Oqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Djqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//R46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Pjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvTt7etAE1FQ729aN7etFxWJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqr07e3rTaBhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//V46q93/x7t+H8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"), (c) => c.charCodeAt(0));
+    const PH_DIGITS = PLACEHOLDER.indexOf(58) + 1;   // after "yo2-placeholder:" (its first ':')
+    let artSorted = null;   // card.dat's .jpg entries as sorted [from, to)
+    const resident = (url, e) => { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) if (!memChunk(url, i)) return false; return true; };
+    function artWant(e) { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) want(cardArc, i, 0, wanted.get(keyOf(cardArc, i))); }
+    function artRead(buffer, offset, pos, end) {   // the read with placeholders, or false (nothing missing: as usual)
+        if (!artSorted) {
+            if (!cardFiles.size) return cardToc().catch(() => {}), false;   // not here yet (or its load failed): again
+            artSorted = [...cardFiles].filter(([n]) => n.endsWith(".jpg")).map(([, e]) => e).sort((a, b) => a[0] - b[0]);
+        }
+        let lo = 0, hi = artSorted.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (artSorted[m][1] <= pos) lo = m + 1; else hi = m; }
+        const missing = [];
+        for (let k = lo; k < artSorted.length && artSorted[k][0] < end; k++) if (!resident(cardArc, artSorted[k])) missing.push(artSorted[k]);
+        if (!missing.length) return false;
+        let p = pos;
+        for (const e of missing) {
+            const a = Math.max(pos, e[0]), b = Math.min(end, e[1]), digits = String(e[0]).padStart(10, "0");
+            if (p < a) readReal(cardArc, buffer, offset + p - pos, p, a);
+            for (let x = a; x < b; x++) {
+                const k = x - e[0];
+                buffer[offset + x - pos] = k >= PLACEHOLDER.length ? 0 : k >= PH_DIGITS && k < PH_DIGITS + 10 ? digits.charCodeAt(k - PH_DIGITS) : PLACEHOLDER[k];
+            }
+            if (a === e[0]) stats.artPlaceholder++;
+            artWant(e);
+            p = b;
+        }
+        if (p < end) readReal(cardArc, buffer, offset + p - pos, p, end);
+        return true;
+    }
+    L.artBytes = (off) => {   // ovr/decode.c: the entry at `off`, once all its chunks are in memory (else asked for again)
+        let lo = 0, hi = artSorted ? artSorted.length - 1 : -1;
+        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (artSorted[m][0] <= off) lo = m; else hi = m - 1; }
+        const e = hi >= 0 && artSorted[lo][0] === off ? artSorted[lo] : null;
+        if (!e) return new Uint8Array(0);   // not card art: nothing to wait for (decode.c drops it)
+        if (!resident(cardArc, e)) return artWant(e), null;
+        const buf = new Uint8Array(e[1] - e[0]);
+        readReal(cardArc, buf, 0, e[0], e[1]);
+        stats.artFilled++;
+        return buf;
+    };
     function wantFile(url, pri, tag) {   // every chunk of a lazy file
         const f = files.get(url);
         if (f) for (let i = 0; i * CHUNK < f.size; i++) want(url, i, pri, tag);
     }
+    // mini.dat (~22 MB, every card's thumbnail: the trunk and deck lists never wait) is preloaded, except over a metered
+    // link: Save-Data, cellular, and on phones and tablets anything not known to be Wi-Fi or Ethernet
+    const thumbsOk = () => {
+        const c = typeof navigator !== "undefined" && navigator.connection;
+        if (c && (c.saveData || c.type === "cellular")) return false;
+        return !small || !!(c && (c.type === "wifi" || c.type === "ethernet"));
+    };
     const lastLobby = () => { try { return localStorage.getItem("yo2-lazy-lobby"); } catch { return null; } };
     function wantSpan(dir, pri, tag, keep = true) {
         const s = spans && spans.get(dir);
@@ -329,7 +386,7 @@ Module.preRun.push(() => {
         if (pendingDeck) prefetchCards(pendingDeck);
         for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
         for (const d of HOT) if (!(miniArc && d === "data/mini")) wantSpan(d, 2, "hot");
-        if (miniArc) wantFile(miniArc, 2, "hot");
+        if (miniArc && thumbsOk()) wantFile(miniArc, 2, "hot");
         // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
         // has to be measured (and capped) before it is on by default
         onIdle(() => {
@@ -361,7 +418,7 @@ Module.preRun.push(() => {
     async function entryBytes(url, e) {   // [from, to, size?) of a lazy archive, through the chunk cache
         const buf = new Uint8Array(e[1] - e[0]);
         for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) {
-            if (!memChunk(url, i)) await fetchChunk({ url, i, pri: 0, keep: true });
+            await fetchSure(url, i);
             const c = memChunk(url, i);
             if (!c) return null;
             const from = Math.max(e[0], i * CHUNK), to = Math.min(e[1], (i + 1) * CHUNK);
@@ -474,7 +531,8 @@ Module.preRun.push(() => {
     }
     // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, and data/y2/duel's effects: ~19 MB): pinned from the
     // lobby on, so a first duel's attack, chain and summon effects do not stall; released back in My Room or the title.
-    const DUELFX = ["effect", "chain", "card", "phase", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d)
+    // phase_name: the phase banners (merge.dat 638-640; a field PvP freeze of 3.2 s on chunk 639 without it)
+    const DUELFX = ["effect", "chain", "card", "phase", "phase_name", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d)
         .concat(["data/y2/duel/effect", "data/y2/duel/card"]);   // coin, tribute, summon effects; special card effects (~5 MB)
     const LOBBY = 12, JANKEN = 0x1e, HOME = [4, 6, 7, 10];
     const DUELUI = /^data\/y\/duel\/field\/duel_(thinkicon|window|sp)|^data\/y2\/duel_[^/]*$|^data\/y2\/duelfield_/;
@@ -546,6 +604,13 @@ Module.preRun.push(() => {
 
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
+    function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
+        for (let p = pos; p < end;) {
+            const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
+            buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
+            p += k;
+        }
+    }
     function mount(dir, base) {
         if (!base.endsWith("/")) base += "/";
         const x = new XMLHttpRequest();
@@ -570,11 +635,7 @@ Module.preRun.push(() => {
             node.stream_ops = Object.assign({}, node.stream_ops, {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
-                    for (let p = pos; p < end;) {
-                        const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
-                        buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
-                        p += k;
-                    }
+                    if (!(url === cardArc && artAsync && artRead(buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
                     if (prefetchOn) onRead(url, pos);
                     return Math.max(0, end - pos);
                 },
@@ -634,6 +695,7 @@ Module.preRun.push(() => {
                 loads.push(...rest);
             }
         }
+        if (cardArc && files.get(cardArc).etag) loads.push(cardToc().catch(() => {}));   // card art's directory (placeholders)
         await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 3000))]);   // never hold the start long
         parseToc();
         if (archive && files.get(archive).etag) prefetchAfter(BOOT);   // the title, login, ...

@@ -94,7 +94,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -367,6 +367,17 @@ console.log("prefetch=0: ok");
         assert.equal(hot.filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole");
         const mini = ent("data/mini");
         assert.ok(!hot.some((k) => k.endsWith("merge.dat#" + Math.floor((mini.off + MB) / MB))), "merge.dat's data/mini is not");
+        // card art not in memory: a placeholder at once (its entry's offset in the comment), the entry fetched behind it
+        syncXhr = 0;
+        const off = cardDat.length - 2 * MB, ph = Buffer.from(r.read("/game/merge/data/card.dat", off, 8192));
+        assert.equal(syncXhr, 0, "no synchronous read for card art");
+        assert.equal(ph[0], 0xff), assert.equal(ph[1], 0xd8);
+        assert.ok(ph.includes("yo2-placeholder:" + String(off).padStart(10, "0")), "the entry's offset in the comment");
+        assert.equal(ph[ph.length - 1], 0, "zeros past the placeholder");
+        assert.equal(L.artBytes(off), null, "not here yet");
+        await settle(L);
+        assert.deepEqual(Buffer.from(L.artBytes(off)), cardDat.subarray(off, off + 2 * MB), "then the entry's real bytes");
+        assert.equal(L.artBytes(off + 1).length, 0, "an offset that is no entry: nothing to wait for");
         syncXhr = 0;
         await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
         await settle(L);
