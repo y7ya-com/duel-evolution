@@ -118,6 +118,23 @@ enum { U_VIEWPROJ, U_PIXEL, U_TEX, U_HASTEX, U_TEXBGRA, U_TEXOPAQUE, U_COLOROP, 
 static const char* UNIFORMS[U_COUNT] = {"uViewProj", "uPixel", "uTex", "uHasTex", "uTexBGRA", "uTexOpaque",
     "uColorOp", "uAlphaOp", "uTFactor", "uAlphaFunc", "uAlphaRef", "uPointBias"};
 
+// The program's uniforms as last sent: applyState runs on every flush (~150 a lobby frame, most only for a texture
+// change) and resent all of them, each a call through WebGL's validation on the web. Only this program exists and only
+// applyState sets its uniforms, so a value equal to the last one sent is skipped.
+static struct { GLuint prog; bool have[U_COUNT]; uint8_t v[U_COUNT][64]; } sent;
+static bool changed(GLuint prog, int k, const void* v, size_t n) {
+    if (sent.prog != prog) memset(&sent, 0, sizeof sent), sent.prog = prog;
+    if (sent.have[k] && !memcmp(sent.v[k], v, n)) return false;
+    memcpy(sent.v[k], v, n);
+    sent.have[k] = true;
+    return true;
+}
+#define UNIFORM(k, fn, T, ...)                                       \
+    do {                                                             \
+        const T v_[] = {__VA_ARGS__};                                \
+        if (changed(glProgram, k, v_, sizeof v_)) fn(u[k], 1, v_);   \
+    } while (0)
+
 static GLuint compile(GLenum type, const char* body) {
     GLuint s = glCreateShader(type);
     const char* src[2] = {GLSL_HEAD, body};
@@ -395,6 +412,7 @@ bool IDirect3DDevice8::init(const D3DPRESENT_PARAMETERS& p) {
     glThread = std::this_thread::get_id();
     GLuint vs = compile(GL_VERTEX_SHADER, VS), fs = compile(GL_FRAGMENT_SHADER, FS);
     glProgram = glCreateProgram();
+    memset(&sent, 0, sizeof sent);   // a new program (GL may reuse the old name) has its defaults
     glAttachShader(glProgram, vs);
     glAttachShader(glProgram, fs);
     glLinkProgram(glProgram);
@@ -828,27 +846,27 @@ void IDirect3DDevice8::applyState() {
     glViewport(vp.X * s, vp.Y * s, vp.Width * s, vp.Height * s);
     glDepthRangef(vp.MinZ, vp.MaxZ);
     D3DMATRIX vpm = mul(view, proj);
-    glUniformMatrix4fv(u[U_VIEWPROJ], 1, GL_FALSE, &vpm.m[0][0]);
-    glUniform2f(u[U_PIXEL], 1.f / vp.Width, 1.f / vp.Height);
-    glUniform4i(u[U_COLOROP], tss[D3DTSS_COLOROP], tss[D3DTSS_COLORARG1], tss[D3DTSS_COLORARG2],
-                tss[D3DTSS_COLORARG0]);
+    if (changed(glProgram, U_VIEWPROJ, &vpm, sizeof vpm)) glUniformMatrix4fv(u[U_VIEWPROJ], 1, GL_FALSE, &vpm.m[0][0]);
+    UNIFORM(U_PIXEL, glUniform2fv, GLfloat, 1.f / vp.Width, 1.f / vp.Height);
+    UNIFORM(U_COLOROP, glUniform4iv, GLint, (GLint)tss[D3DTSS_COLOROP], (GLint)tss[D3DTSS_COLORARG1],
+            (GLint)tss[D3DTSS_COLORARG2], (GLint)tss[D3DTSS_COLORARG0]);
     // D3D: with COLOROP DISABLE the alpha op is disabled too
-    glUniform4i(u[U_ALPHAOP], tss[D3DTSS_COLOROP] == D3DTOP_DISABLE ? D3DTOP_DISABLE : tss[D3DTSS_ALPHAOP],
-                tss[D3DTSS_ALPHAARG1], tss[D3DTSS_ALPHAARG2], tss[D3DTSS_ALPHAARG0]);
+    UNIFORM(U_ALPHAOP, glUniform4iv, GLint, (GLint)(tss[D3DTSS_COLOROP] == D3DTOP_DISABLE ? D3DTOP_DISABLE : tss[D3DTSS_ALPHAOP]),
+            (GLint)tss[D3DTSS_ALPHAARG1], (GLint)tss[D3DTSS_ALPHAARG2], (GLint)tss[D3DTSS_ALPHAARG0]);
     float f[4];
     color(rs[D3DRS_TEXTUREFACTOR], f);
-    glUniform4fv(u[U_TFACTOR], 1, f);
-    glUniform1i(u[U_ALPHAFUNC], rs[D3DRS_ALPHATESTENABLE] ? (int)rs[D3DRS_ALPHAFUNC] : D3DCMP_ALWAYS);
-    glUniform1f(u[U_ALPHAREF], (float)(rs[D3DRS_ALPHAREF] & 255));
-    glUniform1i(u[U_TEX], 0);
-    glUniform1i(u[U_HASTEX], texture ? 1 : 0);
-    glUniform1i(u[U_TEXBGRA], texture && !texture->shadow.empty() ? 1 : 0);   // render targets hold real RGBA
-    glUniform1i(u[U_TEXOPAQUE], texture && texture->level0.fmt == D3DFMT_X8R8G8B8 ? 1 : 0);
+    UNIFORM(U_TFACTOR, glUniform4fv, GLfloat, f[0], f[1], f[2], f[3]);
+    UNIFORM(U_ALPHAFUNC, glUniform1iv, GLint, (GLint)(rs[D3DRS_ALPHATESTENABLE] ? (int)rs[D3DRS_ALPHAFUNC] : D3DCMP_ALWAYS));
+    UNIFORM(U_ALPHAREF, glUniform1fv, GLfloat, (float)(rs[D3DRS_ALPHAREF] & 255));
+    UNIFORM(U_TEX, glUniform1iv, GLint, 0);
+    UNIFORM(U_HASTEX, glUniform1iv, GLint, texture ? 1 : 0);
+    UNIFORM(U_TEXBGRA, glUniform1iv, GLint, texture && !texture->shadow.empty() ? 1 : 0);   // render targets hold real RGBA
+    UNIFORM(U_TEXOPAQUE, glUniform1iv, GLint, texture && texture->level0.fmt == D3DFMT_X8R8G8B8 ? 1 : 0);
     // Integer-aligned sprites put D3D's pixel centres exactly on texel edges, where point sampling takes the texel
     // after the edge only in exact arithmetic: a hair less picks the one before (the duel bust's chest seam under
     // Wine, at its arm cut-out's edge). 1/64 texel puts every edge sample past the edge; centre samples stay put.
     bool point = texture && tss[D3DTSS_MAGFILTER] < D3DTEXF_LINEAR;
-    glUniform2f(u[U_POINTBIAS], point ? 1.f / (64 * texture->level0.w) : 0, point ? 1.f / (64 * texture->level0.h) : 0);
+    UNIFORM(U_POINTBIAS, glUniform2fv, GLfloat, point ? 1.f / (64 * texture->level0.w) : 0, point ? 1.f / (64 * texture->level0.h) : 0);
 
     if (rs[D3DRS_ZENABLE] && depth) {
         glEnable(GL_DEPTH_TEST);
