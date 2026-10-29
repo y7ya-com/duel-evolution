@@ -434,6 +434,7 @@ U(wvsprintfW) { RET(3, put_w(ARG(0), gformat(wide_fmt(ARG(1)).c_str(), ARG(2), t
 #include "d3d8.h"
 extern "C" void rc_screenshot(int frame);
 extern "C" void rc_session_frame(int frame);   // rt/session.cpp
+extern "C" void rc_starter_request(const char* req);   // ovr/starterdeck.c
 // RC_INPUT="<frame>:<cmd>;...": input scripted inside the program (headless runs; never real input). Commands, in
 // game pixels: `move x y`, `click x y` (button up 4 frames later), `down`/`up x y`, `rdown`/`rup x y` (right button:
 // hold it to walk the avatar), `text abc` (WM_CHAR each), `key enter|tab|bs|esc`, `walkto exit N|X Y|npc NAME [frames]`, `clicknpc NAME` (below);
@@ -686,6 +687,10 @@ void walk_step(int frame) {
 }
 
 void run_input(int frame, const std::string& cmd) {
+    if (cmd.rfind("starter ", 0) == 0) {   // ovr/starterdeck.c: "starter name|ifMissing|pc:n,...|pc:n,..."
+        rc_starter_request(cmd.c_str() + 8);
+        return;
+    }
     if (cmd == "shot") {   // a screenshot of the next frame (drawn under RC_FASTFORWARD too): `+N:shot` after a walk
         shots.push_back(frame + 1);
         return;

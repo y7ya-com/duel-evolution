@@ -26,3 +26,4 @@
 0059de80  # CD3DTextureManager's loader (imgfail.c: the file a failing load names)
 00b3d5f6  # D3DXCheckTextureRequirements (imgfail.c: logs a failure)
 00b3eb13  # D3DXLoadSurfaceFromFileInMemory (imgfail.c: logs a failure)
+006bfa80  # 0x7127 TRADETRUNKEND (starterdeck.c: an open Edit Deck follows the pushed trunk)
