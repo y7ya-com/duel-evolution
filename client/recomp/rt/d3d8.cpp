@@ -63,28 +63,48 @@ uint32_t mirror_get(size_t n) {
 }
 void mirror_put(uint32_t m) { if (m) sparMirrors.emplace(rc_hsize(m), m); }
 
-uint32_t lock_mirror(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, uint32_t out) {
+// D3DLOCK_DISCARD: the caller writes every byte of the rect before the unlock (the exe never passes it; ovr/decode.c's
+// texture fill and ovr/speed.c's clearPage do), so the old texels are not copied in.
+// RC_DISCARD=compare fills the mirror with a poison word instead and counts, on unlock, the texels still holding it.
+const uint32_t kPoison = 0x5ca1ab1e;
+bool discard_compare() {
+    static int m = -1;
+    if (m < 0) m = getenv("RC_DISCARD") && !strcmp(getenv("RC_DISCARD"), "compare");
+    return m;
+}
+
+uint32_t lock_mirror(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, uint32_t out, bool discard = false) {
     uint32_t i = idx(g);
     if (!lockBuf[i] || rc_hsize(lockBuf[i]) < n) {
         mirror_put(lockBuf[i]);
         lockBuf[i] = mirror_get(n);
     }
-    memcpy(G(lockBuf[i]), lr.pBits, n);
+    if (!discard) memcpy(G(lockBuf[i]), lr.pBits, n);
+    else if (discard_compare()) for (size_t k = 0; k + 4 <= n; k += 4) memcpy(G(lockBuf[i] + (uint32_t)k), &kPoison, 4);
     WR32m(out, (uint32_t)lr.Pitch);
     WR32m(out + 4, lockBuf[i]);
     return lockBuf[i];
 }
 
-struct Locked { void* bits; size_t n; bool peek; };
+struct Locked { void* bits; size_t n; bool peek, discard; };
 std::vector<Locked> locks;   // by index: where to copy the mirror back
-void remember(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, bool peek = false) {
+void remember(uint32_t g, const D3DLOCKED_RECT& lr, size_t n, bool peek = false, bool discard = false) {
     uint32_t i = idx(g);
     if (locks.size() <= i) locks.resize(i + 1);
-    locks[i] = {lr.pBits, n, peek};
+    locks[i] = {lr.pBits, n, peek, discard};
 }
 void copy_back(uint32_t g) {
     uint32_t i = idx(g);
-    if (i < locks.size() && locks[i].bits && lockBuf[i]) memcpy(locks[i].bits, G(lockBuf[i]), locks[i].n);
+    if (i >= locks.size() || !locks[i].bits || !lockBuf[i]) return;
+    if (locks[i].discard && discard_compare()) {
+        static unsigned calls, texels, left;
+        size_t k = 0, m = 0;
+        for (; k + 4 <= locks[i].n; k += 4) m += !memcmp(G(lockBuf[i] + (uint32_t)k), &kPoison, 4);
+        calls++, texels += (unsigned)(k / 4), left += (unsigned)m;
+        if (m) rc_log("discard compare: lock %u: %zu of %zu texels not written", calls, m, k / 4);
+        if (!(calls & (calls - 1)) && calls >= 64) rc_log("discard compare: %u locks, %u texels, %u not written", calls, texels, left);
+    }
+    memcpy(locks[i].bits, G(lockBuf[i]), locks[i].n);
 }
 // D3DLOCK_READONLY on a texture: read the shadow in place. No platform lock, so nothing is copied back on unlock and the
 // texture is not marked dirty (the platform re-uploads every unlocked rect to GL). CD3DSprite's per-frame mouse hit test
@@ -208,6 +228,23 @@ extern "C" void rc_texture_hq(uint32_t gtex, const uint8_t* bgra, size_t n, int 
     if (!t || n != (size_t)t->level0.w * scale * t->level0.h * scale * 4) return;
     t->hq.assign(bgra, bgra + n);
     t->hqScale = (UINT)scale;
+}
+
+// ovr/decode.c (web): a card's art arrived for the placeholder texture made from it earlier. bgra: the 1x pixels (w x h)
+// for the top left of the shadow, as the decode put the placeholder's; hq: the 2x ones at render scale 2 (as
+// rc_texture_hq), else null. The next draw uploads them. -1: the texture is gone (a dead shell's index is never reused,
+// so it can't be another texture).
+extern "C" int rc_texture_fill(uint32_t gtex, const uint8_t* bgra, uint32_t w, uint32_t h, const uint8_t* hq, size_t hqn,
+                               int scale) {
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    IDirect3DTexture8* t = host<IDirect3DTexture8>(gtex);
+    D3DLOCKED_RECT lr;
+    RECT r{0, 0, (int32_t)w, (int32_t)h};
+    if (!t || w > t->level0.w || h > t->level0.h || t->LockRect(0, &lr, &r, 0)) return -1;
+    for (uint32_t y = 0; y < h; y++) memcpy((uint8_t*)lr.pBits + (size_t)y * lr.Pitch, bgra + (size_t)y * w * 4, (size_t)w * 4);
+    t->UnlockRect(0);
+    if (hq && hqn == (size_t)t->level0.w * scale * t->level0.h * scale * 4) t->hq.assign(hq, hq + hqn), t->hqScale = (UINT)scale;
+    return 0;
 }
 
 // ---------------------------------------------------------------- IDirect3DDevice8
@@ -399,11 +436,12 @@ M(tex, LockRect) {
     D3DLOCKED_RECT lr{};
     const RECT* r = ARG(3) ? (const RECT*)G(ARG(3)) : nullptr;
     bool peek = (ARG(4) & 0x10) && !rc_nospeed;   // D3DLOCK_READONLY
+    bool discard = (ARG(4) & 0x2000) && !peek && !rc_nospeed;   // D3DLOCK_DISCARD
     HRESULT hr = peek ? peek_rect(t, ARG(1), &lr, r) : t->LockRect(ARG(1), &lr, r, ARG(4));
     if (!hr) {
         size_t n = rect_bytes(ARG(3), lr.Pitch, t->level0.h);
-        remember(ARG(0), lr, n, peek);
-        lock_mirror(ARG(0), lr, n, ARG(2));
+        remember(ARG(0), lr, n, peek, discard);
+        lock_mirror(ARG(0), lr, n, ARG(2), discard);
     }
     RET(5, hr);
 }

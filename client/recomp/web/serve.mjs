@@ -1,8 +1,8 @@
 // Local server for the web build: cross-origin isolated (COOP/COEP, for SharedArrayBuffer) with HTTP Range.
-//   node web/serve.mjs [port]            / -> build-web/, /game/ -> $YO2_GAME (files.txt made on the fly)
+//   node web/serve.mjs [port]            / -> build-web/, /game/ -> $YO2_GAME (each folder's files.txt made on the fly)
 //   YO2_CARDS=<dir>                     /cards/ -> the 2x card art (<dir>/merge/data/{card,mini}.dat, tools/cardart.py)
 //   node web/serve.mjs --manifest <dir>  print <dir>'s files.txt (for the R2 copy)
-//   YO2_DELAY=<ms> YO2_KBPS=<KB/s>      a slow network for /game/ Range reads: latency + size at that rate (stall repros);
+//   YO2_DELAY=<ms> YO2_KBPS=<KB/s>      a slow network for the data folders' Range reads (game/, cards/): latency + size at that rate (stall repros);
 //   YO2_SHARED=1                        ...through one shared link: active transfers split YO2_KBPS evenly (contention;
 //                                       a client that aborts stops taking its share)
 //   YO2_WEB=<dir>                       serve another web build at / (comparisons)
@@ -18,7 +18,7 @@ function manifest(dir) {
         for (const e of fs.readdirSync(d, { withFileTypes: true })) {
             const p = path.join(d, e.name);
             if (e.isDirectory()) walk(p);
-            else if (e.isFile()) out.push(`${fs.statSync(p).size}\t${path.relative(dir, p).split(path.sep).join("/")}`);
+            else if (e.isFile() && !(d === dir && e.name === "files.txt")) out.push(`${fs.statSync(p).size}\t${path.relative(dir, p).split(path.sep).join("/")}`);
         }
     })(dir);
     return out.join("\n") + "\n";
@@ -72,7 +72,7 @@ http.createServer((req, res) => {
             res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
             req.method === "HEAD" ? res.end() : fs.createReadStream(file, { start: from, end: to }).pipe(res);
         };
-        if (prefix !== "/game/" || !(process.env.YO2_DELAY || process.env.YO2_KBPS)) return send();
+        if (prefix === "/" || !(process.env.YO2_DELAY || process.env.YO2_KBPS)) return send();
         if (process.env.YO2_SHARED && req.method !== "HEAD") return setTimeout(() => {
             res.writeHead(206, { ...h, "Content-Length": to - from + 1, "Content-Range": `bytes ${from}-${to}/${size}` });
             const buf = Buffer.alloc(to - from + 1), fd = fs.openSync(file, "r");

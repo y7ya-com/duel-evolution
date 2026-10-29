@@ -305,4 +305,72 @@
         }, +(new URLSearchParams(location.search).get("updatepoll") || 600000));
         return { check, hide: hideNote };
     })();
+
+    // A server update drops the game's gateway WebSocket (/net) for everyone. Then: a small note, wait for the server to
+    // answer, reload with ?online=1 (YO2_AUTO_ONLINE: a signed-in player goes straight past the title). Two signals:
+    // the server closes the socket with 4012 before a planned deploy; any other close is checked against GET /__version
+    // (read at boot): a new version within ~2 min is an update, the same one (or none) is the player's own network, and
+    // the game's own message stands. At most 3 such reloads in 10 min, then a Reload button.
+    {
+        const DUEL = [0x1c, 0x1e], q = new URLSearchParams(location.search);
+        const getV = () => fetch("__version", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((j) => j && j.v || null, () => null);
+        let mine = null, opened = false, busy = false;
+        getV().then((v) => { mine = v; });
+        const Real = window.WebSocket;
+        window.WebSocket = class extends Real {
+            constructor(...a) {
+                super(...a);
+                if (!/\/net(\?|$)/.test(String(a[0]))) return;
+                this.addEventListener("open", () => { opened = true; });
+                this.addEventListener("close", (e) => { if (opened && booted) dropped(e.code); });
+            }
+        };
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        async function dropped(code) {
+            if (busy) return;
+            busy = true;
+            const duel = DUEL.includes(inScene);
+            if (code !== 4012) {   // unannounced: an update only if the server comes back as another version
+                let v = null;
+                for (let t = 0, wait = 1000; t < 120000 && (!v || v === mine); t += wait, wait = Math.min(wait * 2, 15000)) {
+                    await sleep(wait);
+                    v = await getV();
+                    if (v && v === mine) break;
+                }
+                if (!v || !mine || v === mine) { busy = false; return; }   // the player's network, or no /__version
+            }
+            let tries = [];
+            try { tries = JSON.parse(sessionStorage.getItem("yo2-reconnects") || "[]").filter((t) => Date.now() - t < 600000); } catch (e) {}
+            const auto = tries.length < 3;
+            const note = document.createElement("div");
+            note.setAttribute("role", "status");
+            note.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:7;box-sizing:border-box;max-width:300px;padding:10px 12px;" +
+                "border-radius:10px;background:rgba(0,0,0,.72);color:#fff;font:600 13px/1.35 system-ui,sans-serif;text-shadow:0 1px 3px rgba(0,0,0,.6)";
+            note.textContent = (duel ? "The server was updated and the duel in progress was lost. " : "The server was updated. ") +
+                (auto ? "Reconnecting…" : "Reload to reconnect.");
+            const go = () => {
+                try { sessionStorage.setItem("yo2-reconnects", JSON.stringify([...tries, Date.now()])); } catch (e) {}
+                const u = new URLSearchParams(q); u.set("online", "1");
+                location.replace(location.pathname + "?" + u);
+            };
+            if (!auto) {
+                const b = document.createElement("button");
+                b.textContent = "Reload";
+                b.style.cssText = "display:block;margin:8px 0 0 auto;font:600 13px system-ui,sans-serif;padding:.35em 1.1em;border:0;" +
+                    "border-radius:999px;background:#fff;color:#123;cursor:pointer";
+                b.onclick = go;
+                note.append(b);
+            }
+            document.body.append(note);
+            if (!auto) return;
+            // wait for the server: /__version answers (and, after a 4012, names the new version, or 3 min pass)
+            for (let t = 0, wait = 1000; ; t += wait, wait = Math.min(wait * 2, 10000)) {
+                await sleep(wait);
+                const v = await getV();
+                if (v && (code !== 4012 || v !== mine || t > 180000)) break;
+                if (!v && !mine && t > 5000 && await fetch("__warm", { cache: "no-store" }).then((r) => r.ok, () => false)) break;   // no /__version on this server
+            }
+            go();
+        }
+    }
 })();

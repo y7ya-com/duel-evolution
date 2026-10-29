@@ -35,8 +35,10 @@ void rc_web_sleep(uint32_t ms) {
 // the game presents every frame unless a scene change or a load blocks it). Module.yo2Frame: web/stall.js's timer,
 // with the frame's image decode (ovr/decode.c), texture upload (platform/gfx/d3d8.cpp), yielded and WaitFor* time.
 extern double rc_decode_ms, rc_upload_ms;
+void rc_card_art_frame(void);   // ovr/decode.c: card art that arrived since, into its placeholder textures
 void rc_web_frame(void) {
     if (!emscripten_is_main_runtime_thread()) return;
+    rc_card_art_frame();
     EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3, $4); },
            rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms, rc_yields);
     rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = 0, rc_yields = 0;
