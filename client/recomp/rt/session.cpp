@@ -231,8 +231,9 @@ void layout(CPU& t) {
         centred(t, panel.code_text, 72);
         ui_place(t, panel.copy, MID - 46, 118), ui_place(t, panel.open, MID + 10 + OPEN_W / 2, 118);
         // Three short lines: the web's DejaVu runs about 8 px a character, so a longer one wraps into Continue.
-        ui_set_text(t, panel.steps, "1. Open Discord and join the server.\n2. In #verify, tap Verify my account.\n"
-                                    "3. Paste the code, then press Continue.");
+        // the slash command first (players opened the button's form and never submitted it); lines <= ~50 chars
+        ui_set_text(t, panel.steps, ("1. Open Discord and join the server.\n2. In #verify type: /verify " + panel.code +
+                                     "\n3. Then press Continue. (Or tap Verify my account.)").c_str());
         ui_place(t, panel.steps, LEFT, 130);
     } else if (m == RESET) {   // the note on the left, Open Discord at the column's right edge
         ui_set_text(t, panel.note, "Get a code in #reset-password.");
