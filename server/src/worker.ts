@@ -182,6 +182,27 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   const timed = (b: ReadableStream, how: string, bytes: number) => b.pipeThrough(new TransformStream({
     flush: () => console.log(`[range] ${ipFamily(c.req.raw)} ${how} ${rel} ${bytes} B ${Date.now() - t0} ms`),
   }));
+  // A hashed .wasm with its pre-compressed sidecar <key>.br (ship-client.sh, brotli -q 9): sent as it is, ~30% smaller
+  // than the edge's own brotli (6.7 -> 4.7 MB a cold boot). Its own edge-cache key, so a client without br never
+  // gets it; a Range (loader.js resuming a dropped download at a decoded offset) stays on the plain object.
+  if (hashed && rel.endsWith(".wasm") && !range && c.req.method === "GET" && /\bbr\b/.test(c.req.header("accept-encoding") ?? "")) {
+    const brKey = new Request(`${url.origin}${url.pathname}?enc=br`);
+    const hit = await caches.default.match(brKey);
+    if (hit) return new Response(hit.body, { headers: hit.headers, encodeBody: "manual" });
+    const o = await bucket.get(key + ".br");
+    if (o) {
+      const h = new Headers(ISOLATION);
+      h.set("Content-Type", "application/wasm");
+      h.set("Content-Encoding", "br");
+      h.set("Vary", "Accept-Encoding");
+      h.set("Content-Length", String(o.size));
+      h.set("ETag", o.httpEtag);
+      h.set("Cache-Control", "public, max-age=31536000, immutable");
+      const [out, keep] = o.body.tee();
+      c.executionCtx.waitUntil(caches.default.put(brKey, new Response(keep, { headers: h, encodeBody: "manual" })));
+      return new Response(out, { headers: h, encodeBody: "manual" });
+    }
+  }
   const edgeKey = c.req.method !== "GET" ? null
     : range && url.searchParams.has("v") ? new Request(`${url.origin}${url.pathname}?v=${encodeURIComponent(url.searchParams.get("v")!)}&range=${encodeURIComponent(range)}`)
     : !range && hashed ? new Request(url.origin + url.pathname) : null;
