@@ -34,6 +34,10 @@ const OFFER_TIMEOUT = 30;
 const R_REJECTED = -618, R_NOANSWER = -616, R_GONE = -600, R_INDUEL = -608, R_NOROOM = -495, R_FULL = -492;
 export const DEFAULT_PARTS = hexb("0000203040608090b820000000000000");
 const ROOM_STATE = 100, DUEL_STATE = 0x67;
+// ponytail: mail, friends and black list are one server-wide list each in the shared root state (py's single player),
+// copied on every state load: bounded here so no player can grow them; per-account lists when they matter
+const MAIL_MAX = 1000, MAIL_PER_TO = 50, PID_LIST_MAX = 200;
+const pushCapped = (l: number[], pid: number) => { l.push(pid); l.splice(0, Math.max(0, l.length - PID_LIST_MAX)); };
 export const DEFAULT_COUNTRY = "ES";
 const MYROOM_SELF_AVATAR = true;
 const PIDNAME_PLAYERS = true;
@@ -504,7 +508,7 @@ export class Lobby {
       if (ok === 1) { this.friendAdd(me!, asker.pid!); this.friendAdd(asker, me!.pid!); }
       return true;
     }
-    if (ok && pid && !this.mem.friends.includes(pid)) { this.mem.friends.push(pid); this.save(); }
+    if (ok && pid && !this.mem.friends.includes(pid)) { pushCapped(this.mem.friends, pid); this.save(); }
     return true;
   }
 
@@ -522,7 +526,7 @@ export class Lobby {
 
   private hBlack(c: Conn, msgId: number, data: Uint8Array): boolean {
     const pid = data.length >= 4 ? u32(data) : 0;
-    if (msgId === 0x4530 && !this.mem.black.includes(pid)) this.mem.black.push(pid);
+    if (msgId === 0x4530 && !this.mem.black.includes(pid)) pushCapped(this.mem.black, pid);
     if (msgId === 0x4540 && this.mem.black.includes(pid)) this.mem.black.splice(this.mem.black.indexOf(pid), 1);
     this.save();
     c.send(msgId + 1, new W().u32(0).bytes());
@@ -594,6 +598,9 @@ export class Lobby {
         body: "Gracias por tu carta. Te espero en la sala de duelo.", t: this.mailTime() });
       this.mem.next_mail++;
     }
+    const m = this.mem.mail, per = new Map<number, number>();   // the newest MAIL_PER_TO per recipient, MAIL_MAX in all
+    for (let i = m.length - 1; i >= 0; i--) { const k = (per.get(m[i].to) ?? 0) + 1; per.set(m[i].to, k); if (k > MAIL_PER_TO) m.splice(i, 1); }
+    m.splice(0, Math.max(0, m.length - MAIL_MAX));
     this.save();
     c.send(0x4601, new W().u32(0).bytes());
     if (n) c.send(0x4603);

@@ -137,3 +137,24 @@ describe("0x4802 SELECTPACK / 0x4910 0x4915 GIFTCARDS", () => {
     } finally { PP.setProgression(false); }
   });
 });
+
+describe("the shared lobby lists (mail, friends, black list)", () => {
+  it("stay bounded however much one player sends", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const a = h.client("alice", "alice", "pw", "user-a");
+    await a.account(0, "Alice");
+    await a.enterRoom();
+    const body = (to: number) => [...be32(to), ...new Array(544).fill(0x41)];
+    for (let i = 0; i < 1500; i++) {
+      a.room!.send(0x4600, body(i % 3 ? 5000 + i : 1004));
+      a.room!.send(0x4530, [...be32(9000 + i)]);
+      if (i % 10 === 9) await h.tick(400);
+    }
+    await h.tick(2000);
+    const lob = h.state().lobby;
+    expect(a.room!.closedByServer).toBe(false);
+    expect(lob.mail.length).toBeLessThanOrEqual(1000);
+    expect(lob.mail.filter((m: { to: number }) => m.to === 1004).length).toBe(50);
+    expect(lob.black.length).toBeLessThanOrEqual(200);
+  }, 60_000);
+});
