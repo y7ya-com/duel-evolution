@@ -10,6 +10,7 @@ import { getPlatformProxy } from "wrangler";
 import { importSql, stripRetired } from "../scripts/import_state.ts";
 import { adminSink, loadAdmin } from "../src/db/admin.ts";
 import { attach, D1Sink, loadState } from "../src/db/d1.ts";
+import { upgradeCards } from "../src/game/passcodes.ts";
 import { Store, type State } from "../src/game/store.ts";
 import { fullState, pyEraState, realStates, RETIRED_RX } from "./db-fixtures.ts";
 import * as schema from "../src/db/schema.ts";
@@ -84,6 +85,19 @@ describe("write-through sink", () => {
     expect(json(await loadState(DB))).toBe(json(store.loadRaw()));
     expect(sink.stats.writes).toBeGreaterThan(0);
     expect(sink.stats.writes).toBeLessThanOrEqual(20); // saves made while a write is in flight coalesce
+  }, 60_000);
+
+  it("a pre-card-wire state: upgraded on load and written back (do.ts)", async () => {
+    const [, text] = realStates()[0];
+    await runSql(DB, importSql(json(stripRetired(JSON.parse(text)))));
+    const loaded = await loadState(DB);
+    const st = structuredClone(loaded);
+    expect(upgradeCards(st)?.profiles).toBeGreaterThan(0);
+    const store = new Store(st);
+    const sink = attach(store, DB, { baseline: loaded, log: () => {} });
+    sink.save(store.loadRaw());
+    await sink.flush();
+    expect(json(await loadState(DB))).toBe(json(st));
   }, 60_000);
 
   it("retries a failed write and loses nothing", async () => {

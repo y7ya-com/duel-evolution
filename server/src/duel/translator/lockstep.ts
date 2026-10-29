@@ -20,16 +20,51 @@ export const CMD_DIRECT = 11, CMD_DRAW = 12, CMD_SHUFFLE = 13;
 export const CMD_PICK = CMD_DIRECT, CMD_GENERIC = CMD_PICK;
 export const PH_BATTLE = 3, PH_MAIN2 = 4, PH_END = 5;
 
-/** DUEL_SETCOMMAND 0x6202: u32 type, u32 B, 8 x u32 P = 40 bytes. */
-export function setcommand(kind: number, b = 0, params: readonly number[] = []): Uint8Array {
-  const w = new W().u32(kind).u32(b);
-  for (let i = 0; i < 8; i++) w.u32(i < params.length ? params[i] : 0);
-  return w.bytes();
+/** A card in a 0x6202 slot on the card wire (client/recomp/rt/cardwire.cpp): its passcode, and what the client's codec
+ *  turns it into for the 2008 engine: its card index (identity, art) or its Konami internal id (rules, tokens). */
+export class CardRef {
+  constructor(readonly pc: number, readonly to: "index" | "internal") {}
 }
+export const asIndex = (pc: number): CardRef => new CardRef(pc >>> 0, "index");
+export const asInternal = (pc: number): CardRef => new CardRef(pc >>> 0, "internal");
+export type Param = number | CardRef;
+/** Cards the client must not see yet: its codec shows the placeholder card of that kind. */
+export const HIDDEN_MONSTER = 0xffffff01, HIDDEN_SPELL = 0xffffff02, HIDDEN_TRAP = 0xffffff03;
+/** 0x6202 hints: the client's 0x6423 picks that follow are card names (internal ids its codec sends as passcodes). */
+export const HINT_ANNOUNCE = 1;
+
+/** DUEL_SETCOMMAND 0x6202 on the card wire: u32 type, u32 B, 8 x u32 P (40 bytes, the 2008 record), then u8 slots
+ *  holding a card index, u8 slots holding an internal id (bit i = P_i, each P_i then a passcode), u8 hints. */
+export function setcommand(kind: number, b = 0, params: readonly Param[] = [], hints = 0): Uint8Array {
+  const w = new W().u32(kind).u32(b);
+  let toIndex = 0, toInternal = 0;
+  for (let i = 0; i < 8; i++) {
+    const p = i < params.length ? params[i] : 0;
+    if (p instanceof CardRef) {
+      w.u32(p.pc);
+      if (p.to === "index") toIndex |= 1 << i; else toInternal |= 1 << i;
+    } else w.u32(p);
+  }
+  return w.u8(toIndex).u8(toInternal).u8(hints).bytes();
+}
+export const RECORD = 43;   // bytes of a 0x6202 record on the wire
+
+const u16 = (p: Param): Param => (p instanceof CardRef ? p : p & 0xffff);   // a card stays whole: the codec narrows it
 
 /** Type 0: engine command. B = (player<<15) | id; P0..P2 truncated to u16. */
-export function engine(cmd: number, player = 0, p0 = 0, p1 = 0, p2 = 0): Uint8Array {
-  return setcommand(T_ENGINE, ((player & 1) << 15) | (cmd & 0xfff), [p0 & 0xffff, p1 & 0xffff, p2 & 0xffff]);
+export function engine(cmd: number, player = 0, p0: Param = 0, p1: Param = 0, p2: Param = 0): Uint8Array {
+  return setcommand(T_ENGINE, ((player & 1) << 15) | (cmd & 0xfff), [u16(p0), u16(p1), u16(p2)]);
+}
+
+/** T_LIST_ADD: (value, kind) pairs; a card's value (kind 4, or the same card again as a text's subject) is an
+ *  asInternal reference: the client's codec makes the passcode its internal id. */
+export function listAdd(flat: readonly Param[]): Uint8Array {
+  return setcommand(T_LIST_ADD, 0, flat);
+}
+
+/** A 0x6610 list item on the card wire: u32 id (a passcode; owner 2: a text id), u16 serial, u16 owner. */
+export function listItem(id: number, serial: number, owner: number): Uint8Array {
+  return new W().u32(id).u16(serial).u16(owner).bytes();
 }
 
 export function request_input(kind: number, clear_list = 1, p2 = 0): Uint8Array {
@@ -38,7 +73,7 @@ export function request_input(kind: number, clear_list = 1, p2 = 0): Uint8Array 
 
 export function set_card(player: number, zone: number, index: number, card: number, serial: number, owner?: number | null): Uint8Array {
   const o = owner == null ? player : owner;
-  return setcommand(T_SETCARD, 0, [player & 1, zone, index, card & 0xffff, serial & 0xff, o & 1]);
+  return setcommand(T_SETCARD, 0, [player & 1, zone, index, asIndex(card), serial & 0xff, o & 1]);   // card: a passcode
 }
 
 export function duel_finish(p0 = 0, p1 = 0): Uint8Array {

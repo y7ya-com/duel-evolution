@@ -2,7 +2,7 @@
 // src/world.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Conn, type ConnHost } from "../src/net/conn.ts";
-import { pack, Reader } from "../src/net/proto.ts";
+import { MAX_SEND, pack, Reader } from "../src/net/proto.ts";
 import { harness, xor } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -52,6 +52,17 @@ describe("conexion.py Conn", () => {
     expect(A.errors()).toEqual([]);
   });
 
+  it("card wire: a client control frame (0xCAxx, param 0) ahead of the hello's answer is out of band", async () => {
+    const h = harness();
+    const A = h.client("A");
+    const a = A.link(5731);
+    a.raw(pack(0xca10, Uint8Array.of(1), 0));   // free mode's flag, before anything else
+    a.send(0x3001); await a.wait(0x3002);
+    a.send(0x3003, A.key); await a.wait(0x3004);
+    expect(a.msgs[0].param).toBe(1);
+    expect(A.errors()).toEqual([]);
+  });
+
   it("27-10: re-entering accounts from the title in the same process (0x3001 #29) continues the server's count", async () => {
     const h = harness();
     const A = h.client("A");
@@ -85,11 +96,12 @@ describe("conexion.py Conn", () => {
     expect([...A.errors(), ...B.errors()]).toEqual([]);
   });
 
-  it("B04: a reply over 1024 B is never sent (and spends no seq number)", async () => {
+  it("B04: a reply over MAX_SEND is never sent (and spends no seq number)", async () => {
+    // on the card wire the server may send past 1024 B (u32 cards; the client's codec hands the exe <= 1024 B messages)
     const t = bare();
     const { c, out } = t.mk();
     c.sawClient(1);
-    c.send(0x3002, new Uint8Array(1025));
+    c.send(0x3002, new Uint8Array(MAX_SEND + 1));
     c.send(0x3004, new Uint8Array(1024));
     await t.flush();
     expect(out).toEqual([{ id: 0x3004, param: 1, len: 1024 }]);

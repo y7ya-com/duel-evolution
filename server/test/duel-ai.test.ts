@@ -112,7 +112,7 @@ describe.skipIf(!haveData)("NPC AI duels", () => {
       const srv = buildServer(configFrom({ PARITY_SEED: "1", DUEL_PAUSE: "0.0005", NPC_AI: flag }), { accounts: {} }, () => {});
       const conn = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-ai", () => true, DUEL_PORT);
       const s = new OcgSession(srv.game, conn, () => {}, 53, 0.0005);
-      const ids = (xs: number[]) => { const w = new W().u32(xs.length); for (const x of xs) w.u16(x); return w.bytes(); };
+      const ids = (xs: number[]) => { const w = new W().u32(xs.length); for (const x of xs) w.u32(x); return w.bytes(); };   // passcodes
       s.clientDeck(0x6601, ids(NPC_DECKS["51"].main));
       s.clientDeck(0x6603, ids(NPC_DECKS["51"].extra ?? []));
       const f0 = simStats.forks, d0 = simStats.drift;

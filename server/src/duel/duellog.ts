@@ -34,14 +34,16 @@ const pad = (b: ArrayLike<number> | null | undefined, n: number) => { const o = 
 const latin1 = (s: string) => Uint8Array.from([...s].map((ch) => (ch.charCodeAt(0) > 255 ? 0x3f : ch.charCodeAt(0))));
 const name16 = (s: string | null | undefined) => pad(latin1(String(s ?? "")).subarray(0, 15), 16);
 
-/** 0x6202 (40 B BE) -> 44 B LE entry of the blob: u32 type, u32 B, u8 side, u8 0, u16 0, 8 x u32 P. */
+/** 0x6202 (43 B on the card wire) -> entry of the blob: u32 type, u32 B, u8 side, u8 0, u16 0, 8 x u32 P (the 2008
+ *  client's 44 B LE), then the record's 3 card-wire bytes (slots holding a card index / an internal id, hints): the
+ *  client's codec (rt/cardwire.cpp) converts the record back to 44-byte entries. */
 function entryFrom6202(side: number, data: Uint8Array): number[] {
-  const d = pad(data, 40);
+  const d = pad(data, 43);
   const dv = new DataView(d.buffer);
   const v = Array.from({ length: 10 }, (_, i) => dv.getUint32(4 * i));
   const w = new LE().u32(v[0]).u32(v[1]).u8(side).u8(0).u16(0);
   for (let i = 2; i < 10; i++) w.u32(v[i]);
-  return w.b;
+  return w.raw(d.subarray(40, 43)).b;
 }
 
 export interface LogPlayer { pid: number; listval: number; name: string; parts: Uint8Array[]; main: number; extra: number; country: Uint8Array; hand?: number | null }

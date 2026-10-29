@@ -1,6 +1,8 @@
 // Shared driver for the notes-*.test.ts files: the whole server in Node (buildServer + World), fake clients that speak
 // the gateway framing and check the per-connection seq like the real client (py fake_client.py Link/FakeClient).
 // Fake timers: the 0.25 s send pauses, the 120 s session sweep and the −242 90 s window run instantly.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { vi } from "vitest";
 import { configFrom } from "../src/config.ts";
 import { buildServer, type Server } from "../src/server.ts";
@@ -16,6 +18,16 @@ export const cat = (...a: ArrayLike<number>[]) => { const o = new Uint8Array(a.r
 export const str = (s: string, n: number) => { const o = new Uint8Array(n); for (let i = 0; i < Math.min(n, s.length); i++) o[i] = s.charCodeAt(i) & 0xff; return o; };
 export const cstr = (b: Uint8Array) => { const e = b.indexOf(0); return String.fromCharCode(...b.subarray(0, e < 0 ? b.length : e)); };
 
+/** The passcode of a 2008 client card id (gamedata/cards.json: the client's card table), for tests written with YO2 ids. */
+const PC = new Map((JSON.parse(readFileSync(join(import.meta.dirname, "..", "gamedata", "cards.json"), "utf8")) as { i: number; pc: number }[])
+  .map((c) => [c.i, c.pc]));
+export const pc = (yo2: number) => { const v = PC.get(yo2); if (v === undefined) throw new Error(`no card ${yo2} in cards.json`); return v; };
+/** The (passcode, copies) pairs of a trunk table's chunks (0x3102, 0x7126, 0x7130: persist.ts pairTable). */
+export const pairs = (chunks: Uint8Array[]): [number, number][] =>
+  chunks.flatMap((d) => Array.from({ length: Math.floor(d.length / 5) }, (_, i) => [u32(d, 5 * i), d[5 * i + 4]] as [number, number]));
+/** Big-endian u32s (passcodes) after a u32 count, as 0x6601 / 0x6603 carry them. */
+export const cards32 = (...pcs: number[]) => cat(be32(pcs.length), be32(...pcs));
+
 export type Box = [number];
 
 export class Link {
@@ -27,6 +39,11 @@ export class Link {
               readonly rxBox: Box = [0], readonly txBox: Box = [0]) {}
   rx(b: Uint8Array) {
     for (const m of this.rd.feed(b)) {
+      if (m.id === 0xca01) {   // the card wire's hello (src/world.ts): answer as the client's codec does, keep it out of msgs
+        this.raw(pack(0xca02, m.data, 0));
+        // the exe never sees it, and it is #0, outside the server's count: the seq check below sees the real frames
+        continue;
+      }
       const want = this.rxBox[0] + 1;
       if (m.param !== want || !m.ok) this.errors.push(`${this.cli.name}:${this.port} 0x${m.id.toString(16)} #${m.param}, wanted #${want}`);
       this.rxBox[0] = m.param;

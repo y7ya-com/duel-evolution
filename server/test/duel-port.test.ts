@@ -6,6 +6,7 @@ import * as DFM from "../src/duel/duelfin.ts";
 import * as DL from "../src/duel/duellog.ts";
 import { comid_field, duelscore, duelsvrinfomsg, DuelSim, newDuelCfg, janken_npc, setcommand, timeup_warning } from "../src/duel/lockstep.ts";
 import { watchOculta } from "../src/duel/pvpMatch.ts";
+import { pc } from "./notes-harness.ts";
 
 const u32s = (d: Uint8Array, n: number, at = 0) => Array.from({ length: n }, (_, i) => new DataView(d.buffer, d.byteOffset).getUint32(at + 4 * i));
 const be4 = (...v: number[]) => { const o = new Uint8Array(4 * v.length); v.forEach((x, i) => new DataView(o.buffer).setUint32(4 * i, x)); return o; };
@@ -16,16 +17,16 @@ describe("lockstep", () => {
     expect(duelsvrinfomsg(1).length).toBe(2);
     expect(duelscore().length).toBe(36);
     expect(comid_field().length).toBe(110);
-    expect(setcommand(0x1a).length).toBe(40);
+    expect(setcommand(0x1a).length).toBe(43);   // 40 + the card wire's index-slot mask, internal-slot mask, hints
   });
   it("rock-paper-scissors without luck: the player always wins", () => {
     const cfg = newDuelCfg(true);
     for (const mine of [0, 1, 2]) expect(janken_npc(cfg, mine)[1]).toBe(1);
   });
   it("skeleton duel: stage 4 sequence and hands", () => {
-    const sim = new DuelSim(Array.from({ length: 40 }, (_, i) => i + 1), Array.from({ length: 40 }, (_, i) => 100 + i), 0, 1);
+    const sim = new DuelSim(Array.from({ length: 40 }, (_, i) => pc(i + 1)), Array.from({ length: 40 }, (_, i) => pc(100 + i)), 0, 1);
     const seq = sim.start_sequence(4);
-    expect(seq.every((m) => (m instanceof Uint8Array ? m.length === 40 : true))).toBe(true);
+    expect(seq.every((m) => (m instanceof Uint8Array ? m.length === 43 : true))).toBe(true);
     expect([sim.hand[0].length, sim.hand[1].length, sim.deck[0].length]).toEqual([5, 5, 35]);
   });
 });

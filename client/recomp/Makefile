@@ -58,6 +58,10 @@ $(B)/mem_test: rt/mem_test.c rt/mem.c $(RT_HDRS) | $(B)
 cardwire_test: $(B)/cardwire_test
 $(B)/cardwire_test: rt/cardwire_test.cpp rt/cardwire.cpp ../src/Net/md5.h | $(B)
 	clang++ -std=c++17 -O1 -Wall rt/cardwire_test.cpp -o $@
+cardwire_js: $(B)/cardwire.mjs   # the codec for server/parity/bridge.mjs
+$(B)/cardwire.mjs: rt/cardwire_js.cpp rt/cardwire.cpp ../src/Net/md5.h | $(B)
+	em++ -std=c++17 -O1 -Wall rt/cardwire_js.cpp -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH \
+	  -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8 -o $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@

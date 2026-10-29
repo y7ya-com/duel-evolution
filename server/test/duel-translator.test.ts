@@ -7,6 +7,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { WireDecoder } from "./cardwire.ts";
+// tokens one card makes, each with its own art in the 2008 client (Scapegoat's sheep, the Ojama tokens, ...)
+const TOKEN_OF = new Map<number, number>([[73915053, 73915052], [73915054, 73915052], [73915055, 73915052],
+  [29843093, 29843092], [29843094, 29843092], [14470846, 29843092], [14470847, 29843092], [60764583, 60764582], [15341823, 15341822]]);
 import { CardMap, type TranslatorData } from "../src/duel/translator/cardmap.ts";
 import { mirror, mirror_state, unmirror_response } from "../src/duel/translator/mirror.ts";
 import { type Msg, YO2Duel } from "../src/duel/translator/translator.ts";
@@ -24,18 +28,21 @@ const msgs = (out: Msg[]) => out.map(([id, b]) => [id, hexOf(b)]);
 const plain = (v: unknown) => JSON.parse(JSON.stringify(v ?? null));
 
 let cm: CardMap | null = null;
+// a card's slots compare by card, not art: py gave every card its lowest card index, the card wire its own art
+const cardKey = (pc: number) => { const c = cardmap().rulesKey(pc); return TOKEN_OF.get(c) ?? c; };
 const cardmap = () => (cm ??= new CardMap(JSON.parse(readFileSync(join(GD, "translator.json"), "utf8")) as TranslatorData));
 
 interface Totals { steps: number; msgs: number; bytes: number; client: number; cmds: number; rng: number }
 
 /** cfg: translator keys over py's; got: record every output instead of comparing it with py's. */
-interface ReplayOpts { cfg?: Record<string, unknown>; got?: (s: any, out: Msg[]) => void }
+interface ReplayOpts { cfg?: Record<string, unknown>; got?: (s: any, out: Msg[], wire: WireDecoder) => void }
 
 function replay(name: string, t: Totals, o: ReplayOpts = {}) {
   const doc = JSON.parse(gunzipSync(readFileSync(join(FIX, name))).toString("utf8"), revive);
   const pvp = doc.kind === "pvp";
   const rng = new PyRandom(doc.seed);
   const views: YO2Duel[] = [];
+  const wires: WireDecoder[] = [];   // per view: the client's codec (py's expected bytes are the 2008 client's)
   let cur: any = null;                                     // the step being replayed (its recorded q / clk)
   const take = (k: "q" | "clk") => {
     const lst = cur?.[k];
@@ -49,11 +56,12 @@ function replay(name: string, t: Totals, o: ReplayOpts = {}) {
     const evs = (s.evs || []).map((e: any) => `${e.ev}:${e.type ?? ""}`).join(" ");
     throw new Error(`${name} step ${s.i} (${s.op} v${s.v}) ${what}\n  got  ${JSON.stringify(got)}\n  want ${JSON.stringify(want)}\n  evs ${evs}`);
   };
-  const cmpOut = (s: any, out: Msg[]) => {
-    if (o.got) { o.got(s, out); return; }
+  const cmpOut = (s: any, out0: Msg[]) => {
+    const out = wires[s.v].decode(out0);
+    if (o.got) { o.got(s, out, wires[s.v]); return; }
     const got = msgs(out), want = s.out || [];
     const n = Math.max(got.length, want.length);
-    for (let k = 0; k < n; k++) {
+    if (!wires[s.v].same(out, want, cardKey)) for (let k = 0; k < n; k++) {
       if (!got[k] || !want[k] || got[k][0] !== want[k][0] || got[k][1] !== want[k][1]) {
         fail(s, `output #${k} of ${want.length} (got ${got.length})`, got.slice(k, k + 3), want.slice(k, k + 3));
       }
@@ -75,6 +83,7 @@ function replay(name: string, t: Totals, o: ReplayOpts = {}) {
         const d = new YO2Duel(s.decks, { first: s.first, cardmap: cardmap(), cfg, rng, clock: () => take("clk") });
         if (doc.kind !== "unit") d.query = () => (pvp && vi === 1 ? mirror_state(take("q")) : take("q"));
         views[vi] = d;
+        wires[vi] = new WireDecoder(GD);
         break;
       }
       case "set": (v as any)[s.k] = s.val; break;
@@ -98,10 +107,10 @@ function replay(name: string, t: Totals, o: ReplayOpts = {}) {
       case "client": {
         t.client++;
         if (s.exc) {
-          expect(() => v.on_client(s.id, unhex(s.data)), `${name} step ${i}: py raised ${s.exc}`).toThrow();
+          expect(() => v.on_client(s.id, wires[s.v].encode(s.id, unhex(s.data))), `${name} step ${i}: py raised ${s.exc}`).toThrow();
           break;
         }
-        const [cmd, out] = v.on_client(s.id, unhex(s.data));
+        const [cmd, out] = v.on_client(s.id, wires[s.v].encode(s.id, unhex(s.data)));
         expect(plain(cmd), `${name} step ${i} on_client 0x${s.id.toString(16)} command`).toEqual(s.cmd ?? null);
         if (s.sent !== undefined) expect(plain(unmirror_response(s.v, (cmd as any).response))).toEqual(s.sent);
         if (cmd) t.cmds++;
@@ -171,8 +180,8 @@ describe.skipIf(!have)("fusion_needs_summon: no 0x4b without its 0x4d", () => {
     return left;
   }
   const run = (f: string, cfg: Record<string, unknown>) => {
-    const steps: { v: number; i: number; out: [number, string][]; want: [number, string][] }[] = [];
-    replay(f, { steps: 0, msgs: 0, bytes: 0, client: 0, cmds: 0, rng: 0 }, { cfg, got: (s, out) => steps.push({ v: s.v, i: s.i, out: msgs(out) as [number, string][], want: s.out || [] }) });
+    const steps: { v: number; i: number; out: [number, string][]; want: [number, string][]; raw: Msg[]; wire: WireDecoder }[] = [];
+    replay(f, { steps: 0, msgs: 0, bytes: 0, client: 0, cmds: 0, rng: 0 }, { cfg, got: (s, out, wire) => steps.push({ v: s.v, i: s.i, out: msgs(out) as [number, string][], want: s.out || [], raw: out, wire }) });
     return steps;
   };
 
@@ -200,8 +209,8 @@ describe.skipIf(!have)("fusion_needs_summon: no 0x4b without its 0x4d", () => {
       const ts = run(f, { fusion_needs_summon: true });
       expect(fusing(ts), f).toEqual([]);
       ts.forEach((s) => {
-        if (JSON.stringify(s.out) === JSON.stringify(s.want)) return;
-        expect(s.out, `${f} step ${s.i}`).toEqual(unmarked(s.want));
+        if (s.wire.same(s.raw, s.want, cardKey)) return;
+        if (!s.wire.same(s.raw, unmarked(s.want), cardKey)) expect(s.out, `${f} step ${s.i}`).toEqual(unmarked(s.want));
         changed.push(`${f}#${s.i}`);
       });
     }

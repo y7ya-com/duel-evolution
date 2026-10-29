@@ -24,7 +24,7 @@ describe("progression", () => {
 
     // the old 40-card pick is refused: it took any card id
     const ids = [...PP.validCardIds()].sort((a, b) => a - b).slice(0, 14);
-    let n = A.room!.mark(); A.room!.send(0x8401, [3, ...ids.slice(0, 3).flatMap((c) => [c >> 8, c & 0xff])]);
+    let n = A.room!.mark(); A.room!.send(0x8401, [3, ...be32(...ids.slice(0, 3))]);
     expect(i32((await A.room!.wait(0x8402, n))!)).toBe(1);
     expect(sum(prof(h).trunk)).toBe(0);
 

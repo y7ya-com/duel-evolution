@@ -10,6 +10,8 @@ import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo } from "./game/starter.ts";
 import { logLevel } from "./util/loglevel.ts";
+import { upgradeCards } from "./game/passcodes.ts";
+import { SCHEMA } from "./game/persist.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -31,9 +33,18 @@ export class WorldDO extends DurableObject<Env> {
     // the state lives in D1: nothing is served until it is loaded; every save then writes the changed rows
     void ctx.blockConcurrencyWhile(async () => {
       try {
-        const st = await loadState(db);
-        this.srv = buildServer(cfg, Object.keys(st).length ? st : null, log);
-        this.sink = attach(this.srv.game.store, db, { baseline: st });
+        const loaded = await loadState(db);
+        // a state from before the card wire: to passcodes now, written back below (the diff against what D1 holds)
+        const st = Object.keys(loaded).length ? structuredClone(loaded) : { players: {}, schema: SCHEMA };
+        const up = upgradeCards(st);
+        this.srv = buildServer(cfg, st, log);
+        this.sink = attach(this.srv.game.store, db, { baseline: loaded });
+        if (up) {
+          console.warn(`[d1] card ids to passcodes: ${up.already ? "already passcodes, marked" : `${up.profiles} profiles`}` +
+            (up.unmapped.length ? `; kept without a passcode: ${up.unmapped.slice(0, 20).join(",")}` : ""));
+          this.sink.save(this.srv.game.store.loadRaw());
+          await this.sink.flush();
+        }
         // bans, GM accounts, sanction flags, shop prices, start values (admin tables)
         Object.assign(this.srv.game.admin.data, await loadAdmin(db));
         this.srv.game.admin.sink = adminSink(db);
@@ -82,7 +93,9 @@ export class WorldDO extends DurableObject<Env> {
       // parity runs: start from the same state.json as py (never enabled outside wrangler dev). With D1 in use, the
       // seeded state replaces what D1 had (the sink diffs it against D1's rows), so D1 always mirrors the server.
       if (request.method === "POST") {
-        this.srv.reset(await request.json());
+        const st = await request.json() as Record<string, unknown>;
+        upgradeCards(st);   // py's states carry the 2008 card ids (schema 2)
+        this.srv.reset(st);
         if (this.sink) { this.sink.attach(this.srv.game.store); this.sink.save(this.srv.game.store.loadRaw()); await this.sink.flush(); }
         return new Response("ok");
       }

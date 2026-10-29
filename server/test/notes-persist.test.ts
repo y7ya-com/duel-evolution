@@ -5,14 +5,17 @@
 // (persist.ts WIRE_UNUSED_DP).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
-import { harness, be32, cat, i32, u16, u32 } from "./notes-harness.ts";
+import { harness, be32, cards32, i32, pairs, pc, u16, u32 } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
 const game = () => harness().game;
-const MAX_CARD = PP.MAX_CARD;
-/** The highest id with art (py's own valid_cards.json stops at 3254, under CARD_ID_MAX 3255). */
-const TOP = Math.max(...PP.validCardIds());
+/** The last card with art in py's valid_cards.json (YO2 3254, Dark Simorgh). */
+const TOP = pc(3254);
+/** A card in the client's table without art (YO2 1111, Insect Monster Token; py's example was the art-less id 171). */
+const NOART = pc(1111);
+/** A real passcode the 2008 client has no card for (Ash Blossom & Joyous Spring; py's example was id 3256). */
+const UNKNOWN = 14558127;
 /** Decode a spec back to values (py decode). */
 function decode(spec: typeof PP.PSELECT_SPEC, b: Uint8Array): Record<string, any> {
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -29,13 +32,18 @@ function decode(spec: typeof PP.PSELECT_SPEC, b: Uint8Array): Record<string, any
 }
 
 describe("round trip (proposal.py selftest)", () => {
-  it("trunk 0x3101 + 7 × 0x3102 (3256 B) + 0x3103, one byte per card id - 1", () => {
+  it("trunk 0x3101 + 0x3102 chunks of (u32 passcode, u8 copies), <= 204 pairs each, + 0x3103", () => {
     const p = PP.blankProfile("Prueba"); p.trunk = {};
-    PP.trunkAdd(null, p, [1, 1, 2, TOP, 0, MAX_CARD, MAX_CARD + 1]);
+    PP.trunkAdd(null, p, [pc(1), pc(1), pc(2), TOP, 0, NOART, UNKNOWN]);
     const msgs = PP.trunkMessages(p);
-    expect(msgs.map(([m]) => m)).toEqual([0x3101, ...new Array(7).fill(0x3102), 0x3103]);
-    const raw = cat(...msgs.filter(([m]) => m === 0x3102).map(([, d]) => d));
-    expect([raw.length, raw[0], raw[1], raw[TOP - 1], raw.reduce((a, b) => a + b, 0)]).toEqual([MAX_CARD, 2, 1, 1, 4]);
+    expect(msgs.map(([m]) => m)).toEqual([0x3101, 0x3102, 0x3103]);
+    const got = pairs(msgs.filter(([m]) => m === 0x3102).map(([, d]) => d));
+    expect(got).toEqual([[pc(1), 2], [pc(2), 1], [TOP, 1]].sort((a, b) => a[0] - b[0]));
+    // every valid card: as many chunks as it takes, each within 1024 B
+    const all = PP.blankProfile("Todo"); all.trunk = Object.fromEntries([...PP.validCardIds()].map((c) => [c, 3]));
+    const big = PP.trunkMessages(all).filter(([m]) => m === 0x3102).map(([, d]) => d);
+    expect([big.length, Math.max(...big.map((d) => d.length)), pairs(big).length])
+      .toEqual([Math.ceil(PP.validCardIds().size / 204), 204 * 5, PP.validCardIds().size]);
   });
 
   it("PBIN is 128 B (bit b -> byte b >> 3, mask 1 << (b & 7)); NPCBIN is 512 B, 4 per NPC", () => {
@@ -65,40 +73,40 @@ describe("round trip (proposal.py selftest)", () => {
   it("the duel deck: 0x6600 counts, 0x6601 main, 0x6603 extra (the side never comes)", () => {
     const dd = new PP.DuelDeck();
     dd.feed(0x6600, be32(2, 0, 1));
-    dd.feed(0x6601, cat(be32(2), [0, 5, 0, 6]));
-    expect(dd.feed(0x6603, cat(be32(1), [0, 10]))).toBe(true);
-    expect([dd.main, dd.extra]).toEqual([[5, 6], [10]]);
+    dd.feed(0x6601, cards32(pc(5), pc(6)));
+    expect(dd.feed(0x6603, cards32(pc(10)))).toBe(true);
+    expect([dd.main, dd.extra]).toEqual([[pc(5), pc(6)], [pc(10)]]);
   });
 });
 
 describe("B05 valid cards", () => {
-  it("B05: 3256 and 0 out, the last id with art in; a card without art (171) out", () => {
-    expect([PP.cardOk(MAX_CARD), PP.cardOk(0), PP.cardOk(TOP), PP.cardOk(171), TOP <= PP.CARD_ID_MAX]).toEqual([false, false, true, false, true]);
+  // (py also checked TOP <= CARD_ID_MAX: passcodes have no id ceiling, the client's card table decides)
+  it("B05: a card the client lacks and 0 out, the last card with art in; a card without art out", () => {
+    expect([PP.cardOk(UNKNOWN), PP.cardOk(0), PP.cardOk(TOP), PP.cardOk(NOART)]).toEqual([false, false, true, false]);
   });
-  it("B05: sanitize_trunk drops 3256, 171 and junk keys", () => {
-    const q = { trunk: { 1: 3, 3256: 3, 171: 2, x: 1 } };
-    expect([PP.sanitizeTrunk(q).sort(), q.trunk]).toEqual([["171", "3256", "x"], { 1: 3 }]);
+  it("B05: sanitize_trunk drops a card the client lacks, one without art and junk keys", () => {
+    const q = { trunk: { [pc(1)]: 3, [UNKNOWN]: 3, [NOART]: 2, x: 1 } };
+    expect([PP.sanitizeTrunk(q).sort(), q.trunk]).toEqual([[String(NOART), String(UNKNOWN), "x"].sort(), { [pc(1)]: 3 }]);
   });
-  it("B05: trunk_bytes never sends a saved 3256", () => {
-    expect(PP.trunkBytes({ trunk: { 3256: 3 } })[MAX_CARD - 1]).toBe(0);
+  it("B05: the trunk table never sends a saved card the client lacks", () => {
+    expect(PP.trunkPairs({ trunk: { [UNKNOWN]: 3, [pc(1)]: 1 } })).toEqual([[pc(1), 1]]);
   });
   it("B05: DuelDeck.bad_ids reports ids the client can't paint", () => {
     const dd = new PP.DuelDeck();
-    dd.feed(0x6601, cat(be32(2), [0, 5, 0x0c, 0xb8]));
-    expect(dd.badIds()).toEqual([3256]);
+    dd.feed(0x6601, cards32(pc(5), UNKNOWN));
+    expect(dd.badIds()).toEqual([UNKNOWN]);
   });
   it("B05: the 0x3100 trunk a client gets has no invalid id, even if state.json has one", async () => {
     const h = harness();
     const A = h.client("A");
     await A.account(0, "Alice");
     const st = h.state(); const acc = Object.values(st.accounts)[0] as any;
-    acc.profiles["0"].trunk = { 1: 2, 171: 3, 3256: 3 }; h.game.store.saveRaw(st);
+    acc.profiles["0"].trunk = { [pc(1)]: 2, [NOART]: 3, [UNKNOWN]: 3 }; h.game.store.saveRaw(st);
     const a = A.link(5731);
     a.send(0x3003, A.key); await a.wait(0x3004);
     const n = a.mark(); a.send(0x3100, [0]); await a.wait(0x3103, n);
-    const raw = cat(...a.all(0x3102, n));
-    expect([raw[0], raw[170], raw[MAX_CARD - 1]]).toEqual([2, 0, 0]);
-    expect((Object.values(h.state().accounts)[0] as any).profiles["0"].trunk).toEqual({ 1: 2 });
+    expect(pairs(a.all(0x3102, n))).toEqual([[pc(1), 2]]);
+    expect((Object.values(h.state().accounts)[0] as any).profiles["0"].trunk).toEqual({ [pc(1)]: 2 });
   });
 });
 
@@ -284,11 +292,11 @@ describe("profiles (B12, B24, 12-10)", () => {
     const c1 = mk(), c2 = mk();
     PP.saveDuelDeck(g, c1, 0x6600, be32(2, 0, 1));
     PP.saveDuelDeck(g, c2, 0x6600, be32(1, 0, 1));
-    PP.saveDuelDeck(g, c1, 0x6601, cat(be32(2), [0, 5, 0, 6]));
-    PP.saveDuelDeck(g, c2, 0x6601, cat(be32(1), [0, 7]));
-    PP.saveDuelDeck(g, c1, 0x6603, cat(be32(1), [0, 10]));
+    PP.saveDuelDeck(g, c1, 0x6601, cards32(pc(5), pc(6)));
+    PP.saveDuelDeck(g, c2, 0x6601, cards32(pc(7)));
+    PP.saveDuelDeck(g, c1, 0x6603, cards32(pc(10)));
     const ld = h.state().profiles["0"].decks.last_duel;
-    expect([ld.main, ld.extra]).toEqual([[5, 6], [10]]);
+    expect([ld.main, ld.extra]).toEqual([[pc(5), pc(6)], [pc(10)]]);
   });
 });
 
@@ -316,8 +324,8 @@ describe("§14 a card after the PvP (07-10)", () => {
   it("§14: without a chooser (disconnected) the card goes straight to the trunk", () => {
     const g = game();
     const pg = PP.blankProfile("G"); pg.trunk = {};
-    const [pk, cs] = PP.pvpCardGrant(g, pg, PP.pvpCardEntry(g)!, (_k, n) => new Array(n).fill(1));
-    expect([PP.PVP_CARD_PACKS.includes(pk), cs, pg.trunk]).toEqual([true, [1], { 1: 1 }]);
+    const [pk, cs] = PP.pvpCardGrant(g, pg, PP.pvpCardEntry(g)!, (_k, n) => new Array(n).fill(pc(1)));
+    expect([PP.PVP_CARD_PACKS.includes(pk), cs, pg.trunk]).toEqual([true, [pc(1)], { [pc(1)]: 1 }]);
   });
   it("§14 over the wire: 0x4802 with the offered pack -> 0x4803 with 1 card, into the trunk", async () => {
     const h = harness();
@@ -326,7 +334,7 @@ describe("§14 a card after the PvP (07-10)", () => {
     PP.pvpCardOffer(h.game, p); p.trunk = {}; h.game.store.saveRaw(st);
     const n = A.room!.mark(); A.room!.send(0x4802, [0, PP.PVP_CARD_PACKS[0]]);
     const d = (await A.room!.wait(0x4803, n))!;
-    expect([i32(d), d.length]).toEqual([0, 4 + 3]);
+    expect([i32(d), d.length]).toEqual([0, 4 + 5]);   // s32, then (u32 passcode, u8 new) per card
     const q = (Object.values(h.state().accounts)[0] as any).profiles["0"];
     expect([Object.keys(q.trunk).length, PP.PVP_CARD_KEY in q]).toEqual([1, false]);
   });

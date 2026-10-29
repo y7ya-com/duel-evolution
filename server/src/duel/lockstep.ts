@@ -184,7 +184,7 @@ export class DuelSim {
 const deckFrom6601 = (d: Uint8Array): number[] => {
   const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
   const n = dv.getUint32(0);
-  return Array.from({ length: n }, (_, i) => dv.getUint16(4 + 2 * i));
+  return Array.from({ length: n }, (_, i) => dv.getUint32(4 + 4 * i));   // passcodes (the card wire)
 };
 
 export interface LsHost {
@@ -208,7 +208,7 @@ export function duelReplyV2(h: LsHost, c: Conn, msgId: number, param: number, da
   if (msgId === 0x6101 || msgId === 0x6102 || msgId === 0x6103) return janken_reply(cfg, c, st, msgId, data, h.log);
   if (msgId === 0x61fe) {
     if (st.sim) { h.log(`[duelo] 0x61fe con duelo en marcha (opciones): ${hx(data)}`); return; }
-    const deck = cfg.player_deck ?? st.client_deck ?? Array(40).fill(1);
+    const deck = cfg.player_deck ?? st.client_deck ?? Array(40).fill(67105242);   // Earthbound Spirit, the 2008 card 1
     const sim = new DuelSim(deck, cfg.npc_deck ?? deck, st.first ?? 0);
     st.sim = sim;
     const msgs = sim.start_sequence(cfg.stage);

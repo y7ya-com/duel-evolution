@@ -2,7 +2,8 @@
 // drives it directly; WorldDO in do.ts only wraps it). py equivalent: yo2srv/red/servidor.py serve/_handle.
 import { Conn, type ConnHost } from "./net/conn.ts";
 import { dataFrame, ECONNREFUSED, parseControl, readDataFrame } from "./net/gateway.ts";
-import { hex, MAX_DATA, Reader, type Msg } from "./net/proto.ts";
+import { hex, MAX_DATA, pack, Reader, W, type Msg } from "./net/proto.ts";
+import { cardmap } from "./duel/data.ts";
 import { PORTS, type Config } from "./config.ts";
 
 export type Handler = (c: Conn, msgId: number, param: number, data: Uint8Array) => void;
@@ -15,6 +16,9 @@ export interface Services {
   /** Duel port, 0x6001 before the connection has a session: false = refused (py duel_reserva_6001 + HUB.attach). */
   duelAttach?(c: Conn, pid: number): boolean;
   beforeSend?(c: Conn, msgId: number): void;
+  /** A client control frame (0xCAxx other than the card wire's hello, e.g. free mode's 0xCA10): out of band, before
+   *  anything queued, never counted in the seq numbers. */
+  onControl?(c: Conn, msgId: number, data: Uint8Array): void;
 }
 
 interface Peer {
@@ -28,7 +32,13 @@ interface Peer {
 type Inbound = { m: Msg } | { kill: string } | { eof: true };
 /** A virtual socket. py reads a connection's next message only after the handler of the previous one returned, and
  *  its sends block for their pause: so inbound messages wait in `inq` until the connection's send queue drains. */
-interface VSock { id: number; conn: Conn; reader: Reader; closed: boolean; inq: Inbound[]; busy: boolean; dead: boolean }
+interface VSock {
+  id: number; conn: Conn; reader: Reader; closed: boolean; inq: Inbound[]; busy: boolean; dead: boolean;
+  /** the card wire's hello: waiting for the client's 0xCA02, or settled (cfg.cardWire off: settled from the start) */
+  wire: "wait" | "ok";
+}
+/** The card wire (client/recomp/rt/cardwire.cpp): its hello ids and how long a client has to answer. */
+const HELLO_S = 0xca01, HELLO_C = 0xca02, WIRE_VERSION = 2, HELLO_WAIT_MS = 5000;
 
 const MAX_SOCKS_PER_PEER = 32; // py MAX_CONNS_PER_IP
 
@@ -78,7 +88,8 @@ export class World implements ConnHost {
       }
       const conn = new Conn(this, this.seqTable, port, peerId, (b) => p.sendBinary(dataFrame(id, b)), PORTS.duel, this.cfg.sendPace);
       conn.userId = p.userId;
-      const vs: VSock = { id, conn, reader: new Reader(), closed: false, inq: [], busy: false, dead: false };
+      const vs: VSock = { id, conn, reader: new Reader(), closed: false, inq: [], busy: false, dead: false,
+        wire: this.cfg.cardWire ? "wait" : "ok" };
       p.socks.set(id, vs);
       this.sockOf.set(conn, [p, vs]);
       p.sendText(JSON.stringify({ type: "open", id, status: 0 }));
@@ -86,6 +97,15 @@ export class World implements ConnHost {
       const key = `${peerId}|${port}`;
       const old = this.peerConns.get(key);
       this.peerConns.set(key, conn);
+      // the card wire: hello first, #0 and outside the seq count (the codec numbers the exe's frames from our first
+      // real one, so a connection continuing the client's count, GATE_SEQ, stays right); the client's messages wait
+      // for its answer
+      if (this.cfg.cardWire) {
+        p.sendBinary(dataFrame(id, pack(HELLO_S, new W().u16(WIRE_VERSION).u32(cardmap().wireHash).bytes(), 0)));
+        setTimeout(() => {
+          if (vs.wire === "wait" && !vs.closed) this.enqueue(p, vs, { kill: "no card-wire hello (an older client build)" });
+        }, HELLO_WAIT_MS);
+      }
       this.run(() => this.services.onConnAccepted?.(conn, old));
     } else if (m.type === "close" || m.type === "shutdown") {
       const vs = p.socks.get(id);
@@ -130,6 +150,15 @@ export class World implements ConnHost {
     if (tooLong()) return this.enqueue(p, vs, { kill: "header with length > 1024 B" });
     for (const m of vs.reader.feed(new Uint8Array(0))) {
       if (!m.ok || m.data.length > MAX_DATA) return this.enqueue(p, vs, { kill: "bad MD5 or message > 1024 B" });
+      if (m.id === HELLO_C) {   // ahead of what is queued: the exe often sends before its codec read our hello
+        const ok = vs.wire === "wait" && m.data.length >= 6 && new DataView(m.data.buffer, m.data.byteOffset).getUint16(0) === WIRE_VERSION
+          && new DataView(m.data.buffer, m.data.byteOffset).getUint32(2) === cardmap().wireHash;
+        if (!ok) return this.enqueue(p, vs, { kill: "card-wire hello with another card table or version" });
+        vs.wire = "ok";
+        if (!vs.busy) void this.drain(p, vs);
+        continue;
+      }
+      if ((m.id & 0xff00) === 0xca00) { this.run(() => this.services.onControl?.(vs.conn, m.id, m.data)); continue; }
       this.enqueue(p, vs, { m });
     }
     if (tooLong()) this.enqueue(p, vs, { kill: "header with length > 1024 B" });
@@ -146,6 +175,11 @@ export class World implements ConnHost {
     vs.busy = true;
     try {
       while (vs.inq.length && !vs.closed) {
+        if (vs.wire === "wait") {   // the hello's answer first; a refusal or a close drops what waited for it
+          const end = vs.inq.findIndex((x) => "kill" in x || "eof" in x);
+          if (end < 0) break;
+          vs.inq.splice(0, end);
+        }
         const it = vs.inq.shift()!;
         if ("kill" in it) { await this.run(() => this.kill(p, vs, it.kill)); break; }
         if ("eof" in it) { await this.run(() => this.sockClosed(p, vs, "closed")); break; }

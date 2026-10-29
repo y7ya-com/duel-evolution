@@ -451,7 +451,7 @@
 {
 "id": "0x8102",
 "name": "YG_MSG_DPAUTHRESULT",
-"n": 10
+"n": 12
 }
 ],
 "0x8203": [
@@ -465,22 +465,22 @@
 {
 "id": "0x8302",
 "name": "YG_MSG_TPPRESENTINFORESULT",
-"n": 2
+"n": 4
 }
 ],
 "0x8303": [
 {
 "id": "0x8304",
 "name": "YG_MSG_TPCARDGETRESULT",
-"n": 13,
-"hex": "00000001000000000000000000"
+"n": 21,
+"hex": "000000010000000000000000000000000000000000"
 }
 ],
 "0x8401": [
 {
 "id": "0x8402",
 "name": "YG_MSG_STARTUP_PRESENTGET_RESULT",
-"n": 7
+"n": 9
 }
 ]
 }

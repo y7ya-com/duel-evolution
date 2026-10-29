@@ -43,7 +43,7 @@ const STARTUP_PRESENT_BITS: Record<number, number> = { 0x30e: 30, 0x310: 40, 0x3
 const STARTUP_PRESENT_MAX = 80;
 const EMPTY_LISTS = new Map<number, [number, number]>([[0x4214, [0x4215, 0x4217]], [0x4218, [0x4219, 0x421b]], [0x421c, [0x421d, 0x421f]],
   [0x4220, [0x4222, 0x4224]], [0x4221, [0x4222, 0x4224]], [0x4280, [0x4282, 0x4286]], [0x4610, [0x4611, 0x4613]]]);
-const LIMITS = LD.limits as [number, number, number][];
+const LIMITS = LD.limits as [number, number][];   // [passcode, copies] (the 2008 list)
 const PLAYERINFO_SIZE = 137; // py: sum of PLAYERINFO_FMT
 
 const TRADE: Record<number, [number, Uint8Array][]> = {
@@ -405,7 +405,8 @@ export class Lobby {
 
   // ---- banned/limited list (LIMIT_LIST)
   limitationMsgs(): [number, Uint8Array][] {
-    const ent = LIMITS.map(([y, k, n], i) => new W().u32(i).u32(y).u32(k).u8(n).bytes());
+    // the card's passcode in the card field, 0 in the Konami one: the client's codec fills both of its own
+    const ent = LIMITS.map(([card, n], i) => new W().u32(i).u32(card).u32(0).u8(n).bytes());
     return this.chunks(ent, 13).map((ch) => [0x5600, ch]);
   }
 
@@ -640,10 +641,10 @@ export class Lobby {
   // ---- packs and gift cards
   cards(pack = 1, n = 5): number[] {
     let cards: number[] = [];
-    try { cards = this.g.shopPurchase(1, pack, 1).map(([, cid]) => cid).filter((cid) => cid >= 1 && cid <= PP.MAX_CARD).slice(0, n); }
+    try { cards = this.g.shopPurchase(1, pack, 1).map(([, cid]) => cid).filter((cid) => PP.cardOk(cid)).slice(0, n); }
     catch (e) { this.log(`[lobby] shop_purchase(1, ${pack}): ${e}`); cards = []; }
     if (cards.length) return cards;
-    const valid = [...PP.validCardIds()].filter((x) => x >= 1 && x <= PP.MAX_CARD);
+    const valid = [...PP.validCardIds()];
     return Array.from({ length: n }, () => this.g.rng.choice(valid));
   }
   private trunkStore(cards: number[]): number[] {
@@ -660,7 +661,7 @@ export class Lobby {
     let flags: number[];
     try { flags = this.trunkStore(cards); } catch (e) { this.log(`[lobby] 0x4803: ${cards} not saved: ${e}`); flags = cards.map(() => 1); }
     const w = new W().u32(0);
-    cards.forEach((cid, i) => w.u16(cid).u8(flags[i]));
+    cards.forEach((cid, i) => w.u32(cid).u8(flags[i]));
     c.send(0x4803, w.bytes());
   }
   private hPacklist(c: Conn) { c.send(0x4800, cat(...Array.from({ length: 10 }, (_, i) => new W().u16(i + 1).bytes()))); return true; }
@@ -704,8 +705,8 @@ export class Lobby {
   private startupPresentResult(data: Uint8Array, p: any): [number, number[]] {
     if (!data.length) return [1, []];
     const n = data[0];
-    if (n === 0 || n > STARTUP_PRESENT_MAX || data.length < 1 + 2 * n) return [1, []];
-    const cards = Array.from({ length: n }, (_, i) => u16(data, 1 + 2 * i));
+    if (n === 0 || n > STARTUP_PRESENT_MAX || data.length < 1 + 4 * n) return [1, []];
+    const cards = Array.from({ length: n }, (_, i) => new DataView(data.buffer, data.byteOffset).getUint32(1 + 4 * i));   // passcodes
     const valid = PP.validCardIds();
     if (cards.some((cid) => !valid.has(cid))) return [1, []];
     if (p) {
@@ -730,7 +731,7 @@ export class Lobby {
     const [r, cards] = this.startupPresentResult(data, p);
     if (r === 0) { PP.trunkAdd(this.g, p!, cards, 1, "0x8402 Startup Present"); this.g.saveState(st); }
     const w = new W().u32(r).u8(cards.length);
-    for (const cid of cards) w.u16(cid);
+    for (const cid of cards) w.u32(cid);
     c.send(0x8402, w.bytes());
     return true;
   }

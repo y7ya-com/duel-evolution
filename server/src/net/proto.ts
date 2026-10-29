@@ -6,6 +6,9 @@ import { createHash } from "node:crypto";
 export const KEY = [0x5a, 0xa5, 0x5a, 0x55];
 export const HDR = 24;
 export const MAX_DATA = 1024;
+/** What the server may send: on the card wire a frame can pass 1024 B (cards are u32 there); the client's codec
+ *  (client/recomp/rt/cardwire.cpp) gives the 2008 exe its own <= 1024 B messages. What it accepts stays MAX_DATA. */
+export const MAX_SEND = 0xffff;
 
 export function xor(b: Uint8Array, start = 0): Uint8Array {
   const out = new Uint8Array(b.length);

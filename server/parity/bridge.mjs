@@ -3,6 +3,10 @@
 // a virtual socket on it ({"type":"open"} + [1][id][bytes] frames), exactly like the recomp client's net_ws.cpp.
 //   node parity/bridge.mjs <offset> <ws url> [control port] [ip]
 // "ip" = group the TCP connections by source IP (one native recompiled client = one peer, e2e runs).
+// The card wire: fake_client speaks the 2008 exe's bytes, so each virtual socket runs through the client's own codec
+// (client/recomp rt/cardwire.cpp as build/cardwire.mjs, `make cardwire_js`; CARDWIRE_JS=<file>), with the card table
+// built from gamedata/cards.json. CARDWIRE=0: none (a native client, e2e, has its own), or ip mode.
+import { readFileSync } from "node:fs";
 import net from "node:net";
 
 const offset = Number(process.argv[2] ?? 1900);
@@ -27,6 +31,36 @@ net.createServer((s) => s.on("data", (d) => {
   s.end("ok\n");
 })).listen(CTL, "127.0.0.1");
 const BY_IP = process.argv[5] === "ip";
+
+let cw = null;   // { M, table }
+if (!BY_IP && process.env.CARDWIRE !== "0") {
+  const M = await (await import(process.env.CARDWIRE_JS ?? new URL("../../client/recomp/build/cardwire.mjs", import.meta.url).pathname)).default();
+  const cards = JSON.parse(readFileSync(new URL("../gamedata/cards.json", import.meta.url), "utf8"));
+  const n = Math.max(...cards.map((c) => c.i)) + 1;   // tools/cardart.py `table`: the same bytes, the same hash
+  const b = Buffer.alloc(24 + 6 * n);
+  b.write("YO2CARDS"), b.writeUInt32LE(n, 8), b.writeUInt32LE(1, 12), b.writeUInt32LE(19, 16), b.writeUInt32LE(16, 20);
+  for (const c of cards) b.writeUInt32LE(c.pc, 24 + 6 * c.i), b.writeUInt16LE(c.internal, 28 + 6 * c.i);
+  const p = M._malloc(b.length);
+  M.HEAPU8.set(b, p);
+  cw = { M, table: M._cw_table(p, b.length) };
+  M._free(p);
+  const want = JSON.parse(readFileSync(new URL("../gamedata/translator.json", import.meta.url), "utf8")).wireHash;
+  const got = M._cw_hash(cw.table) >>> 0;
+  console.log(`bridge: card wire, table ${got.toString(16)}` + (got === want ? "" : ` (the server's is ${want?.toString(16)}: no v2)`));
+}
+/** A connection's bytes through its codec: dir 0 from the server, 1 from the client -> [to the client, to the server]. */
+function codec(st, dir, d) {
+  const { M } = cw, p = M._malloc(d.length);
+  M.HEAPU8.set(d, p);
+  M._cw_feed(st, dir, p, d.length);
+  M._free(p);
+  return [0, 1].map((w) => { const out = Buffer.from(M.HEAPU8.subarray(M._cw_out(st, w), M._cw_out(st, w) + M._cw_len(st, w))); M._cw_clear(st, w); return out; });
+}
+const toWs = (p, id, d) => {
+  const f = Buffer.alloc(5 + d.length);
+  f[0] = 1; f.writeUInt32BE(id, 1); d.copy(f, 5);
+  if (p.ws.readyState === 1) p.ws.send(f);
+};
 async function clientOf(sock) {
   if (BY_IP) return sock.remoteAddress ?? "?";
   for (let i = 0; i < 200; i++) {
@@ -57,8 +91,12 @@ function peerFor(ip) {
     }
     const b = Buffer.from(e.data);
     if (b[0] !== 1) return;
-    const s = p.socks.get(b.readUInt32BE(1));
-    if (s && !s.destroyed) s.write(b.subarray(5));
+    const id = b.readUInt32BE(1), s = p.socks.get(id);
+    if (!s || s.destroyed) return;
+    if (!s.cw) { s.write(b.subarray(5)); return; }
+    const [toClient, toServer] = codec(s.cw, 0, b.subarray(5));
+    if (toClient.length) s.write(toClient);
+    if (toServer.length) toWs(p, id, toServer);
   };
   ws.onclose = () => { peers.delete(ip); for (const s of p.socks.values()) s.destroy(); };
   peers.set(ip, p);
@@ -71,14 +109,19 @@ for (const port of ports) {
     const p = peerFor(await clientOf(sock));
     const id = p.next++;
     p.socks.set(id, sock);
+    if (cw) sock.cw = cw.M._cw_new(cw.table);
     try { await p.ready; } catch { sock.destroy(); return; }
     p.ws.send(JSON.stringify({ type: "open", id, host: "127.0.0.1", port: port + WS_OFFSET }));
     sock.on("data", (d) => {
-      const f = Buffer.alloc(5 + d.length);
-      f[0] = 1; f.writeUInt32BE(id, 1); d.copy(f, 5);
-      if (p.ws.readyState === 1) p.ws.send(f);
+      if (!sock.cw) return toWs(p, id, d);
+      const [toClient, toServer] = codec(sock.cw, 1, d);
+      if (toServer.length) toWs(p, id, toServer);
+      if (toClient.length) sock.write(toClient);
     });
-    const bye = () => { if (p.socks.delete(id) && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: "close", id })); };
+    const bye = () => {
+      if (sock.cw) cw.M._cw_free(sock.cw), sock.cw = 0;
+      if (p.socks.delete(id) && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: "close", id }));
+    };
     sock.on("close", bye);
     sock.on("error", bye);
   }).listen(port + offset, "127.0.0.1");

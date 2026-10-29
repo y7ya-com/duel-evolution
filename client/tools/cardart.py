@@ -49,6 +49,9 @@ OVERRIDE = {i: "hq" for i in (1095, 775, 776, 777, 778, 1022, 399, 153, 1462, 62
 OVERRIDE[982] = "orig"
 
 
+PLACEHOLDERS = (1, 19, 16)   # the card indexes a hidden monster / spell / trap shows as (the translator's)
+
+
 # ---------------------------------------------------------------- KCEJYUGI archives (kcej_dat.py's format)
 
 SWAP = bytes(((x & 15) << 4) | (x >> 4) for x in range(256))
@@ -136,26 +139,28 @@ def cached(a, img):
     return os.path.join(a.cache, f"{img}.jpg")
 
 
+def download(a, img):
+    """One ygoprodeck image into the cache at the archives' size; an error string, or None."""
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(IMG.format(img), headers={"User-Agent": "duel-evolution-cardart/1"})
+            im = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=60).read())).convert("RGB")
+            im.resize((BIG[0] * HQ, BIG[1] * HQ), Image.LANCZOS).save(cached(a, img), quality=95)
+            return None
+        except Exception as e:   # noqa: BLE001 (network: retried, then reported)
+            err = e
+            time.sleep(2 + 4 * attempt)
+    return f"{img}: {err}"
+
+
 def fetch(a):
     _, cards, _ = load(a)
     todo = sorted({x for c in cards for x in c["cand"] if not os.path.exists(cached(a, x))})
     print(f"{len(todo)} images to download")
 
-    def one(img):
-        for attempt in range(4):
-            try:
-                req = urllib.request.Request(IMG.format(img), headers={"User-Agent": "duel-evolution-cardart/1"})
-                im = Image.open(io.BytesIO(urllib.request.urlopen(req, timeout=60).read())).convert("RGB")
-                im.resize((BIG[0] * HQ, BIG[1] * HQ), Image.LANCZOS).save(cached(a, img), quality=95)
-                return None
-            except Exception as e:   # noqa: BLE001 (network: retried, then reported)
-                err = e
-                time.sleep(2 + 4 * attempt)
-        return f"{img}: {err}"
-
     done = 0
     with concurrent.futures.ThreadPoolExecutor(4) as ex:   # ponytail: 4 at a time, gentle on the public CDN
-        for r in ex.map(one, todo):
+        for r in ex.map(lambda img: download(a, img), todo):
             done += 1
             if r: print("failed", r)
             if done % 200 == 0: print(done, "/", len(todo), flush=True)
@@ -276,12 +281,14 @@ def jpeg(im, size):
 
 
 def pack(a):
-    m, _, lists = load(a)
+    m = Merge(a.merge)
     cards = json.load(open(os.path.join(a.gamedata, "cards.json")))
     by = {c["i"]: c for c in cards}
+    n = max(by) + 2   # every index, plus the list's last (empty) line
+    names = {d: (m.read(f"data/{d}/list_card.txt").decode("ascii").split("\r\n") + [""] * n)[:n] for d in ("card", "mini")}
+    names["card"][-1] = names["mini"][-1] = ""
     big, mini = [], []
-    names = {"card": list(lists["card"]), "mini": list(lists["mini"])}
-    for i in range(len(lists["card"])):   # data in card-index order: a browse reads neighbouring chunks
+    for i in range(n):   # data in card-index order: a browse reads neighbouring chunks
         c = by.get(i)
         if not c or (c["art"] == "orig" and c["noart"]): continue   # no art anywhere: as before
         if c["art"] == "orig":   # the 2008 face, renamed by passcode
@@ -304,12 +311,9 @@ def pack(a):
 def table(a):
     """The card wire's table (rt/cardwire.cpp): "YO2CARDS", u32 count, u32 placeholder index for a hidden monster /
     spell / trap (the translator's), then per card index u32 passcode + u16 Konami internal id, little-endian."""
-    m = Merge(a.merge)
-    prop = m.read("data/bin#/card_prop.bin")
-    n = len(prop) // 8
     by = {c["i"]: c for c in json.load(open(os.path.join(a.gamedata, "cards.json")))}
-    ph = json.load(open(os.path.join(a.gamedata, "translator.json")))["placeholders"]
-    out = bytearray(b"YO2CARDS" + struct.pack("<IIII", n, ph["monster"], ph["spell"], ph["trap"]))
+    n = max(len(Merge(a.merge).read("data/bin#/card_prop.bin")) // 8, max(by) + 1)   # moved tokens sit past 3255
+    out = bytearray(b"YO2CARDS" + struct.pack("<IIII", n, *PLACEHOLDERS))
     for i in range(n):
         c = by.get(i)
         out += struct.pack("<IH", c["pc"] if c else 0, c["internal"] if c else 0)

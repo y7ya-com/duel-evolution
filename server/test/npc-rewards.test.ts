@@ -11,7 +11,7 @@ import LD from "../gamedata/lobby.json";
 import SD from "../gamedata/shop.json";
 import YDC from "../gamedata/ydc.json";
 import DUEL from "../gamedata/duel.json";
-import { harness, u16 } from "./notes-harness.ts";
+import { harness, pc, u16, u32 } from "./notes-harness.ts";
 
 /** yo2pbinmap row: [value, starter, class, slot, text id, world] */
 const ROWS = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
@@ -37,12 +37,12 @@ function badBit(bit: number): string | null {
   return null;
 }
 
-/** The 0x5205 ITEMGET_RESULT body: [bits, cards] */
+/** The 0x5205 ITEMGET_RESULT body: [bits, cards] (u16 bits, u32 passcodes) */
 function itemget(b: Uint8Array): [number[], number[]] {
   const n = u16(b);
   const bits = Array.from({ length: n }, (_, i) => u16(b, 2 + 2 * i));
   const m = u16(b, 2 + 2 * n);
-  return [bits, Array.from({ length: m }, (_, i) => u16(b, 4 + 2 * n + 2 * i))];
+  return [bits, Array.from({ length: m }, (_, i) => u32(b, 4 + 2 * n + 4 * i))];
 }
 
 const avatar = (sex: "M" | "F") => (sex === "F" ? "01" : "00") + "00".repeat(15);
@@ -94,7 +94,7 @@ describe("NPC rewards: every possible gift maps to a real card or item", () => {
       }
       expect(bad).toEqual([]);
       // the walk reached the prizes: Yugi's 5-win card, his friendship title, the girl/boy present clothes, a recipe
-      expect(["c365", "b160", "b121", "b374", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
+      expect([`c${pc(365)}`, "b160", "b121", "b374", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
       // every outfit variant of every famous NPC, boy and girl alike, whatever this player's gender
       const outfits = Object.values(PP.PRESENT_CLOTHES).flat().filter((b) => b !== null).map((b) => `b${b}`);
       expect(outfits.filter((k) => !given.has(k))).toEqual([]);
