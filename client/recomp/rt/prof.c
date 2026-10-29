@@ -125,7 +125,7 @@ static const char *sym_in(struct SymCache *cache, void *pc) {   // dladdr is slo
     while (cache[h].pc && cache[h].pc != pc) h = (h + 1) & 0xffff;
     if (!cache[h].pc) {
         Dl_info di;
-        cache[h].name = dladdr((char *)pc - 1, &di) && di.dli_sname ? di.dli_sname : "?";
+        cache[h].name = (uintptr_t)pc > 1 && dladdr((char *)pc - 1, &di) && di.dli_sname ? di.dli_sname : "?";
         cache[h].pc = pc;
     }
     return cache[h].name;
