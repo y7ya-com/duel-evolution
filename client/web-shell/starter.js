@@ -8,13 +8,14 @@
 // Laid out in game pixels: 1024x768 scaled with the canvas on desktop; below 1x (phones) the layout reflows at 1x.
 (() => {
     const UI = "./ui.js", ART = "ui/", COVERS = "cards/covers/", API = "/api/de/starter";
-    const MY_ROOM = 10, LOBBY = 11;
+    const MY_ROOM = 10, LOBBY = 11, DECK = 0x24;   // SceneId (yo2SceneManager.h); DECK: a player with an empty trunk is sent straight there and can't leave
     let ui = null, busy = false, done = false, open = null;
 
     // a plain assignment ADDS a listener (loader.js's collector before preRun, lazyfs's dispatcher after); wrapping the
     // old value would recurse through the collector (crash-signatures.md #1)
+    let scene = 0;   // the scene the picker was asked from
     Module.onYo2Scene = (kind, from, to) => {
-        if (kind === "end" && (to === MY_ROOM || to === LOBBY)) check();
+        if (kind === "end" && (to === MY_ROOM || to === LOBBY || to === DECK)) { scene = to; check(); }
     };
 
     async function check() {
@@ -187,7 +188,7 @@
             const body = {
                 confirm: ["You can only pick one starter deck.", `Take ${name}?`],
                 busy: ["◌ Sending your choice..."],
-                done: [`✓ ${name} is yours!`, "Find its cards in your Deck Editor."],
+                done: [`✓ ${name} is yours!`, scene === DECK ? "Reload the page to see its cards here." : "Find its cards in your Deck Editor."],
                 error: [`● ${msg}`],
             }[view];
             const w = Math.min(L.w - 16, 440), tw = w - 32;
