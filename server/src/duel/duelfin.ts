@@ -123,14 +123,14 @@ export const npcDuelEnd = (g: Game, p: P, npc: number, result: string, turns = 0
 
 /** DFM.lobby_after_duel_msgs (as research/npcreglas wraps it): lobby messages after an NPC duel. */
 export function lobbyAfterDuelMsgs(g: Game, p: P, npc: number, result: number, turns = 0, lpLeft = 0,
-  present: number | null = null, packs: number[] = []): Msg[] {
+  present: number | null = null, packs: number[] = [], card = true): Msg[] {
   const r = result === RESULT_WIN ? "win" : result === RESULT_LOSE ? "lose" : "draw";
   return nrLobbyAfterDuel(g, (pk) => {
     const out: Msg[] = [[M_PDU, npcDuelEnd(g, p, npc, r, turns, lpLeft)]];
     if (present !== null) out.push([M_NPCPRESENT, npcPresentType(present)]);
     out.push([M_CARDPACKLIST, cardpacklistNotice(pk)]);
     return out;
-  }, p, present, packs, npcPresentType);
+  }, p, present, packs, npcPresentType, card);
 }
 
 /** py DuelEnd. mode = last u8 of 0x43a0 (0 single duel; 1 NPC "match", closed after one game). */
@@ -179,14 +179,17 @@ export function makeDf(g: Game, lobbyConn: () => Conn | null, confirmSurrender =
     sess,
     h_autoduelstart(npc, mode) { Object.assign(sess, { end: new DuelEnd(mode), npc: PP.int(npc), turn: 0 }); },
     finish(c, winner, reason, turns = 0, lpLeft = 0, present = null) {
-      const de = sess.end ?? new DuelEnd(0);
+      // one result per NPC duel begun (h_autoduelstart): a repeated surrender dialog or a late finish pays nothing
+      const de = sess.end;
+      if (de === null || de.over) { g.log(`[duelfin] ${reason} with no NPC duel in progress: ignored`); return false; }
       const [msgs, over] = de.gameOver(winner, reason);
       const lob = lobbyConn();
       if (over && lob !== null) {
         const st = g.loadState();
         const p = PP.profile(st, PP.activeSlot(st))!;
         const res = de.mode === 1 ? de.matchResult() : resultForClient(winner);
-        const pdu = lobbyAfterDuelMsgs(g, p, sess.npc, res, turns, lpLeft, present);
+        // the NPC card (npcRules card) is for a duel played to its end, not given up
+        const pdu = lobbyAfterDuelMsgs(g, p, sess.npc, res, turns, lpLeft, present, [], reason !== WHY_SURRENDER);
         g.saveState(st);
         burst(lob, pdu.slice(0, 1));
         burst(c, msgs);

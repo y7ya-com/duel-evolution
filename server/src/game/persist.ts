@@ -139,6 +139,9 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     const w = st.wallet;
     if (w && Object.keys(w).length && s === "0") { p.rec.mp = int(w.mp ?? START_MP); }
     seedTrunk(p);
+    // delete-and-remake isn't a mint: past the account's first FREE_STARTS characters (live + archived; the archive
+    // keeps the last 10, so the count never drops back) a new one starts with no MP and no starter deck
+    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) { p.rec.mp = 0; p.starter = -1; }
   }
   if (p !== null && !p.name) p.name = st.players?.[s] ?? "";
   if (p !== null) {
@@ -147,6 +150,9 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   }
   return p;
 }
+
+/** Characters an account starts with ECON.START_MP and a starter deck: its 4 slots and 2 remakes. */
+export const FREE_STARTS = 6;
 
 export function profileCreated(st: State, slot: number): [P, boolean] {
   const existed = String(int(slot)) in (st.profiles ?? {});

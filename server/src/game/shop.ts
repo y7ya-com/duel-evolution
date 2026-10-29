@@ -140,8 +140,9 @@ export function selectpack(g: Game, c: Conn, data: Uint8Array, base: () => boole
   const p2 = PP.profile(st2, PP.activeSlot(st2), false);
   const due: number[] = p2?.npc_card_due ?? [];
   if (!p2 || !due.length) return base();
-  if (due.includes(pack)) due.splice(due.indexOf(pack), 1); else due.shift();
+  const take = due.includes(pack) ? pack : due[0];   // the pack that was offered, not one the client names
+  due.splice(due.indexOf(take), 1);
   g.saveState(st2);
-  g.lp.cardsResult(c, g.lpCards(pack, 1).slice(0, 1));
+  g.lp.cardsResult(c, g.lpCards(take, 1).slice(0, 1));
   return true;
 }

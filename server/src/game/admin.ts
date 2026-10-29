@@ -32,9 +32,7 @@ export class Admin {
   flagsOf(acct: string | null) { return (acct && this.data.flags.get(acct)) || 0; }
 
   /** py moderacion login hook: a banned account gets 0x3004 −246 and the connection closes 1.5 s later. */
-  vetoLogin(c: Conn, data: Uint8Array): boolean {
-    if (data.length < 32) return false;
-    const [acct] = this.g.hub.accountOf(data);
+  vetoLogin(c: Conn, acct: string): boolean {
     if (!this.isBanned(acct)) return false;
     this.g.log(`[admin] banned account ${acct.slice(0, 6)}… tries to log in (port ${c.port}): 0x3004 −246`);
     c.send(0x3004, new W().u32(AUTH_BANNED).u32(0).s("ESP", 4).bytes());

@@ -198,6 +198,7 @@ export class DuelPort {
       x.duelStarted = true;
     }
     const s = this.ocgSession(c);
+    if (msgId === 0x61fe && s) this.dk.npcStart(c, s);
     if (DF && msgId === 0x6350) {
       const r = DF.h_6350(c, data);
       if (r === true && s) s.surrender();
