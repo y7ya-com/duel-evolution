@@ -168,7 +168,8 @@ routes.use("*", async (c, next) => {
 // everything else: the recompiled web client and its game files (R2 keys under recomp/, or CLIENT_PREFIX), as the live site serves them
 // at its root: cross-origin isolated, with Range for its lazy file reads. private/ is never reachable.
 const TYPES: Record<string, string> = { html: "text/html; charset=utf-8", js: "text/javascript", wasm: "application/wasm", css: "text/css",
-  zip: "application/zip", txt: "text/plain", woff2: "font/woff2", png: "image/png", json: "application/json" };
+  zip: "application/zip", txt: "text/plain", woff2: "font/woff2", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  json: "application/json" };
 const ISOLATION = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow",
   // no other site can frame the game (clickjacking a trade or a sale)
@@ -261,7 +262,7 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // never matched, so every live chunk went out no-cache
   const v = url.searchParams.get("v")?.replace(/\W/g, "");
   headers.set("Cache-Control", hashed || (v && v === obj.etag.replace(/\W/g, "")) ? "public, max-age=31536000, immutable"
-    : key.endsWith(".zip") ? "public, max-age=86400" : "no-cache");
+    : key.endsWith(".zip") || rel.startsWith("cards/covers/") ? "public, max-age=86400" : "no-cache");
   if (!("body" in obj)) return new Response(null, { status: 304, headers });
   const body = (obj as R2ObjectBody).body;
   const r = obj.range as { offset?: number; length?: number } | undefined;
