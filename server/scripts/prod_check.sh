@@ -34,7 +34,7 @@ for p in net boxedwine-network; do
   ok "$([ "$c" = 401 ] && echo 1)" "/$p upgrade without a session reaches the session gate ($c, want 401)"
 done
 c=$(code "$B/api/de/session"); ok "$([ "$c" = 200 ] || [ "$c" = 401 ] && echo 1)" "/api/de/session answers ($c)"
-c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}' "$B/__crash"); ok "$([ "$c" = 204 ] && echo 1)" "POST /__crash stores a report ($c, want 204; one marked prod_check)"
+c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}' "$B/__crash"); ok "$([ "$c" = 204 ] || [ "$c" = 429 ] && echo 1)" "POST /__crash stores a report ($c, want 204, or 429: this IP's hourly limit; one marked prod_check)"
 c=$(code "$B/__crash"); ok "$([ "$c" = 405 ] && echo 1)" "GET /__crash ($c, want 405)"
 c=$(code "$B/__crashes"); ok "$([ "$c" = 401 ] && echo 1)" "/__crashes needs a session ($c, want 401)"
 c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}' "$B/__stall"); ok "$([ "$c" = 204 ] && echo 1)" "POST /__stall stores a batch ($c, want 204; one marked prod_check)"
