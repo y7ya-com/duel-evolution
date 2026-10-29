@@ -92,7 +92,7 @@ function makeEnv(store, ls, opts = {}) {
     let deps = 0;
     const Module = {}, ENV = {};
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
-        location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
+        location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
         IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
@@ -105,7 +105,7 @@ function makeEnv(store, ls, opts = {}) {
         nodes[path].stream_ops.read(null, out, 0, len, pos);
         return out;
     };
-    return { Module, read, ready: async () => { while (deps) await sleep(1); } };
+    return { Module, ENV, read, ready: async () => { while (deps) await sleep(1); } };
 }
 const settle = async (L) => { for (let i = 0; i < 2000 && (L.queueLen ? L.queueLen() : 1); i++) await sleep(2); await sleep(50); };
 const ent = (prefix) => entries.find((e) => e.name.startsWith(prefix));
@@ -436,6 +436,30 @@ console.log("prefetch=0: ok");
         console.log("Sound.dat effects: ok");
     } finally {
         delete files["game/Sound.dat"];
+    }
+}
+// ---- the query on the live site: a crafted link can't script input or move the server, gateway, sign-in or data
+{
+    const evil = "?RC_INPUT=click&RC_FASTFORWARD=1&RC_SEED=7&YO2_HTTP=https://evil&YO2_GATEWAY=wss://evil&http=https://evil" +
+        "&gateway=wss://evil&server=evil&game=https://evil/&cards=https://evil/&fonts=https://evil/&RC_VERBOSE=1&prefetch=0";
+    const files0 = Object.keys(files).length;
+    files["fonts/a.ttf"] = Buffer.alloc(4);   // the site's own fonts/ manifest
+    try {
+        const live = makeEnv(new Map(), new Map(), { host: "ygoevolution.com", search: evil });
+        const E = live.ENV;
+        for (const k of ["RC_INPUT", "RC_FASTFORWARD", "RC_SEED"]) assert.equal(E[k], undefined, k + " ignored on the live site");
+        assert.equal(E.YO2_HTTP, "http://t", "http stays the page's origin");
+        assert.equal(E.YO2_GATEWAY, "wss://ygoevolution.com/net", "gateway stays the page's");
+        assert.equal(E.YO2_SERVER, "127.0.0.1", "server stays the page's");
+        assert.equal(E.RC_VERBOSE, "1", "RC_VERBOSE passes");
+        assert.equal(E.YO2_PORT_OFFSET, "1000", "the site's port offset");
+        assert.ok(live.Module.yo2Lazy.files.has("game/merge.dat") && ![...live.Module.yo2Lazy.files.keys()].some((u) => u.includes("evil")), "data from the site's own folders");
+        const dev = makeEnv(new Map(), new Map(), { search: "?RC_INPUT=click&YO2_PORT_OFFSET=500&prefetch=0" });
+        assert.equal(dev.ENV.RC_INPUT, "click", "localhost runs keep the whole query");
+        console.log("live-site query allowlist: ok");
+    } finally {
+        delete files["fonts/a.ttf"];
+        assert.equal(Object.keys(files).length, files0);
     }
 }
 console.log("lazyfs_test ok");
