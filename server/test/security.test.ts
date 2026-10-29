@@ -55,3 +55,27 @@ describe("0x5400 SD_GET (a structure deck by its right)", () => {
     } finally { PP.setProgression(false); }
   });
 });
+
+describe("trade", () => {
+  it("an offer can't change once a player has confirmed: the other side gets what it agreed to", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const a = h.client("alice", "alice", "pw", "user-a"), m = h.client("mallory", "mallory", "pw", "user-m");
+    await a.account(0, "Alice"); await m.account(0, "Mallory");
+    await a.enterRoom(); const pm = await m.enterRoom();
+    const trunk = (acct: string) => h.state().accounts[acct].profiles["0"].trunk as Record<string, number>;
+    const [x, y] = Object.keys(trunk("u:user-a")).map(Number);
+    const t = (c: typeof a, sub: number, body: number[] = []) => c.room!.send(0x7000, [sub >> 8, sub & 0xff, ...body]);
+    const u32 = (v: number) => [v >>> 24, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff];
+    t(a, 0x7102, u32(pm!)); await h.tick(300);              // alice asks mallory
+    t(m, 0x7105, u32(1)); await h.tick(300);                // mallory accepts
+    for (const c of [a, m]) { t(c, 0x7132); t(c, 0x7101); } await h.tick(500);
+    t(a, 0x7113, u32(x)); t(m, 0x7113, u32(y)); await h.tick(500);
+    t(a, 0x7117); t(m, 0x7117); await h.tick(300);          // both ready
+    t(a, 0x7119, [1]); await h.tick(300);                   // alice confirms x for y
+    t(m, 0x7114, [0, 0]); await h.tick(300);                // mallory pulls y
+    t(m, 0x7119, [1]); await h.tick(500);
+    const ax = trunk("u:user-a")[String(x)], my = trunk("u:user-m")[String(y)];
+    expect(ax === 3 || my === 2).toBe(true);                // the trade didn't happen, or happened as agreed
+    expect(!(ax === 2 && my === 3)).toBe(true);             // never: alice gave x and mallory kept y
+  });
+});

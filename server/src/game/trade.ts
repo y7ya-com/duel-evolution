@@ -91,6 +91,9 @@ export class Trades {
     return true;
   }
 
+  /** Offers are locked once either side pressed ready: what the other confirms is what it gets (LASTCONFIRM no unlocks). */
+  private locked(t: Trade) { return [...t.ready.values()].some(Boolean); }
+
   private queueMove(t: Trade, mover: number, data: Uint8Array) { const rcv = t.other(mover).pid!; t.queue.get(rcv)!.push([mover, data]); this.pump(t, rcv); }
   private pump(t: Trade, rcv: number, c: Conn | null = null) {
     if (!t.started.get(rcv) || t.inflight.get(rcv) !== null || !t.queue.get(rcv)!.length) return;
@@ -148,7 +151,7 @@ export class Trades {
   private addcard(c: Conn, s: Session | null, body: Uint8Array) {
     const cid = body.length >= 4 ? new DataView(body.buffer, body.byteOffset).getUint32(0) : 0;   // a passcode
     const t = this.tradeOf(s);
-    if (!t || t.phase !== "open") { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
+    if (!t || t.phase !== "open" || this.locked(t)) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     const mine = t.offer.get(s!.pid!)!;
     if (mine.length >= MAX_OFFER) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     void this.available; // py only logs an uncovered ADDCARD (ADDCARD_REJECT_1010 off): the trade is cancelled at the end
@@ -161,7 +164,7 @@ export class Trades {
     const idx = body.length >= 2 ? (body[0] << 8) | body[1] : 0xffff;
     const t = this.tradeOf(s);
     c.send(M.DELETECARD, s32(0), SEND_PAUSE);
-    if (!t || t.phase !== "open" || idx >= t.offer.get(s!.pid!)!.length) return;
+    if (!t || t.phase !== "open" || this.locked(t) || idx >= t.offer.get(s!.pid!)!.length) return;
     t.offer.get(s!.pid!)!.splice(idx, 1);
     this.queueMove(t, s!.pid!, new W().u32(idx).u8(1).bytes());
   }
