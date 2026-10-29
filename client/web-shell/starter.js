@@ -23,7 +23,8 @@
         try {
             const r = await fetch(API, { credentials: "same-origin" });
             const j = r.ok && r.status !== 204 ? await r.json() : null;
-            if (j && !j.claimable) done = true;   // claimed: never ask again
+            if (j && !j.claimable && j.reason === "claimed") done = true;   // claimed: never ask again
+            // not in game yet / no character picked (the session lands a moment after the scene): ask at the next scene
             else if (j && j.decks?.length) await show(j.decks);
         } catch (e) { console.warn("starter:", e); }   // ask again at the next My Room / lobby
         busy = false;
