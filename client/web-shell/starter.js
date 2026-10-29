@@ -1,6 +1,5 @@
 // starter.js: the starter structure-deck picker, shown once to a character that hasn't claimed one (ship-client.sh
-// injects it after loader.js). When the game reaches My Room or the lobby (Module.onYo2Scene "end" to 10/11; the
-// loader's own handler still gets every event) it asks GET /api/de/starter; while that says claimable it opens over
+// injects it after loader.js). When the game reaches My Room or the lobby (Module.onYo2Scene "end" to 10/11) it asks GET /api/de/starter; while that says claimable it opens over
 // the game canvas, drawn with the game's own window, buttons and glyphs (client/html-ui/ui.js, its art under ui/):
 // a grid of decks (cover card, name, one line of flavour), a deck's card list, "Choose this deck", a confirm, POST
 // /api/de/starter/claim {id}, done. The game keeps running underneath. The overlay sits on <body> (not in stage.js's
@@ -12,9 +11,9 @@
     const MY_ROOM = 10, LOBBY = 11;
     let ui = null, busy = false, done = false, open = null;
 
-    const prev = Module.onYo2Scene;
-    Module.onYo2Scene = function (kind, from, to) {
-        if (prev) prev.apply(this, arguments);
+    // a plain assignment ADDS a listener (loader.js's collector before preRun, lazyfs's dispatcher after); wrapping the
+    // old value would recurse through the collector (crash-signatures.md #1)
+    Module.onYo2Scene = (kind, from, to) => {
         if (kind === "end" && (to === MY_ROOM || to === LOBBY)) check();
     };
 
