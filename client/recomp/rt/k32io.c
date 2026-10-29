@@ -223,11 +223,13 @@ IMP(KERNEL32, CloseHandle) {
     else r->closed = 1;
     RET(1, 1);
 }
+__attribute__((weak)) void rc_deck_deleted(const char *guest_path) { (void)guest_path; }   // ovr/decksync.c
 IMP(KERNEL32, DeleteFileA) {
     char p[1024];
     if (!rc_host_path(GS(ARG(0)), 1, p, sizeof p)) { err(c, 2); RET(1, 0); }
     int ok = unlink(p) == 0;
     rc_path_changed();
+    if (ok) rc_deck_deleted(GS(ARG(0)));
     RET(1, ok);
 }
 IMP(KERNEL32, MoveFileA) {

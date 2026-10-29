@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "rt.h"
 #include "win.h"
 #ifdef __EMSCRIPTEN__
@@ -113,9 +114,11 @@ static char req[8192];
 static int pending;
 static uint32_t since;
 
-void rc_starter_request(const char *r) {   // native: RC_INPUT "starter ..."
-    strncpy(req, r, sizeof req - 1);
-    pending = 1, since = rc_ticks_ms();
+static char *queued[64];   // native: RC_INPUT "starter ..." lines, in order (the page's queue is Module._yo2StarterQ)
+static int nqueued;
+
+void rc_starter_request(const char *r) {
+    if (nqueued < 64) queued[nqueued++] = strdup(r);
 }
 
 static void set_str(uint32_t at, const char *s) {   // a VC6 string (the old buffer is left: tiny, and maybe shared)
@@ -130,7 +133,14 @@ static void get_str(uint32_t at, char *out, size_t cap) {
     out[n] = 0;
 }
 
-typedef struct { uint16_t main[80], extra[30]; int nmain, nextra, need[TRUNK_N + 1], bad; } Deck;
+typedef struct { uint16_t main[80], side[15], extra[30]; int nmain, nside, nextra, need[TRUNK_N + 1], bad; } Deck;
+// install modes: the starter claim (waits for the pushed trunk, makes it current), the starter login scan (ifMissing),
+// and the server sync (decksync.c): a deck written, written and made current, or deleted (deleted on another
+// device); tests (native RC_INPUT): a write and a delete that are reported like the player's own
+enum { M_CLAIM, M_IF_MISSING, M_WRITE, M_CURRENT, M_DELETE, M_TEST_SAVE, M_TEST_DELETE };
+int rc_host_path(const char *g, int write, char *out, size_t n);   // rt/k32.c
+void rc_deck_deleted(const char *guest_path);                       // decksync.c
+int rc_deck_quiet;   // decksync.c: our own saves are not reported back
 
 static void parse_list(char *s, uint16_t *ids, int *n, int cap, int *need, int *bad) {
     for (char *tok = strtok(s, ","); tok; tok = strtok(NULL, ",")) {
@@ -141,12 +151,13 @@ static void parse_list(char *s, uint16_t *ids, int *n, int cap, int *need, int *
     }
 }
 
-static int install(CPU *c, char *name, int if_missing, Deck *d) {
+static int install(CPU *c, char *name, int mode, Deck *d) {
+    int if_missing = mode == M_IF_MISSING;
     uint32_t dm = RD32m(DECK_MGR), pd = RD32m(PLAYER_DATA);
-    char file[64], old[256];
+    char file[128], old[256];
     snprintf(file, sizeof file, "%s.ydc", name);
     get_str(dm + DM_NAME, old, sizeof old);
-    int editor = deck_scene(), cur_ok = *(uint8_t *)G(dm + DM_SIZES) >= 40, activate = !if_missing || !cur_ok;
+    int editor = deck_scene(), cur_ok = *(uint8_t *)G(dm + DM_SIZES) >= 40, activate = mode == M_CLAIM || mode == M_CURRENT || (if_missing && !cur_ok);
     if (editor) deck_to_editor(c, 0);
     int write = 1;
     if (if_missing) {   // "<name>.ydc" already there: keep it
@@ -156,12 +167,15 @@ static int install(CPU *c, char *name, int if_missing, Deck *d) {
     if (write) {
         vcall(c, dm, VF_RESET);
         for (int i = 0; i < d->nmain; i++) WR8m(dm + DM_MAIN + 2 * i, d->main[i] & 0xff), WR8m(dm + DM_MAIN + 2 * i + 1, d->main[i] >> 8);
+        for (int i = 0; i < d->nside; i++) WR8m(dm + DM_SIDE + 2 * i, d->side[i] & 0xff), WR8m(dm + DM_SIDE + 2 * i + 1, d->side[i] >> 8);
         for (int i = 0; i < d->nextra; i++) WR8m(dm + DM_EXTRA + 2 * i, d->extra[i] & 0xff), WR8m(dm + DM_EXTRA + 2 * i + 1, d->extra[i] >> 8);
-        WR8m(dm + DM_SIZES, (uint8_t)d->nmain), WR8m(dm + DM_SIZES + 2, (uint8_t)d->nextra);
+        WR8m(dm + DM_SIZES, (uint8_t)d->nmain), WR8m(dm + DM_SIZES + 1, (uint8_t)d->nside), WR8m(dm + DM_SIZES + 2, (uint8_t)d->nextra);
         set_str(dm + DM_NAME, file);
+        rc_deck_quiet = mode != M_TEST_SAVE;
         if (!(vcall(c, dm, VF_SAVE) & 0xff)) rc_log("starterdeck: %s not written", file);
+        rc_deck_quiet = 0;
     }
-    if (activate) {
+    if (activate) {   // (a deck already current stays so: the server's current pointer is never echoed back)
         set_str(pd + 0x38, file);
         vcall(c, pd, 0);   // save player.bin
     } else {
@@ -182,7 +196,7 @@ static int install(CPU *c, char *name, int if_missing, Deck *d) {
     int missing = *(uint8_t *)G(dm + DM_SIZES + 3), nmain = *(uint8_t *)G(dm + DM_SIZES);
     rc_log("starterdeck: %s %s%s, current deck %s: %d main, %d missing%s", file, write ? "written" : "already there",
            if_missing ? " (login scan)" : "", activate ? file : old, nmain, missing, editor ? ", Edit Deck refreshed" : "");
-    return !activate || (nmain >= 40 && !missing);
+    return mode == M_WRITE || !activate || (nmain >= 40 && !missing);
 }
 
 static void done(int ok) {
@@ -194,16 +208,21 @@ static void done(int ok) {
 #endif
 }
 
+void rc_deck_file_name(const char *utf8, char *out, size_t cap);   // decksync.c
+void rc_deck_sync_frame(CPU *c);                                    // decksync.c
+
 void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Present
+    rc_deck_sync_frame(c);
 #ifdef __EMSCRIPTEN__
     static int boot;
     if (!boot++)
         EM_ASM({
-            const enc = (l) => (l || []).map((e) => Array.isArray(e) ? e[0] + ':' + e[1] : e.passcode + ':' + e.n).join(',');
-            Module.yo2InstallStarterDeck = (deck, opts) => new Promise((res) => {
-                const req = [String(deck.name), opts && opts.ifMissing ? 1 : 0, enc(deck.main), enc(deck.extra)].join('|');
+            const enc = (l) => (l || []).map((e) => typeof e === 'number' ? e + ':1' : Array.isArray(e) ? e[0] + ':' + e[1] : e.passcode + ':' + e.n).join(',');
+            Module.yo2InstallDeck = (deck, mode) => new Promise((res) => {   // modes: starterdeck.c M_*
+                const req = [String(deck.name), mode, enc(deck.main), enc(deck.extra), enc(deck.side)].join('|');
                 (Module._yo2StarterQ = Module._yo2StarterQ || []).push({req, res});
             });
+            Module.yo2InstallStarterDeck = (deck, opts) => Module.yo2InstallDeck(deck, opts && opts.ifMissing ? 1 : 0);
         });
     if (!pending) {
         int n = EM_ASM_INT({
@@ -216,6 +235,12 @@ void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Pres
         if (n) EM_ASM({ stringToUTF8(Module._yo2StarterCur.req, $0, $1); }, req, n), pending = 1, since = rc_ticks_ms();
     }
 #endif
+    if (!pending && nqueued) {
+        strncpy(req, queued[0], sizeof req - 1);
+        free(queued[0]);
+        memmove(queued, queued + 1, --nqueued * sizeof *queued);
+        pending = 1, since = rc_ticks_ms();
+    }
     if (!pending) return;
     uint32_t dm = RD32m(DECK_MGR), t = trunk_addr(), waited = rc_ticks_ms() - since;
     if (!dm || !RD32m(PLAYER_DATA) || !RD32m(CARD_CASE) || !t || !RD32m(dm + DM_DIR + 8)) {   // no character yet
@@ -229,13 +254,26 @@ void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Pres
     char *name = buf, *flag = strchr(name, '|'), *main = flag ? strchr(flag + 1, '|') : NULL, *extra = main ? strchr(main + 1, '|') : NULL;
     if (!extra) { rc_log("starterdeck: bad request"); done(0); return; }
     *flag++ = *main++ = *extra++ = 0;
-    for (char *p = name; *p; p++)   // a file name: letters, digits, space, - and '
-        if (!(*p == ' ' || *p == '-' || *p == '\'' || (*p >= '0' && *p <= '9') || ((*p | 32) >= 'a' && (*p | 32) <= 'z'))) *p = '_';
-    if (strlen(name) > 40) name[40] = 0;
+    char *side = strchr(extra, '|');
+    if (side) *side++ = 0;
+    char sjis[96];
+    rc_deck_file_name(name, sjis, sizeof sjis);
     parse_list(main, d.main, &d.nmain, 80, d.need, &d.bad);
     parse_list(extra, d.extra, &d.nextra, 30, d.need, &d.bad);
+    if (side) parse_list(side, d.side, &d.nside, 15, d.need, &d.bad);
+    int mode = atoi(flag);
     int owned = 1;
     for (int id = 1; id <= TRUNK_N; id++) owned &= *(uint8_t *)G(t + id - 1) >= d.need[id];
-    if (!owned && waited < 4000) return;   // the server's trunk push is on its way
-    done(install(c, *name ? name : "Starter", atoi(flag), &d) && !d.bad && d.nmain >= 40);
+    if (mode == M_DELETE || mode == M_TEST_DELETE) {   // the file only: a current deck that is gone loads as empty
+        char g[300], h[1024], dir[256];
+        get_str(dm + DM_DIR, dir, sizeof dir);
+        snprintf(g, sizeof g, "%s\\%s.ydc", dir, sjis);
+        int ok = rc_host_path(g, 1, h, sizeof h) && !unlink(h);
+        rc_log("starterdeck: %s.ydc %s", sjis, ok ? "deleted" : "not there");
+        if (ok && mode == M_TEST_DELETE) rc_deck_deleted(g);
+        done(ok);
+        return;
+    }
+    if (!owned && mode <= M_IF_MISSING && waited < 4000) return;   // the server's trunk push is on its way
+    done(install(c, *sjis ? sjis : "Starter", mode, &d) && !d.bad && (mode == M_WRITE || d.nmain >= 40));
 }
