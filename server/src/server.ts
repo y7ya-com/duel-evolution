@@ -23,6 +23,7 @@ function wire(g: Game): Game {
   g.admin = new Admin(g);
   PP.setStartValues(() => g.admin.data.start);
   PP.setProgression(g.cfg.progression);
+  PP.setStarterAuto(g.cfg.starterAuto);
   g.ph = makeHandlers(g, {
     gameConn: () => {
       const s = g.curSess();

@@ -64,6 +64,9 @@ export interface Config {
   /** PROGRESSION=1: the 2008 card progression (persist.ts setProgression): new and reset characters start with the
    *  starter cards instead of every card, NPC chains give their prize cards, and the deck check blocks unowned cards. */
   progression: boolean;
+  /** STARTER_AUTO=1 (stopgap while the starter picker is not live): a character with no starter claim gets structure
+   *  deck 8001 once, without spending the claim (persist.ts starterAuto). */
+  starterAuto: boolean;
   /** CARD_WIRE (default on): the card wire's hello (client/recomp/rt/cardwire.cpp). Every connection opens with 0xCA01;
    *  a client that does not answer 0xCA02 with this server's card table (an older build) is refused. Off: no hello and no
    *  gate (test harnesses that speak the wire themselves). */
@@ -92,6 +95,7 @@ export function configFrom(env: Record<string, unknown>): Config {
     npcAiSpy: flag("NPC_AI_SPY", false),
     placeOrder: placeOrderFrom(s("PLACE_ORDER")),
     progression: flag("PROGRESSION", false),
+    starterAuto: flag("STARTER_AUTO", false),
     cardWire: flag("CARD_WIRE", true),
   };
 }

@@ -143,6 +143,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   if (p !== null) {
     p.rec ??= {};
     progressionReset(p);
+    starterAuto(p);
   }
   return p;
 }
@@ -183,6 +184,16 @@ export function progressionReset(p: P): boolean {
   r.mp = ECON.START_MP;
   p.prog = PROGRESSION_EPOCH;
   return true;
+}
+// ponytail: stopgap (config STARTER_AUTO) while the web starter picker is not live; delete with the flag
+let STARTER_AUTO = false;
+export const setStarterAuto = (on: boolean) => { STARTER_AUTO = on; };
+/** STARTER_AUTO: a character without a starter claim (nor the old 40-card pick) gets structure deck 8001 (40 legal cards
+ *  as sold) once, marked p.starterAuto; p.starter stays unset, so it can still claim its own pick later (starter.ts). */
+export function starterAuto(p: P): void {
+  if (!STARTER_AUTO || !PROGRESSION || p.starter || p.starterAuto || pbinTest(p, STARTER_RIGHT + 1)) return;
+  trunkAdd(null, p, structureDeckCards(8001), 1, "starter stopgap 8001");
+  p.starterAuto = 8001;
 }
 // ---- the MP economy (progression only; parity runs keep py's 0 per duel). The owner's MVP values (2026-10-28, set
 // by the coordinator as "healthy values"); shop prices are unchanged (shop.ts: booster 200, beginner packs 1001-1003

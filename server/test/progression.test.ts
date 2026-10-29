@@ -8,7 +8,7 @@ import { rowsToState, stateToRows } from "../src/db/project.ts";
 import { legalDeck, starterClaim, starterInfo, STARTER_DECKS } from "../src/game/starter.ts";
 import { harness, be32, cat, i32, u32, type Harness } from "./notes-harness.ts";
 
-afterEach(() => { vi.useRealTimers(); PP.setProgression(false); });
+afterEach(() => { vi.useRealTimers(); PP.setProgression(false); PP.setStarterAuto(false); });
 
 const prof = (h: Harness) => (Object.values(h.state().accounts)[0] as any).profiles["0"];
 const sum = (t: Record<string, number>) => Object.values(t).reduce((a, b) => a + b, 0);
@@ -74,6 +74,24 @@ describe("progression", () => {
       for (const c of [...d.main, ...d.extra]) t[c] = (t[c] ?? 0) + 1;
       expect([k, d.main.length, check(d.main, d.extra, t)]).toEqual([k, 40, []]);
     }
+  });
+
+  it("STARTER_AUTO stopgap: 8001 once to a character without a claim, and the claim stays unspent", async () => {
+    const h = harness({ players: {} }, { PROGRESSION: "1", STARTER_AUTO: "1" });
+    const A = h.client("A", "A", "pw", "user-a"); await A.account(0, "Alice"); await A.enterRoom();
+    const p = prof(h);
+    expect([sum(p.trunk), p.starterAuto, p.starter]).toEqual([40, 8001, undefined]);
+    expect((starterInfo(h.game, "user-a") as any).claimable).toBe(true);
+    expect(starterClaim(h.game, "user-a", 7003)[0]).toBe(200);
+    expect(sum(prof(h).trunk)).toBe(80);
+    // legacy: never claimed -> granted once; claimed the old pick -> untouched
+    const st: any = { profiles: { "0": { name: "L", prog: 1, rec: {}, trunk: {}, pbin: [] },
+      "1": { name: "C", prog: 1, rec: {}, trunk: { "5": 2 }, pbin: [PP.STARTER_RIGHT, PP.STARTER_RIGHT + 1] } } };
+    const l = PP.profile(st, 0)!;
+    expect([sum(l.trunk), sum(PP.profile(st, 0)!.trunk), PP.profile(st, 1)!.trunk]).toEqual([40, 40, { "5": 2 }]);
+    PP.setStarterAuto(false);
+    const off: any = { profiles: { "0": { name: "N", prog: 1, rec: {}, trunk: {}, pbin: [] } } };
+    expect(PP.profile(off, 0)!.trunk).toEqual({});
   });
 
   it("PvP guards: short duels pay nobody, 5 a day per pair, first win +300, 25% after 40 duels", () => {
