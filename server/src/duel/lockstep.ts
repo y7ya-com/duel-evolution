@@ -207,7 +207,7 @@ export function duelReplyV2(h: LsHost, c: Conn, msgId: number, param: number, da
   if (msgId === 0x6100) janken_reset(st);
   if (msgId === 0x6101 || msgId === 0x6102 || msgId === 0x6103) return janken_reply(cfg, c, st, msgId, data, h.log);
   if (msgId === 0x61fe) {
-    if (st.sim) { h.log(`[duelo] 0x61fe con duelo en marcha (opciones): ${hx(data)}`); return; }
+    if (st.sim) { h.log(`[AVISO] [duelo] 0x61fe with a duel running (options): ${hx(data)}`); return; }
     const deck = cfg.player_deck ?? st.client_deck ?? Array(40).fill(67105242);   // Earthbound Spirit, the 2008 card 1
     const sim = new DuelSim(deck, cfg.npc_deck ?? deck, st.first ?? 0);
     st.sim = sim;

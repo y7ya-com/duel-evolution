@@ -194,7 +194,7 @@ export class DuelPort {
     if (msgId === 0x61fe) {
       const s0 = this.ocgSession(c);
       if (s0) { s0.placeManual = !!(data.length && data[0]); if (s0.d) s0.d.place_manual = s0.placeManual; }
-      if (x.duelStarted) { this.log(`[duelo] 0x61fe repetido (${hx(data)}): ignorado`); return; }
+      if (x.duelStarted) { this.log(`[AVISO] [duelo] 0x61fe repeated (${hx(data)}): ignored`); return; }
       x.duelStarted = true;
     }
     const s = this.ocgSession(c);

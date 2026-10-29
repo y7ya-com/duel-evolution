@@ -418,7 +418,7 @@ export class PvpMatch {
     if (mid === 0x61fe) {
       this.placeManual[i] = !!(data.length && data[0]);
       if (this.ps && !this.needStart && this.ps.views[i]) this.ps.views[i]!.place_manual = this.placeManual[i];
-      if (this.ready[i]) return this.log(`[pvp] ${this.name}: 0x61fe repetido de ${i} (${Buffer.from(data).toString("hex")}): ignorado`);
+      if (this.ready[i]) return this.log(`[AVISO] [pvp] ${this.name}: 0x61fe repeated from ${i} (${Buffer.from(data).toString("hex")}): ignored`);
       this.ready[i] = true;
       if (this.ready.every(Boolean) && (this.ps === null || this.needStart)) return this.start();
       return;

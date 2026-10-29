@@ -113,7 +113,7 @@ export class Trades {
     else if (this.tradeOf(s) || this.tradeOf(o)) why = "already trading";
     else if ((o.state || 0) >= 0x67 && (o.state || 0) <= 0x6a) why = "in a duel";
     else if ((this.g.admin.flagsOf(s.acct) | this.g.admin.flagsOf(o.acct)) & SANCTION_TRADE) why = "trade sanction";
-    if (why) { this.g.log(`[intercambio] REQTRADE -> ${pid}: -493 (${why})`); c.send(M.REQTRADERESULT, s32(REQ_FAIL), SEND_PAUSE); return; }
+    if (why) { this.g.log(`${why === "trade sanction" ? "[AVISO] " : ""}[intercambio] REQTRADE -> ${pid}: -493 (${why})`); c.send(M.REQTRADERESULT, s32(REQ_FAIL), SEND_PAUSE); return; }
     const t = new Trade(s!, c, o!);
     this.trades.set(s!.pid!, t); this.trades.set(o!.pid!, t);
     c.send(M.REQTRADERESULT, s32(0), SEND_PAUSE);
@@ -153,6 +153,7 @@ export class Trades {
   private addcard(c: Conn, s: Session | null, body: Uint8Array) {
     const cid = body.length >= 4 ? new DataView(body.buffer, body.byteOffset).getUint32(0) : 0;   // a passcode
     const t = this.tradeOf(s);
+    if (t && this.locked(t)) this.g.log(`[AVISO] [intercambio] ADDCARD ${cid} after ready (offers locked): refused`);
     if (!t || t.phase !== "open" || this.locked(t)) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     const mine = t.offer.get(s!.pid!)!;
     if (mine.length >= MAX_OFFER) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
@@ -166,6 +167,7 @@ export class Trades {
     const idx = body.length >= 2 ? (body[0] << 8) | body[1] : 0xffff;
     const t = this.tradeOf(s);
     c.send(M.DELETECARD, s32(0), SEND_PAUSE);
+    if (t && this.locked(t)) this.g.log(`[AVISO] [intercambio] DELETECARD ${idx} after ready (offers locked): refused`);
     if (!t || t.phase !== "open" || this.locked(t) || idx >= t.offer.get(s!.pid!)!.length) return;
     t.offer.get(s!.pid!)!.splice(idx, 1);
     this.queueMove(t, s!.pid!, new W().u32(idx).u8(1).bytes());
