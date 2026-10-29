@@ -96,11 +96,11 @@ def starter_deck(X, cookie, deck):
          f"{X.name}: GET /api/de/starter: claimable, {len(info['decks']) if info and info.get('decks') else 0} decks ({st})")
     step(api("starter/claim", cookie, {"id": deck}, origin=None)[0] == 403, f"{X.name}: a claim without our Origin is refused (403)")
     st, out = api("starter/claim", cookie, {"id": deck})
-    step(st == 200 and out["cards"] == 40, f"{X.name}: claims structure deck {deck} ({st} {out})")
+    step(st == 200 and out["cards"] == 40 and sum(n for _, n in out["deck"]["main"]) == 40, f"{X.name}: claims structure deck {deck}, its ready 40-card deck back ({st})")
     st, out = api("starter/claim", cookie, {"id": deck})
     st2, info = api("starter", cookie)
     step(st == 409 and info["claimable"] is False and info["reason"] == "claimed" and info["claimed"]["id"] == deck
-         and sum(c["n"] for c in info["claimed"]["deck"]) == 40, f"{X.name}: a second claim is refused; GET gives the claimed ready deck ({st} {out}; {info and info.get('reason')})")
+         and sum(n for _, n in info["claimed"]["main"]) == 40, f"{X.name}: a second claim is refused; GET gives the claimed ready deck ({st} {out}; {info and info.get('reason')})")
 
 
 def npc_duel(fc, A, cookies=None, npc=84):

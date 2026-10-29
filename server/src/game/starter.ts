@@ -49,12 +49,12 @@ export function legalDeck(k: number): { main: number[]; extra: number[] } {
   }
   return d;
 }
-/** The ready deck a claim gives, for the client to install as the active deck (phase2-duel's .ydc): legalDeck as
- *  [{passcode, n}], main (40 cards) and extra; ydc.json holds passcodes. */
-export function starterDeckOut(id: number): { deck: { passcode: number; n: number }[]; extra: { passcode: number; n: number }[] } {
+/** The ready deck a claim gives, for the client to install as the active deck (phase2-duel writes the game's .ydc,
+ *  named after `name`, file-safe): legalDeck as [[passcode, n], ...], main (40 cards) and extra. */
+export function starterDeckOut(id: number): { id: number; name: string; main: [number, number][]; extra: [number, number][] } {
   const d = legalDeck(id);
-  const counts = (l: number[]) => { const m = new Map<number, number>(); for (const c of l) m.set(c, (m.get(c) ?? 0) + 1); return [...m].map(([passcode, n]) => ({ passcode, n })); };
-  return { deck: counts(d.main), extra: counts(d.extra) };
+  const counts = (l: number[]): [number, number][] => { const m = new Map<number, number>(); for (const c of l) m.set(c, (m.get(c) ?? 0) + 1); return [...m]; };
+  return { id, name: STARTER_DECKS[id][0], main: counts(d.main), extra: counts(d.extra) };
 }
 type Card = { id: number; name: string; n: number; type: "monster" | "spell" | "trap" | "extra" };
 let CATALOG: { id: number; name: string; blurb: string; cover: number; cards: Card[] }[] | null = null;
@@ -116,7 +116,7 @@ export function starterInfo(g: Game, userId: string): Record<string, unknown> {
   if (!starterClaimable(p)) {
     // a past claim: its ready deck, so the client installs it at login (an old 40-card pick has none)
     const id = PP.int(p.starter ?? 0);
-    return { claimable: false, reason: "claimed", claimed: id in STARTER_DECKS ? { id, name: STARTER_DECKS[id][0], ...starterDeckOut(id) } : null };
+    return { claimable: false, reason: "claimed", claimed: id in STARTER_DECKS ? starterDeckOut(id) : null };
   }
   return { claimable: true, decks: starterCatalog() };
 }
@@ -140,6 +140,6 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     g.saveState(st);
     g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);
     pushInventory(g, s, p);
-    return [200, { ok: true, id, cards: cards.length, ...starterDeckOut(id) }];
+    return [200, { ok: true, id, cards: cards.length, deck: starterDeckOut(id) }];
   });
 }

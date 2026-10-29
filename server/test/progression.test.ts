@@ -44,11 +44,12 @@ describe("progression", () => {
     const [code, out] = starterClaim(h.game, "user-a", 7003) as [number, any];
     await h.tick(500);
     expect([0x7125, 0x7126, 0x7127, 0x4140].map((m) => A.room!.all(m, n).length > 0)).toEqual([true, true, true, true]); // pushed live
-    const total = (l: { n: number }[]) => l.reduce((x, c) => x + c.n, 0);
-    expect([code, out.ok, out.id, out.cards, total(out.deck), total(out.extra)]).toEqual([200, true, 7003, 40, 40, 0]); // the ready deck
+    const total = (l: [number, number][]) => l.reduce((x, c) => x + c[1], 0);
+    expect([code, out.ok, out.id, out.cards, out.deck.name, total(out.deck.main), total(out.deck.extra)]).toEqual([200, true, 7003, 40, "Dark Magicians", 40, 0]); // the ready deck
+    expect(/[\\/:*?"<>|]/.test(out.deck.name)).toBe(false); // the client names the .ydc after it
     expect(starterClaim(h.game, "user-a", 7001)).toEqual([409, { error: "claimed" }]); // once per character
     const past = starterInfo(h.game, "user-a") as any;
-    expect([past.claimable, past.reason, past.claimed.id, past.claimed.deck]).toEqual([false, "claimed", 7003, out.deck]); // for login
+    expect([past.claimable, past.reason, past.claimed]).toEqual([false, "claimed", out.deck]); // installed at login
     p = prof(h);
     const pick = legalDeck(7003).main;
     expect([sum(p.trunk), p.starter, pick.every((c) => p.trunk[String(c)] > 0)]).toEqual([40, 7003, true]);
