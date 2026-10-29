@@ -65,6 +65,8 @@ export class WorldDO extends DurableObject<Env> {
       // admin API (py's console/panel actions that reach players): POST JSON. The Worker forwards it only for a session
       // with the admin role (role_grant), setting x-de-admin; the DO is not reachable any other way. DEV: open.
       if (!request.headers.get("x-de-admin") && this.env.DEV !== "1") return new Response("forbidden", { status: 403 });
+      // the version this instance runs: after a deploy the old instance keeps serving its sockets for minutes
+      if (url.pathname === "/__admin/version") return Response.json({ v: this.env.CF_VERSION_METADATA?.id ?? "dev" });
       if (url.pathname === "/__admin/shutdown") {
         // a planned deploy: 4012 "server-update" tells the web client to reconnect at once (not a network loss)
         const n = this.sockets.size;

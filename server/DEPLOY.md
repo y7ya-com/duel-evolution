@@ -42,9 +42,12 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
      character select; re-sent every 30 s, since a reload or a new lobby loses it) and a server chat line (lobby only), "Server update in 2 min. If you are disconnected, reload the page." (`DEPLOY_TEXT` changes it: say
      "you'll be reconnected" once the reconnecting web client is live);
    - waits 120 s;
-   - closes every gateway WebSocket with **4012 "server-update"** (the web client reconnects at once; any other close
-     it treats as a network problem unless `GET /__version` changed);
-   - runs `wrangler deploy --env production`, then `scripts/post_deploy.sh` (Workers Logs query-string redaction, which
+   - runs `wrangler deploy --env production`. A deploy does NOT restart the WorldDO at once: the old instance keeps its
+     sockets, and still gets requests, for minutes (4.5 min seen), running the old code;
+   - so then closes every gateway WebSocket with **4012 "server-update"** through it (the web client reconnects at
+     once; any other close it treats as a network problem unless `GET /__version` changed), and waits until the
+     WorldDO answers `/__admin/version` with the new version;
+   - then `scripts/post_deploy.sh` (Workers Logs query-string redaction, which
      every deploy resets) and `scripts/prod_check.sh` (both hosts and www).
 
    The token is the Worker secret `DEPLOY_TOKEN` (`wrangler secret put DEPLOY_TOKEN --env production`, 32+ chars). It

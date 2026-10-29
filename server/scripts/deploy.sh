@@ -19,8 +19,17 @@ if [ "$W" -gt 0 ]; then
   # reload or a new lobby: sent again every 30 s, so players who join during the wait get it too
   for ((left = W; left > 0; left -= 30)); do api maintenance "{\"seconds\":$left}" >/dev/null; sleep $((left < 30 ? left : 30)); done
 fi
-echo "closed with 4012: $(api shutdown)"
 # DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN
 npx wrangler deploy --env production ${DEPLOY_SECRETS_FILE:+--secrets-file "$DEPLOY_SECRETS_FILE"}
+# The old WorldDO instance keeps its sockets (and gets requests) for minutes after a deploy, running the old code: it
+# closes them with 4012 now, so the clients come back to the new code, and the script waits until that is what answers.
+new=$(curl -sf "$B/__version" | python3 -c 'import json, sys; print(json.load(sys.stdin)["v"])')
+echo "closed with 4012: $(api shutdown || echo 'n/a (old code)')"
+for i in $(seq 1 60); do
+  v=$(api version 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("v", ""))' 2>/dev/null || true)
+  [ "$v" = "$new" ] && { echo "WorldDO on $new after $((i * 10)) s"; break; }
+  sleep 10
+done
+[ "$v" = "$new" ] || echo "WARNING: the WorldDO still answers ${v:-old code} after 10 min"
 scripts/post_deploy.sh
 scripts/prod_check.sh
