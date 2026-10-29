@@ -43,3 +43,24 @@ export function canUseAccount(peerUserId: string | null, owner: string | null | 
   if (owner === undefined) return "create";
   return owner === peerUserId ? "ok" : "refuse";
 }
+
+/** Uppercase query keys a game page may carry: lazyfs turns every uppercase key into a game environment variable
+ *  (RC_INPUT would script clicks, YO2_DISCORD_URL redirect the sign-in), so a link gets only these. */
+const GAME_ENV_KEYS = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE"]);
+
+/**
+ * The query a page load of the game (yo2rc.html) must have on this origin, or null when it already has it: the
+ * client's gateway, updater HTTP, fonts and server are this site's (a link can't point the game, and the sign-in it
+ * asks for, at another host), no game/cards override, and only GAME_ENV_KEYS among the uppercase keys.
+ */
+export function safeGameQuery(url: URL): string | null {
+  const q = new URLSearchParams(url.search);
+  const want: Record<string, string> = { http: url.origin, gateway: `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}/net`, fonts: "fonts/", server: "127.0.0.1" };
+  for (const k of [...new Set(q.keys())]) {
+    if (k === "game" || k === "cards" || (/^[A-Z][A-Z0-9_]*$/.test(k) && !GAME_ENV_KEYS.has(k))) q.delete(k);
+    else if (k in want && (q.getAll(k).length !== 1 || q.get(k) !== want[k])) q.set(k, want[k]);
+  }
+  const out = q.toString();
+  return out === new URLSearchParams(url.search).toString() ? null : out;
+}
+

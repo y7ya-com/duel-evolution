@@ -8,6 +8,7 @@ import SHOP from "../gamedata/shop.json";
 import { makeDf, WHY_SURRENDER } from "../src/duel/duelfin.ts";
 import { MAX_PEERS_PER_USER } from "../src/world.ts";
 import { ipBucket } from "../src/auth/auth.ts";
+import { safeGameQuery } from "../src/auth/binding.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -334,5 +335,22 @@ describe("avatar parts (0x4170)", () => {
     const st = h.state(); st.accounts["u:user-a"].profiles["0"].pbin.push(120); h.game.store.saveRaw(st);
     expect(await wear()).toEqual([0, 1]);
     expect(h.state().accounts["u:user-a"].profiles["0"].avatar.a).toBe(Buffer.from(parts).toString("hex"));
+  });
+});
+
+describe("game page links (yo2rc.html)", () => {
+  const O = "https://ygoevolution.com";
+  const ok = `http=${encodeURIComponent(O)}&gateway=${encodeURIComponent("wss://ygoevolution.com/net")}&fonts=fonts%2F&server=127.0.0.1&YO2_PORT_OFFSET=1000`;
+  it("a link can't point the game at another host or script it; the root page's own query passes", () => {
+    expect(safeGameQuery(new URL(`${O}/yo2rc.html?${ok}`))).toBeNull();
+    expect(safeGameQuery(new URL(`${O}/yo2rc.html?${ok}&RC_VERBOSE=1&online=1&log`))).toBeNull();
+    const fix = (q: string) => new URLSearchParams(safeGameQuery(new URL(`${O}/yo2rc.html?${q}`)) ?? q);
+    const bad = fix(`${ok.replace("ygoevolution.com%2Fnet", "attacker.example%2Fnet")}&RC_INPUT=click&YO2_DISCORD_URL=https://evil&game=x&online=1`);
+    expect(bad.get("gateway")).toBe("wss://ygoevolution.com/net");
+    expect(["RC_INPUT", "YO2_DISCORD_URL", "game"].map((k) => bad.has(k))).toEqual([false, false, false]);
+    expect([bad.get("online"), bad.get("YO2_PORT_OFFSET")]).toEqual(["1", "1000"]);
+    expect(safeGameQuery(new URL(`${O}/yo2rc.html?${bad}`))).toBeNull();               // the redirect's target passes: no loop
+    expect(fix(`http=https://evil.example&gateway=x&gateway=y&YO2_PORT_OFFSET=1000`).getAll("gateway")).toEqual(["wss://ygoevolution.com/net"]);
+    expect(fix(`YO2_PORT_OFFSET=1000`).get("http")).toBeNull();                       // missing ones are the page's to add
   });
 });

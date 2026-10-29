@@ -7,7 +7,7 @@ import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
 import type { AuthEnv } from "./auth/env.ts";
 import { ipBucket, verifySession } from "./auth/auth.ts";
-import { gateUpgrade, originAllowed } from "./auth/binding.ts";
+import { gateUpgrade, originAllowed, safeGameQuery } from "./auth/binding.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 
 export { WorldDO } from "./do.ts";
@@ -180,6 +180,12 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   // Only page loads: the client's own fetches of yo2rc.html (build checks) get the file.
   if (path === "/yo2rc.html" && !url.searchParams.has("YO2_PORT_OFFSET") && c.req.header("sec-fetch-mode") === "navigate")
     return c.redirect("/" + url.search, 302);
+  // a page load of the game takes its configuration from the link: only this site's, and no scripted environment
+  // (binding.ts safeGameQuery). The client's own fetches of the file (not a navigation) are left alone.
+  if (path === "/yo2rc.html" && (c.req.header("sec-fetch-mode") ?? "navigate") === "navigate") {
+    const safe = safeGameQuery(url);
+    if (safe !== null) return c.redirect(`/yo2rc.html?${safe}`, 302);
+  }
   const bucket = c.env.BUCKET;
   if (!bucket) return c.text("not found", 404);
   const pre = /^[\w-]+\/$/.test(c.env.CLIENT_PREFIX ?? "") && c.env.CLIENT_PREFIX !== "private/" ? c.env.CLIENT_PREFIX! : "recomp/";
