@@ -7,6 +7,7 @@ import * as PP from "../src/game/persist.ts";
 import SHOP from "../gamedata/shop.json";
 import { makeDf, WHY_SURRENDER } from "../src/duel/duelfin.ts";
 import { MAX_PEERS_PER_USER } from "../src/world.ts";
+import { ipBucket } from "../src/auth/auth.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -248,5 +249,15 @@ describe("connections per user", () => {
     expect(w.canOpen("user-b")).toBe(true);
     w.closePeer("p0");
     expect(w.canOpen("user-a")).toBe(true);
+  });
+});
+
+describe("per-IP rate limits", () => {
+  it("count an IPv6 caller by its /64 (rotating inside it gets nothing), IPv4 by its address", () => {
+    expect(ipBucket("2001:db8:aa:bb:1:2:3:4")).toBe("2001:db8:aa:bb::/64");
+    expect(ipBucket("2001:0db8:00aa:00bb::ffff")).toBe("2001:db8:aa:bb::/64");
+    expect(ipBucket("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipBucket("2001:DB8::")).toBe(ipBucket("2001:db8:0:0:9::1"));
+    expect(ipBucket("203.0.113.7")).toBe("203.0.113.7");
   });
 });

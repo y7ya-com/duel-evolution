@@ -1,7 +1,7 @@
 // Hono app for accounts: better-auth at /api/auth/*, plus DE's own account API at /api/de/*. No pages: the game boots
 // straight to its own title, and its UI drives these endpoints (AUTH.md, "Client contract").
 import { Hono, type Context } from "hono";
-import { hit, makeAuth, rolesOf, sha256hex, verifySession } from "./auth.ts";
+import { hit, ipBucket, makeAuth, rolesOf, sha256hex, verifySession } from "./auth.ts";
 import { hasLiveCode, issueCode, peekCode, RESET_TTL_MS, takeCode, VERIFY_TTL_MS } from "./codes.ts";
 import type { AuthEnv } from "./env.ts";
 import { nameProblem } from "./names.ts";
@@ -132,7 +132,8 @@ authApp.post("/api/de/password", async (c) => {
   return c.json({ ok: true });
 });
 
-const ipOf = (c: C) => c.req.header("cf-connecting-ip") ?? "none";
+/** The rate-limit key of the caller's IP (its /64 for IPv6), hashed: no raw IP is stored. */
+const ipOf = (c: C) => sha256hex(ipBucket(c.req.header("cf-connecting-ip") ?? "none"));
 const tooMany = (c: C) => c.json({ code: "RATE_LIMITED", message: "Too many tries. Wait a while and try again." }, 429);
 const passwordProblem = (p: unknown) => (typeof p === "string" && p.length >= 10 && p.length <= 128 ? null : "Passwords are 10 to 128 characters.");
 
@@ -145,7 +146,7 @@ const passwordProblem = (p: unknown) => (typeof p === "string" && p.length >= 10
  */
 authApp.post("/api/de/register", async (c) => {
   if (!sameOrigin(c)) return c.json({ message: "forbidden" }, 403);
-  if ((await hit(c.env.DB, `reg:${ipOf(c)}`, 3600_000)) > 5) return tooMany(c);
+  if ((await hit(c.env.DB, `reg:${await ipOf(c)}`, 3600_000)) > 5) return tooMany(c);
   const { username, password } = await c.req.json<{ username?: unknown; password?: unknown }>().catch(() => ({ username: undefined, password: undefined }));
   const problem = typeof username === "string" ? nameProblem(username) : "Choose a name.";
   if (problem) return c.json({ code: "BAD_NAME", message: problem }, 400);
@@ -176,7 +177,7 @@ authApp.post("/api/de/register", async (c) => {
 /** In-game password reset with the code /reset gave in Discord: sets the password, revokes sessions, signs in. */
 authApp.post("/api/de/reset", async (c) => {
   if (!sameOrigin(c)) return c.json({ message: "forbidden" }, 403);
-  if ((await hit(c.env.DB, `reset:${ipOf(c)}`, 15 * 60_000)) > 10) return tooMany(c);
+  if ((await hit(c.env.DB, `reset:${await ipOf(c)}`, 15 * 60_000)) > 10) return tooMany(c);
   const { code, newPassword } = await c.req.json<{ code?: unknown; newPassword?: unknown }>().catch(() => ({ code: undefined, newPassword: undefined }));
   const pwProblem = passwordProblem(newPassword);
   if (pwProblem) return c.json({ code: "BAD_PASSWORD", message: pwProblem }, 400);

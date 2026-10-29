@@ -6,7 +6,7 @@ import rootTxt from "../static/yo2/root.txt";
 import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
 import type { AuthEnv } from "./auth/env.ts";
-import { verifySession } from "./auth/auth.ts";
+import { ipBucket, verifySession } from "./auth/auth.ts";
 import { gateUpgrade, originAllowed } from "./auth/binding.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 
@@ -85,7 +85,7 @@ for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stal
     let row: unknown;
     try { row = JSON.parse(body); } catch { return c.body(null, 400); }
     const now = new Date().toISOString();
-    const ip = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(c.req.header("cf-connecting-ip") ?? "?")));
+    const ip = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ipBucket(c.req.header("cf-connecting-ip") ?? "?"))));
     const rateKey = `${prefix}_rate/${now.slice(0, 13)}/${[...ip.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
     const n = +((await (await bucket.get(rateKey))?.text()) || 0);
     if (n >= perHour) return c.body(null, 429);
