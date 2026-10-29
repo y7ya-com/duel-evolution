@@ -390,7 +390,7 @@ console.log("prefetch=0: ok");
     };
     const fill = (n, seed) => { const b = Buffer.alloc(n); for (let i = 0; i < n; i += 4) b.writeUInt32LE((i * 2654435761 + seed) >>> 0, i); return b; };
     const list = Buffer.from("0000.png\r\n89631139.jpg\r\n67105242.jpg\r\n24094653.jpg\r\n", "latin1");
-    const cardDat = arc([["list_card.txt", list], ["24094653.jpg", fill(MB, 1)], ["67105242.jpg", fill(2 * MB, 2)], ["89631139.jpg", fill(2 * MB, 3)]]);
+    const cardDat = arc([["list_card.txt", list], ["36280194.png", fill(MB, 5)], ["24094653.jpg", fill(MB, 1)], ["67105242.jpg", fill(2 * MB, 2)], ["89631139.jpg", fill(2 * MB, 3)]]);
     files["cards/merge/data/card.dat"] = cardDat;
     files["cards/merge/data/mini.dat"] = arc([["list_card.txt", list], ["89631139.jpg", fill(5 * MB, 4)]]);
     try {
@@ -415,6 +415,12 @@ console.log("prefetch=0: ok");
         await settle(L);
         assert.deepEqual(Buffer.from(L.artBytes(off)), cardDat.subarray(off, off + 2 * MB), "then the entry's real bytes");
         assert.equal(L.artBytes(off + 1).length, 0, "an offset that is no entry: nothing to wait for");
+        const face = cardDat.indexOf(fill(64, 5));   // a 2008 face (PNG): a placeholder too
+        assert.ok(Buffer.from(r.read("/game/merge/data/card.dat", face, 4096)).includes("yo2-placeholder:" + String(face).padStart(10, "0")), "a PNG face");
+        assert.equal(syncXhr, 0, "no synchronous read for a PNG face");
+        for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("card.dat#0")));   // its pin lost
+        r.read("/game/merge/data/card.dat", 0, 12 + 5 * 268 + list.length);   // the directory and list_card.txt, at a card scene
+        assert.equal(syncXhr, 0, "card.dat's chunk 0 stays for the session");
         syncXhr = 0;
         await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
         await settle(L);
