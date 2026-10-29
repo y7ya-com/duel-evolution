@@ -85,7 +85,7 @@ export class Trades {
         const have = this.withProfile(s, (p) => ({ ...(p.trunk ?? {}) }));
         for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
       }
-      const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
+      const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
       this.withProfile(a, apply(giveA, giveB), true);
       this.withProfile(b, apply(giveB, giveA), true);
     } catch (e) { this.g.log(`[intercambio] error moving the cards: ${e}`); return false; }

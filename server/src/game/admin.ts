@@ -34,7 +34,7 @@ export class Admin {
   /** py moderacion login hook: a banned account gets 0x3004 −246 and the connection closes 1.5 s later. */
   vetoLogin(c: Conn, acct: string): boolean {
     if (!this.isBanned(acct)) return false;
-    this.g.log(`[admin] banned account ${acct.slice(0, 6)}… tries to log in (port ${c.port}): 0x3004 −246`);
+    this.g.log(`[AVISO] [admin] banned account ${acct.slice(0, 6)}… tries to log in (port ${c.port}): 0x3004 −246`);
     c.send(0x3004, new W().u32(AUTH_BANNED).u32(0).s("ESP", 4).bytes());
     void c.closeAfterFlush();
     setTimeout(() => this.g.world.close(c, "banned"), REJECT_CLOSE_S * 1000);

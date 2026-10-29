@@ -89,7 +89,7 @@ describe("character churn", () => {
       const st: Record<string, any> = { players: {}, profiles: {} };
       for (let i = 0; i < PP.FREE_STARTS + 2; i++) {
         const p = PP.profile(st, 0)!;
-        expect([p.rec.mp, p.starter ?? 0]).toEqual(i < PP.FREE_STARTS ? [PP.ECON.START_MP, 0] : [0, -1]);
+        expect([p.rec.mp, p.starter ?? 0]).toEqual(i < PP.FREE_STARTS ? [PP.ECON.START_MP, 0] : [0, 0]); // past the cap: no MP, the starter claim kept
         (st.profiles_borrados ??= []).push({ slot: "0", perfil: st.profiles["0"] }); delete st.profiles["0"];   // 0x3030
       }
     } finally { PP.setProgression(false); }

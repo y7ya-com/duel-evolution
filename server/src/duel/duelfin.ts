@@ -181,7 +181,7 @@ export function makeDf(g: Game, lobbyConn: () => Conn | null, confirmSurrender =
     finish(c, winner, reason, turns = 0, lpLeft = 0, present = null) {
       // one result per NPC duel begun (h_autoduelstart): a repeated surrender dialog or a late finish pays nothing
       const de = sess.end;
-      if (de === null || de.over) { g.log(`[duelfin] ${reason} with no NPC duel in progress: ignored`); return false; }
+      if (de === null || de.over) { g.log(`[AVISO] [duelfin] ${reason} with no NPC duel in progress: ignored`); return false; }
       const [msgs, over] = de.gameOver(winner, reason);
       const lob = lobbyConn();
       if (over && lob !== null) {

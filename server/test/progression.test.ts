@@ -40,6 +40,11 @@ describe("progression", () => {
     const pick = legalDeck(7003).main;
     expect([sum(p.trunk), p.starter, pick.every((c) => p.trunk[String(c)] > 0)]).toEqual([40, 7003, true]);
     expect(p.pbin.includes(792 + 1)).toBe(true); // 7003's recipe (right 792 + 1), as buying it sets: Edit Deck's Recipe list
+    expect(h.log.some((l) => l.startsWith("[economia]") && l.includes("cards +40 (starter deck 7003)"))).toBe(true);
+    // a claim from before the recipe bit gets it at its next 0x3114
+    const old: any = { name: "O", prog: 1, starter: 8001, rec: {}, trunk: {}, pbin: [] };
+    PP.starterRecipeFix(null, old);
+    expect(old.pbin).toEqual([770 + 1]);
     expect(h.log.some((l) => l.startsWith("[economia]") && l.includes("starter deck 7003"))).toBe(true);
 
     const baul = (main: number[]) => check(main, [], p.trunk).filter((x) => x.regla === "baul");
@@ -66,7 +71,7 @@ describe("progression", () => {
     p = prof(h);
     expect([sum(p.trunk), p.rec.mp]).toEqual([45, 5000 + 650 - 100]);
     expect([p.econ.spent, p.econ.packs, p.econ.earned, p.econ.duels]).toEqual([100, 1, 650, 3]);
-    expect(h.log.filter((l) => l.startsWith("[economia]")).length).toBe(5);
+    expect(h.log.filter((l) => l.startsWith("[economia]")).length).toBe(7); // + the cards of the claim and the pack
   });
 
   it("every starter deck is 40 legal cards (copies over the 2008 list swapped for cards of the same deck)", () => {

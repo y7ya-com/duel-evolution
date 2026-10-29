@@ -436,7 +436,7 @@ export class Lobby {
     const msg = cat(head, text, Uint8Array.of(0));
     c.send(0x4402, msg);
     const s = this.sess(c), hub = this.g.hub;
-    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) { this.log(`[admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`); return true; }
+    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) { this.log(`[AVISO] [admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`); return true; }
     if (s && s.pid !== null) {
       const tell = (o: Session) => { const lc = o.lobby; if (lc && !lc.closed) lc.post(0x4402, msg); };
       if (kind === 0 && s.block !== null) for (const o of hub.others(s)) tell(o);
@@ -663,7 +663,7 @@ export class Lobby {
     const trunk = p.trunk ?? {};
     const seen = new Set<number>(), flags: number[] = [];
     for (const cid of cards) { flags.push((trunk[String(cid)] ?? 0) === 0 && !seen.has(cid) ? 1 : 0); seen.add(cid); }
-    PP.trunkAdd(this.g, p, cards);
+    PP.trunkAdd(this.g, p, cards, 1, "lobby pack");
     this.g.saveState(st);
     return flags;
   }
@@ -676,7 +676,7 @@ export class Lobby {
   }
   private hPacklist(c: Conn) { c.send(0x4800, cat(...Array.from({ length: 10 }, (_, i) => new W().u16(i + 1).bytes()))); return true; }
   /** py's free pack and gift cards: off with PROGRESSION (cards come from the shop, prizes, trades), s32 1 = none. */
-  private noPack(c: Conn, mid: number) { this.log(`[lobby] 0x${mid.toString(16)}: no free cards with progression`); c.send(0x4803, new W().u32(1).bytes()); return true; }
+  private noPack(c: Conn, mid: number) { this.log(`[AVISO] [lobby] 0x${mid.toString(16)}: no free cards with progression`); c.send(0x4803, new W().u32(1).bytes()); return true; }
   hSelectpackBase(c: Conn, data: Uint8Array) {
     if (PP.progression()) return this.noPack(c, 0x4802);
     this.cardsResult(c, this.cards(data.length >= 2 ? u16(data) : 1)); return true;

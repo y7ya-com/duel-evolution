@@ -195,7 +195,7 @@ export class Matches {
     const m = this.byPid(pid);
     if (!m || m.done) return null;
     // the stream is player 0's own view (its hand included): never to a player of that match
-    if (who && m.sess.includes(who)) { this.log(`[pvp] ${m.name}: a player of the match asks to watch it: refused`); return null; }
+    if (who && m.sess.includes(who)) { this.log(`[AVISO] [pvp] ${m.name}: a player of the match asks to watch it: refused`); return null; }
     this.watchReq.set(peer, [m, now()]);
     return m;
   }
