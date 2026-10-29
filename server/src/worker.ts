@@ -1,7 +1,7 @@
 // Front door (Hono): the updater's files, the game WebSocket handoff to the singleton WorldDO, admin and dev routes,
 // the account API (src/auth), and the recompiled client's files from R2.
 // The Durable Objects stay plain DurableObject classes speaking the YO2 binary protocol over WebSockets.
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import rootTxt from "../static/yo2/root.txt";
 import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
@@ -158,6 +158,18 @@ routes.post("/api/de/starter/claim", async (c) => {
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/starter/claim", fwd);
 });
+
+// the player's own decks (game/decks.ts): GET the list; PUT a deck, PUT /current {name}, DELETE /<name> (same origin)
+const decks = async (c: Context<E>) => {
+  if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/decks" + new URL(c.req.url).pathname.slice("/api/de/decks".length), fwd);
+};
+routes.on(["GET", "PUT", "DELETE"], "/api/de/decks", decks);
+routes.on(["GET", "PUT", "DELETE"], "/api/de/decks/*", decks);
 
 // the account API (src/auth)
 routes.use("*", async (c, next) => {

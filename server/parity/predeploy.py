@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -71,10 +72,10 @@ def prefetch(cookie):
         return r.status, (json.loads(body) if body else None)
 
 
-def api(path, cookie, body=None, origin=ORIGIN):
-    """(status, JSON or None) of /api/de/<path>: GET, or POST with a JSON body."""
+def api(path, cookie, body=None, origin=ORIGIN, method=None):
+    """(status, JSON or None) of /api/de/<path>: GET, or POST (or `method`) with a JSON body."""
     h = {"User-Agent": UA, "Cookie": cookie, **({"Origin": origin} if origin else {}), **({"Content-Type": "application/json"} if body is not None else {})}
-    req = urllib.request.Request(BASE + "/api/de/" + path, headers=h, method="POST" if body is not None else "GET",
+    req = urllib.request.Request(BASE + "/api/de/" + path, headers=h, method=method or ("POST" if body is not None else "GET"),
                                  data=json.dumps(body).encode() if body is not None else None)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -101,6 +102,21 @@ def starter_deck(X, cookie, deck):
     st2, info = api("starter", cookie)
     step(st == 409 and info["claimable"] is False and info["reason"] == "claimed" and info["claimed"]["id"] == deck
          and sum(n for _, n in info["claimed"]["main"]) == 40, f"{X.name}: a second claim is refused; GET gives the claimed ready deck ({st} {out}; {info and info.get('reason')})")
+    # the server deck list (game/decks.ts): the claimed deck is the current one; a deck saved, listed, deleted
+    st, ds = api("decks", cookie)
+    cur = ds and next((d for d in ds["decks"] if d["name"] == ds["current"]["world"]), None)
+    step(st == 200 and cur is not None and len(cur["main"]) == 40 and ds["current"]["free"] is None,
+         f"{X.name}: GET /api/de/decks: the starter deck is the World's current ({st} {ds and ds.get('current')})")
+    mine = {"name": "Predeploy デッキ", "main": cur["main"][:20], "side": [], "extra": [], "current": True, "mode": "free"}
+    step(api("decks", cookie, mine, origin=None, method="PUT")[0] == 403, f"{X.name}: a deck PUT without our Origin is refused (403)")
+    st, out = api("decks", cookie, mine, method="PUT")
+    st2, ds = api("decks", cookie)
+    step(st == 200 and any(d["name"] == mine["name"] and d["main"] == mine["main"] for d in ds["decks"]) and ds["current"]["free"] == mine["name"],
+         f"{X.name}: PUT a deck (Free's current), GET lists it in order ({st})")
+    st, _ = api("decks/" + urllib.parse.quote(mine["name"]), cookie, None, method="DELETE")
+    st2, ds = api("decks", cookie)
+    step(st == 200 and all(d["name"] != mine["name"] for d in ds["decks"]) and [d["name"] for d in ds["deleted"]] == [mine["name"]],
+         f"{X.name}: DELETE leaves a tombstone ({st})")
 
 
 def npc_duel(fc, A, cookies=None, npc=84):

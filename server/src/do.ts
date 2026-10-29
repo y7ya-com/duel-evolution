@@ -9,6 +9,7 @@ import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo } from "./game/starter.ts";
+import { currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
@@ -106,6 +107,28 @@ export class WorldDO extends DurableObject<Env> {
         catch (e) { console.error(`[starter] ${e}`); res([500, { error: "server error" }]); }
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname.startsWith("/__de/decks")) {
+      // the Worker forwards /api/de/decks(/current|/<name>) here with x-de-user (a checked session); game/decks.ts
+      const user = request.headers.get("x-de-user"), db = this.env.DB;
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      if (!db) return Response.json({ error: "no database" }, { status: 503 });
+      // a claimed starter deck reaches the list through GET (decksGet: once, the World's current if none)
+      const o = await new Promise<Owner | [number, Record<string, unknown>]>((res) => this.srv.world.run(() => res(deckOwner(this.srv.game, user))));
+      const rest = decodeURIComponent(url.pathname.slice("/__de/decks".length).replace(/^\//, ""));
+      const body = request.method === "PUT" ? await request.json().catch(() => null) as Record<string, unknown> | null : null;
+      let r: [number, Record<string, unknown>];
+      try {
+        if (Array.isArray(o)) r = o;
+        else if (request.method === "GET" && !rest) r = await decksGet(db, o);
+        else if (request.method === "PUT" && rest === "current") r = await deckCurrent(db, o.key, body);
+        else if (request.method === "PUT" && !rest) {
+          const d = deckIn(body), cur = currentOf(body);
+          r = typeof d === "string" ? [400, { error: d }] : cur === "bad mode" ? [400, { error: cur }] : await deckPut(db, o.key, d, cur);
+        } else if (request.method === "DELETE" && rest) r = await deckDelete(db, o.key, rest);
+        else r = [405, { error: "method not allowed" }];
+      } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
+      return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__dev/state" && this.env.DEV === "1") {
       // parity runs: start from the same state.json as py (never enabled outside wrangler dev). With D1 in use, the

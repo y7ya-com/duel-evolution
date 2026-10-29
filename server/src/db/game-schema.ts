@@ -361,3 +361,25 @@ export const shopPrices = sqliteTable("shop_prices", {
   key: text("key").primaryKey(),
   mp: int("mp").notNull(),
 });
+
+// ---- the player's own decks (game/decks.ts, the web client's Deck folder sync). Not part of the state (no
+// projection, never in the WorldDO's memory): read and written per request. char_key = "<acct>/<slot>".
+// main/side/extra: JSON arrays of passcodes in the .ydc's order. deleted = 1: a tombstone (another device mustn't
+// upload it again).
+export const userDecks = sqliteTable("user_decks", {
+  charKey: text("char_key").notNull(),
+  name: text("name").notNull(),
+  main: text("main").notNull(),
+  side: text("side").notNull(),
+  extra: text("extra").notNull(),
+  updated: int("updated").notNull(),
+  deleted: int("deleted").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.charKey, t.name] })]);
+
+/** mode = "world" | "free": each keeps its own current deck (an unowned Free deck never becomes the World's). */
+export const userDeckCurrent = sqliteTable("user_deck_current", {
+  charKey: text("char_key").notNull(),
+  mode: text("mode").notNull(),
+  name: text("name").notNull(),
+  updated: int("updated").notNull(),
+}, (t) => [primaryKey({ columns: [t.charKey, t.mode] })]);
