@@ -37,7 +37,9 @@ export interface Msg { id: number; param: number; data: Uint8Array; ok: boolean 
 export class Reader {
   buf: Uint8Array = new Uint8Array(0);
 
-  feed(chunk: Uint8Array): Msg[] {
+  /** At most `max` messages; the rest stays buffered. One copy of what is left (a 1 MB frame of tiny messages
+   *  re-sliced per message cost seconds). */
+  feed(chunk: Uint8Array, max = Infinity): Msg[] {
     if (chunk.length) {
       const b = new Uint8Array(this.buf.length + chunk.length);
       b.set(this.buf);
@@ -45,16 +47,18 @@ export class Reader {
       this.buf = b;
     }
     const out: Msg[] = [];
-    while (this.buf.length >= HDR) {
-      const head = xor(this.buf.subarray(0, HDR));
+    let at = 0;
+    while (out.length < max && this.buf.length - at >= HDR) {
+      const head = xor(this.buf.subarray(at, at + HDR));
       const dv = new DataView(head.buffer);
       const id = dv.getUint16(0), n = dv.getUint16(2), param = dv.getUint32(4);
-      if (this.buf.length < HDR + n) break;
-      const data = xor(this.buf.subarray(HDR, HDR + n), HDR);
+      if (this.buf.length - at < HDR + n) break;
+      const data = xor(this.buf.subarray(at + HDR, at + HDR + n), HDR);
       const h = createHash("md5").update(head.subarray(0, 8)).update(data).digest();
       out.push({ id, param, data, ok: Buffer.from(h).equals(Buffer.from(head.subarray(8, 24))) });
-      this.buf = this.buf.slice(HDR + n);
+      at += HDR + n;
     }
+    if (at) this.buf = this.buf.slice(at);
     return out;
   }
 

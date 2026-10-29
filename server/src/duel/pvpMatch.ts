@@ -34,6 +34,8 @@ export const WATCH_BATCH = 64, WATCH_REQ_TTL = 60.0, WATCH_SIN_DECISIONES = true
 const PVP_MATCH = "1", MATCH_STYLE = 4, MATCH_WAIT = 300;
 const NEXT_MSGS = new Set([0x6600, 0x6601, 0x6603, 0x6100, 0x6101, 0x6102, 0x6103, 0x61fe]);
 const SWAP_TIME = 180, SWAP_LEAD = 10, GLOBAL_CLOCK = 3;
+/** «Time Limit» OFF rooms: seconds a player may sit on one turn (or on its answers in the other's turn). */
+export const AFK = { s: 600 };
 const now = () => Date.now() / 1000;
 const errStr = (e: unknown) => (e instanceof Error ? `${e.name}(${JSON.stringify(e.message)})` : String(e));
 const u32at = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at);
@@ -248,6 +250,8 @@ export class PvpMatch {
   done = false;
   badAuto = 0;
   private recorder: DL.Recorder | null = null;
+  /** What spectators see: the public view's 0x6202 (PvpSession.pub), never a player's own. */
+  private pubRec = new DL.Recorder();
   watchers: WatchW[] = [];
   jhands: [number, number] | null = null;
   // match / start state py keeps in __dict__
@@ -505,6 +509,7 @@ export class PvpMatch {
     this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
+    if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
     return this.ps.start(first);
@@ -656,10 +661,13 @@ export class PvpMatch {
   }
 
   // ---- time limit
-  private clockCfg(): [{ turn: number; resp: number; margin: number; notify: (item: unknown[]) => void } | null, string] {
+  private clockCfg(): [{ turn: number; resp: number; margin: number; notify: (item: unknown[]) => void; silent?: boolean } | null, string] {
     const cfg = DEFAULT_CFG as Record<string, any>;
     if (!cfg.turn_limit) return [null, "sin límite de tiempo (turn_limit apagado)"];
-    if (this.roomTime === 0) return [null, "sin límite de tiempo (sala con «Límite de Tiempo» OFF)"];
+    // «Time Limit» OFF: no clock is shown, but a player who doesn't answer for AFK_S loses on time (a staller could
+    // otherwise hold the other player until it leaves, and leaving is a loss)
+    if (this.roomTime === 0) return [{ turn: AFK.s, resp: AFK.s, margin: 0, notify: (item) => this.q(item as Item), silent: true },
+      `sin límite de tiempo (sala con «Límite de Tiempo» OFF): ${AFK.s} s sin contestar pierde`];
     let turn = Number(cfg.turn_timer || 0);
     const gs = Number(cfg.tiempo_gunslinger || 0);
     const guns = GUNSLINGER_KINDS.includes(this.roomKind(this.sess[0])) && gs > 0;
@@ -755,7 +763,7 @@ export class PvpMatch {
 
   watchPump(): void {
     if (!this.watchers.length) return;
-    const ents = this.recorder ? this.recorder.entries : [];
+    const ents = this.pubRec.entries;
     for (const w of [...this.watchers]) {
       if (!w.c || w.c.closed) { this.watchers.splice(this.watchers.indexOf(w), 1); continue; }
       if (!w.jseen) {
@@ -768,8 +776,8 @@ export class PvpMatch {
       const batch: [number, Uint8Array][] = [];
       let i = w.i;
       while (i < ents.length && batch.length < WATCH_BATCH) {
-        const [side, d] = ents[i++];
-        if (side === 0 && !(WATCH_SIN_DECISIONES && watchOculta(d))) batch.push([0x6202, d]);
+        const [, d] = ents[i++];
+        if (!(WATCH_SIN_DECISIONES && watchOculta(d))) batch.push([0x6202, d]);
       }
       w.i = i;
       if (batch.length) { w.want = false; w.tx.put(batch); }

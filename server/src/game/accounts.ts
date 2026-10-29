@@ -20,11 +20,29 @@ export function archiveProfile(g: Game, st: any, slot: string, why: string): any
   return p;
 }
 
+/** Whether a character anywhere (any account, any slot but this account's `slot`) already has this name, ignoring
+ *  case: new names are unique. Names given before this rule stay as they are (only creating one is checked). */
+export function nameTaken(g: Game, name: string, acct: string | null, slot: string): boolean {
+  const key = name.trim().toLowerCase();
+  const raw = g.store.peek();
+  const lists: [string | null, Record<string, string>][] = [[raw.owner_acct ?? g.cfg.ownerAcct, raw.players ?? {}],
+    ...Object.entries(raw.accounts ?? {}).map(([a, v]: [string, any]) => [a, v?.players ?? {}] as [string, Record<string, string>])];
+  return lists.some(([a, players]) => Object.entries(players).some(([k, n]) => !(a === acct && k === slot) && String(n ?? "").trim().toLowerCase() === key));
+}
+/** 0x3022 results the 2008 client words itself (FUN_006a6eb0): -260 "This Player Name is already in use", -262
+ *  "There are incompatible characters in this name". */
+export const REG_NAME_TAKEN = -260, REG_NAME_BAD = -262;
+
 export function regplayer(g: Game, c: Conn, data: Uint8Array): void {
   const name = data.length > 1 ? cstr(data.subarray(1, 17)) : "";
   const st = g.loadState();
   const slot = data.length ? String(data[0]) : "0";
   const old = st.profiles?.[slot];
+  if ((old?.name ?? st.players?.[slot]) !== name && (!name.trim() || nameTaken(g, name, st._acct ?? null, slot))) {
+    g.log(`[cuentas] 0x3020 slot ${slot}: the name ${JSON.stringify(name)} is ${name.trim() ? "taken" : "empty"}: refused`);
+    c.send(0x3022, new W().u32(name.trim() ? REG_NAME_TAKEN : REG_NAME_BAD).bytes());
+    return;
+  }
   if (old != null && old.name && old.name !== name) archiveProfile(g, st, slot, "crear");
   (st.players ??= {})[slot] = name;
   g.saveState(st);

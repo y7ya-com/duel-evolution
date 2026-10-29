@@ -100,7 +100,7 @@ export function nrNpcDuelEnd(g: Game, base: (p: P, npc: number, result: string, 
   const eBefore = valid ? PP.npcbinGet(p, npc) : [0, 0, 0, 0];
   PP.NR_CTX.on = f;
   try { base(p, npc, result, turns, lpLeft); } finally { PP.NR_CTX.on = null; }
-  if (f.no_record) p.rec = recBefore;
+  if (f.no_record) p.rec = { ...recBefore, mp: (p.rec ?? {}).mp ?? recBefore.mp };   // out of the record, but the duel's MP stays
   if (f.friendship && valid) {
     const pkg = applyFriendship(g, p, npc, result, eBefore);
     if (pkg) g.log(`[npcreglas] NPC ${npc}: regalo ${JSON.stringify(pkg.bits)} cartas ${JSON.stringify(pkg.cards)}`);

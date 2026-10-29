@@ -227,9 +227,21 @@ export class YO2Duel {
     return w;
   }
 
+  /** Whether player 0 can't see card c: the other side's deck, hand and extra, and its face-down field cards (the
+   *  engine's select events carry their real codes: a list prompt must not). */
+  _hides(c: Card, where: Where, p: number): boolean {
+    return this._hides_side(p) && (["deck", "hand", "extra"].includes(where) || (["mz", "sz"].includes(where) && !c.face));
+  }
+
+  /** Whose hidden cards this view hides: the other side's (hide_npc), or both (public_view: the spectators'). */
+  _hides_side(p: number): boolean { return !!this.cfg.public_view || (!!this.cfg.hide_npc && p === 1); }
+
+  /** Player p is this view's own player (the public view has none). */
+  _own(p: number): boolean { return p === 0 && !this.cfg.public_view; }
+
   /** The card the client must have for card c in `where` (player 0's view): the NPC's hidden cards wear a cover. */
   _visible(c: Card, where: Where, p: number): number {
-    if (this.cfg.hide_npc && p === 1 && (["deck", "hand", "extra"].includes(where) || (["mz", "sz"].includes(where) && !c.face))) {
+    if (this._hides(c, where, p)) {
       if (where === "sz") return this.cm.kind(c.code) === "spell" ? HIDDEN_SPELL : HIDDEN_TRAP;
       return HIDDEN_MONSTER;
     }
@@ -579,7 +591,7 @@ export class YO2Duel {
       const uid = s.deck[k];
       const c = this.card(uid);
       if (truthy(d.code)) c.code = d.code;
-      const want = p === 0 || !this.cfg.hide_npc ? this._pc(c.code) : HIDDEN_MONSTER;
+      const want = !this._hides_side(p) ? this._pc(c.code) : HIDDEN_MONSTER;
       if (c.known !== want) {
         c.known = want;
         out.push(set_card(p, ZONE_DECK, k, want, uid >> 1, c.owner));
@@ -673,7 +685,7 @@ export class YO2Duel {
     let mset = false;
     c.face = face;
     if (face) out = out.concat(this._identity(uid, true));
-    else if (p_from === 1 && this.cfg.hide_npc) {
+    else if (this._hides_side(p_from)) {
       c.known = null;
       const want = where === "mz" ? HIDDEN_MONSTER : this.cm.kind(c.code) === "spell" ? HIDDEN_SPELL : HIDDEN_TRAP;
       out.push(this._set_known(uid, want));
@@ -737,7 +749,7 @@ export class YO2Duel {
     const [p_from, w_from, i_from] = this.findx(uid);
     const [p, where0] = this.ocg_slot(to.controller, to.location, 0);
     const where = where0 as PileName;
-    const pub = where === "grave" || where === "banish" || (where === "hand" && p === 0);
+    const pub = where === "grave" || where === "banish" || (where === "hand" && this._own(p));
     let out: Out[] = pub ? this._identity(uid, true) : [];
     const dst_pile = this.side[p].pile(where) as number[];
     let top = false, idx: number;
@@ -766,7 +778,7 @@ export class YO2Duel {
         plain && where === "grave" ? 0x20 : 0));
     }
     this._remove(uid);
-    c.face = where === "grave" || where === "banish" || (where === "hand" && p === 0);
+    c.face = where === "grave" || where === "banish" || (where === "hand" && this._own(p));
     c.defense = false;
     if (where === "deck") {
       if (top) dst_pile.unshift(uid);
@@ -1001,7 +1013,7 @@ export class YO2Duel {
     c.face = face1;
     c.defense = def1;
     if (!face1) this.stat_sent.delete(uid);
-    if (!face1 && p === 1 && this.cfg.hide_npc) {
+    if (!face1 && this._hides_side(p)) {
       const want = this._visible(c, where, p);
       if (want !== c.known) out.push(this._set_known(uid, want));
     }
@@ -2250,8 +2262,7 @@ export class YO2Duel {
       const [p, where] = found;
       const c = this.card(uid!);
       const code = d.code || c.code;
-      const hidden = this.cfg.hide_npc && p === 1 && ["deck", "hand", "extra"].includes(where);
-      const y = hidden ? this._visible(c, where, p) : this._pc(code);
+      const y = this._hides(c, where, p) ? this._visible(c, where, p) : this._pc(code);
       items.push([y, (uid! >> 1) & 0xff, c.owner & 1]);
     }
     const n = items.length;
@@ -2479,8 +2490,7 @@ export class YO2Duel {
       const u = c.uid;
       const card = this.card(u);
       const [p, where] = this.findx(u);
-      const hidden = this.cfg.hide_npc && p === 1 && ["deck", "hand", "extra"].includes(where);
-      const y = hidden ? this._visible(card, where, p) : this._pc(c.code || card.code);
+      const y = this._hides(card, where, p) ? this._visible(card, where, p) : this._pc(c.code || card.code);
       items.push([y, (u >> 1) & 0xff, card.owner & 1]);
       order.push(c.i);
     }
@@ -2589,7 +2599,7 @@ export class YO2Duel {
           const c = uid !== null ? this.cards.get(uid) ?? null : null;
           if (c !== null && (c.code === code || (truthy(alias) && c.code === alias))) {
             let pre: Out[] = [];
-            if (p === 0 && (name === "deck" || name === "extra")) pre = this._identity(uid!, true);
+            if (this._own(p) && (name === "deck" || name === "extra")) pre = this._identity(uid!, true);
             return [uid, pre];
           }
         }

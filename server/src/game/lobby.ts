@@ -855,6 +855,11 @@ function avatarInfo(g: Game, pid: number): Uint8Array {
   return new W().u32(0).u32(pid).s(myName(g), 16).u16(400).u16(300).u8(0).bytes();
 }
 
+function avatarOk(g: Game, parts: Uint8Array): boolean {
+  try { const st = g.loadState(); const p = PP.profile(st, PP.activeSlot(st), false); return !p || PP.avatarOwned(p, parts); }
+  catch { return true; }
+}
+
 function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
   if (!MYROOM_SELF_AVATAR || c.port !== g.ports.lobby || data.length < 20) return;
   const world = u32(data);
@@ -864,6 +869,12 @@ function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
 // ---------------------------------------------------------------- lobby_reply
 export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data: Uint8Array): void {
   if (msgId === 0x3001 || msgId === 0x3003) return g.gameReply(c, msgId, param, data);
+  if (msgId === 0x4170 && data.length >= 20 && c.sess && !avatarOk(g, data.subarray(4, 20))) {   // before anyone sees it
+    // answered like a stored look (an error might cut the client's room entry): nothing is kept or shown to others
+    g.log(`[avatar] 0x4170 with items this character doesn't own: not kept`);
+    c.send(0x4171, new W().u32(0).bytes());
+    return;
+  }
   try {
     if (msgId === 0x4100 && c.sess) {
       c.ext.lang = data.length ? data[0] : 0;

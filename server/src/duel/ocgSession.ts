@@ -19,6 +19,7 @@ import { timeup_warning } from "./translator/lockstep.ts";
 import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
 import { NpcAi, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
+import { PyRandom } from "../util/pyrandom.ts";
 
 export const NPC_THINK = 0.4;          // s before each visible NPC decision (py 0.8; the Sender still paces what the client sees)
 export const MAX_NPC_DECISIONS = 3000;  // anti-loop cap per duel
@@ -407,9 +408,11 @@ export class OcgSession {
 // ================================================================================ PvP
 export const ritualSumOk = (): boolean => !!DEFAULT_CFG.ritual_sum;
 
-interface Clk { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null; tp: number | null;
+interface Clk { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null; silent?: boolean; tp: number | null;
   left: [number, number]; rleft: [number, number]; run: { p: number; gen: number; t0: number | null; pool: "left" | "rleft" } | null; gen: number }
-export interface ClockCfg { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null }
+export interface ClockCfg { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null;
+  /** an AFK limit, not a time limit: nothing is shown (a room with «Time Limit» OFF) */
+  silent?: boolean }
 
 /** py PvpSession: one duelcore duel between two clients (not thread-safe: PvpMatch drives it from its own queue). */
 export class PvpSession {
@@ -419,6 +422,10 @@ export class PvpSession {
   placeManual: [boolean, boolean] = [false, false];
   stats: { feedMany(evs: Json[]): void } | null = null;
   views: [YO2Duel | null, YO2Duel | null] = [null, null];
+  /** The spectators' view (public_view: neither side's hidden cards), fed like a player who never decides; its
+   *  messages go to onPublic. Set onPublic before start() to have one. */
+  pub: YO2Duel | null = null;
+  onPublic: ((msgs: Msg[]) => void) | null = null;
   decider: number | null = null;
   over = false;
   started = false;
@@ -449,6 +456,14 @@ export class PvpSession {
     if (this.dc) this.dc.end(this.id).catch(() => { /* pass */ });
     try { this.finish(null, "error", this.turn); }
     catch (e2) { this.log(`[ERROR] [pvp] ${this.id}: el fin por error también falla: ${errStr(e2)}`); }
+  }
+
+  /** Events for the spectators' view (null: its start); a failure there drops it, never the duel. */
+  private feedPub(evs: Json[] | null): void {
+    const v = this.pub;
+    if (!v || !this.onPublic) return;
+    try { this.onPublic(evs === null ? v.start() : v.feed_many(evs as any).filter((m) => !isEnd(m))); }
+    catch (e) { this.log(`[pvp] ${this.id}: vista de espectadores: ${errStr(e)}; sin ella desde aquí`); this.pub = null; }
   }
 
   evFor(i: number, evs: Json[]): Json[] { return i === 0 ? evs : evs.map((e) => mirror(e)); }
@@ -482,6 +497,10 @@ export class PvpSession {
     this.views[0]!.query = () => this.core().query(this.id);
     this.views[1]!.query = () => mirror_state(this.core().query(this.id));
     for (const i of [0, 1]) this.out[i].put(this.views[i]!.start());
+    if (this.onPublic) {   // its own RNG: the shared one's sequence stays the players'
+      this.pub = new YO2Duel([codes[0], codes[1]], { first, cardmap: cardmap(), cfg: { ...cfg, public_view: true }, log: (s) => this.log(s), rng: new PyRandom() });
+      this.feedPub(null);
+    }
     const seed = this.g.rng.randrange(1 << 30);
     const rule = PY_DUEL_RULE;
     const o = { first: first as 0 | 1, seed, shuffle: true, bot: [false, false] as [boolean, boolean], rule,
@@ -510,6 +529,7 @@ export class PvpSession {
           this.out[i].put(v.feed_many(this.evFor(i, evs.slice(0, -1))).filter((m) => !isEnd(m)));
           v.finished = true;
         }
+        this.feedPub(evs.slice(0, -1));
         this.over = true;
         this.ended = true;
         this.decider = null;
@@ -525,6 +545,7 @@ export class PvpSession {
         const o = 1 - p;
         if (last.type === "SELECT_SUM" && !ritualSumOk()) {
           for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs.slice(0, -1))));
+          this.feedPub(evs.slice(0, -1));
           this.sumAutos++;
           if (this.sumAutos === 1 || last.retry === false) this.log(`[pvp] ${this.id}: SELECT_SUM del jugador ${p}: decide bot.ts`);
           if (this.sumAutos > PVP_SUM_MAX) {
@@ -537,6 +558,7 @@ export class PvpSession {
         }
         this.sumAutos = 0;
         this.out[o].put(this.views[o]!.feed_many(this.evFor(o, evs.slice(0, -1))));
+        this.feedPub(evs.slice(0, -1));
         const v = this.views[p]!;
         this.out[p].put(v.feed_many(this.evFor(p, evs)));
         try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
@@ -546,6 +568,7 @@ export class PvpSession {
         return;
       }
       for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs)));
+      this.feedPub(evs);
       if (kind === "error") {
         this.coreErrors++;
         this.log(`[pvp] error de duelcore en ${this.id} (${this.coreErrors}.º seguido): ${last.error}`);
@@ -642,6 +665,7 @@ export class PvpSession {
   }
   private clkShow(p: number): void {
     const k = this.clk!, o = 1 - p;
+    if (k.silent) return;
     const sec = (x: number) => Math.max(0, pyRoundInt(x));
     const mine = sec(this.clockLeft(p)!);
     if (k.tp === null || k.tp === p) {

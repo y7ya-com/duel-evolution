@@ -148,6 +148,15 @@ export async function hit(db: D1Database, key: string, windowMs: number): Promis
   return row?.count ?? 1;
 }
 
+/** What a per-IP rate limit counts: the IP, or its /64 for IPv6 (one subscriber holds a whole /64 and can rotate in it). */
+export function ipBucket(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const [a, b] = ip.toLowerCase().split("::");
+  const head = a ? a.split(":") : [], tail = b ? b.split(":") : [];
+  const all = b === undefined ? head : [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill("0"), ...tail];
+  return all.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
 export async function sha256hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
