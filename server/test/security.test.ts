@@ -305,11 +305,12 @@ describe("character names", () => {
     };
     const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b"), y = h.client("y", "y", "pw", "user-y");
     expect(await create(a, 0, "Alice")).toBe(0);
-    expect(await create(b, 0, "aLiCe")).toBe(-1);                  // taken, whatever the case
-    expect(await create(b, 1, "DUP")).toBe(-1);
+    expect(await create(b, 0, "aLiCe")).toBe(-260);                  // taken, whatever the case
+    expect(await create(b, 1, "DUP")).toBe(-260);
     expect(await create(b, 0, "Bob")).toBe(0);
     expect(await create(y, 0, "Dup")).toBe(0);                     // a grandfathered duplicate keeps its own name
-    expect(await create(a, 1, "Alice")).toBe(-1);                  // one's own other slot counts too
+    expect(await create(a, 1, "Alice")).toBe(-260);                  // one's own other slot counts too
+    expect(await create(a, 2, "   ")).toBe(-262);                    // empty: "incompatible characters"
     expect(Object.values(h.state().accounts["u:user-b"].players)).toEqual(["Bob"]);
   });
 });
