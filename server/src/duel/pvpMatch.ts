@@ -250,6 +250,8 @@ export class PvpMatch {
   done = false;
   badAuto = 0;
   private recorder: DL.Recorder | null = null;
+  /** What spectators see: the public view's 0x6202 (PvpSession.pub), never a player's own. */
+  private pubRec = new DL.Recorder();
   watchers: WatchW[] = [];
   jhands: [number, number] | null = null;
   // match / start state py keeps in __dict__
@@ -507,6 +509,7 @@ export class PvpMatch {
     this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
+    if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
     return this.ps.start(first);
@@ -760,7 +763,7 @@ export class PvpMatch {
 
   watchPump(): void {
     if (!this.watchers.length) return;
-    const ents = this.recorder ? this.recorder.entries : [];
+    const ents = this.pubRec.entries;
     for (const w of [...this.watchers]) {
       if (!w.c || w.c.closed) { this.watchers.splice(this.watchers.indexOf(w), 1); continue; }
       if (!w.jseen) {
@@ -773,8 +776,8 @@ export class PvpMatch {
       const batch: [number, Uint8Array][] = [];
       let i = w.i;
       while (i < ents.length && batch.length < WATCH_BATCH) {
-        const [side, d] = ents[i++];
-        if (side === 0 && !(WATCH_SIN_DECISIONES && watchOculta(d))) batch.push([0x6202, d]);
+        const [, d] = ents[i++];
+        if (!(WATCH_SIN_DECISIONES && watchOculta(d))) batch.push([0x6202, d]);
       }
       w.i = i;
       if (batch.length) { w.want = false; w.tx.put(batch); }

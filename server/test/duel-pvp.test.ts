@@ -146,4 +146,42 @@ describe.skipIf(!have)("PvP through the duel port", () => {
       expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(2);
     } finally { AFK.s = 600; }
   }, 120_000);
+
+  it("spectators get the public view: neither player's hand", async () => {
+    const A = client("Alfa3", "aaaa", 1), B = client("Beta3", "bbbb", 2);
+    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const BLUE_EYES = 89631139, deck = Array(40).fill(BLUE_EYES);   // nothing can be summoned: every card stays hidden
+    const deck32 = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u32(x); return w.bytes(); };
+    for (const c of [A, B]) {
+      await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
+      await send(c, 0x6600, new W().u32(40).u32(0).u32(0).bytes());
+      await send(c, 0x6601, deck32(deck));
+      await send(c, 0x6603, deck32([]));
+      await send(c, 0x600b);
+    }
+    await until(() => has(A, 0x6005) && has(B, 0x6005));
+    for (const c of [A, B]) await send(c, 0x6100);
+    await send(A, 0x6101, Uint8Array.of(0));
+    await send(B, 0x6101, Uint8Array.of(1));
+    for (const c of [A, B]) await send(c, 0x6102);
+    await send(A, 0x6103, Uint8Array.of(0));
+    await until(() => has(B, 0x6103, (d) => d[0] === 1));
+    const na = A.got.duel.length;
+    for (const c of [A, B]) await send(c, 0x61fe, Uint8Array.of(1));
+    await until(() => has(A, 0x6202, (d) => type6202(d) === 0x1a, na));
+    const seen: [number, Uint8Array][] = [];
+    const rd = new Reader();
+    const wc = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-watch", (b) => { for (const x of rd.feed(b)) seen.push([x.id, x.data]); return true; }, DUEL_PORT);
+    m.watchAttach(wc);
+    await until(() => seen.some(([x]) => x === 0x6701));
+    m.on(wc, 0x6702, 0, new Uint8Array(0));
+    await until(() => seen.some(([x]) => x === 0x6202));
+    const code = Buffer.from(new W().u32(BLUE_EYES).bytes());
+    expect(A.got.duel.some(([x, d]) => x === 0x6202 && Buffer.from(d).includes(code))).toBe(true);   // A sees its own hand
+    expect(seen.some(([x, d]) => x === 0x6202 && Buffer.from(d).includes(code))).toBe(false);       // the spectator doesn't
+    await send(A, 0x6350, new W().u32(0).u32(0xd).u32(0).u32(10).bytes());
+    await until(() => has(A, 0x6202, (d) => type6202(d) === 0x1b && u32(d, 4) === 0x32));
+    await send(A, 0x6423, new W().u32(1).bytes());
+    await until(() => m.done);
+  }, 120_000);
 });
