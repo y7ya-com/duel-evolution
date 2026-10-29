@@ -724,14 +724,21 @@ Module.preRun.push(() => {
         if (q.get(k)) ENV[env] = q.get(k);
     for (const [k, v] of q) if (/^[A-Z][A-Z0-9_]*$/.test(k)) ENV[k] = v;   // e.g. ?RC_VERBOSE=1
     // The new server's sign-in, in the game's own UI (rt/session.cpp): ask <http>/api/de/session once (same origin, so
-    // the cookie goes along). JSON = the new server: signed in -> YO2_SESSION_NAME (no login dialog); signed out ->
-    // YO2_DISCORD_URL (the login dialog becomes the sign-in panel; Discord comes back to this page with ?online=1 ->
-    // YO2_AUTO_ONLINE, straight past the title). Anything else (the legacy site's 404) changes nothing.
+    // the cookie goes along). Signed in -> YO2_SESSION_NAME (no login dialog); anything else, a failed check too, is
+    // signed out: the login dialog is the sign-in panel, whose Discord button (YO2_DISCORD_URL) comes back to this page
+    // with ?online=1 -> YO2_AUTO_ONLINE, straight past the title. Both are set first: a signed-in player whose login
+    // later fails gets the panel too.
     {
         let top = window;
         try { if (window.top.location.href) top = window.top; } catch (e) {}   // a same-origin page around the game
         const tq = new URLSearchParams(top.location.search);
         const http = (ENV.YO2_HTTP || location.origin + location.pathname.replace(/[^/]*$/, "")).replace(/\/$/, "");
+        // back to this very page, its query too (gateway, http, server, YO2_PORT_OFFSET...), minus our flags
+        const back = new URLSearchParams(top.location.search);
+        back.delete("online"), back.delete("error");
+        const ret = top.location.pathname + (back.size ? "?" + back : "");
+        ENV.YO2_DISCORD_URL = http + "/api/auth/sign-in/discord?return=" + encodeURIComponent(ret);
+        ENV.YO2_DE_HTTP = http;   // the panel's requests go here before the game opens a socket
         const x = new XMLHttpRequest();
         x.open("GET", http + "/api/de/session", false);
         try {
@@ -740,13 +747,6 @@ Module.preRun.push(() => {
             if (s && s.signedIn) {
                 ENV.YO2_SESSION_NAME = s.name || "-";
                 if (q.get("online") === "1" || tq.get("online") === "1") ENV.YO2_AUTO_ONLINE = "1";
-            } else if (s) {
-                // back to this very page, its query too (gateway, http, server, YO2_PORT_OFFSET...), minus our flags
-                const back = new URLSearchParams(top.location.search);
-                back.delete("online"), back.delete("error");
-                const ret = top.location.pathname + (back.size ? "?" + back : "");
-                ENV.YO2_DISCORD_URL = http + "/api/auth/sign-in/discord?return=" + encodeURIComponent(ret);
-                ENV.YO2_DE_HTTP = http;   // the typed User ID / Password sign in here before the game opens a socket
             }
             if (tq.has("online")) {   // a reload must not go online again
                 tq.delete("online"); tq.delete("error");
