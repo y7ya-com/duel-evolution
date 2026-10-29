@@ -10,7 +10,7 @@ const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
 function page() {
     const timers = [], listeners = {}, posts = [], shown = [];
     const ctx = {
-        console: { log() {} }, URLSearchParams, location: { search: "", pathname: "/" }, navigator: { userAgent: "test" },
+        console: { log() {} }, URLSearchParams, location: { search: "", pathname: "/", origin: "https://site.test" }, navigator: { userAgent: "test" },
         crossOriginIsolated: true, WebAssembly: { Suspending: 1 }, JSON, String, CustomEvent: class { constructor(t) { this.type = t; } },
         document: { hidden: false, getElementById: () => ({ style: {} }), querySelector: () => null,
             createElement: () => ({ style: {}, querySelector: () => ({}) }), body: { append: (d) => shown.push(d) } },
@@ -67,6 +67,20 @@ function page() {
     q.ctx.Module.onAbort("TypeError: ASM_CONSTS[emAsmAddr] is not a function");
     q.run(5);
     assert.equal(q.shown.length, 1);
+}
+// a browser extension's error before the first frame (crash report 7589ac0e) is not the game's: no crash, no report
+{
+    const p = page();
+    p.listeners.unhandledrejection({ reason: { message: "Cannot read properties of undefined (reading 'M_ID')",
+        stack: "TypeError: ...\n    at Y (chrome-extension://eppio/executors/200.js:1:761)" } });
+    p.listeners.error({ message: "x", filename: "moz-extension://abc/content.js" });
+    p.run(50);
+    assert.equal(p.shown.length, 0);
+    assert.equal(p.posts.length, 0);
+    // the page's own code in the stack: still the crash
+    p.listeners.unhandledrejection({ reason: { message: "boom", stack: "at f (https://site.test/yo2rc.js:1:1)\n at g (chrome-extension://e/x.js:1:1)" } });
+    p.run(5);
+    assert.equal(p.shown.length, 1);
 }
 console.log("shell.html: all checks pass");
 
