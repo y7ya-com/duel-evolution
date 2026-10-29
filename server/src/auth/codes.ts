@@ -16,16 +16,25 @@ const genCode = () => [...crypto.getRandomValues(new Uint8Array(6))].map((b) => 
 export const codeNorm = (raw: unknown) => (typeof raw === "string" ? raw.trim().toUpperCase() : "");
 const ident = async (kind: CodeKind, code: string) => `${kind}:${await sha256hex(code)}`;
 
-/** A fresh code for `userId`; any earlier code of the same kind for that user is dropped. */
+/**
+ * A fresh code for `userId`. An earlier reset code is dropped (one live way in). Earlier verify codes stay live until
+ * they expire: a player may already have pasted one into Discord when the game shows a newer one.
+ */
 export async function issueCode(db: D1Database, kind: CodeKind, userId: string, ttlMs: number): Promise<string> {
   const code = genCode();
   const now = Date.now();
-  await db.batch([
-    db.prepare("DELETE FROM verification WHERE identifier LIKE ? AND value = ?").bind(`${kind}:%`, JSON.stringify({ userId })),
-    db.prepare("INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(crypto.randomUUID(), await ident(kind, code), JSON.stringify({ userId }), now + ttlMs, now, now),
-  ]);
+  const insert = db.prepare("INSERT INTO verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(crypto.randomUUID(), await ident(kind, code), JSON.stringify({ userId }), now + ttlMs, now, now);
+  await db.batch(kind === "reset-code"
+    ? [db.prepare("DELETE FROM verification WHERE identifier LIKE ? AND value = ?").bind(`${kind}:%`, JSON.stringify({ userId })), insert]
+    : [insert]);
   return code;
+}
+
+/** Whether `userId` has any live code of this kind. */
+export async function hasLiveCode(db: D1Database, kind: CodeKind, userId: string): Promise<boolean> {
+  return !!(await db.prepare("SELECT 1 FROM verification WHERE identifier LIKE ? AND value = ? AND expires_at > ?")
+    .bind(`${kind}:%`, JSON.stringify({ userId }), Date.now()).first());
 }
 
 /** The user a live code belongs to, or null (missing or expired). Doesn't consume it. */

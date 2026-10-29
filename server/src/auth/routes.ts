@@ -2,7 +2,7 @@
 // straight to its own title, and its UI drives these endpoints (AUTH.md, "Client contract").
 import { Hono, type Context } from "hono";
 import { hit, makeAuth, rolesOf, sha256hex, verifySession } from "./auth.ts";
-import { issueCode, peekCode, RESET_TTL_MS, takeCode, VERIFY_TTL_MS } from "./codes.ts";
+import { hasLiveCode, issueCode, peekCode, RESET_TTL_MS, takeCode, VERIFY_TTL_MS } from "./codes.ts";
 import type { AuthEnv } from "./env.ts";
 import { nameProblem } from "./names.ts";
 
@@ -138,8 +138,10 @@ const passwordProblem = (p: unknown) => (typeof p === "string" && p.length >= 10
 
 /**
  * In-game sign-up: creates the name + password account, unverified, and answers a 6-char code plus the Discord invite.
- * The player runs /verify <code> on the Discord server; until then sign-in answers 403 EMAIL_NOT_VERIFIED. Registering
- * an unverified name again with ITS password reissues the code ("I lost my code"); otherwise a taken name is a 409.
+ * The player runs /verify <code> on the Discord server; until then sign-in answers 403 EMAIL_NOT_VERIFIED.
+ * A taken name: 409 if verified. Never verified: its own password gets a fresh code ("I lost my code"); another
+ * password takes it over once its codes have expired (an abandoned or forgotten registration: nobody could ever sign
+ * in to it), else 409 NAME_PENDING, so a registration in progress can't be hijacked.
  */
 authApp.post("/api/de/register", async (c) => {
   if (!sameOrigin(c)) return c.json({ message: "forbidden" }, 403);
@@ -154,10 +156,18 @@ authApp.post("/api/de/register", async (c) => {
   let userId = await auth.api.signUpEmail({ body: { username: name, password: pw, name, email: "set-by-hook@x.invalid" } })
     .then((r) => r.user.id).catch(() => null);
   if (!userId) {
-    // taken: only the unverified account's own password gets a fresh code (sign-in says EMAIL_NOT_VERIFIED only then)
-    const again = await auth.api.signInUsername({ body: { username: name, password: pw } }).then(() => "verified", (e: { body?: { code?: string } }) => e?.body?.code);
-    if (again !== "EMAIL_NOT_VERIFIED") return c.json({ code: "NAME_TAKEN", message: "That name is taken." }, 409);
-    userId = (await c.env.DB.prepare("SELECT id FROM user WHERE username = ?").bind(name.toLowerCase()).first<{ id: string }>())!.id;
+    const u = await c.env.DB.prepare(`SELECT u.id, u.email_verified AS verified, a.password AS hash FROM user u
+      JOIN account a ON a.user_id = u.id AND a.provider_id = 'credential' WHERE u.username = ?`).bind(name.toLowerCase())
+      .first<{ id: string; verified: number; hash: string }>();
+    if (!u || u.verified) return c.json({ code: "NAME_TAKEN", message: "That name is taken." }, 409);
+    const ctx = await auth.$context;
+    if (!(await ctx.password.verify({ hash: u.hash, password: pw }))) {
+      if (await hasLiveCode(c.env.DB, "verify-code", u.id)) {
+        return c.json({ code: "NAME_PENDING", message: "That name is waiting for its Discord check. Use its password, or try again in an hour." }, 409);
+      }
+      await ctx.internalAdapter.updatePassword(u.id, await ctx.password.hash(pw));   // abandoned: it's this player's now
+    }
+    userId = u.id;
   }
   const code = await issueCode(c.env.DB, "verify-code", userId, VERIFY_TTL_MS);
   return c.json({ ok: true, code, inviteUrl: c.env.DISCORD_INVITE_URL ?? null, expiresInMinutes: VERIFY_TTL_MS / 60_000 });

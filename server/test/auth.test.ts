@@ -294,13 +294,32 @@ describe("in-game sign-up, verified through Discord (the shared bot forwards /ve
     expect((await forward({ action: "verify", code: body.code, discord: { id: nextDiscordId(), username: "x" } })).json?.ok).toBe(false); // used up
   });
 
-  it("re-register: the unverified name's own password reissues the code; anyone else gets 409", async () => {
-    await register("Lost");
-    expect((await register("Lost", "someone elses pw")).status).toBe(409);
+  it("re-register: the unverified name's own password reissues a code, and earlier codes keep working", async () => {
+    const first = (await (await register("Lost")).json() as { code: string }).code;
     const again = await register("Lost");
     expect(again.status).toBe(200);
+    expect((await again.json() as { code: string }).code).not.toBe(first);
+    // the first code (maybe already pasted into Discord) still verifies
+    expect((await forward({ action: "verify", code: first, discord: { id: nextDiscordId(), username: "lost" } })).json?.ok).toBe(true);
+    expect((await signIn("Lost")).status).toBe(200);
     await user("Done1");
     expect((await register("Done1")).status).toBe(409); // verified: taken
+  });
+
+  it("another password: 409 NAME_PENDING while its code is live, then the abandoned name is taken over", async () => {
+    await register("Forgot", "the old password 1");
+    const pending = await register("Forgot", "someone elses pw");
+    expect(pending.status).toBe(409);
+    expect(await pending.json()).toMatchObject({ code: "NAME_PENDING" });
+    const key = "n:" + Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("forgot"))).toString("hex");
+    expect(await db().prepare("SELECT count FROM signin_failure WHERE key = ?").bind(key).first()).toBeNull(); // no lockout noise
+    await db().prepare("UPDATE verification SET expires_at = ? WHERE identifier LIKE 'verify-code:%'").bind(Date.now() - 1).run();
+    const taken = await register("Forgot", "a new password 2");
+    expect(taken.status).toBe(200);
+    const { code } = await taken.json() as { code: string };
+    await forward({ action: "verify", code, discord: { id: nextDiscordId(), username: "forgot" } });
+    expect((await signIn("Forgot", "a new password 2")).status).toBe(200);
+    expect((await signIn("Forgot", "the old password 1")).status).toBe(401);
   });
 
   it("one Discord account per game account", async () => {
