@@ -611,6 +611,9 @@ Module.preRun.push(() => {
         const names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
         stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
         await loadPcTable();
+        // after the scene's own fieldBackgrounds([]) (it awaits the card names first): the later pin of the "field" tag
+        // wins, and that must be the one with the Field Spell
+        await loadCardNames();
         if (pcInternal) fieldsByNumber(fields.map((pc) => pcInternal.get(pc)));
     }
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
