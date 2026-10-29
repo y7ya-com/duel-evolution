@@ -12,6 +12,7 @@ import { starterClaim, starterInfo } from "./game/starter.ts";
 import { logLevel } from "./util/loglevel.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
+import type { State } from "./game/store.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -28,19 +29,25 @@ export class WorldDO extends DurableObject<Env> {
     // without LOG=1 (production) only errors, protocol anomalies and the economy reach Workers Logs (util/loglevel.ts)
     const log = env.LOG === "1" ? (s: string) => console.log(s)
       : (s: string) => { const l = logLevel(s); if (l === "error") console.error(s); else if (l) console.warn(s); };
-    void ctx.blockConcurrencyWhile(() => bootDuel(env.BUCKET, log)); // the duel engine (async once; src/duel/boot.ts)
     const cfg = configFrom(env as unknown as Record<string, unknown>);
     const db = env.DB;
-    if (!db) { this.srv = buildServer(cfg, null, log); return; }
+    // the duel engine (async once; src/duel/boot.ts) boots AFTER the state, never beside it: a cold boot holds the D1
+    // rows, the state and the projector at once, and with the engine too it went over the 128 MB isolate limit
+    // ("internal error" / "Internal error in Durable Object storage caused object to be reset", 2026-10-29)
+    if (!db) { this.srv = buildServer(cfg, null, log); void ctx.blockConcurrencyWhile(() => bootDuel(env.BUCKET, log)); return; }
     // the state lives in D1: nothing is served until it is loaded; every save then writes the changed rows
     void ctx.blockConcurrencyWhile(async () => {
       try {
-        const loaded = await loadState(db);
-        // a state from before the card wire: to passcodes now, written back below (the diff against what D1 holds)
-        const st = Object.keys(loaded).length ? structuredClone(loaded) : { players: {}, schema: SCHEMA };
+        let loaded: State | null = await loadState(db);
+        // a state from before the card wire: to passcodes on a copy, written back below (the diff against what D1
+        // holds); otherwise no copy: the Store's own is the only one kept, and the projector starts from it
+        const fresh = !Object.keys(loaded).length;
+        const convert = !fresh && loaded.schema !== SCHEMA;
+        const st = fresh ? { players: {}, schema: SCHEMA } : convert ? structuredClone(loaded) : loaded;
         const up = upgradeCards(st);
         this.srv = buildServer(cfg, st, log);
-        this.sink = attach(this.srv.game.store, db, { baseline: loaded });
+        this.sink = attach(this.srv.game.store, db, { baseline: convert ? loaded : this.srv.game.store.peek() });
+        loaded = null;
         if (up) {
           console.warn(`[d1] card ids to passcodes: ${up.already ? "already passcodes, marked" : `${up.profiles} profiles`}` +
             (up.unmapped.length ? `; kept without a passcode: ${up.unmapped.slice(0, 20).join(",")}` : ""));
@@ -56,6 +63,7 @@ export class WorldDO extends DurableObject<Env> {
         console.error(`[d1] game state not loaded (${e}); running without D1`);
         this.srv = buildServer(cfg, null, log);
       }
+      await bootDuel(env.BUCKET, log);
     });
   }
 
