@@ -95,7 +95,7 @@ export class Hub {
     // typo can't create one. Without a user (only the DEV parity bridge), py's legacy blob login.
     const peerUser = c.userId;
     if (peerUser === null && !this.g.cfg.dev) { this.reject(c, AUTH_BAD_LOGIN, ""); return null; }
-    const [acct, known] = peerUser !== null ? [this.g.store.accountOfUser(peerUser) ?? `u:${peerUser}`, true] : this.accountOf(data);
+    const [acct, known] = peerUser !== null ? [this.acctOfUser(peerUser), true] : this.accountOf(data);
     if (canUseAccount(peerUser, this.g.store.ownerOf(acct, this.g.cfg.ownerAcct)) === "refuse") { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     if (!known && this.g.cfg.loginStrict) { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     let code: number | null = null, busy: Conn | null = null;
@@ -127,6 +127,9 @@ export class Hub {
     c.ext.adminFlags = this.g.admin.flagsOf(acct);
     return s;
   }
+
+  /** The game account of a DE user (created as `u:<id>` on its first login). */
+  acctOfUser(userId: string): string { return this.g.store.accountOfUser(userId) ?? `u:${userId}`; }
 
   inUseBy(s: Session, c: Conn, now = Date.now() / 1000): Conn | null {
     const seen = new Set<Conn>();
