@@ -25,7 +25,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import run as R  # noqa: E402
 
-PORT = 8798                       # beside run.py's wrangler dev (8797), so the two can run at once
+PORT = int(os.environ.get("PREDEPLOY_PORT", "8798"))  # beside run.py's wrangler dev (8797); another predeploy may hold 8798
 BASE = ORIGIN = f"http://127.0.0.1:{PORT}"
 LOCAL_OFFSET, WS_OFFSET = int(os.environ.get("PREDEPLOY_OFFSET", "4300")), 1000   # the bridge's local ports (5730+offset…)
 D = os.path.join(R.OUT, "predeploy")
