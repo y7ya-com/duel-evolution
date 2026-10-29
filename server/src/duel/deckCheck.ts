@@ -8,6 +8,7 @@ import type { Game } from "../game/game.ts";
 import type { Session } from "../game/hub.ts";
 import * as PP from "../game/persist.ts";
 import { cardmap, DECK_CARDS } from "./data.ts";
+import { freeTrunk, isFree } from "../game/freemode.ts";
 import { duelsvrinfomsg } from "./lockstep.ts";
 
 const MODES = ["off", "avisar", "bloquear"];
@@ -83,6 +84,11 @@ export class DeckCheck {
 
   /** The complete deck of session s's character: history in ITS profile, log line if it does not fit. */
   review(s: Session | null, main: number[], extra: number[], partida: string | null = null, mode = this.mode) {
+    if (isFree(s) && s) {   // free mode: against every card x3, the list included, always enforced; no history
+      const probs = check(main, extra, freeTrunk(PP.validCardIds()), true);
+      if (probs.length) this.g.log(`[mazo] ${s.name || "?"} (free mode)${partida ? ` ${partida}` : ""}: ${probs.length} problem(s), BLOQUEADO`);
+      return { valido: !probs.length, problemas: probs, bloquear: probs.length > 0, modo: "bloquear" };
+    }
     if (mode === "off" || !s || !s.acct) return null;
     let probs: Problem[];
     try {

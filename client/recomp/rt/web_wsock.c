@@ -24,6 +24,7 @@ IMP(WSOCK32, ord23) {   // socket(af, type, proto)
     last_err = 10024;   // WSAEMFILE
     RET(3, 0xffffffffu);
 }
+static int raw_send(int i, const uint8_t *b, int n);
 IMP(WSOCK32, ord4) {   // connect(s, sockaddr*, len): blocking, as the exe's connect thread expects
     int i = fd_of(ARG(0));
     uint8_t *a = G(ARG(1) + 4);
@@ -43,6 +44,7 @@ IMP(WSOCK32, ord4) {   // connect(s, sockaddr*, len): blocking, as the exe's con
     }
     ws[i].ns = s;
     rc_cw_open(i);
+    rc_cw_mode(i, raw_send);
     RET(3, 0);
 }
 IMP(WSOCK32, ord3) {   // closesocket

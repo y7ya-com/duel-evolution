@@ -8,6 +8,7 @@ import YDC from "../../gamedata/ydc.json";
 import SHOP from "../../gamedata/shop.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
+import { freeTrunk, isFree } from "./freemode.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
@@ -216,7 +217,7 @@ const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.
 
 /** MP for a finished duel, after the guards; pvp = null for an NPC duel. Returns what was paid. */
 export function mpReward(g: Game | null, p: P, result: string, turns: number, pvp: { opp: string | null; secs: number } | null = null): number {
-  if (!PROGRESSION) return 0;
+  if (!PROGRESSION || (g && isFree(g.ctx))) return 0;
   const e = econToday(g, p), win = result === "win", E = ECON;
   let mp: number = pvp ? (win ? E.PVP_WIN : E.PVP_LOSS) : (win ? E.NPC_WIN : E.NPC_LOSS), why = "";
   if (pvp && turns < E.PVP_MIN_TURNS && pvp.secs < E.PVP_MIN_S) { mp = 0; why = " short"; }
@@ -282,6 +283,7 @@ function econCards(g: Game | null, p: P, sign: "+" | "-", cards: number[], src: 
 }
 
 export function trunkAdd(g: Game | null, p: P, cards: unknown[], n = 1, src = ""): void {
+  if (g && isFree(g.ctx)) { g.log(`[free] trunk_add refused (${src}): free mode`); return; }
   const t = (p.trunk ??= {});
   const added: number[] = [];
   for (const cid of sanitizeCards(g, cards, src || "trunk_add")) {
@@ -443,7 +445,7 @@ export class DuelDeck {
 
 export function saveDuelDeck(g: Game, c: Conn, msgId: number, data: Uint8Array): void {
   const dd = ((c.ext.duelDeck as DuelDeck) ??= new DuelDeck());
-  if (!dd.feed(msgId, data)) return;
+  if (!dd.feed(msgId, data) || isFree(c.sess)) return;   // a free duel's deck is not the MMO's last duel deck
   const bad = dd.badIds();
   if (bad.length) g.log(`[persistencia] B05: duel deck with ids without art: ${bad}`);
   const s = c.sess as { slot: number | null } | null;
@@ -873,7 +875,8 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       const bad = sanitizeTrunk(p);
       if (bad.length) log(`[persistencia] B05: removed invalid ids from the trunk: ${bad.slice(0, 20)}`);
       g.saveState(st);
-      for (const [mid, payload] of trunkMessages(p)) c.send(mid, payload);
+      // free mode: every card x3, a view built here; the character's own trunk is not touched (game/freemode.ts)
+      for (const [mid, payload] of trunkMessages(isFree(c.sess) ? { trunk: freeTrunk(VALID) } : p)) c.send(mid, payload);
     },
     h_getpbin(c: Conn, data: Uint8Array) {
       const st = g.loadState();

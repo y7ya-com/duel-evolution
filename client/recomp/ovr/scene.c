@@ -21,6 +21,7 @@ static void scene_js(const char *kind, int from, int to) { (void)kind; (void)fro
 #endif
 
 void o_0061d6a0(CPU *c);
+void rc_free_scene(CPU *c);   // ovr/freemode.c: My Room's replacement in free mode
 int rc_backbuffer_luma(void);
 
 static int pending, from_id, to_id, logging = -1;
@@ -46,6 +47,7 @@ static void emit(const char *kind) {
 void f_0061d6a0(CPU *c) {
     RC_LOCALS;
     mgr = c->ecx;
+    rc_free_scene(c);
     from_id = (int)RD32(mgr + 0x7c);   // sceneId_ (SCENE_NONE 0x2c before the first scene)
     to_id = (int)RD32(mgr + 0x80);     // nextId_
     t_begin = ms();

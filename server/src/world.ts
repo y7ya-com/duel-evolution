@@ -199,6 +199,7 @@ export class World implements ConnHost {
     if (vs.closed) return;
     this.log(`[srv:${c.port}] <- 0x${m.id.toString(16).padStart(4, "0")} #${m.param} len=${m.data.length}` +
       (m.id === 0x3003 ? "" : ` ${hex(m.data.subarray(0, 24))}`));
+    c.ext.rx = true; // the client's first frame was served: a later 0xCA10 sets no mode (game/freemode.ts modeFrame)
     c.sawClient(m.param);
     if (m.id === 0x0003) c.bye = true;
     if (c.ext.bookedFail) return; // duel ticket refused: nothing else from here is served

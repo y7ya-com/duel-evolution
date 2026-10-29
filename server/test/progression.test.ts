@@ -28,6 +28,13 @@ describe("progression", () => {
     expect(i32((await A.room!.wait(0x8402, n))!)).toBe(1);
     expect(sum(prof(h).trunk)).toBe(0);
 
+    // a free-mode session (freemode.ts) claims nothing, and the claim isn't spent
+    const sa = [...h.game.hub.sessions.values()][0];
+    sa.ext.free = true;
+    expect(starterInfo(h.game, "user-a")).toEqual({ claimable: false, reason: "free" });
+    expect(starterClaim(h.game, "user-a", 7003)).toEqual([409, { error: "free" }]);
+    sa.ext.free = false;
+
     const info = starterInfo(h.game, "user-a") as any;
     expect([info.claimable, info.decks.map((d: any) => d.id)]).toEqual([true, Object.keys(STARTER_DECKS).map(Number)]);
     const d = info.decks.find((x: any) => x.id === 7003);
