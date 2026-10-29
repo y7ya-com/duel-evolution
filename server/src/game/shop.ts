@@ -9,8 +9,9 @@ import * as PP from "./persist.ts";
 const PACKS = SD.packs as [number, number, number | null][];
 const IID = SD.iid as Record<string, number[]>;
 const YDC = SD.ydc as Record<string, number[]>;
-/** the single cards the shop sells: the first 40 of the 2008 card list, by passcode */
-const SHOP_CARDS = [67105242, 17535588, 15480588, 53153481, 49587396, 25109950, 50122883, 62403074, 12436646, 86164529, 95132338, 85639257, 97360116, 81933259, 99597615, 126218, 28725004, 81863068, 26725158, 58775978, 48365709, 43434803, 77568553, 48305365, 68870276, 91869203, 77622396, 95174353, 14708569, 17881964, 6368038, 6368039, 30606547, 87564352, 52675689, 89494469, 50287060, 31339260, 36151751, 10262698];
+/** the single cards the shop sells: the first 40 of the 2008 card list, by passcode, then gamedata's `single` (the cards
+ *  the 2008 client never had that no pack carries: scripts/passcode_gamedata.py) */
+const SHOP_CARDS = [67105242, 17535588, 15480588, 53153481, 49587396, 25109950, 50122883, 62403074, 12436646, 86164529, 95132338, 85639257, 97360116, 81933259, 99597615, 126218, 28725004, 81863068, 26725158, 58775978, 48365709, 43434803, 77568553, 48305365, 68870276, 91869203, 77622396, 95174353, 14708569, 17881964, 6368038, 6368039, 30606547, 87564352, 52675689, 89494469, 50287060, 31339260, 36151751, 10262698, ...((SD as { single?: number[] }).single ?? [])];
 const SHOP_SELL_PRIZE_PACKS = false, SHOP_DECK_RECIPE = true, SHOP_DECK_ITEMGET = false;
 const PACK_SIZE = 5, SHOP_ENTRIES_PER_MSG = 78;
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;

@@ -12,6 +12,9 @@ Runs after the generators (they read Konami's data and emit the old ids): the ma
   ydc.json         structure and prize decks
   duel.json        npc_decks; cards {id: [internal, kind, limit, name]} -> {passcode: [kind, limit, name]}
 Each converted file gets "ids": "passcode"; a converted file is left alone, so the script can run twice.
+Then, every run: translator.json's wire + wireHash from cards.json (the client's table, its new cards and moved
+tokens), and the new cards (client/tools/newcards.py, "new" in cards.json) into persist.json valid_cards, duel.json's
+card table, and the shop: NEW_PACKS into those packs, the rest into the single cards.
 """
 import json
 import os
@@ -33,6 +36,46 @@ def save(name, data):
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, os.path.join(G, name))
     print("converted", name)
+
+
+TABLE_MIN = 3256   # the 2008 table's length (card_prop.bin); moved tokens sit past it
+NEW_PACKS = {"48": [71799173, 7183277, 70676581, 44178886, 79444933, 6061630, 33455338, 57844634, 6849042, 32233746]}   # Light of Destruction (+ its sneak-peek prize)
+
+
+def table_hash(cards):
+    """FNV-1a of the codec's table, byte for byte as cardart.py `table` writes it: the hello's hash."""
+    by = {c["i"]: c for c in cards}
+    n = max(TABLE_MIN, max(by) + 1)
+    table = bytearray(b"YO2CARDS" + struct.pack("<IIII", n, 1, 19, 16))
+    for i in range(n):
+        c = by.get(i)
+        table += struct.pack("<IH", c["pc"] if c else 0, c["internal"] if c else 0)
+    h = 2166136261
+    for b in table:
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def add_new(cards):
+    new = [c for c in cards if c.get("new")]
+    tr = load("translator.json")
+    tr["wire"], tr["wireHash"] = sorted(c["pc"] for c in cards), table_hash(cards)
+    save("translator.json", tr)
+    print(f"  {len(tr['wire'])} passcodes, table hash {tr['wireHash']:08x}")
+    p = load("persist.json")
+    p["valid_cards"] = sorted(set(p["valid_cards"]) | {c["pc"] for c in new})
+    save("persist.json", p)
+    du = load("duel.json")
+    for c in new: du["cards"][str(c["pc"])] = [c["kind"], 3, c["name"]]
+    save("duel.json", du)
+    sh = load("shop.json")
+    in_packs = {pc for pcs in NEW_PACKS.values() for pc in pcs}
+    for pack, pcs in NEW_PACKS.items():
+        sh["iid"][pack] = sh["iid"][pack] + [pc for pc in pcs if pc in {c["pc"] for c in new} and pc not in sh["iid"][pack]]
+    single = sh.setdefault("single", [])
+    single += [c["pc"] for c in new if c["pc"] not in in_packs and c["pc"] not in single]
+    save("shop.json", sh)
+    print(f"  {len(new)} new cards: packs {', '.join(f'{k}+{len(v)}' for k, v in NEW_PACKS.items())}, single cards +{len(single)}")
 
 
 def main():
@@ -94,6 +137,7 @@ def main():
         du["cards"] = {str(pc[int(y)]): [kind, limit, name] for y, (_internal, kind, limit, name) in du["cards"].items()
                        if int(y) in pc}
         save("duel.json", du)
+    add_new(cards)
 
 
 if __name__ == "__main__":

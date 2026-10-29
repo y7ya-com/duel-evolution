@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -40,7 +41,8 @@ def main():
     snap = R.snapshot()
     R.seed_r2(snap, os.path.join(D, "wr"))
     wr = subprocess.Popen(["nice", "npx", "wrangler", "dev", "--local", "--port", str(R.WRANGLER_PORT), "--local-upstream", f"127.0.0.1:{R.WRANGLER_PORT}", "--persist-to", os.path.join(D, "wr"),
-                           "--var", f"PORT_OFFSET:{R.OFFSET}", "--var", "DEV:1", "--var", "LOG:1"],
+                           "--var", f"PORT_OFFSET:{R.OFFSET}", "--var", "DEV:1", "--var", "LOG:1",
+                           *(["--var", f"PARITY_SEED:{os.environ['E2E_SEED']}"] if os.environ.get("E2E_SEED") else [])],   # the same duel each run
                           cwd=snap, stdout=open(os.path.join(D, "server.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
     br = None
     try:
@@ -59,6 +61,13 @@ def main():
         login = (f"1230:move 512 458;1240:click 512 458;2100:move 511 564;2110:click 511 564;2700:move 488 368;2710:click 488 368;"
                  f"2720:text {user};2740:move 488 432;2750:click 488 432;2760:text {pw};2790:move 415 492;2800:click 415 492")
         game = os.environ.get("GAME", os.path.join(RECOMP, "run", "game"))
+        if os.environ.get("E2E_DECK"):   # the created player's local deck (deck.ydc: 125 x u16 card indexes), put over
+            def deck(f=os.path.join(D, "rc-overlay", "profiles", "Recomp", "deck.ydc")):   # the one creation writes
+                while not os.path.exists(f): time.sleep(0.5)
+                time.sleep(5)
+                shutil.copy(os.environ["E2E_DECK"], f)
+                print("e2e: deck.ydc replaced")
+            threading.Thread(target=deck, daemon=True).start()
         env = dict(os.environ, RC_INPUT=login + (";" + extra if extra else ""), YO2_GAME=game, YO2_EXE=os.path.join(game, "yo2.exe"),
                    YO2_PORT_OFFSET=str(R.OFFSET), YO2_SERVER="127.0.0.1", YO2_HTTP=f"127.0.0.1:{R.WRANGLER_PORT}", YO2_HIDDEN="1",
                    SDL_MAC_BACKGROUND_APP="1", SDL_AUDIODRIVER="dummy", RC_FRAMES=frames, RC_SHOT=shots, RC_SEED="1")
