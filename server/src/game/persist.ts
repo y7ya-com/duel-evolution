@@ -5,6 +5,7 @@ import type { Conn } from "../net/conn.ts";
 import { cstr, W } from "../net/proto.ts";
 import GD from "../../gamedata/persist.json";
 import YDC from "../../gamedata/ydc.json";
+import SHOP from "../../gamedata/shop.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 
@@ -607,7 +608,15 @@ export function onShopPurchase(g: Game, p: P, cards: [number, number][]): void {
   trunkAdd(g, p, cards.filter(([kind]) => kind === 0 || kind === 1).map(([, cid]) => cid), 1, "0x5212 tienda");
 }
 
+/** deck -> its right (PBIN, yo2pbinmap class 5): the structure decks in shop.json packs [deck, kind, right]. */
+const SD_RIGHT = new Map((SHOP.packs as [number, number, number | null][]).filter(([, , b]) => b !== null).map(([d, , b]) => [d, b!]));
+
 export function onSdGet(g: Game, p: P, deckId: number, rightBit: number): number[] {
+  // the client names both: only a right this character holds, for that deck, gives the deck (once: the right is spent)
+  if (!rightBit || SD_RIGHT.get(deckId) !== rightBit || !pbinTest(p, rightBit)) {
+    g.log(`[persistencia] 0x5400 SD_GET ${deckId} with right ${rightBit} it doesn't hold: refused`);
+    return [];
+  }
   const cards = sanitizeCards(g, structureDeckCards(deckId), `0x5401 SD_GET ${deckId}`);
   if (rightBit) { pbinSet(p, rightBit, false); pbinSet(p, rightBit + 1, true); }
   (p.claims ??= []).push(["sd", deckId, rightBit]);
