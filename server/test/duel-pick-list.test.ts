@@ -191,3 +191,25 @@ describe.skipIf(!haveData)("picking from the deck / graveyard shows the client's
     expect((dc.query("pick-unsel-cancel") as any).players[0].grave.length).toBe(4);
   }, 60_000);
 });
+
+describe.skipIf(!haveData)("a list prompt never shows the other side's face-down cards", () => {
+  it("an opponent's set card among the candidates wears its cover, a graveyard card shows", () => {
+    const MIRROR_FORCE = 44095762;
+    const d = new YO2Duel([{ main: Array(40).fill(ELF), extra: [] }, { main: [MIRROR_FORCE, ...Array(39).fill(ELF)], extra: [] }],
+      { first: 0, cardmap: cardmap(), rng: new PyRandom(1) });
+    d.start();
+    const s1 = d.side[1];
+    const set = s1.deck.find((u) => d.card(u).code === MIRROR_FORCE)!, gy = s1.deck.find((u) => d.card(u).code === ELF)!;
+    s1.deck = s1.deck.filter((u) => u !== set && u !== gy);
+    s1.sz[0] = set; d.card(set).face = false;                    // set face-down in the opponent's spell & trap zone
+    s1.grave.push(gy); d.card(gy).face = true;
+    const out = d._s_SELECT_CARD({ ev: "select", type: "SELECT_CARD", player: 0, min: 1, max: 1, cancelable: false,
+      selects: [{ controller: 1, location: 8, sequence: 0, code: MIRROR_FORCE }, { controller: 1, location: 16, sequence: 0, code: ELF }] } as any);
+    const list = out.find((m) => Array.isArray(m) && m[0] === M_LIST) as Msg | undefined;
+    expect(list).toBeDefined();
+    const body = Buffer.from(list![1]);
+    const has = (pc: number) => body.includes(Buffer.from(u32(pc)));
+    expect(has(ELF)).toBe(true);
+    expect(has(MIRROR_FORCE)).toBe(false);
+  });
+});
