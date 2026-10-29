@@ -56,7 +56,18 @@ static void tally_sample(const struct Sample *s) {
         struct Agg *a = tally(name, scene);
         a->incl++;
         if (!k) a->self++;
-        if (!guest && name[0] == 'f' && name[1] == '_') guest = 1, a->gself++;
+        if (!guest && name[0] == 'f' && name[1] == '_') {
+            guest = 1, a->gself++;
+            // RC_PROF_UNDER=<f_name>: the host frames below that innermost guest function, as scene 0xfff
+            static const char *under;
+            if (!under) under = getenv("RC_PROF_UNDER") ? getenv("RC_PROF_UNDER") : "";
+            if (!strcmp(name, under))
+                for (int j = 0; j < k; j++) {
+                    struct Agg *u = tally(sym(s->pc[j]), 0xfff);
+                    u->incl++;
+                    if (!j) u->self++;
+                }
+        }
     }
 }
 
