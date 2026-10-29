@@ -3,6 +3,7 @@
 // reload, the trickle staying out of memory, and prefetch=0.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { gzipSync } from "node:zlib";
 import assert from "node:assert/strict";
 
 const MB = 1 << 20;
@@ -35,7 +36,7 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
-let aborted = 0;
+let aborted = 0, flying = 0, maxFlying = 0;   // fetches in flight now, and the most at once
 const syncSizes = [];   // bytes of every synchronous request   // background fetches a synchronous read aborted
 const syncFaults = [], fetchFaults = [];   // fetchFaults: (range) => true drops that background fetch, once   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
@@ -71,8 +72,10 @@ function makeEnv(store, ls, opts = {}) {
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
-        netFetch++;
-        await sleep(1);
+        if (!files[p]) return { status: 404, headers: h, arrayBuffer: async () => new ArrayBuffer(0) };
+        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
+        netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
+        await sleep(1).finally(() => flying--);
         if (o.signal && o.signal.aborted) { aborted++; throw Object.assign(new Error("aborted"), { name: "AbortError" }); }
         if (fetchFaults.length && fetchFaults[0](o.headers.Range)) { fetchFaults.shift(); throw new TypeError("Load failed"); }   // a dropped connection
         const [a, b] = rangeOf(o.headers.Range);
@@ -81,7 +84,7 @@ function makeEnv(store, ls, opts = {}) {
         return { status: 206, headers: h, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) };
     }
     class Response { constructor(d) { this.d = d; } async arrayBuffer() { return this.d.buffer.slice(this.d.byteOffset, this.d.byteOffset + this.d.length); } }
-    const caches = { open: async () => ({ put: async (k, r) => store.set(k, r), match: async (k) => store.get(k) }) };
+    const caches = { open: async () => ({ put: async (k, r) => store.set(k, r), match: async (k) => store.get(k), delete: async (k) => store.delete(k) }) };
     const nodes = {};
     const FS = {
         mkdirTree() {}, mkdir() {}, mount() {}, syncfs: (a, cb) => cb(),
@@ -94,7 +97,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -116,9 +119,14 @@ function readEntry(g, prefix) {
 
 // ---- session 1: cold
 const store = new Map(), ls = new Map();
+ls.set("yo2-lazy-scenes", JSON.stringify({ etag: '"e1"', sets: { 44: [5, 6, 7, 8, 9, 10, 11, 12] }, next: {} }));   // a learned boot
 let g = makeEnv(store, ls);
 await g.ready();
 const L = g.Module.yo2Lazy;
+// the boot's hold: merge.dat's directory is in before the game starts, never more than 4 fetches at once
+assert.ok(Array.from({ length: Math.ceil(toc / MB) }, (_, i) => i).every((i) => L.pinned.has([...L.files.keys()].find((u) => /merge\.dat$/.test(u)) + "#" + i)), "the directory, held");
+assert.ok([5, 6, 7, 8, 9, 10, 11, 12].every((i) => L.pinned.has([...L.files.keys()].find((u) => /merge\.dat$/.test(u)) + "#" + i)), "the learned boot set, held");
+assert.ok(maxFlying <= 4, "at most 4 at once: " + maxFlying);
 g.read("/game/merge.dat", 0, toc);   // the game reads the directory first
 await settle(L);
 assert.ok(L.spans && L.spans.get("data/mini"), "directory parsed");
@@ -159,6 +167,19 @@ readEntry(g, "data/mini"), readEntry(g, "data/map/map_a02");
 await settle(L2);
 assert.equal(syncXhr, 0, "a returning player's directory, hot set and lobby: no synchronous request");
 console.log(`session 2: ${syncXhr} sync, ${netFetch} network fetches, ${L2.stats.fromStore} from the store`);
+
+// ---- a truncated store entry (storage pressure, a browser bug) is dropped and fetched again, never handed to the game
+{
+    const [k, r] = [...store].find(([key]) => /chunk=0&/.test(key));
+    r.d = r.d.subarray(0, 100);
+    const t = makeEnv(store, ls);
+    await t.ready();
+    assert.ok(t.Module.yo2Lazy.stats.storeBad >= 1, "the bad entry noticed");
+    assert.deepEqual(Buffer.from(t.read("/game/merge.dat", 0, toc)), file.subarray(0, toc), "and the right bytes read");
+    await settle(t.Module.yo2Lazy);
+    assert.ok(!store.has(k) || store.get(k).d.length > 100, "dropped from the store (or stored again whole)");
+    console.log("store check: ok");
+}
 
 fetched.length = 0;
 // ---- scenes: session 3 learns what switching into the title and the login reads; session 4 (a reload) has it in
@@ -295,6 +316,22 @@ assert.equal(syncSizes[0], MB, "elsewhere a miss reads the whole chunk");
 await settle(g.Module.yo2Lazy);   // its read-ahead, before the next test counts fetches
 console.log("card pages: ok");
 
+// ---- merge.dat's directory from its gzip sidecar (tools/mergedir.py): no chunk of it fetched, its bytes the same; a
+// stale one (another merge.dat's size) is ignored
+const sidecar = (size) => gzipSync(Buffer.concat([Buffer.from("YO2DIR1\0", "latin1"), (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(size)); return b; })(), file.subarray(0, toc)]));
+for (const [label, size, used] of [["matching", file.length, true], ["stale", file.length + 1, false]]) {
+    files["game/merge.dat.dir.gz"] = sidecar(size);
+    fetched.length = 0, syncXhr = 0;
+    g = makeEnv(new Map(), new Map());
+    await g.ready();
+    assert.equal(g.Module.yo2Lazy.stats.dirSidecar === toc, used, label + " sidecar used");
+    assert.deepEqual(Buffer.from(g.read("/game/merge.dat", 0, toc)), file.subarray(0, toc), label + ": the directory's bytes");
+    assert.equal(fetched.includes(0) || syncXhr > 0, !used, label + ": chunk 0 fetched only without it");
+    await settle(g.Module.yo2Lazy);
+}
+delete files["game/merge.dat.dir.gz"];
+console.log("directory sidecar: ok");
+
 // ---- prefetch=0: the plain lazy reads
 syncXhr = 0, netFetch = 0;
 g = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
@@ -353,7 +390,7 @@ console.log("prefetch=0: ok");
     };
     const fill = (n, seed) => { const b = Buffer.alloc(n); for (let i = 0; i < n; i += 4) b.writeUInt32LE((i * 2654435761 + seed) >>> 0, i); return b; };
     const list = Buffer.from("0000.png\r\n89631139.jpg\r\n67105242.jpg\r\n24094653.jpg\r\n", "latin1");
-    const cardDat = arc([["list_card.txt", list], ["24094653.jpg", fill(MB, 1)], ["67105242.jpg", fill(2 * MB, 2)], ["89631139.jpg", fill(2 * MB, 3)]]);
+    const cardDat = arc([["list_card.txt", list], ["36280194.png", fill(MB, 5)], ["24094653.jpg", fill(MB, 1)], ["67105242.jpg", fill(2 * MB, 2)], ["89631139.jpg", fill(2 * MB, 3)]]);
     files["cards/merge/data/card.dat"] = cardDat;
     files["cards/merge/data/mini.dat"] = arc([["list_card.txt", list], ["89631139.jpg", fill(5 * MB, 4)]]);
     try {
@@ -367,6 +404,23 @@ console.log("prefetch=0: ok");
         assert.equal(hot.filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole");
         const mini = ent("data/mini");
         assert.ok(!hot.some((k) => k.endsWith("merge.dat#" + Math.floor((mini.off + MB) / MB))), "merge.dat's data/mini is not");
+        // card art not in memory: a placeholder at once (its entry's offset in the comment), the entry fetched behind it
+        syncXhr = 0;
+        const off = cardDat.length - 2 * MB, ph = Buffer.from(r.read("/game/merge/data/card.dat", off, 8192));
+        assert.equal(syncXhr, 0, "no synchronous read for card art");
+        assert.equal(ph[0], 0xff), assert.equal(ph[1], 0xd8);
+        assert.ok(ph.includes("yo2-placeholder:" + String(off).padStart(10, "0")), "the entry's offset in the comment");
+        assert.equal(ph[ph.length - 1], 0, "zeros past the placeholder");
+        assert.equal(L.artBytes(off), null, "not here yet");
+        await settle(L);
+        assert.deepEqual(Buffer.from(L.artBytes(off)), cardDat.subarray(off, off + 2 * MB), "then the entry's real bytes");
+        assert.equal(L.artBytes(off + 1).length, 0, "an offset that is no entry: nothing to wait for");
+        const face = cardDat.indexOf(fill(64, 5));   // a 2008 face (PNG): a placeholder too
+        assert.ok(Buffer.from(r.read("/game/merge/data/card.dat", face, 4096)).includes("yo2-placeholder:" + String(face).padStart(10, "0")), "a PNG face");
+        assert.equal(syncXhr, 0, "no synchronous read for a PNG face");
+        for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("card.dat#0")));   // its pin lost
+        r.read("/game/merge/data/card.dat", 0, 12 + 5 * 268 + list.length);   // the directory and list_card.txt, at a card scene
+        assert.equal(syncXhr, 0, "card.dat's chunk 0 stays for the session");
         syncXhr = 0;
         await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
         await settle(L);

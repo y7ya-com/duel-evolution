@@ -61,7 +61,7 @@ Module.preRun.push(() => {
     const files = new Map();   // url -> {size, etag, ver}: ver is the "?v=" suffix of every request
     const lru = new Map();     // "url#chunk" -> Uint8Array, in use order
     const pinned = new Map();  // "url#chunk" -> {data, tag}
-    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, syncBytes: 0, pageHit: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
+    const stats = { syncMiss: 0, syncMs: 0, worstMs: 0, syncRetry: 0, syncFail: 0, syncBytes: 0, pageHit: 0, artPlaceholder: 0, artFilled: 0, memHit: 0, prefetched: 0, fromStore: 0, persisted: 0, pinned: 0 };
     const missLog = [];   // the last 1000 synchronous misses (measurements: which stall, how long, which chunk)
     const L = (Module.yo2Lazy = { stats, files, lru, pinned, missLog });
 
@@ -112,10 +112,15 @@ Module.preRun.push(() => {
         persisted.add(keyOf(url, i));
         store.then((c) => c && c.put(storeKey(url, i), new Response(data))).then(() => stats.persisted++, () => {});
     }
-    async function fromStore(url, i) {
+    async function fromStore(url, i) {   // a stored chunk, or null; a wrong-length one (truncated, corrupted) is dropped
         const c = store && files.get(url).etag && (await store);
         const r = c && (await c.match(storeKey(url, i)));
-        return r ? new Uint8Array(await r.arrayBuffer()) : null;
+        if (!r) return null;
+        const d = new Uint8Array(await r.arrayBuffer()), [from, to] = span(url, i);
+        if (d.length === to - from + 1) return d;
+        stats.storeBad = (stats.storeBad | 0) + 1;
+        if (c.delete) c.delete(storeKey(url, i)).catch(() => {});
+        return null;
     }
 
     // ---- the synchronous read path
@@ -206,7 +211,7 @@ Module.preRun.push(() => {
     const queue = [];            // {url, i, pri, tag, keep}: lower pri first
     const wanted = new Map();    // "url#chunk" -> the pin tag a queued or policy chunk should get
     let running = 0, runningLow = 0;   // low: the card trickle, one at a time
-    const inflight = new Set();          // "url#chunk" being fetched
+    const inflight = new Map();          // "url#chunk" being fetched -> that fetch (a second asker waits for it)
     const aborts = new Map();            // "url#chunk" -> the AbortController of its network fetch
     L.queueLen = () => queue.length + running;
     function want(url, i, pri, tag, keep = true) {
@@ -222,23 +227,28 @@ Module.preRun.push(() => {
         queue.push({ url, i, pri, tag, keep });
         pump();
     }
+    let holding = false;   // the boot's hold: the queue waits, the title's reads have the link
     function pump() {
-        while (running < PARALLEL && queue.length) {
+        while (!holding && running < PARALLEL && queue.length) {
             queue.sort((a, b) => a.pri - b.pri);
             if (queue[0].pri >= 9 && runningLow) break;
             const j = queue.shift(), low = j.pri >= 9;
-            if (memChunk(j.url, j.i)) continue;
+            const m = memChunk(j.url, j.i);
+            if (m) { if (j.tag) remember(j.url, j.i, m, j.tag); continue; }   // came in meanwhile (the boot's hold): its tag still applies
             running++, runningLow += low;
             fetchChunk(j).catch(() => {}).finally(() => { running--, runningLow -= low; pump(); });
         }
     }
-    async function fetchChunk(j) {
+    function fetchChunk(j) {
         const k = keyOf(j.url, j.i);
-        if (inflight.has(k)) return;
-        inflight.add(k);
-        try { await fetchChunk2(j); }
-        catch (e) { if (e && e.name === "AbortError") queue.push(j); else throw e; }   // a sync read took the link
-        finally { inflight.delete(k), aborts.delete(k); }
+        if (inflight.has(k)) return inflight.get(k);
+        const p = (async () => {
+            try { await fetchChunk2(j); }
+            catch (e) { if (e && e.name === "AbortError") queue.push(j); else throw e; }   // a sync read took the link
+            finally { inflight.delete(k), aborts.delete(k); }
+        })();
+        inflight.set(k, p);
+        return p;
     }
     async function fetchChunk2(j) {
         let data = j.keep ? await fromStore(j.url, j.i) : null;   // the trickle only fills the HTTP cache
@@ -269,10 +279,26 @@ Module.preRun.push(() => {
     const AVATARS = ["data/avatar/chibi", "data/avatar/npc"];   // ~34 MB, once the player is on a map
     const TRICKLE = ["data/card"];
     let archive = null, spans = null, curMap = null;
+    // merge.dat's directory from its gzip sidecar <merge.dat>.dir.gz (client/tools/mergedir.py: ~250 KB for the 5.2 MB of
+    // chunks every cold boot reads before the title), used only when it matches this merge.dat; else the chunks as before
+    let dirBuf = null;
+    async function dirSidecar() {
+        try {
+            const r = await fetch(archive + ".dir.gz", { cache: "no-cache" });
+            if (r.status !== 200) return null;
+            const rd = new Blob([await r.arrayBuffer()]).stream().pipeThrough(new DecompressionStream("gzip")).getReader(), parts = [];
+            for (let x; !(x = await rd.read()).done;) parts.push(x.value);
+            const b = new Uint8Array(parts.reduce((n, x) => n + x.length, 0)), d = b.subarray(16);
+            parts.reduce((at, x) => (b.set(x, at), at + x.length), 0);
+            const magic = String.fromCharCode(...b.subarray(0, 8)), size = new DataView(b.buffer, b.byteOffset + 8, 8).getBigUint64(0, true);
+            const n = d[8] | d[9] << 8 | d[10] << 16 | (d[11] << 24 >>> 0);
+            return magic === "YO2DIR1\0" && Number(size) === files.get(archive).size && d.length === 12 + n * 268 ? d : null;
+        } catch { return null; }
+    }
     // 2x card art (tools/cardart.py): merge/data/card.dat and mini.dat, KCEJYUGI archives the exe opens before
     // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
     // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
-    let cardArc = null, miniArc = null;
+    let cardArc = null, miniArc = null, mergeLog = null;
     const cardFiles = new Map();   // card.dat entry name -> [from, to)
     function* tocEntries(toc, end) {   // [name (lower case, '/'), offset, stored size, size] per directory entry
         for (let e = 12; e < end; e += 268) {
@@ -286,36 +312,94 @@ Module.preRun.push(() => {
             yield [name.toLowerCase(), u32(256), u32(264), u32(260)];
         }
     }
-    let cardTocLoad = null;
+    let cardTocLoad = null, cardHead = null;   // cardHead: card.dat's chunk 0, kept for the session (no pin to lose)
+    // a chunk into memory, fetched again when a synchronous read aborted it (up to 5 tries)
+    const fetchSure = async (url, i, tag) => { for (let k = 0; k < 5 && !memChunk(url, i); k++) await fetchChunk({ url, i, pri: 0, tag, keep: true }); };
     const cardToc = () => (cardTocLoad = cardTocLoad || (async () => {   // card.dat's directory (~870 KB: chunk 0)
-        await fetchChunk({ url: cardArc, i: 0, pri: 0, tag: "toc", keep: true });
+        await fetchSure(cardArc, 0, "toc");
         const first = memChunk(cardArc, 0);
         if (!first) throw new Error("card.dat directory not read");
         const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
         const toc = new Uint8Array(end);
         for (let i = 0; i * CHUNK < end; i++) {
-            if (!memChunk(cardArc, i)) await fetchChunk({ url: cardArc, i, pri: 0, tag: "toc", keep: true });
+            await fetchSure(cardArc, i, "toc");
             const c = memChunk(cardArc, i);
             if (!c) throw new Error("card.dat directory not read");
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
         }
         for (const [name, off, len] of tocEntries(toc, end)) cardFiles.set(name, [off, off + len]);
+        cardHead = memChunk(cardArc, 0) || first;   // the game reads the directory and list_card.txt again at card scenes
     })().catch((e) => { cardTocLoad = null; throw e; }));
+    // ---- card art without waiting (card.dat). A read inside a JPEG entry that isn't all in memory gets a placeholder
+    // JPEG of the same 400x580 instead (padded with zeros to the entry's length), with the entry's offset in its comment
+    // ("yo2-placeholder:<10 digits>"); its chunks go first in the background queue. ovr/decode.c makes the texture from
+    // the placeholder as usual and, each frame, asks artBytes(offset) for the real bytes and fills that same texture.
+    // The game's frame never waits for card art (field: card lists froze 2-4.8 s per card at ~1 MB/s).
+    // ?cardsync=1: the synchronous read as before.
+    const artAsync = prefetchOn && !q.has("cardsync");
+    const PLACEHOLDER = Uint8Array.from(atob("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SpqKLBch2N6U2rFV6BhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//V46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9fjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//Q46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0eOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Ljqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//T46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1OOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Xjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//W46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1+Oqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Djqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//R46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Pjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvTt7etAE1FQ729aN7etFxWJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqr07e3rTaBhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//V46q93/x7t+H8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"), (c) => c.charCodeAt(0));
+    const PH_DIGITS = PLACEHOLDER.indexOf(58) + 1;   // after "yo2-placeholder:" (its first ':')
+    let artSorted = null;   // card.dat's .jpg entries as sorted [from, to)
+    const resident = (url, e) => { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) if (!memChunk(url, i)) return false; return true; };
+    function artWant(e) { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) want(cardArc, i, 0, wanted.get(keyOf(cardArc, i))); }
+    function artRead(buffer, offset, pos, end) {   // the read with placeholders, or false (nothing missing: as usual)
+        if (!artSorted) {
+            if (!cardFiles.size) return cardToc().catch(() => {}), false;   // not here yet (or its load failed): again
+            artSorted = [...cardFiles].filter(([n]) => /\.(jpg|png)$/.test(n)).map(([, e]) => e).sort((a, b) => a[0] - b[0]);   // png: the 2008 faces
+        }
+        let lo = 0, hi = artSorted.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (artSorted[m][1] <= pos) lo = m + 1; else hi = m; }
+        const missing = [];
+        for (let k = lo; k < artSorted.length && artSorted[k][0] < end; k++) if (!resident(cardArc, artSorted[k])) missing.push(artSorted[k]);
+        if (!missing.length) return false;
+        let p = pos;
+        for (const e of missing) {
+            const a = Math.max(pos, e[0]), b = Math.min(end, e[1]), digits = String(e[0]).padStart(10, "0");
+            if (p < a) readReal(cardArc, buffer, offset + p - pos, p, a);
+            for (let x = a; x < b; x++) {
+                const k = x - e[0];
+                buffer[offset + x - pos] = k >= PLACEHOLDER.length ? 0 : k >= PH_DIGITS && k < PH_DIGITS + 10 ? digits.charCodeAt(k - PH_DIGITS) : PLACEHOLDER[k];
+            }
+            if (a === e[0]) stats.artPlaceholder++;
+            artWant(e);
+            p = b;
+        }
+        if (p < end) readReal(cardArc, buffer, offset + p - pos, p, end);
+        return true;
+    }
+    L.artBytes = (off) => {   // ovr/decode.c: the entry at `off`, once all its chunks are in memory (else asked for again)
+        let lo = 0, hi = artSorted ? artSorted.length - 1 : -1;
+        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (artSorted[m][0] <= off) lo = m; else hi = m - 1; }
+        const e = hi >= 0 && artSorted[lo][0] === off ? artSorted[lo] : null;
+        if (!e) return new Uint8Array(0);   // not card art: nothing to wait for (decode.c drops it)
+        if (!resident(cardArc, e)) return artWant(e), null;
+        const buf = new Uint8Array(e[1] - e[0]);
+        readReal(cardArc, buf, 0, e[0], e[1]);
+        stats.artFilled++;
+        return buf;
+    };
     function wantFile(url, pri, tag) {   // every chunk of a lazy file
         const f = files.get(url);
         if (f) for (let i = 0; i * CHUNK < f.size; i++) want(url, i, pri, tag);
     }
+    // mini.dat (~22 MB, every card's thumbnail: the trunk and deck lists never wait) is preloaded, except over a metered
+    // link: Save-Data, cellular, and on phones and tablets anything not known to be Wi-Fi or Ethernet
+    const thumbsOk = () => {
+        const c = typeof navigator !== "undefined" && navigator.connection;
+        if (c && (c.saveData || c.type === "cellular")) return false;
+        return !small || !!(c && (c.type === "wifi" || c.type === "ethernet"));
+    };
     const lastLobby = () => { try { return localStorage.getItem("yo2-lazy-lobby"); } catch { return null; } };
     function wantSpan(dir, pri, tag, keep = true) {
         const s = spans && spans.get(dir);
         if (s) for (let i = Math.floor(s[0] / CHUNK); i * CHUNK < s[1]; i++) want(archive, i, pri, tag, keep);
     }
-    function parseToc() {   // once chunks 0.. of the directory are in memory: the byte span of each folder
-        const f = files.get(archive), first = memChunk(archive, 0);
+    function parseToc() {   // once chunks 0.. of the directory are in memory (or the sidecar): the byte span of each folder
+        const f = files.get(archive), first = dirBuf || memChunk(archive, 0);
         if (spans || !first) return;
         const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
-        const need = Math.ceil(end / CHUNK), toc = new Uint8Array(end);
-        for (let i = 0; i < need; i++) {
+        const need = Math.ceil(end / CHUNK), toc = dirBuf || new Uint8Array(end);
+        for (let i = 0; i < need && !dirBuf; i++) {
             const c = memChunk(archive, i);
             if (!c) { for (let k = i; k < need; k++) want(archive, k, 0, "toc"); return; }   // when they arrive
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
@@ -333,9 +417,9 @@ Module.preRun.push(() => {
         }
         L.spans = spans;
         if (pendingDeck) prefetchCards(pendingDeck);
-        for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
+        for (let i = 0; i < need; i++) { const c = memChunk(archive, i); if (c) remember(archive, i, c, "toc"); }   // read at every start: kept
         for (const d of HOT) if (!(miniArc && d === "data/mini")) wantSpan(d, 2, "hot");
-        if (miniArc) wantFile(miniArc, 2, "hot");
+        if (miniArc && thumbsOk()) wantFile(miniArc, 2, "hot");
         // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
         // has to be measured (and capped) before it is on by default
         onIdle(() => {
@@ -367,7 +451,7 @@ Module.preRun.push(() => {
     async function entryBytes(url, e) {   // [from, to, size?) of a lazy archive, through the chunk cache
         const buf = new Uint8Array(e[1] - e[0]);
         for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) {
-            if (!memChunk(url, i)) await fetchChunk({ url, i, pri: 0, keep: true });
+            await fetchSure(url, i);
             const c = memChunk(url, i);
             if (!c) return null;
             const from = Math.max(e[0], i * CHUNK), to = Math.min(e[1], (i + 1) * CHUNK);
@@ -452,15 +536,26 @@ Module.preRun.push(() => {
     // arriving in a scene prefetches (and pins) what the next likely scenes read, two steps ahead, from the store or
     // the network. Login -> player select -> My Room and lobby -> janken -> duel are read the same way every time.
     const SCENES = "yo2-lazy-scenes", SCENE_MAX = 48, BOOT = 0x2c;   // 0x2c: SCENE_NONE, before the first scene
+    const HOLD_PARALLEL = 4, HOLD_MAX = 15000;   // the boot's hold (boot below)
+    const PLAYER_SELECT = 7, NEW_CHARACTER = 9;   // SCENE_PLAYER_SELECT; SCENE_CHANGE_AVATAR (a new character's avatar)
     // A player with nothing learned yet starts from this: a native run (login -> My Room -> lobby -> NPC duel -> result
     // -> lobby, RC_IOTRACE + RC_SCENE_LOG) over the same merge.dat (by size). Sets are chunk numbers; BOOT's is what the
     // exe reads before its first scene. Learned sets replace these scene by scene.
-    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
+    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397],"9":[60,66,68,69,70,72,73]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10,9],"9":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
     let learned = { etag: "", sets: {}, next: {} }, sceneReads = prefetchOn ? new Set() : null, sceneTo = BOOT;   // boot reads
     function loadScenes() {
         try { const l = JSON.parse(localStorage.getItem(SCENES) || "{}"); if (l.etag === files.get(archive).etag) learned = l; } catch {}
-        if (!Object.keys(learned.sets).length && files.get(archive).size === DEFAULT_SCENES.size)
+        const defaults = files.get(archive).size === DEFAULT_SCENES.size;
+        if (!Object.keys(learned.sets).length && defaults)
             learned = JSON.parse(JSON.stringify({ sets: DEFAULT_SCENES.sets, next: DEFAULT_SCENES.next }));
+        // A new character's avatar creation (CHANGE_AVATAR, from player select only for a new character): its ~7 MB of
+        // outfits (data/avatar/wu, chunks from two field players' 3.5 s stalls) is prefetched from player select on. A
+        // returning player has never learned it, so the default is kept until a visit learns its own.
+        if (defaults && !learned.sets[NEW_CHARACTER]) {
+            learned.sets[NEW_CHARACTER] = DEFAULT_SCENES.sets[NEW_CHARACTER];
+            const n = (learned.next[PLAYER_SELECT] = learned.next[PLAYER_SELECT] || []);
+            if (!n.includes(NEW_CHARACTER)) n.push(NEW_CHARACTER);
+        }
         learned.etag = files.get(archive).etag;
     }
     function saveScenes() { try { localStorage.setItem(SCENES, JSON.stringify(learned)); } catch {} }
@@ -480,7 +575,8 @@ Module.preRun.push(() => {
     }
     // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, and data/y2/duel's effects: ~19 MB): pinned from the
     // lobby on, so a first duel's attack, chain and summon effects do not stall; released back in My Room or the title.
-    const DUELFX = ["effect", "chain", "card", "phase", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d)
+    // phase_name: the phase banners (merge.dat 638-640; a field PvP freeze of 3.2 s on chunk 639 without it)
+    const DUELFX = ["effect", "chain", "card", "phase", "phase_name", "font", "life", "list_icon", "dialog", "match", "get"].map((d) => "data/y/duel/" + d)
         .concat(["data/y2/duel/effect", "data/y2/duel/card"]);   // coin, tribute, summon effects; special card effects (~5 MB)
     const LOBBY = 12, JANKEN = 0x1e, HOME = [4, 6, 7, 10];
     const DUELUI = /^data\/y\/duel\/field\/duel_(thinkicon|window|sp)|^data\/y2\/duel_[^/]*$|^data\/y2\/duelfield_/;
@@ -522,6 +618,9 @@ Module.preRun.push(() => {
         const names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
         stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
         await loadPcTable();
+        // after the scene's own fieldBackgrounds([]) (it awaits the card names first): the later pin of the "field" tag
+        // wins, and that must be the one with the Field Spell
+        await loadCardNames();
         if (pcInternal) fieldsByNumber(fields.map((pc) => pcInternal.get(pc)));
     }
     function npcDeck() {   // the NPC's deck of the duel being set up, from the server (never another player's): its art
@@ -597,6 +696,18 @@ Module.preRun.push(() => {
 
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
+    function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
+        const head = url === archive ? dirBuf : url === cardArc ? cardHead : null;   // merge.dat's directory (the sidecar), card.dat's
+        if (head && pos < head.length) {
+            const e = Math.min(end, head.length);
+            buffer.set(head.subarray(pos, e), offset), (offset += e - pos), (pos = e);
+        }
+        for (let p = pos; p < end;) {
+            const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
+            buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
+            p += k;
+        }
+    }
     function mount(dir, base) {
         if (!base.endsWith("/")) base += "/";
         const x = new XMLHttpRequest();
@@ -614,6 +725,7 @@ Module.preRun.push(() => {
             files.set(url, { size, etag: "", ver: "" });
             if (size >= 4 * CHUNK) lazy.push(url);   // ETag (request version, store key) for the files read in chunks
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
+            if (/^merge\.log$/i.test(rel)) mergeLog = url;   // 1.5 KB, the patcher reads it every start
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
             if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
             if (/(^|\/)sound\.dat$/i.test(rel)) sound = url;
@@ -622,11 +734,7 @@ Module.preRun.push(() => {
             node.stream_ops = Object.assign({}, node.stream_ops, {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
-                    for (let p = pos; p < end;) {
-                        const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
-                        buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
-                        p += k;
-                    }
+                    if (!(url === cardArc && artAsync && artRead(buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
                     if (prefetchOn) onRead(url, pos);
                     return Math.max(0, end - pos);
                 },
@@ -649,6 +757,7 @@ Module.preRun.push(() => {
     }
     L.savePins = savePins;
     async function boot() {
+        const side = archive ? dirSidecar() : null;   // with the HEADs (it needs only the manifest's size)
         await Promise.all(lazy.map(async (url) => {
             // never from the HTTP cache (a stale ETag would version every request wrongly); "?v=" so the reply carries
             // the Cache-Control the versioned chunk requests get
@@ -668,29 +777,43 @@ Module.preRun.push(() => {
                 for (const i of (s[list] || []).slice(0, max))
                     loads.push(fromStore(url, i).then((d) => d && (stats.fromStore++, remember(url, i, d, tag))));
         }
-        // merge.dat's directory (~5 MB, read first thing): its chunks in parallel rather than one synchronous request
-        // after another, then the policies can start while the title and login screens run; likewise what the exe
-        // read before its first scene last time (learned, or the defaults)
         // Sound.dat's directory (the BGM init checks its files before the first frame; chunk 0), alongside
         if (sound && files.get(sound).etag) loads.push(fetchChunk({ url: sound, i: 0, pri: 0, tag: "se", keep: true }));
-        if (archive && files.get(archive).etag) {
-            loadScenes();
-            const first = learned.next[BOOT] || [], early = [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])];
-            for (const sc of early)   // the patcher and the title come within frames: not after boot, during it
-                for (const i of learned.sets[sc] || []) loads.push(fetchChunk({ url: archive, i, pri: 0, tag: "boot", keep: true }));
-            const job = (i) => fetchChunk({ url: archive, i, pri: 0, tag: "toc", keep: true });
-            await job(0);
-            const c = memChunk(archive, 0);
-            if (c) {
-                const n = c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24, need = Math.ceil((12 + n * 268) / CHUNK);
-                const rest = [];
-                for (let i = 1; i < need; i++) rest.push(job(i));
-                loads.push(...rest);
-            }
+        // The hold: what the exe reads before the title shows, fetched HOLD_PARALLEL at a time in the order it reads it
+        // (merge.log, merge.dat's directory, then the learned chunks of the boot, the patcher and the title), until all
+        // are in or HOLD_MAX passes. Those bytes come before the title's first frame either way: fetched ahead they
+        // pipeline instead of one synchronous request after another, and the title doesn't stall on them (field: merge.log
+        // and the title's chunks, up to a second a frame). All at once under a 3 s cap (before), most were half done when
+        // the game's first reads aborted them, and came down twice (yo2-browser: 19.9 MB of merge.dat at 20 Mbit).
+        // The next scenes and the policies follow through the queue, one at a time. Works without an ETag too (it only
+        // versions the store and the learned sets).
+        const jobs = [], held = new Set();
+        holding = true;
+        const hold = (url, i, tag) => { const k = keyOf(url, i); if (url && !held.has(k) && !memChunk(url, i)) held.add(k), jobs.push([url, i, tag]); };
+        const worker = async () => { for (let j; (j = jobs.shift());) await fetchSure(j[0], j[1], j[2]); };
+        hold(mergeLog, 0, "boot");
+        if (side && (dirBuf = await side)) {   // the directory's whole chunks, from the sidecar
+            for (let i = 0; (i + 1) * CHUNK <= dirBuf.length; i++) remember(archive, i, dirBuf.subarray(i * CHUNK, (i + 1) * CHUNK), "toc");
+            stats.dirSidecar = dirBuf.length;
         }
-        await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 3000))]);   // never hold the start long
+        if (archive) {
+            loadScenes();
+            const head = dirBuf ? Promise.resolve() : fetchSure(archive, 0, "toc");
+            loads.push(worker(), head.then(() => {   // its count gives the directory's length
+                const c = dirBuf || memChunk(archive, 0);
+                if (c && !dirBuf) for (let i = 1, need = Math.ceil((12 + (c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24) * 268) / CHUNK); i < need; i++) hold(archive, i, "toc");
+                const first = learned.next[BOOT] || [];
+                for (const sc of [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])])   // boot, patcher, title
+                    for (const i of learned.sets[sc] || []) hold(archive, i, "boot");
+                return Promise.all(Array.from({ length: HOLD_PARALLEL }, worker));
+            }));
+        } else loads.push(worker());
+        await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, HOLD_MAX))]);
+        jobs.length = 0, (holding = false);   // past the cap: what's left goes through the queue (prefetchAfter, the policies)
+        pump();
+        if (cardArc) cardToc().catch(() => {});   // card art's directory (placeholders), after the title's reads
         parseToc();
-        if (archive && files.get(archive).etag) prefetchAfter(BOOT);   // the title, login, ...
+        if (archive) prefetchAfter(BOOT);   // the title, login, ...
         stats.pinned = pinned.size;
         setTimeout(() => unpin((t) => t === "boot"), 120000);   // a policy re-pins what it still wants
         setInterval(savePins, 30000);

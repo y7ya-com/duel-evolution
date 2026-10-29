@@ -77,9 +77,16 @@
     };
     setTimeout(check, 250);
   }
-  addEventListener("error", (e) => failed("error: " + (e.message || e)));
+  // A browser extension's own error (its scripts run in the page) is not the game's: before the first frame it used
+  // to end the boot (crash report 7589ac0e, chrome-extension://…/executors/200.js). Ignored when only extension code is
+  // in it.
+  const extension = (s) => /(chrome|moz|safari(-web)?)-extension:\/\//.test(s) && !s.includes(location.origin);
+  addEventListener("error", (e) => extension(String(e.filename || "") + "\n" + (e.error?.stack || "")) || failed("error: " + (e.message || e)));
   // Firefox's and Safari's .stack leave the message out
-  addEventListener("unhandledrejection", (e) => failed("unhandled rejection: " + (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason)));
+  addEventListener("unhandledrejection", (e) => {
+    const s = (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason);
+    if (!extension(s)) failed("unhandled rejection: " + s);
+  });
   if (!crossOriginIsolated) log("not cross-origin isolated: serve with COOP/COEP headers (web/serve.mjs does)");
   if (!("Suspending" in WebAssembly)) log("no JSPI (WebAssembly.Suspending): the ASYNCIFY build");
   var Module = { canvas: document.getElementById("canvas"), print: log, printErr: log,

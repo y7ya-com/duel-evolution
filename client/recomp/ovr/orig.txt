@@ -30,3 +30,6 @@
 00806860  # CLoginScene::onMain (rt/session.cpp: the panel after each step)
 007fa450  # CTitleScene::Receive (freemode.c: DECK EDITOR / FREE DUEL on rows 3 and 4)
 00adcda0  # CWorldMng::waitMyRoom (freemode.c: FREE DUEL joins a lobby instead of My Room)
+006bfa80  # 0x7127 TRADETRUNKEND (starterdeck.c: an open Edit Deck follows the pushed trunk)
+00906dd0  # CDeckManager::save (decksync.c: the saved deck goes to the server)
+008e8f10  # CDeckScene vf05, Edit Deck closing (decksync.c: the current deck to the server)
