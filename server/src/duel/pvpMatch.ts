@@ -347,8 +347,8 @@ export class PvpMatch {
     if (mid === 0x6001) return this.send(i, 0x6007, new W().u32(1).bytes());
     if (mid === 0x6600) return;
     if ((mid === 0x6601 || mid === 0x6603) && data.length >= 4) {
-      const n = Math.min(u32at(data), Math.floor((data.length - 4) / 2));
-      const ids = Array.from({ length: n }, (_, k) => (data[4 + 2 * k] << 8) | data[5 + 2 * k]);
+      const n = Math.min(u32at(data), Math.floor((data.length - 4) / 4));
+      const ids = Array.from({ length: n }, (_, k) => u32at(data, 4 + 4 * k));   // passcodes (the card wire)
       this.deck[i][mid === 0x6601 ? "main" : "extra"] = ids;
       if (mid === 0x6603) this.deckCheck(i);
       return;

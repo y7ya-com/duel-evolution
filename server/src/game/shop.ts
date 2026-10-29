@@ -9,9 +9,10 @@ import * as PP from "./persist.ts";
 const PACKS = SD.packs as [number, number, number | null][];
 const IID = SD.iid as Record<string, number[]>;
 const YDC = SD.ydc as Record<string, number[]>;
-const SHOP_CARDS = Array.from({ length: 40 }, (_, i) => i + 1);
+/** the single cards the shop sells: the first 40 of the 2008 card list, by passcode */
+const SHOP_CARDS = [67105242, 17535588, 15480588, 53153481, 49587396, 25109950, 50122883, 62403074, 12436646, 86164529, 95132338, 85639257, 97360116, 81933259, 99597615, 126218, 28725004, 81863068, 26725158, 58775978, 48365709, 43434803, 77568553, 48305365, 68870276, 91869203, 77622396, 95174353, 14708569, 17881964, 6368038, 6368039, 30606547, 87564352, 52675689, 89494469, 50287060, 31339260, 36151751, 10262698];
 const SHOP_SELL_PRIZE_PACKS = false, SHOP_DECK_RECIPE = true, SHOP_DECK_ITEMGET = false;
-const PACK_SIZE = 5, MAX_CARD = 0xcb8, SHOP_ENTRIES_PER_MSG = 78;
+const PACK_SIZE = 5, SHOP_ENTRIES_PER_MSG = 78;
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
 
 /** py shop_prices: the admin's price table (py admin_tienda.json), integers 1..100000 only. */
@@ -61,7 +62,7 @@ export function shopPurchase(g: Game, kind: number, prm: number, num: number): [
     if (iid) cards = Array.from({ length: PACK_SIZE * num }, () => g.rng.choice(iid));
     else if (ydc) cards = Array.from({ length: num }, () => ydc).flat();
   }
-  return cards.filter((x) => x > 0 && x <= MAX_CARD).map((x) => [kind, x]);
+  return cards.filter((x) => PP.cardOk(x)).map((x) => [kind, x]);
 }
 
 const u32at = (b: Uint8Array, i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;

@@ -7,7 +7,7 @@ import type { Conn } from "../net/conn.ts";
 import type { Game } from "../game/game.ts";
 import type { Session } from "../game/hub.ts";
 import * as PP from "../game/persist.ts";
-import { DECK_CARDS } from "./data.ts";
+import { cardmap, DECK_CARDS } from "./data.ts";
 import { duelsvrinfomsg } from "./lockstep.ts";
 
 const MODES = ["off", "avisar", "bloquear"];
@@ -28,7 +28,7 @@ export function deckHash(main: number[], extra: number[]): string {
 export function check(main: number[], extra: number[], trunk: Record<string, number>, limitList = true): Problem[] {
   const db = DECK_CARDS;
   const out: Problem[] = [];
-  const nom = (cid: number) => db[cid]?.[3] ?? "";
+  const nom = (cid: number) => db[cid]?.[2] ?? "";
   if (!(main.length >= MAIN_MIN && main.length <= MAIN_MAX))
     out.push({ regla: "tamano", id: null, nombre: "", usa: main.length, tiene: null, max: MAIN_MAX, min: MAIN_MIN, zona: "principal",
       texto: `principal de ${main.length} cartas (` + (main.length < MAIN_MIN ? `mínimo ${MAIN_MIN})` : `máximo ${MAIN_MAX})`) });
@@ -38,7 +38,7 @@ export function check(main: number[], extra: number[], trunk: Record<string, num
   const ids = [...use.keys()].sort((a, b) => a - b);
   for (const cid of ids) if (!(cid in db)) out.push({ regla: "existe", id: cid, nombre: "", usa: use.get(cid)!, tiene: null, max: 0 });
   for (const [zona, list, want] of [["principal", main, false], ["extra", extra, true]] as const) {
-    const bad = count(list.filter((c) => c in db && isFusion(db[c][1]) !== want));
+    const bad = count(list.filter((c) => c in db && isFusion(db[c][0]) !== want));
     for (const cid of [...bad.keys()].sort((a, b) => a - b))
       out.push({ regla: "sitio", id: cid, nombre: nom(cid), usa: bad.get(cid)!, tiene: null, max: 0, zona,
         texto: zona === "principal" ? "fusión en el Deck principal" : "no es una fusión y está en el Deck extra" });
@@ -48,11 +48,12 @@ export function check(main: number[], extra: number[], trunk: Record<string, num
     if (use.get(cid)! > have) out.push({ regla: "baul", id: cid, nombre: nom(cid), usa: use.get(cid)!, tiene: have, max: have });
   }
   const byk = new Map<number, number[]>();
-  for (const cid of use.keys()) { const k = db[cid]?.[0]; if (k) (byk.get(k) ?? byk.set(k, []).get(k)!).push(cid); }
+  // copies count per card (alternate arts together: their base passcode; the 2008 client grouped by Konami id)
+  for (const cid of use.keys()) { if (!(cid in db)) continue; const k = cardmap().rulesKey(cid); (byk.get(k) ?? byk.set(k, []).get(k)!).push(cid); }
   for (const k of [...byk.keys()].sort((a, b) => a - b)) {
     const ks = byk.get(k)!.sort((a, b) => a - b);
     const n = ks.reduce((a, c) => a + use.get(c)!, 0);
-    const lim = db[ks[0]][2];
+    const lim = db[ks[0]][1];
     if (lim === NO_DECK) { if (n > 0) out.push({ regla: "lista", id: ks[0], nombre: nom(ks[0]), usa: n, tiene: null, max: 0, texto: "no va en mazos (dios o ficha)" }); }
     else if (limitList && [0, 1, 2].includes(lim)) { if (n > lim) out.push({ regla: "lista", id: ks[0], nombre: nom(ks[0]), usa: n, tiene: null, max: lim }); }
     else if (n > COPIES_MAX) out.push({ regla: "copias", id: ks[0], nombre: nom(ks[0]), usa: n, tiene: null, max: COPIES_MAX });

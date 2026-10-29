@@ -10,16 +10,25 @@ function harness(dev: boolean) {
   let n = 0;
   const peer = (userId: string | null) => {
     const id = `ws${++n}`, got: Msg[] = [], rd = new Reader(), closed: number[] = [];
+    const frame = (sock: number, p: Uint8Array) => {
+      const f = new Uint8Array(5 + p.length);
+      f[0] = 1; new DataView(f.buffer).setUint32(1, sock); f.set(p, 5);
+      srv.world.onBinary(id, f);
+    };
     srv.world.openPeer(id, userId, (t) => { const m = JSON.parse(t); if (m.type === "close") closed.push(m.id); },
-      (b) => { got.push(...rd.feed(b.subarray(5))); return true; });
+      (b) => {
+        const sock = new DataView(b.buffer, b.byteOffset).getUint32(1);
+        for (const m of rd.feed(b.subarray(5))) {
+          // the card wire's hello (src/world.ts): answer as the client's codec does, keep it out of `got`
+          if (m.id === 0xca01) queueMicrotask(() => frame(sock, pack(0xca02, m.data, 0)));
+          else got.push(m);
+        }
+        return true;
+      });
     let seq = 0;
     return {
       open: (sock: number, port: number) => srv.world.onText(id, JSON.stringify({ type: "open", id: sock, port })),
-      send: (sock: number, mid: number, data: Uint8Array = new Uint8Array(0)) => {
-        const p = pack(mid, data, ++seq), f = new Uint8Array(5 + p.length);
-        f[0] = 1; new DataView(f.buffer).setUint32(1, sock); f.set(p, 5);
-        srv.world.onBinary(id, f);
-      },
+      send: (sock: number, mid: number, data: Uint8Array = new Uint8Array(0)) => frame(sock, pack(mid, data, ++seq)),
       got, closed,
     };
   };

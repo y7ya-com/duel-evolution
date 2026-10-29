@@ -260,12 +260,12 @@ export class DuelPort {
     return s;
   }
 
-  /** The NPC deck (YO2 card ids, main + extra) of the DE user's current NPC duel, for the web client's art prefetch
+  /** The NPC deck (passcodes, main + extra) of the DE user's current NPC duel, for the web client's art prefetch
    *  (GET /api/de/prefetch/duel); null without one. Never a player's deck: s.ext.duel only ever holds an NPC rival.
    *  `fields`: its Field Spells. The duel's base field is the client's own; only a Field Spell changes the background
    *  (FIELD_CHANGE 0x14 -> FUN_00704100), so those are the backgrounds this duel can show.
    *  ponytail: after the duel it keeps answering with that NPC until the next challenge, harmless for a prefetch. */
-  prefetchFor(userId: string): { npc: number; cards: number[]; fields: number[] } | null {
+  prefetchFor(userId: string): { npc: number; cards: number[]; fields: number[]; ids: "passcode" } | null {
     const acct = this.g.store.accountOfUser(userId);
     const s = acct ? this.g.hub.sessions.get(acct) : undefined;
     const d = s?.ext.duel as DuelState | undefined;
@@ -273,8 +273,8 @@ export class DuelPort {
     const deck = npcDeck(this.g.withCtx(s, () => this.npcDeckId(d.rival)));
     if (!deck) return null;
     const cards = [...new Set([...deck.main, ...deck.extra])];
-    const fields = cards.filter((y) => ((brainDb().cards.get(cardmap().yo2_to_code(y) ?? 0)?.type ?? 0) & TYPE_FIELD) !== 0);
-    return { npc: d.rival, cards, fields };
+    const fields = cards.filter((c) => ((brainDb().cards.get(c)?.type ?? 0) & TYPE_FIELD) !== 0);
+    return { npc: d.rival, cards, fields, ids: "passcode" };   // ids: lazyfs tells them from the older YO2 ids
   }
 
   /** NPC_RULES_2008 famous_decks: the level-1 famous NPC plays its current level's recipe (NPCBIN b3). */

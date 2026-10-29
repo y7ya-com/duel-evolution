@@ -4,7 +4,9 @@
 
 The native client speaks TCP to YO2_SERVER:5730+YO2_PORT_OFFSET and HTTP to YO2_HTTP; bridge.mjs (by-IP mode: one
 client = one WebSocket peer) turns that into the gateway WebSocket. Login = the test owner (fake_client's
-TEST_OWNER_LOGIN, aliased to the owner in the fixture state). Output (client log, shots, server log): _out/e2e/.
+TEST_OWNER_LOGIN, aliased to the owner in the fixture state; the server converts its card ids, game/passcodes.ts).
+GAME=<folder> takes the game from there (default client/recomp/run/game; it needs merge/data/card_passcode.bin for the
+card wire). Output (client log, shots, server log): _out/e2e/.
 """
 import os
 import shutil
@@ -56,7 +58,8 @@ def main():
         user, pw = R.fc.TEST_OWNER_LOGIN
         login = (f"1230:move 512 458;1240:click 512 458;2100:move 511 564;2110:click 511 564;2700:move 488 368;2710:click 488 368;"
                  f"2720:text {user};2740:move 488 432;2750:click 488 432;2760:text {pw};2790:move 415 492;2800:click 415 492")
-        env = dict(os.environ, RC_INPUT=login + (";" + extra if extra else ""), YO2_GAME=os.path.join(RECOMP, "run", "game"),
+        game = os.environ.get("GAME", os.path.join(RECOMP, "run", "game"))
+        env = dict(os.environ, RC_INPUT=login + (";" + extra if extra else ""), YO2_GAME=game, YO2_EXE=os.path.join(game, "yo2.exe"),
                    YO2_PORT_OFFSET=str(R.OFFSET), YO2_SERVER="127.0.0.1", YO2_HTTP=f"127.0.0.1:{R.WRANGLER_PORT}", YO2_HIDDEN="1",
                    SDL_MAC_BACKGROUND_APP="1", SDL_AUDIODRIVER="dummy", RC_FRAMES=frames, RC_SHOT=shots, RC_SEED="1")
         rc = subprocess.call(["nice", "-n", "5", "python3", "-I", os.path.join(RECOMP, "..", "tools", "memcap.py"), "--mb", "1500",

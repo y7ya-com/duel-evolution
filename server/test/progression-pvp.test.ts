@@ -22,7 +22,8 @@ interface Client { name: string; s: Session; lobby: Conn; duel: Conn; got: { lob
 
 const u32 = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at);
 const type6202 = (d: Uint8Array) => u32(d, 0) & 0xff;
-const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u16(x); return w.bytes(); };
+const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u32(x); return w.bytes(); };   // passcodes
+const SNATCH_STEAL = 45986603;   // YO2 285
 
 describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
   let srv: Server;
@@ -67,8 +68,8 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
 
   it("is refused before the duel: both players get 0x649b (the bad deck's code 0), the match closes, nobody is paid", async () => {
     const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
-    // A owns its deck (NPC 51's without card 285, forbidden on the 2008 list); B (a new character) owns nothing
-    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== 285), extra: NPC_DECKS["51"].extra };
+    // A owns its deck (NPC 51's without Snatch Steal, forbidden on the 2008 list); B (a new character) owns nothing
+    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
     const st = srv.game.store.loadRaw();
     st.accounts.aaaa.profiles = { "0": { ...PP.blankProfile("Alfa"), prog: 1 } };
     PP.trunkAdd(null, st.accounts.aaaa.profiles["0"], [...own.main, ...own.extra]);

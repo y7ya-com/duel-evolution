@@ -1,13 +1,13 @@
-// py research/traductor/cardmap.py CardMap (YO2 id <-> internal id <-> ocgcore passcode), built from
-// gamedata/translator.json (scripts/translator_gamedata.py dumps py's own CardMap, cards.cdb and the chainable effects
-// of each CardScripts script, so the tables are exactly py's).
+// The translator's card facts, by passcode (the card wire: the client's codec maps passcodes to its own ids), from
+// gamedata/translator.json: the client's card table (which passcodes it has), cards.cdb, and the chainable effects of
+// each CardScripts script.
 
 export interface TranslatorData {
-  internal: number[];
-  y2c: Record<string, number>;
-  c2y: Record<string, number>;
-  int2y: Record<string, number>;
-  placeholders: Record<string, number>;
+  /** The passcodes of the client's card table (client/recomp/rt/cardwire.cpp, tools/cardart.py `table`): the cards
+   *  the 2008 client has, alternate arts under their own ids. */
+  wire: number[];
+  /** FNV-1a of that table file: the card wire's hello compares it with the client's. */
+  wireHash: number;
   /** code -> [type, alias, atk, def, race, attribute, setcode (number or decimal string), in brain.CardDB 0/1] */
   cdb: Record<string, [number, number, number, number, number, number, number | string, number]>;
   /** code -> chainable effects [type, code, hint mine, hint opp, desc] */
@@ -19,14 +19,9 @@ export interface DeclCard { code: number; type: bigint; alias: bigint; race: big
 
 const TYPE_TRAP = 0x4, TYPE_SPELL = 0x2;
 
-const toMap = (o: Record<string, number>): Map<number, number> => new Map(Object.entries(o).map(([k, v]) => [Number(k), v]));
-
 export class CardMap {
-  readonly internal: number[];
-  readonly _y2c: Map<number, number>;
-  readonly _c2y: Map<number, number>;
-  readonly _int2y: Map<number, number>;
-  readonly placeholders: { monster: number; spell: number; trap: number };
+  readonly wireCodes: Set<number>;
+  readonly wireHash: number;
   readonly cdb_type = new Map<number, number>();
   readonly cdb_alias = new Map<number, number>();
   readonly cdb_stats = new Map<number, [number, number]>();
@@ -35,11 +30,8 @@ export class CardMap {
   private readonly scriptCache = new Map<number, { effects: ScriptEffect[] } | null>();
 
   constructor(data: TranslatorData) {
-    this.internal = data.internal;
-    this._y2c = toMap(data.y2c);
-    this._c2y = toMap(data.c2y);
-    this._int2y = toMap(data.int2y);
-    this.placeholders = data.placeholders as CardMap["placeholders"];
+    this.wireCodes = new Set(data.wire);
+    this.wireHash = data.wireHash >>> 0;
     this.cdb = data.cdb;
     this.scripts = data.scripts;
     for (const [k, v] of Object.entries(data.cdb)) {
@@ -50,21 +42,16 @@ export class CardMap {
     }
   }
 
-  yo2_to_code(yo2: number): number | null { return this._y2c.get(yo2) ?? null; }
-
-  /** passcode -> YO2 id; an alternate art tries its alias. */
-  code_to_yo2(code: number | null | undefined): number | null {
+  /** The passcode the client's card table has for this card: its own, else (an alternate art it lacks) its alias. */
+  wire(code: number | null | undefined): number | null {
     if (code == null) return null;
-    let y = this._c2y.get(code);
-    if (y === undefined && this.cdb_alias.get(code)) y = this._c2y.get(this.cdb_alias.get(code)!);
-    return y ?? null;
+    if (this.wireCodes.has(code)) return code;
+    const a = this.cdb_alias.get(code);
+    return a && this.wireCodes.has(a) ? a : null;
   }
 
-  yo2_to_internal(yo2: number): number {
-    return yo2 >= 0 && yo2 < this.internal.length ? this.internal[yo2] : 0;
-  }
-
-  internal_to_yo2(internal: number): number | null { return this._int2y.get(internal) ?? null; }
+  /** The card's base passcode (an alternate art's alias): the key of the translator's rule tables (consts.ts). */
+  rulesKey(code: number): number { return this.cdb_alias.get(code) || code; }
 
   /** Printed (ATK, DEF) from cards.cdb, or null. */
   stats(code: number | null | undefined): [number, number] | null {

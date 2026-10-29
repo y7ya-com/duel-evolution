@@ -14,14 +14,14 @@ const SPOTS_A: [number, number][] = [[4, 209], [4, 213], [5, 201], [6, 202], [6,
 const FAMOUS = [51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84];
 const SPOTS_2008: Record<number, number> = { 51: 204, 54: 206, 57: 205, 60: 203, 63: 202, 66: 201, 69: 210, 72: 207, 75: 214, 78: 208, 81: 212, 84: 209 };
 
-/** py research/mundo ORIGINALS: id -> (name, area or null, 5-win card). */
+/** py research/mundo ORIGINALS: id -> (name, area or null, 5-win card's passcode). */
 export const ORIGINALS: Record<number, [string, number | null, number]> = {
-  3: ["bankara", 2, 1915], 1: ["BeeBee", 3, 1810], 21: ["frogMaster", 2, 2183], 7: ["gouk", 1, 1457], 4: ["Joker", null, 1796],
-  24: ["kanna", 1, 2373], 6: ["KC Dragon", null, 1901], 5: ["kyoko", 3, 2250], 2: ["missbomb", 0, 1411], 9: ["Miss Scout", 2, 1320],
-  8: ["Miss Shadow", 0, 2074], 14: ["Reia", 1, 2177], 17: ["Robert", 0, 2397], 16: ["Sakura", 3, 1977], 20: ["ZuruZuru", null, 736],
-  43: ["Abigail", 4, 2117], 35: ["A-lien", 5, 2483], 32: ["AoJ", 6, 2207], 40: ["Brow", 4, 1184], 27: ["dancer", 6, 2093],
-  38: ["Kain", 5, 1858], 33: ["Kyuros", null, 1744], 31: ["lalala", 6, 1880], 29: ["Mika", null, 1771], 26: ["NiaNia", 4, 1623],
-  34: ["Queen Ryo", 7, 1192], 28: ["Rain", null, 1030], 44: ["raMon", 5, 1845], 49: ["sabasaba", 7, 1477], 30: ["Zuno", 7, 1946],
+  3: ["bankara", 2, 4929256], 1: ["BeeBee", 3, 17078030], 21: ["frogMaster", 2, 84451804], 7: ["gouk", 1, 84636823], 4: ["Joker", null, 18378582],
+  24: ["kanna", 1, 13093792], 6: ["KC Dragon", null, 48229808], 5: ["kyoko", 3, 6214884], 2: ["missbomb", 0, 47233801], 9: ["Miss Scout", 2, 76922029],
+  8: ["Miss Shadow", 0, 35027493], 14: ["Reia", 1, 85306040], 17: ["Robert", 0, 93130021], 16: ["Sakura", 3, 64538655], 20: ["ZuruZuru", null, 77754944],
+  43: ["Abigail", 4, 99414168], 35: ["A-lien", 5, 24104865], 32: ["AoJ", 6, 67095270], 40: ["Brow", 4, 31812496], 27: ["dancer", 6, 19877898],
+  38: ["Kain", 5, 4259068], 33: ["Kyuros", null, 94192409], 31: ["lalala", 6, 65403020], 29: ["Mika", null, 91345518], 26: ["NiaNia", 4, 61370518],
+  34: ["Queen Ryo", 7, 87910978], 28: ["Rain", null, 60806437], 44: ["raMon", 5, 75043725], 49: ["sabasaba", 7, 38992735], 30: ["Zuno", 7, 52417194],
 };
 const AREA_BASE: Record<number, number> = { 4: 1, 5: 9, 6: 17, 7: 25, 0: 33, 1: 41, 2: 49, 3: 57 };
 const FIXED_POINTS: Record<number, number> = { 43: 2, 26: 4 };

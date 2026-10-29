@@ -17,17 +17,30 @@ export const COUNTER_MAP = new Map<number, number>([[0x01, 0], [0x1b, 2], [0x11,
   [0x1c, 7], [0x05, 8], [0x2a, 16], [0x0e, 17], [0x15, 18], [0x09, 19], [0x19, 20]]);
 export const C_SLOT_VALUE = 0x3a, C_TURN_COUNT = 0x3b;
 export const CHINT_TURN = 1, CHINT_CARD = 2, CHINT_RACE = 3, CHINT_ATTRIBUTE = 4;
-export const TURN_CARDS = new Map<number, number>([[0xfee, 0xffff], [0xff9, 0xffff], [0x1009, 0xffff], [0x1102, 3],
-  [0x130d, 0xffff], [0x131a, 0xffff], [0x1400, 2], [0x149d, 2], [0x14ac, 3], [0x1529, 0xffff], [0x159c, 2],
-  [0x15a0, 0xffff], [0x15ee, 0xffff], [0x17a1, 2], [0x180f, 0xffff], [0x1810, 0xffff], [0x187c, 2], [0x1909, 0xffff],
-  [0x1a7e, 2], [0x1aa3, 3], [0x1aa9, 3], [0x1c91, 2], [0x1dd1, 2], [0x1de2, 2], [0x1ee4, 2]]);
-export const TURN_CARDS_NEG = new Map<number, number>([[0xecc, 3], [0x123b, 3], [0x12c8, 4], [0x169c, 20], [0x1811, 2],
-  [0x188c, 3], [0x18d5, 2], [0x1bb3, 2], [0x1bf1, 3]]);
-export const FINAL_COUNTDOWN = 0x169c;
-export const DECL_RACE = new Set([0x1357, 0x1358, 0x14d1, 0x14cc]);
-export const DECL_ATTR = new Set([0x145b, 0x171f, 0x1a19, 0x197d]);
-export const DECL_ATTR_BITS = new Set([0x19c2]);
-export const DECL_CARD = new Set([0x1368, 0x1b67]);
+// Cards the 2008 client gives a turn counter (TURN_CARDS: passcode -> turns, 0xffff = endless) or one over the player
+// (TURN_CARDS_NEG), and the declare-a-race / attribute / card ones whose choice it paints. By passcode (the base one:
+// an alternate art goes through rulesKey). Two the client's engine knew but its card table never had are not here
+// (internal 0x1ee4, 0xecc).
+export const TURN_CARDS = new Map<number, number>([[40240595, 0xffff] /* Cocoon of Evolution */,
+  [62121, 0xffff] /* Castle of Dark Illusions */, [29155212, 0xffff] /* Pumpking the King of Ghosts */,
+  [72302403, 3] /* Swords of Revealing Light */, [24668830, 0xffff] /* Germ Infection */, [83225447, 0xffff] /* Stim-Pack */,
+  [58775978, 2] /* Nightmare's Steelcage */, [69954399, 2] /* Ekibyo Drakmord */, [56043446, 3] /* Viser Des */,
+  [88989706, 0xffff] /* Great Dezard */, [11961740, 2] /* Different Dimension Capsule */,
+  [47233801, 0xffff] /* Dark Snake Syndrome */, [38992735, 0xffff] /* Wave-Motion Cannon */, [31476755, 2] /* Dust Barrier */,
+  [12117532, 0xffff] /* Shattered Axe */, [48115277, 0xffff] /* Blockman */, [12923641, 2] /* Swords of Concealing Light */,
+  [97362768, 0xffff] /* Spark Blaster */, [77565204, 2] /* Future Fusion */, [84808313, 3] /* Big Evolution Pill */,
+  [79569173, 3] /* Seismic Shockwave */, [51670553, 2] /* Soul Devouring Bamboo Sword */, [1149109, 2] /* Deck Lockdown */,
+  [60627999, 2] /* Sanguine Swamp */]);
+export const TURN_CARDS_NEG = new Map<number, number>([[57728570, 3] /* Crush Card Virus */, [49587034, 4] /* Lightforce Sword */,
+  [95308449, 20] /* Final Countdown */, [75500286, 2] /* Gold Sarcophagus */, [35027493, 3] /* Deck Devastation Virus */,
+  [58015506, 2] /* Pikeru's Second Sight */, [21208154, 2] /* The Wicked Avatar */, [54974237, 3] /* Eradicator Epidemic Virus */]);
+export const FINAL_COUNTDOWN = 95308449;
+export const DECL_RACE = new Set([74701381 /* DNA Surgery */, 296499 /* The Regulation of Tribe */,
+  69296555 /* Array of Revealing Light */, 1525329 /* The Hunter with 7 Weapons */]);
+export const DECL_ATTR = new Set([10352095 /* Scroll of Bewitchment */, 56769674 /* DNA Transplant */,
+  94253609 /* Elemental Absorber */, 27769400 /* Tualatin */]);
+export const DECL_ATTR_BITS = new Set([15595052 /* Disciple of the Forbidden Spell */]);
+export const DECL_CARD = new Set([43711255 /* Prohibition */, 8323633 /* Cloak and Dagger */]);
 export const C_NPC_ANNOUNCE = 0x60, C_NPC_CHAIN = 0x62, C_NPC_TURN_END = 0x03;
 export const T_REVEAL = 0x1d;
 export const C_EFFECT_ADD = 0x36, C_EFFECT_DEL = 0x37, EFFECT_SET_STATS = 0x1c5f;

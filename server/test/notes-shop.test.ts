@@ -2,7 +2,7 @@
 // B69 no 0x5205 for clothes, B71 prize packs not sold) -> src/game/shop.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
-import { harness, be32, cat, i32, u32, type Client, type Harness } from "./notes-harness.ts";
+import { harness, be32, cat, i32, pc, u32, type Client, type Harness } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -74,11 +74,11 @@ describe("shop (tienda.py)", () => {
 
   it("B40: each card's u8 «new» is 1 only if the trunk did not have it before this purchase (2nd copy in the same cart: 0)", async () => {
     const [h, A, items] = await setup();
-    setProf(h, (p) => { p.trunk = { 1: 1 }; });
-    const c1 = items.find((i) => i.kind === 0 && i.prm === 1)!, c2 = items.find((i) => i.kind === 0 && i.prm === 2)!;
+    setProf(h, (p) => { p.trunk = { [pc(1)]: 1 }; });
+    const c1 = items.find((i) => i.kind === 0 && i.prm === pc(1))!, c2 = items.find((i) => i.kind === 0 && i.prm === pc(2))!;
     const r = await buy(A, cart([c1.iid, 1], [c2.iid, 2]));
-    expect(r.ents.map((e) => [e.card, e.nw])).toEqual([[1, 0], [2, 1], [2, 0]]);
-    expect(prof(h).trunk).toEqual({ 1: 2, 2: 2 });
+    expect(r.ents.map((e) => [e.card, e.nw])).toEqual([[pc(1), 0], [pc(2), 1], [pc(2), 0]]);
+    expect(prof(h).trunk).toEqual({ [pc(1)]: 2, [pc(2)]: 2 });
   });
 
   it("B68: buying a structure deck (type 1 with a PBIN right) sets PBIN[bit + 1] (its recipe in the deck editor); no 0x5205", async () => {

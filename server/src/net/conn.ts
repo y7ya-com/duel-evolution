@@ -4,7 +4,7 @@
 // counter + 1 (FUN_0068bac0), or it drops the message silently. A connection that starts at #1 keeps its own counter;
 // one that starts later continues the count the client left on that port (GATE_SEQ), keyed by (account or peer,
 // port, next client seq). The client handles one message per frame, so sends are queued and paced.
-import { MAX_DATA, pack } from "./proto.ts";
+import { MAX_SEND, pack } from "./proto.ts";
 
 export interface ConnHost {
   /** The client's current connection on c's port (its session's, else its peer's last one). */
@@ -144,8 +144,8 @@ export class Conn {
 
   private sendNow({ id, data }: Item): boolean {
     const hx = (n: number) => n.toString(16).padStart(4, "0");
-    if (data.length > MAX_DATA) {
-      this.host.log(`[ERROR] [srv:${this.port}] 0x${hx(id)} of ${data.length} B > ${MAX_DATA}: NOT sent`);
+    if (data.length > MAX_SEND) {
+      this.host.log(`[ERROR] [srv:${this.port}] 0x${hx(id)} of ${data.length} B > ${MAX_SEND}: NOT sent`);
       return false;
     }
     if (this.stale()) {

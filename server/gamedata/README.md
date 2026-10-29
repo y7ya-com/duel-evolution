@@ -21,3 +21,9 @@ and `_vendor/` (EDOPro cards.cdb, strings.conf, CardScripts).
 | `engine/cards.json`, `engine/strings.json` | EDOPro cards.cdb + strings.conf | `scripts/engine_gamedata.mjs` |
 | `engine/scripts.pack` (not committed, 20 MB) | EDOPro CardScripts + the 2008 script overrides; uploaded to R2 | `scripts/engine_gamedata.mjs` |
 | `fixtures/` | recordings of the Python reference (duel engine, translator, brain) that the parity tests replay | `scripts/*_record.*` |
+| `cards.json` | the client's card table: per 2008 card index its passcode (alternate arts their own ids), its art (ygoprodeck's or the 2008 face) | `client/tools/cardart.py match` |
+
+**Card ids are passcodes.** The generators above emit the 2008 client's card ids; then
+`python3 -I scripts/passcode_gamedata.py` rewrites every table to passcodes through `cards.json` (the card wire:
+the client's codec, `client/recomp/rt/cardwire.cpp`, maps them back) and gives `translator.json` the client table's
+passcodes and its hash (`wire`, `wireHash`, the hello's). A converted file says `"ids": "passcode"`.

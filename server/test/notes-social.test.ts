@@ -2,7 +2,7 @@
 // -> src/game/teams.ts, trade.ts, tournaments.ts. These modules carry no dated/ID notes of their own; the cases below
 // are the client-visible points of each docstring.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { harness, be32, cat, cstr, i32, str, u16, u32, type Client, type Harness } from "./notes-harness.ts";
+import { harness, be32, cat, cstr, i32, pairs, pc, str, u32, type Client, type Harness } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -97,13 +97,13 @@ describe("trade (research/intercambio)", () => {
     expect(i32(await ask(A, 0x7000, t(0x7102, be32(4321)), 0x7103))).toBe(-493);
   });
 
-  it("the whole trade: offer 0x7104, accept 0x7105, trunk 0x7125 + 7 × 0x7126 (never 8) + 0x7127, cards, ready 0x7118, confirm -> 0x7120 3 + 0x7121 1 and the cards move", async () => {
+  it("the whole trade: offer 0x7104, accept 0x7105, trunk 0x7125 + 0x7126 (passcode, count) pairs + 0x7127, cards, ready 0x7118, confirm -> 0x7120 3 + 0x7121 1 and the cards move", async () => {
     const h = harness();
     const [A, B] = await players(h, 2);
     const setTrunk = (i: number, trunk: Record<string, number>) => {
       const st = h.state(); (Object.values(st.accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk = trunk; h.game.store.saveRaw(st);
     };
-    setTrunk(0, { 1: 1 }); setTrunk(1, { 2: 1 });
+    setTrunk(0, { [pc(1)]: 1 }); setTrunk(1, { [pc(2)]: 1 });
     let m = B.room!.mark();
     expect(i32(await ask(A, 0x7000, t(0x7102, be32(B.pid!)), 0x7103))).toBe(0);
     const off = (await B.room!.wait(0x7104, m))!;
@@ -111,29 +111,30 @@ describe("trade (research/intercambio)", () => {
     let n = A.room!.mark();
     B.room!.send(0x7000, t(0x7105, be32(1)));
     expect(i32((await A.room!.wait(0x7105, n, undefined, 3000))!)).toBe(0);
-    for (const X of [A, B]) {
+    for (const [X, card] of [[A, pc(1)], [B, pc(2)]] as const) {
       const k = X.room!.mark(); X.room!.send(0x7000, t(0x7132)); await X.room!.wait(0x7131, k);
-      expect(X.room!.all(0x7126, k).map((d) => d.length)).toEqual([512, 512, 512, 512, 512, 512, 0xb8]);
+      // one chunk for one card (the client's codec rebuilds its 7 × 0x7126); the limit table is empty
+      expect([X.room!.all(0x7126, k).map((d) => d.length), pairs(X.room!.all(0x7126, k)), X.room!.all(0x7130, k)]).toEqual([[5], [[card, 1]], []]);
       const j = X.room!.mark(); X.room!.send(0x7000, t(0x7101)); await X.room!.wait(0x7133, j);
     }
     m = B.room!.mark();
-    A.room!.send(0x7000, t(0x7113, [0, 1]));
+    A.room!.send(0x7000, t(0x7113, be32(pc(1))));   // u16 sub + u32 passcode
     const mv = (await B.room!.wait(0x7116, m))!;
-    expect([u16(mv), mv[2]]).toEqual([1, 0]);
+    expect([u32(mv), mv[4]]).toEqual([pc(1), 0]);   // u32 value + u8 op
     B.room!.send(0x7000, t(0x7122));
     n = A.room!.mark();
-    B.room!.send(0x7000, t(0x7113, [0, 2]));
+    B.room!.send(0x7000, t(0x7113, be32(pc(2))));
     await A.room!.wait(0x7116, n);
     A.room!.send(0x7000, t(0x7122));
     n = A.room!.mark(); m = B.room!.mark();
     A.room!.send(0x7000, t(0x7117, [0])); B.room!.send(0x7000, t(0x7117, [0]));
     expect(await A.room!.wait(0x7118, n)).not.toBeNull();
     const conf = (mine: number, theirs: number) => cat([1], be32(mine), ...new Array(9).fill(be32(-1)), be32(theirs), ...new Array(9).fill(be32(-1)));
-    A.room!.send(0x7000, t(0x7119, conf(1, 2))); B.room!.send(0x7000, t(0x7119, conf(2, 1)));
+    A.room!.send(0x7000, t(0x7119, conf(pc(1), pc(2)))); B.room!.send(0x7000, t(0x7119, conf(pc(2), pc(1))));
     const end = (await A.room!.wait(0x7121, n))!;
     expect([...A.room!.all(0x7120, n)[0], end[0]]).toEqual([3, 1]);
     const tr = (i: number) => (Object.values(h.state().accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk;
-    expect([tr(0), tr(1)]).toEqual([{ 2: 1 }, { 1: 1 }]);
+    expect([tr(0), tr(1)]).toEqual([{ [pc(2)]: 1 }, { [pc(1)]: 1 }]);
   });
 });
 

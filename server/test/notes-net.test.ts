@@ -2,7 +2,7 @@
 // src/world.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Conn, type ConnHost } from "../src/net/conn.ts";
-import { pack, Reader } from "../src/net/proto.ts";
+import { MAX_SEND, pack, Reader } from "../src/net/proto.ts";
 import { harness, xor } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -85,11 +85,12 @@ describe("conexion.py Conn", () => {
     expect([...A.errors(), ...B.errors()]).toEqual([]);
   });
 
-  it("B04: a reply over 1024 B is never sent (and spends no seq number)", async () => {
+  it("B04: a reply over MAX_SEND is never sent (and spends no seq number)", async () => {
+    // on the card wire the server may send past 1024 B (u32 cards; the client's codec hands the exe <= 1024 B messages)
     const t = bare();
     const { c, out } = t.mk();
     c.sawClient(1);
-    c.send(0x3002, new Uint8Array(1025));
+    c.send(0x3002, new Uint8Array(MAX_SEND + 1));
     c.send(0x3004, new Uint8Array(1024));
     await t.flush();
     expect(out).toEqual([{ id: 0x3004, param: 1, len: 1024 }]);

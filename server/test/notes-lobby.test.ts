@@ -3,7 +3,8 @@
 // −492/−602; autoduel; 0x3604 «illegal rank»; mail time 07-10; 0x4309; PLAYERINFO; chat P1-11 and research/mundo GM
 // colour codes; PIDNAME_PLAYERS 06-10) -> src/game/lobby.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { harness, be32, cat, cstr, i32, str, u16, u32, type Client, type Harness } from "./notes-harness.ts";
+import { harness, be32, cat, cstr, i32, pc, str, u16, u32, type Client, type Harness } from "./notes-harness.ts";
+import * as PP from "../src/game/persist.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -50,9 +51,10 @@ describe("rooms (LIMIT_LIST, B63, B12, ROOM_REOPEN)", () => {
     const all = cat(...ds);
     const ents = Array.from({ length: all.length / 13 }, (_, i) => [u32(all, 13 * i), u32(all, 13 * i + 4), u32(all, 13 * i + 8), all[13 * i + 12]]);
     expect(ents.map((e) => e[0])).toEqual(ents.map((_, i) => i));
-    expect(ents.some((e) => e[1] === 291 && e[2] === 4844 && e[3] === 0)).toBe(true);   // Pot of Greed banned
-    expect(ents.some((e) => e[1] === 467 && e[2] === 4887 && e[3] === 1)).toBe(true);   // Mirror Force limited
-    expect(ents.every((e) => [0, 1, 2].includes(e[3]) && e[2] >= 3000)).toBe(true);
+    // (u32 i, u32 passcode, u32 0, u8 copies): the client's codec fills its YO2 and Konami ids from the passcode
+    expect(ents.some((e) => e[1] === 55144522 && e[2] === 0 && e[3] === 0)).toBe(true);   // Pot of Greed banned
+    expect(ents.some((e) => e[1] === 44095762 && e[2] === 0 && e[3] === 1)).toBe(true);   // Mirror Force limited
+    expect(ents.every((e) => [0, 1, 2].includes(e[3]) && e[2] === 0 && PP.cardOk(e[1]))).toBe(true);
   });
 
   it("B63: no NPC rooms are announced: 0x4280 -> 0x4282 u32 0, no 0x4284, 0x4286", async () => {
@@ -274,26 +276,27 @@ describe("cards into the trunk (B13/B40)", () => {
       const A = h.client("A");
       await A.account(1, "Second");
       await A.enterRoom(0, 5, 1);
-      const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["1"].trunk = { 5: 3 }; h.game.store.saveRaw(st);
-      h.game.shopPurchase = () => [[1, 5], [1, 9], [1, 9], [1, 3257], [1, 0], [1, 11]];
+      const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["1"].trunk = { [pc(5)]: 3 }; h.game.store.saveRaw(st);
+      // 14558127 (Ash Blossom): a real card the 2008 client has no card for (py: id 3257)
+      h.game.shopPurchase = () => [[1, pc(5)], [1, pc(9)], [1, pc(9)], [1, 14558127], [1, 0], [1, pc(11)]];
       const n = A.room!.mark();
       A.room!.send(mid, mid === 0x4802 ? [0, 1] : []);
       const d = (await A.room!.wait(0x4803, n))!;
-      expect([...d]).toEqual([0, 0, 0, 0, 0, 5, 0, 0, 9, 1, 0, 9, 0, 0, 11, 1]);
-      expect((Object.values(h.state().accounts)[0] as any).profiles["1"].trunk).toEqual({ 5: 4, 9: 2, 11: 1 });
+      expect([...d]).toEqual([...be32(0), ...be32(pc(5)), 0, ...be32(pc(9)), 1, ...be32(pc(9)), 0, ...be32(pc(11)), 1]);
+      expect((Object.values(h.state().accounts)[0] as any).profiles["1"].trunk).toEqual({ [pc(5)]: 4, [pc(9)]: 2, [pc(11)]: 1 });
     });
   }
 
   it("B13: if saving fails, 0x4803 still goes out (the client must not hang)", async () => {
     const h = harness();
     const [A] = await players(h, 1);
-    h.game.shopPurchase = () => [[1, 5]];
+    h.game.shopPurchase = () => [[1, pc(5)]];
     const save = h.game.saveState.bind(h.game);
     h.game.saveState = () => { throw new Error("disk"); };
     const n = A.room!.mark(); A.room!.send(0x4910);
     const d = await A.room!.wait(0x4803, n);
     h.game.saveState = save;
-    expect(d && [...d.subarray(4)]).toEqual([0, 5, 1]);
+    expect(d && [...d.subarray(4)]).toEqual([...be32(pc(5)), 1]);
   });
 
   it("B13: without a shop draw, 5 valid ids", async () => {
@@ -302,8 +305,8 @@ describe("cards into the trunk (B13/B40)", () => {
     h.game.shopPurchase = () => [];
     const n = A.room!.mark(); A.room!.send(0x4910);
     const d = (await A.room!.wait(0x4803, n))!;
-    expect(d.length).toBe(4 + 15);
-    expect(Array.from({ length: 5 }, (_, i) => u16(d, 4 + 3 * i)).every((x) => x >= 1 && x <= 3256)).toBe(true);
+    expect(d.length).toBe(4 + 25);   // (u32 passcode, u8 new) per card
+    expect(Array.from({ length: 5 }, (_, i) => u32(d, 4 + 5 * i)).every((x) => PP.cardOk(x))).toBe(true);
   });
 });
 
@@ -432,11 +435,11 @@ describe("social (chat P1-11, friends, 0x3604, mail, PLAYERINFO)", () => {
 });
 
 describe("messages that were missing (NOTES §10)", () => {
-  it("B61: 0x8303 -> 0x8304 of 13 B (auto_overrides)", async () => {
+  it("B61: 0x8303 -> 0x8304 of 21 B (auto_overrides; 13 B in 2008, its cards are u32 on the card wire)", async () => {
     const h = harness();
     const [A] = await players(h, 1);
     const d = await ask8303(A);
-    expect(d.length).toBe(13);
+    expect(d.length).toBe(21);
   });
   it("10-10: «in the original no NPC challenges you»: an open PvP room gets no NPC MATCHOFFER", async () => {
     const h = harness();
@@ -463,7 +466,7 @@ describe("messages that were missing (NOTES §10)", () => {
     const h = harness();
     const [A] = await players(h, 1);
     const ask = async (d: number[]) => { const n = A.room!.mark(); A.room!.send(0x8401, d); return (await A.room!.wait(0x8402, n))!; };
-    const req = [3, 0, 1, 0, 2, 0, 3];
+    const req = [3, ...be32(pc(1), pc(2), pc(3))];   // u8 n + n x u32 passcode
     expect([...await ask(req)]).toEqual([0, 0, 0, 1, 0]);
     const setBits = (bits: number[]) => {
       const st = h.state(); const p = (Object.values(st.accounts)[0] as any).profiles["0"];
@@ -471,11 +474,11 @@ describe("messages that were missing (NOTES §10)", () => {
     };
     setBits([0x30e, 0x316]);
     const r = await ask(req);
-    expect([...r]).toEqual([0, 0, 0, 0, 3, 0, 1, 0, 2, 0, 3]);
+    expect([...r]).toEqual([...be32(0), 3, ...be32(pc(1), pc(2), pc(3))]);
     const p = (Object.values(h.state().accounts)[0] as any).profiles["0"];
     expect(p.pbin.includes(0x317)).toBe(true);
     expect(i32(await ask(req))).toBe(1);
     const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["0"].pbin = [0x316]; h.game.store.saveRaw(st);
-    expect(i32(await ask([11, ...new Array(11).fill([0, 1]).flat()]))).toBe(1);
+    expect(i32(await ask([11, ...be32(...new Array(11).fill(pc(1)))]))).toBe(1);
   });
 });

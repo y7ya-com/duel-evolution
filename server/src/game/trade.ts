@@ -11,8 +11,7 @@ const M = { REQTRADERESULT: 0x7103, TRADEOFFER: 0x7104, OFFERREPLY: 0x7105, CANC
   DELETECARD: 0x7114, MOVEOTHER: 0x7116, SETSTATUS: 0x7117, ALLREADY: 0x7118, LASTCONFIRMRESULT: 0x7120, TRADEEND: 0x7121,
   ARRIVE: 0x7122, TRUNKSTART: 0x7125, TRUNK: 0x7126, TRUNKEND: 0x7127, LIMITSTART: 0x7129, LIMIT: 0x7130, LIMITEND: 0x7131,
   STARTRESULT: 0x7133, CHANGESTATUS: 0x7134 };
-const REQ_FAIL = -493, MAX_CARD = 0xcb8, MAX_OFFER = 10, CONFIRM_YES = 1, CONFIRM_NO = 2, RESULT_DONE = 3, RESULT_BACK = 2;
-const CHUNKS = [0x200, 0x200, 0x200, 0x200, 0x200, 0x200, 0xb8];
+const REQ_FAIL = -493, MAX_OFFER = 10, CONFIRM_YES = 1, CONFIRM_NO = 2, RESULT_DONE = 3, RESULT_BACK = 2;
 const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
 const s32 = (v: number) => new W().u32(v).bytes();
 const EMPTY: Uint8Array = new Uint8Array(0);
@@ -67,21 +66,12 @@ export class Trades {
       return r;
     });
   }
-  private trunkBytes(s: Session) { try { return this.withProfile(s, PP.trunkBytes); } catch { return new Uint8Array(MAX_CARD); } }
-  private limitBytes(_s: Session) { return new Uint8Array(MAX_CARD); } // py LIMIT_BYTES None = zeros
-  private table(start: number, mid: number, end: number, raw: Uint8Array): [number, Uint8Array][] {
-    const out: [number, Uint8Array][] = [[start, EMPTY]];
-    let pos = 0;
-    for (const n of CHUNKS) { out.push([mid, raw.slice(pos, pos + n)]); pos += n; }
-    out.push([end, EMPTY]);
-    return out;
-  }
-  private sendTrunk(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of this.table(M.TRUNKSTART, M.TRUNK, M.TRUNKEND, this.trunkBytes(t.sess(pid)))) this.to(t, pid, m, d, c); }
-  private sendLimit(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of this.table(M.LIMITSTART, M.LIMIT, M.LIMITEND, this.limitBytes(t.sess(pid)))) this.to(t, pid, m, d, c); }
+  private trunkPairs(s: Session): [number, number][] { try { return this.withProfile(s, PP.trunkPairs); } catch { return []; } }
+  private sendTrunk(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of PP.pairTable(M.TRUNKSTART, M.TRUNK, M.TRUNKEND, this.trunkPairs(t.sess(pid)))) this.to(t, pid, m, d, c); }
+  // py LIMIT_BYTES None: nothing is held back from trading (an empty table)
+  private sendLimit(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of PP.pairTable(M.LIMITSTART, M.LIMIT, M.LIMITEND, [])) this.to(t, pid, m, d, c); }
   private available(s: Session, cid: number) {
-    let n: number;
-    try { n = this.withProfile(s, (p) => PP.int(p.trunk?.[String(cid)] ?? 0)); } catch { return 0; }
-    return cid >= 1 && cid <= MAX_CARD ? n - this.limitBytes(s)[cid - 1] : 0;
+    try { return PP.cardOk(cid) ? this.withProfile(s, (p) => PP.int(p.trunk?.[String(cid)] ?? 0)) : 0; } catch { return 0; }
   }
 
   private execute(t: Trade): boolean {
@@ -92,7 +82,7 @@ export class Trades {
         const need = new Map<number, number>();
         for (const x of give) need.set(x, (need.get(x) ?? 0) + 1);
         const have = this.withProfile(s, (p) => ({ ...(p.trunk ?? {}) }));
-        for (const [cid, n] of need) if (!(cid >= 1 && cid <= MAX_CARD) || PP.int(have[String(cid)] ?? 0) < n) return false;
+        for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
       }
       const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
       this.withProfile(a, apply(giveA, giveB), true);
@@ -156,7 +146,7 @@ export class Trades {
   }
 
   private addcard(c: Conn, s: Session | null, body: Uint8Array) {
-    const cid = body.length >= 2 ? (body[0] << 8) | body[1] : 0;
+    const cid = body.length >= 4 ? new DataView(body.buffer, body.byteOffset).getUint32(0) : 0;   // a passcode
     const t = this.tradeOf(s);
     if (!t || t.phase !== "open") { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     const mine = t.offer.get(s!.pid!)!;
@@ -164,7 +154,7 @@ export class Trades {
     void this.available; // py only logs an uncovered ADDCARD (ADDCARD_REJECT_1010 off): the trade is cancelled at the end
     mine.push(cid);
     c.send(M.ADDCARD, s32(0), SEND_PAUSE);
-    this.queueMove(t, s!.pid!, new W().u16(cid).u8(0).bytes());
+    this.queueMove(t, s!.pid!, new W().u32(cid).u8(0).bytes());
   }
 
   private deletecard(c: Conn, s: Session | null, body: Uint8Array) {
@@ -173,7 +163,7 @@ export class Trades {
     c.send(M.DELETECARD, s32(0), SEND_PAUSE);
     if (!t || t.phase !== "open" || idx >= t.offer.get(s!.pid!)!.length) return;
     t.offer.get(s!.pid!)!.splice(idx, 1);
-    this.queueMove(t, s!.pid!, new W().u16(idx).u8(1).bytes());
+    this.queueMove(t, s!.pid!, new W().u32(idx).u8(1).bytes());
   }
 
   private arrive(c: Conn, s: Session | null) {

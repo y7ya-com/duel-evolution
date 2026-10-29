@@ -172,8 +172,8 @@ export class OcgSession {
     if (data.length < 4) return;
     const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const n = dv.getUint32(0);
-    if (data.length < 4 + 2 * n) throw new RangeError(`unpack requires a buffer of ${2 * n} bytes`);
-    const ids = Array.from({ length: n }, (_, i) => dv.getUint16(4 + 2 * i));
+    if (data.length < 4 + 4 * n) throw new RangeError(`unpack requires a buffer of ${4 * n} bytes`);
+    const ids = Array.from({ length: n }, (_, i) => dv.getUint32(4 + 4 * i));   // passcodes (the card wire)
     if (msgId === 0x6601) this.player.main = ids;
     else if (msgId === 0x6603) this.player.extra = ids;
   }

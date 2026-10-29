@@ -10,9 +10,8 @@ import type { State } from "./store.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
-export const MAX_CARD = 0xcb8;
-export const CARD_ID_MAX = 3255;
-const TRUNK_CHUNKS = [0x200, 0x200, 0x200, 0x200, 0x200, 0x200, 0xb8];
+/** (passcode, copies) pairs per trunk-table chunk on the card wire: 5 bytes each, a chunk within 1024 bytes */
+const PAIRS_PER_CHUNK = 204;
 export const PBIN_SIZE = 128;
 export const NPCBIN_SIZE = 512;
 export const NPCBIN_MAX = NPCBIN_SIZE / 4;
@@ -24,7 +23,7 @@ const START_LV = 1;
 const COUNTRY_BY_LANG = true;
 const LANG_COUNTRY: Record<number, string> = { 0: "JP", 1: "US", 2: "DE", 3: "IT", 4: "FR", 5: "ES", 7: "KR" };
 const TRUNK_START = "all3";
-export const SCHEMA = 2;
+export const SCHEMA = 3;   // 3: card ids are passcodes (scripts/passcode_d1.py)
 
 // ---- the player record (0x1a8 B): offset -> key, in the client's order
 const REC: [number, string][] = [
@@ -95,8 +94,8 @@ export function recInc(r: P, key: string, n = 1): number {
   return r[key];
 }
 
-// ---- valid cards (B05)
-const VALID: ReadonlySet<number> = new Set((GD.valid_cards as number[]).filter((x) => x >= 1 && x <= CARD_ID_MAX));
+// ---- valid cards (B05): the 2008 client's cards with art, by passcode
+const VALID: ReadonlySet<number> = new Set(GD.valid_cards as number[]);
 export const validCardIds = () => VALID;
 export const cardOk = (cid: unknown) => { try { return VALID.has(int(cid)); } catch { return false; } };
 
@@ -240,14 +239,28 @@ export function seedTrunk(p: P, mode: string = startValues().baul ?? TRUNK_START
 }
 
 // ---- trunk
-export function trunkBytes(p: P): Uint8Array {
-  const arr = new Uint8Array(MAX_CARD);
+/** The trunk as (passcode, copies) pairs, for the trunk tables (0x3102, 0x7126). */
+export function trunkPairs(p: P): [number, number][] {
+  const out: [number, number][] = [];
   for (const [k, v] of Object.entries(p.trunk ?? {})) {
     let cid: number, n: number;
     try { cid = int(k); n = int(v); } catch { continue; }
-    if (cardOk(cid) && n > 0) arr[cid - 1] = Math.min(n, 0xff);
+    if (cardOk(cid) && n > 0) out.push([cid, Math.min(n, 0xff)]);
   }
-  return arr;
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
+/** A trunk table on the card wire: start, chunks of (u32 passcode, u8 count), end (the client's codec rebuilds the
+ *  2008 client's 3256-byte table and its 7 chunks). */
+export function pairTable(start: number, mid: number, end: number, pairs: [number, number][]): [number, Uint8Array][] {
+  const msgs: [number, Uint8Array][] = [[start, new Uint8Array(0)]];
+  for (let i = 0; i < pairs.length; i += PAIRS_PER_CHUNK) {
+    const w = new W();
+    for (const [c, n] of pairs.slice(i, i + PAIRS_PER_CHUNK)) w.u32(c).u8(n);
+    msgs.push([mid, w.bytes()]);
+  }
+  msgs.push([end, new Uint8Array(0)]);
+  return msgs;
 }
 
 export function trunkAdd(g: Game | null, p: P, cards: unknown[], n = 1, src = ""): void {
@@ -277,14 +290,7 @@ export function sanitizeTrunk(p: P): string[] {
   return bad;
 }
 
-export function trunkMessages(p: P): [number, Uint8Array][] {
-  const raw = trunkBytes(p);
-  const msgs: [number, Uint8Array][] = [[0x3101, new Uint8Array(0)]];
-  let pos = 0;
-  for (const n of TRUNK_CHUNKS) { msgs.push([0x3102, raw.slice(pos, pos + n)]); pos += n; }
-  msgs.push([0x3103, new Uint8Array(0)]);
-  return msgs;
-}
+export const trunkMessages = (p: P): [number, Uint8Array][] => pairTable(0x3101, 0x3102, 0x3103, trunkPairs(p));
 
 // ---- PBIN / NPCBIN
 const PBIN_TYPES = GD.pbin_types as Record<string, number>;
@@ -380,7 +386,7 @@ export function playerlist(st: State): Uint8Array {
 
 // ---- decks
 export const structureDeckCards = (deckId: number): number[] => {
-  const d = (YDC as Record<string, { main: number[]; side: number[]; extra: number[] }>)[String(deckId)];
+  const d = (YDC as unknown as Record<string, { main: number[]; side: number[]; extra: number[] }>)[String(deckId)];
   return d ? [...d.main, ...d.side, ...d.extra] : [];
 };
 
@@ -394,7 +400,7 @@ export class DuelDeck {
     if (msgId === 0x6600 && data.length >= 12) { this.counts = [dv.getUint32(0), dv.getUint32(4), dv.getUint32(8)]; this.main = []; this.extra = []; }
     else if ((msgId === 0x6601 || msgId === 0x6603) && data.length >= 4) {
       const n = dv.getUint32(0);
-      const cards = data.length >= 4 + 2 * n ? Array.from({ length: n }, (_, i) => dv.getUint16(4 + 2 * i)) : [];
+      const cards = data.length >= 4 + 4 * n ? Array.from({ length: n }, (_, i) => dv.getUint32(4 + 4 * i)) : [];   // passcodes
       if (msgId === 0x6601) this.main = cards;
       else { this.extra = cards; return true; }
     }
@@ -478,7 +484,7 @@ export function itemgetResult(pbinBits: number[], cards: number[]): Uint8Array {
   const w = new W().u16(bs.length);
   for (const b of bs) w.u16(b);
   w.u16(cs.length);
-  for (const c of cs) w.u16(c);
+  for (const c of cs) w.u32(c);   // passcodes (the frame may pass 1024 B; the client's codec gives the exe its 2008 form)
   return w.bytes();
 }
 
@@ -860,7 +866,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       const st = g.loadState(); const p = profile(st, activeSlot(st))!;
       const cards = onSdGet(g, p, deck, bit); g.saveState(st);
       const w = new W().u32(cards.length ? 0 : 1);
-      for (const cid of cards) w.u16(cid);
+      for (const cid of cards) w.u32(cid);
       c.send(0x5401, w.bytes());
     },
     h_itemget(c: Conn, data: Uint8Array) {

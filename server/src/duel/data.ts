@@ -22,23 +22,23 @@ export function brainDb(): CardDB {
 }
 
 export const NPC_PROFILES = NP as unknown as NpcProfilesJson;
-/** research/ia/npc_decks.json (YO2 ids) */
+/** research/ia/npc_decks.json, by passcode (scripts/passcode_gamedata.py) */
 export const NPC_DECKS = (DJ as unknown as { npc_decks: Record<string, Deck> }).npc_decks;
-/** research/ia/cards_yo2.csv: yo2 id -> [konami id, csv kind, limit, name] */
-export const DECK_CARDS = (DJ as unknown as { cards: Record<string, [number | null, number, number, string]> }).cards;
+/** research/ia/cards_yo2.csv, by passcode: the 2008 client's cards -> [csv kind, 2008 limit, name] */
+export const DECK_CARDS = (DJ as unknown as { cards: Record<string, [number, number, string]> }).cards;
 
 let CORE: DuelCore | null = null;
 /** The engine (py: the single duelcore process). Null until the host's boot created it. */
 export const duelCore = (): DuelCore | null => CORE;
 export function setDuelCore(dc: DuelCore | null): void { CORE = dc; }
 
-/** py ocg_duel.npc_deck: the NPC's official deck (YO2 ids), or null (NPC_DECKS_EXTRA is off). */
+/** py ocg_duel.npc_deck: the NPC's official deck (passcodes), or null (NPC_DECKS_EXTRA is off). */
 export function npcDeck(npcId: number): Deck | null {
   const d = NPC_DECKS[String(npcId)];
   if (!d || !d.main || !d.main.length) return null;
   return { main: d.main.slice(0, 80), extra: (d.extra ?? []).slice(0, 18) };
 }
 
-export const SUBSTITUTE = 15025844; // Mystical Elf: exists in YO2 and in cards.cdb (cards without a pair)
-/** py ocg_duel.to_codes */
-export const toCodes = (yo2: number[]): number[] => yo2.map((y) => cardmap().yo2_to_code(y) || SUBSTITUTE);
+export const SUBSTITUTE = 15025844; // Mystical Elf: the engine plays it for a card it has no script for
+/** py ocg_duel.to_codes: the engine's codes for a deck (the World Championship prize cards, 501000xxx, have none) */
+export const toCodes = (cards: number[]): number[] => cards.map((c) => (cardmap().cdb_type.has(c) ? c : SUBSTITUTE));

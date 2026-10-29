@@ -16,15 +16,17 @@ import {
 import {
   C_DRAW, C_DUEL_END, C_PHASE, C_SHUFFLE, C_SUMMON, C_TURN_CHANGE, CMD_ACTIVATE, CMD_ATTACK, CMD_FLIP, CMD_GENERIC,
   CMD_LOOK, CMD_SET, CMD_SET_ST, CMD_SPSUMMON, CMD_SUMMON, CMD_TO_ATK, CMD_TO_DEF, comid_field, comid_hand,
-  duel_finish, engine, loc, mk, PH_BATTLE, PH_END, PH_MAIN2, request_input, set_card, setcommand, T_LIST_ADD,
-  T_LIST_RESET, T_VIEW, T_VIEW1C, timeup_warning, ZONE_BANISH, ZONE_DECK, ZONE_EXTRA, ZONE_GRAVE, ZONE_HAND,
+  duel_finish, engine, loc, mk, PH_BATTLE, PH_END, PH_MAIN2, request_input, set_card, setcommand, asIndex,
+  asInternal, type Param, HIDDEN_MONSTER, HIDDEN_SPELL, HIDDEN_TRAP, HINT_ANNOUNCE, listAdd, listItem, T_LIST_RESET, T_VIEW, T_VIEW1C, timeup_warning, ZONE_BANISH, ZONE_DECK, ZONE_EXTRA, ZONE_GRAVE, ZONE_HAND,
   type Masks,
 } from "./lockstep.ts";
-import { concat, eqPair, get, int, isInt, low, pack4H, packBIIII, popcount, pyRound, repr, shr, truthy, u32, unpackU32 } from "./py.ts";
+import { concat, eqPair, get, int, isInt, low, packBIIII, popcount, pyRound, repr, shr, truthy, u32, unpackU32 } from "./py.ts";
 import { placeOrderFrom } from "../zones.ts";
 
 export type Msg = [number, Uint8Array];
 type Out = Uint8Array | Msg;
+/** A (value, kind) pair of a T_LIST_ADD list; kind 4 = a card (its value an asInternal card reference). */
+type Pair = [Param, number];
 export type Cmd = { cmd: "respond"; response: any } | { cmd: "auto" };
 type Ev = any;
 type St = any;
@@ -214,22 +216,24 @@ export class YO2Duel {
     this.log("[traductor] " + s);
   }
 
-  _yo2(code: any): number {
-    let y = truthy(code) ? this.cm.code_to_yo2(code) : null;
-    if (y == null) {
-      if (truthy(code)) this._warn(`passcode ${code} sin id YO2: uso tapadera`);
-      y = this.cm.placeholders.monster;
+  /** The passcode the client's card table has for this card (an alternate art it lacks: its base card's), else a
+   *  hidden monster's (the client's codec shows its placeholder). */
+  _pc(code: any): number {
+    const w = truthy(code) ? this.cm.wire(code) : null;
+    if (w == null) {
+      if (truthy(code)) this._warn(`passcode ${code} no está en la tabla del cliente: uso tapadera`);
+      return HIDDEN_MONSTER;
     }
-    return y;
+    return w;
   }
 
-  /** YO2 id the client must have for card c in `where` (player 0's view): the NPC's hidden cards wear a cover. */
+  /** The card the client must have for card c in `where` (player 0's view): the NPC's hidden cards wear a cover. */
   _visible(c: Card, where: Where, p: number): number {
     if (this.cfg.hide_npc && p === 1 && (["deck", "hand", "extra"].includes(where) || (["mz", "sz"].includes(where) && !c.face))) {
-      if (where === "sz") return this.cm.placeholders[this.cm.kind(c.code) === "spell" ? "spell" : "trap"];
-      return this.cm.placeholders.monster;
+      if (where === "sz") return this.cm.kind(c.code) === "spell" ? HIDDEN_SPELL : HIDDEN_TRAP;
+      return HIDDEN_MONSTER;
     }
-    return this._yo2(c.code);
+    return this._pc(c.code);
   }
 
   /** uid -> [player, container, index] */
@@ -291,7 +295,7 @@ export class YO2Duel {
     const l = this.find(uid);
     if (!l) return [];
     const [p, where, i] = l;
-    const want = real ? this._yo2(c.code) : this._visible(c, where, p);
+    const want = real ? this._pc(c.code) : this._visible(c, where, p);
     if (c.known === want) return [];
     c.known = want;
     const serial = uid >> 1;
@@ -575,7 +579,7 @@ export class YO2Duel {
       const uid = s.deck[k];
       const c = this.card(uid);
       if (truthy(d.code)) c.code = d.code;
-      const want = p === 0 || !this.cfg.hide_npc ? this._yo2(c.code) : this.cm.placeholders.monster;
+      const want = p === 0 || !this.cfg.hide_npc ? this._pc(c.code) : HIDDEN_MONSTER;
       if (c.known !== want) {
         c.known = want;
         out.push(set_card(p, ZONE_DECK, k, want, uid >> 1, c.owner));
@@ -671,7 +675,7 @@ export class YO2Duel {
     if (face) out = out.concat(this._identity(uid, true));
     else if (p_from === 1 && this.cfg.hide_npc) {
       c.known = null;
-      const want = this.cm.placeholders[where === "mz" ? "monster" : this.cm.kind(c.code) === "spell" ? "spell" : "trap"];
+      const want = where === "mz" ? HIDDEN_MONSTER : this.cm.kind(c.code) === "spell" ? HIDDEN_SPELL : HIDDEN_TRAP;
       out.push(this._set_known(uid, want));
     }
     const from_hand = w_from === "hand" && p_from === p;
@@ -703,7 +707,7 @@ export class YO2Duel {
           }
         }
       }
-      const body = concat(...mats.map((m) => pack4H(this._yo2(this.card(m).code) & 0x3fff, (m >> 1) & 0xff, this.card(m).owner & 1, 0)));
+      const body = concat(...mats.map((m) => listItem(this._pc(this.card(m).code), (m >> 1) & 0xff, this.card(m).owner & 1)));
       out.push([K.M_LIST, concat(packBIIII(0, K.LIST_FUSION, 0, mats.length, 0), body)]);
       out.push(engine(K.C_FUSION_RUN, p, 0, uid, mats.length & 0xff));
       this.fusion_mats = [];
@@ -816,10 +820,10 @@ export class YO2Duel {
     const pos = to.position || K.POS_FU_ATK;
     c.face = !!(pos & 5);
     c.defense = !!(pos & 12);
-    const y = this._yo2(c.code);
+    const y = this._pc(c.code);
     c.known = y;
     this.side[p].mz[slot_i] = c.uid;
-    return [engine(K.C_TOKEN, p, loc(p, slot_i, +c.face, +c.defense), this.cm.yo2_to_internal(y), 0)];
+    return [engine(K.C_TOKEN, p, loc(p, slot_i, +c.face, +c.defense), asInternal(y), 0)];
   }
 
   _m_HINT(ev: Ev): Out[] {
@@ -1007,7 +1011,7 @@ export class YO2Duel {
   // --- chain ----------------------------------------------------------------------------------------------------
   _chain_reveal(pp: number, zone: number, where: Where, uid: number, c: Card): Uint8Array {
     const bits = where === "sz" ? 6 : where === "mz" ? 8 : 0xa;
-    return engine(K.C_REVEAL, pp, zone | (bits << 8), this.cm.yo2_to_internal(this._yo2(c.code)) || 0, uid);
+    return engine(K.C_REVEAL, pp, zone | (bits << 8), asInternal(this._pc(c.code)), uid);
   }
 
   _m_CHAINING(ev: Ev): Out[] {
@@ -1029,11 +1033,11 @@ export class YO2Duel {
           out.push(engine(K.C_FLIP, pp, zone, 1, 0));
         }
         if (reveal) out.push(this._chain_reveal(pp, zone, where, uid, c));
-        else if (this.cfg.activate_flash) out.push(engine(K.C_FLASH, pp, this.cm.yo2_to_internal(this._yo2(c.code)) || 0, 0));
+        else if (this.cfg.activate_flash) out.push(engine(K.C_FLASH, pp, asInternal(this._pc(c.code)), 0));
       } else {
         out = out.concat(this._identity(uid, true));
         if (reveal) out.push(this._chain_reveal(pp, zone, where, uid, c));
-        else out.push(engine(K.C_HAPPEN, pp, this._yo2(c.code)));
+        else out.push(engine(K.C_HAPPEN, pp, asIndex(this._pc(c.code))));
       }
     }
     const n = get(ev, "chain_size", this.chain.length + 1);
@@ -1542,8 +1546,8 @@ export class YO2Duel {
     } else if (kind === K.CHINT_ATTRIBUTE && K.DECL_ATTR_BITS.has(internal)) {
       val = [...K.YO2_ATTR].reduce((m, [i, b]) => (bit(v, Math.log2(b)) ? m + (1 << i) : m), 0);
     } else if (kind === K.CHINT_CARD && K.DECL_CARD.has(internal)) {
-      const y = v ? this.cm.code_to_yo2(v) : null;
-      val = y ? this.cm.yo2_to_internal(y) || 0 : 0;
+      val = v ? this.cm.wire(v) ?? 0 : 0;   // the declared card: its internal id in the client (its codec)
+      if (val) return [engine(K.C_SLOT_VALUE, p, slot, asInternal(val), 0)];
     } else return [];
     if (!val) {
       this._warn(`CARD_HINT ${kind} = 0x${v.toString(16)} sin equivalente en el cliente: no se pinta`);
@@ -1556,14 +1560,13 @@ export class YO2Duel {
     const uid = this.uid_at(get(ev, "controller", 0), get(ev, "location", 0), get(ev, "sequence", 0));
     const c = uid !== null ? this.cards.get(uid) ?? null : null;
     if (c === null) return null;
-    const y = this.cm.code_to_yo2(c.code);
-    const internal = y ? this.cm.yo2_to_internal(y) : null;
+    const internal = this.cm.wire(c.code) != null ? this.cm.rulesKey(c.code) : null;   // (the rule tables' key)
     if (internal === null || !K.TURN_CARDS_NEG.has(internal)) return null;
     if (!this.cfg.turn_counter_player) return [];
     const v = u32(int(ev.description || 0));
     if (v <= 0) return [];
     const p = internal === K.FINAL_COUNTDOWN ? c.owner : this.turn_player || 0;
-    return [engine(K.C_TURN_COUNT, p, internal, 1, Math.min(v, 0xffff))];
+    return [engine(K.C_TURN_COUNT, p, asInternal(this.cm.wire(c.code)!), 1, Math.min(v, 0xffff))];
   }
 
   _hint_slot(ev: Ev): [number, number, number] | null {
@@ -1572,8 +1575,7 @@ export class YO2Duel {
     const lst = this.side[p].pile(where);
     const u = i >= 0 && i < lst.length ? lst[i] : null;
     if (u == null || !this.card(u).face) return null;
-    const y = this.cm.code_to_yo2(this.card(u).code);
-    const internal = y ? this.cm.yo2_to_internal(y) : null;
+    const internal = this.cm.wire(this.card(u).code) != null ? this.cm.rulesKey(this.card(u).code) : null;   // (rule key)
     if (!internal) return null;
     const [slot] = this.yo2_zone(where, i);
     return [p, slot, internal];
@@ -1624,9 +1626,9 @@ export class YO2Duel {
     if (eqPair(target, shown)) return [];
     this.field_shown = target;
     if (target === null) return [engine(K.C_FIELD_CHANGE, 0, 0)];
-    const internal = this.cm.yo2_to_internal(this._yo2(this.card(target[1]).code)) || 0;
-    if (!internal) this._warn(`magia de campo sin id interno: ${this.card(target[1]).code}`);
-    return [engine(K.C_FIELD_CHANGE, target[0], internal)];
+    const fieldPc = this.cm.wire(this.card(target[1]).code);
+    if (!fieldPc) this._warn(`magia de campo que el cliente no tiene: ${this.card(target[1]).code}`);
+    return [engine(K.C_FIELD_CHANGE, target[0], fieldPc ? asInternal(fieldPc) : 0)];
   }
 
   /** DUEL_END (0x05) + end of scene (type 0x4d). Result: 1 = player 0 wins, 2 = player 1, 0 = draw. */
@@ -1896,7 +1898,7 @@ export class YO2Duel {
     let p2 = how === 3 ? get(this.cfg, "chain_importance", 2) : 0;
     if (how === 3 && truthy(this.cfg.chain_priority)) p2 = this._chain_priority(ev, this.cfg.chain_priority);
     else if (how === 3 && this.cfg.chain_importance_auto) p2 = this.trigger === 1 ? 2 : 1;
-    let pairs: [number, number][] = [[K.DLG_CHAIN, 2]];
+    let pairs: Pair[] = [[K.DLG_CHAIN, 2]];
     const sel: any[] = get(ev, "selects", []);
     let one = this.cfg.chain_one_name ? this._chain_one_pairs(sel) : null;
     const text = this.cfg.chain_event_text;
@@ -1907,8 +1909,8 @@ export class YO2Duel {
       const d = sel[0];
       const uid = this.uid_at(d.controller, d.location, d.sequence);
       const code = d.code || (uid !== null ? this.card(uid).code : null);
-      const internal = truthy(code) ? this.cm.yo2_to_internal(this._yo2(code)) : null;
-      if (internal) pairs = [[internal, 4], [0xffff, 3], [K.DLG_CHAIN, 3]];
+      const internal = truthy(code) ? this.cm.wire(code) : null;   // (a card pair: listAdd)
+      if (internal) pairs = [[asInternal(internal), 4], [0xffff, 3], [K.DLG_CHAIN, 3]];
     }
     const link = this.cfg.chain_link_text ? this._chain_link_pairs() : null;
     let detail: Out[] = [];
@@ -1918,7 +1920,7 @@ export class YO2Duel {
       if (this.cfg.chain_link_detail) detail = this._chain_link_detail();
     }
     const flat = pairs.flat();
-    const out = [setcommand(T_LIST_RESET, 0, [pairs.length]), setcommand(T_LIST_ADD, 0, flat),
+    const out = [setcommand(T_LIST_RESET, 0, [pairs.length]), listAdd(flat),
       setcommand(T_VIEW, 0x32, [how === 3 ? 3 : 2, 0, p2])];
     const pic = one ? sel.slice(0, 1) : sel;
     return (this._dialog_cards(pic.map((d) => [d.code, get(d, "controller", 0)])) as Out[]).concat(detail,
@@ -1928,7 +1930,7 @@ export class YO2Duel {
   _chain_none(): Out[] {
     this.state = { mode: "chain_none" };
     const pairs = [[this.chain.length ? K.CHAIN_NONE[1] : K.CHAIN_NONE[0], 2], [K.CHAIN_SEP, 3], [K.CHAIN_NONE[2], 3]];
-    const out = [setcommand(T_LIST_RESET, 0, [pairs.length]), setcommand(T_LIST_ADD, 0, pairs.flat()),
+    const out = [setcommand(T_LIST_RESET, 0, [pairs.length]), listAdd(pairs.flat()),
       setcommand(T_VIEW, 0x32, [3, 0, K.CHAIN_NONE_P2])];
     return (this._dialog_cards([]) as Out[]).concat(out.map((m) => [M_6202, m] as Msg));
   }
@@ -1939,11 +1941,11 @@ export class YO2Duel {
     if (!(zone >= 0 && zone <= 10)) return [];
     const uid = zone < 5 ? this.side[p].mz[zone] : this.side[p].sz[zone < 10 ? zone - 5 : 5];
     const c = uid !== null ? this.cards.get(uid) ?? null : null;
-    if (c === null || !c.face || c.code !== this.chain_codes[this.chain_codes.length - 1] || !this._yo2(c.code)) return [];
+    if (c === null || !c.face || c.code !== this.chain_codes[this.chain_codes.length - 1] || !this._pc(c.code)) return [];
     return [[M_6202, setcommand(T_VIEW, K.T_VIEW_DETAIL, [uid!, 0, 0])]];
   }
 
-  _chain_one_pairs(sel: any[]): [number, number][] | null {
+  _chain_one_pairs(sel: any[]): Pair[] | null {
     if (!sel.length || new Set(sel.map((d) => `${get(d, "controller", 0)},${d.location},${d.sequence}`)).size !== 1) return null;
     const d = sel[0];
     let code = d.code;
@@ -1951,17 +1953,16 @@ export class YO2Duel {
       const uid = this.uid_at(get(d, "controller", 0), d.location, d.sequence);
       code = uid !== null ? this.card(uid).code : null;
     }
-    const y = truthy(code) ? this.cm.code_to_yo2(code) : null;
-    const internal = y ? this.cm.yo2_to_internal(y) : 0;
+    const internal = truthy(code) ? this.cm.wire(code) ?? 0 : 0;   // (a card pair: listAdd)
     if (!internal) return null;
     const dlg = d.location === K.OCG_HAND ? K.DLG_EFFECT_YN_HAND : d.location === K.OCG_GRAVE ? K.DLG_EFFECT_YN_GRAVE : K.DLG_EFFECT_YN;
-    return [[internal, 4], [dlg, 0]];
+    return [[asInternal(internal), 4], [dlg, 0]];
   }
 
   /** §23: 0x6610 list mode 0xff with the cards [code, player] the CUYesNoDialog draws (before its 0x32). */
   _dialog_cards(cards: [any, number][]): Msg[] {
     if (!this.cfg.yesno_card) return [];
-    const items = cards.filter(([c]) => truthy(c)).map(([c, p]) => pack4H(this._yo2(c) & 0x3fff, 0, p & 1, 0)).slice(0, 5);
+    const items = cards.filter(([c]) => truthy(c)).map(([c, p]) => listItem(this._pc(c), 0, p & 1)).slice(0, 5);
     if (!items.length || this.list_dirty) return [[K.M_LIST, packBIIII(0, 0, 0, 0, 0)]];
     return [[K.M_LIST, concat(packBIIII(0, K.LIST_DIALOG, 0, items.length, 0), ...items)]];
   }
@@ -2062,13 +2063,12 @@ export class YO2Duel {
     return false;
   }
 
-  _chain_link_pairs(): [number, number][] | null {
+  _chain_link_pairs(): Pair[] | null {
     const codes = this.chain_codes;
     if (!this.chain.length || codes.length !== this.chain.length || !truthy(codes[codes.length - 1])) return null;
-    const y = this.cm.code_to_yo2(codes[codes.length - 1]);
-    const internal = y ? this.cm.yo2_to_internal(y) : 0;
+    const internal = this.cm.wire(codes[codes.length - 1]) ?? 0;   // (a card pair: listAdd)
     if (!internal) return null;
-    return [[internal, 4], [this.cm.kind(codes[codes.length - 1]) === "monster" ? K.DLG_LINK_EFFECT : K.DLG_LINK_CARD, 0]];
+    return [[asInternal(internal), 4], [this.cm.kind(codes[codes.length - 1]) === "monster" ? K.DLG_LINK_EFFECT : K.DLG_LINK_CARD, 0]];
   }
 
   // --- YES/NO ----------------------------------------------------------------------------------------------------
@@ -2089,28 +2089,27 @@ export class YO2Duel {
         spec = [K.YESNO_SYS_CARD.get(desc)!, "self", null];
       } else if (!truthy(code) && dcode) {
         spec = K.YESNO_DLG.get(`${dcode},${dn}`) ?? null;
-        if (spec && this.cm.code_to_yo2(dcode)) code = dcode;
+        if (spec && this.cm.wire(dcode)) code = dcode;
       }
-    } else if (!truthy(code) && desc >= 2 ** 20 && this.cm.code_to_yo2(shr(desc, 4))) {
+    } else if (!truthy(code) && desc >= 2 ** 20 && this.cm.wire(shr(desc, 4))) {
       code = shr(desc, 4);
     }
-    const y = truthy(code) ? this.cm.code_to_yo2(code) : null;
-    if (!(y && this.cm.yo2_to_internal(y))) code = null;
+    if (!(truthy(code) && this.cm.wire(code))) code = null;
     const pairs = spec ? this._yesno_pairs(spec, code) : null;
     let out: Uint8Array[];
     if (pairs) {
       out = [setcommand(T_LIST_RESET, 0, [pairs.length])];
       const flat = pairs.flat();
-      for (let k = 0; k < flat.length; k += 8) out.push(setcommand(T_LIST_ADD, 0, flat.slice(k, k + 8)));
+      for (let k = 0; k < flat.length; k += 8) out.push(listAdd(flat.slice(k, k + 8)));
     } else if (!truthy(code)) {
       let text = K.DLG_CHAIN;
       if (this.cfg.yesno_sys_text) text = K.YESNO_SYS_DLG.get(desc) ?? K.DLG_CHAIN;
-      out = [setcommand(T_LIST_RESET, 0, [1]), setcommand(T_LIST_ADD, 0, [text, 2])];
+      out = [setcommand(T_LIST_RESET, 0, [1]), listAdd([text, 2])];
     } else if (card && ev.type === "SELECT_EFFECTYN") {
       const dlg = ev.location === K.OCG_HAND ? K.DLG_EFFECT_YN_HAND : ev.location === K.OCG_GRAVE ? K.DLG_EFFECT_YN_GRAVE : K.DLG_EFFECT_YN;
-      out = [setcommand(T_LIST_RESET, 0, [2]), setcommand(T_LIST_ADD, 0, [this.cm.yo2_to_internal(this._yo2(code)), 4, dlg, 0])];
+      out = [setcommand(T_LIST_RESET, 0, [2]), listAdd([asInternal(this.cm.wire(code) ?? 0), 4, dlg, 0])];
     } else {
-      out = [setcommand(T_LIST_RESET, 0, [1]), setcommand(T_LIST_ADD, 0, [this.cm.yo2_to_internal(this._yo2(code)), 4])];
+      out = [setcommand(T_LIST_RESET, 0, [1]), listAdd([asInternal(this.cm.wire(code) ?? 0), 4])];
     }
     out.push(setcommand(T_VIEW, 0x32, [2, 0, 0]));
     const pic = this._dialog_cards(truthy(code) ? [[code, get(ev, "controller", get(ev, "player", 0))]] : []);
@@ -2120,16 +2119,15 @@ export class YO2Duel {
   _s_SELECT_EFFECTYN(ev: Ev): Out[] { return this._yesno(ev); }
   _s_SELECT_YESNO(ev: Ev): Out[] { return this._yesno(ev); }
 
-  _yesno_pairs(spec: [number, null | "self" | number, number | null], own_code: any): [number, number][] | null {
+  _yesno_pairs(spec: [number, null | "self" | number, number | null], own_code: any): Pair[] | null {
     const [dlg, who, num] = spec;
     if (who === null && num === null) return [[dlg, 2]];
-    const pairs: [number, number][] = [];
+    const pairs: Pair[] = [];
     if (who !== null) {
       const code = who === "self" ? own_code : who;
-      const y = truthy(code) ? this.cm.code_to_yo2(code) : null;
-      const internal = y ? this.cm.yo2_to_internal(y) : 0;
+      const internal = truthy(code) ? this.cm.wire(code) ?? 0 : 0;   // (a card pair: listAdd)
       if (!internal) return null;
-      pairs.push([internal, 4]);
+      pairs.push([asInternal(internal), 4]);
     }
     pairs.push([dlg, 0]);
     if (num !== null) pairs.push([int(num), 1]);
@@ -2159,14 +2157,14 @@ export class YO2Duel {
     this.state = { mode, cands, chosen: [], bit: b, aim, min: get(ev, "min", 1), max: get(ev, "max", 1), can_cancel: ev.can_cancel ?? null };
     if (!aim && !target && this._ritual_monster_pick(ev, cands_key, mode, cands)) {
       Object.assign(this.state, { kind: K.KIND_RITUAL, clear: 0 });
-      return ([[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [K.DLG_RITUAL_MONSTER, 2])],
+      return ([[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([K.DLG_RITUAL_MONSTER, 2])],
         [M_6202, setcommand(T_VIEW, 0x32, [0xff, K.DLG_RITUAL_MONSTER, 1])]] as Out[]).concat(this._pick_request());
     }
     if (!aim && cands.length && cands.every((c) => c[0] === 1 && c[1] === ZONE_HAND) && opp_hand) {
       Object.assign(this.state, { kind: K.KIND_OPP_HAND, clear: 1 });
       let panel: Out[] = [];
       if (this.state.max === 1) {
-        panel = [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [K.DLG_PICK_OPP_HAND, 2])],
+        panel = [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([K.DLG_PICK_OPP_HAND, 2])],
           [M_6202, setcommand(T_VIEW, 0x32, [0xff, K.DLG_PICK_OPP_HAND, 1])]];
       }
       return panel.concat(this._pick_request());
@@ -2175,7 +2173,7 @@ export class YO2Duel {
       let panel: Out[] = [];
       if (this.cfg.pick_panel && !target && (mode === "card" || mode === "tribute")) {
         const dlg = mode === "tribute" ? K.DLG_PICK_TRIBUTE : K.DLG_PICK_FIELD;
-        panel = [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [dlg, 2])],
+        panel = [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([dlg, 2])],
           [M_6202, setcommand(T_VIEW, 0x32, [0xff, 0, 0])]];
       }
       return panel.concat(this._pick_request());
@@ -2233,7 +2231,7 @@ export class YO2Duel {
     const n = ev.min;
     this.attacking = false;
     this.state = { mode: "card", cands, chosen: [], bit: this.cfg.select_bit, aim: false, min: n, max: n, can_cancel: false, discard: n };
-    return ([[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [K.DLG_DISCARD, 2])],
+    return ([[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([K.DLG_DISCARD, 2])],
       this._discard_var(n), [M_6202, setcommand(T_VIEW, 0x32, [K.DLGT_DISCARD, 0, 0])]] as Out[]).concat(this._pick_request());
   }
 
@@ -2253,8 +2251,8 @@ export class YO2Duel {
       const c = this.card(uid!);
       const code = d.code || c.code;
       const hidden = this.cfg.hide_npc && p === 1 && ["deck", "hand", "extra"].includes(where);
-      const y = hidden ? this._visible(c, where, p) : this._yo2(code);
-      items.push([y & 0x3fff, (uid! >> 1) & 0xff, c.owner & 1]);
+      const y = hidden ? this._visible(c, where, p) : this._pc(code);
+      items.push([y, (uid! >> 1) & 0xff, c.owner & 1]);
     }
     const n = items.length;
     let mx = Math.max(1, Math.min(get(ev, "max", 1), n));
@@ -2272,7 +2270,7 @@ export class YO2Duel {
 
   _list_request(): Out[] {
     const st = this.state;
-    const body = concat(...(st.items as number[][]).map(([i, s, f]) => pack4H(i, s, f, 0)));
+    const body = concat(...(st.items as number[][]).map(([i, s, f]) => listItem(i, s, f)));
     st.marks = new Map();
     st.single = null;
     return [[K.M_LIST, concat(packBIIII(0, st.lmode, 0, st.items.length, 0), body)],
@@ -2403,7 +2401,7 @@ export class YO2Duel {
     if (listing) return this._sum_list_request();
     const left = this._sum_left();
     return ([[M_6202, setcommand(K.T_STARS, 0, [left, K.STARS_NONE])],
-      [M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [K.DLG_RITUAL_STARS, 2])],
+      [M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([K.DLG_RITUAL_STARS, 2])],
       [M_6202, setcommand(T_VIEW, 0x32, [K.DLGT_RITUAL, K.DLG_RITUAL_STARS, target])]] as Out[]).concat(this._sum_request());
   }
 
@@ -2482,15 +2480,15 @@ export class YO2Duel {
       const card = this.card(u);
       const [p, where] = this.findx(u);
       const hidden = this.cfg.hide_npc && p === 1 && ["deck", "hand", "extra"].includes(where);
-      const y = hidden ? this._visible(card, where, p) : this._yo2(c.code || card.code);
-      items.push([y & 0x3fff, (u >> 1) & 0xff, card.owner & 1]);
+      const y = hidden ? this._visible(card, where, p) : this._pc(c.code || card.code);
+      items.push([y, (u >> 1) & 0xff, card.owner & 1]);
       order.push(c.i);
     }
     st.list_order = order;
     st.single = null;
     st.marks = new Map();
-    const body = concat(...items.map(([i, s, f]) => pack4H(i, s, f, 0)));
-    return [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [K.DLG_RITUAL_DECK, 2])],
+    const body = concat(...items.map(([i, s, f]) => listItem(i, s, f)));
+    return [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([K.DLG_RITUAL_DECK, 2])],
       [M_6202, setcommand(T_VIEW, 0x32, [0xfe, K.DLG_RITUAL_DECK, 0])],
       [K.M_LIST, concat(packBIIII(0, K.LIST_ONE, 0, items.length, 0), body)],
       [M_6202, setcommand(T_VIEW, K.T_VIEW_LIST, [0, K.LIST_ONE, 0])]];
@@ -2565,15 +2563,15 @@ export class YO2Duel {
   // --- B42: client windows (§18) ---------------------------------------------------------------------------------
   _dialog(kind: number, text: number, p2 = 0, mode: string | null = null, st: Record<string, any> = {}): Out[] {
     this.state = { ...st, mode };
-    return [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, setcommand(T_LIST_ADD, 0, [text, 2])],
+    return [[M_6202, setcommand(T_LIST_RESET, 0, [1])], [M_6202, listAdd([text, 2])],
       [M_6202, setcommand(T_VIEW, 0x32, [kind, 0, p2 >>> 0])]];
   }
 
-  _dialog_pairs(kind: number, pairs: [number, number][], p2 = 0, mode: string | null = null, st: Record<string, any> = {}): Out[] {
+  _dialog_pairs(kind: number, pairs: Pair[], p2 = 0, mode: string | null = null, st: Record<string, any> = {}): Out[] {
     this.state = { ...st, mode };
     const out: Out[] = [[M_6202, setcommand(T_LIST_RESET, 0, [pairs.length])]];
     const flat = pairs.flat();
-    for (let k = 0; k < flat.length; k += 8) out.push([M_6202, setcommand(T_LIST_ADD, 0, flat.slice(k, k + 8))]);
+    for (let k = 0; k < flat.length; k += 8) out.push([M_6202, listAdd(flat.slice(k, k + 8))]);
     out.push([M_6202, setcommand(T_VIEW, 0x32, [kind, 0, p2 >>> 0])]);
     return out;
   }
@@ -2657,7 +2655,7 @@ export class YO2Duel {
 
   _announce_request(): Out[] {
     this.state.card = null;
-    return [[M_6202, setcommand(T_VIEW, K.T_VIEW_LIST, [0, K.LIST_ANNOUNCE, 0])]];
+    return [[M_6202, setcommand(T_VIEW, K.T_VIEW_LIST, [0, K.LIST_ANNOUNCE, 0], HINT_ANNOUNCE)]];
   }
 
   _announce_msg(msg_id: number, data: Uint8Array): [Cmd | null, Out[]] {
@@ -2669,8 +2667,7 @@ export class YO2Duel {
       return [null, []];
     }
     if (st.card == null) return [null, this._announce_request()];
-    const y = this.cm.internal_to_yo2(st.card);
-    const code = y ? this.cm.yo2_to_code(y) : null;
+    const code = st.card;   // a passcode: the client's codec sends the declared card's
     if (!code || !_declarable(this.cm, code, get(this.waiting, "opcodes", []))) {
       this.log(`[traductor] anunciar: interno ${st.card} -> ${code} no vale para ${repr(this.waiting.opcodes)}`);
       return [null, this._announce_request()];
@@ -2699,7 +2696,7 @@ export class YO2Duel {
       this.log(`[traductor] SELECT_OPTION ${repr(opts)} sin texto del cliente para todas: decide bot.ts`);
       return this._auto();
     }
-    const body = concat(...ids.map((i) => pack4H(i! & 0x3fff, 0, 2, 0)));
+    const body = concat(...ids.map((i) => listItem(i!, 0, 2)));
     const text = opts.every((o) => o === 70 || o === 71 || o === 72) ? K.DLG_SEL_CARDTYPE : K.DLG_SEL_EFFECT;
     return ([[K.M_LIST, concat(packBIIII(0, 0, 0, ids.length, 0), body)]] as Out[]).concat(
       this._dialog(K.DLGT_SELECT, text, 0, "option", { n: opts.length }));
@@ -2712,8 +2709,8 @@ export class YO2Duel {
     for (const d of cards) {
       const uid = this.uid_at(d.controller, d.location, d.sequence);
       const code = d.code || (uid !== null ? this.card(uid).code : 0);
-      const y = truthy(code) ? this._yo2(code) : this.cm.placeholders.monster;
-      items.push([y & 0x3fff, uid !== null ? (uid >> 1) & 0xff : 0, d.controller & 1]);
+      const y = truthy(code) ? this._pc(code) : HIDDEN_MONSTER;
+      items.push([y, uid !== null ? (uid >> 1) & 0xff : 0, d.controller & 1]);
     }
     const n = items.length;
     this.state = { mode: "list", sort: true, cands: [], items, lmode: K.LIST_EXACT0 + n, min: n, max: n, marks: new Map(), single: null, can_cancel: false };
@@ -2750,11 +2747,11 @@ export class YO2Duel {
       const d = st.cards[k];
       const uid = this.uid_at(d.controller, d.location, d.sequence);
       const code = d.code || (uid !== null ? this.card(uid).code : 0);
-      const internal = truthy(code) && this.cm.code_to_yo2(code) ? this.cm.yo2_to_internal(this.cm.code_to_yo2(code)!) : 0;
+      const internal = truthy(code) ? this.cm.wire(code) ?? 0 : 0;   // (a card pair: listAdd)
       st.lo = lo;
       st.hi = hi;
       return [[M_6202, setcommand(T_LIST_RESET, 0, [1])],
-        [M_6202, setcommand(T_LIST_ADD, 0, internal ? [internal, 4] : [K.DLG_NUM_COUNTERS, 2])],
+        [M_6202, listAdd(internal ? [asInternal(internal), 4] : [K.DLG_NUM_COUNTERS, 2])],
         [M_6202, setcommand(T_VIEW, 0x32, [K.DLGT_NUM, 0, (K.LBL_COUNTERS | (lo << 16) | (hi << 24)) >>> 0])]];
     }
     st.done = true;
@@ -2925,7 +2922,7 @@ export class YO2Duel {
     const lm = this.cfg.look_modes;
     const mode = lm != null && Object.prototype.hasOwnProperty.call(lm, zone) ? lm[zone] : 1;
     const pile = this.side[p].pile(name) as number[];
-    const body = concat(...pile.map((u) => pack4H(this._visible(this.card(u), name, p) & 0x3fff, (u >> 1) & 0xff, this.card(u).owner & 1, 0)));
+    const body = concat(...pile.map((u) => listItem(this._visible(this.card(u), name, p), (u >> 1) & 0xff, this.card(u).owner & 1)));
     this.viewing = true;
     return [[K.M_LIST, concat(packBIIII(0, mode, 0, pile.length, 0), body)],
       [M_6202, setcommand(T_VIEW, K.T_VIEW_LIST, [p, mode, 0])]];
