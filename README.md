@@ -24,7 +24,7 @@ https://original.ygoevolution.com/.
 | `client/native/`, `client/CMakeLists.txt` | the native build of the decompiled client |
 | `client/harness/`, `client/tests/` | differential tests (decompiled vs original, under Unicorn/Boxedwine) and unit checks |
 | `client/third_party/` | yaneuraoGameSDK 2nd (with the game's changes reconstructed), see *Licences* |
-| `client/web-shell/` | the site's page shell: `index.html`, `stage.js` (fit to window, full screen), `loader.js` (loading screen) |
+| `client/web-shell/` | the site's page shell: `index.html`, `stage.js` (fit to window, full screen), `loader.js` (loading screen), `starter.js` (the starter structure-deck picker, drawn with `client/html-ui/ui.js`) |
 | `client/html-ui/` | HTML/CSS rebuilds of in-game dialogs, checked by pixel diff against the client |
 | `client/tools/`, `client/scoping/` | decompilation tooling (Ghidra scripts, coverage, work order) and the original scoping notes |
 | `server/` | the TypeScript server (`DESIGN.md`, `AUTH.md`, `DEPLOY.md`) |

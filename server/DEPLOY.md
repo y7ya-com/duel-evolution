@@ -13,7 +13,8 @@ D1 `duel-evolution` are idle with no route; they were kept, not deleted.
 ## The web client
 
 `infra/ship-client.sh [--build] [prefix]` from the public repo: builds (or takes) `client/recomp/build-web/`, adds the
-web shell (`client/web-shell/stage.js`, `loader.js`), the title and the build id to `yo2rc.html` and uploads it to R2
+web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/html-ui/ui.js` and its `ui/` art from
+`infra/fetch-private.sh`), the title and the build id to `yo2rc.html` and uploads it to R2
 `ygo-original/<prefix>/` (default `recomp-de/`, the `CLIENT_PREFIX` production serves). `DRY=1` prepares
 `infra/out/<prefix>/` and lists the uploads without uploading. Shipping to `recomp/` also uploads `index.html`,
 `stage.js` and `loader.js`; the loading-screen art (`loader/`) and the game files there are uploaded by hand.
