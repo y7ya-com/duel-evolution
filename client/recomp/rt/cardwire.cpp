@@ -24,7 +24,7 @@
 //   S 0x6010..0x6012      the replay: its blob's 0x6202 entries carry the same 3 bytes (47 instead of 44). The codec
 //                         acks the server itself (0x6013), collects the whole record, converts it, and hands it to the
 //                         exe one message per exe 0x6013, as the server does
-//   C 0x6423              u32 internal id -> passcode when the last 0x6202 hints said so
+//   C 0x6423              u32 internal id -> passcode while a 0x6202 hint's card-name request lasts (v <= 1 ends it)
 // The exe checks that every inbound frame's param is the previous one + 1: on a v2 connection the codec numbers what
 // it delivers itself (the swallowed hello lends its number to the next frame).
 #include <cstdarg>
@@ -153,9 +153,9 @@ static Bytes unrle(const Bytes& d) {
     return o;
 }
 
-// The replay record (server/src/duel/duellog.ts buildBlob): a fixed head (475 B), u32 entry count, 40 B, the entries
+// The replay record (server/src/duel/duellog.ts buildBlob): a fixed head (475 B), u32 entry count, 40 more bytes, the entries
 // (44 B LE in v1, 47 in v2), then the empty fusion and search tails.
-static const size_t REPLAY_COUNT_AT = 475, REPLAY_ENTRIES_AT = 515;
+static const size_t REPLAY_COUNT_AT = 475, REPLAY_ENTRIES_AT = 519;   // (checked against buildBlob)
 static bool convertReplay(Conn& c) {
     if (c.replay.empty() || c.replay[0].id != 0x6010) return false;
     Bytes body;
@@ -341,10 +341,9 @@ static void fromExe(Conn& c, const Frame& f, std::vector<Frame>& out, std::vecto
             return;
         }
         break;
-    case 0x6423:                                 // u32 v: a declared card's internal id when the server asked for one
+    case 0x6423:   // u32 v: while the server asks for a card name, each pick (v > 1) is an internal id; v <= 1 ends it
         if (c.announce && d.size() >= 4 && be32(&d[0]) > 1) {
             o = d, set32(&o[0], t.fromInternal(be32(&d[0])));
-            c.announce = false;
             out.push_back({f.id, f.param, o});
             return;
         }

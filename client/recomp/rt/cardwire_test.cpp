@@ -109,11 +109,12 @@ int main() {
         CHECK(out[0].data.size() == 80 && be32(&out[0].data[8 + 12]) == 1 && be32(&out[0].data[40 + 8 + 4]) == 3902,
               "6202 slots: index %u, internal %u", be32(&out[0].data[20]), be32(&out[0].data[52]));
         CHECK(out[1].data.size() == 40 && s.c.announce, "hints: announce");
-        Bytes a;
-        put32(a, 4041);
-        auto sv = exeSends(s, {{0x6423, 50, a}, {0x6423, 51, a}});
-        CHECK(sv.size() == 2 && be32(&sv[0].data[0]) == 46986414 && be32(&sv[1].data[0]) == 4041 && sv[0].param == 50,
-              "6423: a declared card once, then plain");
+        Bytes a, one, b;
+        put32(a, 4041), put32(one, 1), put32(b, 4007);
+        auto sv = exeSends(s, {{0x6423, 50, a}, {0x6423, 51, b}, {0x6423, 52, one}, {0x6423, 53, a}});
+        CHECK(sv.size() == 4 && be32(&sv[0].data[0]) == 46986414 && be32(&sv[1].data[0]) == 89631139 &&
+              be32(&sv[2].data[0]) == 1 && be32(&sv[3].data[0]) == 4041 && sv[0].param == 50,
+              "6423: every pick a declared card until the confirm, then plain");
     }
     {   // a trunk table: (passcode, count) pairs -> the exe's own 7 chunks of 3256 bytes, between start and end
         Bytes c1, c2;
