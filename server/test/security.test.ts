@@ -262,3 +262,28 @@ describe("per-IP rate limits", () => {
     expect(ipBucket("203.0.113.7")).toBe("203.0.113.7");
   });
 });
+
+describe("economy caps", () => {
+  it("are per account: another character's (or a deleted one's) duels today count toward the pair cap, first win and soft cap", async () => {
+    const h = harness({ players: {} }, { DEV: "0", PROGRESSION: "1" });
+    try {
+      const a = h.client("alice", "alice", "pw", "user-a");
+      await a.account(0, "Alice");
+      await a.enterRoom();
+      const g = h.game, s = [...g.hub.sessions.values()][0];
+      const day = new Date(g.clock.time() * 1000).toISOString().slice(0, 10);
+      const st = h.state(), acct = st.accounts["u:user-a"];
+      acct.profiles["1"] = { ...PP.blankProfile("Alt"), econ: { day, duels: 30, wins: 1, pairs: { "u:user-b": 3 }, earned: 0, spent: 0, packs: 0 } };
+      acct.profiles_borrados = [{ slot: "2", perfil: { econ: { day, duels: 10, wins: 0, pairs: { "u:user-b": 2 } } } }];
+      g.store.saveRaw(st);
+      const pay = (result: string, pvp: { opp: string; secs: number } | null) => g.withCtx(s, () => {
+        const v = g.loadState(), p = PP.profile(v, PP.activeSlot(v))!;
+        const mp = PP.mpReward(g, p, result, 5, pvp);
+        g.saveState(v);
+        return mp;
+      });
+      expect(pay("win", { opp: "u:user-b", secs: 300 })).toBe(0);                          // 3 + 2 = the pair's 5 today
+      expect(pay("win", null)).toBe(Math.floor(PP.ECON.NPC_WIN * PP.ECON.SOFT_RATE));       // 40 duels today: soft cap, no first-win bonus
+    } finally { PP.setProgression(false); }
+  });
+});

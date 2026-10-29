@@ -203,12 +203,30 @@ export const ECON = {
   FIRST_WIN: 300, // bonus on the first rewarded win of the UTC day
   SOFT_CAP: 40, SOFT_RATE: 0.25, // after 40 rewarded duels in a UTC day, every reward pays 25%
 } as const;
-// ponytail: the day's counters live on the character (p.econ, D1 state_extras), not the account: an account's 4
-// characters each get their own caps. Move them to the account (store.ts ACCT_KEYS) if the [economia] log shows farming.
+// The day's counters live on each character (p.econ, D1 state_extras); the caps add them up over the account
+// (econAccount), so its 4 characters, and one deleted and remade, share one pair cap, first win and soft cap.
 function econToday(g: Game | null, p: P): P {
   const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
   if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0 };
   return p.econ;
+}
+/** Today's counters of the whole account: this character's `e` plus every other one, live or archived (a deleted
+ *  character's day still counts). Without a session (tests, the owner's context) just `e`. */
+function econAccount(g: Game | null, e: P): { duels: number; wins: number; pairs: Record<string, number> } {
+  const t = { duels: int(e.duels), wins: int(e.wins), pairs: { ...e.pairs } as Record<string, number> };
+  if (!g || g.ctx === null || g.ctx === g.NO_SESSION) return t;
+  let st: State;
+  try { st = g.loadState(); } catch { return t; }
+  const mine = String(activeSlot(st));
+  const others = [...Object.entries(st.profiles ?? {}).filter(([k]) => k !== mine).map(([, q]) => q),
+    ...(st.profiles_borrados ?? []).map((a: P) => a?.perfil)] as P[];
+  for (const q of others) {
+    const x = q?.econ;
+    if (!x || x.day !== e.day) continue;
+    t.duels += int(x.duels ?? 0); t.wins += int(x.wins ?? 0);
+    for (const [k, n] of Object.entries(x.pairs ?? {})) t.pairs[k] = (t.pairs[k] ?? 0) + int(n);
+  }
+  return t;
 }
 const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${what}; `
   + `${e.day}: ${e.duels} duels, ${e.wins} wins, +${e.earned} MP, -${e.spent} MP, ${e.packs} packs`);
@@ -216,14 +234,14 @@ const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.
 /** MP for a finished duel, after the guards; pvp = null for an NPC duel. Returns what was paid. */
 export function mpReward(g: Game | null, p: P, result: string, turns: number, pvp: { opp: string | null; secs: number } | null = null): number {
   if (!PROGRESSION) return 0;
-  const e = econToday(g, p), win = result === "win", E = ECON;
+  const e = econToday(g, p), win = result === "win", E = ECON, acc = econAccount(g, e);
   let mp: number = pvp ? (win ? E.PVP_WIN : E.PVP_LOSS) : (win ? E.NPC_WIN : E.NPC_LOSS), why = "";
   if (pvp && turns < E.PVP_MIN_TURNS && pvp.secs < E.PVP_MIN_S) { mp = 0; why = " short"; }
-  else if (pvp && pvp.opp && (e.pairs[pvp.opp] ?? 0) >= E.PAIR_DAY_MAX) { mp = 0; why = " pair cap"; }
+  else if (pvp && pvp.opp && (acc.pairs[pvp.opp] ?? 0) >= E.PAIR_DAY_MAX) { mp = 0; why = " pair cap"; }
   if (mp) {
     if (pvp?.opp) e.pairs[pvp.opp] = (e.pairs[pvp.opp] ?? 0) + 1;
-    if (win && !e.wins) mp += E.FIRST_WIN;
-    if (e.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
+    if (win && !acc.wins) mp += E.FIRST_WIN;
+    if (acc.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
     e.duels++; if (win) e.wins++;
     e.earned += mp;
     recInc((p.rec ??= {}), "mp", mp);
