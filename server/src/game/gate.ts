@@ -56,7 +56,7 @@ export function gateReply(g: Game, c: Conn, msgId: number): void {
   for (const [lang, kind] of rooms) {
     const port = roomPort(g, lang, kind);
     const key = roomBlockKey(g, port, lang);
-    const n = key === null ? 0 : (g.hub.blocks.get(key)?.size ?? 0);
+    const n = key === null ? 0 : g.hub.roomCount(key);
     entries.push(serverEntry(10 + entries.length, 3, `Sala ${lang}-${kind}`, ip, port + off, n, lang, kind, 0));
   }
   for (let i = 0; i < entries.length; i += 21) {

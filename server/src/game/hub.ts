@@ -28,6 +28,12 @@ const REJECT_CLOSE_S = 1.5;
 export type BlockKey = string;
 export const blockKey = (port: number, lang: number): BlockKey => `${port}|${lang}`;
 export const keyPort = (k: BlockKey) => Number(k.split("|")[0]);
+/** Players per block. Past it a room opens another block ("<key>#2", ...): moves and block chat go to everyone in a
+ *  block, so one crowded block costs O(players²) (load test 2026-10-29: 100 in one block = ~3500 messages/s).
+ *  Global chat, whispers, name search and friends stay server-wide. */
+export const BLOCK_CAP = 48;
+/** The room a block belongs to ("5740|0#2" -> "5740|0"). */
+export const baseKey = (k: BlockKey) => k.split("#")[0];
 
 export const acctKey = (data: Uint8Array) => createHash("sha256").update(data.subarray(0, 32)).digest("hex").slice(0, 16);
 
@@ -281,9 +287,35 @@ export class Hub {
 
   ablockOf(s: Session | null): number { return AREA_BLOCKS && s ? (s.ablock || 0) & 0xff : 0; }
 
+  /** Players in a room, all its blocks (the gate's server list). */
+  roomCount(key: BlockKey): number {
+    let n = 0;
+    for (const [k, m] of this.blocks) if (baseKey(k) === key) n += m.size;
+    return n;
+  }
+
+  /** The block of room `key` a player enters: the one it is in, else the open block with most of its friends (the
+   *  character's friend list), else the first with room, else a new one. */
+  private blockFor(s: Session, key: BlockKey): BlockKey {
+    if (s.block !== null && baseKey(s.block) === key) return s.block;
+    let friends = new Set<number>();
+    try { friends = new Set(this.g.withCtx(s, () => (this.g.loadState().profiles?.[String(s.slot ?? 0)]?.friends ?? []) as number[])); }
+    catch (e) { this.log(`[hub] friends of ${s.acct}: ${e}`); }
+    let best: BlockKey | null = null, most = -1;
+    for (const [k, m] of this.blocks) {
+      if (baseKey(k) !== key || m.size >= BLOCK_CAP) continue;
+      let f = 0;
+      for (const pid of m.keys()) if (friends.has(pid)) f++;
+      if (f > most) { best = k; most = f; }
+    }
+    if (best !== null) return best;
+    for (let i = 1; ; i++) { const k = i === 1 ? key : `${key}#${i}`; if (!this.blocks.has(k)) return k; }
+  }
+
   enter(s: Session | null, key: BlockKey | null, ablock: number | null = null): Session[] {
     if (s && ablock !== null && key === null) s.ablock = 0;
     if (!s || s.pid === null || key === null) return s ? [s] : [];
+    key = this.blockFor(s, key);
     const moved = AREA_BLOCKS && ablock !== null && ablock !== s.ablock;
     if (ablock !== null) s.ablock = ablock;
     const fresh = !(s.block === key && this.blocks.get(key)?.get(s.pid) === s);

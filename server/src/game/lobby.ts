@@ -7,7 +7,7 @@ import LD from "../../gamedata/lobby.json";
 import { myName, myPid, mySlot } from "./accounts.ts";
 import type { Game } from "./game.ts";
 import { connBlockKey, roomOfPort } from "./gate.ts";
-import { keyPort, type BlockKey, type Session } from "./hub.ts";
+import { baseKey, keyPort, type BlockKey, type Session } from "./hub.ts";
 import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
@@ -549,7 +549,7 @@ export class Lobby {
   private friendWhere(s: Session | null): number[] | null {
     const lobby = s?.lobby ?? null;
     if (!s || s.pid === null || !lobby || lobby.closed) return null;
-    if (s.block) { const [p, l] = s.block.split("|").map(Number); return this.roomWhere(p, l, s); }
+    if (s.block) { const [p, l] = baseKey(s.block).split("|").map(Number); return this.roomWhere(p, l, s); }
     if (lobby.port === this.g.ports.lobby) return MYROOM_WHERE;
     return this.connWhere(lobby.port, (lobby.ext.lang as number) ?? s.lang ?? 0, s);
   }
@@ -809,7 +809,7 @@ export function blockPlayer(g: Game, pid: number, name?: string | null, sess: Se
 function blockOthers(g: Game, c: Conn): Session[] {
   const s = c.sess as Session | null;
   const key = connBlockKey(g, c);
-  if (!s || key === null || s.block !== key || s.lobby !== c) return [];
+  if (!s || key === null || s.block === null || baseKey(s.block) !== key || s.lobby !== c) return [];
   return g.hub.others(s);
 }
 
@@ -822,7 +822,7 @@ function sendBlockList(g: Game, c: Conn) {
   for (let i = 0; i < entries.length; i += 28) c.send(0x4212, cat(...entries.slice(i, i + 28)));
   c.send(0x4213);
   const s = c.sess as Session | null, key = connBlockKey(g, c);
-  if (s && key !== null && s.block === key && s.lobby === c) for (const [mid, d] of hub.reconcile(s, view)) c.send(mid, d, 0.02);
+  if (s && key !== null && s.block !== null && baseKey(s.block) === key && s.lobby === c) for (const [mid, d] of hub.reconcile(s, view)) c.send(mid, d, 0.02);
 }
 
 function blockType(g: Game, c: Conn): [number, number] {
