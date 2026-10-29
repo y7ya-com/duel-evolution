@@ -8,28 +8,28 @@
 // deck that passes the deck check as it is (the deck itself is built in the client's Edit Deck).
 import YDC from "../../gamedata/ydc.json";
 import * as PP from "./persist.ts";
-import { cardmap, duelCore } from "../duel/data.ts";
+import { duelCore } from "../duel/data.ts";
 import { check } from "../duel/deckCheck.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 
-/** id -> [name, blurb, cover (YO2 id)]: the structure decks the shop sells (shop.json packs 7000-8999). */
+/** id -> [name, blurb, cover (passcode)]: the structure decks the shop sells (shop.json packs 7000-8999). */
 export const STARTER_DECKS: Record<number, [string, string, number]> = {
-  7001: ["Elemental HEROes", "Fuse HERO monsters into Flame Wingman and friends.", 2118],
-  7003: ["Dark Magicians", "Spellcasters led by Dark Magician and Dark Magician Girl.", 803],
-  7005: ["Ancient Gear", "Heavy machines that shut down your opponent's spells and traps.", 2089],
-  8001: ["Iron Warriors", "Gearfried, Cyber Raider and a solid warrior beatdown.", 591],
-  8002: ["Raw Power", "Big attackers like Giant Orc and Lei Lei: hit hard, hit first.", 1449],
-  8003: ["Dark World", "Fiends that power up when they're discarded.", 2252],
-  8004: ["Black Flame Dragons", "Level up Horus from LV4 to LV8.", 1901],
-  8005: ["Dimension Shift", "Banish your opponent's monsters with the D.D. crew.", 1570],
-  8006: ["Flip Control", "Flip effects and Chaos Necromancer for a patient game.", 1665],
+  7001: ["Elemental HEROes", "Fuse HERO monsters into Flame Wingman and friends.", 35809262],
+  7003: ["Dark Magicians", "Spellcasters led by Dark Magician and Dark Magician Girl.", 46986414],
+  7005: ["Ancient Gear", "Heavy machines that shut down your opponent's spells and traps.", 83104731],
+  8001: ["Iron Warriors", "Gearfried, Cyber Raider and a solid warrior beatdown.", 423705],
+  8002: ["Raw Power", "Big attackers like Giant Orc and Lei Lei: hit hard, hit first.", 73698349],
+  8003: ["Dark World", "Fiends that power up when they're discarded.", 78004197],
+  8004: ["Black Flame Dragons", "Level up Horus from LV4 to LV8.", 48229808],
+  8005: ["Dimension Shift", "Banish your opponent's monsters with the D.D. crew.", 7572887],
+  8006: ["Flip Control", "Flip effects and Chaos Necromancer for a patient game.", 1434352],
 };
 
 const TYPE_MONSTER = 0x1, TYPE_SPELL = 0x2;
-const ydc = YDC as Record<string, { main: number[]; extra: number[] }>;
+const ydc = YDC as unknown as Record<string, { main: number[]; extra: number[] }>;
 
-/** Deck k (YO2 ids) with every copy over the 2008 limit list swapped for a legal card of the same deck. */
+/** Deck k (passcodes) with every copy over the 2008 limit list swapped for a legal card of the same deck. */
 export function legalDeck(k: number): { main: number[]; extra: number[] } {
   const own = (l: number[]) => { const t: Record<string, number> = {}; for (const c of l) t[c] = (t[c] ?? 0) + 1; return t; };
   const d = { main: [...ydc[k].main], extra: [...ydc[k].extra] };
@@ -53,8 +53,8 @@ let CATALOG: { id: number; name: string; blurb: string; cover: number; cards: Ca
 /** The decks with passcodes, names and counts (main, then extra); built once the duel engine is up. */
 export function starterCatalog() {
   if (CATALOG) return CATALOG;
-  const cm = cardmap(), dc = duelCore();
-  const code = (y: number) => cm.yo2_to_code(y) ?? 0;
+  const dc = duelCore();
+  const code = (pc: number) => pc;   // ydc.json holds passcodes (the card wire)
   const decks = Object.fromEntries(Object.keys(STARTER_DECKS).map((k) => [k, legalDeck(Number(k))]));
   const all = Object.values(decks).flatMap((d) => [...d.main, ...d.extra]).map(code);
   const info = new Map((dc?.cardinfo([...new Set(all)]) ?? []).map((c) => [Number(c.code), c]));
