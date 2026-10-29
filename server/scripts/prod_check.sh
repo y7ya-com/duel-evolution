@@ -41,5 +41,7 @@ c=$(code -X POST -H "content-type: application/json" --data '{"prod_check":true}
 c=$(code "$B/__stalls"); ok "$([ "$c" = 401 ] && echo 1)" "/__stalls needs a session ($c, want 401)"
 c=$(code "$B/private/crashes/"); ok "$([ "$c" = 404 ] && echo 1)" "private/ is never served ($c, want 404)"
 c=$(code "$B/api/de/prefetch/duel"); ok "$([ "$c" = 204 ] && echo 1)" "/api/de/prefetch/duel without a session ($c, want 204)"
+c=$(code "$B/api/de/starter"); ok "$([ "$c" = 401 ] && echo 1)" "/api/de/starter without a session ($c, want 401)"
+c=$(code -X POST -H "content-type: application/json" --data '{"id":8001}' "$B/api/de/starter/claim"); ok "$([ "$c" = 403 ] && echo 1)" "starter claim without our Origin ($c, want 403)"
 c=$(code "$B/__warm"); ok "$([ "$c" = 200 ] && echo 1)" "/__warm ($c)"
 exit $fail
