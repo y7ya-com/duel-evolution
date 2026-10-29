@@ -40,7 +40,10 @@ describe("progression", () => {
     const d = info.decks.find((x: any) => x.id === 7003);
     expect(d.cards.reduce((a: number, c: any) => a + c.n, 0)).toBe(40);
     expect(starterClaim(h.game, "user-a", 9999)).toEqual([400, { error: "bad deck" }]);
+    n = A.room!.mark();
     const [code, out] = starterClaim(h.game, "user-a", 7003) as [number, any];
+    await h.tick(500);
+    expect([0x7125, 0x7126, 0x7127, 0x4140].map((m) => A.room!.all(m, n).length > 0)).toEqual([true, true, true, true]); // pushed live
     const total = (l: { n: number }[]) => l.reduce((x, c) => x + c.n, 0);
     expect([code, out.ok, out.id, out.cards, total(out.deck), total(out.extra)]).toEqual([200, true, 7003, 40, 40, 0]); // the ready deck
     expect(starterClaim(h.game, "user-a", 7001)).toEqual([409, { error: "claimed" }]); // once per character

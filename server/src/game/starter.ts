@@ -95,6 +95,18 @@ function active(g: Game, userId: string): Session | string {
   return !s ? "not-in-game" : s.slot === null ? "no-character" : isFree(s) ? "free" : s;
 }
 
+/** A grant made outside a client request (the web claim): the connected client's trunk as the trade trunk table
+ *  (0x7125-0x7127, which the 2008 client takes unsolicited and syncs its card DB with; phase2-duel, live-trunk.md) and
+ *  its player data (0x4140, MP). No 0x5205 for the recipe bit: a class-5 bit is a blank gift page (persist bitShown);
+ *  the client gets it with its next 0x3114. */
+export function pushInventory(g: Game, s: Session, p: PP.P): boolean {
+  const lc = s.lobby;
+  if (!lc || lc.closed) return false;
+  for (const [mid, d] of PP.pairTable(0x7125, 0x7126, 0x7127, PP.trunkPairs(p))) g.lp.post(lc, mid, d);
+  g.lp.post(lc, 0x4140, (g.ph as any).player_data_update() as Uint8Array);
+  return true;
+}
+
 /** GET /api/de/starter */
 export function starterInfo(g: Game, userId: string): Record<string, unknown> {
   const s = active(g, userId);
@@ -127,6 +139,7 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     p.starter = id;
     g.saveState(st);
     g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);
+    pushInventory(g, s, p);
     return [200, { ok: true, id, cards: cards.length, ...starterDeckOut(id) }];
   });
 }
