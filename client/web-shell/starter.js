@@ -188,7 +188,13 @@
             const body = {
                 confirm: ["You can only pick one starter deck.", `Take ${name}?`],
                 busy: ["◌ Sending your choice..."],
-                done: [`✓ ${name} is yours!`, scene === DECK ? "Reload the page to see its cards here." : "Find its cards in your Deck Editor."],
+                // The claim also sets the deck's recipe bit (server 169c918): Edit Deck's STRUCTURE DECK list (the English
+                // client's name for the Recipe button) then lists it, under the game's own product name ("SPELLCASTER'S
+                // UNITY DECK" for "Dark Magicians"), so the text points at the list, not the name. A deck the 2008 limit list
+                // trims loads 37-39 cards ("Cards Missing") and needs the substitutes from the trunk to reach 40.
+                // ">" not "→": the glyph atlas (ui/glyphs-dejavu16.json) has no arrow.
+                done: [`✓ ${name} is yours!`, "Reload the page, then open Edit Deck > Structure Deck and pick the deck listed there.",
+                       "If cards are missing, drag the spares from your Trunk to make 40."],
                 error: [`● ${msg}`],
             }[view];
             const w = Math.min(L.w - 16, 440), tw = w - 32;
