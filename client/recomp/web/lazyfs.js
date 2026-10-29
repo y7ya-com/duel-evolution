@@ -106,10 +106,15 @@ Module.preRun.push(() => {
         persisted.add(keyOf(url, i));
         store.then((c) => c && c.put(storeKey(url, i), new Response(data))).then(() => stats.persisted++, () => {});
     }
-    async function fromStore(url, i) {
+    async function fromStore(url, i) {   // a stored chunk, or null; a wrong-length one (truncated, corrupted) is dropped
         const c = store && files.get(url).etag && (await store);
         const r = c && (await c.match(storeKey(url, i)));
-        return r ? new Uint8Array(await r.arrayBuffer()) : null;
+        if (!r) return null;
+        const d = new Uint8Array(await r.arrayBuffer()), [from, to] = span(url, i);
+        if (d.length === to - from + 1) return d;
+        stats.storeBad = (stats.storeBad | 0) + 1;
+        if (c.delete) c.delete(storeKey(url, i)).catch(() => {});
+        return null;
     }
 
     // ---- the synchronous read path

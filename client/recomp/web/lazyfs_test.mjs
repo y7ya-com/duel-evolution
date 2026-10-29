@@ -84,7 +84,7 @@ function makeEnv(store, ls, opts = {}) {
         return { status: 206, headers: h, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) };
     }
     class Response { constructor(d) { this.d = d; } async arrayBuffer() { return this.d.buffer.slice(this.d.byteOffset, this.d.byteOffset + this.d.length); } }
-    const caches = { open: async () => ({ put: async (k, r) => store.set(k, r), match: async (k) => store.get(k) }) };
+    const caches = { open: async () => ({ put: async (k, r) => store.set(k, r), match: async (k) => store.get(k), delete: async (k) => store.delete(k) }) };
     const nodes = {};
     const FS = {
         mkdirTree() {}, mkdir() {}, mount() {}, syncfs: (a, cb) => cb(),
@@ -167,6 +167,19 @@ readEntry(g, "data/mini"), readEntry(g, "data/map/map_a02");
 await settle(L2);
 assert.equal(syncXhr, 0, "a returning player's directory, hot set and lobby: no synchronous request");
 console.log(`session 2: ${syncXhr} sync, ${netFetch} network fetches, ${L2.stats.fromStore} from the store`);
+
+// ---- a truncated store entry (storage pressure, a browser bug) is dropped and fetched again, never handed to the game
+{
+    const [k, r] = [...store].find(([key]) => /chunk=0&/.test(key));
+    r.d = r.d.subarray(0, 100);
+    const t = makeEnv(store, ls);
+    await t.ready();
+    assert.ok(t.Module.yo2Lazy.stats.storeBad >= 1, "the bad entry noticed");
+    assert.deepEqual(Buffer.from(t.read("/game/merge.dat", 0, toc)), file.subarray(0, toc), "and the right bytes read");
+    await settle(t.Module.yo2Lazy);
+    assert.ok(!store.has(k) || store.get(k).d.length > 100, "dropped from the store (or stored again whole)");
+    console.log("store check: ok");
+}
 
 fetched.length = 0;
 // ---- scenes: session 3 learns what switching into the title and the login reads; session 4 (a reload) has it in
