@@ -121,9 +121,8 @@ static const char* UNIFORMS[U_COUNT] = {"uViewProj", "uPixel", "uTex", "uHasTex"
 // The program's uniforms as last sent: applyState runs on every flush (~150 a lobby frame, most only for a texture
 // change) and resent all of them, each a call through WebGL's validation on the web. Only this program exists and only
 // applyState sets its uniforms, so a value equal to the last one sent is skipped.
-static struct { GLuint prog; bool have[U_COUNT]; uint8_t v[U_COUNT][64]; } sent;
-static bool changed(GLuint prog, int k, const void* v, size_t n) {
-    if (sent.prog != prog) memset(&sent, 0, sizeof sent), sent.prog = prog;
+static struct { bool have[U_COUNT]; uint8_t v[U_COUNT][64]; } sent;   // cleared in init() with the program
+static bool changed(int k, const void* v, size_t n) {
     if (sent.have[k] && !memcmp(sent.v[k], v, n)) return false;
     memcpy(sent.v[k], v, n);
     sent.have[k] = true;
@@ -132,7 +131,7 @@ static bool changed(GLuint prog, int k, const void* v, size_t n) {
 #define UNIFORM(k, fn, T, ...)                                       \
     do {                                                             \
         const T v_[] = {__VA_ARGS__};                                \
-        if (changed(glProgram, k, v_, sizeof v_)) fn(u[k], 1, v_);   \
+        if (changed(k, v_, sizeof v_)) fn(u[k], 1, v_);   \
     } while (0)
 
 static GLuint compile(GLenum type, const char* body) {
@@ -846,7 +845,7 @@ void IDirect3DDevice8::applyState() {
     glViewport(vp.X * s, vp.Y * s, vp.Width * s, vp.Height * s);
     glDepthRangef(vp.MinZ, vp.MaxZ);
     D3DMATRIX vpm = mul(view, proj);
-    if (changed(glProgram, U_VIEWPROJ, &vpm, sizeof vpm)) glUniformMatrix4fv(u[U_VIEWPROJ], 1, GL_FALSE, &vpm.m[0][0]);
+    if (changed(U_VIEWPROJ, &vpm, sizeof vpm)) glUniformMatrix4fv(u[U_VIEWPROJ], 1, GL_FALSE, &vpm.m[0][0]);
     UNIFORM(U_PIXEL, glUniform2fv, GLfloat, 1.f / vp.Width, 1.f / vp.Height);
     UNIFORM(U_COLOROP, glUniform4iv, GLint, (GLint)tss[D3DTSS_COLOROP], (GLint)tss[D3DTSS_COLORARG1],
             (GLint)tss[D3DTSS_COLORARG2], (GLint)tss[D3DTSS_COLORARG0]);
