@@ -39,6 +39,7 @@ describe("progression", () => {
     p = prof(h);
     const pick = legalDeck(7003).main;
     expect([sum(p.trunk), p.starter, pick.every((c) => p.trunk[String(c)] > 0)]).toEqual([40, 7003, true]);
+    expect(p.pbin.includes(792 + 1)).toBe(true); // 7003's recipe (right 792 + 1), as buying it sets: Edit Deck's Recipe list
     expect(h.log.some((l) => l.startsWith("[economia]") && l.includes("starter deck 7003"))).toBe(true);
 
     const baul = (main: number[]) => check(main, [], p.trunk).filter((x) => x.regla === "baul");

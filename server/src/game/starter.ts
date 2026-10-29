@@ -7,6 +7,7 @@
 // copy over the limit is swapped for one more copy of a legal card of the same deck, so the 40 cards given are a
 // deck that passes the deck check as it is (the deck itself is built in the client's Edit Deck).
 import YDC from "../../gamedata/ydc.json";
+import SHOP from "../../gamedata/shop.json";
 import * as PP from "./persist.ts";
 import { duelCore } from "../duel/data.ts";
 import { check } from "../duel/deckCheck.ts";
@@ -27,6 +28,9 @@ export const STARTER_DECKS: Record<number, [string, string, number]> = {
 };
 
 const TYPE_MONSTER = 0x1, TYPE_SPELL = 0x2;
+/** deck -> its recipe bit: the deck's right (shop.json packs [deck, kind, right]) + 1, what buying it sets in 2008
+ *  (shop.ts SHOP_DECK_RECIPE). The client's Edit Deck "Recipe" list then loads the deck as a ready one. */
+const RECIPE = new Map((SHOP.packs as [number, number, number | null][]).filter(([, , b]) => b !== null).map(([d, , b]) => [d, b! + 1]));
 const ydc = YDC as unknown as Record<string, { main: number[]; extra: number[] }>;
 
 /** Deck k (passcodes) with every copy over the 2008 limit list swapped for a legal card of the same deck. */
@@ -108,6 +112,7 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     if (!starterClaimable(p)) return [409, { error: "claimed" }];
     const cards = [...deck.main, ...deck.extra];
     PP.trunkAdd(g, p, cards, 1, `starter deck ${id}`);
+    if (RECIPE.has(id)) PP.pbinSet(p, RECIPE.get(id)!); // the deck's recipe, as a purchase gives it (next 0x3114)
     p.starter = id;
     g.saveState(st);
     g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);
