@@ -287,3 +287,29 @@ describe("economy caps", () => {
     } finally { PP.setProgression(false); }
   });
 });
+
+describe("character names", () => {
+  it("a new name is unique across all accounts, ignoring case; names from before stay", async () => {
+    const h = harness({ players: {}, accounts: {
+      "u:user-x": { idx: 1, players: { "0": "Dup" }, profiles: {}, active_slot: 0, user_id: "user-x" },
+      "u:user-y": { idx: 2, players: { "0": "Dup" }, profiles: {}, active_slot: 0, user_id: "user-y" } } }, { DEV: "0" });
+    const create = async (who: ReturnType<typeof h.client>, slot: number, name: string) => {
+      const l = who.link(5731);
+      l.send(0x3001); await l.wait(0x3002);
+      l.send(0x3003, who.key); await l.wait(0x3004);
+      const n = l.mark();
+      l.send(0x3020, [slot, ...Array.from(name.padEnd(16, "\0"), (ch) => ch.charCodeAt(0)), 0]);
+      const r = await l.wait(0x3022, n);
+      l.send(0x0003); await h.tick(400); l.close(); await h.tick(10);   // goodbye: the next login isn't "in use"
+      return r ? new DataView(r.buffer, r.byteOffset).getInt32(0) : null;
+    };
+    const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b"), y = h.client("y", "y", "pw", "user-y");
+    expect(await create(a, 0, "Alice")).toBe(0);
+    expect(await create(b, 0, "aLiCe")).toBe(-1);                  // taken, whatever the case
+    expect(await create(b, 1, "DUP")).toBe(-1);
+    expect(await create(b, 0, "Bob")).toBe(0);
+    expect(await create(y, 0, "Dup")).toBe(0);                     // a grandfathered duplicate keeps its own name
+    expect(await create(a, 1, "Alice")).toBe(-1);                  // one's own other slot counts too
+    expect(Object.values(h.state().accounts["u:user-b"].players)).toEqual(["Bob"]);
+  });
+});
