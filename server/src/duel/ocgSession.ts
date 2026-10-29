@@ -407,9 +407,11 @@ export class OcgSession {
 // ================================================================================ PvP
 export const ritualSumOk = (): boolean => !!DEFAULT_CFG.ritual_sum;
 
-interface Clk { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null; tp: number | null;
+interface Clk { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null; silent?: boolean; tp: number | null;
   left: [number, number]; rleft: [number, number]; run: { p: number; gen: number; t0: number | null; pool: "left" | "rleft" } | null; gen: number }
-export interface ClockCfg { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null }
+export interface ClockCfg { turn: number; resp: number; margin: number; notify: ((item: unknown[]) => void) | null;
+  /** an AFK limit, not a time limit: nothing is shown (a room with «Time Limit» OFF) */
+  silent?: boolean }
 
 /** py PvpSession: one duelcore duel between two clients (not thread-safe: PvpMatch drives it from its own queue). */
 export class PvpSession {
@@ -642,6 +644,7 @@ export class PvpSession {
   }
   private clkShow(p: number): void {
     const k = this.clk!, o = 1 - p;
+    if (k.silent) return;
     const sec = (x: number) => Math.max(0, pyRoundInt(x));
     const mine = sec(this.clockLeft(p)!);
     if (k.tp === null || k.tp === p) {

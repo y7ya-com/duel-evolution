@@ -13,7 +13,7 @@ import { Reader, W } from "../src/net/proto.ts";
 import { Session } from "../src/game/hub.ts";
 import { createNodeDuelCore } from "../src/duel/engine/node.ts";
 import { NPC_DECKS, setDuelCore } from "../src/duel/data.ts";
-import type { PvpMatch } from "../src/duel/pvpMatch.ts";
+import { AFK, type PvpMatch } from "../src/duel/pvpMatch.ts";
 
 const GD = join(import.meta.dirname, "..", "gamedata");
 const have = ["engine/scripts.pack", "translator.json", "brain_cards.json", "duel.json"].every((f) => existsSync(join(GD, f)));
@@ -113,5 +113,37 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     }
     expect(st.accounts.aaaa.profiles["0"].rec.losses).toBe(1);
     expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(1);
+  }, 120_000);
+
+  it("a room with «Time Limit» OFF shows no clock, but the player who never answers loses on time", async () => {
+    const A = client("Alfa2", "aaaa", 1), B = client("Beta2", "bbbb", 2);
+    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    m.roomTime = 0;
+    AFK.s = 2;
+    try {
+      for (const [c, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
+        const d = NPC_DECKS[String(nid)];
+        await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
+        await send(c, 0x6600, new W().u32(d.main.length).u32(0).u32(d.extra.length).bytes());
+        await send(c, 0x6601, deckMsg(d.main));
+        await send(c, 0x6603, deckMsg(d.extra));
+        await send(c, 0x600b);
+      }
+      await until(() => has(A, 0x6005) && has(B, 0x6005));
+      for (const c of [A, B]) await send(c, 0x6100);
+      await send(A, 0x6101, Uint8Array.of(0));
+      await send(B, 0x6101, Uint8Array.of(1));
+      for (const c of [A, B]) await send(c, 0x6102);
+      await send(A, 0x6103, Uint8Array.of(0));
+      await until(() => has(B, 0x6103, (d) => d[0] === 1));
+      const na = A.got.duel.length;
+      for (const c of [A, B]) await send(c, 0x61fe, Uint8Array.of(1));
+      await until(() => has(A, 0x6202, (d) => type6202(d) === 0x1a, na));   // A's first decision: A never answers
+      await until(() => m.done, 20_000);
+      expect([A, B].some((c) => c.got.duel.some(([x]) => x === 0x6461))).toBe(false);   // no clock shown
+      expect(B.got.duel.find(([x]) => x === 0x649b)?.[1][0]).toBe(3);                    // SVR_TIMEUP
+      const st = srv.game.store.loadRaw();
+      expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(2);
+    } finally { AFK.s = 600; }
   }, 120_000);
 });

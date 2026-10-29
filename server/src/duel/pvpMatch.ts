@@ -34,6 +34,8 @@ export const WATCH_BATCH = 64, WATCH_REQ_TTL = 60.0, WATCH_SIN_DECISIONES = true
 const PVP_MATCH = "1", MATCH_STYLE = 4, MATCH_WAIT = 300;
 const NEXT_MSGS = new Set([0x6600, 0x6601, 0x6603, 0x6100, 0x6101, 0x6102, 0x6103, 0x61fe]);
 const SWAP_TIME = 180, SWAP_LEAD = 10, GLOBAL_CLOCK = 3;
+/** «Time Limit» OFF rooms: seconds a player may sit on one turn (or on its answers in the other's turn). */
+export const AFK = { s: 600 };
 const now = () => Date.now() / 1000;
 const errStr = (e: unknown) => (e instanceof Error ? `${e.name}(${JSON.stringify(e.message)})` : String(e));
 const u32at = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at);
@@ -656,10 +658,13 @@ export class PvpMatch {
   }
 
   // ---- time limit
-  private clockCfg(): [{ turn: number; resp: number; margin: number; notify: (item: unknown[]) => void } | null, string] {
+  private clockCfg(): [{ turn: number; resp: number; margin: number; notify: (item: unknown[]) => void; silent?: boolean } | null, string] {
     const cfg = DEFAULT_CFG as Record<string, any>;
     if (!cfg.turn_limit) return [null, "sin límite de tiempo (turn_limit apagado)"];
-    if (this.roomTime === 0) return [null, "sin límite de tiempo (sala con «Límite de Tiempo» OFF)"];
+    // «Time Limit» OFF: no clock is shown, but a player who doesn't answer for AFK_S loses on time (a staller could
+    // otherwise hold the other player until it leaves, and leaving is a loss)
+    if (this.roomTime === 0) return [{ turn: AFK.s, resp: AFK.s, margin: 0, notify: (item) => this.q(item as Item), silent: true },
+      `sin límite de tiempo (sala con «Límite de Tiempo» OFF): ${AFK.s} s sin contestar pierde`];
     let turn = Number(cfg.turn_timer || 0);
     const gs = Number(cfg.tiempo_gunslinger || 0);
     const guns = GUNSLINGER_KINDS.includes(this.roomKind(this.sess[0])) && gs > 0;
