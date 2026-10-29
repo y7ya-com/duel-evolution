@@ -29,11 +29,50 @@ void o_00b3ced6(CPU *restrict c);
 int rc_render_scale(void);                                                  // rt/d3d8.cpp
 void rc_texture_hq(uint32_t tex, const uint8_t *bgra, size_t n, int scale);
 void rc_imgfail(const char *what, uint32_t hr, const char *detail, uint32_t data, uint32_t size);
+int rc_texture_fill(uint32_t tex, const uint8_t *bgra, uint32_t w, uint32_t h, const uint8_t *hq, size_t hqn, int scale);
 
 // 2x card art (tools/cardart.py: merge/data/card.dat 400x580, mini.dat 100x144, JPEG). The game lays it out at its
 // 1x size (200x290, 50x72); the texture's GL pixels are the 2x ones when the render scale is 2 (platform/gfx).
 // ponytail: the sizes are the marker (no 2008 image has them); a tag in the file if other 2x assets ever come
 static int hq_card(uint32_t w, uint32_t h) { return (w == 400 && h == 580) || (w == 100 && h == 144); }
+
+// 2x RGBA -> its 1x box-filtered copy (what the game reads and hit-tests); malloc'ed
+static uint8_t *half_rgba(const uint8_t *px, int w, int h) {
+    int lw = w / 2, lh = h / 2;
+    uint8_t *small = malloc((size_t)lw * lh * 4);
+    for (int y = 0; y < lh; y++)
+        for (int x = 0; x < lw; x++)
+            for (int j = 0; j < 4; j++) {
+                const uint8_t *p = px + ((size_t)(2 * y) * w + 2 * x) * 4 + j;
+                small[((size_t)y * lw + x) * 4 + j] = (uint8_t)((p[0] + p[4] + p[w * 4] + p[w * 4 + 4] + 2) / 4);
+            }
+    return small;
+}
+// 2x RGBA (w x h) -> B,G,R,A laid out like the 1x texture (tw x th) at twice its size, the image top left; calloc'ed
+static uint8_t *hq_bgra(const uint8_t *big, int w, int h, uint32_t tw, uint32_t th, size_t *n) {
+    *n = (size_t)tw * 2 * th * 2 * 4;
+    uint8_t *hqb = calloc(*n, 1);
+    for (int y = 0; y < h; y++) {
+        const uint8_t *p = big + (size_t)y * w * 4;
+        uint8_t *d = hqb + (size_t)y * tw * 2 * 4;
+        for (int x = 0; x < w; x++, p += 4, d += 4) d[0] = p[2], d[1] = p[1], d[2] = p[0], d[3] = p[3];
+    }
+    return hqb;
+}
+
+// Card art that isn't loaded yet (web, web/lazyfs.js): a card.dat entry not in memory reads as a placeholder JPEG of
+// the same size whose comment holds the entry's offset ("yo2-placeholder:<10 digits>"). Its texture is made as usual;
+// rc_card_art_frame (rt/web.c, every frame) fills it with the real art once lazyfs has the entry, so the game never
+// waits for card art. ?cardsync=1 turns it off (lazyfs).
+static int placeholder_off(const uint8_t *p, uint32_t n, uint32_t *off) {
+    for (uint32_t i = 2; i + 26 <= n && i < 64; i++)
+        if (!memcmp(p + i, "yo2-placeholder:", 16)) {
+            uint32_t v = 0;
+            for (int k = 16; k < 26; k++) v = v * 10 + (p[i + k] - '0');
+            return *off = v, 1;
+        }
+    return 0;
+}
 
 // D3DXGetImageInfoFromFileInMemory(data, size, info): 2x card art reports its 1x size
 void f_00b3ced6(CPU *restrict c) {
@@ -101,6 +140,59 @@ static void tally(const char *k, double ms, int fast) {
         rc_log("decode: jpeg %u (%u fast, %.0f ms) png %u (%u fast, %.0f ms) other %u (%.0f ms)", st[0].calls, st[0].fast,
                st[0].ms, st[1].calls, st[1].fast, st[1].ms, st[2].calls, st[2].ms);
 }
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+static struct { uint32_t tex, off, tw, th; } pend[512];   // placeholder textures waiting for their art
+static int npend, pend_lock;
+static void pend_add(uint32_t tex, uint32_t off, uint32_t tw, uint32_t th) {
+    while (__sync_lock_test_and_set(&pend_lock, 1)) {}
+    if (npend < 512) pend[npend].tex = tex, pend[npend].off = off, pend[npend].tw = tw, pend[npend].th = th, npend++;
+    __sync_lock_release(&pend_lock);
+}
+// the entry's bytes (malloc'ed) once lazyfs has them all; 0: not yet (it asks for them again); -1: no such entry
+EM_JS(int, art_bytes, (uint32_t off, uint8_t **out), {
+    const b = Module.yo2Lazy && Module.yo2Lazy.artBytes ? Module.yo2Lazy.artBytes(off) : new Uint8Array(0);
+    if (!b) return 0;
+    if (!b.length) return -1;
+    const p = _malloc(b.length);
+    HEAPU8.set(b, p);
+    HEAPU32[out >> 2] = p;
+    return b.length;
+});
+// main thread, each frame: up to two cards whose art arrived go into their placeholder textures (~10-20 ms each)
+void rc_card_art_frame(void) {
+    for (int i = 0, done = 0; done < 2;) {
+        while (__sync_lock_test_and_set(&pend_lock, 1)) {}
+        if (i >= npend) { __sync_lock_release(&pend_lock); break; }
+        uint32_t tex = pend[i].tex, off = pend[i].off, tw = pend[i].tw, th = pend[i].th;
+        __sync_lock_release(&pend_lock);
+        uint8_t *b = NULL;
+        int n = art_bytes(off, &b);
+        if (!n) { i++; continue; }
+        if (n < 0) n = 0;
+        double t0 = now_ms();
+        int w, h, ch;
+        uint8_t *big = n ? stbi_load_from_memory(b, n, &w, &h, &ch, 4) : NULL;
+        free(b);
+        if (big && hq_card((uint32_t)w, (uint32_t)h)) {
+            uint8_t *px = half_rgba(big, w, h);
+            int lw = w / 2, lh = h / 2;
+            for (size_t k = 0; k < (size_t)lw * lh * 4; k += 4) { uint8_t r = px[k]; px[k] = px[k + 2], px[k + 2] = r; }
+            size_t hqn = 0;
+            uint8_t *hqb = rc_render_scale() >= 2 ? hq_bgra(big, w, h, tw, th, &hqn) : NULL;
+            rc_texture_fill(tex, px, (uint32_t)lw, (uint32_t)lh, hqb, hqn, 2);
+            free(px), free(hqb);
+        }
+        stbi_image_free(big);
+        tally("jpeg", now_ms() - t0, 1);
+        while (__sync_lock_test_and_set(&pend_lock, 1)) {}
+        pend[i] = pend[--npend];   // done, or the texture is gone, or not card art after all
+        __sync_lock_release(&pend_lock);
+        done++;
+    }
+}
+#endif
 
 // args: device, data, size, width, height, levels, usage, format, pool, filter, mipfilter, colorkey, srcinfo, palette, out
 static void decode(CPU *restrict c) {
@@ -180,17 +272,7 @@ static void decode(CPU *restrict c) {
     int w, h, n;
     uint8_t *px = stbi_load_from_memory(data, (int)a[2], &w, &h, &n, 4);
     uint8_t *big = NULL;   // 2x card art: px becomes its 1x box-filtered copy (what the game reads and hit-tests)
-    if (px && hq) {
-        int lw = w / 2, lh = h / 2;
-        uint8_t *small = malloc((size_t)lw * lh * 4);
-        for (int y = 0; y < lh; y++)
-            for (int x = 0; x < lw; x++)
-                for (int j = 0; j < 4; j++) {
-                    const uint8_t *p = px + ((size_t)(2 * y) * w + 2 * x) * 4 + j;
-                    small[((size_t)y * lw + x) * 4 + j] = (uint8_t)((p[0] + p[4] + p[w * 4] + p[w * 4 + 4] + 2) / 4);
-                }
-        big = px, px = small, w = lw, h = lh;
-    }
+    if (px && hq) big = px, px = half_rgba(big, w, h), w /= 2, h /= 2;
     if (!px || (uint32_t)w > a[3] || (uint32_t)h > a[4]) {   // not the plain shape after all: the original
         if (logging) rc_log("decode: original for %s, image %dx%d into %ux%u", k, px ? w : -1, px ? h : -1, a[3], a[4]);
         stbi_image_free(px);
@@ -221,17 +303,15 @@ static void decode(CPU *restrict c) {
             com(c, tex, 17, 1, u);
             WR32m(a[14], tex);
             if (big && rc_render_scale() >= 2) {   // the GL texture gets the 2x pixels, laid out like the 1x ones
-                uint32_t tw = a[3] * 2, th = a[4] * 2;
-                size_t sz = (size_t)tw * th * 4;
-                uint8_t *hqb = calloc(sz, 1);
-                for (int y = 0; y < 2 * h; y++) {
-                    const uint8_t *p = big + (size_t)y * 2 * w * 4;
-                    uint8_t *d = hqb + (size_t)y * tw * 4;
-                    for (int x = 0; x < 2 * w; x++, p += 4, d += 4) d[0] = p[2], d[1] = p[1], d[2] = p[0], d[3] = p[3];
-                }
+                size_t sz;
+                uint8_t *hqb = hq_bgra(big, 2 * w, 2 * h, a[3], a[4], &sz);
                 rc_texture_hq(tex, hqb, sz, 2);
                 free(hqb);
             }
+#ifdef __EMSCRIPTEN__
+            uint32_t phoff;
+            if (big && placeholder_off(data, a[2], &phoff)) pend_add(tex, phoff, a[3], a[4]);   // its art comes later
+#endif
         } else {
             com(c, tex, 2, 0, NULL);   // Release
         }

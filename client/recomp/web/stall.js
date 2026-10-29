@@ -14,6 +14,9 @@
 //   slept     ms the game yielded (Sleep, idle, WaitFor* polling: it was waiting, not working); waitObj: of that,
 //             in WaitFor* (a guest thread or event it waited on); yields: how many. xhr includes guest threads'
 //             ("thread <path>"). focus: the page had focus at the start / the end ("10": lost it)
+//   laf       Long Animation Frames overlapping it (Chrome 123+), up to 3: {d duration, b blocking, r/l render and
+//             style+layout start after the frame's, s: the 2 longest scripts [ms, invoker type, invoker, file,
+//             function]}: the game's wasm, another script (an extension), or layout
 //   sw        a scene event (ovr/scene.c begin/end) fell inside it
 // A wait (kind "wait") is the server's side in a duel (janken 0x1e, duel 0x1c): the game sent and nothing came back
 // for over 2 s, frames still drawn (the NPC thinking, the opponent, the server). ponytail: any reply ends it, and a
@@ -33,6 +36,17 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
     const since = (log, t0) => (log || []).filter((e) => e[0] + e[1] >= t0).map((e) => e.slice(1));
     const sum = (l) => l.reduce((a, e) => a + e[0], 0);
     let focusAt = document.hasFocus ? +document.hasFocus() : 1;
+    const loaf = [];   // the last 50 long-animation-frame entries
+    try {
+        new PerformanceObserver((l) => { loaf.push(...l.getEntries()); if (loaf.length > 50) loaf.splice(0, loaf.length - 50); })
+            .observe({ type: "long-animation-frame", buffered: true });
+    } catch {}
+    const lafs = (t0, t1) => loaf.filter((e) => e.startTime + e.duration >= t0 && e.startTime <= t1).slice(-3).map((e) => ({
+        d: Math.round(e.duration), b: Math.round(e.blockingDuration || 0),
+        r: Math.round(e.renderStart ? e.renderStart - e.startTime : 0), l: Math.round(e.styleAndLayoutStart ? e.styleAndLayoutStart - e.startTime : 0),
+        s: [...(e.scripts || [])].sort((a, b) => b.duration - a.duration).slice(0, 2).map((x) => [Math.round(x.duration), x.invokerType,
+            String(x.invoker || "").slice(0, 60), String(x.sourceURL || "").replace(/^.*\//, "").slice(0, 40), String(x.sourceFunctionName || "").slice(0, 40)]),
+    }));
     Module.yo2Frame = (decode, upload, slept, waitObj, yields) => {
         const now = performance.now(), u = Module.yo2Sfx?.underruns?.() | 0, r = Module.yo2NetRx | 0;
         const js = performance.memory?.usedJSHeapSize | 0;
@@ -43,7 +57,7 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
             const miss = since(Module.yo2Lazy?.missLog, last), xhr = since(Module.yo2Xhr, last);
             const s = { t: Math.round(last), ms: Math.round(now - last), f: frame, scene, sw: swAt >= last, duel: Module.yo2Lazy?.duel || "",
                 decode: Math.round(decode || 0), upload: Math.round(upload || 0), slept: Math.round(slept || 0),
-                waitObj: Math.round(waitObj || 0), yields: yields | 0, focus: `${focusAt}${focus}`, miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
+                waitObj: Math.round(waitObj || 0), yields: yields | 0, focus: `${focusAt}${focus}`, laf: lafs(last, now), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
                 net: { rx: r - rx, backlog: (Module.yo2NetRx | 0) - (Module.yo2NetRead | 0) }, under: u - under,
                 js: js - (Module.yo2Js | 0) };
             push(s);

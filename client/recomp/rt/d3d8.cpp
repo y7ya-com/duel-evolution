@@ -210,6 +210,23 @@ extern "C" void rc_texture_hq(uint32_t gtex, const uint8_t* bgra, size_t n, int 
     t->hqScale = (UINT)scale;
 }
 
+// ovr/decode.c (web): a card's art arrived for the placeholder texture made from it earlier. bgra: the 1x pixels (w x h)
+// for the top left of the shadow, as the decode put the placeholder's; hq: the 2x ones at render scale 2 (as
+// rc_texture_hq), else null. The next draw uploads them. -1: the texture is gone (a dead shell's index is never reused,
+// so it can't be another texture).
+extern "C" int rc_texture_fill(uint32_t gtex, const uint8_t* bgra, uint32_t w, uint32_t h, const uint8_t* hq, size_t hqn,
+                               int scale) {
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    IDirect3DTexture8* t = host<IDirect3DTexture8>(gtex);
+    D3DLOCKED_RECT lr;
+    RECT r{0, 0, (int32_t)w, (int32_t)h};
+    if (!t || w > t->level0.w || h > t->level0.h || t->LockRect(0, &lr, &r, 0)) return -1;
+    for (uint32_t y = 0; y < h; y++) memcpy((uint8_t*)lr.pBits + (size_t)y * lr.Pitch, bgra + (size_t)y * w * 4, (size_t)w * 4);
+    t->UnlockRect(0);
+    if (hq && hqn == (size_t)t->level0.w * scale * t->level0.h * scale * 4) t->hq.assign(hq, hq + hqn), t->hqScale = (UINT)scale;
+    return 0;
+}
+
 // ---------------------------------------------------------------- IDirect3DDevice8
 #define DEV THIS(IDirect3DDevice8)
 M(dev, TestCooperativeLevel) { RET(1, 0); }
