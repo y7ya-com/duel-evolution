@@ -230,6 +230,7 @@ M(dev, GetDisplayMode) {
 M(dev, Reset) { D3DPRESENT_PARAMETERS pp = pp_in(ARG(1)); RET(2, DEV->Reset(&pp)); }
 static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
+extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
 extern "C" void rc_web_frame(void);
 extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R bytes, -1 when unreadable (RC_SCENE_LOG)
@@ -272,6 +273,7 @@ extern "C" void dev_Present(CPU* c) {
         rc_present_hook();
         rc_scene_present();
     }
+    rc_ovr_frame(c);   // outside the lock too: it may run game code (ovr/sedefer.c)
 #ifdef __EMSCRIPTEN__
     rc_web_frame();   // the browser composites the frame and delivers input
 #endif

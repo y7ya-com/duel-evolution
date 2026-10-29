@@ -19,3 +19,4 @@
 00b58a89  # D3DX x87 matrix product (math.c: RC_NOSPEED, RC_MATH=compare)
 0058e970  # CD3DTextTexture::clearPage (speed.c: RC_NOSPEED)
 0059fae0  # the texture map's find (texreq.c: the loader thread's find takes the map's mutex)
+00686be0  # the sound effects' load (sedefer.c: after the first frame)

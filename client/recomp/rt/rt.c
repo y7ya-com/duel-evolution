@@ -198,6 +198,7 @@ static void load_image(const char *path) {
 }
 
 __attribute__((weak)) void rc_ovr_init(void) {}
+__attribute__((weak)) void rc_ovr_frame(CPU *c) { (void)c; }
 int rc_nospeed;
 
 // ---------------------------------------------------------------- dispatch

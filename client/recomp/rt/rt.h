@@ -38,6 +38,7 @@ extern int rc_render_frame;         // fast-forward: 0 = this frame's draws and 
 void rc_trace_input(CPU *c, const char *api, uint32_t arg);
 extern int rc_nospeed;                                      // RC_NOSPEED=1: ovr/ and the runtime's speed paths off (A/B)
 void rc_ovr_init(void);                                     // ovr/: after loading, before the entry point (weak no-op)
+void rc_ovr_frame(CPU *c);                                  // ovr/: at every Present, on the game's thread (weak no-op)
 void rc_deck_tap(const uint8_t *buf, int len);              // decktap.c: outgoing 0x6601/0x6603
 void rc_prof_start(void);                                   // prof.c (RC_PROF)
 void rc_prof_frame(int frame, double start_ms, double end_ms);
