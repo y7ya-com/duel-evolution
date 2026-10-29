@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "rt.h"
 #include "win.h"
 #ifdef __EMSCRIPTEN__
@@ -113,9 +114,11 @@ static char req[8192];
 static int pending;
 static uint32_t since;
 
-void rc_starter_request(const char *r) {   // native: RC_INPUT "starter ..."
-    strncpy(req, r, sizeof req - 1);
-    pending = 1, since = rc_ticks_ms();
+static char *queued[64];   // native: RC_INPUT "starter ..." lines, in order (the page's queue is Module._yo2StarterQ)
+static int nqueued;
+
+void rc_starter_request(const char *r) {
+    if (nqueued < 64) queued[nqueued++] = strdup(r);
 }
 
 static void set_str(uint32_t at, const char *s) {   // a VC6 string (the old buffer is left: tiny, and maybe shared)
@@ -132,8 +135,11 @@ static void get_str(uint32_t at, char *out, size_t cap) {
 
 typedef struct { uint16_t main[80], side[15], extra[30]; int nmain, nside, nextra, need[TRUNK_N + 1], bad; } Deck;
 // install modes: the starter claim (waits for the pushed trunk, makes it current), the starter login scan (ifMissing),
-// and the server sync (decksync.c): a deck written, or written and made current
-enum { M_CLAIM, M_IF_MISSING, M_WRITE, M_CURRENT };
+// and the server sync (decksync.c): a deck written, written and made current, or deleted (deleted on another
+// device); tests (native RC_INPUT): a write and a delete that are reported like the player's own
+enum { M_CLAIM, M_IF_MISSING, M_WRITE, M_CURRENT, M_DELETE, M_TEST_SAVE, M_TEST_DELETE };
+int rc_host_path(const char *g, int write, char *out, size_t n);   // rt/k32.c
+void rc_deck_deleted(const char *guest_path);                       // decksync.c
 int rc_deck_quiet;   // decksync.c: our own saves are not reported back
 
 static void parse_list(char *s, uint16_t *ids, int *n, int cap, int *need, int *bad) {
@@ -165,7 +171,7 @@ static int install(CPU *c, char *name, int mode, Deck *d) {
         for (int i = 0; i < d->nextra; i++) WR8m(dm + DM_EXTRA + 2 * i, d->extra[i] & 0xff), WR8m(dm + DM_EXTRA + 2 * i + 1, d->extra[i] >> 8);
         WR8m(dm + DM_SIZES, (uint8_t)d->nmain), WR8m(dm + DM_SIZES + 1, (uint8_t)d->nside), WR8m(dm + DM_SIZES + 2, (uint8_t)d->nextra);
         set_str(dm + DM_NAME, file);
-        rc_deck_quiet = 1;
+        rc_deck_quiet = mode != M_TEST_SAVE;
         if (!(vcall(c, dm, VF_SAVE) & 0xff)) rc_log("starterdeck: %s not written", file);
         rc_deck_quiet = 0;
     }
@@ -229,6 +235,12 @@ void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Pres
         if (n) EM_ASM({ stringToUTF8(Module._yo2StarterCur.req, $0, $1); }, req, n), pending = 1, since = rc_ticks_ms();
     }
 #endif
+    if (!pending && nqueued) {
+        strncpy(req, queued[0], sizeof req - 1);
+        free(queued[0]);
+        memmove(queued, queued + 1, --nqueued * sizeof *queued);
+        pending = 1, since = rc_ticks_ms();
+    }
     if (!pending) return;
     uint32_t dm = RD32m(DECK_MGR), t = trunk_addr(), waited = rc_ticks_ms() - since;
     if (!dm || !RD32m(PLAYER_DATA) || !RD32m(CARD_CASE) || !t || !RD32m(dm + DM_DIR + 8)) {   // no character yet
@@ -252,6 +264,16 @@ void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Pres
     int mode = atoi(flag);
     int owned = 1;
     for (int id = 1; id <= TRUNK_N; id++) owned &= *(uint8_t *)G(t + id - 1) >= d.need[id];
+    if (mode == M_DELETE || mode == M_TEST_DELETE) {   // the file only: a current deck that is gone loads as empty
+        char g[300], h[1024], dir[256];
+        get_str(dm + DM_DIR, dir, sizeof dir);
+        snprintf(g, sizeof g, "%s\\%s.ydc", dir, sjis);
+        int ok = rc_host_path(g, 1, h, sizeof h) && !unlink(h);
+        rc_log("starterdeck: %s.ydc %s", sjis, ok ? "deleted" : "not there");
+        if (ok && mode == M_TEST_DELETE) rc_deck_deleted(g);
+        done(ok);
+        return;
+    }
     if (!owned && mode <= M_IF_MISSING && waited < 4000) return;   // the server's trunk push is on its way
     done(install(c, *sjis ? sjis : "Starter", mode, &d) && !d.bad && (mode == M_WRITE || d.nmain >= 40));
 }

@@ -233,20 +233,26 @@ void rc_deck_sync_frame(CPU *c) {   // starterdeck.c, at every Present
             Module.onYo2DeckDeleted = Module.onYo2DeckDeleted || ((name) => api('/' + encodeURIComponent(name), 'DELETE'));
             Module.onYo2DeckCurrent = Module.onYo2DeckCurrent || ((cur) => api('/current', 'PUT', cur));
             Module.yo2DeckCharLoaded = Module.yo2DeckCharLoaded || (async (local) => {
-                const r = await api('', 'GET');
+                let r;   // 409 until the server has the character selected (a new one: after its creation, ~20 s)
+                for (let n = 0; n < 30 && (!n || (r && r.status === 409)); n++) {
+                    if (n) await new Promise((ok) => setTimeout(ok, 2000));
+                    r = await api('', 'GET');
+                }
                 if (!r || !r.ok) return;   // no API (yet), signed out, ...: the local decks as they are
                 const srv = await r.json();
                 const srvCur = srv.current && typeof srv.current === 'object' ? srv.current[local.mode] : srv.current;
                 const have = new Set(srv.decks.map((d) => d.name)), dead = new Set((srv.deleted || []).map((d) => d.name));
                 const fresh = !srv.decks.length && !dead.size;   // nothing stored yet: this browser's decks are the character's
-                for (const d of local.decks)
-                    if (!have.has(d.name) && !dead.has(d.name))
+                for (const d of local.decks) {
+                    if (!have.has(d.name) && dead.has(d.name)) Module.yo2InstallDeck({name: d.name}, 4);   // deleted elsewhere
+                    if (!have.has(d.name) && !dead.has(d.name) && have.add(d.name))
                         await api('', 'PUT', {...d, ...(d.name === local.current && (fresh || !srvCur) ? {current: true, mode: local.mode} : {})});
+                }
                 if (fresh) return;
                 for (const d of srv.decks) if (d.name !== srvCur) Module.yo2InstallDeck(d, 2);
                 const cur = srv.decks.find((d) => d.name === srvCur);
                 if (cur) Module.yo2InstallDeck(cur, 3);
-                else if (local.current) api('/current', 'PUT', {name: local.current, mode: local.mode});
+                else if (have.has(local.current)) api('/current', 'PUT', {name: local.current, mode: local.mode});
             });
         });
 #endif
