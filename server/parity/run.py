@@ -30,7 +30,7 @@ sys.path.insert(0, EMU)
 sys.path.insert(1, HERE)
 import fake_client as fc  # noqa: E402
 
-CTL_PORT = 6999
+CTL_PORT = int(os.environ.get("PARITY_CTL_PORT", "6999"))  # the bridge's control port; another run may hold 6999
 BRIDGE = {"on": False}
 _fc_init, _link_init = fc.FakeClient.__init__, fc.Link.__init__
 

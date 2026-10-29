@@ -20,7 +20,7 @@ import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
 import { NpcAi, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
 
-export const NPC_THINK = 0.8;          // s before each visible NPC decision
+export const NPC_THINK = 0.4;          // s before each visible NPC decision (py 0.8; the Sender still paces what the client sees)
 export const MAX_NPC_DECISIONS = 3000;  // anti-loop cap per duel
 const CORE_ERROR_AUTO = 1;              // B03
 const END_DRAIN = 20.0;                 // B29: s at most waiting for the Sender before the end
