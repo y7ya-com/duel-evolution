@@ -103,7 +103,7 @@ static void tally(const char *k, double ms, int fast) {
 }
 
 // args: device, data, size, width, height, levels, usage, format, pool, filter, mipfilter, colorkey, srcinfo, palette, out
-void f_00b400b3(CPU *restrict c) {
+static void decode(CPU *restrict c) {
     if (mode < 0) {
         const char *e = getenv("RC_DECODE");
         mode = rc_nospeed || (e && !strcmp(e, "orig")) ? MODE_ORIG : e && !strcmp(e, "compare") ? MODE_COMPARE : MODE_NEW;
@@ -243,4 +243,11 @@ void f_00b400b3(CPU *restrict c) {
     c->ret_to = ret;
     c->esp += 4 + 15 * 4;
     tally(k, now_ms() - t0, 1);
+}
+
+// a failure leaves the game's texture null (the 0x59e56b field crash): it says which file (imgfail.c)
+void f_00b400b3(CPU *restrict c) {
+    uint32_t data = RD32m(c->esp + 8), size = RD32m(c->esp + 12);
+    decode(c);
+    if (c->eax) rc_imgfail("D3DXCreateTextureFromFileInMemoryEx", c->eax, "", data, size);
 }
