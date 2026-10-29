@@ -99,7 +99,8 @@ def starter_deck(X, cookie, deck):
     step(st == 200 and out["cards"] == 40, f"{X.name}: claims structure deck {deck} ({st} {out})")
     st, out = api("starter/claim", cookie, {"id": deck})
     st2, info = api("starter", cookie)
-    step(st == 409 and info == {"claimable": False, "reason": "claimed"}, f"{X.name}: a second claim is refused ({st} {out}; {info})")
+    step(st == 409 and info["claimable"] is False and info["reason"] == "claimed" and info["claimed"]["id"] == deck
+         and sum(c["n"] for c in info["claimed"]["deck"]) == 40, f"{X.name}: a second claim is refused; GET gives the claimed ready deck ({st} {out}; {info and info.get('reason')})")
 
 
 def npc_duel(fc, A, cookies=None, npc=84):

@@ -40,9 +40,12 @@ describe("progression", () => {
     const d = info.decks.find((x: any) => x.id === 7003);
     expect(d.cards.reduce((a: number, c: any) => a + c.n, 0)).toBe(40);
     expect(starterClaim(h.game, "user-a", 9999)).toEqual([400, { error: "bad deck" }]);
-    expect(starterClaim(h.game, "user-a", 7003)).toEqual([200, { ok: true, id: 7003, cards: 40 }]);
+    const [code, out] = starterClaim(h.game, "user-a", 7003) as [number, any];
+    const total = (l: { n: number }[]) => l.reduce((x, c) => x + c.n, 0);
+    expect([code, out.ok, out.id, out.cards, total(out.deck), total(out.extra)]).toEqual([200, true, 7003, 40, 40, 0]); // the ready deck
     expect(starterClaim(h.game, "user-a", 7001)).toEqual([409, { error: "claimed" }]); // once per character
-    expect(starterInfo(h.game, "user-a")).toEqual({ claimable: false, reason: "claimed" });
+    const past = starterInfo(h.game, "user-a") as any;
+    expect([past.claimable, past.reason, past.claimed.id, past.claimed.deck]).toEqual([false, "claimed", 7003, out.deck]); // for login
     p = prof(h);
     const pick = legalDeck(7003).main;
     expect([sum(p.trunk), p.starter, pick.every((c) => p.trunk[String(c)] > 0)]).toEqual([40, 7003, true]);

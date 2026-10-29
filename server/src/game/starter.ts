@@ -49,6 +49,13 @@ export function legalDeck(k: number): { main: number[]; extra: number[] } {
   }
   return d;
 }
+/** The ready deck a claim gives, for the client to install as the active deck (phase2-duel's .ydc): legalDeck as
+ *  [{passcode, n}], main (40 cards) and extra; ydc.json holds passcodes. */
+export function starterDeckOut(id: number): { deck: { passcode: number; n: number }[]; extra: { passcode: number; n: number }[] } {
+  const d = legalDeck(id);
+  const counts = (l: number[]) => { const m = new Map<number, number>(); for (const c of l) m.set(c, (m.get(c) ?? 0) + 1); return [...m].map(([passcode, n]) => ({ passcode, n })); };
+  return { deck: counts(d.main), extra: counts(d.extra) };
+}
 type Card = { id: number; name: string; n: number; type: "monster" | "spell" | "trap" | "extra" };
 let CATALOG: { id: number; name: string; blurb: string; cover: number; cards: Card[] }[] | null = null;
 
@@ -94,7 +101,11 @@ export function starterInfo(g: Game, userId: string): Record<string, unknown> {
   if (typeof s === "string") return { claimable: false, reason: s };
   const p = g.withCtx(s, () => PP.profile(g.loadState(), s.slot!, false));
   if (!p) return { claimable: false, reason: "no-character" };
-  if (!starterClaimable(p)) return { claimable: false, reason: "claimed" };
+  if (!starterClaimable(p)) {
+    // a past claim: its ready deck, so the client installs it at login (an old 40-card pick has none)
+    const id = PP.int(p.starter ?? 0);
+    return { claimable: false, reason: "claimed", claimed: id in STARTER_DECKS ? { id, name: STARTER_DECKS[id][0], ...starterDeckOut(id) } : null };
+  }
   return { claimable: true, decks: starterCatalog() };
 }
 
@@ -116,6 +127,6 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     p.starter = id;
     g.saveState(st);
     g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);
-    return [200, { ok: true, id, cards: cards.length }];
+    return [200, { ok: true, id, cards: cards.length, ...starterDeckOut(id) }];
   });
 }
