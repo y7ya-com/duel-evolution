@@ -19,6 +19,7 @@ if [ "$W" -gt 0 ]; then
   sleep "$W"
 fi
 echo "closed with 4012: $(api shutdown)"
-npx wrangler deploy --env production
+# DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN
+npx wrangler deploy --env production ${DEPLOY_SECRETS_FILE:+--secrets-file "$DEPLOY_SECRETS_FILE"}
 scripts/post_deploy.sh
 scripts/prod_check.sh
