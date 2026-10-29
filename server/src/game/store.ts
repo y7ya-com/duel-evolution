@@ -29,6 +29,24 @@ export class Store {
     this.onSave?.(this.raw);
   }
 
+  /** The live state, read only (never mutate it or keep parts past the next save): what loadRaw copies. */
+  peek(): Readonly<State> { return this.raw; }
+
+  /** Copy-on-write save: replaces these root keys (undefined deletes one) and these accounts (null deletes one); every
+   *  other account keeps its object, so a save costs that account, not every registered one (and the D1 projector skips
+   *  the unchanged ones by identity, db/project.ts). Values are copied in. */
+  commit(root: Record<string, unknown>, accounts: Record<string, State | null> = {}): void {
+    const next: State = { ...this.raw };
+    for (const [k, v] of Object.entries(root)) { if (v === undefined) delete next[k]; else next[k] = clone(v); }
+    if (Object.keys(accounts).length) {
+      const accts: State = { ...(this.raw.accounts ?? {}) };
+      for (const [a, v] of Object.entries(accounts)) { if (v === null) delete accts[a]; else accts[a] = clone(v); }
+      next.accounts = accts;
+    }
+    this.raw = next;
+    this.onSave?.(this.raw);
+  }
+
   /** The game account owned by a DE user (accounts[acct].user_id), if any. */
   accountOfUser(userId: string): string | null {
     for (const [acct, a] of Object.entries(this.raw.accounts ?? {})) if ((a as any)?.user_id === userId) return acct;

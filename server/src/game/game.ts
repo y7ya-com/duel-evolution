@@ -110,21 +110,34 @@ export class Game {
   loadState(): State {
     const s = this.ctx;
     if (s === NO_SESSION) throw new NoSession("connection without a session: no profile is read");
-    const st = this.store.loadRaw();
-    if (this.isOwnerCtx(s)) return st;
-    const accts = (st.accounts ??= {});
-    const a = (accts[s!.acct] ??= { idx: s!.idx });
+    if (this.isOwnerCtx(s)) return this.store.loadRaw();
+    // copies only the root and this account (not every registered one): store.ts commit
+    const raw = this.store.peek();
+    const a = raw.accounts?.[s!.acct] ?? { idx: s!.idx };
     const v: State = {};
-    for (const [k, x] of Object.entries(st)) if (!ACCT_KEYS.includes(k) && !HUB_KEYS.includes(k)) v[k] = x;
+    for (const [k, x] of Object.entries(raw)) if (!ACCT_KEYS.includes(k) && !HUB_KEYS.includes(k)) v[k] = x;
     for (const k of ACCT_KEYS) if (k in a) v[k] = a[k];
-    if (!("players" in v)) v.players = (a.players ??= {});
-    v._acct = s!.acct;
-    return v;
+    const out: State = JSON.parse(JSON.stringify(v));
+    out.players ??= {};
+    out._acct = s!.acct;
+    return out;
   }
 
   saveState(st: State): void {
     if (!st._acct && this.ctx === NO_SESSION) throw new NoSession("connection without a session: the root is not saved");
     const acct: string | undefined = st._acct;
+    if (acct) {
+      // copy-on-write: the root keys of the view (the owner's ACCT_KEYS and the HUB_KEYS stay as they are) and this
+      // account's ACCT_KEYS; root keys the view dropped are deleted, as the whole-state save did
+      const raw = this.store.peek();
+      const root: Record<string, unknown> = {};
+      for (const k of Object.keys(raw)) if (!ACCT_KEYS.includes(k) && !HUB_KEYS.includes(k) && !(k in st)) root[k] = undefined;
+      for (const [k, x] of Object.entries(st)) if (k !== "_acct" && !HUB_KEYS.includes(k) && !ACCT_KEYS.includes(k)) root[k] = x;
+      const entry: State = { ...(raw.accounts?.[acct] ?? {}) };
+      for (const k of ACCT_KEYS) if (k in st) entry[k] = st[k];
+      this.store.commit(root, { [acct]: entry });
+      return;
+    }
     const disk = this.store.loadRaw();
     const out: State = {};
     for (const [k, x] of Object.entries(st)) if (k !== "_acct" && !HUB_KEYS.includes(k)) out[k] = x;
@@ -155,11 +168,11 @@ export class Game {
 
   /** py register_account: (index, owner?) of an account; recorded the first time. */
   registerAccount(acct: string, userId: string | null = null): [number | null, boolean] {
-    const st = this.store.loadRaw();
+    const st = this.store.peek();
     let owner: string | null = st.owner_acct ?? null;
     if (owner === null && acct === this.cfg.ownerAcct) owner = acct;
     if (acct === owner) {
-      if (st.owner_acct !== acct) { st.owner_acct = acct; this.store.saveRaw(st); this.log(`[cuentas] ${acct} is the owner's account`); }
+      if (st.owner_acct !== acct) { this.store.commit({ owner_acct: acct }); this.log(`[cuentas] ${acct} is the owner's account`); }
       return [0, true];
     }
     const accts: State = st.accounts ?? {};
@@ -168,8 +181,7 @@ export class Game {
     // py's state.json cap applies to legacy logins only; DE accounts live in D1
     if (userId === null && Object.keys(accts).length >= MAX_SAVED_ACCOUNTS) { this.log(`[cuentas] limit of ${MAX_SAVED_ACCOUNTS} accounts: ${acct} refused`); return [null, false]; }
     const idx = 1 + Math.max(0, ...Object.values(accts).map((a: any) => Number(a.idx ?? 0)));
-    st.accounts = { ...accts, [acct]: { idx, players: {}, profiles: {}, active_slot: 0, ...(userId !== null ? { user_id: userId } : {}) } };
-    this.store.saveRaw(st);
+    this.store.commit({}, { [acct]: { idx, players: {}, profiles: {}, active_slot: 0, ...(userId !== null ? { user_id: userId } : {}) } });
     this.log(`[cuentas] new account ${acct}: index ${idx}`);
     return [idx, false];
   }

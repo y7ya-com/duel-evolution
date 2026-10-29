@@ -77,7 +77,7 @@ const dec = (t: T, v: Val | undefined): unknown => (v === null || v === undefine
 
 // ---------------------------------------------------------------- writer
 type Emit = [table: string, row: Row];
-interface Unit { json: string; rows: Emit[] }
+interface Unit { json: string; rows: Emit[]; obj?: unknown }
 
 class Out {
   units = new Map<string, Unit>();
@@ -87,15 +87,17 @@ class Out {
   row(t: string, r: Row) { this.cur.push([t, r]); }
   shape(path: string, keys: string[]) { this.row("state_shapes", { path, keys: JSON.stringify(keys) }); }
   extra(path: string, key: string, v: unknown) { this.row("state_extras", { path, key, value: JSON.stringify(v) }); }
-  /** Rows of one unit (a character): reused as they are when its JSON did not change since the cached projection. */
+  /** Rows of one unit (a character): reused as they are when it is the same object as in the cached projection
+   *  (the Store's copy-on-write saves keep untouched characters' objects: store.ts commit) or its JSON did not change. */
   unit(id: string, obj: unknown, fn: () => void, cacheable = true) {
-    const json = this.cache && cacheable ? JSON.stringify(obj) : "";
     const prev = this.cache?.get(id);
-    if (cacheable && prev && prev.json === json) { this.units.set(id, prev); return; }
+    if (cacheable && prev && prev.obj === obj) { this.units.set(id, prev); return; }
+    const json = this.cache && cacheable ? JSON.stringify(obj) : "";
+    if (cacheable && prev && prev.json === json) { prev.obj = obj; this.units.set(id, prev); return; }
     const saved = this.cur;
     this.cur = [];
     fn();
-    this.units.set(id, { json, rows: this.cur });
+    this.units.set(id, { json, rows: this.cur, obj: cacheable ? obj : undefined });
     this.cur = saved;
   }
 }
@@ -570,6 +572,9 @@ const RETIRED = new WeakMap<F[], Set<string>>([
 const RETIRED_ROOT = new Set(RETIRED_KEYS.account);
 const ROOT_F = fmap(ROOT_FIELDS);
 
+// ponytail: the root unit is re-walked on every diff, so each account's own small fields (players, wallet, ...) cost
+// ~30 µs per registered account per D1 write (30 ms at 1000); per-account units (reusing their nested character units)
+// when registered accounts reach the thousands.
 function project(st: State, cache: Map<string, Unit> | null): Out {
   const o = new Out(cache);
   o.unit("", st, () => {
