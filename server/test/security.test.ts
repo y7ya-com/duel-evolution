@@ -5,6 +5,7 @@ import { be32, harness, pack } from "./notes-harness.ts";
 import type { Session } from "../src/game/hub.ts";
 import * as PP from "../src/game/persist.ts";
 import SHOP from "../gamedata/shop.json";
+import { makeDf, WHY_SURRENDER } from "../src/duel/duelfin.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -182,5 +183,30 @@ describe("moderation", () => {
     l.send(0x3003, a.key);
     const r = await l.wait(0x3004);
     expect(r && new DataView(r.buffer, r.byteOffset).getInt32(0)).toBe(-246);
+  });
+});
+
+describe("NPC duel results", () => {
+  it("one result per NPC duel begun; a surrender gives no NPC card", async () => {
+    const h = harness({ players: {} }, { DEV: "0", PROGRESSION: "1" });
+    try {
+      const a = h.client("alice", "alice", "pw", "user-a");
+      await a.account(0, "Alice");
+      await a.enterRoom();
+      const g = h.game, s = [...g.hub.sessions.values()][0];
+      const sink = { send() {}, closed: false } as unknown as import("../src/net/conn.ts").Conn;
+      const df = makeDf(g, () => sink);
+      const prof = () => h.state().accounts["u:user-a"].profiles["0"];
+      g.withCtx(s, () => {
+        df.h_autoduelstart(1, 0);
+        expect(df.finish(sink, 1, WHY_SURRENDER)).toBe(true);
+        expect(df.finish(sink, 1, WHY_SURRENDER)).toBe(false);   // the dialog again: nothing more
+        expect(df.finish(sink, 0, "lp", 9)).toBe(false);         // nor a late finish
+      });
+      expect([prof().rec.duels ?? 0, prof().npc_card_due ?? []]).toEqual([0, []]);   // no_record; no card for giving up
+      expect(PP.npcbinGet(prof(), 1)[1]).toBe(1);   // NPCBIN b1, losses: one against NPC 1
+      g.withCtx(s, () => { df.h_autoduelstart(1, 0); expect(df.finish(sink, 1, "lp", 6)).toBe(true); });
+      expect(prof().npc_card_due.length).toBe(1);                // a duel played to its end: the card
+    } finally { PP.setProgression(false); }
   });
 });
