@@ -32,6 +32,10 @@
 //   prefetch=0          no background fetches, no persistence (the plain lazy reads)
 //   trickle=1           the data/card trickle (off by default)
 //   UPPER_CASE=<value>  passed to the environment as is (RC_VERBOSE=1, RC_FRAMES=...)
+// Only a page on this machine (localhost) takes them all. Anywhere else (the live site) a link can't choose the
+// game's server, gateway or data folders (they are the page's own origin's) and only QUERY_ENV reaches the
+// environment: a crafted link's ?RC_INPUT= would script the player's clicks, its ?gateway=/?http= would send the
+// connection and the sign-in to someone else's server.
 // Module.yo2Lazy has the counters (sync misses and their wait, prefetched, persisted) for measurements; .duel is
 // "npc" / "pvp" once a duel is being set up.
 Module.preRun = Module.preRun || [];
@@ -39,13 +43,15 @@ Module.preRun.push(() => {
     const q = new URLSearchParams(location.search);
     // Opened on the live site with no query (a bookmark, a Discord return that lost it): the root page's defaults, so
     // every entry path works. Only on the site's own host; local and test pages always pass their own.
-    if (/(^|\.)ygoevolution\.com$/.test(location.hostname) && !q.has("http")) {
-        const set = (k, v) => q.has(k) || q.set(k, v);
-        set("http", location.origin);
-        set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
-        set("fonts", "fonts/");
-        set("server", "127.0.0.1");
-        set("YO2_PORT_OFFSET", "1000");
+    if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+        const QUERY_ENV = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE"]);
+        q.set("http", location.origin);
+        q.set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
+        q.set("fonts", "fonts/");
+        q.set("server", "127.0.0.1");
+        q.delete("game"), q.delete("cards");
+        if (/(^|\.)ygoevolution\.com$/.test(location.hostname) && !q.has("YO2_PORT_OFFSET")) q.set("YO2_PORT_OFFSET", "1000");
+        for (const k of [...q.keys()]) if (/^[A-Z]/.test(k) && !QUERY_ENV.has(k)) q.delete(k);
         history.replaceState(null, "", location.pathname + "?" + q + location.hash);
     }
     // MB of chunks; background fetches in flight (one: it never takes the link from a synchronous read). Phones and tablets (coarse pointer) keep half: the tab's whole footprint counts there
