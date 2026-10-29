@@ -31,9 +31,10 @@
   // leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
   let crashed = false;
   const report = (why, fatal) => fetch("/__crash", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ why: String(why).slice(0, 2000), fatal, log: tail.join("\n").slice(-60000),
+    body: JSON.stringify({ why: String(why).slice(0, 2000), fatal, log: tail.join("\n").slice(-59000),
       build: document.querySelector('meta[name="yo2-build"]')?.content || "", ua: navigator.userAgent,
-      frames: Module.yo2Presents | 0, url: location.pathname }) }).catch(() => {});
+      frames: Module.yo2Presents | 0, url: location.pathname,
+      lazy: Module.yo2Lazy?.stats }) }).catch(() => {});   // lazyfs counters: syncFail/syncRetry/storeBad tell a bad read from bad data
   // A page loaded during a ship can pair one build's JS with the other's wasm (the files are replaced one by one): that
   // fails before the first frame with a link error. Reload once (reported as nonfatal) instead of the crash screen.
   const SKEW = /ASM_CONSTS|LinkError|Import #\d|import .* is not a function/;
