@@ -35,7 +35,7 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
-let aborted = 0;
+let aborted = 0, flying = 0, maxFlying = 0;   // fetches in flight now, and the most at once
 const syncSizes = [];   // bytes of every synchronous request   // background fetches a synchronous read aborted
 const syncFaults = [], fetchFaults = [];   // fetchFaults: (range) => true drops that background fetch, once   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
@@ -71,8 +71,8 @@ function makeEnv(store, ls, opts = {}) {
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
-        netFetch++;
-        await sleep(1);
+        netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
+        await sleep(1).finally(() => flying--);
         if (o.signal && o.signal.aborted) { aborted++; throw Object.assign(new Error("aborted"), { name: "AbortError" }); }
         if (fetchFaults.length && fetchFaults[0](o.headers.Range)) { fetchFaults.shift(); throw new TypeError("Load failed"); }   // a dropped connection
         const [a, b] = rangeOf(o.headers.Range);
@@ -116,9 +116,14 @@ function readEntry(g, prefix) {
 
 // ---- session 1: cold
 const store = new Map(), ls = new Map();
+ls.set("yo2-lazy-scenes", JSON.stringify({ etag: '"e1"', sets: { 44: [5, 6, 7, 8, 9, 10, 11, 12] }, next: {} }));   // a learned boot
 let g = makeEnv(store, ls);
 await g.ready();
 const L = g.Module.yo2Lazy;
+// the boot's hold: merge.dat's directory is in before the game starts, never more than 4 fetches at once
+assert.ok(Array.from({ length: Math.ceil(toc / MB) }, (_, i) => i).every((i) => L.pinned.has([...L.files.keys()].find((u) => /merge\.dat$/.test(u)) + "#" + i)), "the directory, held");
+assert.ok([5, 6, 7, 8, 9, 10, 11, 12].every((i) => L.pinned.has([...L.files.keys()].find((u) => /merge\.dat$/.test(u)) + "#" + i)), "the learned boot set, held");
+assert.ok(maxFlying <= 4, "at most 4 at once: " + maxFlying);
 g.read("/game/merge.dat", 0, toc);   // the game reads the directory first
 await settle(L);
 assert.ok(L.spans && L.spans.get("data/mini"), "directory parsed");

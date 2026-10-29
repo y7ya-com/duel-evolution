@@ -200,7 +200,7 @@ Module.preRun.push(() => {
     const queue = [];            // {url, i, pri, tag, keep}: lower pri first
     const wanted = new Map();    // "url#chunk" -> the pin tag a queued or policy chunk should get
     let running = 0, runningLow = 0;   // low: the card trickle, one at a time
-    const inflight = new Set();          // "url#chunk" being fetched
+    const inflight = new Map();          // "url#chunk" being fetched -> that fetch (a second asker waits for it)
     const aborts = new Map();            // "url#chunk" -> the AbortController of its network fetch
     L.queueLen = () => queue.length + running;
     function want(url, i, pri, tag, keep = true) {
@@ -216,23 +216,28 @@ Module.preRun.push(() => {
         queue.push({ url, i, pri, tag, keep });
         pump();
     }
+    let holding = false;   // the boot's hold: the queue waits, the title's reads have the link
     function pump() {
-        while (running < PARALLEL && queue.length) {
+        while (!holding && running < PARALLEL && queue.length) {
             queue.sort((a, b) => a.pri - b.pri);
             if (queue[0].pri >= 9 && runningLow) break;
             const j = queue.shift(), low = j.pri >= 9;
-            if (memChunk(j.url, j.i)) continue;
+            const m = memChunk(j.url, j.i);
+            if (m) { if (j.tag) remember(j.url, j.i, m, j.tag); continue; }   // came in meanwhile (the boot's hold): its tag still applies
             running++, runningLow += low;
             fetchChunk(j).catch(() => {}).finally(() => { running--, runningLow -= low; pump(); });
         }
     }
-    async function fetchChunk(j) {
+    function fetchChunk(j) {
         const k = keyOf(j.url, j.i);
-        if (inflight.has(k)) return;
-        inflight.add(k);
-        try { await fetchChunk2(j); }
-        catch (e) { if (e && e.name === "AbortError") queue.push(j); else throw e; }   // a sync read took the link
-        finally { inflight.delete(k), aborts.delete(k); }
+        if (inflight.has(k)) return inflight.get(k);
+        const p = (async () => {
+            try { await fetchChunk2(j); }
+            catch (e) { if (e && e.name === "AbortError") queue.push(j); else throw e; }   // a sync read took the link
+            finally { inflight.delete(k), aborts.delete(k); }
+        })();
+        inflight.set(k, p);
+        return p;
     }
     async function fetchChunk2(j) {
         let data = j.keep ? await fromStore(j.url, j.i) : null;   // the trickle only fills the HTTP cache
@@ -266,7 +271,7 @@ Module.preRun.push(() => {
     // 2x card art (tools/cardart.py): merge/data/card.dat and mini.dat, KCEJYUGI archives the exe opens before
     // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
     // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
-    let cardArc = null, miniArc = null;
+    let cardArc = null, miniArc = null, mergeLog = null;
     const cardFiles = new Map();   // card.dat entry name -> [from, to)
     function* tocEntries(toc, end) {   // [name (lower case, '/'), offset, stored size, size] per directory entry
         for (let e = 12; e < end; e += 268) {
@@ -503,6 +508,7 @@ Module.preRun.push(() => {
     // arriving in a scene prefetches (and pins) what the next likely scenes read, two steps ahead, from the store or
     // the network. Login -> player select -> My Room and lobby -> janken -> duel are read the same way every time.
     const SCENES = "yo2-lazy-scenes", SCENE_MAX = 48, BOOT = 0x2c;   // 0x2c: SCENE_NONE, before the first scene
+    const HOLD_PARALLEL = 4, HOLD_MAX = 15000;   // the boot's hold (boot below)
     // A player with nothing learned yet starts from this: a native run (login -> My Room -> lobby -> NPC duel -> result
     // -> lobby, RC_IOTRACE + RC_SCENE_LOG) over the same merge.dat (by size). Sets are chunk numbers; BOOT's is what the
     // exe reads before its first scene. Learned sets replace these scene by scene.
@@ -628,6 +634,7 @@ Module.preRun.push(() => {
             files.set(url, { size, etag: "", ver: "" });
             if (size >= 4 * CHUNK) lazy.push(url);   // ETag (request version, store key) for the files read in chunks
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
+            if (/^merge\.log$/i.test(rel)) mergeLog = url;   // 1.5 KB, the patcher reads it every start
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
             if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
@@ -677,28 +684,37 @@ Module.preRun.push(() => {
                 for (const i of (s[list] || []).slice(0, max))
                     loads.push(fromStore(url, i).then((d) => d && (stats.fromStore++, remember(url, i, d, tag))));
         }
-        // merge.dat's directory (~5 MB, read first thing): its chunks in parallel rather than one synchronous request
-        // after another, then the policies can start while the title and login screens run; likewise what the exe
-        // read before its first scene last time (learned, or the defaults)
-        if (archive && files.get(archive).etag) {
+        // The hold: what the exe reads before the title shows, fetched HOLD_PARALLEL at a time in the order it reads it
+        // (merge.log, merge.dat's directory, then the learned chunks of the boot, the patcher and the title), until all
+        // are in or HOLD_MAX passes. Those bytes come before the title's first frame either way: fetched ahead they
+        // pipeline instead of one synchronous request after another, and the title doesn't stall on them (field: merge.log
+        // and the title's chunks, up to a second a frame). All at once under a 3 s cap (before), most were half done when
+        // the game's first reads aborted them, and came down twice (yo2-browser: 19.9 MB of merge.dat at 20 Mbit).
+        // The next scenes and the policies follow through the queue, one at a time. Works without an ETag too (it only
+        // versions the store and the learned sets).
+        const jobs = [], held = new Set();
+        holding = true;
+        const hold = (url, i, tag) => { const k = keyOf(url, i); if (url && !held.has(k) && !memChunk(url, i)) held.add(k), jobs.push([url, i, tag]); };
+        const worker = async () => { for (let j; (j = jobs.shift());) await fetchSure(j[0], j[1], j[2]); };
+        hold(mergeLog, 0, "boot");
+        if (archive) {
             loadScenes();
-            const first = learned.next[BOOT] || [], early = [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])];
-            for (const sc of early)   // the patcher and the title come within frames: not after boot, during it
-                for (const i of learned.sets[sc] || []) loads.push(fetchChunk({ url: archive, i, pri: 0, tag: "boot", keep: true }));
-            const job = (i) => fetchChunk({ url: archive, i, pri: 0, tag: "toc", keep: true });
-            await job(0);
-            const c = memChunk(archive, 0);
-            if (c) {
-                const n = c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24, need = Math.ceil((12 + n * 268) / CHUNK);
-                const rest = [];
-                for (let i = 1; i < need; i++) rest.push(job(i));
-                loads.push(...rest);
-            }
-        }
-        if (cardArc && files.get(cardArc).etag) loads.push(cardToc().catch(() => {}));   // card art's directory (placeholders)
-        await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, 3000))]);   // never hold the start long
+            const head = fetchSure(archive, 0, "toc");
+            loads.push(worker(), head.then(() => {   // its count gives the directory's length
+                const c = memChunk(archive, 0);
+                if (c) for (let i = 1, need = Math.ceil((12 + (c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24) * 268) / CHUNK); i < need; i++) hold(archive, i, "toc");
+                const first = learned.next[BOOT] || [];
+                for (const sc of [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])])   // boot, patcher, title
+                    for (const i of learned.sets[sc] || []) hold(archive, i, "boot");
+                return Promise.all(Array.from({ length: HOLD_PARALLEL }, worker));
+            }));
+        } else loads.push(worker());
+        await Promise.race([Promise.all(loads), new Promise((r) => setTimeout(r, HOLD_MAX))]);
+        jobs.length = 0, (holding = false);   // past the cap: what's left goes through the queue (prefetchAfter, the policies)
+        pump();
+        if (cardArc) cardToc().catch(() => {});   // card art's directory (placeholders), after the title's reads
         parseToc();
-        if (archive && files.get(archive).etag) prefetchAfter(BOOT);   // the title, login, ...
+        if (archive) prefetchAfter(BOOT);   // the title, login, ...
         stats.pinned = pinned.size;
         setTimeout(() => unpin((t) => t === "boot"), 120000);   // a policy re-pins what it still wants
         setInterval(savePins, 30000);
