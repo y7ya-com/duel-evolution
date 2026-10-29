@@ -8,7 +8,10 @@
 // - CDeckManager::save (0x906dd0) of the player's deck: Module.onYo2DeckSaved({name, main, side, extra}), unless
 //   it is one of our own writes;
 // - a .ydc deleted (DeleteFileA, rt/k32io.c): Module.onYo2DeckDeleted(name);
-// - Edit Deck closing (0x8e8f10): Module.onYo2DeckCurrent(name), the deck the player left as current.
+// - Edit Deck closing (0x8e8f10): Module.onYo2DeckCurrent({name, mode}), the deck the player left as current.
+// World and Free mode share the decks but each keeps its own current deck on the server ({current: {world, free}}):
+// a Free mode deck holds cards the player may not own. "mode" is "world" or "free" (freemode.c).
+// The API may not exist yet (the client ships first): any failed call is a silent no-op, local decks work as before.
 // The page's handlers (defined here unless the page brings its own) retry a failed call a few times and never block
 // the game. Names: Shift-JIS in the game, JSON (UTF-16 escapes) here, the file name back through
 // rc_deck_file_name. Native: the same reports as log lines ("decksync: <handler> <json>") for tests.
@@ -27,6 +30,7 @@ EM_JS_DEPS(rc_decksync, "$UTF8ToString");
 uint32_t rc_card_passcode(uint32_t index);                       // rt/cardwire.cpp
 int rc_host_path(const char *g, int write, char *out, size_t n);   // rt/k32.c
 extern int rc_deck_quiet;                                          // starterdeck.c
+extern int rc_free_mode;                                           // freemode.c: 0 World, else Free mode
 void o_00906dd0(CPU *c);
 void o_008e8f10(CPU *c);
 
@@ -153,6 +157,8 @@ void rc_deck_deleted(const char *guest_path) {   // rt/k32io.c DeleteFileA, afte
     emit("onYo2DeckDeleted", &b);
 }
 
+static const char *mode(void) { return rc_free_mode > 0 ? "free" : "world"; }
+
 static void report_current(void) {
     uint32_t pd = RD32m(PLAYER_DATA);
     char name[128];
@@ -161,7 +167,7 @@ static void report_current(void) {
     strip_ydc(name);
     if (!*name) return;
     Buf b = {0};
-    put_name(&b, name);
+    put(&b, "{\"name\":"), put_name(&b, name), put(&b, ",\"mode\":\""), put(&b, mode()), put(&b, "\"}");
     emit("onYo2DeckCurrent", &b);
 }
 
@@ -181,7 +187,7 @@ static void report_local(const char *dir) {
     get_str(RD32m(PLAYER_DATA) + 0x38, cur, sizeof cur);
     strip_ydc(cur);
     Buf b = {0};
-    put(&b, "{\"current\":"), put_name(&b, cur), put(&b, ",\"decks\":[");
+    put(&b, "{\"mode\":\""), put(&b, mode()), put(&b, "\",\"current\":"), put_name(&b, cur), put(&b, ",\"decks\":[");
     int n = 0;
     DIR *d = opendir(h);
     if (d) {
@@ -225,21 +231,22 @@ void rc_deck_sync_frame(CPU *c) {   // starterdeck.c, at every Present
             };
             Module.onYo2DeckSaved = Module.onYo2DeckSaved || ((d) => api('', 'PUT', d));
             Module.onYo2DeckDeleted = Module.onYo2DeckDeleted || ((name) => api('/' + encodeURIComponent(name), 'DELETE'));
-            Module.onYo2DeckCurrent = Module.onYo2DeckCurrent || ((name) => api('/current', 'PUT', {name}));
+            Module.onYo2DeckCurrent = Module.onYo2DeckCurrent || ((cur) => api('/current', 'PUT', cur));
             Module.yo2DeckCharLoaded = Module.yo2DeckCharLoaded || (async (local) => {
                 const r = await api('', 'GET');
-                if (!r || !r.ok) return;
+                if (!r || !r.ok) return;   // no API (yet), signed out, ...: the local decks as they are
                 const srv = await r.json();
+                const srvCur = srv.current && typeof srv.current === 'object' ? srv.current[local.mode] : srv.current;
                 const have = new Set(srv.decks.map((d) => d.name)), dead = new Set((srv.deleted || []).map((d) => d.name));
                 const fresh = !srv.decks.length && !dead.size;   // nothing stored yet: this browser's decks are the character's
                 for (const d of local.decks)
                     if (!have.has(d.name) && !dead.has(d.name))
-                        await api('', 'PUT', {...d, current: d.name === local.current && (fresh || !srv.current)});
+                        await api('', 'PUT', {...d, ...(d.name === local.current && (fresh || !srvCur) ? {current: true, mode: local.mode} : {})});
                 if (fresh) return;
-                for (const d of srv.decks) if (d.name !== srv.current) Module.yo2InstallDeck(d, 2);
-                const cur = srv.decks.find((d) => d.name === srv.current);
+                for (const d of srv.decks) if (d.name !== srvCur) Module.yo2InstallDeck(d, 2);
+                const cur = srv.decks.find((d) => d.name === srvCur);
                 if (cur) Module.yo2InstallDeck(cur, 3);
-                else if (local.current) api('/current', 'PUT', {name: local.current});
+                else if (local.current) api('/current', 'PUT', {name: local.current, mode: local.mode});
             });
         });
 #endif
