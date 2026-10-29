@@ -11,6 +11,7 @@ import { baseKey, keyPort, type BlockKey, type Session } from "./hub.ts";
 import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
+import * as FREE from "./freemode.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
 const i32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(at) : 0);
@@ -152,7 +153,8 @@ export class Lobby {
   private allRooms(): Room[] { return [...this.npcRooms(), ...this.mem.rooms.values()]; }
 
   hRoomlist(c: Conn): boolean {
-    const rooms = c.port === this.g.ports.lobby ? [] : this.allRooms();
+    const free = FREE.isFree(this.sess(c));   // free mode and the MMO never see each other's rooms (freemode.ts)
+    const rooms = c.port === this.g.ports.lobby ? [] : this.allRooms().filter((r) => FREE.isFree(r.conn ? this.sess(r.conn) : null) === free);
     c.send(0x4282, new W().u32(rooms.length).bytes());
     for (const ch of this.chunks(rooms.map((r) => this.roomEntry(r)), 19)) c.send(0x4284, ch);
     c.send(0x4286);
@@ -278,6 +280,7 @@ export class Lobby {
     const a = this.sess(c), owner = room.conn!;
     const b = this.sess(owner);
     if (!a || a.pid === null || !b || b === a) return fail(R_NOROOM, "no session or own room");
+    if (FREE.isFree(a) !== FREE.isFree(b)) return fail(R_NOROOM, "free mode and the MMO don't duel each other");
     if (!this.alive(owner) || this.mem.rooms.get(room.id) !== room) return fail(R_NOROOM, "the room is gone");
     const pvp = this.g.pvp;
     if (pvp && (pvp.byPid(b.pid!) || pvp.byPid(a.pid))) return fail(R_INDUEL, "already in a duel");
@@ -864,6 +867,7 @@ function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
 // ---------------------------------------------------------------- lobby_reply
 export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data: Uint8Array): void {
   if (msgId === 0x3001 || msgId === 0x3003) return g.gameReply(c, msgId, param, data);
+  if (FREE.refuse(g, c, msgId, data)) return;
   try {
     if (msgId === 0x4100 && c.sess) {
       c.ext.lang = data.length ? data[0] : 0;

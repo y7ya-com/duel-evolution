@@ -5,6 +5,7 @@ import { W } from "../net/proto.ts";
 import { accountId, legacyId } from "../util/cifrado.ts";
 import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
+import { modeAgrees } from "./freemode.ts";
 
 export const PID_BASE = 1000;
 export const SESSION_RELEASE_S = 120;    // py YO2_SESION_LIBERAR_S
@@ -102,6 +103,10 @@ export class Hub {
     if (!this.sessions.has(acct) && this.sessions.size >= this.g.cfg.maxSessions) this.sweep();
     let s = this.sessions.get(acct) ?? null;
     if (s && LOGIN_EN_USO) busy = this.inUseBy(s, c);
+    if (s && !busy && !modeAgrees(s, c, Hub.live(s))) { // free mode vs MMO (game/freemode.ts): one at a time
+      this.log(`[free] 0x3003 of ${acct.slice(0, 6)}… (port ${c.port}): the session is live in the other mode`);
+      busy = c;
+    }
     if (busy) { s = null; code = AUTH_IN_USE; }
     else if (!s) {
       if (this.sessions.size >= this.g.cfg.maxSessions) {
@@ -112,6 +117,7 @@ export class Hub {
         if (idx === null) code = this.g.cfg.loginStrict ? AUTH_BAD_LOGIN : AUTH_SERVER_FULL;
         else {
           s = new Session(acct, idx, owner);
+          s.ext.free = !!c.ext.free;
           this.sessions.set(acct, s);
           this.log(`[hub] account ${acct}: index ${idx}${owner ? " (owner)" : ""}`);
         }
@@ -218,6 +224,7 @@ export class Hub {
 
   attach(c: Conn, pid: number): Session | null {
     const s = this.byPid(pid);
+    if (s && !modeAgrees(s, c, true)) { this.log(`[free] duel connection for ${pid} in the other mode: refused`); return null; }
     if (s) { c.sess = s; s.conns.set(c.port, c); }
     return s;
   }

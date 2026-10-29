@@ -4,6 +4,7 @@ import type { Conn } from "../net/conn.ts";
 import { serverEntry, W } from "../net/proto.ts";
 import type { Game } from "./game.ts";
 import { blockKey, type BlockKey } from "./hub.ts";
+import { isFree } from "./freemode.ts";
 
 export const GATE_PAUSE = 0.03;
 const SINGLE_ROOM: [number, number] = [WORLD_LANG, 14];
@@ -38,10 +39,12 @@ export function roomBlockKey(g: Game, port: number, clientLang = 0): BlockKey | 
   return blockKey(ROOM_PORT_BASE + i, lang === null ? roomLang(clientLang) : lang);
 }
 
-/** py bloques.block_key: the shared block of a connection; My Room is per player (null). */
+/** py bloques.block_key: the shared block of a connection; My Room is per player (null). Free mode has blocks of
+ *  its own, "<port>|<lang>|f" (game/freemode.ts). */
 export function connBlockKey(g: Game, c: Conn): BlockKey | null {
   if (c.port === g.ports.lobby) return null;
-  return roomBlockKey(g, c.port, (c.ext.lang as number) ?? 0);
+  const k = roomBlockKey(g, c.port, (c.ext.lang as number) ?? 0);
+  return k !== null && isFree(c.sess) ? `${k}|f` : k;
 }
 
 /** py gate_reply: version OK + server list (accounts, My Room, rooms) + end of list. */

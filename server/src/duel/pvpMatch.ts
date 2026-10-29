@@ -8,6 +8,7 @@ import { W } from "../net/proto.ts";
 import type { Game } from "../game/game.ts";
 import { keyPort, type Session } from "../game/hub.ts";
 import * as PP from "../game/persist.ts";
+import { freeRecord, isFree } from "../game/freemode.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
 import { cardmap, type Deck } from "./data.ts";
 import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
@@ -841,11 +842,15 @@ export class PvpMatch {
     const pdu = this.asSess(s, () => {
       const st = this.g.loadState();
       const p = PP.profile(st, PP.activeSlot(st))!;
-      if (played) {
-        xp = this.xp(p, k, res, last, mres, turns);
-        pvpRecord(this.g, p, res, turns);
+      if (isFree(s)) {   // free mode: its own record only; no MP, LV, stats, titles or card (game/freemode.ts)
+        if (played && last) freeRecord(p, res === DFM.RESULT_WIN ? true : res === DFM.RESULT_LOSE ? false : null);
+      } else {
+        if (played) {
+          xp = this.xp(p, k, res, last, mres, turns);
+          pvpRecord(this.g, p, res, turns);
+        }
+        if (last) [packs, card] = this.card(p, why, lob !== null, this.bo3());
       }
-      if (last) [packs, card] = this.card(p, why, lob !== null, this.bo3());
       this.g.saveState(st);
       return PP.playerDataUpdate(p);
     });
