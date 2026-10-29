@@ -1,7 +1,7 @@
 #!/bin/bash
 # ship-client.sh [--build] [prefix]: put a web build of client/ live in R2 ygo-original/<prefix>/ (default recomp-de/,
 # the server's CLIENT_PREFIX). recomp/ is the base the server falls back to for anything missing under the prefix
-# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js) go up with every prefix.
+# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js, starter.js + ui.js, ui/ art) go up with every prefix.
 #   --build  first run `make web web-async web-ios` in client/recomp (through tools/buildslot.py), else ship its existing build-web/
 # yo2rc.html gets client/web-shell/stage.js (fit-to-window + fullscreen) and loader.js (loading screen; NOLOADER=1
 # leaves it out) just before the runtime script, the product name as its title and the build id for crash reports.
@@ -35,8 +35,13 @@ for n in ('yo2rc', 'yo2rc-async', 'yo2rc-ios'):
     put(f'{n}-{k}.wasm', wasm); put(f'{n}-{k}.js', js.replace(q, f"'{n}-{k}.wasm'".encode())); names[n] = f'{n}-{k}.js'
 for n in ('stage', 'loader'):
     js = rd(f'{shell}/{n}.js'); names[n] = f'{n}-{h(js)}.js'; put(names[n], js)
+# the starter-deck picker and the html-ui widgets it imports (its art goes up under ui/, below)
+js = rd(f'{shell}/../html-ui/ui.js'); names['ui'] = f'ui-{h(js)}.js'; put(names['ui'], js)
+js = rd(f'{shell}/starter.js'); q = b'"./ui.js"'; assert js.count(q) == 1
+js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['starter'] = f'starter-{h(js)}.js'; put(names['starter'], js)
 p = os.path.join(o, 'yo2rc.html'); s = open(p).read()
-tag = f'<script src="{names["stage"]}"></script>\n' + ('' if os.environ.get('NOLOADER') else f'<script src="{names["loader"]}"></script>\n')
+tag = f'<script src="{names["stage"]}"></script>\n' + ('' if os.environ.get('NOLOADER') else f'<script src="{names["loader"]}"></script>\n') \
+    + f'<script src="{names["starter"]}"></script>\n'
 i = s.find('<script id="pick">'); assert i > 0 and '<script src="stage' not in s; s = s[:i] + tag + s[i:]
 # the picker's script names (and its endsWith("/yo2rc.js") check) -> the hashed ones
 for n in ('yo2rc-ios', 'yo2rc-async', 'yo2rc'):
@@ -51,6 +56,11 @@ PY
 echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
 cat $O/BUILD.txt
 cp $C/web-shell/index.html $O/
+# the picker's art: html-ui's clamp atlases and glyphs (Konami-derived: from infra/fetch-private.sh, never in git)
+UI="clamp/window_base_01_c01.png clamp/window_base_01_c01.rgb.png clamp/swich_01_c00.png clamp/swich_01_c00.rgb.png
+  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json"
+mkdir -p $O/ui/clamp
+for f in $UI; do cp $C/html-ui/assets/$f $O/ui/$f || { echo "no html-ui/assets/$f (run infra/fetch-private.sh)"; exit 1; }; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters
 up() {
   for f in "$@"; do
@@ -62,7 +72,7 @@ up() {
 # each wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9 is
 # ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). Up before the page, checked live below like the rest.
 for f in $(grep '\.wasm$' $O/HASHED); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
-up $(grep '\.wasm$' $O/HASHED | sed 's/$/.br/') $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED)
+up $(grep '\.wasm$' $O/HASHED | sed 's/$/.br/') $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED) $(for f in $UI; do echo ui/$f; done)
 SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 md5() { python3 -c 'import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())'; }
 if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then

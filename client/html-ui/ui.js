@@ -3,7 +3,7 @@
 //   atlas scaled with CSS (bilinear, like the game's LINEAR sampler), so it samples the same neighbouring texels;
 // - text is the game's glyph texture rebuilt texel for texel (UpdateTextTexture, FUN_0058d7a0) from the GDI
 //   stand-in's glyphs (stb_truetype, DejaVu Sans for "Arial" lfHeight 16, GGO_GRAY8), drawn as 1:1 cells on a canvas.
-const A = 'assets/';
+let A = 'assets/';   // loadGlyphs(base) moves it (the web shell serves them from ui/)
 export const SHEET = {
   window: { url: A + 'window_base_01_c01.png', w: 96, h: 24 },
   button: { url: A + 'swich_01_c00.png', w: 120, h: 24 },
@@ -13,7 +13,9 @@ export const SHEET = {
 export const WINDOW_ALPHA = 178 / 255;   // the frame's vertex alpha
 
 let G;   // glyph atlas: { ascent, height, glyphs: { code: { adv, x0, y0, w, h, lv[] } } }
-export async function loadGlyphs() {
+export async function loadGlyphs(base = A) {
+  for (const s of Object.values(SHEET)) s.url = s.url.replace(A, base);
+  A = base;
   G = await (await fetch(A + 'glyphs-dejavu16.json')).json();
   const img = u => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u; });
   await Promise.all(Object.values(SHEET).map(async s => {
@@ -118,17 +120,21 @@ export function text(parent, lines, cls = '') {
 }
 
 // The game's push button (swich_01_c00: 24x24 9-slice per state; 0 normal, 1 hover, 2 pressed) with a centred label;
-// taller than 24, the middle row stretches
-export function button(parent, x, y, w, label, onClick, h = 24) {
+// taller than 24, the middle row stretches. Focusable: Enter/Space press it, focus shows the hover tiles.
+// show = false: no label drawn (the caller fills the button), the label is still its accessible name.
+export function button(parent, x, y, w, label, onClick, h = 24, show = true) {
   const b = document.createElement('div');
   b.className = 'btn';
+  b.tabIndex = 0;
+  b.setAttribute('role', 'button');
+  b.setAttribute('aria-label', label);
   Object.assign(b.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
   parent.append(b);
   const tiles = nine(b, SHEET.button, 0, 0, 0, 0, w, h);
-  text(b, [[label, Math.floor((w - measure(label)) / 2), (h - 16) / 2]]);
+  if (show) text(b, [[label, Math.floor((w - measure(label)) / 2), (h - 16) / 2]]);
   const set = st => tiles.forEach((t, i) => t.src(st * 24 + (i % 3) * 8, Math.floor(i / 3) * 8));
-  let over = false, down = false;
-  const upd = () => set(down && over ? 2 : over ? 1 : 0);
+  let over = false, down = false, focus = false;
+  const upd = () => set(down && over ? 2 : over || focus ? 1 : 0);
   b.addEventListener('pointerenter', () => { over = true; upd(); });
   b.addEventListener('pointerleave', () => { over = false; upd(); });
   b.addEventListener('pointerdown', e => { down = true; b.setPointerCapture(e.pointerId); upd(); });
@@ -136,6 +142,14 @@ export function button(parent, x, y, w, label, onClick, h = 24) {
     const hit = document.elementsFromPoint(e.clientX, e.clientY).includes(b);
     down = false; over = hit; upd();
     if (hit && onClick) onClick();
+  });
+  b.addEventListener('pointercancel', () => { down = over = false; upd(); });   // a touch that became a scroll
+  b.addEventListener('focus', () => { focus = b.matches(':focus-visible'); upd(); });
+  b.addEventListener('blur', () => { focus = false; upd(); });
+  b.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); focus = true; set(2);
+    setTimeout(() => { upd(); onClick?.(); }, 100);
   });
   b.state = set;
   b.press = () => onClick?.();
