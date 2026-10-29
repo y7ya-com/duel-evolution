@@ -6,6 +6,7 @@ import { cstr, W } from "../net/proto.ts";
 import GD from "../../gamedata/persist.json";
 import YDC from "../../gamedata/ydc.json";
 import SHOP from "../../gamedata/shop.json";
+import LD from "../../gamedata/lobby.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 
@@ -329,6 +330,20 @@ export function pbinBytes(p: P): Uint8Array {
   return arr;
 }
 export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit));
+
+const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
+/** Whether every avatar item in these 16 part bytes (0x4170) is this character's: bytes 1-9 are the parts, item
+ *  (PBIN bit) = value + 0x100 for a girl; a default item (column 2) or an owned bit. Bytes that are no item of
+ *  their slot ("none", colours) aren't items to own. */
+export function avatarOwned(p: P, parts: Uint8Array): boolean {
+  const girl = parts[0] === 1 ? 0x100 : 0;
+  for (let i = 1; i <= 9 && i < parts.length; i++) {
+    const bit = parts[i] + girl, rec = AV_PBIN[String(bit)];
+    if (!rec || rec[3] !== i || rec[1]) continue;
+    if (!pbinTest(p, bit)) return false;
+  }
+  return true;
+}
 export function pbinSet(p: P, bit: number, on = true): void {
   const s = new Set<number>(p.pbin ?? []);
   if (on) s.add(int(bit)); else s.delete(int(bit));

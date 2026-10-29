@@ -313,3 +313,25 @@ describe("character names", () => {
     expect(Object.values(h.state().accounts["u:user-b"].players)).toEqual(["Bob"]);
   });
 });
+
+describe("avatar parts (0x4170)", () => {
+  it("an item the character doesn't own is neither kept nor shown to others; owned, it goes through", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b");
+    await a.account(0, "Alice"); await b.account(0, "Bob");
+    await a.enterRoom(); await b.enterRoom();
+    const parts = Uint8Array.from([0, 0x00, 0x20, 0x30, 0x40, 0x60, 0x78, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0]);   // clothes 0x78: PBIN 120, a present
+    const wear = async () => {
+      const n = a.room!.mark(), nb = b.room!.mark();
+      a.room!.send(0x4170, [...be32(0), ...parts, 0, 0, 0, 0]);
+      const r = await a.room!.wait(0x4171, n);
+      await h.tick(200);
+      return [r && r[3], b.room!.all(0x4181, nb).length];
+    };
+    expect(await wear()).toEqual([0, 0]);                         // answered, but not kept nor shown
+    expect(h.state().accounts["u:user-a"].profiles["0"].avatar?.a).not.toBe(Buffer.from(parts).toString("hex"));
+    const st = h.state(); st.accounts["u:user-a"].profiles["0"].pbin.push(120); h.game.store.saveRaw(st);
+    expect(await wear()).toEqual([0, 1]);
+    expect(h.state().accounts["u:user-a"].profiles["0"].avatar.a).toBe(Buffer.from(parts).toString("hex"));
+  });
+});
