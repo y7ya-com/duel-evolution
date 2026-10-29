@@ -14,6 +14,15 @@ export { WorldDO } from "./do.ts";
 
 type E = { Bindings: Env };
 const ADMIN_HEADER = "x-de-admin";
+const DEPLOY_ACTIONS = new Set(["online", "announce", "maintenance", "shutdown"]);
+const sha = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+/** Compares digests, so the time does not depend on where the strings differ. */
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const [x, y] = [await sha(a), await sha(b)];
+  let d = 0;
+  for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+}
 
 const world = (env: Env) => env.WORLD.get(env.WORLD.idFromName("world"));
 const toWorld = (env: Env, req: Request, path: string, init: Request = req) => world(env).fetch(new Request(new URL(path, req.url), init));
@@ -28,6 +37,8 @@ routes.get("/yo2/merge.txt", text(mergeTxt));
 
 // the landing page pings this before ONLINE (the old container needed a warm-up; the WorldDO doesn't)
 routes.get("/__warm", (c) => c.text("ok"));
+// the deployed version, for the web client's reconnect: a changed v after its socket dropped = a deploy, reload
+routes.get("/__version", (c) => c.json({ v: c.env.CF_VERSION_METADATA?.id ?? "dev" }, 200, { "Cache-Control": "no-store" }));
 
 // the game channel needs a DE session; the WorldDO gets its user id (auth/binding.ts). /net is the client's default
 // (index.html: gateway = <host>/net); /boxedwine-network stays for builds and links that name it
@@ -40,6 +51,12 @@ routes.on("GET", ["/boxedwine-network", "/net"], async (c) => {
 routes.all("/__admin/*", async (c) => {
   const fwd = new Request(c.req.raw);
   fwd.headers.delete(ADMIN_HEADER);
+  // scripts/deploy.sh (the deploy warning and the 4012 close): a token instead of a session, for these actions only
+  const action = new URL(c.req.url).pathname.slice(9), tok = c.req.header("x-de-deploy");
+  if (tok && DEPLOY_ACTIONS.has(action) && (c.env.DEPLOY_TOKEN?.length ?? 0) >= 32 && await sameSecret(tok, c.env.DEPLOY_TOKEN!)) {
+    fwd.headers.set(ADMIN_HEADER, "deploy");
+    return toWorld(c.env, c.req.raw, new URL(c.req.url).pathname, fwd);
+  }
   if (c.env.DEV !== "1") {
     const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
     if (!v) return c.text("sign in first", 401);

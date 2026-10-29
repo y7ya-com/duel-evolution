@@ -31,10 +31,22 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
    cd server && pnpm install --frozen-lockfile
    npx wrangler deploy --env production --dry-run --outdir /tmp/de-dry   # optional: bundle + bindings, uploads nothing
    npx wrangler d1 migrations apply duel-evolution-prod --remote --env production   # only when migrations/ changed
-   npx wrangler deploy --env production
-   scripts/post_deploy.sh                     # Workers Logs: query strings redacted again (every deploy resets it)
-   scripts/prod_check.sh                      # both hosts and www
+   DEPLOY_TOKEN=... scripts/deploy.sh         # warns players, 4012-closes them, deploys, post_deploy, prod_check
    ```
+   **Policy (2026-10-29):** at most ONE production deploy per ~2 hours; anything else waits for the next window (an
+   emergency fix for broken login or play excepted). Check the online count first and prefer a quiet moment: every
+   deploy restarts the WorldDO and drops everyone. `scripts/deploy.sh` does it in order:
+   - prints the online count;
+   - sends the game's maintenance notice (0x4700) and a server chat line, "Server update in 2 min. You'll be
+     reconnected automatically.";
+   - waits 120 s;
+   - closes every gateway WebSocket with **4012 "server-update"** (the web client reconnects at once; any other close
+     it treats as a network problem unless `GET /__version` changed);
+   - runs `wrangler deploy --env production`, then `scripts/post_deploy.sh` (Workers Logs query-string redaction, which
+     every deploy resets) and `scripts/prod_check.sh` (both hosts and www).
+
+   The token is the Worker secret `DEPLOY_TOKEN` (`wrangler secret put DEPLOY_TOKEN --env production`, 32+ chars). It
+   opens only /__admin/{online,announce,maintenance,shutdown}.
    predeploy.py takes `PREDEPLOY_PORT` / `PARITY_CTL_PORT` when another run holds 8798 / 6999, and must print
    "pre-deploy check passed" (don't pipe it without `set -o pipefail`).
    A deploy restarts the WorldDO, which drops the open game connections. The state is safe: every save is written

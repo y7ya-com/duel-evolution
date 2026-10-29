@@ -18,4 +18,8 @@ export interface Env {
    *  live with the switch. Must end in "/" and never be "private/". */
   CLIENT_PREFIX?: string;
   ADMIN_TOKEN?: string;
+  /** scripts/deploy.sh's token (wrangler secret, 32+ chars): /__admin/{online,announce,maintenance,shutdown} only. */
+  DEPLOY_TOKEN?: string;
+  /** wrangler.jsonc version_metadata: the deployed version (GET /__version). */
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
 }

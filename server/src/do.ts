@@ -20,6 +20,8 @@ export class WorldDO extends DurableObject<Env> {
   /** D1 write-through of the game state (db/d1.ts); null without a DB binding or without the migrations applied. */
   private sink: D1Sink | null = null;
   private nextPeer = 1;
+  /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
+  private sockets = new Set<WebSocket>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -63,6 +65,12 @@ export class WorldDO extends DurableObject<Env> {
       // admin API (py's console/panel actions that reach players): POST JSON. The Worker forwards it only for a session
       // with the admin role (role_grant), setting x-de-admin; the DO is not reachable any other way. DEV: open.
       if (!request.headers.get("x-de-admin") && this.env.DEV !== "1") return new Response("forbidden", { status: 403 });
+      if (url.pathname === "/__admin/shutdown") {
+        // a planned deploy: 4012 "server-update" tells the web client to reconnect at once (not a network loss)
+        const n = this.sockets.size;
+        for (const ws of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } }
+        return Response.json({ closed: n });
+      }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
       const out = await new Promise<{ ok: unknown } | { error: string }>((res) => this.srv.world.run(() => {
@@ -117,7 +125,8 @@ export class WorldDO extends DurableObject<Env> {
     // keepalive: a text frame every 30 s, so a WebSocket whose client is asleep (a hidden tab sends its 60 s heartbeats
     // late) never sits idle long enough for the edge to close it. The client drops text frames without an "id".
     const ka = setInterval(() => { try { ws.send(KEEPALIVE); } catch { /* closing */ } }, KEEPALIVE_S * 1000);
-    const bye = () => { clearInterval(ka); world.closePeer(id); };
+    this.sockets.add(ws);
+    const bye = () => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id); };
     ws.addEventListener("close", bye);
     ws.addEventListener("error", bye);
     return new Response(null, { status: 101, webSocket: client });

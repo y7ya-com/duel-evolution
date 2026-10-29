@@ -79,6 +79,16 @@ export class Admin {
     return n;
   }
 
+  /** A server line in every lobby's chat (0x4402 kind 1, the server-wide chat) from "Duel Evolution": the deploy
+   *  warning (scripts/deploy.sh). Returns the lobbies it reached. */
+  announce(text: string): number {
+    const t = text.slice(0, 120);
+    const msg = new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(t, t.length + 1).bytes();
+    let n = 0;
+    for (const s of this.g.hub.sessions.values()) if (s.lobby && this.g.lp.post(s.lobby, 0x4402, msg)) n++;
+    return n;
+  }
+
   /** A signed-in user claims an imported legacy account (src/auth claim flow). The DO is single-threaded, so the
    *  user_id-null check is the atomic guard. A user who already owns an account with characters can't claim another;
    *  an empty u:<userId> left by a first game login is dropped (its session closed). */
@@ -116,6 +126,8 @@ export class Admin {
       case "flags": this.setFlags(String(body.acct), Number(body.flags) || 0); return { ok: true };
       case "price": this.setPrice(String(body.key), body.mp == null ? null : Number(body.mp)); return { ok: true };
       case "maintenance": return { sent: this.maintenance(Number(body.seconds) || 0) };
+      case "announce": return { sent: this.announce(String(body.text ?? "")) };
+      case "online": return { online: this.status().players.filter((p) => p.online).length };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
       case "start": { this.data.start = body.start ?? {}; this.sink("start", "start", this.data.start); return { ok: true }; }

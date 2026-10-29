@@ -20,6 +20,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],
   // the site's bucket: the client files (recomp-de/, recomp/), the duel engine data under duel-evolution/engine/
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "ygo-original" }],
+      "version_metadata": { "binding": "CF_VERSION_METADATA" }, // GET /__version
   "d1_databases": [{ "binding": "DB", "database_name": "duel-evolution", "database_id": "16083d0e-3dcc-46af-b747-f7326f648ff3", "migrations_dir": "migrations" }],
   // Production (DEPLOY.md): `--env production`, original.ygoevolution.com/*. Its route runs before the old Worker's
   // Custom Domain (kept for rollback). Nothing here is inherited from the top level.
@@ -41,6 +42,7 @@
       "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "ygo-original" }],
+      "version_metadata": { "binding": "CF_VERSION_METADATA" }, // GET /__version
       "d1_databases": [{ "binding": "DB", "database_name": "duel-evolution-prod", "database_id": "1cea5a55-494c-4edb-8ce4-e726121d3f53", "migrations_dir": "migrations" }]
     }
   }
