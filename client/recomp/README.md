@@ -218,7 +218,8 @@ times them.
 Profiling: `RC_FRAMESTATS=1` logs fps, the worst present-to-present gap and the main thread's CPU per frame every 30
 frames; `RC_PROF=<ms>` (macOS) samples the main thread every millisecond and logs the `f_` functions behind any frame
 slower than `<ms>`; with `RC_PROF_DUMP=<file>` every sample is also tallied per scene and written at `RC_FRAMES`, and
-`tools/profsum.py <file>` ranks the guest functions, host leaves and inclusive frames of each scene.
+`tools/profsum.py <file>` ranks the guest functions, host leaves and inclusive frames of each scene;
+`RC_PROF_UNDER=f_<addr>` adds the host frames under that innermost guest function to the dump as scene `fff`.
 `ovr/path.c` replaces the avatar's walk path search (A*, 0xa04a30), which re-sorted its whole open list after every
 step (up to ~300 ms of CPU for one click in a lobby), with a heap that pops the nodes in the same order (~0.6 ms);
 `ovr/math.c` replaces D3DX's x87 matrix product (0xb58a89, 6-11% of every scene) with the same arithmetic in C;
