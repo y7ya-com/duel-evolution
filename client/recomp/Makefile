@@ -20,7 +20,7 @@ RC_OBJS := $(patsubst $(OUT)/%.c,$(B)/%.o,$(RC_SRCS))
 # strong f_XXXXXXXX overrides of recompiled functions (README "Overrides")
 OVR_SRCS := $(wildcard ovr/*.c)
 RT_SRCS := rt/rt.c rt/mem.c rt/k32.c rt/k32io.c rt/cp932.c rt/winmm.c rt/misc.c rt/wsock.c rt/wininet.c rt/gate.c rt/prof.c rt/decktap.c rt/audioui.c
-RT_CXX := rt/audio.cpp rt/cardwire.cpp rt/user32.cpp rt/debrand.cpp rt/session.cpp rt/ui_kit.cpp ../platform/vfs/vfs.cpp rt/d3d8.cpp rt/gdi32.cpp rt/plat_glue.cpp rt/comobj.cpp rt/dinput.cpp rt/dsound.cpp ../platform/audio/dsound.cpp ../platform/sdl/platform.cpp ../platform/gfx/d3d8.cpp \
+RT_CXX := rt/audio.cpp rt/cardwire.cpp rt/user32.cpp rt/debrand.cpp rt/freetitle.cpp rt/session.cpp rt/ui_kit.cpp ../platform/vfs/vfs.cpp rt/d3d8.cpp rt/gdi32.cpp rt/plat_glue.cpp rt/comobj.cpp rt/dinput.cpp rt/dsound.cpp ../platform/audio/dsound.cpp ../platform/sdl/platform.cpp ../platform/gfx/d3d8.cpp \
   ../platform/win32/gdi.cpp ../platform/win32/font.cpp ../platform/win32/text.cpp
 SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LIBS := $(shell sdl2-config --libs) -framework OpenGL -framework AudioToolbox -framework CoreFoundation

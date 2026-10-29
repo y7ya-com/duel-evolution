@@ -26,6 +26,7 @@ int rc_cw_recv(int s, uint8_t *out, int n, int (*raw)(int, uint8_t *, int), int 
 int rc_cw_send(int s, const uint8_t *p, int n, int (*rawSend)(int, const uint8_t *, int));
 int rc_cw_pending(int s);
 int rc_cw_v2(int s);
+void rc_cw_mode(int s, int (*rawSend)(int, const uint8_t *, int));   // free mode's first frame
 
 static int fd_of(uint32_t s) { return s >= SOCK_BASE && s < SOCK_BASE + MAXS ? (int)(s - SOCK_BASE) : -1; }
 static int wsa_err(int e) {
@@ -54,6 +55,7 @@ IMP(WSOCK32, ord10) { RET(1, inet_addr(GS(ARG(0)))); }    // inet_addr: network 
 #ifdef __EMSCRIPTEN__
 #include "web_wsock.c"   // the WebSocket gateway in place of BSD sockets
 #else
+static int raw_send_all(int fd, const uint8_t *b, int n);
 IMP(WSOCK32, ord23) {   // socket(af, type, proto)
     int fd = socket(AF_INET, ARG(1) == 1 ? SOCK_STREAM : SOCK_DGRAM, 0);
     if (fd < 0 || fd >= MAXS) { last_err = 10024; if (fd >= 0) close(fd); RET(3, 0xffffffffu); }
@@ -75,6 +77,7 @@ IMP(WSOCK32, ord4) {   // connect(s, sockaddr*, len): the guest's is {u16 family
     rc_log("wsock: connect %s:%u", inet_ntoa(sa.sin_addr), ntohs(sa.sin_port));
     if (connect(fd, (struct sockaddr *)&sa, sizeof sa) < 0) { last_err = wsa_err(errno); RET(3, 0xffffffffu); }
     rc_cw_open(fd);
+    rc_cw_mode(fd, raw_send_all);
     RET(3, 0);
 }
 IMP(WSOCK32, ord3) {   // closesocket
