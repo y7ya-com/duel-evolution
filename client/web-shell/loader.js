@@ -45,17 +45,34 @@
         box.style.width = game.offsetWidth + "px"; box.style.height = game.offsetHeight + "px";
     }
 
-    // wasm download progress: count the bytes of the .wasm response as the runtime streams it. Phones drop the 40 MB
-    // download now and then: a failed request is tried once more, and a body that breaks off resumes once from the
-    // byte it reached (a Range request: the site serves ranges of the uncompressed file even when the full response
-    // is zstd, so the decoded count is the offset). Emscripten itself fetches again once if streaming fails.
+    // wasm download progress: count the bytes of the .wasm response as the runtime streams it. The first fetch hands
+    // the network Response itself to instantiateStreaming and counts a clone(): a Response we build has no URL, and
+    // V8/WebKit cache the compiled module (a warm boot skips the compile) only for one that comes from the HTTP cache.
+    // Phones drop the 40 MB download now and then: Emscripten then fetches again (instantiateArrayBuffer), and that
+    // fetch is tried once more on failure and, if its body breaks off, resumes once from the byte it reached (a Range
+    // request: the site serves ranges of the uncompressed file even when the full response is compressed, so the
+    // decoded count is the offset).
     const realFetch = window.fetch;
+    const counted = new Set();
+    const progress = (got, total) => status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
     window.fetch = async function (input, init) {
         const url = String((input && input.url) || input);
         if (!/\.wasm(\?|$)/.test(url)) return realFetch.call(this, input, init);
         const r = await realFetch.call(this, input, init).catch(() => realFetch.call(this, input, init));
         if (!r.ok || !r.body) return r;
         const total = +r.headers.get("content-length") || 0;
+        if (!counted.has(url)) {
+            counted.add(url);
+            const c = r.clone().body.getReader();
+            (async () => {
+                for (let got = 0; ;) {
+                    const { done, value } = await c.read();
+                    if (done) return status("Starting…");
+                    progress(got += value.byteLength, total);
+                }
+            })().catch(() => {});
+            return r;
+        }
         let got = 0, reader = r.body.getReader(), resumed = false;
         const body = new ReadableStream({
             async pull(c) {
@@ -63,8 +80,7 @@
                     try {
                         const { done, value } = await reader.read();
                         if (done) { status("Starting…"); return c.close(); }
-                        got += value.byteLength;
-                        status(total ? `Downloading ${Math.min(99, Math.floor(got * 100 / total))}%` : `Downloading ${(got / 1048576).toFixed(0)} MB`);
+                        progress(got += value.byteLength, total);
                         return c.enqueue(value);
                     } catch (e) {
                         if (resumed) throw e;
@@ -195,7 +211,16 @@
         s.restore();
         list = keep;
     }
+    // lazyfs.js makes the scene dispatcher (assigning Module.onYo2Scene adds a listener) only in preRun, after stall.js
+    // (a pre-js) has assigned its own handler, which replaced this one (f383812 on: no scene events reached the loader).
+    // Until then this collects every assignment; lazyfs's dispatcher then takes the lot as one listener.
+    {
+        const fns = [], all = (kind, from, to) => { for (const f of fns) f(kind, from, to); };
+        Object.defineProperty(Module, "onYo2Scene", { configurable: true, get: () => all, set: (f) => { if (typeof f === "function") fns.push(f); } });
+    }
     Module.onYo2Scene = function (kind, from, to) {
+        switching = kind === "begin";
+        if (switching) { inScene = to; update.hide(); } else update.check();
         if (!booted) return;   // the boot screen is still up
         if (kind === "begin") {
             if (scene) return;
@@ -239,4 +264,45 @@
         box.onpointerup = () => location.reload();
     });
     requestAnimationFrame(tick);
+
+    // A new build while this tab runs (a tab can stay open for a day): BUILD.txt (no-cache, written by each ship) is
+    // checked every 10 min, and once it names another build a small note in the corner offers a reload. Never during
+    // a duel or janken (0x1c, 0x1e) or a scene switch; [Later] keeps it away for an hour. No forced reload: a server
+    // protocol change that breaks old builds has its own reload path.
+    let switching = false, inScene = -1;
+    const update = (() => {
+        const mine = document.querySelector('meta[name="yo2-build"]')?.content;
+        const DUEL = [0x1c, 0x1e];
+        let newer = false, later = 0, note = null;
+        const check = () => {
+            if (!newer || note || !booted || switching || DUEL.includes(inScene) || Date.now() < later) return;
+            note = document.createElement("div");
+            note.setAttribute("role", "status");
+            note.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:6;box-sizing:border-box;max-width:300px;padding:10px 12px;border-radius:10px;" +
+                "background:rgba(0,0,0,.72);color:#fff;font:600 13px/1.35 system-ui,sans-serif;text-shadow:0 1px 3px rgba(0,0,0,.6)";
+            note.textContent = "A new version of Duel Evolution is ready. Reload when you're not in a duel.";
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:8px";
+            for (const [label, primary, act] of [["Later", false, () => { later = Date.now() + 3600000; hideNote(); }],
+                                                 ["Reload", true, () => location.reload()]]) {
+                const b = document.createElement("button");
+                b.textContent = label;
+                b.style.cssText = "font:600 13px system-ui,sans-serif;padding:.35em 1.1em;border-radius:999px;cursor:pointer;" +
+                    (primary ? "border:0;background:#fff;color:#123" : "border:1px solid rgba(255,255,255,.6);background:none;color:#fff");
+                b.onclick = act;
+                row.append(b);
+            }
+            note.append(row);
+            document.body.append(note);
+        };
+        const hideNote = () => { if (note) { note.remove(); note = null; } };
+        if (mine) setInterval(() => {
+            if (newer) return check();
+            fetch("BUILD.txt", { cache: "no-store" }).then((r) => r.ok ? r.text() : "").then((t) => {
+                const live = t.trim().split(/\s+/)[0];
+                if (/^[0-9a-f]{7,}$/.test(live) && live !== mine) { newer = true; check(); }
+            }).catch(() => {});
+        }, +(new URLSearchParams(location.search).get("updatepoll") || 600000));
+        return { check, hide: hideNote };
+    })();
 })();
