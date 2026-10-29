@@ -24,7 +24,11 @@
         try {
             const r = await fetch(API, { credentials: "same-origin" });
             const j = r.ok && r.status !== 204 ? await r.json() : null;
-            if (j && !j.claimable && j.reason === "claimed") done = true;   // claimed: never ask again
+            if (j && !j.claimable && j.reason === "claimed") {   // claimed: never ask again
+                done = true;
+                // a past claimer: the game equips the starter only if they have no 40-card deck (never overwrites)
+                if (j.claimed?.main) try { Module.yo2InstallStarterDeck?.(j.claimed, { ifMissing: true }); } catch (e) { console.warn("starter: install", e); }
+            }
             // not in game yet / no character picked (the session lands a moment after the scene): ask at the next scene
             else if (j && j.decks?.length) await show(j.decks);
         } catch (e) { console.warn("starter:", e); }   // ask again at the next My Room / lobby
@@ -193,7 +197,7 @@
                 // UNITY DECK" for "Dark Magicians"), so the text points at the list, not the name. A deck the 2008 limit list
                 // trims loads 37-39 cards ("Cards Missing") and needs the substitutes from the trunk to reach 40.
                 // ">" not "→": the glyph atlas (ui/glyphs-dejavu16.json) has no arrow.
-                done: [`✓ ${name} is yours!`, "Its cards are in your Trunk."],
+                done: [`✓ ${name} is yours!`, "It's your active deck, ready to duel."],
                 error: [`● ${msg}`],
             }[view];
             const w = Math.min(L.w - 16, 440), tw = w - 32;
@@ -227,7 +231,8 @@
                 if (r.ok && j.ok !== false) {
                     done = true; view = "done";
                     // in place, no reload: the game takes the deck now; the server's trunk push (0x7125-27) refreshes an open Edit Deck
-                    try { Module.yo2InstallStarterDeck?.(j.deck ?? deck); } catch (e) { console.warn("starter: install", e); }
+                    // .main: the server's deck shape {id, name, main, extra}; an older server's answer just installs nothing
+                    if (j.deck?.main) try { await Module.yo2InstallStarterDeck?.(j.deck); } catch (e) { console.warn("starter: install", e); }
                 }
                 else {
                     if (r.status === 409) done = true;
