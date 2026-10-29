@@ -665,9 +665,14 @@ export class Lobby {
     c.send(0x4803, w.bytes());
   }
   private hPacklist(c: Conn) { c.send(0x4800, cat(...Array.from({ length: 10 }, (_, i) => new W().u16(i + 1).bytes()))); return true; }
-  hSelectpackBase(c: Conn, data: Uint8Array) { this.cardsResult(c, this.cards(data.length >= 2 ? u16(data) : 1)); return true; }
+  /** py's free pack and gift cards: off with PROGRESSION (cards come from the shop, prizes, trades), s32 1 = none. */
+  private noPack(c: Conn, mid: number) { this.log(`[lobby] 0x${mid.toString(16)}: no free cards with progression`); c.send(0x4803, new W().u32(1).bytes()); return true; }
+  hSelectpackBase(c: Conn, data: Uint8Array) {
+    if (PP.progression()) return this.noPack(c, 0x4802);
+    this.cardsResult(c, this.cards(data.length >= 2 ? u16(data) : 1)); return true;
+  }
   private hSelectpack(c: Conn, data: Uint8Array) { return this.g.selectpack ? this.g.selectpack(c, data, () => this.hSelectpackBase(c, data)) : this.hSelectpackBase(c, data); }
-  private hGiftcards(c: Conn) { this.cardsResult(c, this.cards(1)); return true; }
+  private hGiftcards(c: Conn) { if (PP.progression()) return this.noPack(c, 0x4910); this.cardsResult(c, this.cards(1)); return true; }
 
   private hTrade(c: Conn, data: Uint8Array): boolean {
     const sub = data.length >= 2 ? u16(data) : 0;

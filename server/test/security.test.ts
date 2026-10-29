@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { be32, harness, pack } from "./notes-harness.ts";
 import type { Session } from "../src/game/hub.ts";
 import * as PP from "../src/game/persist.ts";
+import SHOP from "../gamedata/shop.json";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -106,5 +107,33 @@ describe("floods", () => {
     l.raw(burst);
     await h.tick(50);
     expect(l.closedByServer).toBe(true);
+  });
+});
+
+describe("0x4802 SELECTPACK / 0x4910 0x4915 GIFTCARDS", () => {
+  it("give no cards without a PvP or NPC card due; a due card comes from the pack that was due", async () => {
+    const h = harness({ players: {} }, { DEV: "0", PROGRESSION: "1" });
+    try {
+      const a = h.client("alice", "alice", "pw", "user-a");
+      await a.account(0, "Alice");
+      await a.enterRoom();
+      const prof = () => h.state().accounts["u:user-a"].profiles["0"];
+      const count = () => Object.values(prof().trunk as Record<string, number>).reduce((n, x) => n + x, 0);
+      const before = count();
+      for (const [mid, body] of [[0x4802, [0, 1]], [0x4802, [0xff, 0xff]], [0x4910, []], [0x4915, []]] as [number, number[]][]) {
+        const n = a.room!.mark();
+        a.room!.send(mid, body);
+        expect(await a.room!.wait(0x4803, n)).not.toBeNull();
+      }
+      expect(count()).toBe(before);
+      const st = h.state(); st.accounts["u:user-a"].profiles["0"].npc_card_due = [3]; h.game.store.saveRaw(st);
+      const was = { ...prof().trunk } as Record<string, number>;
+      const n = a.room!.mark();
+      a.room!.send(0x4802, [0xff, 0xff]);                    // asks another pack than the one due
+      await a.room!.wait(0x4803, n);
+      const got = Object.keys(prof().trunk).filter((k) => prof().trunk[k] > (was[k] ?? 0)).map(Number);
+      expect(got.length).toBe(1);
+      expect((SHOP.iid as Record<string, number[]>)["3"]).toContain(got[0]);
+    } finally { PP.setProgression(false); }
   });
 });
