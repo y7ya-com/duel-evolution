@@ -228,7 +228,9 @@ export class DuelPort {
         return;
       }
     }
-    if (DF && msgId === 0x0003) { DF.h_0003(c, data); return; }
+    // a duel connection's goodbye clears the duel end only if it is its own duel's: with the engine awaited, the old
+    // connection's 0x0003 can arrive after the next duel began, and clearing that one leaves it unable to finish
+    if (DF && msgId === 0x0003) { if (DF.sess.end === (X(c).dfEnd ?? null)) DF.h_0003(c, data); return; }
     duelReplyV2({ cfg: this.ls, log: (t) => this.log(t), base: (...a) => this.duelReplyBase(...a), burst: (cc, m) => this.burst(cc, m) },
       c, msgId, param, data);
   }
