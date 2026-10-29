@@ -35,3 +35,4 @@
 008e8f10  # CDeckScene vf05, Edit Deck closing (decksync.c: the current deck to the server)
 0082d750  # My Room door picker step (rt/gate.c: the language is picked for the player)
 0061fc40  # CStringDB::GetString (ovr/roomname.c)
+00a54f90  # room name: kind text + room letter (ovr/roomname.c: no letter for a kind's only room)
