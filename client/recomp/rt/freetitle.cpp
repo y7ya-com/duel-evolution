@@ -8,7 +8,7 @@
 // glyph fill masks lifted from the English captions + the outline drawn again around the new string, by the rule the
 // game's art follows (1 px light above/left of the fill, medium below/right, a corner shade, 2 px dark, a half-dark
 // row above). Re-drawing OFFICIAL WEBSITE this way matches the original by eye. The game's art has no K: it is drawn
-// as a stem plus two 5 px diagonals, the stroke of the font's N and W.
+// as a stem plus two diagonals of the other letters' weight, outlined like them.
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -100,13 +100,13 @@ bool near(const uint8_t* p, const uint8_t* q) {
 
 Mask glyph(char ch, Img* rows, const Style& st, int& width) {
     Mask m;
-    if (ch == 'K') {   // stem + arms meeting it mid-height
+    if (ch == 'K') {   // the stem, and arms 7 px across (the weight of E and C) meeting it mid-height, cut flush
+        width = 19;
         for (int y = TOP; y < BOTTOM; y++) {
             int a = 5 + (abs(y - 24) * 2 + 1) / 3;
             for (int x = 0; x < 5; x++) m.insert({x, y});
-            for (int x = a; x < a + 5; x++) m.insert({x, y});
+            for (int x = a; x < a + 7 && x < width; x++) m.insert({x, y});
         }
-        width = 18;
         return m;
     }
     for (const Src& s : SRC) {
