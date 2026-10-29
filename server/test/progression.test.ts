@@ -45,7 +45,7 @@ describe("progression", () => {
     await h.tick(500);
     expect([0x7125, 0x7126, 0x7127, 0x4140].map((m) => A.room!.all(m, n).length > 0)).toEqual([true, true, true, true]); // pushed live
     const total = (l: [number, number][]) => l.reduce((x, c) => x + c[1], 0);
-    expect([code, out.ok, out.id, out.cards, out.deck.name, total(out.deck.main), total(out.deck.extra)]).toEqual([200, true, 7003, 40, "Dark Magicians", 40, 0]); // the ready deck
+    expect([code, out.ok, out.id, out.cards, out.deck.name, total(out.deck.main), total(out.deck.extra)]).toEqual([200, true, 7003, 40, "SPELLCASTER'S UNITY DECK", 40, 0]); // the ready deck
     expect(/[\\/:*?"<>|]/.test(out.deck.name)).toBe(false); // the client names the .ydc after it
     expect(starterClaim(h.game, "user-a", 7001)).toEqual([409, { error: "claimed" }]); // once per character
     const past = starterInfo(h.game, "user-a") as any;

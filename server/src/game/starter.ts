@@ -15,16 +15,17 @@ import type { Session } from "./hub.ts";
 import { isFree } from "./freemode.ts";
 
 /** id -> [name, blurb, cover (passcode)]: the structure decks the shop sells (shop.json packs 7000-8999). */
+// names as the game shows them (packinfo_e.txt in merge.dat), so the picker and Edit Deck agree
 export const STARTER_DECKS: Record<number, [string, string, number]> = {
-  7001: ["Elemental HEROes", "Fuse HERO monsters into Flame Wingman and friends.", 35809262],
-  7003: ["Dark Magicians", "Spellcasters led by Dark Magician and Dark Magician Girl.", 46986414],
-  7005: ["Ancient Gear", "Heavy machines that shut down your opponent's spells and traps.", 83104731],
-  8001: ["Iron Warriors", "Gearfried, Cyber Raider and a solid warrior beatdown.", 423705],
-  8002: ["Raw Power", "Big attackers like Giant Orc and Lei Lei: hit hard, hit first.", 73698349],
-  8003: ["Dark World", "Fiends that power up when they're discarded.", 78004197],
-  8004: ["Black Flame Dragons", "Level up Horus from LV4 to LV8.", 48229808],
-  8005: ["Dimension Shift", "Banish your opponent's monsters with the D.D. crew.", 7572887],
-  8006: ["Flip Control", "Flip effects and Chaos Necromancer for a patient game.", 1434352],
+  7001: ["E-HERO EVOLUTION DECK", "Fuse HERO monsters into Flame Wingman and friends.", 35809262],
+  7003: ["SPELLCASTER'S UNITY DECK", "Spellcasters led by Dark Magician and Dark Magician Girl.", 46986414],
+  7005: ["THE LOST GUARDIAN DECK", "Heavy machines that shut down your opponent's spells and traps.", 83104731],
+  8001: ["EQUIP TO BEAT DOWN", "Gearfried, Cyber Raider and a solid warrior beatdown.", 423705],
+  8002: ["CONCEALERS DECK", "Big attackers like Giant Orc and Lei Lei: hit hard, hit first.", 73698349],
+  8003: ["RESIDENT OF DARKNESS", "Fiends that power up when they're discarded.", 78004197],
+  8004: ["THE EVOLUTION OF HORUS", "Level up Horus from LV4 to LV8.", 48229808],
+  8005: ["ARRIVAL OF THE 4 EMPERORS", "Banish your opponent's monsters with the D.D. crew.", 7572887],
+  8006: ["DOGS, CATS AND SPACE", "Flip effects and Chaos Necromancer for a patient game.", 1434352],
 };
 
 const TYPE_MONSTER = 0x1, TYPE_SPELL = 0x2;
