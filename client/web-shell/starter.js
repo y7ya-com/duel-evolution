@@ -193,8 +193,7 @@
                 // UNITY DECK" for "Dark Magicians"), so the text points at the list, not the name. A deck the 2008 limit list
                 // trims loads 37-39 cards ("Cards Missing") and needs the substitutes from the trunk to reach 40.
                 // ">" not "→": the glyph atlas (ui/glyphs-dejavu16.json) has no arrow.
-                done: [`✓ ${name} is yours!`, "Reload the page, then open Edit Deck > Structure Deck and pick the deck listed there.",
-                       "If cards are missing, drag the spares from your Trunk to make 40."],
+                done: [`✓ ${name} is yours!`, "Reload to get its cards, then Edit Deck > Structure Deck to load it."],
                 error: [`● ${msg}`],
             }[view];
             const w = Math.min(L.w - 16, 440), tw = w - 32;
@@ -208,8 +207,16 @@
             if (view === "confirm") {
                 btn(top, x + 16, by, "Yes, take it", claim);
                 btn(top, x + w - 16 - 96, by, "Back", back);
-            } else if (view === "done") btn(top, x + Math.floor((w - 96) / 2), by, "OK", close);
+            } else if (view === "done") {   // the trunk only refreshes on a new login: reload, signed in straight back (online=1)
+                const rw = Math.max(96, measure("Reload now") + 32);
+                btn(top, x + Math.floor((w - rw) / 2), by, "Reload now", reload);
+            }
             else if (view === "error") btn(top, x + Math.floor((w - 96) / 2), by, "OK", done ? close : back);
+        }
+
+        function reload() {
+            const u = new URLSearchParams(location.search); u.set("online", "1");
+            location.replace(location.pathname + "?" + u);
         }
 
         function back() {
