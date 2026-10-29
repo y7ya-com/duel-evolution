@@ -93,4 +93,51 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
     const after = srv.game.store.loadRaw();
     expect([after.accounts.aaaa.profiles["0"].rec.mp, after.accounts.bbbb.profiles["0"].rec.mp]).toEqual([10000, 10000]); // as the test made them: unchanged
   }, 60_000);
+
+  it("a deck swapped after its check (0x6601 again, or no 0x6603 at all) is checked again at 0x61fe and never starts", async () => {
+    const st = srv.game.store.loadRaw();
+    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
+    for (const k of ["aaaa", "bbbb"]) {
+      st.accounts[k].profiles = { "0": { ...PP.blankProfile(k), prog: 1 } };
+      PP.trunkAdd(null, st.accounts[k].profiles["0"], [...own.main, ...own.extra]);
+    }
+    srv.game.store.saveRaw(st);
+    for (const skip6603 of [false, true]) {
+      const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
+      const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+      for (const c of [A, B]) {
+        await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
+        await send(c, 0x6600, new W().u32(own.main.length).u32(0).u32(own.extra.length).bytes());
+        if (skip6603 && c === A) { await send(c, 0x6601, deckMsg(NPC_DECKS["54"].main)); continue; }   // never checked
+        await send(c, 0x6601, deckMsg(own.main));
+        await send(c, 0x6603, deckMsg(own.extra));
+      }
+      if (!skip6603) await send(A, 0x6601, deckMsg(NPC_DECKS["54"].main));   // after the check: cards A doesn't own
+      await new Promise((r) => setTimeout(r, 200));
+      expect(m.deckBad).toBeNull();
+      for (const c of [A, B]) await send(c, 0x61fe, Uint8Array.of(0));
+      await until(() => !!m.deckBad);
+      expect([...m.deckBad!]).toEqual([0]);
+      expect(m.ps).toBeNull();
+      m.cancel("test");
+      await until(() => m.done);
+    }
+  }, 60_000);
+
+  it("NPC duels too: 0x61fe checks the deck again when it isn't the one checked at 0x6603", () => {
+    const st = srv.game.store.loadRaw();
+    const own = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };
+    st.accounts.aaaa.profiles = { "0": { ...PP.blankProfile("Alfa"), prog: 1 } };
+    PP.trunkAdd(null, st.accounts.aaaa.profiles["0"], [...own.main, ...own.extra]);
+    srv.game.store.saveRaw(st);
+    const A = client("Alfa", "aaaa", 1);
+    A.duel.sess = A.s;
+    const dk = srv.game.duel!.dk, ses = { player: { main: own.main.slice(), extra: own.extra.slice() }, id: 1 };
+    dk.npcDeck(A.duel, ses);
+    dk.npcStart(A.duel, ses);
+    expect(A.duel.ext.deckBlock).toBeUndefined();
+    ses.player.main = NPC_DECKS["54"].main.slice();                       // 0x6601 again, after the check
+    dk.npcStart(A.duel, ses);
+    expect(A.duel.ext.deckBlock).toBeTruthy();
+  });
 });
