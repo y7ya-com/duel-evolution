@@ -103,7 +103,7 @@ export class Hub {
     if (!this.sessions.has(acct) && this.sessions.size >= this.g.cfg.maxSessions) this.sweep();
     let s = this.sessions.get(acct) ?? null;
     if (s && LOGIN_EN_USO) busy = this.inUseBy(s, c);
-    if (s && !busy && !modeAgrees(s, c, Hub.live(s))) { // free mode vs MMO (game/freemode.ts): one at a time
+    if (s && !busy && !modeAgrees(s, c, Hub.liveElsewhere(s, c))) { // free mode vs MMO (game/freemode.ts): one at a time
       this.log(`[free] 0x3003 of ${acct.slice(0, 6)}… (port ${c.port}): the session is live in the other mode`);
       busy = c;
     }
@@ -148,6 +148,12 @@ export class Hub {
       return o;
     }
     return null;
+  }
+
+  /** A connection of s other than c that still holds its mode: open and not said goodbye (0x0003). The 2008 client
+   *  leaves its account connection open after Return to Title, but says goodbye on it. */
+  static liveElsewhere(s: Session, c: Conn): boolean {
+    return [...s.conns.values(), s.lobby].some((o) => o && o !== c && !o.closed && !o.bye);
   }
 
   static live(s: Session): boolean {
