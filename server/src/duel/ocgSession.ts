@@ -40,12 +40,36 @@ export function step<T>(g: Game, ctx: Ctx, fn: () => T): Promise<T> {
   });
 }
 
+/** The duel engine behind CoreQ: each command answers its event lines (py's duelcore line protocol), so it can live
+ *  in this isolate (LocalEngine) or in a Durable Object of its own (EngineDO, DESIGN.md). query() is synchronous: the
+ *  translator reads the duel's state while it translates, and the engine never moves between commands. */
+export interface Engine {
+  create(id: string | number, decks: { main: number[]; extra: number[] }[], o: Parameters<DuelCore["new"]>[2]): Promise<Json[]>;
+  respond(id: string | number, response: Json, player?: number): Promise<Json[]>;
+  auto(id: string | number): Promise<Json[]>;
+  end(id: string | number): Promise<Json[]>;
+  query(id: string | number): Json;
+  /** The in-process engine, when there is one (the NPC AI's lookahead forks it). */
+  readonly local: DuelCore | null;
+}
+export class LocalEngine implements Engine {
+  constructor(readonly local: DuelCore) {}
+  async create(id: string | number, decks: { main: number[]; extra: number[] }[], o: Parameters<DuelCore["new"]>[2]) { return this.local.new(id, decks, o); }
+  async respond(id: string | number, response: Json, player?: number) { return this.local.respond(id, response, player); }
+  async auto(id: string | number) { return this.local.auto(id); }
+  async end(id: string | number) { return this.local.end(id); }
+  query(id: string | number) { return this.local.query(id); }
+}
+
+/** A pending engine command: the session awaits it between World handlers (a remote engine answers later). */
+export type Op = () => Promise<unknown>;
+
 /** The engine seen like py's duelcore.py client: per-duel event queues read with wait() up to a select/end/error. */
 export class CoreQ {
   private qs = new Map<string, Json[]>();
   /** Commands sent to a duel since its `new`, for the duels that asked (the NPC AI's forks replay them). */
   private logs = new Map<string, LoggedCmd[]>();
-  constructor(readonly dc: DuelCore) {}
+  constructor(readonly eng: Engine) {}
   private feed(evs: Json[]) {
     for (const ev of evs) {
       if (ev.id === undefined || ev.id === null || ["ready", "pong", "cardinfo", "list"].includes(String(ev.ev))) continue;
@@ -54,11 +78,11 @@ export class CoreQ {
       this.qs.get(k)!.push(ev);
     }
   }
-  new(id: string | number, decks: { main: number[]; extra: number[] }[], o: Parameters<DuelCore["new"]>[2]) { this.feed(this.dc.new(id, decks, o)); }
+  async new(id: string | number, decks: { main: number[]; extra: number[] }[], o: Parameters<DuelCore["new"]>[2]) { this.feed(await this.eng.create(id, decks, o)); }
   record(id: string | number): LoggedCmd[] { const l: LoggedCmd[] = []; this.logs.set(JSON.stringify(id), l); return l; }
-  respond(id: string | number, response: Json, player?: number) { this.logs.get(JSON.stringify(id))?.push({ r: response, p: player }); this.feed(this.dc.respond(id, response, player)); }
-  auto(id: string | number) { this.logs.get(JSON.stringify(id))?.push({}); this.feed(this.dc.auto(id)); }
-  end(id: string | number) { this.feed(this.dc.end(id)); this.qs.delete(JSON.stringify(id)); this.logs.delete(JSON.stringify(id)); }
+  async respond(id: string | number, response: Json, player?: number) { this.logs.get(JSON.stringify(id))?.push({ r: response, p: player }); this.feed(await this.eng.respond(id, response, player)); }
+  async auto(id: string | number) { this.logs.get(JSON.stringify(id))?.push({}); this.feed(await this.eng.auto(id)); }
+  async end(id: string | number) { this.feed(await this.eng.end(id)); this.qs.delete(JSON.stringify(id)); this.logs.delete(JSON.stringify(id)); }
   wait(id: string | number): Json[] {
     const q = this.qs.get(JSON.stringify(id)) ?? [];
     const i = q.findIndex((e) => STOP_EVENTS.has(String(e.ev)));
@@ -67,7 +91,7 @@ export class CoreQ {
     return q.splice(0, i + 1);
   }
   query(id: string | number): Json {
-    const ev = this.dc.query(id);
+    const ev = this.eng.query(id);
     if (ev.ev === "error") throw new DuelCoreError(String(ev.error));
     return ev;
   }
@@ -78,7 +102,7 @@ let CQ: CoreQ | null = null;
 export function core(): CoreQ {
   const dc = duelCore();
   if (!dc) throw new DuelCoreError("duelcore no ha arrancado");
-  if (!CQ || CQ.dc !== dc) CQ = new CoreQ(dc);
+  if (!CQ || CQ.eng.local !== dc) CQ = new CoreQ(new LocalEngine(dc));
   return CQ;
 }
 
@@ -186,14 +210,20 @@ export class OcgSession {
 
   // ---- start (duel task)
   async start(first: number): Promise<void> {
-    const ok = await step(this.g, this.ctx(), () => {
-      try { this.startSync(first); return true; } catch (e) { this.fatal(e); return false; }
+    const op = await step(this.g, this.ctx(), () => {
+      try { return this.startSync(first); } catch (e) { this.fatal(e); return null; }
     });
+    if (op) await this.run(op);
     await this.flushEnd();
-    if (ok) await this.pump();
+    if (op) await this.pump();
   }
 
-  private startSync(first: number): void {
+  /** An engine command, awaited outside the World; a failure is the duel's fatal(), back inside it. */
+  private async run(op: Op): Promise<void> {
+    try { await op(); } catch (e) { await step(this.g, this.ctx(), () => this.fatal(e)); }
+  }
+
+  private startSync(first: number): Op {
     if (this.npc === null) this.npcSizes();
     const decks = [{ main: toCodes(this.player.main), extra: toCodes(this.player.extra) },
       { main: toCodes(this.npc!.main), extra: toCodes(this.npc!.extra) }];
@@ -206,18 +236,19 @@ export class OcgSession {
     const dc = this.core();
     const rule = PY_DUEL_RULE;
     const autoChain = !d.cfg.chain_none_prompt;
+    const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
+      : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
     if (USE_BRAIN) {
-      const o = { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order };
       if (this.g.cfg.npcAi === "py") this.brain = new NpcBrain(loadNpcProfile(this.npcId, NPC_PROFILES), 1, seed, brainDb());
       else {
-        const log = dc.record(this.id), engine = dc.dc, id = this.id;
+        const log = dc.record(this.id), engine = dc.eng.local!, id = this.id;
         this.brain = new NpcAi({ npcId: this.npcId, seat: 1, seed, cards: cardInfo(engine.cardDB, brainDb()), tier: tierFor(this.npcId, NPC_PROFILES),
           spy: this.g.cfg.npcAiSpy, link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
       }
-      dc.new(this.id, decks, o);
-    } else dc.new(this.id, decks, { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order });
+    }
     this.log(`[ocg] duelo ${this.id}: NPC ${this.npcId}, empieza ${first}, regla ${rule}, mazos `
       + `${decks[0].main.length}+${decks[0].extra.length} / ${decks[1].main.length}+${decks[1].extra.length}`);
+    return () => dc.new(this.id, decks, o);
   }
 
   // ---- end
@@ -246,38 +277,38 @@ export class OcgSession {
     if (this.ended || this.over) return;
     this.over = true;
     if (this.d) { this.d.query = null; this.d.finished = true; }
-    if (this.dc && !dead) { try { this.dc.end(this.id); } catch { /* py: pass */ } }
+    if (this.dc && !dead) this.dc.end(this.id).catch(() => { /* py: pass */ });
     this.end(null, "error", this.turn);
   }
 
   // ---- the event loop until the player is needed
   async pump(): Promise<void> {
     for (;;) {
-      const r = await step(this.g, this.ctx(), () => {
-        try { return this.pumpSome(); } catch (e) { this.fatal(e); return "stop" as const; }
+      const r = await step(this.g, this.ctx(), (): "stop" | "think" | Op => {
+        try { return this.pumpSome(); } catch (e) { this.fatal(e); return "stop"; }
       });
+      if (typeof r === "function") { await this.run(r); continue; }
       await this.flushEnd();
       if (r !== "think") return;
       await sleep(NPC_THINK);
     }
   }
 
-  private npcDecide(last: Json): void {
+  private npcDecide(last: Json): Op {
     const dc = this.core();
-    if (last.retry) dc.auto(this.id);
-    else {
-      const r = this.brain!.choose(last);
-      if (r === null) dc.auto(this.id);
-      else dc.respond(this.id, r as Json, 1);
-    }
+    if (last.retry) return () => dc.auto(this.id);
+    const r = this.brain!.choose(last);
+    return r === null ? () => dc.auto(this.id) : () => dc.respond(this.id, r as Json, 1);
   }
 
-  private pumpSome(): "stop" | "think" {
+  /** Reads the engine's events until the player is needed ("stop"), the NPC thinks ("think") or a command is due (its
+   *  Op: pump() awaits it and comes back here). */
+  private pumpSome(): "stop" | "think" | Op {
     if (this.think) {
       const last = this.think;
       this.think = null;
       if (this.over) return "stop";
-      this.npcDecide(last);
+      return this.npcDecide(last);
     }
     const d = this.d!;
     while (!this.over) {
@@ -288,21 +319,18 @@ export class OcgSession {
       if (this.brain) for (const e of evs) if (e.ev === "msg") this.brain.observe(e);
       if (last.ev === "select" && last.player === 1 && last.type === "SELECT_CHAIN" && !last.selects && !last.forced && !last.retry) {
         this.out.put(d.feed_many(evs.slice(0, -1)));
-        this.core().respond(this.id, { type: "SELECT_CHAIN", index: null }, 1);
-        continue;
+        return () => this.core().respond(this.id, { type: "SELECT_CHAIN", index: null }, 1);
       }
       if (last.ev === "select" && last.player === 1) {
         this.out.put(d.feed_many(evs.slice(0, -1)));
         this.npcDecisions++;
         if (this.npcDecisions > MAX_NPC_DECISIONS) {
           this.log("[ocg] la NPC entra en bucle: se acaba el duelo (gana el jugador)");
-          this.core().end(this.id);
           this.end(0, "loop", this.turn);
-          return "stop";
+          return () => this.core().end(this.id);
         }
         if (last.type === "SELECT_IDLECMD" || last.type === "SELECT_BATTLECMD") { this.think = last; return "think"; }
-        this.npcDecide(last);
-        continue;
+        return this.npcDecide(last);
       }
       if (last.ev === "end") {
         d.query = null;
@@ -323,55 +351,56 @@ export class OcgSession {
         this.coreErrors++;
         this.log(`[ocg] error de duelcore (duelo ${this.id}, ${this.coreErrors}.º seguido): ${last.error}`);
         if (this.coreErrors > CORE_ERROR_AUTO) throw new DuelCoreError(`${this.coreErrors} errores seguidos de duelcore: ${last.error}`);
-        this.core().auto(this.id);
-        continue;
+        return () => this.core().auto(this.id);
       }
-      if (d.needs_auto()) { this.cmd(d.auto_response()); continue; }
+      if (d.needs_auto()) return this.cmd(d.auto_response());
       return "stop";
     }
     return "stop";
   }
 
-  private cmd(cmd: Cmd | null): void {
+  private cmd(cmd: Cmd | null): Op {
     if (cmd === null) throw new TypeError("'NoneType' object has no attribute 'get'");
-    if (cmd.cmd === "auto") this.core().auto(this.id);
-    else this.core().respond(this.id, cmd.response);
+    if (cmd.cmd === "auto") return () => this.core().auto(this.id);
+    return () => this.core().respond(this.id, cmd.response);
   }
 
   // ---- the client's plays (duel task)
   async onClient(msgId: number, data: Uint8Array): Promise<void> {
-    const go = await step(this.g, this.ctx(), () => {
+    const op = await step(this.g, this.ctx(), (): Op | null => {
       const d = this.d;
-      if (d === null || this.over) return false;
+      if (d === null || this.over) return null;
       let cmd: Cmd | null, back: Msg[];
       try { [cmd, back] = d.on_client(msgId, data); }
       catch (e) {
         this.log(`[EXC] [ocg] duelo ${this.id}: traductor con 0x${msgId.toString(16).padStart(4, "0")}: ${errStr(e)}`);
         try { this.out.put(d.resend()); } catch (e2) { this.log(`[ocg] duelo ${this.id}: no se puede volver a pedir la jugada: ${errStr(e2)}`); }
-        return false;
+        return null;
       }
       this.out.put(back);
-      if (!cmd) return false;
-      try { this.cmd(cmd); } catch (e) { this.fatal(e); return false; }
-      return true;
+      if (!cmd) return null;
+      try { return this.cmd(cmd); } catch (e) { this.fatal(e); return null; }
     });
+    if (op) await this.run(op);
     await this.flushEnd();
-    if (go) await this.pump();
+    if (op) await this.pump();
   }
 
   /** The end is sent by duelfin (h_6350/h_6423). */
   surrender(): void {
     this.over = true;
     this.ended = true;
-    try { if (this.dc) this.dc.end(this.id); } catch { /* py: pass */ }
+    this.dc?.end(this.id).catch(() => { /* py: pass */ });
   }
 
   /** py _abandon_duel: over, and the duel closed in duelcore. */
   abandon(): void {
     if (this.over) return;
     this.over = true;
-    try { this.core().end(this.id); this.log(`[duelo] duelo ${this.id} cerrado en duelcore`); }
-    catch (e) { this.log(`[duelo] cerrar el duelo ${this.id} en duelcore: ${errStr(e)}`); }
+    let dc: CoreQ;
+    try { dc = this.core(); } catch (e) { this.log(`[duelo] cerrar el duelo ${this.id} en duelcore: ${errStr(e)}`); return; }
+    dc.end(this.id).then(() => this.log(`[duelo] duelo ${this.id} cerrado en duelcore`),
+      (e) => this.log(`[duelo] cerrar el duelo ${this.id} en duelcore: ${errStr(e)}`));
   }
 }
 
@@ -417,20 +446,33 @@ export class PvpSession {
     this.over = true;
     this.decider = null;
     for (const v of this.views) if (v) { v.query = null; v.finished = true; }
-    if (this.dc) { try { this.dc.end(this.id); } catch { /* pass */ } }
+    if (this.dc) this.dc.end(this.id).catch(() => { /* pass */ });
     try { this.finish(null, "error", this.turn); }
     catch (e2) { this.log(`[ERROR] [pvp] ${this.id}: el fin por error también falla: ${errStr(e2)}`); }
   }
 
   evFor(i: number, evs: Json[]): Json[] { return i === 0 ? evs : evs.map((e) => mirror(e)); }
 
-  start(first: number): void {
-    if (this.started) return;
+  /** Resolves once the duel waits for a player (PvpMatch awaits it before its next item). */
+  start(first: number): Promise<void> {
+    if (this.started) return Promise.resolve();
     this.started = true;
-    try { this.startSync(first); } catch (e) { this.fatal(e); }
+    let op: Op;
+    try { op = this.startSync(first); } catch (e) { this.fatal(e); return Promise.resolve(); }
+    return this.runPump(op);
   }
 
-  private startSync(first: number): void {
+  /** An engine command, then the events until a player is needed; each synchronous part is a World handler with the
+   *  caller's context (the engine may answer later: Engine). */
+  private async runPump(op: Op): Promise<void> {
+    const ctx = this.g.ctx;
+    for (let next: Op | undefined = op; next;) {
+      try { await next(); } catch (e) { await step(this.g, ctx, () => this.fatal(e)); return; }
+      next = await step(this.g, ctx, () => { try { return this.pumpSync(); } catch (e) { this.fatal(e); return undefined; } });
+    }
+  }
+
+  private startSync(first: number): Op {
     const codes = this.decks.map((d) => ({ main: toCodes(d.main ?? []), extra: toCodes(d.extra ?? []) }));
     const cfg: Record<string, unknown> = { npc_phrases: false, place_order: this.g.cfg.placeOrder };
     if (this.clk) cfg.turn_timer = 0;
@@ -442,18 +484,15 @@ export class PvpSession {
     for (const i of [0, 1]) this.out[i].put(this.views[i]!.start());
     const seed = this.g.rng.randrange(1 << 30);
     const rule = PY_DUEL_RULE;
-    this.core().new(this.id, codes, { first: first as 0 | 1, seed, shuffle: true, bot: [false, false], rule,
-      auto_chain: !this.views[0]!.cfg.chain_none_prompt, place_order: this.g.cfg.placeOrder });
+    const o = { first: first as 0 | 1, seed, shuffle: true, bot: [false, false] as [boolean, boolean], rule,
+      auto_chain: !this.views[0]!.cfg.chain_none_prompt, place_order: this.g.cfg.placeOrder };
     this.log(`[pvp] duelo ${this.id}: empieza ${first}, regla ${rule}, mazos ${codes[0].main.length}+${codes[0].extra.length}`
       + ` / ${codes[1].main.length}+${codes[1].extra.length}`);
-    this.pump();
+    return () => this.core().new(this.id, codes, o);
   }
 
-  pump(): void {
-    try { this.pumpSync(); } catch (e) { this.fatal(e); }
-  }
-
-  private pumpSync(): void {
+  /** Reads the engine's events until a player is needed (undefined) or a command is due (its Op: runPump). */
+  private pumpSync(): Op | undefined {
     while (!this.over) {
       const evs = this.core().wait(this.id);
       const last = evs[evs.length - 1];
@@ -494,15 +533,14 @@ export class PvpSession {
             this.finish(null, "sum", (last.turn as number) || 0);
             return;
           }
-          this.core().auto(this.id);
-          continue;
+          return () => this.core().auto(this.id);
         }
         this.sumAutos = 0;
         this.out[o].put(this.views[o]!.feed_many(this.evFor(o, evs.slice(0, -1))));
         const v = this.views[p]!;
         this.out[p].put(v.feed_many(this.evFor(p, evs)));
         try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
-        if (v.needs_auto()) { this.cmd(p, v.auto_response()); continue; }
+        if (v.needs_auto()) return this.cmd(p, v.auto_response());
         this.decider = p;
         if (this.clk) this.clkBegin(p);
         return;
@@ -513,22 +551,21 @@ export class PvpSession {
         this.log(`[pvp] error de duelcore en ${this.id} (${this.coreErrors}.º seguido): ${last.error}`);
         if (this.coreErrors > CORE_ERROR_AUTO) throw new DuelCoreError(`${this.coreErrors} errores seguidos de duelcore: ${last.error}`);
         this.decider = null;
-        this.core().auto(this.id);
-        continue;
+        return () => this.core().auto(this.id);
       }
       return;
     }
   }
 
-  private cmd(p: number, cmd: Cmd | null): void {
+  private cmd(p: number, cmd: Cmd | null): Op {
     if (this.clk) this.clkStop();
     this.decider = null;
-    if (cmd === null || cmd.cmd === "auto") this.core().auto(this.id);
-    else this.core().respond(this.id, unmirror_response(p, cmd.response), p);
+    if (cmd === null || cmd.cmd === "auto") return () => this.core().auto(this.id);
+    return () => this.core().respond(this.id, unmirror_response(p, cmd.response), p);
   }
 
   /** A play of client i (absolute): reaches duelcore only if the pending decision is theirs. */
-  onClient(i: number, msgId: number, data: Uint8Array): void {
+  onClient(i: number, msgId: number, data: Uint8Array): Promise<void> | void {
     const v = this.views[i];
     if (this.over || !v) return;
     let cmd: Cmd | null, back: Msg[];
@@ -541,8 +578,9 @@ export class PvpSession {
     this.out[i].put(back);
     if (cmd) {
       if (this.decider !== i) { this.log(`[pvp] ${this.id}: respuesta de ${i} sin ser su decisión (decide ${this.decider}): ignorada`); return; }
-      try { this.cmd(i, cmd); } catch (e) { this.fatal(e); return; }
-      this.pump();
+      let op: Op;
+      try { op = this.cmd(i, cmd); } catch (e) { this.fatal(e); return; }
+      return this.runPump(op);
     }
   }
 
@@ -551,14 +589,15 @@ export class PvpSession {
     if (v && !this.over) this.out[i].put(v.resend());
   }
 
-  /** Test instance (YO2_PVP_TEST): bot.ts decides i's pending decision. false if it is not theirs. */
-  auto(i: number): boolean {
+  /** Test instance (YO2_PVP_TEST): bot.ts decides i's pending decision. false if it is not theirs; else it resolves
+   *  once the duel waits again. */
+  auto(i: number): false | Promise<void> {
     const v = this.views[i];
     if (this.over || this.decider !== i || !v) return false;
     v.waiting = null; v.state = null; v.viewing = false;
-    try { this.cmd(i, { cmd: "auto" }); } catch (e) { this.fatal(e); return true; }
-    this.pump();
-    return true;
+    let op: Op;
+    try { op = this.cmd(i, { cmd: "auto" }); } catch (e) { this.fatal(e); return Promise.resolve(); }
+    return this.runPump(op);
   }
 
   /** Cuts the duel in duelcore (surrender / disconnection: PvpMatch sends the end). */
@@ -569,7 +608,7 @@ export class PvpSession {
     this.decider = null;
     if (this.clk) this.clk.run = null;
     for (const v of this.views) if (v) v.query = null;
-    if (this.started && this.dc) { try { this.dc.end(this.id); } catch { /* pass */ } }
+    if (this.started && this.dc) this.dc.end(this.id).catch(() => { /* pass */ });
   }
 
   // ---- time limit (py TIEMPO.md «Implementado»)

@@ -305,15 +305,23 @@ export class PvpMatch {
   watchAttach(c: Conn): void { Object.assign(X(c), { pvp: this, pvpI: null, pvpW: true }); this.q(["watch", c]); }
   cancel(why: string): void { this.q(["cancel", why]); }
 
-  /** py self.q.put: the match's FIFO; each item is one World handler (CTX.sess = None in py's worker). */
+  /** py self.q.put: the match's FIFO; each item is one World handler (CTX.sess = None in py's worker). An item that
+   *  drives the engine (ocgSession.ts Engine) resolves when the duel waits again; the next item waits for it, as in py's
+   *  single worker thread. */
   q(item: Item): void {
-    this.chain = this.chain.then(() => this.g.world.run(() => {
-      this.g.ctx = null;
-      try { this.item(item); } catch (e) { this.log(`[EXC] ${this.name}: ${errStr(e)} | ${(e as Error)?.stack?.replace(/\n/g, " | ")}`); }
-    }));
+    const exc = (e: unknown) => this.log(`[EXC] ${this.name}: ${errStr(e)} | ${(e as Error)?.stack?.replace(/\n/g, " | ")}`);
+    this.chain = this.chain.then(async () => {
+      let rest: Promise<void> | undefined;
+      await this.g.world.run(() => {
+        this.g.ctx = null;
+        try { rest = this.item(item) || undefined; } catch (e) { exc(e); }
+      });
+      const r = rest as Promise<void> | undefined;
+      if (r) await r.catch(exc);
+    });
   }
 
-  private item(it: Item): void {
+  private item(it: Item): Promise<void> | void {
     const k = it[0];
     if (k === "watch") return this.watchNew(it[1]);
     if (k === "msg" && X(it[1]).pvpW) return this.watchMsg(it[1], it[2], it[3]);
@@ -334,7 +342,7 @@ export class PvpMatch {
     if (k === "between") return this.betweenTimeout(it[1]);
   }
 
-  private msg(i: number, c: Conn, mid: number, data: Uint8Array): void {
+  private msg(i: number, c: Conn, mid: number, data: Uint8Array): Promise<void> | void {
     const o = 1 - i;
     if (this.needStart && NEXT_MSGS.has(mid)) {
       if (this.between) this.nextGame();
@@ -401,13 +409,14 @@ export class PvpMatch {
       if (this.ps && !this.needStart && this.ps.views[i]) this.ps.views[i]!.place_manual = this.placeManual[i];
       if (this.ready[i]) return this.log(`[pvp] ${this.name}: 0x61fe repetido de ${i} (${Buffer.from(data).toString("hex")}): ignorado`);
       this.ready[i] = true;
-      if (this.ready.every(Boolean) && (this.ps === null || this.needStart)) this.start();
+      if (this.ready.every(Boolean) && (this.ps === null || this.needStart)) return this.start();
       return;
     }
     if (mid === M_TEST_AUTO) {
       if (!this.hub.test) return this.log(`[pvp] 0x${mid.toString(16)} fuera de la instancia de prueba: ignorado`);
-      if (this.ps && !this.ps.auto(i)) this.badAuto++;
-      return;
+      const a = this.ps ? this.ps.auto(i) : undefined;
+      if (a === false) this.badAuto++;
+      return a || undefined;
     }
     if (mid === M_TEST_LOSE) {
       if (!this.hub.test) return this.log(`[pvp] 0x${mid.toString(16)} fuera de la instancia de prueba: ignorado`);
@@ -481,7 +490,7 @@ export class PvpMatch {
   }
 
   // ---- duel
-  private start(): void {
+  private start(): Promise<void> {
     const first = this.first ?? 0;
     const [clock, why] = this.clockCfg();
     this.needStart = false;
@@ -491,7 +500,7 @@ export class PvpMatch {
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     this.statsAttach();
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
-    this.ps.start(first);
+    return this.ps.start(first);
   }
 
   private statsAttach(): void {
