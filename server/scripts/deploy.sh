@@ -12,11 +12,12 @@ W=${1:-120}
 api() { local body=${2:-'{}'}; curl -sf -X POST -H "x-de-deploy: $DEPLOY_TOKEN" -H "content-type: application/json" --data "$body" "$B/__admin/$1"; }
 echo "online now: $(api online)"
 if [ "$W" -gt 0 ]; then
-  api maintenance "{\"seconds\":$W}" >/dev/null
   # the reconnecting web client (yo2-browser's shell) isn't live everywhere yet: DEPLOY_TEXT changes the line
   T=${DEPLOY_TEXT:-"Server update in $((W / 60)) min. If you are disconnected, reload the page."}
   echo "warned: $(api announce "$(python3 -c 'import json, sys; print(json.dumps({"text": sys.argv[1]}))' "$T")")"
-  sleep "$W"
+  # 0x4700 (the menu-bar maintenance icon + countdown, every scene but title/character select) doesn't survive a
+  # reload or a new lobby: sent again every 30 s, so players who join during the wait get it too
+  for ((left = W; left > 0; left -= 30)); do api maintenance "{\"seconds\":$left}" >/dev/null; sleep $((left < 30 ? left : 30)); done
 fi
 echo "closed with 4012: $(api shutdown)"
 # DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN

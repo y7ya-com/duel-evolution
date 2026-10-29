@@ -37,8 +37,9 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
    emergency fix for broken login or play excepted). Check the online count first and prefer a quiet moment: every
    deploy restarts the WorldDO and drops everyone. `scripts/deploy.sh` does it in order:
    - prints the online count;
-   - sends the game's maintenance notice (0x4700) and a server chat line (lobby players only: My Room and duels don't
-     show chat), "Server update in 2 min. If you are disconnected, reload the page." (`DEPLOY_TEXT` changes it: say
+   - sends the game's maintenance notice (0x4700, the main warning: the menu-bar icon and a countdown in My Room, the
+     lobby, rock-paper-scissors, mid-duel and the deck editor; tested live by yo2-browser, 2026-10-29; nothing at title or
+     character select; re-sent every 30 s, since a reload or a new lobby loses it) and a server chat line (lobby only), "Server update in 2 min. If you are disconnected, reload the page." (`DEPLOY_TEXT` changes it: say
      "you'll be reconnected" once the reconnecting web client is live);
    - waits 120 s;
    - closes every gateway WebSocket with **4012 "server-update"** (the web client reconnects at once; any other close
