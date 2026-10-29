@@ -170,7 +170,9 @@ routes.use("*", async (c, next) => {
 const TYPES: Record<string, string> = { html: "text/html; charset=utf-8", js: "text/javascript", wasm: "application/wasm", css: "text/css",
   zip: "application/zip", txt: "text/plain", woff2: "font/woff2", png: "image/png", json: "application/json" };
 const ISOLATION = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp",
-  "Cross-Origin-Resource-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow" };
+  "Cross-Origin-Resource-Policy": "same-origin", "X-Robots-Tag": "noindex, nofollow",
+  // no other site can frame the game (clickjacking a trade or a sale)
+  "Content-Security-Policy": "frame-ancestors 'self'", "X-Frame-Options": "SAMEORIGIN" };
 routes.on(["GET", "HEAD"], "*", async (c) => {
   const url = new URL(c.req.url);
   const path = url.pathname;

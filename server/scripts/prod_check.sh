@@ -23,6 +23,8 @@ ok "$([ "$r" = "302 $B/?online=1" ] && echo 1)" "bare /yo2rc.html (Discord's ret
 c=$(code "$B/yo2rc.html?t=1"); ok "$([ "$c" = 200 ] && echo 1)" "a fetch of bare /yo2rc.html gets the file ($c)"
 h=$(curl -sIL -A "$UA" "$B/" | tr -d '\r' | grep -i '^cross-origin-embedder-policy:' | cut -d' ' -f2)
 ok "$([ "$h" = require-corp ] && echo 1)" "cross-origin isolated (COEP $h)"
+h=$(curl -sIL -A "$UA" "$B/" | tr -d '\r' | grep -i '^content-security-policy:' | cut -d' ' -f2-)
+ok "$([ "$h" = "frame-ancestors 'self'" ] && echo 1)" "no other site can frame the game (CSP $h)"
 c=$(code "$B/game/files.txt"); ok "$([ "$c" = 200 ] && echo 1)" "game data /game/files.txt ($c)"
 e=$(curl -sI -A "$UA" "$B/game/files.txt" | tr -d '\r' | grep -i '^etag:' | cut -d' ' -f2 | tr -d '"')
 cc=$(curl -sI -A "$UA" "$B/game/files.txt?v=$e" | tr -d '\r' | grep -i '^cache-control:' | cut -d' ' -f2-)
