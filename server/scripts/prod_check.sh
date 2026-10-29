@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Checks a deployed Duel Evolution server without an account (DEPLOY.md, Cutover step 5): the client page, the
 # updater's files, and that the game WebSocket reaches THIS server's session gate (the old Worker has none).
-#   scripts/prod_check.sh [base]     default https://original.ygoevolution.com
+#   scripts/prod_check.sh [base]     default: both hosts (the apex and original), and www -> the apex
 set -uo pipefail
-B=${1:-https://original.ygoevolution.com}
+if [ $# -eq 0 ]; then
+  r=0
+  for h in https://ygoevolution.com https://original.ygoevolution.com; do echo "== $h"; "$0" "$h" || r=1; done
+  w=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "https://www.ygoevolution.com/x?y=1")
+  if [ "$w" = "301 https://ygoevolution.com/x?y=1" ]; then echo "OK   www 301s to the apex ($w)"; else echo "FAIL www 301s to the apex ($w)"; r=1; fi
+  exit $r
+fi
+B=$1
 O=$(sed -E 's#^(https?://[^/]+).*#\1#' <<<"$B")
 UA="Mozilla/5.0 (duel-evolution check)"
 fail=0
