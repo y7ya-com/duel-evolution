@@ -222,7 +222,8 @@ slower than `<ms>`; with `RC_PROF_DUMP=<file>` every sample is also tallied per 
 `ovr/path.c` replaces the avatar's walk path search (A*, 0xa04a30), which re-sorted its whole open list after every
 step (up to ~300 ms of CPU for one click in a lobby), with a heap that pops the nodes in the same order (~0.6 ms);
 `ovr/math.c` replaces D3DX's x87 matrix product (0xb58a89, 6-11% of every scene) with the same arithmetic in C;
-`speed.c` clears text pages with memset. The runtime remembers read path lookups (rt/k32.c, dropped on any overlay write;
+`speed.c` clears text pages with memset, and both sprites' `pixelPtr` (the mouse hit test: 0x589590 and
+CD3DSpriteTrans's 0x588a50, ~20% of My Room) lock the one texel instead of mirroring the whole texture (`RC_PIXEL=compare`). The runtime remembers read path lookups (rt/k32.c, dropped on any overlay write;
 `RC_PATHS=compare` checks each remembered answer): the exe probes ~4 missing archives per asset, ~1900 per lobby entry. `RC_ASTAR=compare` / `RC_MATH=compare` run original and override on every call
 and log any byte that differs.
 Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it

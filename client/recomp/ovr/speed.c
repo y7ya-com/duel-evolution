@@ -7,6 +7,7 @@
 // RC_NOSPEED=1 (A/B measurements): every override runs the recompiled original, kept as o_XXXXXXXX (ovr/orig.txt)
 void o_005e1b90(CPU *restrict c), o_005e1710(CPU *restrict c), o_00589590(CPU *restrict c);
 #include <stdlib.h>
+#include <string.h>
 
 // call a guest function at `fn` the way generated code does (return address pushed, callee pops its own arguments)
 static void gcall(CPU *c, uint32_t fn, uint32_t ret) {
@@ -100,19 +101,21 @@ void f_005e1710(CPU *restrict c) {   // the comparator itself (thiscall, ret 8),
 // locks the WHOLE texture READONLY for it, which the runtime mirrors into guest memory (12% of the main thread). Lock
 // just the texel's 4 bytes instead and hand back the same address arithmetic; any refused rect falls back to the
 // original whole-texture lock.
-void f_00589590(CPU *restrict c) {
-    if (rc_nospeed) { o_00589590(c); return; }
+// CD3DSpriteTrans::pixelPtr (0x588a50) is the same code with the texture at +0x94 and the size at +0x4d24: its whole
+// texture copy was 10% of My Room's main thread (the room's sprites are CD3DSpriteTrans).
+typedef struct { uint32_t tex, size, r_info, r_tile, r_lock, r_unlock; } PixelPtr;
+static void pixel_ptr(CPU *restrict c, const PixelPtr *k) {
     uint32_t self = c->ecx, ret = RD32m(c->esp);
     int32_t x = (int32_t)RD32m(c->esp + 4), y = (int32_t)RD32m(c->esp + 8), bpp = (int32_t)RD32m(c->esp + 12);
     uint32_t result = 0, esi = c->esi, edi = c->edi;
     float fx = (float)x, fy = (float)y;
-    if (x >= 0 && !(rc_rdf32(G(self + 0x4d14)) < fx) && y >= 0 && !(rc_rdf32(G(self + 0x4d18)) < fy)) {
-        c->ecx = self + 0x84;
-        PUSHm(c, 0x5895f2u); f_0059aa00(c);   // the texture's info
+    if (x >= 0 && !(rc_rdf32(G(self + k->size)) < fx) && y >= 0 && !(rc_rdf32(G(self + k->size + 4)) < fy)) {
+        c->ecx = self + k->tex;
+        PUSHm(c, k->r_info); f_0059aa00(c);   // the texture's info
         uint32_t info = c->eax;
         if (info && *(uint8_t *)G(info + 0x5c)) {
             PUSHm(c, (uint32_t)y); PUSHm(c, (uint32_t)x); PUSHm(c, info);
-            PUSHm(c, 0x589605u); f_0059b110(c);   // cdecl: the tile holding (x, y)
+            PUSHm(c, k->r_tile); f_0059b110(c);   // cdecl: the tile holding (x, y)
             c->esp += 12;
             uint32_t tile = c->eax, tex = RD32m(tile);
             if (*(uint8_t *)G(tile + 0x44) == 1) {
@@ -126,17 +129,17 @@ void f_00589590(CPU *restrict c) {
                 int32_t hr = -1;
                 if (px >= 0 && ly >= 0) {
                     PUSHm(c, 0x10); PUSHm(c, s + 8); PUSHm(c, s); PUSHm(c, 0); PUSHm(c, tex);   // READONLY, that texel
-                    gcall(c, lock, 0x589624u);
+                    gcall(c, lock, k->r_lock);
                     hr = (int32_t)c->eax;
                     if (hr >= 0) result = RD32m(s + 4) + (uint32_t)(off - px * 4);
                 }
                 if (hr < 0) {   // as the original: the whole texture
                     PUSHm(c, 0x10); PUSHm(c, 0); PUSHm(c, s); PUSHm(c, 0); PUSHm(c, tex);
-                    gcall(c, lock, 0x589624u);
+                    gcall(c, lock, k->r_lock);
                     hr = (int32_t)c->eax;
                     if (hr >= 0) result = RD32m(s + 4) + (uint32_t)(ly * (int32_t)RD32m(s)) + (uint32_t)off;
                 }
-                if (hr >= 0) { PUSHm(c, 0); PUSHm(c, tex); gcall(c, unlock, 0x58965fu); }
+                if (hr >= 0) { PUSHm(c, 0); PUSHm(c, tex); gcall(c, unlock, k->r_unlock); }
                 c->esp = s + 0x20;
             }
         }
@@ -145,6 +148,46 @@ void f_00589590(CPU *restrict c) {
     c->eax = result;
     c->ret_to = ret;
     c->esp += 16;
+}
+// RC_PIXEL=compare: the original, then this on the same call; null or not and the texel's bytes must match
+static void pixel_compare(CPU *restrict c, const PixelPtr *k, void (*orig)(CPU *restrict)) {
+    uint32_t esp = c->esp, ecx = c->ecx, bpp = RD32m(esp + 12), n = bpp > 4 ? 4 : bpp;
+    uint8_t a[4] = {0}, b[4] = {0}, args[12];
+    memcpy(args, G(esp + 4), 12);   // the original stores float(y) over its own x argument
+    orig(c);
+    uint32_t ra = c->eax, ret_to = c->ret_to, esp_after = c->esp;
+    if (ra) memcpy(a, G(ra), n);   // before this one's lock reuses the mirror
+    c->esp = esp, c->ecx = ecx;
+    memcpy(G(esp + 4), args, 12);
+    pixel_ptr(c, k);
+    if (c->eax) memcpy(b, G(c->eax), n);
+    static unsigned calls, diffs;
+    calls++;
+    if ((!ra != !c->eax || memcmp(a, b, n)) && diffs++ < 20)
+        rc_log("pixel compare: call %u (sprite %08x, %d, %d) differs: %08x %02x%02x%02x%02x vs %08x %02x%02x%02x%02x", calls,
+               ecx, (int32_t)RD32m(esp + 4), (int32_t)RD32m(esp + 8), ra, a[0], a[1], a[2], a[3], c->eax, b[0], b[1], b[2], b[3]);
+    if (!(calls & (calls - 1)) && calls >= 256) rc_log("pixel compare: %u calls, %u differ", calls, diffs);
+    c->ret_to = ret_to, c->esp = esp_after;
+}
+static int pixel_mode(void) {   // 0 this, 1 the original, 2 both compared
+    static int mode = -1;
+    if (mode < 0) mode = rc_nospeed ? 1 : getenv("RC_PIXEL") && !strcmp(getenv("RC_PIXEL"), "compare") ? 2 : 0;
+    return mode;
+}
+void o_00588a50(CPU *restrict c);
+void f_00589590(CPU *restrict c) {
+    static const PixelPtr k = {0x84, 0x4d14, 0x5895f2u, 0x589605u, 0x589624u, 0x58965fu};
+    int mode = pixel_mode();
+    if (mode == 1) o_00589590(c);
+    else if (mode == 2) pixel_compare(c, &k, o_00589590);
+    else pixel_ptr(c, &k);
+}
+void f_00588a50(CPU *restrict c) {
+    static const PixelPtr k = {0x94, 0x4d24, 0x588ab2u, 0x588ac5u, 0x588ae4u, 0x588b1fu};
+    int mode = pixel_mode();
+    if (mode == 1) o_00588a50(c);
+    else if (mode == 2) pixel_compare(c, &k, o_00588a50);
+    else pixel_ptr(c, &k);
 }
 
 // ---- CD3DTextTexture::clearPage (0x58e970, stdcall page): lock the page, zero width x height texels, unlock. Its loop
