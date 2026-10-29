@@ -3,6 +3,7 @@
 // reload, the trickle staying out of memory, and prefetch=0.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { gzipSync } from "node:zlib";
 import assert from "node:assert/strict";
 
 const MB = 1 << 20;
@@ -71,6 +72,8 @@ function makeEnv(store, ls, opts = {}) {
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
+        if (!files[p]) return { status: 404, headers: h, arrayBuffer: async () => new ArrayBuffer(0) };
+        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
         netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
         await sleep(1).finally(() => flying--);
         if (o.signal && o.signal.aborted) { aborted++; throw Object.assign(new Error("aborted"), { name: "AbortError" }); }
@@ -94,7 +97,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -299,6 +302,22 @@ readEntry(g, "data/avatar/x.png");   // not card art: the whole chunk
 assert.equal(syncSizes[0], MB, "elsewhere a miss reads the whole chunk");
 await settle(g.Module.yo2Lazy);   // its read-ahead, before the next test counts fetches
 console.log("card pages: ok");
+
+// ---- merge.dat's directory from its gzip sidecar (tools/mergedir.py): no chunk of it fetched, its bytes the same; a
+// stale one (another merge.dat's size) is ignored
+const sidecar = (size) => gzipSync(Buffer.concat([Buffer.from("YO2DIR1\0", "latin1"), (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(size)); return b; })(), file.subarray(0, toc)]));
+for (const [label, size, used] of [["matching", file.length, true], ["stale", file.length + 1, false]]) {
+    files["game/merge.dat.dir.gz"] = sidecar(size);
+    fetched.length = 0, syncXhr = 0;
+    g = makeEnv(new Map(), new Map());
+    await g.ready();
+    assert.equal(g.Module.yo2Lazy.stats.dirSidecar === toc, used, label + " sidecar used");
+    assert.deepEqual(Buffer.from(g.read("/game/merge.dat", 0, toc)), file.subarray(0, toc), label + ": the directory's bytes");
+    assert.equal(fetched.includes(0) || syncXhr > 0, !used, label + ": chunk 0 fetched only without it");
+    await settle(g.Module.yo2Lazy);
+}
+delete files["game/merge.dat.dir.gz"];
+console.log("directory sidecar: ok");
 
 // ---- prefetch=0: the plain lazy reads
 syncXhr = 0, netFetch = 0;

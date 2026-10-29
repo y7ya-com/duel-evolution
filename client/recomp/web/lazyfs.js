@@ -268,6 +268,22 @@ Module.preRun.push(() => {
     const AVATARS = ["data/avatar/chibi", "data/avatar/npc"];   // ~34 MB, once the player is on a map
     const TRICKLE = ["data/card"];
     let archive = null, spans = null, curMap = null;
+    // merge.dat's directory from its gzip sidecar <merge.dat>.dir.gz (client/tools/mergedir.py: ~250 KB for the 5.2 MB of
+    // chunks every cold boot reads before the title), used only when it matches this merge.dat; else the chunks as before
+    let dirBuf = null;
+    async function dirSidecar() {
+        try {
+            const r = await fetch(archive + ".dir.gz", { cache: "no-cache" });
+            if (r.status !== 200) return null;
+            const rd = new Blob([await r.arrayBuffer()]).stream().pipeThrough(new DecompressionStream("gzip")).getReader(), parts = [];
+            for (let x; !(x = await rd.read()).done;) parts.push(x.value);
+            const b = new Uint8Array(parts.reduce((n, x) => n + x.length, 0)), d = b.subarray(16);
+            parts.reduce((at, x) => (b.set(x, at), at + x.length), 0);
+            const magic = String.fromCharCode(...b.subarray(0, 8)), size = new DataView(b.buffer, b.byteOffset + 8, 8).getBigUint64(0, true);
+            const n = d[8] | d[9] << 8 | d[10] << 16 | (d[11] << 24 >>> 0);
+            return magic === "YO2DIR1\0" && Number(size) === files.get(archive).size && d.length === 12 + n * 268 ? d : null;
+        } catch { return null; }
+    }
     // 2x card art (tools/cardart.py): merge/data/card.dat and mini.dat, KCEJYUGI archives the exe opens before
     // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
     // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
@@ -366,12 +382,12 @@ Module.preRun.push(() => {
         const s = spans && spans.get(dir);
         if (s) for (let i = Math.floor(s[0] / CHUNK); i * CHUNK < s[1]; i++) want(archive, i, pri, tag, keep);
     }
-    function parseToc() {   // once chunks 0.. of the directory are in memory: the byte span of each folder
-        const f = files.get(archive), first = memChunk(archive, 0);
+    function parseToc() {   // once chunks 0.. of the directory are in memory (or the sidecar): the byte span of each folder
+        const f = files.get(archive), first = dirBuf || memChunk(archive, 0);
         if (spans || !first) return;
         const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
-        const need = Math.ceil(end / CHUNK), toc = new Uint8Array(end);
-        for (let i = 0; i < need; i++) {
+        const need = Math.ceil(end / CHUNK), toc = dirBuf || new Uint8Array(end);
+        for (let i = 0; i < need && !dirBuf; i++) {
             const c = memChunk(archive, i);
             if (!c) { for (let k = i; k < need; k++) want(archive, k, 0, "toc"); return; }   // when they arrive
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
@@ -389,7 +405,7 @@ Module.preRun.push(() => {
         }
         L.spans = spans;
         if (pendingDeck) prefetchCards(pendingDeck);
-        for (let i = 0; i < need; i++) remember(archive, i, memChunk(archive, i), "toc");   // read at every start: kept
+        for (let i = 0; i < need; i++) { const c = memChunk(archive, i); if (c) remember(archive, i, c, "toc"); }   // read at every start: kept
         for (const d of HOT) if (!(miniArc && d === "data/mini")) wantSpan(d, 2, "hot");
         if (miniArc && thumbsOk()) wantFile(miniArc, 2, "hot");
         // ponytail: opt-in, never on phones and tablets (data/card is 336 MB of their data plan); per-player origin cost
@@ -509,15 +525,25 @@ Module.preRun.push(() => {
     // the network. Login -> player select -> My Room and lobby -> janken -> duel are read the same way every time.
     const SCENES = "yo2-lazy-scenes", SCENE_MAX = 48, BOOT = 0x2c;   // 0x2c: SCENE_NONE, before the first scene
     const HOLD_PARALLEL = 4, HOLD_MAX = 15000;   // the boot's hold (boot below)
+    const PLAYER_SELECT = 7, NEW_CHARACTER = 9;   // SCENE_PLAYER_SELECT; SCENE_CHANGE_AVATAR (a new character's avatar)
     // A player with nothing learned yet starts from this: a native run (login -> My Room -> lobby -> NPC duel -> result
     // -> lobby, RC_IOTRACE + RC_SCENE_LOG) over the same merge.dat (by size). Sets are chunk numbers; BOOT's is what the
     // exe reads before its first scene. Learned sets replace these scene by scene.
-    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
+    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397],"9":[60,66,68,69,70,72,73]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10,9],"9":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
     let learned = { etag: "", sets: {}, next: {} }, sceneReads = prefetchOn ? new Set() : null, sceneTo = BOOT;   // boot reads
     function loadScenes() {
         try { const l = JSON.parse(localStorage.getItem(SCENES) || "{}"); if (l.etag === files.get(archive).etag) learned = l; } catch {}
-        if (!Object.keys(learned.sets).length && files.get(archive).size === DEFAULT_SCENES.size)
+        const defaults = files.get(archive).size === DEFAULT_SCENES.size;
+        if (!Object.keys(learned.sets).length && defaults)
             learned = JSON.parse(JSON.stringify({ sets: DEFAULT_SCENES.sets, next: DEFAULT_SCENES.next }));
+        // A new character's avatar creation (CHANGE_AVATAR, from player select only for a new character): its ~7 MB of
+        // outfits (data/avatar/wu, chunks from two field players' 3.5 s stalls) is prefetched from player select on. A
+        // returning player has never learned it, so the default is kept until a visit learns its own.
+        if (defaults && !learned.sets[NEW_CHARACTER]) {
+            learned.sets[NEW_CHARACTER] = DEFAULT_SCENES.sets[NEW_CHARACTER];
+            const n = (learned.next[PLAYER_SELECT] = learned.next[PLAYER_SELECT] || []);
+            if (!n.includes(NEW_CHARACTER)) n.push(NEW_CHARACTER);
+        }
         learned.etag = files.get(archive).etag;
     }
     function saveScenes() { try { localStorage.setItem(SCENES, JSON.stringify(learned)); } catch {} }
@@ -611,6 +637,10 @@ Module.preRun.push(() => {
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
     function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
+        if (url === archive && dirBuf && pos < dirBuf.length) {   // merge.dat's directory: the sidecar
+            const e = Math.min(end, dirBuf.length);
+            buffer.set(dirBuf.subarray(pos, e), offset), (offset += e - pos), (pos = e);
+        }
         for (let p = pos; p < end;) {
             const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);
             buffer.set(chunkBytes(url, Math.floor(p / CHUNK), at, k), offset + (p - pos));
@@ -665,6 +695,7 @@ Module.preRun.push(() => {
     }
     L.savePins = savePins;
     async function boot() {
+        const side = archive ? dirSidecar() : null;   // with the HEADs (it needs only the manifest's size)
         await Promise.all(lazy.map(async (url) => {
             // never from the HTTP cache (a stale ETag would version every request wrongly); "?v=" so the reply carries
             // the Cache-Control the versioned chunk requests get
@@ -697,12 +728,16 @@ Module.preRun.push(() => {
         const hold = (url, i, tag) => { const k = keyOf(url, i); if (url && !held.has(k) && !memChunk(url, i)) held.add(k), jobs.push([url, i, tag]); };
         const worker = async () => { for (let j; (j = jobs.shift());) await fetchSure(j[0], j[1], j[2]); };
         hold(mergeLog, 0, "boot");
+        if (side && (dirBuf = await side)) {   // the directory's whole chunks, from the sidecar
+            for (let i = 0; (i + 1) * CHUNK <= dirBuf.length; i++) remember(archive, i, dirBuf.subarray(i * CHUNK, (i + 1) * CHUNK), "toc");
+            stats.dirSidecar = dirBuf.length;
+        }
         if (archive) {
             loadScenes();
-            const head = fetchSure(archive, 0, "toc");
+            const head = dirBuf ? Promise.resolve() : fetchSure(archive, 0, "toc");
             loads.push(worker(), head.then(() => {   // its count gives the directory's length
-                const c = memChunk(archive, 0);
-                if (c) for (let i = 1, need = Math.ceil((12 + (c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24) * 268) / CHUNK); i < need; i++) hold(archive, i, "toc");
+                const c = dirBuf || memChunk(archive, 0);
+                if (c && !dirBuf) for (let i = 1, need = Math.ceil((12 + (c[8] | c[9] << 8 | c[10] << 16 | c[11] << 24) * 268) / CHUNK); i < need; i++) hold(archive, i, "toc");
                 const first = learned.next[BOOT] || [];
                 for (const sc of [BOOT, ...first, ...first.flatMap((t) => learned.next[t] || [])])   // boot, patcher, title
                     for (const i of learned.sets[sc] || []) hold(archive, i, "boot");
