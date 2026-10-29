@@ -16,6 +16,9 @@ export interface Services {
   /** Duel port, 0x6001 before the connection has a session: false = refused (py duel_reserva_6001 + HUB.attach). */
   duelAttach?(c: Conn, pid: number): boolean;
   beforeSend?(c: Conn, msgId: number): void;
+  /** A client control frame (0xCAxx other than the card wire's hello, e.g. free mode's 0xCA10): out of band, before
+   *  anything queued, never counted in the seq numbers. */
+  onControl?(c: Conn, msgId: number, data: Uint8Array): void;
 }
 
 interface Peer {
@@ -155,6 +158,7 @@ export class World implements ConnHost {
         if (!vs.busy) void this.drain(p, vs);
         continue;
       }
+      if ((m.id & 0xff00) === 0xca00) { this.run(() => this.services.onControl?.(vs.conn, m.id, m.data)); continue; }
       this.enqueue(p, vs, { m });
     }
     if (tooLong()) this.enqueue(p, vs, { kill: "header with length > 1024 B" });

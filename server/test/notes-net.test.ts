@@ -52,6 +52,17 @@ describe("conexion.py Conn", () => {
     expect(A.errors()).toEqual([]);
   });
 
+  it("card wire: a client control frame (0xCAxx, param 0) ahead of the hello's answer is out of band", async () => {
+    const h = harness();
+    const A = h.client("A");
+    const a = A.link(5731);
+    a.raw(pack(0xca10, Uint8Array.of(1), 0));   // free mode's flag, before anything else
+    a.send(0x3001); await a.wait(0x3002);
+    a.send(0x3003, A.key); await a.wait(0x3004);
+    expect(a.msgs[0].param).toBe(1);
+    expect(A.errors()).toEqual([]);
+  });
+
   it("27-10: re-entering accounts from the title in the same process (0x3001 #29) continues the server's count", async () => {
     const h = harness();
     const A = h.client("A");
