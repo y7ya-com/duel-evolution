@@ -41,6 +41,8 @@ interface VSock {
 const HELLO_S = 0xca01, HELLO_C = 0xca02, WIRE_VERSION = 2, HELLO_WAIT_MS = 5000;
 
 const MAX_SOCKS_PER_PEER = 32; // py MAX_CONNS_PER_IP
+/** Messages a connection may have waiting to be served: the client waits for answers, so only a flood fills it. */
+const MAX_INQ = 256;
 
 export class World implements ConnHost {
   readonly seqTable = Conn.newSeqTable();
@@ -166,6 +168,7 @@ export class World implements ConnHost {
 
   private enqueue(p: Peer, vs: VSock, item: Inbound): void {
     if (vs.dead) return;
+    if ("m" in item && vs.inq.length >= MAX_INQ) { vs.inq.length = 0; item = { kill: `more than ${MAX_INQ} messages waiting (a flood)` }; }
     if ("kill" in item || "eof" in item) vs.dead = true; // nothing after it is read
     vs.inq.push(item);
     if (!vs.busy) void this.drain(p, vs);

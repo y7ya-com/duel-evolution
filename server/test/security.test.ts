@@ -1,7 +1,7 @@
 // Hostile-client checks (security-audit.md in the notes): every one sends what a modified client could, over the
 // World's real framing, on channels bound to DE users (no DEV parity bridge).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { be32, harness } from "./notes-harness.ts";
+import { be32, harness, pack } from "./notes-harness.ts";
 import type { Session } from "../src/game/hub.ts";
 import * as PP from "../src/game/persist.ts";
 
@@ -91,5 +91,20 @@ describe("character churn", () => {
         (st.profiles_borrados ??= []).push({ slot: "0", perfil: st.profiles["0"] }); delete st.profiles["0"];   // 0x3030
       }
     } finally { PP.setProgression(false); }
+  });
+});
+
+describe("floods", () => {
+  it("a connection that sends far faster than it is served is cut, not buffered without bound", async () => {
+    const h = harness({ players: {} }, { DEV: "0" });
+    const a = h.client("alice", "alice", "pw", "user-a");
+    const l = a.link(5731);
+    await h.tick(50);
+    const one = pack(0x0005, new Uint8Array(0), 1);
+    const burst = new Uint8Array(one.length * 5000);
+    for (let i = 0; i < 5000; i++) burst.set(one, i * one.length);
+    l.raw(burst);
+    await h.tick(50);
+    expect(l.closedByServer).toBe(true);
   });
 });
