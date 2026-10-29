@@ -217,4 +217,14 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
 });
 routes.all("*", (c) => c.text("method not allowed", 405));
 
-export default routes;
+// The game is served on the apex and on original. (kept so players find it where they're used to): each request sees
+// its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
+const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
+export default {
+  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(req.url);
+    if (url.hostname === "www.ygoevolution.com") return Response.redirect(`https://ygoevolution.com${url.pathname}${url.search}`, 301);
+    if ((env as unknown as AuthEnv).DEPLOY_ENV === "production" && GAME_HOSTS.has(url.hostname)) env = { ...env, PUBLIC_ORIGIN: `https://${url.hostname}` } as Env;
+    return routes.fetch(req, env, ctx);
+  },
+};

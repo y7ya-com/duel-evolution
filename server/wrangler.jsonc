@@ -26,7 +26,7 @@
   "env": {
     "production": {
       "name": "duel-evolution",
-      "routes": [{ "pattern": "original.ygoevolution.com/*", "zone_name": "ygoevolution.com" }],
+      "routes": [{ "pattern": "original.ygoevolution.com/*", "zone_name": "ygoevolution.com" }, { "pattern": "ygoevolution.com/*", "zone_name": "ygoevolution.com" }, { "pattern": "www.ygoevolution.com/*", "zone_name": "ygoevolution.com" }],
       "vars": {
         "PORT_OFFSET": "1000",
         "PUBLIC_ORIGIN": "https://original.ygoevolution.com",
