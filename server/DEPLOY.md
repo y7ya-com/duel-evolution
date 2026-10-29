@@ -39,8 +39,8 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
    - prints the online count;
    - sends the game's maintenance notice (0x4700, the main warning: the menu-bar icon and a countdown in My Room, the
      lobby, rock-paper-scissors, mid-duel and the deck editor; tested live by yo2-browser, 2026-10-29; nothing at title or
-     character select; re-sent every 30 s, since a reload or a new lobby loses it) and a server chat line (lobby only), "Server update in 2 min. If you are disconnected, reload the page." (`DEPLOY_TEXT` changes it: say
-     "you'll be reconnected" once the reconnecting web client is live);
+     character select; re-sent every 30 s, since a reload or a new lobby loses it) and a server chat line (lobby only), "Server update in 2 min. You'll be reconnected automatically." (the web client reconnects itself since
+     77d9ed6; `DEPLOY_TEXT` changes it);
    - waits 120 s;
    - runs `wrangler deploy --env production`. A deploy does NOT restart the WorldDO at once: the old instance keeps its
      sockets, and still gets requests, for minutes (4.5 min seen), running the old code;

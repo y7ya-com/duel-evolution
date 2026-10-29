@@ -3,6 +3,7 @@
 // WorldDO exposes on its token-protected HTTP API (src/do.ts /__admin/*).
 import type { Conn } from "../net/conn.ts";
 import { W } from "../net/proto.ts";
+import * as PP from "./persist.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 
@@ -77,6 +78,18 @@ export class Admin {
     return n;
   }
 
+  /** The owner's "reset everyone" for characters that haven't logged in since progression (still on the pre-progression
+   *  trunk, prog < 1): what their next login does (persist progressionReset), done now so the WorldDO's cold boot
+   *  doesn't carry their 3211-card trunks (2026-10-29: 64k of 65k trunk rows). Saved as one state, written to D1. */
+  resetDormant(): number {
+    const st = this.g.store.loadRaw();
+    let n = 0;
+    for (const a of Object.values(st.accounts ?? {}) as any[])
+      for (const p of Object.values(a?.profiles ?? {}) as any[]) if (p && typeof p === "object" && PP.progressionReset(p)) n++;
+    if (n) { this.g.store.saveRaw(st); this.g.log(`[economia] admin: ${n} dormant characters reset to the starting state (progression)`); }
+    return n;
+  }
+
   /** A server line in every lobby's chat (0x4402 kind 1, the server-wide chat) from "Duel Evolution": the deploy
    *  warning (scripts/deploy.sh). Returns the lobbies it reached. */
   announce(text: string): number {
@@ -125,6 +138,7 @@ export class Admin {
       case "price": this.setPrice(String(body.key), body.mp == null ? null : Number(body.mp)); return { ok: true };
       case "maintenance": return { sent: this.maintenance(Number(body.seconds) || 0) };
       case "announce": return { sent: this.announce(String(body.text ?? "")) };
+      case "reset-dormant": return { reset: this.resetDormant() };
       case "online": return { online: this.status().players.filter((p) => p.online).length };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
