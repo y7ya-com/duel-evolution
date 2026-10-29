@@ -467,6 +467,8 @@ static const cw::Table* table() {
 
 // a passcode's YO2 card index (0: not in the table), for ovr/starterdeck.c
 extern "C" int rc_card_index(uint32_t passcode) { const cw::Table* t = table(); return t ? (int)t->toIndex(passcode) : 0; }
+// a YO2 card index's passcode (0: none), for ovr/decksync.c
+extern "C" uint32_t rc_card_passcode(uint32_t index) { const cw::Table* t = table(); return t ? t->fromIndex(index) : 0; }
 
 extern "C" void rc_cw_open(int s) {   // a connected socket
     if (s < 0 || s >= 64) return;
