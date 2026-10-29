@@ -69,3 +69,41 @@ function page() {
     assert.equal(q.shown.length, 1);
 }
 console.log("shell.html: all checks pass");
+
+// the picker (<script id="pick">): a 2 GB build that runs out of memory before its first frame (Firefox, field
+// 2026-10-29) marks the device and reloads once into the 1 GB build; the 1 GB build running out shows the message
+{
+    const pick = /<script id="pick">([\s\S]*?)<\/script>/.exec(html)[1];
+    const boot = (store) => {
+        const shown = [], heads = [], on = {};
+        const el = () => ({ style: {}, querySelector: () => ({}) });
+        const ctx = {
+            console: { log() {} }, URLSearchParams, location: { search: "" }, navigator: { userAgent: "Mozilla/5.0 Firefox/158.0", platform: "Win32" },
+            WebAssembly: { Suspending: 1, Memory: class {} }, localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
+            document: { createElement: el, head: { append: (l) => heads.push(l) }, body: { append: (d) => shown.push(d) } },
+            addEventListener: (t, f) => (on[t] = f), log() {}, Module: {},
+        };
+        ctx.location.reload = () => (ctx.reloaded = (ctx.reloaded | 0) + 1);
+        vm.runInNewContext(pick, ctx);
+        const oom = (why) => { let prevented = false; on.yo2crash({ detail: why, preventDefault: () => (prevented = true) }); return prevented; };
+        return { ctx, shown, heads, oom, src: shown.find((d) => d.src)?.src };
+    };
+    const store = new Map();
+    let p = boot(store);
+    assert.equal(p.src, "yo2rc-async.js");
+    assert.equal(p.heads[0].href, "yo2rc-async.wasm");   // the preload follows the pick
+    assert.ok(p.oom("abort: InternalError: out of memory"));
+    assert.equal(store.get("yo2-small"), "1");
+    assert.equal(p.ctx.reloaded, 1);
+    p = boot(store);
+    assert.equal(p.src, "yo2rc-ios.js");
+    const before = p.shown.length;
+    assert.ok(p.oom("abort: CompileError: wasm validation error: at offset 4: failed to match magic number"));
+    assert.equal(p.ctx.reloaded, undefined);   // no loop: the message instead
+    assert.equal(p.shown.length, before + 1);
+    // mid-game it is not a build question: the message, no switch
+    const fresh = new Map(); p = boot(fresh); p.ctx.Module.yo2Presents = 5;
+    p.oom("error: uncaught exception: out of memory");
+    assert.equal(fresh.get("yo2-small"), undefined);
+}
+console.log("shell.html picker: all checks pass");

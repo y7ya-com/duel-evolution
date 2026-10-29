@@ -94,13 +94,18 @@
   // Each build creates its whole shared memory at boot. Phones (32-bit Chrome) often can't reserve the JSPI build's 2 GB
   // ("WebAssembly.Memory(): could not allocate memory"), so V8 tries that size first and falls back to the 1 GB build
   // (ASYNCIFY runs in Chrome too). The trial memory is garbage at once: V8 collects it if the real one needs the room.
-  // Not tried on WebKit, which commits all of it. A memory the build itself can't get ends in a message, not a crash.
+  // Not tried on WebKit, which commits all of it. Firefox (Windows commits a shared memory whole) can get the 2 GB
+  // ASYNCIFY memory and then run out compiling the wasm ("InternalError: out of memory", field 2026-10-29): a 2 GB
+  // build that runs out before its first frame marks the device (localStorage yo2-small) and reloads once into the
+  // 1 GB build. A memory the 1 GB build itself can't get ends in a message, not a crash.
   {
     const q = new URLSearchParams(location.search);
     const ios = q.has("ios") || /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+    let small = false;
+    try { small = localStorage.getItem("yo2-small") === "1"; } catch (e) {}
     const s = document.createElement("script");
     s.async = true;
-    s.src = ios ? "yo2rc-ios.js" : "Suspending" in WebAssembly && !navigator.userAgent.includes("Firefox/") && !q.has("async") ? "yo2rc.js" : "yo2rc-async.js";
+    s.src = ios || small ? "yo2rc-ios.js" : "Suspending" in WebAssembly && !navigator.userAgent.includes("Firefox/") && !q.has("async") ? "yo2rc.js" : "yo2rc-async.js";
     if (s.src.endsWith("/yo2rc.js")) try { new WebAssembly.Memory({ initial: 32768, maximum: 32768, shared: true }); }
       catch (e) { log("no room for a 2 GB memory (" + e.message + "): the 1 GB build"); s.src = "yo2rc-ios.js"; }
     // start the wasm download now, beside the runtime script, not once that script has run (Emscripten's own
@@ -109,8 +114,13 @@
     pre.rel = "preload"; pre.as = "fetch"; pre.crossOrigin = "anonymous"; pre.href = s.src.replace(/\.js$/, ".wasm");
     document.head.append(pre);
     addEventListener("yo2crash", (e) => {
-      if (!/could not allocate memory|out of memory/i.test(e.detail)) return;
+      // the streaming compile running out leaves the ArrayBuffer retry with a broken body ("failed to match magic number")
+      if (!/could not allocate memory|out of memory|failed to match magic number/i.test(e.detail)) return;
       e.preventDefault();
+      if (!/yo2rc-ios[-.]/.test(s.src) && !(Module.yo2Presents | 0)) {
+        try { localStorage.setItem("yo2-small", "1"); log("out of memory before the first frame: the 1 GB build from now on"); location.reload(); return; }
+        catch (err) {}   // no storage: the message below
+      }
       const d = document.createElement("div");
       d.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
         "gap:16px;padding:0 16px;text-align:center;background:#000;color:#fff;font:18px sans-serif;z-index:10";
