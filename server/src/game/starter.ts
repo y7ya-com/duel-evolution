@@ -12,6 +12,7 @@ import { duelCore } from "../duel/data.ts";
 import { check } from "../duel/deckCheck.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
+import { isFree } from "./freemode.ts";
 
 /** id -> [name, blurb, cover (passcode)]: the structure decks the shop sells (shop.json packs 7000-8999). */
 export const STARTER_DECKS: Record<number, [string, string, number]> = {
@@ -82,7 +83,8 @@ function active(g: Game, userId: string): Session | string {
   if (!PP.progression()) return "off";
   const acct = g.store.accountOfUser(userId);
   const s = acct ? g.hub.sessions.get(acct) : undefined;
-  return !s ? "not-in-game" : s.slot === null ? "no-character" : s;
+  // free mode (freemode.ts) claims nothing: the starter deck is the MMO's
+  return !s ? "not-in-game" : s.slot === null ? "no-character" : isFree(s) ? "free" : s;
 }
 
 /** GET /api/de/starter */
