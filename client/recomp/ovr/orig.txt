@@ -27,3 +27,4 @@
 00b3d5f6  # D3DXCheckTextureRequirements (imgfail.c: logs a failure)
 00b3eb13  # D3DXLoadSurfaceFromFileInMemory (imgfail.c: logs a failure)
 007fa450  # CTitleScene::Receive (freemode.c: DECK EDITOR / FREE DUEL on rows 3 and 4)
+00adcda0  # CWorldMng::waitMyRoom (freemode.c: FREE DUEL joins a lobby instead of My Room)

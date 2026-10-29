@@ -1,6 +1,8 @@
 // Free mode, a Duel Evolution addition (not in the 2008 game): the title's DECK EDITOR and FREE DUEL. Either one signs
 // in through ONLINE's own path (login scene, Select Player), then, instead of My Room:
 //   DECK: the Edit Deck scene, its trunk every card x3 (the server's free view); Exit goes back to the title;
+//   DUEL: a lobby (the world Duel Academy room, kind 14) where the server keeps free players in blocks of their own,
+//         for the game's own Auto Duel; going back to My Room from there ends at the title.
 //   (the title's rows 3 and 4, btn_web and btn_clear, carry the captions: rt/freetitle.cpp; rt/debrand.cpp keeps them)
 // The mode is per sign-in: the title ends it. RC_FREE_MODE=deck|duel starts in it (tests: ONLINE then acts as it).
 #include <stdlib.h>
@@ -10,6 +12,7 @@
 enum { SC_PATCHER = 1, SC_TITLE = 4, SC_NONE = 0x2c, SC_MY_ROOM = 10, SC_DECK = 0x24 };
 
 int rc_free_mode = -1;   // 0 off, 1 DECK, 2 DUEL
+static int free_joined;  // DUEL: the lobby was joined once this sign-in
 
 int rc_free(void) {
     if (rc_free_mode < 0) {
@@ -33,7 +36,7 @@ void rc_free_scene(CPU *c) {
     }
     uint32_t next = to;
     if (rc_free_mode == 1 && from == SC_DECK) next = SC_TITLE;   // the editor's Exit pops to whatever pushed it
-    else if (to == SC_MY_ROOM && !RD32(mgr + 0x84)) next = rc_free_mode == 1 ? SC_DECK : SC_TITLE;
+    else if (rc_free_mode == 1 && to == SC_MY_ROOM && !RD32(mgr + 0x84)) next = SC_DECK;
     if (next == to) return;
     rc_log("free: scene %u -> %u instead of %u", from, next, to);
     WR32(mgr + 0x80, next);
@@ -80,6 +83,7 @@ void f_007fa450(CPU *c) {
         return;
     }
     rc_free_mode = mode;
+    free_joined = 0;
     rc_log("free: title %s", mode == 1 ? "DECK EDITOR" : "FREE DUEL");
     uint32_t sound[2] = {0x10000001, 0}, push[3] = {rc_online_scene(), 1, 1};
     rc_call(c, 0x00411fcc, 2, sound);   // soundPlay(SE_OK, 0), cdecl
@@ -89,4 +93,38 @@ void f_007fa450(CPU *c) {
     c->eax = 0;
     c->ret_to = RD32(c->esp);
     c->esp += 8;   // ret 4
+}
+
+void o_00adcda0(CPU *c);
+
+// 0x00adcda0 CWorldMng::waitMyRoom, thiscall: My Room's lobby connection is up (the lobby task, +0x80, busy +0x88 == 2)
+// -> the My Room scene. In DUEL mode it is a move instead, what CWorldMng::inMyRoom does when My Room picks a lobby:
+// CConnectLobby (+0x8c) reset + connectLobby(language 6, kind 14, room 0), then WAIT_LOBBY (6) -> ENTER_AREA (8);
+// a failure goes back to ENTER_MYROOM (1). Coming back here once the lobby was joined (the area map's way back to My
+// Room) is leaving: quit_ (+0x94) and QUIT (24), and the world takes the player to the title.
+void f_00adcda0(CPU *c) {
+    RC_LOCALS;
+    uint32_t self = c->ecx, lobby = RD32(self + 0x80), conn = RD32(self + 0x8c);
+    if (rc_free() != 2 || !lobby || RD32(lobby + 0x88) != 2 || !conn) {
+        o_00adcda0(c);
+        return;
+    }
+    if (free_joined) {
+        rc_log("free: left the Free Duel lobby: to the title");
+        WR8(self + 0x94, 1);
+        WR32(self + 0x70, 24);
+    } else {
+        uint32_t room[3] = {6, 14, 0};
+        CPU t = *c;
+        t.ecx = conn;
+        rc_call(&t, 0x0069de40, 0, NULL);   // CConnectLobby::reset
+        t = *c;
+        t.ecx = conn;
+        rc_call(&t, 0x0069deb0, 3, room);   // CConnectLobby::connectLobby(language, kind, room)
+        WR32(self + 0x74, 8), WR32(self + 0x78, 1), WR32(self + 0x70, 6);
+        free_joined = 1;
+        rc_log("free: joining the Free Duel lobby");
+    }
+    c->ret_to = RD32(c->esp);
+    c->esp += 4;
 }
