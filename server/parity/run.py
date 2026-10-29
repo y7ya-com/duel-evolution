@@ -235,8 +235,30 @@ INTENTIONAL = {
 
 
 # Wall-clock fields py does not seed, masked whole (the auto-masks only cover the digits that happened to differ between
-# the two py passes): 0x6010 DUELLOG_HEADER title "pvpYYYYmmddHHMMSS" (bytes 4..20) and its date u32 (74..77).
-WALLCLOCK = {0x6010: ((4, 21), (74, 78))}
+# the two py passes): 0x6010 DUELLOG_HEADER title "pvpYYYYmmddHHMMSS" (bytes 4..20) and its date u32 (74..77); 0x6461's
+# time-limit seconds (4..5), which follow the server's real-time pacing.
+WALLCLOCK = {0x6010: ((4, 21), (74, 78)), 0x6461: ((4, 6),)}
+
+# The card wire (v2: passcodes on the wire, the client's codec maps them back), what fake_client sees through the
+# bridge's codec that py never sent:
+# - the cards the 2008 client never had (client/tools/newcards.py, "new" in cards.json): a trunk table (0x3102, a byte
+#   per card index from 1, 512 per chunk after 0x3101) holds them where py has 0;
+# - which art of a card a passcode shows is cards.json's choice: an engine code that is an alias (another art of the same
+#   card) reaches the client as the index of that code, where py chose its own; same internal id = the same card.
+CARDS = json.load(open(os.path.join(SERVER, "gamedata", "cards.json")))
+NEW_CARD_BYTES = {c["i"] - 1 for c in CARDS if c.get("new")}
+INTERNAL_OF = {c["i"]: c["internal"] for c in CARDS}
+
+
+def same_card_slots(pa, pt):
+    """0x6202 records equal but for u32 slots holding two indexes of the same card (same internal id)."""
+    if pa[0] != 0x6202 or pt[0] != 0x6202 or len(pa[1]) != len(pt[1]) or len(pa[1]) % 80:
+        return False
+    for j in range(0, len(pa[1]), 8):
+        x, y = pa[1][j:j + 8], pt[1][j:j + 8]
+        if x != y and not (INTERNAL_OF.get(int(x, 16)) is not None and INTERNAL_OF.get(int(x, 16)) == INTERNAL_OF.get(int(y, 16))):
+            return False
+    return True
 
 
 def masks(a, b):
@@ -265,8 +287,17 @@ def diff(name):
         if len(xt) < len(xa) and len(xt) >= tail.get(k, len(xa)):
             cut += len(xa) - len(xt)      # TS stopped inside py's after-the-last-request tail: the client closed first
             xa = xa[:len(xt)]
+        elif len(xt) < len(xa) and all(0x6010 <= x[0] <= 0x6016 for x in xa[len(xt):]):
+            cut += len(xa) - len(xt)      # the replay: the client's codec hands the exe its header only once it has
+            xa = xa[:len(xt)]             # the whole record (the card wire), so a client that leaves first sees none
+        chunk = 0
         for i in range(max(len(xa), len(xt))):
             mk = m.get((k, i), set())
+            if i < len(xa) and xa[i][0] == 0x3101: chunk = 0
+            if i < len(xa) and xa[i][0] == 0x3102:   # the new cards' trunk bytes (the card wire, above)
+                if mk is not None:
+                    mk = set(mk) | {2 * (b - 512 * chunk) for b in NEW_CARD_BYTES if 0 <= b - 512 * chunk < 512}
+                chunk += 1
             if mk is None:
                 continue
             if i < len(xa) and xa[i][0] in WALLCLOCK:
@@ -278,6 +309,8 @@ def diff(name):
             pt = xt[i] if i < len(xt) else None
             same = pa and pt and pa[0] == pt[0] and len(pa[1]) == len(pt[1]) and all(
                 pa[1][j:j + 2] == pt[1][j:j + 2] for j in range(0, len(pa[1]), 2) if j not in mk)
+            if not same and pa and pt:
+                same = same_card_slots(pa, pt)
             if not same:
                 bad += 1
                 if bad <= 8:
