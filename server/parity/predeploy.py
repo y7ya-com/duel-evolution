@@ -202,8 +202,11 @@ def main():
         # fake_client duels with NPC 51's and 54's decks, which the players don't own (and the 2008 list refuses): the
         # players claim structure deck 8001 (40 legal cards as sold) as their free starter deck and duel with it
         unowned = fc.npc_deck_ids(51)
-        sd = json.load(open(os.path.join(R.SERVER, "gamedata", "ydc.json")))["8001"]
-        fc.npc_deck_ids = lambda nid: (sd["main"], sd["extra"])
+        sd = json.load(open(os.path.join(R.SERVER, "gamedata", "ydc.json")))["8001"]   # passcodes; fake_client speaks the
+        idx = {}                                                                           # exe's card indexes (the bridge's
+        for c in json.load(open(os.path.join(R.SERVER, "gamedata", "cards.json"))):       # codec maps them back)
+            idx.setdefault(c["pc"], c["i"])
+        fc.npc_deck_ids = lambda nid: ([idx[c] for c in sd["main"]], [idx[c] for c in sd["extra"]])
         for X, who in ((A, "A"), (B, "B")):
             starter_deck(X, cookies[who], 8001)
         npc_duel(fc, A, cookies)
