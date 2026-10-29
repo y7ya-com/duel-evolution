@@ -11,6 +11,7 @@ import * as PP from "../game/persist.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
 import { cardmap, type Deck } from "./data.ts";
 import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
+import { deckHash } from "./deckCheck.ts";
 import * as DFM from "./duelfin.ts";
 import * as DL from "./duellog.ts";
 import { PvpSession, Sender, type SItem } from "./ocgSession.ts";
@@ -189,10 +190,12 @@ export class Matches {
 
   drop(m: PvpMatch): void { for (const p of m.pids) if (this.pids.get(p) === m) this.pids.delete(p); }
 
-  watchRequest(peer: string, pid: number): PvpMatch | null {
+  watchRequest(peer: string, pid: number, who: Session | null = null): PvpMatch | null {
     if (!PVP_WATCH) return null;
     const m = this.byPid(pid);
     if (!m || m.done) return null;
+    // the stream is player 0's own view (its hand included): never to a player of that match
+    if (who && m.sess.includes(who)) { this.log(`[AVISO] [pvp] ${m.name}: a player of the match asks to watch it: refused`); return null; }
     this.watchReq.set(peer, [m, now()]);
     return m;
   }
@@ -262,6 +265,7 @@ export class PvpMatch {
   logQ: [number, Uint8Array][][] | null = null;
   logFase: number[] | null = null;
   deckBad: Set<number> | null = null;
+  deckChecked: [string | null, string | null] = [null, null];
   deckTold: [boolean, boolean] | null = null;
   decksUsed: Deck[] | null = null;
   private xpLv: number[] | null = null;
@@ -378,6 +382,8 @@ export class PvpMatch {
       if (PVP_DUELLOG_RECORD) { const q = this.logQ; if (q && q[i].length) this.put(i, [q[i].shift()!]); return; }
       return;
     }
+    // the deck that starts is the one checked: a client that skips 0x6603 or sends 0x6601 again after it is checked now
+    if (mid === 0x61fe && this.deckChecked[i] !== deckHash(this.deck[i].main, this.deck[i].extra)) this.deckCheck(i);
     if (this.deckBad && [0x6100, 0x6101, 0x6102, 0x6103, 0x6104, 0x61fe].includes(mid)) {
       if (this.needStart && this.bo3()) return this.matchGone(Math.min(...this.deckBad), "mazo bloqueado");
       return this.deckCut(i, mid);
@@ -458,6 +464,7 @@ export class PvpMatch {
     const dk = this.g.duel?.dk;
     if (!dk) return;
     const d = this.deck[i];
+    this.deckChecked[i] = deckHash(d.main, d.extra);
     const r = dk.review(this.sess[i], d.main, d.extra, `pvp:${this.name}`);
     if (r && r.bloquear) (this.deckBad ??= new Set()).add(i);
   }

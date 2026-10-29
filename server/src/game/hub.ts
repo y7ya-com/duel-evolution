@@ -88,7 +88,6 @@ export class Hub {
 
   // ---- sessions (V02)
   login(c: Conn, data: Uint8Array): Session | null {
-    if (this.g.admin.vetoLogin(c, data)) return null; // py moderacion: the ban hook wraps HUB.login
     if (data.length < 32) { this.reject(c, AUTH_BAD_LOGIN, ""); return null; }
     // The 2008 blob (Blowfish + MD5 of the password) is never identity. On a channel bound to a DE user, the game account
     // is that user's own and the blob is ignored: a replayed or forged 0x3003 can't reach anyone else's account, and a
@@ -96,6 +95,7 @@ export class Hub {
     const peerUser = c.userId;
     if (peerUser === null && !this.g.cfg.dev) { this.reject(c, AUTH_BAD_LOGIN, ""); return null; }
     const [acct, known] = peerUser !== null ? [this.acctOfUser(peerUser), true] : this.accountOf(data);
+    if (this.g.admin.vetoLogin(c, acct)) return null; // py moderacion: the ban hook, on the account this login reaches
     if (canUseAccount(peerUser, this.g.store.ownerOf(acct, this.g.cfg.ownerAcct)) === "refuse") { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     if (!known && this.g.cfg.loginStrict) { this.reject(c, AUTH_BAD_LOGIN, acct); return null; }
     let code: number | null = null, busy: Conn | null = null;

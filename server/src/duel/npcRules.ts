@@ -110,9 +110,9 @@ export function nrNpcDuelEnd(g: Game, base: (p: P, npc: number, result: string, 
 
 /** duelfin lobby_after_duel_msgs as npcreglas wraps it (card: one pack offered; friendship: 0x4237 present). */
 export function nrLobbyAfterDuel(g: Game, base: (packs: number[]) => [number, Uint8Array][], p: P, present: number | null,
-  packs: number[], presentMsg: (kind: number) => Uint8Array): [number, Uint8Array][] {
+  packs: number[], presentMsg: (kind: number) => Uint8Array, card = true): [number, Uint8Array][] {
   const f = NPC_RULES_2008;
-  if (f.card && !packs.length) {
+  if (f.card && card && !packs.length) {
     const pack = g.rng.choice(CARD_PACKS);
     const due: number[] = (p.npc_card_due ??= []);
     due.push(pack);

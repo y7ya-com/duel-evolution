@@ -27,6 +27,7 @@ export const STARTER_DECKS: Record<number, [string, string, number]> = {
 };
 
 const TYPE_MONSTER = 0x1, TYPE_SPELL = 0x2;
+
 const ydc = YDC as unknown as Record<string, { main: number[]; extra: number[] }>;
 
 /** Deck k (passcodes) with every copy over the 2008 limit list swapped for a legal card of the same deck. */
@@ -108,6 +109,8 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     if (!starterClaimable(p)) return [409, { error: "claimed" }];
     const cards = [...deck.main, ...deck.extra];
     PP.trunkAdd(g, p, cards, 1, `starter deck ${id}`);
+    const recipe = PP.recipeBit(id);
+    if (recipe !== null) PP.pbinSet(p, recipe); // the deck's recipe, as a purchase gives it: Edit Deck's Recipe list (next 0x3114)
     p.starter = id;
     g.saveState(st);
     g.log(`[economia] ${s.acct.slice(0, 6)}: free starter deck ${id} (${STARTER_DECKS[id][0]}), +${cards.length} cards`);

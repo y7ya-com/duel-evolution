@@ -24,10 +24,14 @@
     fetch("__warm", { keepalive: true }).catch(() => {});   // wake the game server while the client boots (survives the redirect)
     const q = new URLSearchParams(location.search);
     const set = (k, v) => q.has(k) || q.set(k, v);
-    set("http", location.origin);
-    set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
-    set("fonts", "fonts/");
-    set("server", "127.0.0.1");
+    // The game's server, gateway and data folders are always this site's: a link's ?game=… pointed lazyfs at a folder
+    // that isn't there (crash reports 9ea57629, d5dc4982: "no manifest at yiaKk/files.txt"), and a ?gateway=/?http= from
+    // a link would send the game's connection (and the login it asks for) to someone else's server. Local runs open
+    // yo2rc.html directly with their own values.
+    q.set("http", location.origin);
+    q.set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
+    q.delete("game"); q.delete("cards"); q.set("fonts", "fonts/");
+    q.set("server", "127.0.0.1");
     set("YO2_PORT_OFFSET", "1000");
     location.replace("yo2rc.html?" + q);
   }

@@ -139,6 +139,10 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     const w = st.wallet;
     if (w && Object.keys(w).length && s === "0") { p.rec.mp = int(w.mp ?? START_MP); }
     seedTrunk(p);
+    // delete-and-remake isn't an MP mint: past the account's first FREE_STARTS characters (live + archived; the archive
+    // keeps the last 10, so the count never drops back) a new one starts with no MP. It keeps its starter claim: a
+    // character must always be able to get cards (owner, 2026-10-29: else it is stuck in Edit Deck)
+    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) p.rec.mp = 0;
   }
   if (p !== null && !p.name) p.name = st.players?.[s] ?? "";
   if (p !== null) {
@@ -147,6 +151,9 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   }
   return p;
 }
+
+/** Characters an account starts with ECON.START_MP: its 4 slots and 2 remakes (later ones get the starter claim only). */
+export const FREE_STARTS = 6;
 
 export function profileCreated(st: State, slot: number): [P, boolean] {
   const existed = String(int(slot)) in (st.profiles ?? {});
@@ -264,20 +271,35 @@ export function pairTable(start: number, mid: number, end: number, pairs: [numbe
   return msgs;
 }
 
+/** Every trunk change, at full rate, as one [economia] line: account, character, source, the cards (id x count).
+ *  The security audit reads these instead of inferring from D1 (coordinator, 2026-10-29). */
+function econCards(g: Game | null, p: P, sign: "+" | "-", cards: number[], src: string): void {
+  if (!g || !cards.length) return;
+  const n = new Map<number, number>();
+  for (const c of cards) n.set(c, (n.get(c) ?? 0) + 1);
+  g.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 8)} ${p.name || "?"}: cards ${sign}${cards.length} (${src || "?"}): `
+    + [...n].map(([c, k]) => (k > 1 ? `${c}x${k}` : String(c))).join(","));
+}
+
 export function trunkAdd(g: Game | null, p: P, cards: unknown[], n = 1, src = ""): void {
   const t = (p.trunk ??= {});
+  const added: number[] = [];
   for (const cid of sanitizeCards(g, cards, src || "trunk_add")) {
     const k = String(int(cid));
     t[k] = Math.min(int(t[k] ?? 0) + n, 0xff);
+    for (let i = 0; i < n; i++) added.push(int(cid));
   }
+  econCards(g, p, "+", added, src);
 }
 
-export function trunkRemove(p: P, cards: unknown[]): void {
+export function trunkRemove(p: P, cards: unknown[], g: Game | null = null, src = ""): void {
   const t = (p.trunk ??= {});
+  const removed: number[] = [];
   for (const cid of cards) {
     const k = String(int(cid));
-    if ((t[k] ?? 0) > 0) { t[k] -= 1; if (!t[k]) delete t[k]; }
+    if ((t[k] ?? 0) > 0) { t[k] -= 1; if (!t[k]) delete t[k]; removed.push(int(cid)); }
   }
+  econCards(g, p, "-", removed, src);
 }
 
 export function sanitizeTrunk(p: P): string[] {
@@ -610,11 +632,22 @@ export function onShopPurchase(g: Game, p: P, cards: [number, number][]): void {
 
 /** deck -> its right (PBIN, yo2pbinmap class 5): the structure decks in shop.json packs [deck, kind, right]. */
 const SD_RIGHT = new Map((SHOP.packs as [number, number, number | null][]).filter(([, , b]) => b !== null).map(([d, , b]) => [d, b!]));
+/** A structure deck's recipe bit (its right + 1): what buying it sets in 2008 (shop.ts SHOP_DECK_RECIPE); Edit Deck's
+ *  Recipe list loads it as a ready deck. null for a deck the shop doesn't sell. */
+export const recipeBit = (deckId: number): number | null => { const r = SD_RIGHT.get(int(deckId)); return r === undefined ? null : r + 1; };
+/** A character that claimed its starter deck before the claim set the recipe (starter.ts) gets it, once: at the 0x3114
+ *  that tells the client. */
+export function starterRecipeFix(g: Game | null, p: P): void {
+  const bit = PROGRESSION ? recipeBit(p.starter ?? 0) : null;
+  if (bit === null || pbinTest(p, bit)) return;
+  pbinSet(p, bit);
+  g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 8)} ${p.name || "?"}: recipe of starter deck ${p.starter} (bit ${bit}) set (fix-up)`);
+}
 
 export function onSdGet(g: Game, p: P, deckId: number, rightBit: number): number[] {
   // the client names both: only a right this character holds, for that deck, gives the deck (once: the right is spent)
   if (!rightBit || SD_RIGHT.get(deckId) !== rightBit || !pbinTest(p, rightBit)) {
-    g.log(`[persistencia] 0x5400 SD_GET ${deckId} with right ${rightBit} it doesn't hold: refused`);
+    g.log(`[AVISO] [persistencia] 0x5400 SD_GET ${deckId} with right ${rightBit} it doesn't hold: refused`);
     return [];
   }
   const cards = sanitizeCards(g, structureDeckCards(deckId), `0x5401 SD_GET ${deckId}`);
@@ -846,6 +879,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       const st = g.loadState();
       const p = profile(st, data.length ? data[0] : 0)!;
       pendingClear(p);
+      starterRecipeFix(g, p);
       g.saveState(st);
       c.send(0x3114, pbinBytes(p));
       c.send(0x4234, npcbinBytes(p));

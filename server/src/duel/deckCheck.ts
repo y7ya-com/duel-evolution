@@ -107,9 +107,16 @@ export class DeckCheck {
 
   /** 0x6603 of an NPC duel: c.deck_block if it must be blocked. */
   npcDeck(c: Conn, s: { player: { main: number[]; extra: number[] }; id: number }) {
+    c.ext.deckChecked = deckHash(s.player.main, s.player.extra);
     const r = this.review(c.sess as Session | null, s.player.main, s.player.extra, `npc:${s.id}`);
     if (r && r.bloquear) c.ext.deckBlock = { t: Date.now() / 1000, told: false };
     return r;
+  }
+
+  /** 0x61fe of an NPC duel: the deck that starts is the one checked (a client that skips 0x6603 or sends 0x6601
+   *  again after it is checked now). */
+  npcStart(c: Conn, s: { player: { main: number[]; extra: number[] }; id: number }) {
+    if (c.ext.deckChecked !== deckHash(s.player.main, s.player.extra)) this.npcDeck(c, s);
   }
 
   /** NPC duel with the deck blocked: true = handled here. */

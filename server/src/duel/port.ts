@@ -198,6 +198,7 @@ export class DuelPort {
       x.duelStarted = true;
     }
     const s = this.ocgSession(c);
+    if (msgId === 0x61fe && s) this.dk.npcStart(c, s);
     if (DF && msgId === 0x6350) {
       const r = DF.h_6350(c, data);
       if (r === true && s) s.surrender();
@@ -227,7 +228,9 @@ export class DuelPort {
         return;
       }
     }
-    if (DF && msgId === 0x0003) { DF.h_0003(c, data); return; }
+    // a duel connection's goodbye clears the duel end only if it is its own duel's: with the engine awaited, the old
+    // connection's 0x0003 can arrive after the next duel began, and clearing that one leaves it unable to finish
+    if (DF && msgId === 0x0003) { if (DF.sess.end === (X(c).dfEnd ?? null)) DF.h_0003(c, data); return; }
     duelReplyV2({ cfg: this.ls, log: (t) => this.log(t), base: (...a) => this.duelReplyBase(...a), burst: (cc, m) => this.burst(cc, m) },
       c, msgId, param, data);
   }

@@ -34,6 +34,12 @@ const OFFER_TIMEOUT = 30;
 const R_REJECTED = -618, R_NOANSWER = -616, R_GONE = -600, R_INDUEL = -608, R_NOROOM = -495, R_FULL = -492;
 export const DEFAULT_PARTS = hexb("0000203040608090b820000000000000");
 const ROOM_STATE = 100, DUEL_STATE = 0x67;
+// ponytail: mail, friends and black list are one server-wide list each in the shared root state (py's single player),
+// copied on every state load: bounded here so no player can grow them; per-account lists when they matter
+/** admin sanction bits (0x3004, db/admin.ts): the client greys out chat and trade, the server holds them. */
+export const SANCTION_CHAT = 0x20, SANCTION_TRADE = 0x40;
+const MAIL_MAX = 1000, MAIL_PER_TO = 50, PID_LIST_MAX = 200;
+const pushCapped = (l: number[], pid: number) => { l.push(pid); l.splice(0, Math.max(0, l.length - PID_LIST_MAX)); };
 export const DEFAULT_COUNTRY = "ES";
 const MYROOM_SELF_AVATAR = true;
 const PIDNAME_PLAYERS = true;
@@ -380,7 +386,7 @@ export class Lobby {
     const pid = data.length >= 4 ? u32(data) : 0;
     const pvp = this.g.pvp, nw = this.g.nw;
     const ok = () => c.send(0x4321, new W().u32(0).s(this.g.cfg.publicIp, 15).u16(this.g.ports.duel + this.g.cfg.portOffset).bytes());
-    if (WATCH && pvp && pvp.watchRequest(c.peer, pid)) { nw?.forget(c.peer); ok(); return true; }
+    if (WATCH && pvp && pvp.watchRequest(c.peer, pid, this.sess(c))) { nw?.forget(c.peer); ok(); return true; }
     if (WATCH && nw && nw.watchRequest(c.peer, pid)) { ok(); return true; }
     c.send(0x4321, new W().u32(1).s("", 15).u16(0).bytes());
     return true;
@@ -430,6 +436,7 @@ export class Lobby {
     const msg = cat(head, text, Uint8Array.of(0));
     c.send(0x4402, msg);
     const s = this.sess(c), hub = this.g.hub;
+    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) { this.log(`[AVISO] [admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`); return true; }
     if (s && s.pid !== null) {
       const tell = (o: Session) => { const lc = o.lobby; if (lc && !lc.closed) lc.post(0x4402, msg); };
       if (kind === 0 && s.block !== null) for (const o of hub.others(s)) tell(o);
@@ -504,7 +511,7 @@ export class Lobby {
       if (ok === 1) { this.friendAdd(me!, asker.pid!); this.friendAdd(asker, me!.pid!); }
       return true;
     }
-    if (ok && pid && !this.mem.friends.includes(pid)) { this.mem.friends.push(pid); this.save(); }
+    if (ok && pid && !this.mem.friends.includes(pid)) { pushCapped(this.mem.friends, pid); this.save(); }
     return true;
   }
 
@@ -522,7 +529,7 @@ export class Lobby {
 
   private hBlack(c: Conn, msgId: number, data: Uint8Array): boolean {
     const pid = data.length >= 4 ? u32(data) : 0;
-    if (msgId === 0x4530 && !this.mem.black.includes(pid)) this.mem.black.push(pid);
+    if (msgId === 0x4530 && !this.mem.black.includes(pid)) pushCapped(this.mem.black, pid);
     if (msgId === 0x4540 && this.mem.black.includes(pid)) this.mem.black.splice(this.mem.black.indexOf(pid), 1);
     this.save();
     c.send(msgId + 1, new W().u32(0).bytes());
@@ -594,6 +601,9 @@ export class Lobby {
         body: "Gracias por tu carta. Te espero en la sala de duelo.", t: this.mailTime() });
       this.mem.next_mail++;
     }
+    const m = this.mem.mail, per = new Map<number, number>();   // the newest MAIL_PER_TO per recipient, MAIL_MAX in all
+    for (let i = m.length - 1; i >= 0; i--) { const k = (per.get(m[i].to) ?? 0) + 1; per.set(m[i].to, k); if (k > MAIL_PER_TO) m.splice(i, 1); }
+    m.splice(0, Math.max(0, m.length - MAIL_MAX));
     this.save();
     c.send(0x4601, new W().u32(0).bytes());
     if (n) c.send(0x4603);
@@ -653,7 +663,7 @@ export class Lobby {
     const trunk = p.trunk ?? {};
     const seen = new Set<number>(), flags: number[] = [];
     for (const cid of cards) { flags.push((trunk[String(cid)] ?? 0) === 0 && !seen.has(cid) ? 1 : 0); seen.add(cid); }
-    PP.trunkAdd(this.g, p, cards);
+    PP.trunkAdd(this.g, p, cards, 1, "lobby pack");
     this.g.saveState(st);
     return flags;
   }
@@ -665,9 +675,14 @@ export class Lobby {
     c.send(0x4803, w.bytes());
   }
   private hPacklist(c: Conn) { c.send(0x4800, cat(...Array.from({ length: 10 }, (_, i) => new W().u16(i + 1).bytes()))); return true; }
-  hSelectpackBase(c: Conn, data: Uint8Array) { this.cardsResult(c, this.cards(data.length >= 2 ? u16(data) : 1)); return true; }
+  /** py's free pack and gift cards: off with PROGRESSION (cards come from the shop, prizes, trades), s32 1 = none. */
+  private noPack(c: Conn, mid: number) { this.log(`[AVISO] [lobby] 0x${mid.toString(16)}: no free cards with progression`); c.send(0x4803, new W().u32(1).bytes()); return true; }
+  hSelectpackBase(c: Conn, data: Uint8Array) {
+    if (PP.progression()) return this.noPack(c, 0x4802);
+    this.cardsResult(c, this.cards(data.length >= 2 ? u16(data) : 1)); return true;
+  }
   private hSelectpack(c: Conn, data: Uint8Array) { return this.g.selectpack ? this.g.selectpack(c, data, () => this.hSelectpackBase(c, data)) : this.hSelectpackBase(c, data); }
-  private hGiftcards(c: Conn) { this.cardsResult(c, this.cards(1)); return true; }
+  private hGiftcards(c: Conn) { if (PP.progression()) return this.noPack(c, 0x4910); this.cardsResult(c, this.cards(1)); return true; }
 
   private hTrade(c: Conn, data: Uint8Array): boolean {
     const sub = data.length >= 2 ? u16(data) : 0;

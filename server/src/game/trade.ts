@@ -4,6 +4,7 @@ import { W } from "../net/proto.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 import * as PP from "./persist.ts";
+import { SANCTION_TRADE } from "./lobby.ts";
 
 const SUB = { TRADESTART: 0x7101, REQTRADE: 0x7102, OFFERREPLY: 0x7105, CANCELREQ: 0x7108, USEREXIT: 0x7112, ADDCARD: 0x7113,
   DELETECARD: 0x7114, SETSTATUS: 0x7117, LASTCONFIRM: 0x7119, ARRIVE: 0x7122, CLEAR: 0x7128, READY: 0x7132 };
@@ -84,12 +85,15 @@ export class Trades {
         const have = this.withProfile(s, (p) => ({ ...(p.trunk ?? {}) }));
         for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
       }
-      const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
+      const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
       this.withProfile(a, apply(giveA, giveB), true);
       this.withProfile(b, apply(giveB, giveA), true);
     } catch (e) { this.g.log(`[intercambio] error moving the cards: ${e}`); return false; }
     return true;
   }
+
+  /** Offers are locked once either side pressed ready: what the other confirms is what it gets (LASTCONFIRM no unlocks). */
+  private locked(t: Trade) { return [...t.ready.values()].some(Boolean); }
 
   private queueMove(t: Trade, mover: number, data: Uint8Array) { const rcv = t.other(mover).pid!; t.queue.get(rcv)!.push([mover, data]); this.pump(t, rcv); }
   private pump(t: Trade, rcv: number, c: Conn | null = null) {
@@ -108,6 +112,7 @@ export class Trades {
     else if (o === s) why = "with itself";
     else if (this.tradeOf(s) || this.tradeOf(o)) why = "already trading";
     else if ((o.state || 0) >= 0x67 && (o.state || 0) <= 0x6a) why = "in a duel";
+    else if ((this.g.admin.flagsOf(s.acct) | this.g.admin.flagsOf(o.acct)) & SANCTION_TRADE) why = "trade sanction";
     if (why) { this.g.log(`[intercambio] REQTRADE -> ${pid}: -493 (${why})`); c.send(M.REQTRADERESULT, s32(REQ_FAIL), SEND_PAUSE); return; }
     const t = new Trade(s!, c, o!);
     this.trades.set(s!.pid!, t); this.trades.set(o!.pid!, t);
@@ -148,7 +153,7 @@ export class Trades {
   private addcard(c: Conn, s: Session | null, body: Uint8Array) {
     const cid = body.length >= 4 ? new DataView(body.buffer, body.byteOffset).getUint32(0) : 0;   // a passcode
     const t = this.tradeOf(s);
-    if (!t || t.phase !== "open") { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
+    if (!t || t.phase !== "open" || this.locked(t)) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     const mine = t.offer.get(s!.pid!)!;
     if (mine.length >= MAX_OFFER) { c.send(M.ADDCARD, s32(0), SEND_PAUSE); return; }
     void this.available; // py only logs an uncovered ADDCARD (ADDCARD_REJECT_1010 off): the trade is cancelled at the end
@@ -161,7 +166,7 @@ export class Trades {
     const idx = body.length >= 2 ? (body[0] << 8) | body[1] : 0xffff;
     const t = this.tradeOf(s);
     c.send(M.DELETECARD, s32(0), SEND_PAUSE);
-    if (!t || t.phase !== "open" || idx >= t.offer.get(s!.pid!)!.length) return;
+    if (!t || t.phase !== "open" || this.locked(t) || idx >= t.offer.get(s!.pid!)!.length) return;
     t.offer.get(s!.pid!)!.splice(idx, 1);
     this.queueMove(t, s!.pid!, new W().u32(idx).u8(1).bytes());
   }
