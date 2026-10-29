@@ -312,7 +312,7 @@ Module.preRun.push(() => {
             yield [name.toLowerCase(), u32(256), u32(264), u32(260)];
         }
     }
-    let cardTocLoad = null;
+    let cardTocLoad = null, cardHead = null;   // cardHead: card.dat's chunk 0, kept for the session (no pin to lose)
     // a chunk into memory, fetched again when a synchronous read aborted it (up to 5 tries)
     const fetchSure = async (url, i, tag) => { for (let k = 0; k < 5 && !memChunk(url, i); k++) await fetchChunk({ url, i, pri: 0, tag, keep: true }); };
     const cardToc = () => (cardTocLoad = cardTocLoad || (async () => {   // card.dat's directory (~870 KB: chunk 0)
@@ -328,6 +328,7 @@ Module.preRun.push(() => {
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
         }
         for (const [name, off, len] of tocEntries(toc, end)) cardFiles.set(name, [off, off + len]);
+        cardHead = memChunk(cardArc, 0) || first;   // the game reads the directory and list_card.txt again at card scenes
     })().catch((e) => { cardTocLoad = null; throw e; }));
     // ---- card art without waiting (card.dat). A read inside a JPEG entry that isn't all in memory gets a placeholder
     // JPEG of the same 400x580 instead (padded with zeros to the entry's length), with the entry's offset in its comment
@@ -344,7 +345,7 @@ Module.preRun.push(() => {
     function artRead(buffer, offset, pos, end) {   // the read with placeholders, or false (nothing missing: as usual)
         if (!artSorted) {
             if (!cardFiles.size) return cardToc().catch(() => {}), false;   // not here yet (or its load failed): again
-            artSorted = [...cardFiles].filter(([n]) => n.endsWith(".jpg")).map(([, e]) => e).sort((a, b) => a[0] - b[0]);
+            artSorted = [...cardFiles].filter(([n]) => /\.(jpg|png)$/.test(n)).map(([, e]) => e).sort((a, b) => a[0] - b[0]);   // png: the 2008 faces
         }
         let lo = 0, hi = artSorted.length;
         while (lo < hi) { const m = (lo + hi) >> 1; if (artSorted[m][1] <= pos) lo = m + 1; else hi = m; }
@@ -696,9 +697,10 @@ Module.preRun.push(() => {
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
     function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
-        if (url === archive && dirBuf && pos < dirBuf.length) {   // merge.dat's directory: the sidecar
-            const e = Math.min(end, dirBuf.length);
-            buffer.set(dirBuf.subarray(pos, e), offset), (offset += e - pos), (pos = e);
+        const head = url === archive ? dirBuf : url === cardArc ? cardHead : null;   // merge.dat's directory (the sidecar), card.dat's
+        if (head && pos < head.length) {
+            const e = Math.min(end, head.length);
+            buffer.set(head.subarray(pos, e), offset), (offset += e - pos), (pos = e);
         }
         for (let p = pos; p < end;) {
             const at = p % CHUNK, k = Math.min(end - p, CHUNK - at);

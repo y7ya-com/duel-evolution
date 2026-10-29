@@ -63,7 +63,7 @@ static uint8_t *hq_bgra(const uint8_t *big, int w, int h, uint32_t tw, uint32_t 
 // Card art that isn't loaded yet (web, web/lazyfs.js): a card.dat entry not in memory reads as a placeholder JPEG of
 // the same size whose comment holds the entry's offset ("yo2-placeholder:<10 digits>"). Its texture is made as usual;
 // rc_card_art_frame (rt/web.c, every frame) fills it with the real art once lazyfs has the entry, so the game never
-// waits for card art. ?cardsync=1 turns it off (lazyfs).
+// waits for card art. card.dat's 2008 faces (200x290 PNG) get the same placeholder: their 1x layout is the same. ?cardsync=1 turns it off (lazyfs).
 static int placeholder_off(const uint8_t *p, uint32_t n, uint32_t *off) {
     for (uint32_t i = 2; i + 26 <= n && i < 64; i++)
         if (!memcmp(p + i, "yo2-placeholder:", 16)) {
@@ -183,6 +183,19 @@ void rc_card_art_frame(void) {
             uint8_t *hqb = rc_render_scale() >= 2 ? hq_bgra(big, w, h, tw, th, &hqn) : NULL;
             rc_texture_fill(tex, px, (uint32_t)lw, (uint32_t)lh, hqb, hqn, 2);
             free(px), free(hqb);
+        } else if (big && (uint32_t)w <= tw && (uint32_t)h <= th) {   // a 2008 face (card.dat's 200x290 PNGs): 1x as is
+            size_t hqn = 0;
+            uint8_t *hqb = NULL;
+            if (rc_render_scale() >= 2) {   // GL already holds the placeholder's 2x: the face doubled replaces it
+                uint8_t *dbl = malloc((size_t)w * h * 16);
+                for (int y = 0; y < 2 * h; y++)
+                    for (int x = 0; x < 2 * w; x++) memcpy(dbl + ((size_t)y * 2 * w + x) * 4, big + ((size_t)(y / 2) * w + x / 2) * 4, 4);
+                hqb = hq_bgra(dbl, 2 * w, 2 * h, tw, th, &hqn);   // ponytail: nearest doubling; bilinear if a face looks blocky
+                free(dbl);
+            }
+            for (size_t k = 0; k < (size_t)w * h * 4; k += 4) { uint8_t r = big[k]; big[k] = big[k + 2], big[k + 2] = r; }
+            rc_texture_fill(tex, big, (uint32_t)w, (uint32_t)h, hqb, hqn, 2);
+            free(hqb);
         }
         stbi_image_free(big);
         tally("jpeg", now_ms() - t0, 1);
