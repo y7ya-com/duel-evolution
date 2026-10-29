@@ -90,6 +90,11 @@ export class DuelReserva {
 
   /** The first 0x6001 of a duel connection without a session, BEFORE HUB.attach. false = refused (0x6007 0, close). */
   duel6001(c: Conn, pid: number): boolean {
+    // whatever the mode: a channel bound to a DE user reaches only that user's own session (the pid is the client's word)
+    if (c.userId !== null && this.g.hub.byPid(pid)?.acct !== this.g.hub.acctOfUser(c.userId)) {
+      this.g.log(`[AVISO] [reserva] RECHAZADO 0x6001 pid=${pid} desde ${c.peer}: ese pid no es de este usuario`);
+      return this.refuse(c, "pid de otro usuario");
+    }
     const mode = this.mode;
     if (mode === "off") return true;
     const on = mode === "on";
@@ -101,6 +106,10 @@ export class DuelReserva {
       + (r && r.fails ? ` (${r.fails} rechazos sospechosos de esa IP en ${INSIST_S / 60} min)` : "") + (on ? "" : ` -> se deja pasar (modo ${mode})`));
     if (r && r.alert) this.g.log(`[AVISO] [reserva] la IP ${c.peer} insiste: ${r.fails} intentos sospechosos de entrar en duelos ajenos (solo aviso: no se veta)`);
     if (!on) return true;
+    return this.refuse(c, why);
+  }
+
+  private refuse(c: Conn, why: string): false {
     c.ext.bookedFail = why;
     c.send(0x6007, new W().u32(0).bytes());
     void c.closeAfterFlush();
