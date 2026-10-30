@@ -159,7 +159,9 @@ skin.js with their colours cited; skin.html lays them out for a side-by-side.
 list or scroll area (chat log, trunk / card lists, file lists, player and NPC lists, mail ...) is a native scroller:
 controls/scroll.js `scrollList(parent, { x, y, w, h, rowH, stick })`, a real overflow: auto box with the browser's own
 scroll bar (styled by scrollbar-color / -width only): wheel, drag, touch momentum and keys are the browser's. The game's
-scroll bar and arrows are not redrawn. `list.set(items, render, key)` keeps rows by key; `stick: true` (logs) keeps the
+scroll bar and arrows are not redrawn. Wrapped text whose rows vary in height (the chat log, the card detail's text: word-wrapped, the owner's
+other rule) may be a plain overflow-y: auto box in normal flow instead, with the class `yo2-scroll-list` for the same
+scroll bar (htmlui-chat's ownList, deck.js's detail box); scrollList is for lists of fixed-height rows. `list.set(items, render, key)` keeps rows by key; `stick: true` (logs) keeps the
 bottom in view while the player is there. Keep the game in step: a list whose rows the DOM draws in full needs nothing;
 a list whose rows the engine still draws (card faces) follows the DOM through `list.onTop = i => ...` and
 `wheelTo(api, ctl, i, gp)` (one wheel notch per frame toward that top line, aimed at game point gp when the list's rect reads 0 x 0); when the game moves its list (a search, a new
