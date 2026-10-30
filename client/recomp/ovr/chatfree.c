@@ -17,23 +17,17 @@ void o_00a75760(CPU *restrict c);
 
 static uint32_t taboo;   // the reader opened on taboo_?.txt
 
-// a path argument: a char * (or a VC6 std::string: _Ptr at +4)
+// the path argument: a VC6 std::string (0x0052a490 is yaneSDK CFile::Read(const std::string &)): _Ptr at +4
 static int is_taboo(uint32_t p) {
-    if (!p)
-        return 0;
-    const char *s = (const char *)G(p);
-    if (strncmp(s, "data", 4) != 0) {
-        uint32_t q = RD32m(p + 4);
-        if (!q)
-            return 0;
-        s = (const char *)G(q);
-    }
-    return strstr(s, "taboo_") != NULL;
+    uint32_t q = p ? RD32m(p + 4) : 0;
+    return q && strstr((const char *)G(q), "taboo_") != NULL;
 }
 
 // the reader's open (thiscall: this = the reader, the path)
 void f_0052a490(CPU *restrict c) {
     uint32_t self = c->ecx, path = ARG(0);
+    if (self == taboo)   // the same reader on another file (the taboo file was opened but never read)
+        taboo = 0;
     if (is_taboo(path))
         taboo = self;
     o_0052a490(c);
