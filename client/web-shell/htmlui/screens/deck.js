@@ -635,6 +635,73 @@ function drawButton(el, c, x, y, w, h) {
   el.append(b);
 }
 
+// ---------------------------------------------------------------- click to add / remove (owner, after EDOPro)
+// Right-click or double-click (double-tap on a touch screen) moves one copy: a trunk card into the deck (Main; a
+// Fusion into Extra), a deck card back to the trunk. Drag and drop stays as it is. The move IS the game's own drag,
+// replayed as canvas mouse events: a press on the card (KabanListBtn / DeckCard onMessage pick it up), a release over
+// the drop zone (CDeckScene::main's dropFromTrunk / dropFromDeck), so the copy limits, the deck sizes, the banlist,
+// the dirty flag and the server save are all the game's. Drop zones (DeckEntryMain.cpp deckDropTarget / inTrunkZone):
+// the grids x 256..728, y 88..480 (Extra: ..600); the trunk x 744..956, y 88..600.
+export const DROP_DECK = [490, 300], DROP_TRUNK = [850, 300], FUSION_TAB = [540, 70];
+const KLB_FUSION = 6;   // KabanWindowList.h: a trunk row's frame colour for a Fusion monster
+const inside = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+// what a right-click / double-click at game (x, y) moves, from the deck windows' latest snapshot: { press, drop,
+// card, fusion } (press: where the game must see the button go down: on the card's picture), or null
+export function quickMove(wins, x, y) {
+  const pic = c => c.parts?.sprites?.find(q => q.shown && isArt(q));
+  const kaban = wins.find(w => w.cls === 'CWindowModelKaban'), deck = wins.find(w => w.cls === 'CWindowModelDeck');
+  for (const c of kaban?.controls || []) {
+    if (c.cls !== 'CWindowTaskKabanListBtn' || !c.shown || !(c.card > 0)) continue;
+    const p = pic(c), row = { x: c.wx, y: c.wy, w: c.w, h: c.h };
+    if (!p || !inside(row, x, y)) continue;
+    const r = spriteRect(p);   // anywhere on the row; the press lands on its picture
+    return { press: inside(r, x, y) ? [x, y] : [r.x + r.w / 2, r.y + r.h / 2], drop: DROP_DECK, card: c.card, fusion: c.color === KLB_FUSION };
+  }
+  // the deck's cards fan out over each other: the one drawn on top at (x, y), as the game picks it
+  let top = null;
+  for (const c of deck?.controls || []) {
+    const p = c.cls === 'CWindowTaskDeckCard' && c.shown && c.card > 0 && pic(c);
+    if (p && inside(spriteRect(p), x, y) && (!top || p.wz > top.z)) top = { c, z: p.wz };
+  }
+  return top && { press: [x, y], drop: DROP_TRUNK, card: top.c.card, fusion: false };
+}
+let quickBusy = Promise.resolve(), quickOn = false;
+function quickInstall() {
+  const canvas = document.getElementById('canvas');
+  if (quickOn || !canvas) return;
+  quickOn = true;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const game = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * 1024 / r.width, (e.clientY - r.top) * 1024 / r.width]; };
+  const client = ([x, y]) => { const r = canvas.getBoundingClientRect(), k = r.width / 1024; return [r.left + x * k, r.top + y * k]; };
+  const fire = (type, p) => { const [x, y] = client(p); canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0 })); };
+  // the game reads the mouse once a frame: each step held ~3 frames
+  const press = async p => { fire('mousemove', p); await sleep(50); fire('mousedown', p); await sleep(50); };
+  const release = async p => { fire('mousemove', p); await sleep(50); fire('mouseup', p); await sleep(50); };
+  const act = e => {
+    if (!live.size) return;
+    const at = game(e), wins = [...live.values()].map(L => L.win), m = quickMove(wins, ...at);
+    if (!m) return;
+    e.preventDefault?.();
+    quickBusy = quickBusy.then(async () => {
+      const deck = wins.find(w => w.cls === 'CWindowModelDeck'), view = deck?.controls.find(c => c.cls === 'CWindowTaskDeck')?.view;
+      if (m.fusion && view !== 'extra') { await press(FUSION_TAB); await release(FUSION_TAB); await sleep(100); }
+      await press(m.press);
+      await release(m.drop);
+      fire('mousemove', at);   // the pointer back where the player has it
+    });
+  };
+  canvas.addEventListener('contextmenu', act, true);
+  canvas.addEventListener('dblclick', act, true);
+  // a double-tap (a long press still opens the card detail: the game's)
+  let tap = null;
+  canvas.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], now = performance.now();
+    if (tap && now - tap.t < 350 && Math.hypot(t.clientX - tap.x, t.clientY - tap.y) < 24) { tap = null; act(t); }
+    else tap = { t: now, x: t.clientX, y: t.clientY };
+  }, { capture: true, passive: true });
+}
+
 // ---------------------------------------------------------------- the module
 // every live deck window: { win, root, plan }, so a hole from one (a dragged card) clips the others
 const live = new Map(), scene = { el: null, key: '' };   // scene: the backdrop's last drawing
@@ -673,6 +740,7 @@ export default {
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
   passthrough,
   mount(win, root, api) {
+    quickInstall();
     const inner = document.createElement('div');
     inner.className = 'layer';
     root.append(inner);
