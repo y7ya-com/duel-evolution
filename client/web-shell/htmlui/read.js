@@ -169,14 +169,17 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     }
   })(mgr, 0, true);
   const drawOrder = (a, b) => a.wz - b.wz || a.z - b.z;
-  // where a window actually draws: the box around its shown, drawn top-level controls (game pixels), or null (it draws
-  // nothing: the deck scene's chat window keeps a collapsed 776 x 32 rect over the deck panels). ponytail: one box
-  // (a label's text box can overstate it); per-control rects if a window ever needs a finer hole
+  // where a window actually draws: the box around its shown, drawn top-level controls at their world positions (as
+  // last drawn: the deck scene's chat window says y 608 but draws its bar at 712), parked ones left out (the game parks
+  // a hidden part at 99999), or null (it draws nothing). ponytail: one box (a label's text box can overstate it);
+  // per-control rects if a window ever needs a finer hole
+  const PARKED = 9999;
   const drawnBox = w => {
-    const o = rectF(w, 0x380), cs = byWin.get(w).filter(c => !c.parent && c.shown && c.wz > 0 && c.w > 0 && c.h > 0);
+    const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.wz > 0 && c.w > 0 && c.h > 0 &&
+      Math.max(c.x, c.y, c.wx, c.wy) < PARKED);
     if (!cs.length) return null;
-    const x0 = Math.min(...cs.map(c => c.x)), y0 = Math.min(...cs.map(c => c.y));
-    return { x: o.x + x0, y: o.y + y0, w: Math.max(...cs.map(c => c.x + c.w)) - x0, h: Math.max(...cs.map(c => c.y + c.h)) - y0 };
+    const x0 = Math.min(...cs.map(c => c.wx)), y0 = Math.min(...cs.map(c => c.wy));
+    return { x: x0, y: y0, w: Math.max(...cs.map(c => c.wx + c.w)) - x0, h: Math.max(...cs.map(c => c.wy + c.h)) - y0 };
   };
   // a window's box (CWindowTaskModel +0x380): x, y, w, h; a window that never sets its size (CWindowLogin as
   // rt/session.cpp rearranges it reads 0 x 0) gets its frame control's, else its shown top-level controls' extent
