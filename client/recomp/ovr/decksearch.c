@@ -22,6 +22,7 @@
 #include "win.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/threading.h>
 #endif
 
 enum { TEXT = 64, SETMAX = 24, NSETS = 5 };
@@ -72,8 +73,8 @@ static int fold;
 static uint16_t lower(uint16_t ch) { return (ch >= 'A' && ch <= 'Z') || (ch >= 0xc0 && ch <= 0xde && ch != 0xd7) ? ch + 32 : ch; }
 void f_00b0d6fd(CPU *restrict c) {
     RC_LOCALS;
-    uint32_t hay = RD32(c->esp + 4), needle = RD32(c->esp + 8), hit = 0;
-    for (uint32_t h = hay; RD16(h); h += 2) {
+    uint32_t hay = RD32(c->esp + 4), needle = RD32(c->esp + 8), hit = RD16(needle) ? 0 : hay;   // "" is found at once
+    for (uint32_t h = hay; !hit && RD16(h); h += 2) {
         uint32_t k = 0;
         for (uint16_t a, b; (b = RD16(needle + k)) && (a = RD16(h + k)); k += 2)
             if (fold ? lower(a) != lower(b) : a != b) break;
@@ -141,7 +142,8 @@ EM_JS(void, decksearch_install, (uint32_t base, int T, int S), {
 void rc_decksearch_frame(CPU *c) {
 #ifdef __EMSCRIPTEN__
     static int installed;
-    if (!installed) installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX);
+    if (!installed && emscripten_is_main_runtime_thread())   // the page's Module (as htmlui.c's onYo2Frame)
+        installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX);
 #endif
     if (req.seq == done_seq) return;
     done_seq = req.seq;
