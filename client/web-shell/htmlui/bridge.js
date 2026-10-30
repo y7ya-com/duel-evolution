@@ -45,7 +45,6 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .sp { overflow: hidden; }
 #htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
   mask-repeat: no-repeat; transform-origin: 0 0; }
-#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
 #htmlui-host .txt { position: absolute; }
 `;
