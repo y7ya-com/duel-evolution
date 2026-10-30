@@ -46,7 +46,29 @@ const CHAT_CSS = `
   border-top-left-radius: 5px 5px; }
 .yo2-plane { position: absolute; background: #fff; opacity: ${A70}; }`;
 
-export const SKIN_CSS = `
+// The 2008 button plate (CWindowTaskSwitch's swich_01_c00.png, one 24 x 24 9-slice per look), sampled texel for texel:
+// a 1 px border, two rows at the top and two at the bottom, two columns each side, the body, and a lighter stripe
+// every 4 rows (from row 5, or 6 for pressed and checked). In CSS (hard-stop gradients) it is sharp at any DPR, where
+// the bitmap's stretched 8-px slices went soft. Looks (switchColumn): 0 normal, 1 hover, 2 pressed, 3 checked,
+// 4 checked + hover. [border, top1, top2, body, stripe, first stripe row, bottom1, bottom2, left1, left2, right1, right2]
+const PLATE = [
+  ['#011434', '#fefdfc', '#f8f4ef', '#f4efe7', '#faf7f3', 5, '#f1ede7', '#c6bba7', '#f7f4ef', '#f6f2eb', '#e9e2d7', '#d3c9b9'],
+  ['#011434', '#ffe8b1', '#ffe9c3', '#ffffff', '#ffffef', 5, '#fff1d0', '#ffb85b', '#ffeac6', '#fff3df', '#ffeed7', '#ffcc89'],
+  ['#011434', '#838383', '#d4d4d4', '#c0c0c0', '#e0e0e0', 6, '#d0d0d0', '#f0f0f0', '#949494', '#b1b1b1', '#c8c8c8', '#cfcfcf'],
+  ['#011434', '#afae64', '#f0efc0', '#fffe92', '#ffffc9', 6, '#fffead', '#ffffe5', '#c6c571', '#eceb87', '#fffea1', '#fffeac'],
+  ['#ffa92e', '#afae64', '#f0efc0', '#fffe92', '#ffffc9', 6, '#fffead', '#ffffe5', '#c6c571', '#eceb87', '#fffea1', '#fffeac'],
+];
+// :is(#htmlui-host, body): an id's weight (the bridge resets #htmlui-host button.btn's border and background), and
+// still a match outside the host (skin.html)
+const plateCss = ([bd, t1, t2, body, st, row, b1, b2, l1, l2, r1, r2], i) => `:is(#htmlui-host, body) .yo2-plate[data-look="${i}"] { border: 1px solid ${bd};
+  background: linear-gradient(to right, ${l1} 0 1px, ${l2} 1px 2px, transparent 2px calc(100% - 2px), ${r1} calc(100% - 2px) calc(100% - 1px), ${r2} calc(100% - 1px)),
+    linear-gradient(to bottom, ${t1} 0 1px, ${t2} 1px 2px, transparent 2px calc(100% - 2px), ${b1} calc(100% - 2px) calc(100% - 1px), ${b2} calc(100% - 1px)),
+    repeating-linear-gradient(to bottom, transparent 0 3px, ${st} 3px 4px) 0 ${row - 4}px / 100% calc(100% - 4px) no-repeat, ${body}; }`;
+// a plate behind a control's caption: the element gets the class and data-look (the switch column)
+export function plateLook(el, look) { inject(); el.classList.add('yo2-plate'); el.dataset.look = look; }
+
+// built on first use: basic.js imports this file and this file reads basic.js's FONT, so nothing runs at load
+const skinCss = () => `
 .yo2-mbtn { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 1px solid; border-radius: 3px;
   border-color: #e36f08 #e99223 #e68317 #e36f08; background: ${BTN_H}, ${BTN_V}; color: #fff; ${outlined};
   font: 14.32px/22px ${FONT}; text-align: center; white-space: nowrap; overflow: hidden; cursor: inherit; }
@@ -75,13 +97,15 @@ export const SKIN_CSS = `
     inset 7px 0 0 #59c6ff, inset 0 7px 0 #59c6ff, inset -7px 0 0 #59c6ff, inset 0 -7px 0 #59c6ff; }
 .yo2-panel { isolation: isolate; }
 .yo2-band { position: absolute; left: 7px; right: 7px; bottom: 7px; background: #e5e5e5; }
+:is(#htmlui-host, body) .yo2-plate { box-sizing: border-box; border: 1px solid; }
+${PLATE.map(plateCss).join('\n')}
 ${CHAT_CSS}`;
 
 function inject() {
   if (document.getElementById('htmlui-skin')) return;
   const st = document.createElement('style');
   st.id = 'htmlui-skin';
-  st.textContent = SKIN_CSS;
+  st.textContent = skinCss();
   document.head.append(st);
 }
 const place = (el, { x = 0, y = 0, w, h }) => Object.assign(el.style, { left: x + 'px', top: y + 'px',
