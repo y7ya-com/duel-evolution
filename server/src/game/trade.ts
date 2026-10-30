@@ -14,6 +14,10 @@ const M = { REQTRADERESULT: 0x7103, TRADEOFFER: 0x7104, OFFERREPLY: 0x7105, CANC
   STARTRESULT: 0x7133, CHANGESTATUS: 0x7134 };
 const REQ_FAIL = -493, MAX_OFFER = 10, CONFIRM_YES = 1, CONFIRM_NO = 2, RESULT_DONE = 3, RESULT_BACK = 2;
 const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
+/** A swap never leaves either side with fewer cards than a deck needs (the owner's rule, 2026-10-30: below 40 the
+ *  client keeps the player in Edit Deck); the trunk is the whole collection, decks only point into it. */
+export const TRADE_MIN_CARDS = 40;
+const MIN_CARDS_TEXT = `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`;
 const s32 = (v: number) => new W().u32(v).bytes();
 const EMPTY: Uint8Array = new Uint8Array(0);
 const name16 = (t: string) => { const raw = Buffer.from([...String(t || "Duelista")].map((ch) => (ch.charCodeAt(0) > 255 ? "?" : ch)).join(""), "latin1").subarray(0, 15); const o = new Uint8Array(16); o.set(raw); return o; };
@@ -75,15 +79,22 @@ export class Trades {
     try { return PP.cardOk(cid) ? this.withProfile(s, (p) => PP.int(p.trunk?.[String(cid)] ?? 0)) : 0; } catch { return 0; }
   }
 
-  private execute(t: Trade): boolean {
+  /** The swap, checked and applied in one synchronous step (the WorldDO is single-threaded): true when done, false
+   *  when the cards aren't there, "min" when a side would be left with fewer than TRADE_MIN_CARDS. */
+  private execute(t: Trade): boolean | "min" {
     const { a, b } = t;
     const giveA = [...t.offer.get(a.pid!)!], giveB = [...t.offer.get(b.pid!)!];
     try {
-      for (const [s, give] of [[a, giveA], [b, giveB]] as [Session, number[]][]) {
+      for (const [s, give, take] of [[a, giveA, giveB], [b, giveB, giveA]] as [Session, number[], number[]][]) {
         const need = new Map<number, number>();
         for (const x of give) need.set(x, (need.get(x) ?? 0) + 1);
         const have = this.withProfile(s, (p) => ({ ...(p.trunk ?? {}) }));
         for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
+        const after = Object.values(have).reduce((n: number, v) => n + PP.int(v), 0) - give.length + take.length;
+        if (after < TRADE_MIN_CARDS) {
+          this.g.log(`[AVISO] [intercambio] pid ${s.pid} would keep ${after} cards (< ${TRADE_MIN_CARDS}): cancelled`);
+          return "min";
+        }
       }
       const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
       this.withProfile(a, apply(giveA, giveB), true);
@@ -207,12 +218,14 @@ export class Trades {
       return;
     }
     if ([...t.confirm.values()].includes(null)) return;
-    const done = this.execute(t);
+    const r = this.execute(t), done = r === true;
     t.phase = "done";
     for (const p of [a, b]) {
       this.to(t, p, M.LASTCONFIRMRESULT, Uint8Array.of(RESULT_DONE), c);
       this.to(t, p, M.TRADEEND, Uint8Array.of(done ? 1 : 0), c);
       if (done) this.sendTrunk(t, p, c);
+      // why, as a server line in the chat (the trade screen has no text of its own for it)
+      if (r === "min") this.to(t, p, 0x4402, new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(MIN_CARDS_TEXT, MIN_CARDS_TEXT.length + 1).bytes(), c);
     }
   }
 

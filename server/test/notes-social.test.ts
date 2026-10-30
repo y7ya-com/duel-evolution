@@ -97,13 +97,15 @@ describe("trade (research/intercambio)", () => {
     expect(i32(await ask(A, 0x7000, t(0x7102, be32(4321)), 0x7103))).toBe(-493);
   });
 
-  it("the whole trade: offer 0x7104, accept 0x7105, trunk 0x7125 + 0x7126 (passcode, count) pairs + 0x7127, cards, ready 0x7118, confirm -> 0x7120 3 + 0x7121 1 and the cards move", async () => {
+  /** A whole trade between A and B with these trunks: each offers its cards, both ready and confirm. Returns the
+   *  0x7121 result (1 done, 0 failed), the chat lines A got after it, and both trunks. */
+  async function trade(trunkA: Record<string, number>, trunkB: Record<string, number>, giveA: number[], giveB: number[]) {
     const h = harness();
     const [A, B] = await players(h, 2);
     const setTrunk = (i: number, trunk: Record<string, number>) => {
       const st = h.state(); (Object.values(st.accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk = trunk; h.game.store.saveRaw(st);
     };
-    setTrunk(0, { [pc(1)]: 1 }); setTrunk(1, { [pc(2)]: 1 });
+    setTrunk(0, trunkA); setTrunk(1, trunkB);
     let m = B.room!.mark();
     expect(i32(await ask(A, 0x7000, t(0x7102, be32(B.pid!)), 0x7103))).toBe(0);
     const off = (await B.room!.wait(0x7104, m))!;
@@ -111,30 +113,44 @@ describe("trade (research/intercambio)", () => {
     let n = A.room!.mark();
     B.room!.send(0x7000, t(0x7105, be32(1)));
     expect(i32((await A.room!.wait(0x7105, n, undefined, 3000))!)).toBe(0);
-    for (const [X, card] of [[A, pc(1)], [B, pc(2)]] as const) {
+    for (const X of [A, B]) {
       const k = X.room!.mark(); X.room!.send(0x7000, t(0x7132)); await X.room!.wait(0x7131, k);
-      // one chunk for one card (the client's codec rebuilds its 7 × 0x7126); the limit table is empty
-      expect([X.room!.all(0x7126, k).map((d) => d.length), pairs(X.room!.all(0x7126, k)), X.room!.all(0x7130, k)]).toEqual([[5], [[card, 1]], []]);
       const j = X.room!.mark(); X.room!.send(0x7000, t(0x7101)); await X.room!.wait(0x7133, j);
     }
-    m = B.room!.mark();
-    A.room!.send(0x7000, t(0x7113, be32(pc(1))));   // u16 sub + u32 passcode
-    const mv = (await B.room!.wait(0x7116, m))!;
-    expect([u32(mv), mv[4]]).toEqual([pc(1), 0]);   // u32 value + u8 op
-    B.room!.send(0x7000, t(0x7122));
-    n = A.room!.mark();
-    B.room!.send(0x7000, t(0x7113, be32(pc(2))));
-    await A.room!.wait(0x7116, n);
-    A.room!.send(0x7000, t(0x7122));
+    for (const [X, Y, give] of [[A, B, giveA], [B, A, giveB]] as const)
+      for (const card of give) {
+        const k = Y.room!.mark();
+        X.room!.send(0x7000, t(0x7113, be32(card)));   // u16 sub + u32 passcode
+        const mv = (await Y.room!.wait(0x7116, k))!;
+        expect([u32(mv), mv[4]]).toEqual([card, 0]);   // u32 value + u8 op
+        Y.room!.send(0x7000, t(0x7122));
+      }
     n = A.room!.mark(); m = B.room!.mark();
     A.room!.send(0x7000, t(0x7117, [0])); B.room!.send(0x7000, t(0x7117, [0]));
     expect(await A.room!.wait(0x7118, n)).not.toBeNull();
-    const conf = (mine: number, theirs: number) => cat([1], be32(mine), ...new Array(9).fill(be32(-1)), be32(theirs), ...new Array(9).fill(be32(-1)));
-    A.room!.send(0x7000, t(0x7119, conf(pc(1), pc(2)))); B.room!.send(0x7000, t(0x7119, conf(pc(2), pc(1))));
+    const list = (cs: number[]) => [...cs.map((c) => be32(c)), ...new Array(10 - cs.length).fill(be32(-1))];
+    const conf = (mine: number[], theirs: number[]) => cat([1], ...list(mine), ...list(theirs));
+    A.room!.send(0x7000, t(0x7119, conf(giveA, giveB))); B.room!.send(0x7000, t(0x7119, conf(giveB, giveA)));
     const end = (await A.room!.wait(0x7121, n))!;
-    expect([...A.room!.all(0x7120, n)[0], end[0]]).toEqual([3, 1]);
+    await h.tick(300);
+    expect(A.room!.all(0x7120, n)[0][0]).toBe(3);
     const tr = (i: number) => (Object.values(h.state().accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk;
-    expect([tr(0), tr(1)]).toEqual([{ [pc(2)]: 1 }, { [pc(1)]: 1 }]);
+    const chat = A.room!.all(0x4402, n).map((d) => cstr(d.subarray(26)));
+    return { end: end[0], chat, a: tr(0), b: tr(1) };
+  }
+
+  it("the whole trade: offer 0x7104, accept 0x7105, trunk 0x7125 + 0x7126 + 0x7127, cards, ready 0x7118, confirm -> 0x7120 3 + 0x7121 1 and the cards move (both keep 40)", async () => {
+    const r = await trade({ [pc(1)]: 1, [pc(3)]: 39 }, { [pc(2)]: 1, [pc(4)]: 39 }, [pc(1)], [pc(2)]);
+    expect([r.end, r.a, r.b]).toEqual([1, { [pc(2)]: 1, [pc(3)]: 39 }, { [pc(1)]: 1, [pc(4)]: 39 }]);
+  });
+
+  it("a swap that leaves either side with fewer than 40 cards fails (0x7121 0), no card moves, and the chat says why", async () => {
+    const A0 = { [pc(1)]: 2, [pc(3)]: 38 }, B0 = { [pc(2)]: 2, [pc(4)]: 38 };
+    const r1 = await trade(A0, B0, [pc(1), pc(1)], [pc(2)]);          // A would keep 39
+    expect([r1.end, r1.a, r1.b]).toEqual([0, A0, B0]);
+    expect(r1.chat).toEqual(["Trade cancelled: you must keep at least 40 cards."]);
+    const r2 = await trade(A0, B0, [pc(1)], [pc(2), pc(2)]);          // B would keep 39
+    expect([r2.end, r2.a, r2.b]).toEqual([0, A0, B0]);
   });
 });
 
