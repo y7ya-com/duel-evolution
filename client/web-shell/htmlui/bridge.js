@@ -1,0 +1,157 @@
+// The HTML UI bridge (CONTRACT.md): at every Present (Module.onYo2Frame, recomp/ovr/htmlui.c) read the game's window
+// tree (read.js), draw the windows it owns in a DOM layer over the canvas (screens/*.js, else controls/basic.js), and
+// tell the game not to draw them (the hide/pass tables htmlui.c reads in CElement::onMain).
+// Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
+// ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
+// vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
+import { read } from './read.js';
+import { renderControl } from './controls/basic.js';
+import { loadGlyphs } from '../ui.js';
+
+const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
+const SLOTS = 63;
+
+export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+  const by = new Map();
+  for (const n of SCREENS) {
+    const m = await import(new URL(n + '.js', base)).catch(() => null);
+    for (const c of m?.default?.classes || []) by.set(c, m.default);
+  }
+  return by;
+}
+
+export function switches(spec, defaults = []) {
+  if (spec === '0') return () => false;
+  if (spec === 'all') return () => true;
+  const parts = (spec || '').split(',').filter(Boolean);
+  if (parts.length && parts.every(p => !p.startsWith('-'))) { const s = new Set(parts); return c => s.has(c); }
+  const s = new Set(defaults);
+  parts.forEach(p => s.delete(p.slice(1)));
+  return c => s.has(c);
+}
+
+const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
+  pointer-events: none; z-index: 5; }
+#htmlui-host .win { position: absolute; overflow: hidden; }
+#htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
+#htmlui-host .frame { position: absolute; display: block; }
+#htmlui-host .frame, #htmlui-host .layer { left: 0; top: 0; }
+#htmlui-host .sp { overflow: hidden; }
+#htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
+  mask-repeat: no-repeat; transform-origin: 0 0; }
+#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }`;
+
+// The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
+// and glyphs (R2; never in git).
+export async function makeLayer(host, screens, art = 'ui/') {
+  await loadGlyphs(art);
+  if (!document.getElementById('htmlui-css')) {
+    const st = document.createElement('style');
+    st.id = 'htmlui-css';
+    st.textContent = CSS;
+    document.head.append(st);
+  }
+  const layer = document.createElement('div');
+  layer.id = 'htmlui';
+  host.append(layer);
+  const live = new Map();   // window id -> { root, mod, state, json, prev }
+  function render(snap, owned, api) {
+    const seen = new Set();
+    for (const w of snap.windows) {
+      if (!owned.has(w.id)) continue;
+      seen.add(w.id);
+      let e = live.get(w.id);
+      const mod = screens.get(w.cls);
+      if (e && e.cls !== w.cls) { unmount(w.id); e = null; }   // the address was reused
+      if (!e) {
+        const root = document.createElement('div');
+        root.className = 'win';
+        e = { root, mod, cls: w.cls, json: '' };
+        live.set(w.id, e);
+      }
+      if (layer.children[seen.size - 1] !== e.root) layer.insertBefore(e.root, layer.children[seen.size - 1] || null);   // DOM order = draw order
+      Object.assign(e.root.style, {
+        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
+        visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
+        clipPath: holes(w, snap.windows, owned),
+      });
+      const json = JSON.stringify(w.controls);
+      if (json === e.json) continue;
+      e.json = json;
+      const a = { ...api, owned: mod?.mode === 'owned', renderControl: (c, el) => renderControl(c, el, a) };
+      if (mod) {
+        if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
+        mod.update?.(w, e.prev, e.root, a, e.state);
+      } else {
+        e.root.replaceChildren();
+        for (const c of w.controls) if (c.shown) renderControl(c, e.root, a);
+      }
+      e.prev = w;
+    }
+    for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
+  }
+  function unmount(id) {
+    const e = live.get(id);
+    e.mod?.unmount?.(e.root, e.state);
+    e.root.remove();
+    live.delete(id);
+  }
+  return { layer, render };
+}
+
+// An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
+function holes(w, wins, owned) {
+  const front = wins.slice(wins.indexOf(w) + 1).filter(o => o.shown && !owned.has(o.id) &&
+    o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
+  if (!front.length) return '';
+  const r = o => `M${o.x - w.x} ${o.y - w.y}h${o.w}v${o.h}h${-o.w}z`;
+  return `path(evenodd, "M0 0h${w.w}v${w.h}h${-w.w}z${front.map(r).join('')}")`;
+}
+
+// The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
+export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
+  const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  let on = switches(spec, defaults.on || []);
+  const forced = new Map();   // yo2Html.toggle overrides
+  const screens = await loadScreens();
+  const host = document.createElement('div');
+  host.id = 'htmlui-host';
+  document.body.append(host);
+  const { render } = await makeLayer(host, screens);
+  const place = () => {
+    const r = canvas.getBoundingClientRect(), s = r.width / 1024;
+    Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+  };
+  new ResizeObserver(place).observe(canvas);
+  addEventListener('resize', place);
+  place();
+
+  let scene = 0, frameNo = 0, dv = null, last = null;
+  Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
+  const api = { click() {}, hover() {}, key() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
+  Module.onYo2Frame = tables => {
+    if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
+    let snap;
+    try { snap = read(dv, ++frameNo, scene); } catch (e) { console.warn('htmlui: read failed', e); return; }
+    last = snap;
+    const want = c => forced.has(c) ? forced.get(c) : on(c);
+    const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    const pass = [];
+    for (const w of snap.windows) {
+      const mod = screens.get(w.cls);
+      if (owned.has(w.id) && mod?.passthrough)
+        for (const c of [...w.controls, ...w.extras]) if (mod.passthrough(c)) pass.push(c.id);
+    }
+    const t = tables >>> 2, H = Module.HEAPU32, ids = [...owned];
+    H[t] = ids.length;
+    ids.forEach((id, i) => { H[t + 1 + i] = id; });
+    H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
+    pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    render(snap, owned, api);
+  };
+  return window.yo2Html = {
+    snapshot: () => last,
+    toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
+    set(spec2) { on = switches(spec2, defaults.on || []); forced.clear(); },
+  };
+}

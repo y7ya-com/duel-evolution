@@ -4,8 +4,12 @@ The bridge (bridge.js, owned by htmlui-bridge) reads the game's window tree out 
 each screen module a plain-object **snapshot** of its window. Screen modules (screens/*.js, one owner each) turn
 that into DOM. Nothing in a screen module reads wasm memory or calls into the game except through `api`.
 
-Mock snapshots for building without the game: `mock/*.json` (one object per file: a whole `Snapshot`). Load one in
-`mock.html?s=playerselect` (comes with the bridge; until then, `import` the JSON and call your `mount`/`update` yourself).
+Mock snapshots for building without the game: `mock/*.json` (one object per file: a whole `Snapshot`).
+- `node client/web-shell/htmlui/serve.mjs` (ART=<dir> if the private art isn't in client/html-ui/assets; run
+  infra/fetch-private.sh), then http://127.0.0.1:8941/htmlui/mock.html?s=playerselect renders it through the same
+  layer the game uses, your screens/*.js included (`&mode=owned` is not wired yet: mock.html logs api calls).
+- `node client/web-shell/htmlui/tools/mockshot.mjs <outdir> [names] [--dpr=2]`: headless screenshots of them.
+- `node client/web-shell/htmlui/read_test.mjs`: the reader on a synthetic memory image.
 
 ## Snapshot
 
@@ -28,10 +32,11 @@ Window = {
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
   controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
+  extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough()
 }
 
 Control = {
-  id, cls, kind,           // kind(): vtable slot 12
+  id, cls,
   name,                    // instance name (setInstName; often Japanese, e.g. 'プレイヤ選択ボタン'): a stable key
   parent: 0 | id,          // the control it belongs to, if it is part of another control
   x, y, w, h,              // WINDOW-LOCAL game pixels
@@ -46,7 +51,7 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | family | classes | fields |
 |---|---|---|
 | text | Text, ShadowText, TextField, TextItem | `text` (string, '\n' between lines), `align` 0 left 1 centre 2 right, `fontSize`, `lineGap`, `firstLine`, `pageLines`, `color` [r,g,b,a] |
-| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked` |
+| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `align` (the caption's: 0 left 1 centre 2 right), `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked` |
 | checkbox | Checkbox | `checked` |
 | tab | Tab | `label`, `active` |
 | input | Input, InputDuel, MultiInput | `value`, `password`, `caret` {col, line}, `caretOn` (blink phase), `maxLen`, `multiLine` |
@@ -71,7 +76,7 @@ export default {
   classes: ['CWindowPlayerSelect'],   // the windows it renders
   mode: 'pass',                       // 'pass': pointer-events none, the game takes input (default, pixel-perfect phase)
                                       // 'owned': the DOM takes input and sends it through api
-  passthrough: c => c.name.startsWith('ＷＵアバター'),   // elements the ENGINE keeps drawing (a hole is left in the DOM)
+  passthrough: c => c.cls === 'CWaistUpAvatar',        // controls or extras the ENGINE keeps drawing under your DOM
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},

@@ -36,3 +36,4 @@
 0082d750  # My Room door picker step (rt/gate.c: the language is picked for the player)
 0061fc40  # CStringDB::GetString (ovr/roomname.c)
 00a54f90  # room name: kind text + room letter (ovr/roomname.c: no letter for a kind's only room)
+0060f9e0  # CElement::onMain (htmlui.c: no draw for elements under an HTML-drawn window)
