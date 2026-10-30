@@ -55,6 +55,89 @@ export function indexAt(s, x, adv) {
   return chars.slice(0, i).join('').length;   // UTF-16 index, what the <input>'s selection counts
 }
 
+// --- The chat's controls, drawn as the game draws them (src/System/window/yo2WindowControls.cpp); not in controls/
+// yet (htmlui-bridge promotes them). Their atlases join ui.js's sheets, so the bridge's loadGlyphs (which runs after
+// the screens are imported) loads them with the rest. ponytail: a page that loaded the glyphs before importing this
+// gets no art for these (the warning says so).
+const ART = { iconbar: ['iconbar_01_c01.png', 72, 24], tab: ['tab_01_c01.png', 64, 24], icon: ['icon_01_c01.png', 48, 96],
+  scroll: ['scroll_01_c00.png', 64, 120] };
+if (ui) for (const [k, [f, w, h]] of Object.entries(ART)) ui.SHEET[k] ??= { url: 'assets/' + f, w, h };
+const A70 = 178 / 255;   // setAlpha(0.7f): the frames' vertex alpha
+const ICON_ROW = { IconShow: 0, IconHide: 24, IconExpand: 48, IconShrink: 72 };   // the looks' rows in icon_01_c01
+const TAB_TEXT = [[51, 51, 255], [127, 127, 127]];   // CWindowTaskTab::setLook: (.2, .2, 1) current, (.5, .5, .5) not
+
+// glyphs in one colour (the game's vertex colour times the glyph's alpha)
+function tinted(el, lines, [r, g, b]) {
+  const cv = ui.text(el, lines), x = cv.getContext('2d');
+  x.globalCompositeOperation = 'source-in';
+  x.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  x.fillRect(0, 0, cv.width, cv.height);
+}
+
+const DRAW = {
+  // three pieces of iconbar_01_c01 (lit at u 0, dimmed at 48), 70 %
+  Iconbar(el, c) {
+    const S = ui.SHEET.iconbar, u = c.active === false ? 48 : 0;
+    ui.sprite(el, S, u, 0, 8, 24, c.x, c.y, 8, 24, A70);
+    ui.sprite(el, S, u + 8, 0, 8, 24, c.x + 8, c.y, c.w - 16, 24, A70);
+    ui.sprite(el, S, u + 16, 0, 8, 24, c.x + c.w - 8, c.y, 8, 24, A70);
+  },
+  // the frame without its top edge: sides, bottom corners and bottom edge of window_base_01_c01, 70 %
+  ThinChop(el, c) {
+    const S = ui.SHEET.window, { x, y, w, h } = c;
+    ui.sprite(el, S, 0, 8, 8, 8, x, y, 8, h - 8, A70);
+    ui.sprite(el, S, 16, 8, 8, 8, x + w - 8, y, 8, h - 8, A70);
+    ui.sprite(el, S, 0, 16, 8, 8, x, y + h - 8, 8, 8, A70);
+    ui.sprite(el, S, 8, 16, 8, 8, x + 8, y + h - 8, w - 16, 8, A70);
+    ui.sprite(el, S, 16, 16, 8, 8, x + w - 8, y + h - 8, 8, 8, A70);
+  },
+  // the frame's middle piece over the whole rect, 70 %
+  BackPlane(el, c) { ui.sprite(el, ui.SHEET.window, 8, 8, 8, 8, c.x, c.y, c.w, c.h, A70); },
+  // left 16, middle stretched, right 8 of tab_01_c01 (current at u 0, others at 32); the caption at (16, 4)
+  Tab(el, c) {
+    const S = ui.SHEET.tab, u = c.active ? 0 : 32;
+    ui.sprite(el, S, u, 0, 16, 24, c.x, c.y, 16, 24);
+    ui.sprite(el, S, u + 16, 0, 8, 24, c.x + 16, c.y, c.w - 24, 24);
+    ui.sprite(el, S, u + 24, 0, 8, 24, c.x + c.w - 8, c.y, 8, 24);
+    if (c.label) tinted(el, [[c.label, c.x + 16, c.y + 4]], TAB_TEXT[c.active ? 0 : 1]);
+  },
+  // a 16 x 24 cell of icon_01_c01: normal, hover, pressed side by side
+  Icon(el, c, row) { ui.sprite(el, ui.SHEET.icon, c.pressed ? 32 : 0, row, 16, 24, c.x, c.y, 16, 24); },
+  // arrows 16 x 16 at the ends, the thumb (top, middle stretched, bottom) at its position, the track stretched
+  Scroll(el, c) {
+    const S = ui.SHEET.scroll, { x, y } = c, L = c.thumb.len, p = c.thumb.pos;
+    ui.sprite(el, S, 48, 0, 16, 16, x, y, 16, c.length);
+    ui.sprite(el, S, 0, 0, 16, 16, x, y, 16, 16);
+    ui.sprite(el, S, 0, 16, 16, 16, x, y + c.length - 16, 16, 16);
+    ui.sprite(el, S, 0, 32, 16, 8, x, y + 16 + p, 16, 8);
+    ui.sprite(el, S, 0, 40, 16, 8, x, y + 24 + p, 16, L - 16);
+    ui.sprite(el, S, 0, 48, 16, 8, x, y + 8 + L + p, 16, 8);
+  },
+  // the field (CWindowTaskInput::layout): the border piece 8 in, the fill a pixel inside it, opaque; text: ownInput
+  Input(el, c) {
+    ui.sprite(el, ui.SHEET.window, 80, 16, 8, 8, c.x + 8, c.y + 8, c.w - 16, c.h - 16);
+    ui.sprite(el, ui.SHEET.window, 56, 8, 8, 8, c.x + 9, c.y + 9, c.w - 17, c.h - 17);
+  },
+  // the log's shown lines, black, 16 px apart, one texture (the list's text element)
+  Textlist(el, c, scroll) {
+    const rows = visibleLines(c, scroll, ui.advance).map((s, i) => [s, c.x, c.y + i * LINE]).filter(([s]) => s);
+    if (rows.length) ui.text(el, rows);
+  },
+};
+const warned = new Set();
+function drawControl(c, el, api, st) {
+  const fam = c.cls.replace(/^CWindowTask/, ''), sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] ||
+    (fam in ICON_ROW ? 'icon' : 'window');
+  if (!ui.SHEET[sheet].alpha) {   // its atlas never loaded: leave it to the generic renderer
+    if (!warned.has(sheet)) { warned.add(sheet); console.warn('htmlui chat: no art for', sheet); }
+    return api.renderControl(c, el);
+  }
+  if (fam in ICON_ROW) return DRAW.Icon(el, c, ICON_ROW[fam]);
+  if (fam === 'MultiInput' || fam === 'InputDuel') return DRAW.Input(el, c);
+  if (fam === 'Textlist') return DRAW.Textlist(el, c, st.scroll?.parent === c.id ? st.scroll : null);
+  return DRAW[fam] ? DRAW[fam](el, c) : api.renderControl(c, el);
+}
+
 const place = (el, c) => Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px',
   width: c.w + 'px', height: c.h + 'px' });
 const key = c => JSON.stringify(c);
@@ -267,14 +350,15 @@ const screen = {
       seen.add(c.id);
       const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
       // the drawing: the input's text and caret are ours, so they don't redraw the field
-      const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
+      const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false }
+        : c.cls.endsWith('Textlist') ? [c, st.scroll?.value] : c);   // the log scrolls with its bar
       let d = st.drawn.get(c.id);
       if (!d) { d = { el: document.createElement('div'), k: null }; d.el.className = 'ctl'; st.drawn.set(c.id, d); }
       order.push(d.el);
       if (d.k !== k) {
         d.k = k;
         d.el.replaceChildren();
-        if (c.shown) api.renderControl(isInput ? { ...c, value: '', caretOn: false } : c, d.el);
+        if (c.shown) drawControl(c, d.el, api, st);
       }
       // the input layer
       let o = st.owned.get(c.id);
