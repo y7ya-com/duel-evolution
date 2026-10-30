@@ -31,7 +31,7 @@ Window = {
   alpha,                   // 0..1 (fade-ins)
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
-  controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
+  controls: [Control],     // back to front as the engine draws them (world z, then z_); nested controls (a listbox's scroll bar) are listed too, with parent set
   extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough();
                            // a CSpriteElm also has its Sprite fields (below)
 }
@@ -81,6 +81,13 @@ it from the engine (the hide table takes the task; the element walk reaches it).
 `parts: true`) are the task's own raw children, stopping at controls and at other tasks.
 `shown` (windows, tasks, controls) is false when it or any ancestor has a CTask lock bit (+0x20): the game hides the
 shop that way, and a locked subtree is never drawn.
+
+`cursor: { id, shown, mx, my, sprites: [Sprite + { wsx, wsy, col, add, mode }] } | null`: the game's mouse cursor
+(g_app's CMouseManager: the hand's CSwfEngine animations, data/common/m_cursor, down to their CSpriteElm leaves;
+`shown` per sprite = drawn this frame; mx, my: the mouse in game px). On every screen the bridge turns what the engine
+would draw into the browser's own cursor (cursor.js: a CSS cursor on every element, built per state at the device's
+size, exact to the engine's at 1x) and hides the engine's by that one element in the hide table. Screens never set a
+CSS cursor (html.yo2c * overrides them). Off: htmlui.json "cursor": false, ?HTML_CURSOR=0, yo2Html.cursor(false).
 
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
