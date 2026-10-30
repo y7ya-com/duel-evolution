@@ -14,7 +14,10 @@
 //    tables become a hash set once per frame, so a lookup costs the same with 1 entry or 255.
 // 3. Owned-mode input the bridge queued (keys, characters, a control's text) is played into the game first, on the
 //    same thread: a Win32 message through CWindowTaskFactory::dispatch (0x5e2700: keys and WM_CHAR go to the focused
-//    control, as the game's own WndProc sends them), or a control's setText (vtable slot 17, +0x44: a wide string).
+//    control, as the game's own WndProc sends them), a control's setText (vtable slot 17, +0x44: a wide string), or a
+//    scroll bar's value (CWindowTaskScrollBase::setValue 0x005ad460: clamped, the thumb placed, the window told, as
+//    when the thumb is dragged; web-shell/htmlui/scrollbars.js), played only while the bar still has the vtable the
+//    bridge read (a bar freed since is skipped).
 //    Mouse input is not queued: the bridge sends real canvas events at the control, as a player's mouse would.
 //
 // With an empty hide table (native builds, ?HTML_UI=0) onMain costs one load and a compare.
@@ -30,13 +33,14 @@ void o_0060f9e0(CPU *restrict c);
 void o_005932f0(CPU *restrict c);
 
 enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 1024 };
-enum { Q_DISPATCH = 1, Q_SETTEXT = 2 };
+enum { Q_DISPATCH = 1, Q_SETTEXT = 2, Q_SETVALUE = 3 };
 struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the address onYo2Frame gets)
     uint32_t slots;                // SLOTS, set before every call: the layout's check (see 2. above)
     uint32_t nhide, hide[SLOTS];   // windows the DOM draws (CWindowTaskModel addresses)
     uint32_t npass, pass[SLOTS];   // elements under them the engine keeps drawing
     uint32_t nq;                   // queued input, played at the next Present, then nq = 0
-    struct { uint32_t kind, a, b, c; } q[QUEUE];   // DISPATCH: msg, wParam, lParam; SETTEXT: control, text offset, length
+    struct { uint32_t kind, a, b, c; } q[QUEUE];   // DISPATCH: msg, wParam, lParam; SETTEXT: control, text offset, length;
+                                                    // SETVALUE: scroll bar, value, its vtable
     uint16_t text[TEXT];           // the SETTEXT strings (UTF-16)
 };
 static struct HtmlUiTables tab;
@@ -110,6 +114,10 @@ static void play(CPU *c) {
             t.ecx = ctl;
             rc_call(&t, RD32(RD32(ctl) + 0x44), 1, &buf);
             rc_hfree(buf);
+        } else if (tab.q[i].kind == Q_SETVALUE && tab.q[i].a && tab.q[i].c && RD32(tab.q[i].a) == tab.q[i].c) {
+            uint32_t v = tab.q[i].b;
+            t.ecx = tab.q[i].a;
+            rc_call(&t, 0x5ad460, 1, &v);
         }
     }
     tab.nq = 0;

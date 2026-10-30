@@ -91,7 +91,7 @@ static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
     FzHit *hits = n ? malloc(n * sizeof *hits) : NULL;
     uint8_t *items = n ? malloc(n * 16) : NULL;
     uint32_t buf = rc_halloc(TEXTBUF, 1), k = 0;
-    static uint16_t w[TEXTBUF / 2];
+    static uint16_t w[TEXTBUF / 2], tw[TEXTBUF / 2];   // a name, a card text (the game's thread only)
     static char norm[TEXTBUF / 2];
     for (uint32_t i = 0; i < n && hits && items; i++) {
         uint32_t it = first + 16 * i, kid = call1(c, KONAMI_ID, RD32(it + 4));
@@ -103,12 +103,8 @@ static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
             uint32_t a[2] = {buf, call1(c, TEXT_OF, kid)};
             WR16(buf, 0);
             rc_call(&t, TEXT_FMT, 2, a);
-            uint16_t *tw = malloc(TEXTBUF);
-            if (tw) {
-                fz_norm(tw, wread(m, buf, tw, TEXTBUF / 2), norm, sizeof norm);
-                if (fz_text_hit(&q, norm)) rank = 2;
-                free(tw);
-            }
+            fz_norm(tw, wread(m, buf, tw, TEXTBUF / 2), norm, sizeof norm);
+            if (fz_text_hit(&q, norm)) rank = 2;
         }
         if (rank < 0) continue;
         hits[k] = (FzHit){rank, "", k};
@@ -125,7 +121,7 @@ static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
         uint32_t kaban = RD32(G_KABAN);
         CPU t = *c;
         t.ecx = kaban;
-        if (k && kaban) rc_call(&t, SCROLL_TOTAL, 1, &k);
+        if (k && kaban) rc_call(&t, SCROLL_TOTAL, 1, &k);   // none left: the total stays, as the engine's own search
         t = *c;
         t.ecx = list;
         uint32_t top = 0;
