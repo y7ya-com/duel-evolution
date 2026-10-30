@@ -57,9 +57,11 @@ describe("Duel Log text", () => {
       msg("SUMMONING", { code: 3, controller: 0, location: 4, sequence: 0, position: 1 }),
       msg("ATTACK", { card: at(0, 4, 0, 1), target: at(1, 4, 0, 8) }),
       msg("MOVE", { card: 6, from: at(1, 8, 0, 10), to: at(1, 32, 0, 10), reason: 0x41 }),
+      msg("SPSUMMONING", { code: 5, controller: 1, location: 4, sequence: 1, position: 8 }),
     ]);
     expect(out).toEqual(["NiaNia Set a monster", "NiaNia Set a card", "MayMory Normal Summoned Elemental HERO Avian (1000/1000)",
-      "MayMory's Elemental HERO Avian attacks NiaNia's set card", "a set card was destroyed"]);
+      "MayMory's Elemental HERO Avian attacks NiaNia's set card", "a set card was destroyed",
+      "NiaNia Special Summoned a face-down monster"]);
     expect(out.join(" ")).not.toMatch(/Secret/);
   });
 

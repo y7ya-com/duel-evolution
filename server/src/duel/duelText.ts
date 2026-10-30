@@ -70,7 +70,9 @@ export class DuelLog {
           const how = t === "SUMMONING" ? "Normal Summoned" : t === "SPSUMMONING" ? "Special Summoned" : "Flip Summoned";
           this.put(e, [e.code, e.position]);
           const s = this.cards.stats(e.code);
-          say(`${this.who(e.controller)} ${how} ${this.card(e.code)} (${s.atk}/${s.def})`);
+          // a Special Summon in face-down Defense Position (Swap Frog, ...) names nothing, like a Set
+          if (!(e.position & POS_FACEUP)) say(`${this.who(e.controller)} ${how} a face-down monster`);
+          else say(`${this.who(e.controller)} ${how} ${this.card(e.code)} (${s.atk}/${s.def})`);
           break;
         }
         case "SET": this.put(e, [e.code, e.position]); say(`${this.who(e.controller)} Set ${e.location === LOC_MZONE ? "a monster" : "a card"}`); break;
