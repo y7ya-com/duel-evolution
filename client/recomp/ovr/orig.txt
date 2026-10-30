@@ -40,3 +40,6 @@
 005932f0  # CDupSprite::onMain (htmlui.c: its tiles not queued under an HTML-drawn window)
 00a770a0  # CChatWindow vf05, the chat pump (ovr/duellog.c: the Duel Log tab)
 006af100  # CNetLobby: pop a chat line (ovr/duellog.c: channel-9 lines to the Duel Log tab)
+0052a490  # the file reader's open (chatfree.c: remembers the reader on taboo_?.txt)
+0052b540  # the file reader's next line (chatfree.c: that reader is at its end at once)
+00a75760  # CChatWindow vf04, its init (chatfree.c: then no send cooldown)

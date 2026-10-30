@@ -25,7 +25,7 @@ const DRAW = {
   Iconbar: (el, c) => skin.iconbar(el, c),
   BackPlane: (el, c) => skin.plane(el, c),
   ThinChop: (el, c) => skin.chop(el, c),
-  Scroll: (el, c) => skin.scrollbar(el, { x: c.x, y: c.y, length: c.length, pos: c.thumb.pos, len: c.thumb.len }),
+  Textlist: () => {},   // the log is ownList's
   Tab(el, c, api) {
     const b = skin.tab(el, { x: c.x, y: c.y, w: c.w, label: c.label, active: c.active });
     b.disabled = !c.enabled;
@@ -104,25 +104,61 @@ function ownInput(c, layer, api) {
 }
 
 // the log: the generic list's DOM text, selectable; the wheel over it scrolls the game's list
-function ownLog(d, c, api) {
-  d.classList.add('log');
-  d.setAttribute('role', 'log');
-  d.addEventListener('wheel', e => {
-    e.preventDefault();
-    if (e.deltaY) api.wheel(c.id, Math.sign(e.deltaY) * 120);   // a canvas wheel event over the list (DOM sign)
-  }, { passive: false });
+// A list (the chat log, a name list) as a native scroller (owner: "use native HTML scrollers"; CONTRACT.md
+// "Scrolling"): every item one block of Arial text that wraps by words (a long word or URL breaks only where it must);
+// a log (stick) stays at the bottom while the player is there, never when they scrolled up. New items are appended
+// and dropped ones removed, so a selection in the rest survives a new line. The game's scroll bar is not drawn and its
+// list position doesn't matter (every item is here).
+export function itemsDelta(old, now) {   // [rows to drop at the top, items to append], or null: rebuild
+  for (let d = 0; d <= old.length; d++) {
+    const keep = old.length - d;
+    if (keep <= now.length && old.slice(d).every((s, i) => s === now[i])) return [d, now.slice(keep)];
+  }
+  return null;
+}
+function ownList(c, layer, { stick = false, stripes = false } = {}) {
+  const el = document.createElement('div');
+  el.className = 'own list' + (stripes ? ' yo2-stripes' : '');
+  el.setAttribute('role', stick ? 'log' : 'list');
+  layer.append(el);
+  let shown = [];
+  const row = s => {
+    const r = document.createElement('div');
+    r.className = 'row';
+    r.textContent = s;
+    r.style.letterSpacing = basic.spacing(s) + 'px';
+    return r;
+  };
+  el.update = c2 => {
+    Object.assign(el.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
+    const items = (c2.items || []).map(basic.untag), delta = itemsDelta(shown, items);
+    if (delta && !delta[0] && !delta[1].length) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+    if (delta) {
+      for (let k = 0; k < delta[0]; k++) el.firstChild?.remove();
+      el.append(...delta[1].map(row));
+    } else {
+      el.replaceChildren(...items.map(row));
+    }
+    shown = items;
+    if (stick && bottom) el.scrollTop = el.scrollHeight;
+  };
+  return el;
 }
 
 const CSS = () => `
 .htmlui-own { user-select: none; }
 .htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
 .htmlui-own button:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
-.htmlui-own .log .txt { user-select: text; cursor: text; }
+.htmlui-own .list { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  scrollbar-color: #5f9fd3 rgba(255, 255, 255, .35); font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
+.htmlui-own .list.yo2-stripes { background-attachment: local; }
+.htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
 `;
 
 // An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
-// changes, the scroll bars and inputs owned (ownScroll, ownInput), a list's text made selectable (ownLog);
+// changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
 // background(win, el), if given, draws what the window itself draws under its controls (its own picture)
 export function owned(classes, draw, background) {
   const screen = {
@@ -148,8 +184,8 @@ export function owned(classes, draw, background) {
     update(win, prev, root, api, st) {
       const seen = new Set(), order = [];
       for (const [n, c] of win.controls.entries()) {
-        // a part its parent draws (a caption, a list's text or stripes); a list's scroll bar stays ours
-        if (c.parent && !c.cls.endsWith('Scroll')) continue;
+        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's)
+        if (c.parent) continue;
         seen.add(c.id);
         const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
         // the drawing: the input's text is ownInput's, so it doesn't redraw the field
@@ -158,7 +194,6 @@ export function owned(classes, draw, background) {
         if (!d) {
           d = { el: document.createElement('div'), k: null };
           d.el.className = 'ctl';
-          if (/Textlist|Listbox$/.test(c.cls)) ownLog(d.el, c, api);
           st.drawn.set(c.id, d);
         }
         order.push(d.el);
@@ -172,7 +207,8 @@ export function owned(classes, draw, background) {
         // the input layer: the scroll bar, the input line
         let o = st.owned.get(c.id);
         if (!o) {
-          o = c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
+          o = c.cls.endsWith('Textlist') ? ownList(c, st.own, { stick: true }) : /Listbox$/.test(c.cls) ? ownList(c, st.own, { stripes: true })
+            : c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
           if (!o) continue;
           st.owned.set(c.id, o);
         }

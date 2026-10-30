@@ -25,10 +25,7 @@ const DRAW = {
     r.className = 'yo2-row';
     if (Math.round((c.y - 32) / c.h) % 2 === 0) r.dataset.dark = '';
   },
-  Listbox(el, c, api) {
-    skin.stripes(el, c);
-    api.renderControl(c, el);
-  },
+  Listbox: () => {},   // a native scroller, chat.js's ownList
   Scroll: (el, c) => skin.scrollbar(el, { x: c.x, y: c.y, length: c.length, pos: c.thumb.pos, len: c.thumb.len }),
 };
 
