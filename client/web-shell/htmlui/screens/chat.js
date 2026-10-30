@@ -77,17 +77,17 @@ function ownInput(c, layer, api) {
   if (!c.multiLine) el.type = c.password ? 'password' : 'text';
   el.setAttribute('aria-label', c.name || 'Text');
   layer.append(el);
-  let snap = c, entered = false;
+  let snap = c, entered = null;   // the line Enter sent, until the game's text moves off it
   const commit = () => api.setText(snap.id, el.value);
   el.addEventListener('focus', () => { el.value = snap.value; api.click(snap.id); });   // the game's focus too
-  el.addEventListener('input', e => { if (!e.isComposing) commit(); });
+  el.addEventListener('input', e => { entered = null; if (!e.isComposing) commit(); });
   el.addEventListener('compositionend', commit);
   el.addEventListener('keydown', e => {
     if (e.isComposing) return;
     if (e.key === 'Enter' && !snap.multiLine) {   // the game's own Enter (CWindowTaskInput: WM_CHAR '\r'; the chat sends)
       e.preventDefault();
       commit();
-      entered = true;   // what the game did with it (the chat sends and empties the line) comes back in the snapshot
+      entered = el.value;   // what the game does with it (the chat sends and empties the line) comes back in a snapshot
       api.char(13);
     } else if (e.key === 'Escape') {
       el.blur();
@@ -96,8 +96,9 @@ function ownInput(c, layer, api) {
   el.update = c2 => {
     snap = c2;
     el.maxLength = c2.maxLen;
-    if (entered || document.activeElement !== el) el.value = c2.value;   // the game's text while the DOM isn't editing
-    entered = false;
+    // the game's text while the DOM isn't editing, or once it has done something with the line Enter sent (the
+    // setText and the Enter play a frame apart: the first snapshot after Enter can still hold the line)
+    if (document.activeElement !== el || (entered !== null && c2.value !== entered)) { el.value = c2.value; entered = null; }
     Object.assign(el.style, { left: c2.x + 8 + 'px', top: c2.y + 8 + 'px', width: c2.w - 16 + 'px', height: c2.h - 16 + 'px' });
   };
   return el;
