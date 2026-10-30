@@ -64,7 +64,8 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // a CSpriteElm: texName_ (+0x358, raw: a '?' language letter is the loader's), the source rect (CElement rect_
   // +0x94: setTexture makes w/h the image's), scale (+0x88: a stretched piece), colour (+0xa4)
   const spr = e => e ? { id: e, name: name(e), tex: str(e + 0x358), src: [0, 4, 8, 12].map(o => i32(e + 0x94 + o)),
-    ...at(e), sx: f32(e + 0x88), sy: f32(e + 0x8c), rgba: [0, 4, 8, 12].map(o => f32(e + 0xa4 + o)), shown: vis(e) } : null;
+    ...at(e), sx: f32(e + 0x88), sy: f32(e + 0x8c), rgba: [0, 4, 8, 12].map(o => f32(e + 0xa4 + o)),
+    col: [0, 4, 8, 12].map(o => f32(e + 0x168 + o)), shown: vis(e) } : null;   // col: inheritColor4_, its colour x its parents' (what is drawn)
   const label = e => ({ id: e, name: name(e), text: wstr(e + 0x410), ...at(e), shown: vis(e) });   // a CTextElm
   const swf = e => ({ id: e, name: name(e), ...at(e), shown: vis(e) });                            // a CSwfEngine
   const rectF = (c, o) => ({ x: f32(c + o), y: f32(c + o + 4), w: f32(c + o + 8), h: f32(c + o + 12) });

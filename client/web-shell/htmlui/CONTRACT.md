@@ -63,10 +63,11 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
 
-Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, wz, a, sx, sy, rgba, shown }`: the texture's game path as
+Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, wz, a, sx, sy, rgba, col, shown }`: the texture's game path as
 the game holds it (`data/common/window/swich_01_c00.png`; a `?` is the loader's language letter), the source rect in
 it (CElement +0x94), the local position (parent-relative) and the world one (wx, wy: worldPos_, as last drawn), the
-scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, the drawn alpha (a: the colour's alpha times
+scale (a stretched piece: drawn size = src w/h x sx/sy), the colour (rgba: its own; col: the drawn one, its own times
+its parents', inheritColor4_ +0x168), the drawn alpha (a: the colour's alpha times
 the parents', what the engine blends with), shown. Controls also carry wx, wy, wz (worldPos_). Label = `{ id, name, text, x, y, z, wx,
 wy, shown }` (a raw CTextElm; '@n' style tags kept). Swf = `{ id, name, x, y, z, wx, wy, shown }` (a CSwfEngine:
 draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: [Swf] }`.
