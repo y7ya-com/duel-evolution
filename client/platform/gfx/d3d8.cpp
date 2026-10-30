@@ -1348,7 +1348,10 @@ static void presentInterp(IDirect3DDevice8* d) {
         glDisable(GL_SCISSOR_TEST);
         glColorMask(1, 1, 1, 1);
         glBlitFramebuffer(0, 0, bw, bh, 0, 0, bw, bh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        {
+        // RC_60_TEST (a browser's present path, bisecting): 1 = the step's own frame twice (no in-between drawing),
+        // 2 = the in-between frame alone (no held frame after it)
+        static const int test = getenv("RC_60_TEST") ? atoi(getenv("RC_60_TEST")) : 0;
+        if (test != 1) {
             std::lock_guard<std::mutex> lock(ip.mu);
             matchFrames(ip);
             d->drawInterp(0.5f);
@@ -1365,8 +1368,8 @@ static void presentInterp(IDirect3DDevice8* d) {
                     calls / 300, calls ? 100.0 * matched / calls : 0.0, ip.cost, swapWorst);
             calls = matched = 0, swapWorst = 0;
         }
-        toScreen(d, ip.surf->glFbo);
-        ip.pending = true;
+        toScreen(d, test == 1 ? ip.heldFbo : ip.surf->glFbo);
+        ip.pending = test != 2;
         ip.dueAt = t0 + min(max(ip.interval, 25.0), 45.0) / 2;
     } else {
         toScreen(d, d->backBuffer->glFbo);

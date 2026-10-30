@@ -294,15 +294,15 @@ extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R b
     for (size_t i = 0; i < px.size(); i += 4) sum += px[i] + px[i + 1] + px[i + 2];
     return (int)(sum / (px.size() / 4 * 3));
 }
-// back buffer -> shot_<frame>.bmp (32-bit BGRA, top-down); RC_SHOT_NATIVE=1: at the render scale's resolution
-extern "C" void rc_screenshot(int frame) {
+// a surface -> <prefix>_<frame>.bmp (32-bit BGRA, top-down); RC_SHOT_NATIVE=1: at the render scale's resolution
+static void shot(IDirect3DSurface8* surf, const char* prefix, int frame) {
     std::vector<uint8_t> px;
     static const bool native = getenv("RC_SHOT_NATIVE") != nullptr;
-    if (!g_dev || !g_dev->backBuffer || !g_dev->backBuffer->read(px, native)) { rc_log("screenshot %d: no back buffer", frame); return; }
-    UINT s = native ? g_dev->backBuffer->scale : 1;
-    int32_t w = (int32_t)(g_dev->backBuffer->w * s), h = (int32_t)(g_dev->backBuffer->h * s);
+    if (!surf || !surf->read(px, native)) { rc_log("screenshot %d: no %s", frame, prefix); return; }
+    UINT s = native ? surf->scale : 1;
+    int32_t w = (int32_t)(surf->w * s), h = (int32_t)(surf->h * s);
     char name[64];
-    snprintf(name, sizeof name, "shot_%d.bmp", frame);
+    snprintf(name, sizeof name, "%s_%d.bmp", prefix, frame);
     FILE* f = fopen(name, "wb");
     uint32_t sz = (uint32_t)(w * h * 4);
     uint8_t hd[54] = {'B', 'M'};
@@ -315,6 +315,12 @@ extern "C" void rc_screenshot(int frame) {
     fwrite(px.data(), 1, sz, f);
     fclose(f);
     rc_log("screenshot: %s (%dx%d)", name, w, h);
+}
+// the back buffer -> shot_<frame>.bmp, and the in-between frame that frame's Present showed -> between_<frame>.bmp
+extern "C" void rc_screenshot(int frame) {
+    if (!g_dev) return;
+    shot(g_dev->backBuffer, "shot", frame);
+    if (g_dev->heldDueMs() >= 0) shot(g_dev->inBetweenTarget(), "between", frame);
 }
 // The step's own frame that an in-between Present held (platform/gfx/d3d8.cpp), once due: from the main thread's
 // waits between steps (Sleep, the web's PeekMessage spin). On the web: once the browser has run an animation frame since

@@ -848,9 +848,9 @@ Module.preRun.push(() => {
     for (const [k, env] of [["http", "YO2_HTTP"], ["gateway", "YO2_GATEWAY"], ["server", "YO2_SERVER"]])
         if (q.get(k)) ENV[env] = q.get(k);
     for (const [k, v] of q) if (/^[A-Z][A-Z0-9_]*$/.test(k)) ENV[k] = v;   // e.g. ?RC_VERBOSE=1
-    // ponytail: UA sniff. The in-between frames (rt/d3d8.cpp, RC_60) still come out partly see-through, which WebKit
-    // composites as black flicker: 30 Hz on Safari and every iPhone/iPad browser (all WebKit) unless the link asks
-    // (?RC_60=1). Delete once platform/gfx keeps those frames opaque.
+    // ponytail: UA sniff. With the in-between frames (rt/d3d8.cpp, RC_60) WebKit's canvas shows black frames (cause
+    // still open: right natively, alpha:false context; RC_60_TEST bisects it): 30 Hz on Safari and every iPhone/iPad
+    // browser (all WebKit) unless the link asks (?RC_60=1). Delete once WebKit shows them right.
     const nav = globalThis.navigator ?? {}, ua = nav.userAgent ?? "";
     if (!q.has("RC_60") && (/iPhone|iPad|iPod/.test(ua) || nav.platform === "MacIntel" && nav.maxTouchPoints > 1 ||
         /AppleWebKit/.test(ua) && !/Chrome\/|Chromium\//.test(ua))) ENV.RC_60 = "0";
