@@ -68,12 +68,12 @@ EM_JS(void, de_get, (const char* url, char* out, int nout), {
     stringToUTF8(x.status == 200 ? x.responseText || "" : "", out, nout);
 });
 // The session check, without blocking the frame (a signed-in answer takes the server ~1.2 s): de_ask starts a fetch,
-// de_answer is 0 until it's back, then 1 with the body (empty on failure). A newer ask drops an older one's answer.
+// de_answer is 0 until it's back, then 1 with the body (empty on failure or after 8 s). A newer ask drops an older one's answer.
 EM_JS(void, de_ask, (const char* url), {
     const n = (Module.yo2SessionN = (Module.yo2SessionN | 0) + 1);
     Module.yo2Session = null;
     const done = (t) => { if (Module.yo2SessionN === n) Module.yo2Session = t || ""; };
-    fetch(UTF8ToString(url), { credentials: "same-origin" }).then((r) => (r.ok ? r.text() : "")).then(done, () => done(""));
+    fetch(UTF8ToString(url), { credentials: "same-origin", signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.text() : "")).then(done, () => done(""));
 });
 EM_JS(int, de_answer, (char* out, int nout), {
     const t = Module.yo2Session;
