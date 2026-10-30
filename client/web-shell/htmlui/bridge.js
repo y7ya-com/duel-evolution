@@ -107,8 +107,14 @@ export async function makeLayer(host, screens, art = 'ui/') {
     // backdrop(win, el, api, state): the first owned window or task whose module has one draws into the layer under
     // every window (its DOM kept between frames); none: the layer is cleared
     const bw = [...snap.windows, ...snap.tasks || []].find(w => owned.has(w.id) && screens.get(w.cls)?.backdrop);
-    if (bw) screens.get(bw.cls).backdrop(bw, back, live.get(bw.id)?.api || api, live.get(bw.id)?.state);
-    else if (back.firstChild) back.replaceChildren();
+    if (bw) {
+      screens.get(bw.cls).backdrop(bw, back, live.get(bw.id)?.api || api, live.get(bw.id)?.state, snap);
+      // every engine-drawn window draws above the backdrop (the lowest layer): cut where each one draws (the deck's
+      // Save / Load lists and its Yes / No and OK dialogs)
+      const cut = clip(snap.windows.filter(o => o.shown && !owned.has(o.id)).map(o => o.drawn === undefined ? o : o.drawn).filter(Boolean),
+        { x: 0, y: 0, w: 1024, h: 768 });
+      if (back.style.clipPath !== cut) back.style.clipPath = cut;
+    } else if (back.firstChild) back.replaceChildren();
   }
   function unmount(id) {
     const e = live.get(id);
@@ -127,9 +133,27 @@ function holes(w, wins, owned) {
   const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && (o.wz && w.wz ? o.wz > w.wz : j > i))
     .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
       o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
-  if (!front.length) return '';
-  const r = o => `M${o.x - w.x} ${o.y - w.y}h${o.w}v${o.h}h${-o.w}z`;
-  return `path(evenodd, "M0 0h${w.w}v${w.h}h${-w.w}z${front.map(r).join('')}")`;
+  return clip(front, w);
+}
+
+// A clip-path for box (its own coordinates from box.x, box.y) with holes where rects lie (game px). Overlapping rects
+// are merged first (into their bounding box, until none overlap): under evenodd two overlapping holes cancel.
+function clip(rects, box) {
+  const rs = rects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
+  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < rs.length && !merged; i++) for (let j = i + 1; j < rs.length; j++) if (hit(rs[i], rs[j])) {
+      const a = rs[i], b = rs.splice(j, 1)[0], x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      rs[i] = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+      merged = true;
+      break;
+    }
+  }
+  const inside = rs.filter(o => hit(o, box));
+  if (!inside.length) return '';
+  const r = o => `M${o.x - box.x} ${o.y - box.y}h${o.w}v${o.h}h${-o.w}z`;
+  return `path(evenodd, "M0 0h${box.w}v${box.h}h${-box.w}z${inside.map(r).join('')}")`;
 }
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
