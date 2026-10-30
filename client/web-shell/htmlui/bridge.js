@@ -5,8 +5,8 @@
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
-import { renderControl, syncWindow, FONTS } from './controls/basic.js';
-import { loadGlyphs, loadFont } from '../ui.js';
+import { renderControl, syncWindow } from './controls/basic.js';
+import { loadGlyphs } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -45,14 +45,12 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
   mask-repeat: no-repeat; transform-origin: 0 0; }
 #htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
-#htmlui-host .rt { position: absolute; font: 16px/16px 'DejaVu Sans', sans-serif; white-space: pre; color: transparent;
-  pointer-events: none; }`;
+#htmlui-host .txt { position: absolute; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
 export async function makeLayer(host, screens, art = 'ui/') {
-  await loadGlyphs(art);
-  for (const px of [24, 32]) FONTS[px] = await loadFont(px).catch(() => undefined);
+  await loadGlyphs(art);   // the atlases (its glyphs are for the pixel-exact pages; the HTML UI's text is DOM text)
   if (!document.getElementById('htmlui-css')) {
     const st = document.createElement('style');
     st.id = 'htmlui-css';

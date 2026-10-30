@@ -112,10 +112,16 @@ may call `api.syncWindow(root, win, stateMap)` (the generic path: keyed per cont
 data changes) or `api.renderControl(c, parentEl, opts)` (one control, once; `{ noText: true }` draws an Input
 without its text and caret) for the controls it doesn't customise.
 
+**Text (owner's rule):** all text is real DOM text, never glyph images: Arial, as the 2008 client asks GDI for it
+(lfHeight 16 = a 16-pixel cell = 1.117 em: 14.3 px on 16-pixel lines), metric-compatible fallbacks after it. Use
+controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, white, wrap })` (or `fontCss(px)` and
+`FONT` in your own CSS); the browser lays it out. A CTextElm's colour multiplies black glyphs, so game text is black
+(alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
+pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
-per state: normal / hover / pressed / disabled / checked), its label real text (a transparent `<span class="rt">`
-over the game's glyphs, so it can be selected, found and read out) wherever the game draws the text apart from the
-art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
+per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
+text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
 screen. `data-state` on the element carries the state for CSS.
 
 ## api (owned mode; also usable in pass mode)
