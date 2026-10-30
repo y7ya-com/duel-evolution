@@ -67,6 +67,20 @@ EM_JS(void, de_get, (const char* url, char* out, int nout), {
     try { x.send(); } catch (e) { stringToUTF8("", out, nout); return; }
     stringToUTF8(x.status == 200 ? x.responseText || "" : "", out, nout);
 });
+// The session check, without blocking the frame (a signed-in answer takes the server ~1.2 s): de_ask starts a fetch,
+// de_answer is 0 until it's back, then 1 with the body (empty on failure). A newer ask drops an older one's answer.
+EM_JS(void, de_ask, (const char* url), {
+    const n = (Module.yo2SessionN = (Module.yo2SessionN | 0) + 1);
+    Module.yo2Session = null;
+    const done = (t) => { if (Module.yo2SessionN === n) Module.yo2Session = t || ""; };
+    fetch(UTF8ToString(url), { credentials: "same-origin" }).then((r) => (r.ok ? r.text() : "")).then(done, () => done(""));
+});
+EM_JS(int, de_answer, (char* out, int nout), {
+    const t = Module.yo2Session;
+    if (t == null) return 0;
+    stringToUTF8(t, out, nout);
+    return 1;
+});
 #endif
 
 
@@ -164,24 +178,29 @@ std::string field(const std::string& json, const char* key) {
     return b == std::string::npos ? "" : json.substr(a, b - a);
 }
 
-// Who is signed in, each time the dialog waits. Web: the site is asked (GET /api/de/session): the page's boot check may
-// have failed, or the session lapsed since; with no answer at all, the boot check's on the first visit. Natively there
-// is no site: YO2_SESSION_NAME the first time, then the panel.
-const char* signed_in_as(bool again) {
+// Who is signed in, each time the dialog waits. Web: the site is asked (GET /api/de/session, ask_session): the page's
+// boot check may have failed, or the session lapsed since; with no answer at all, the boot check's on the first visit.
+// Natively there is no site: YO2_SESSION_NAME the first time, then the panel.
+void ask_session() {
 #ifdef __EMSCRIPTEN__
     const char* base = getenv("YO2_DE_HTTP");
-    std::string url = std::string(base ? base : "") + "/api/de/session";
+    de_ask((std::string(base ? base : "") + "/api/de/session").c_str());
+#endif
+}
+// false until the site answers; then *who is the name, or nullptr (signed out).
+bool signed_in_as(bool again, const char** who) {
+#ifdef __EMSCRIPTEN__
     static char out[1024];
-    de_get(url.c_str(), out, sizeof out);
+    if (!de_answer(out, sizeof out)) return false;
     static std::string name;
     std::string body = out;
-    if (body.empty()) return again ? nullptr : session_name();
-    if (body.find("\"signedIn\":true") == std::string::npos) return nullptr;
-    name = field(body, "name");
-    return name.empty() ? "-" : name.c_str();
+    if (body.empty()) *who = again ? nullptr : session_name();
+    else if (body.find("\"signedIn\":true") == std::string::npos) *who = nullptr;
+    else name = field(body, "name"), *who = name.empty() ? "-" : name.c_str();
 #else
-    return again ? nullptr : session_name();
+    *who = again ? nullptr : session_name();
 #endif
+    return true;
 }
 
 void navigate(const char* url) {
@@ -216,7 +235,7 @@ struct Panel {
     bool built = false, signed_in = false;
     bool shown = false;   // the dialog has waited before in this scene: a wait after that follows a failed login
     bool away = false;    // the scene went past its dialog (state > 3) since
-    const char* who = nullptr;   // signed in as, asked when the window comes up (signed_in_as)
+    bool asking = false;  // the session check is out for this wait (ask_session)
     uint32_t discord = 0, divider = 0, link1 = 0, mid = 0, link2 = 0, copy = 0, open = 0, note = 0, code_text = 0, steps = 0;
     uint32_t dot = 0, status = 0, underline = 0;
     float link1_w = 0, link2_w = 0;   // the links' hover boxes (labels have no hover of their own)
@@ -419,15 +438,14 @@ void login_scene(uint32_t scene) {
     if (st > 3) panel.away = true;
     if (st == 3 && panel.built) return submit(t);
     if (st > 2) return;
-    if (!panel.built) {   // as soon as the window is up (onInit), before the game first draws it
-        build(t);
-        if ((panel.who = signed_in_as(false))) WR32m(win + 0x20, RD32m(win + 0x20) | 1);   // signed in: never seen
-    }
-    if (st != 2) return;
+    if (!panel.built) build(t);   // as soon as the window is up (onInit), before the game first draws it
     if (!panel.shown || panel.away) {   // the dialog waits: straight in while signed in, else the panel
+        if (!panel.asking) panel.asking = true, ask_session();
+        WR32m(win + 0x20, RD32m(win + 0x20) | 1);   // hidden until the site answers (frames keep drawing)
         bool again = panel.shown;
-        const char* name = again ? signed_in_as(true) : panel.who;
-        panel.shown = true, panel.away = false, panel.signed_in = false;
+        const char* name;
+        if (st != 2 || !signed_in_as(again, &name)) return;
+        panel.shown = true, panel.away = false, panel.signed_in = false, panel.asking = false;
         if (name) {
             const char* pass = getenv("YO2_SESSION_PASS");
             ui_set_input(t, child(0x434), name);
@@ -438,10 +456,12 @@ void login_scene(uint32_t scene) {
             rc_log("session: signed in as %s, login dialog answered at frame %d", name, rc_frame_no);
             return;
         }
+        WR32m(win + 0x20, RD32m(win + 0x20) & ~1u);
         rc_log("session: sign-in panel at frame %d%s", rc_frame_no, again ? " (after a failed login)" : "");
         if (again) ui_set_input(t, child(0x440), ""), status(t, "Couldn't connect. Try again.", ERR);
         return;
     }
+    if (st != 2) return;
     if (ui_clicked(panel.discord, panel.prevd)) {
         status(t, "Waiting for Discord…", BUSY);
         const char* d = getenv("YO2_DISCORD_URL");   // unset only if the page's session check failed
