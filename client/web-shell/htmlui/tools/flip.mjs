@@ -64,6 +64,7 @@ export const ROUTES = {
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
+if (route && opt('flip')) route.flip = opt('flip').split(',');   // --flip=A,B: flip these windows instead of the route's
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
 // --slot=N / FLIP_SLOT=N (0-3): one of several flips side by side, each with its own ports: stack.py 8800+10N (and its
