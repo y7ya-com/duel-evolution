@@ -176,6 +176,11 @@ screen that owns its window replaces this with its own scrollList. Off: htmlui.j
 `?HTML_SCROLL=0`, `yo2Html.scrollbars(false)`. A capture of a native scroller needs flip.mjs `--scrollbars` (headless
 hides scroll bars otherwise; macOS's overlay bars draw only while scrolling).
 
+**Stacking (owner, 2026-10-30, "zindex issue fix"):** every window's root is one stacking context (`.win`: isolation),
+and the roots stand in the engine's draw order (window z, then drawn depth, then list order: bridge.js drawOrder, the
+same rule as the holes). A z-index a screen sets inside its window orders that window's own layers only; nothing in
+one window ever draws over another window the engine has in front of it.
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
 text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
