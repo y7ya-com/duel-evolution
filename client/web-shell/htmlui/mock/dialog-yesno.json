@@ -1,0 +1,27 @@
+{
+  "v": 1, "frame": 4000, "scene": 10,
+  "_note": "MOCK: a generic CWindowModelDialogYesNo over My Room; geometry approximate, strings made up. Yes pressed.",
+  "mouse": { "x": 440, "y": 420, "l": true, "r": false },
+  "focus": 0,
+  "windows": [
+    {
+      "id": 6291456, "cls": "CWindowModelDialogYesNo", "x": 272, "y": 304, "w": 480, "h": 160, "z": 0, "alpha": 1,
+      "shown": true, "modal": true, "topmost": true, "active": true,
+      "controls": [
+        { "id": 6292480, "cls": "CWindowTaskFrameThin", "kind": 0, "name": "", "parent": 0,
+          "x": 0, "y": 0, "w": 480, "h": 160, "z": 0, "alpha": 1, "shown": true, "enabled": true, "focused": false,
+          "style": 1 },
+        { "id": 6293504, "cls": "CWindowTaskTextField", "kind": 0, "name": "", "parent": 0,
+          "x": 16, "y": 16, "w": 448, "h": 96, "z": 2, "alpha": 1, "shown": true, "enabled": true, "focused": false,
+          "text": "Do you want to leave My Room?", "align": 1, "fontSize": 16, "lineGap": 0, "firstLine": 0,
+          "pageLines": 6, "color": [0, 0, 0, 1] },
+        { "id": 6294528, "cls": "CWindowTaskTextSwitch", "kind": 3, "name": "", "parent": 0,
+          "x": 120, "y": 120, "w": 96, "h": 24, "z": 2, "alpha": 1, "shown": true, "enabled": true, "focused": false,
+          "label": "Yes", "state": "pressed", "checked": false },
+        { "id": 6295552, "cls": "CWindowTaskTextSwitch", "kind": 3, "name": "", "parent": 0,
+          "x": 264, "y": 120, "w": 96, "h": 24, "z": 2, "alpha": 1, "shown": true, "enabled": true, "focused": false,
+          "label": "No", "state": "normal", "checked": false }
+      ]
+    }
+  ]
+}
