@@ -86,6 +86,7 @@
   addEventListener("error", (e) => extension(String(e.filename || "") + "\n" + (e.error?.stack || "")) || failed("error: " + (e.message || e)));
   // Firefox's and Safari's .stack leave the message out
   addEventListener("unhandledrejection", (e) => {
+    if (e.reason?.expected) return;   // lazyfs.js aborting its own background fetch on purpose
     const s = (e.reason?.message ? e.reason + "\n" : "") + (e.reason?.stack || e.reason);
     if (!extension(s)) failed("unhandled rejection: " + s);
   });

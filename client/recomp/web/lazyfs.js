@@ -129,7 +129,10 @@ Module.preRun.push(() => {
     // the session on EIO. A sync XHR on the page can't take a timeout.
     function syncRange(url, from, to, i) {
         const t0 = performance.now(), name = url.slice(url.lastIndexOf("/") + 1);
-        for (const ac of aborts.values()) ac.abort();   // the background yields the link (fetchChunk queues it again)
+        // the background yields the link (fetchChunk queues it again). The reason is marked `expected`: every rejection
+        // it causes here is caught, yet Chrome reported one as unhandled (crash 2026-10-30T23:28:43 e1a96f5d, no
+        // promise of ours left it), so web/shell.html does not count it as a crash.
+        for (const ac of aborts.values()) ac.abort(Object.assign(new DOMException("a synchronous read took the link", "AbortError"), { expected: true }));
         let t = null, err = "", tries = 0;
         while (t === null && tries < SYNC_TRIES) {
             tries++;

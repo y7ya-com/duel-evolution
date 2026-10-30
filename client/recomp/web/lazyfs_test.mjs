@@ -36,7 +36,7 @@ const files = { "game/merge.dat": file, "game/yo2.exe": Buffer.from("MZ tiny") }
 
 // ---- fakes
 let syncXhr = 0, netFetch = 0;
-let aborted = 0, flying = 0, maxFlying = 0;   // fetches in flight now, and the most at once
+let aborted = 0, abortReason = null, flying = 0, maxFlying = 0;   // fetches in flight now, and the most at once
 const syncSizes = [];   // bytes of every synchronous request   // background fetches a synchronous read aborted
 const syncFaults = [], fetchFaults = [];   // fetchFaults: (range) => true drops that background fetch, once   // what the next synchronous Range reads do instead of answering
 const fetched = [];   // offsets of every background fetch
@@ -76,7 +76,7 @@ function makeEnv(store, ls, opts = {}) {
         if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
         netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
         await sleep(1).finally(() => flying--);
-        if (o.signal && o.signal.aborted) { aborted++; throw Object.assign(new Error("aborted"), { name: "AbortError" }); }
+        if (o.signal && o.signal.aborted) { aborted++; throw (abortReason = o.signal.reason); }
         if (fetchFaults.length && fetchFaults[0](o.headers.Range)) { fetchFaults.shift(); throw new TypeError("Load failed"); }   // a dropped connection
         const [a, b] = rangeOf(o.headers.Range);
         fetched.push(a);
@@ -94,7 +94,7 @@ function makeEnv(store, ls, opts = {}) {
     const PATH = { dirname: (p) => p.slice(0, p.lastIndexOf("/")), basename: (p) => p.slice(p.lastIndexOf("/") + 1) };
     let deps = 0;
     const Module = {}, ENV = {};
-    const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
+    const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, DOMException, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
         IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
@@ -291,6 +291,7 @@ aborted = 0;
 readEntry(g, "data/card/0001");   // a synchronous miss meanwhile
 await settle(g.Module.yo2Lazy);
 assert.ok(aborted >= 1, "the background fetch in flight was aborted");
+assert.ok(abortReason.name === "AbortError" && abortReason.expected, "with an AbortError web/shell.html does not count as a crash");
 assert.ok([...g.Module.yo2Lazy.pinned.values()].filter((p) => p.tag === "hot").length >= 7, "and fetched again");
 console.log("sync read yields: ok");
 
