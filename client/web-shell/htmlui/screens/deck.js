@@ -99,7 +99,8 @@ export function clip(item, holes, ox, oy) {
 
 // ---------------------------------------------------------------- atlases (any game texture, by its file name)
 // ui.js sprite() needs the atlas's alpha up front (opaque cells: one image; others: masked), so atlases load once,
-// async, and the window redraws when the last one arrives. '?' in a game path is the language letter: 'e'.
+// async, and the window redraws when the last one arrives. '?' in a game path is the language letter: 'e', else 'j'
+// (the loader falls back to it: deck_cardcount_01 only exists as _j).
 const sheets = new Map();
 const base = () => ui.SHEET.window.url.replace(/[^/]*$/, '');   // the art folder loadGlyphs() was given
 export const artName = tex => tex.split(/[\\/]/).pop().replace('?', 'e').toLowerCase();
@@ -109,10 +110,11 @@ function sheet(tex, redraw) {
   if (!s) {
     s = { url: base() + name, w: 0, h: 0, ready: false, waiting: new Set() };
     sheets.set(name, s);
-    const clamp = base() + 'clamp/' + name, img = u => new Promise((ok, no) => {
+    const img = u => new Promise((ok, no) => {
       const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u;
     });
-    img(clamp).then(m => {
+    const j = tex.includes('?') ? name.replace(/_e\.png$/, '_j.png') : null;
+    img(base() + 'clamp/' + name).catch(e => { if (!j) throw e; s.url = base() + j; return img(base() + 'clamp/' + j); }).then(m => {
       const c = new OffscreenCanvas(m.width, m.height).getContext('2d');
       c.drawImage(m, 0, 0);
       Object.assign(s, { w: m.width - 1, h: m.height - 1, ready: true,
