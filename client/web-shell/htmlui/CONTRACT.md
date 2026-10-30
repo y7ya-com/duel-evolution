@@ -32,7 +32,8 @@ Window = {
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
   controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
-  extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough()
+  extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough();
+                           // a CSpriteElm also has its Sprite fields (below)
 }
 
 Control = {
@@ -51,7 +52,7 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | family | classes | fields |
 |---|---|---|
 | text | Text, ShadowText, TextField, TextItem | `text` (string, '\n' between lines), `align` 0 left 1 centre 2 right, `fontSize`, `lineGap`, `firstLine`, `pageLines`, `color` [r,g,b,a] |
-| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `align` (the caption's: 0 left 1 centre 2 right), `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked` |
+| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `align` (the caption's: 0 left 1 centre 2 right), `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked`, `focused`; PictureSwitch also `art` {normal, hover, pressed, checked: Sprite \| null} |
 | checkbox | Checkbox | `checked` |
 | tab | Tab | `label`, `active` |
 | input | Input, InputDuel, MultiInput | `value`, `password`, `caret` {col, line}, `caretOn` (blink phase), `maxLen`, `multiLine` |
@@ -61,6 +62,10 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | icon | Iconbar, IconShow/Hide/Expand/Shrink | `active`, `pressed` |
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
+
+Sprite = `{ tex, x, y, w, h, u, v, sw, sh, shown }`: the texture's game path (e.g. `data/common/window/swich_01_c00.png`;
+`api.art(tex)` gives its URL once the atlas is on R2), its element position (window-local for a window's own
+sprites), drawn size w x h, and the source rect u, v, sw, sh in the texture.
 
 More families arrive as screens need them (deck/kaban, trade, duel). Ask htmlui-bridge; until then read what you need
 from `unknown` controls by `name` and geometry.
@@ -84,7 +89,15 @@ export default {
 ```
 
 A window with no screen module is drawn from its controls by controls/*.js (the generic renderers). A screen module
-may call `api.renderControl(c, parentEl)` for the controls it doesn't customise.
+may call `api.syncWindow(root, win, stateMap)` (the generic path: keyed per control, redrawn only when a control's own
+data changes) or `api.renderControl(c, parentEl, opts)` (one control, once; `{ noText: true }` draws an Input
+without its text and caret) for the controls it doesn't customise.
+
+**Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
+per state: normal / hover / pressed / disabled / checked), its label real text (a transparent `<span class="rt">`
+over the game's glyphs, so it can be selected, found and read out) wherever the game draws the text apart from the
+art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
+screen. `data-state` on the element carries the state for CSS.
 
 ## api (owned mode; also usable in pass mode)
 
@@ -92,6 +105,7 @@ may call `api.renderControl(c, parentEl)` for the controls it doesn't customise.
 api.click(controlId)            // press + release at the control's centre (WM_LBUTTONDOWN/UP through the factory)
 api.hover(controlId)            // move the game mouse over it
 api.key(vk, down = true)        // a WM_KEYDOWN/UP to the focused control
+api.char(code)                  // a WM_CHAR to the focused control ('\r' submits an Input, '\b', Tab)
 api.setText(controlId, string)  // an input's value (commits through the control's setText; IME/paste come from the DOM)
 api.scroll(controlId, value)    // a scroll bar's value
 api.wheel(controlId, delta)     // WM_MOUSEWHEEL over it

@@ -5,7 +5,7 @@
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read } from './read.js';
-import { renderControl } from './controls/basic.js';
+import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
@@ -39,7 +39,10 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .sp { overflow: hidden; }
 #htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
   mask-repeat: no-repeat; transform-origin: 0 0; }
-#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }`;
+#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
+#htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
+#htmlui-host .rt { position: absolute; font: 16px/16px 'DejaVu Sans', sans-serif; white-space: pre; color: transparent;
+  pointer-events: none; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
@@ -78,14 +81,13 @@ export async function makeLayer(host, screens, art = 'ui/') {
       const json = JSON.stringify(w.controls);
       if (json === e.json) continue;
       e.json = json;
-      const a = { ...api, owned: mod?.mode === 'owned', renderControl: (c, el) => renderControl(c, el, a) };
+      const a = e.api ||= { ...api, owned: mod?.mode === 'owned' };
+      a.renderControl = (c, el, opts) => renderControl(c, el, a, opts);
+      a.syncWindow = (root, win, st) => syncWindow(root, win, st, a);
       if (mod) {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
-      } else {
-        e.root.replaceChildren();
-        for (const c of w.controls) if (c.shown) renderControl(c, e.root, a);
-      }
+      } else syncWindow(e.root, w, e.st ||= new Map(), a);
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -128,7 +130,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
 
   let scene = 0, frameNo = 0, dv = null, last = null;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
-  const api = { click() {}, hover() {}, key() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
+  const api = { click() {}, hover() {}, key() {}, char() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
   Module.onYo2Frame = tables => {
     if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
     let snap;
