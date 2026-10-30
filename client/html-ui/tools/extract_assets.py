@@ -12,7 +12,13 @@ import kcejyugi as K   # duel-evolution-restore/extraction/tools: KCEJYUGI direc
 FILES = ['data\\common\\window\\window_base_01_c01.png',   # window frame + input field (96x24)
          'data\\common\\window\\swich_01_c00.png',         # buttons: normal / hover / pressed / two yellow (120x24)
          'data\\common\\window\\check_01_c00.png',         # checkbox box + check mark (32x16)
-         'data\\common\\window\\kasoru_01_c00.png']        # text caret (16x16, 2 px used)
+         'data\\common\\window\\kasoru_01_c00.png',        # text caret (16x16, 2 px used)
+         # the lobby (htmlui-select's lobby.js): the Main Menu's frame (72x72, 24 px cells) and entries (72x24, a
+         # column per look), the close box, the menu bar's picture buttons (240x192)
+         'data\\common\\window\\main_win_01_c01.png',
+         'data\\common\\window\\main_btn_01_c01.png',
+         'data\\common\\window\\icon_01_c01.png',
+         'data\\common\\window\\menuicon_02_c01.png']
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets')
 data = open(sys.argv[1], 'rb').read()
 _, members = K.read_directory(data)
