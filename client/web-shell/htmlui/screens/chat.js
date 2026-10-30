@@ -186,7 +186,7 @@ export function owned(classes, draw, background) {
         // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's); but a
         // MultiInput's Input is the field itself, at the MultiInput's place
         const up = byId.get(c.parent);
-        if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y };
+        if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y, inMulti: true };
         else if (c.parent) continue;
         seen.add(c.id);
         const isInput = /(^|[^i])Input(Duel)?$/.test(c.cls);   // Input, InputDuel (a MultiInput holds one)
@@ -205,7 +205,7 @@ export function owned(classes, draw, background) {
           d.k = k;
           const focused = d.el.contains(document.activeElement);   // a tab pressed from the keyboard keeps the focus
           d.el.replaceChildren();
-          if (c.shown) draw(c, d.el, api, win);
+          if (c.shown && !c.inMulti) draw(c, d.el, api, win);   // a MultiInput's field is its window's picture (white)
           if (focused) d.el.querySelector('button')?.focus();
         }
         // the input layer: the scroll bar, the input line
