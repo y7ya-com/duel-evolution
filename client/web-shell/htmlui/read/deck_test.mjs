@@ -51,7 +51,7 @@ w32(0x012b3230, drag); dv.setInt32(drag + 4, 2, true); dv.setInt32(drag + 0x10, 
 
 const s = read(dv, 1, 0x24);
 const W = s.windows.find(w => w.cls === 'CWindowModelDeck');
-assert.deepEqual([W.x, W.y, W.w, W.h, W.ex, W.ey], [248, 0, 488, 712, 0, 0]);   // the panel's rect, the element's place
+assert.deepEqual([W.x, W.y, W.w, W.h], [248, 0, 488, 712]);   // from the header bar to the side frame's bottom
 const P = W.controls.find(c => c.cls === 'CWindowTaskDeck'), C = W.controls.find(c => c.cls === 'CWindowTaskDeckCard');
 assert.deepEqual([P.view, P.counts, P.grids.main, P.grids.side], ['main', { main: 40, side: 3, extra: 6, missing: 0 }, [4007], []]);
 assert.deepEqual([C.card, C.dragging, C.w, C.h, C.parent], [4007, false, 50, 72, panel]);

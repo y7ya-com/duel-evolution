@@ -35,7 +35,8 @@ export function runs(text) {
   return out;
 }
 
-const isArt = e => /^data[\\/]mini[\\/]/i.test(e?.tex || '');
+// card faces: the thumbnails (data/MINI, deck and trunk) and the big ones (data/CARD, trade and TP)
+const isArt = e => /^data[\\/](mini|card)[\\/]/i.test(e?.tex || '');
 const isSwf = e => !e.cls && !('tex' in e) && !('text' in e);   // a Swf part: { id, name, x, y, z, wx, wy, shown }
 // What the engine keeps drawing under the DOM: card faces and swf buttons, plus (co-drawn) whatever this module also
 // draws under them, so a hole shows exactly the engine's pixels (the DOM can't put a layer between two engine ones).

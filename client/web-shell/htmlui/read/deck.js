@@ -9,7 +9,7 @@ export default h => {
     const p = ptr(w + 0x398), bar = p && ptr(p + 0x36c), fr = p && frameOf(p);
     if (!bar || !fr) return {};
     const x = f32(bar + 0x494), y = f32(bar + 0x498);
-    return { x, y, w: f32(bar + 0x49c), h: f32(fr + 0x3cc) + f32(fr + 0x3d4) - y, ex: f32(w + 0x70), ey: f32(w + 0x74) };
+    return { x, y, w: f32(bar + 0x49c), h: f32(fr + 0x3cc) + f32(fr + 0x3d4) - y };
   };
   return {
     controls: {
@@ -38,7 +38,7 @@ export default h => {
       // both panels sit in a (0, 0) 336 x 144 window and lay out in screen pixels (their posX/posY stay 0): the true
       // rect runs from the header bar (DeckBar x/y/width 0x494..0x49c, DeckParts.h:157-158) down to the bottom frame
       // (FrameThin rect 0x3c8): the deck's side frame (CWindowTaskDeck 0x384[1], DeckWindow.h:356), the trunk's
-      // frame (CWindowTaskKaban 0x39c, KabanWindowList.h:474). ex/ey: where the window's element really is.
+      // frame (CWindowTaskKaban 0x39c, KabanWindowList.h:474).
       CWindowModelDeck: w => panelRect(w, p => ptr(p + 0x384 + 0xc)),
       CWindowModelKaban: w => panelRect(w, p => ptr(p + 0x39c)),
       // CWindowModelCardDetail (decomp 0x005f68b0 / 0x005f7860): mode 0x3f8 (0 full, 1 text, 2 bar, 3 picture), the top
@@ -48,7 +48,7 @@ export default h => {
       CCardDetailViewDlg: w => {
         const mode = i32(w + 0x3f8), card = i32(w + 0x43c), top = f32(w + 0x430), pic = (mode === 0 || mode === 3) && card >= 0;
         const p = ptr(w + 0x494);
-        return { y: top, w: 248, ex: f32(w + 0x380), ey: top, h: i32(w + 0x3fc + 4 * mode), mode, card,
+        return { y: top, w: 248, h: i32(w + 0x3fc + 4 * mode), mode, card,
           holes: pic ? [{ x: 8, y: 24, w: 232, h: 290 }, ...[8, 24, 40].map(x => ({ x, y: 712 - top, w: 16, h: 16 }))] : [],
           labels: p ? [label(p)] : [] };
       },
