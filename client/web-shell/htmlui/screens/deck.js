@@ -491,7 +491,12 @@ export function searchPanel(root, apply) {
   el.append(plate);
   const input = document.createElement('input');
   input.className = 'dk-field';
-  input.type = 'search';
+  // text, not type="search": that one brings the browser's own clear button (a second ×) beside ours
+  input.type = 'text';
+  input.inputMode = 'search';
+  input.enterKeyHint = 'search';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
   input.placeholder = 'Search name or card text';
   input.setAttribute('aria-label', 'Search the trunk');
   Object.assign(input.style, { left: '8px', top: '31px', width: '192px' });
