@@ -7,6 +7,9 @@
 import { inject } from './controls/scroll.js';
 
 const PARKED = 9999;
+// the deck grid's bar (CWindowTaskDeckScroll) refills its grid only while one of its own parts is held (its slot 14,
+// DeckWindow.cpp onMouse): a value set from outside never shows, so it stays the engine's (the deck window is HTML)
+const ENGINE_ONLY = new Set(['CWindowTaskDeckScroll']);
 
 // clip: bridge.js's clip(rects, box) (overlapping holes merged)
 export function engineBars(clip) {
@@ -28,7 +31,7 @@ export function engineBars(clip) {
     wins.forEach((w, i) => {
       if (owned.has(w.id) || !w.shown) return;
       for (const c of w.controls) {
-        if (c.thumb === undefined || !c.shown || c.max <= 0 || Math.max(c.wx, c.wy) >= PARKED) continue;
+        if (c.thumb === undefined || ENGINE_ONLY.has(c.cls) || !c.shown || c.max <= 0 || Math.max(c.wx, c.wy) >= PARKED) continue;
         seen.push(c.id);
         let b = live.get(c.id);
         if (!b) {
