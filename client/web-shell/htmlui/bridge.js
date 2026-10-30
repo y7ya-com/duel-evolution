@@ -132,7 +132,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, last = null;
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -180,10 +180,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     }
     H[t + QBASE] = n;
   }
-  Module.onYo2Frame = tables => {
-    if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
-    let snap;
-    try { snap = read(dv, ++frameNo, scene); } catch (e) { console.warn('htmlui: read failed', e); return; }
+  let failed = 0;
+  // never throws: this runs inside the game's Present, where an exception is a crash
+  Module.onYo2Frame = (tables, heap) => {
+    try { frame(tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+  };
+  function frame(tables, heap) {
+    if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
+    const snap = read(dv, ++frameNo, scene);
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
@@ -193,7 +197,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       if (owned.has(w.id) && mod?.passthrough)
         for (const c of [...w.controls, ...w.extras]) if (mod.passthrough(c)) pass.push(c.id);
     }
-    const t = tables >>> 2, H = Module.HEAPU32, ids = [...owned];
+    const t = tables >>> 2, H = H32, ids = [...owned];
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
@@ -201,7 +205,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     flush(t, H);
     render(snap, owned, api);
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
-  };
+  }
   return window.yo2Html = {
     snapshot: () => last,
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
