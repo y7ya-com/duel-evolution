@@ -20,7 +20,7 @@ const CSS = `
 .yo2-scroll-list > .yo2-rows > * { position: absolute; left: 0; right: 0; }`;
 
 let injected = false;
-const inject = () => {
+export const inject = () => {   // the CSS, once (bridge.js's engine bars use it too)
   if (injected || document.getElementById('htmlui-scroll')) return;
   injected = true;
   const st = document.createElement('style');

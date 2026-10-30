@@ -102,7 +102,9 @@ kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ..
   ...(opt('ship') && { SHIP: path.resolve(opt('ship')) }), ...(opt('htmlui') && { HTMLUI: opt('htmlui') }) }, stdio: 'inherit' }));
 await sleep(500);
 
-const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }) });
+// --scrollbars (and --bars): native scroll bars shown in the captures (headless hides them otherwise)
+const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }),
+  scrollbars: args.includes('--scrollbars') || args.includes('--bars') });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 // --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
 const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', route.query].filter(Boolean).join('&');
@@ -349,6 +351,40 @@ if (args.includes('--anim')) {
 // --uicheck: nothing but the cursor changes with the CSS cursor on (the engine's hidden by its element, never by
 // texture): the whole screen with the engine's cursor and with the CSS one, the pointer at UICHECK x,y; every window
 // engine-drawn. Expected: only the cursor's box differs.
+// --bars: the engine's scroll bars as native boxes (scrollbars.js): every shown bar on the route's screen, then the
+// first one driven both ways (its box scrolled to the end: the game's value follows; the game's wheel over its rows:
+// the box follows), and both looks (bars-<route>@<dpr>x-{engine,native}.png)
+if (args.includes('--bars')) {
+  const bars = async () => (await snap()).windows.flatMap(w => w.controls.filter(c => c.thumb !== undefined && c.shown && c.max > 0)
+    .map(c => ({ win: w.cls, cls: c.cls, id: c.id, value: c.value, max: c.max, page: c.page, x: c.wx, y: c.wy, w: c.w, h: c.h })));
+  const box = id => b.ev(`(() => { const e = [...document.querySelectorAll('#htmlui-bars > div')]; return { n: e.length, top: e[0]?.scrollTop, range: e[0] ? e[0].scrollHeight - e[0].clientHeight : 0 }; })()`);
+  await b.ev('window.yo2Html.scrollbars(false)'); await sleep(800);
+  writeFileSync(path.join(out, `bars-${routeName}@${dpr}x-engine.png`), await b.shot());
+  await b.ev('window.yo2Html.scrollbars(true)'); await sleep(800);
+  writeFileSync(path.join(out, `bars-${routeName}@${dpr}x-native.png`), await b.shot());
+  const found = await bars(), r = { bars: found, boxes: await box() };
+  // the box on top, and its bar's width (0: the platform's overlay scroll bars, drawn only while scrolling)
+  r.probe = await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); if (!e) return null; const k = e.getBoundingClientRect();
+    const at = document.elementFromPoint(k.left + k.width / 2, k.top + k.height / 2);
+    return { top: at === e || e.contains(at), at: at?.id || at?.className || at?.tagName, bar: e.offsetWidth - e.clientWidth,
+      canvasZ: getComputedStyle(document.getElementById('canvas')).zIndex }; })()`);
+  const f = found[0];
+  if (f) {
+    await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); e.scrollTop = e.scrollHeight; })()`); await sleep(1000);
+    r.toEnd = { game: (await bars())[0]?.value, max: f.max };
+    await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); e.scrollTop = 0; })()`); await sleep(1000);
+    r.toTop = { game: (await bars())[0]?.value };
+    // the game's own wheel over its rows (left of the bar), as a player's on the canvas
+    const p = await toClient(f.x - 60, f.y + f.h / 2);
+    await mouse('mouseMoved', p); await sleep(300);
+    for (let i = 0; i < 3; i++) { await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: 120 }); await sleep(300); }
+    await sleep(800);
+    r.wheel = { game: (await bars())[0]?.value, box: await box() };
+  }
+  console.log('bars:', JSON.stringify(r));
+  writeFileSync(path.join(out, `bars-${routeName}@${dpr}x.json`), JSON.stringify(r, null, 1));
+  b.close(); process.exit(0);
+}
 if (args.includes('--uicheck')) {
   const [ux, uy] = (opt('at') || '700,600').split(',').map(Number), p = await toClient(ux, uy);
   await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p[0], y: p[1] });
