@@ -9,7 +9,7 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { covers, textBox, textWidth } from '../controls/basic.js';
+import { textBox, textWidth } from '../controls/basic.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -50,39 +50,44 @@ const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && 
 // long as everything under it is co-drawn
 const SWF_BOX = 32;
 
-// The drawing list of one window: items [{ z, rect (screen), id, draw(el, api) }] and holes [{ z, rect }], back to
-// front, and `co`: the ids of the items under a hole (passed through as well). Controls the generic renderers know
-// are drawn by them; any other control is drawn from its parts (the engine's own sprites and texts).
-// z: world z (the engine's sort key) where the snapshot has it, else the control's depth + the part's local z.
-export function plan(win, covers) {
-  const items = [], holes = [], ox = win.x, oy = win.y, dx = (win.ex ?? ox) - ox, dy = (win.ey ?? oy) - oy;
+// The drawing list of one window: items [{ z, rect (screen), id, draw(el) }] and holes [{ z, rect }], back to front,
+// and `co`: the ids of the items under a hole (passed through as well). Every control is drawn from its parts (the
+// engine's own sprites, its texts as DOM text): nested controls' x/y are parent-relative and their depth (0x34c) is 0
+// in the deck, so the parts' world position and world z (the engine's sort key) are what places and orders them.
+// A button-family control also gets a real <button> over its art (the owner's rule; pass mode: it doesn't take input).
+const BUTTON = /Switch$|^CWindowTaskButton|ResultNext$/;
+export function plan(win) {
+  const items = [], holes = [], ox = win.x, oy = win.y;
   const hole = (z, rect) => holes.push({ z, rect });
   const add = (id, z, rect, draw) => items.push({ id, z, rect, draw, i: items.length });
-  const tree = (P, z0) => {
+  const tree = (P, ctl) => {
+    const rs = [];
     for (const s of P.sprites || []) {
       if (!s.shown || !s.tex) continue;
-      const r = spriteRect(s), z = s.wz ?? z0 + (s.z || 0) / 1e3;
+      const r = spriteRect(s), z = s.wz ?? 0;
+      rs.push({ r, z });
       if (isArt(s)) hole(z, r); else add(s.id, z, r, el => drawSprite(el, s, r.x - ox, r.y - oy));
     }
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
-      const x = t.wx ?? t.x, y = t.wy ?? t.y, lines = t.text.split('\n');
-      add(t.id, t.wz ?? z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => textWidth(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
-        el => drawLabel(el, t.text, x - ox, y - oy, t.rgba?.[3] ?? 1));
+      // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w)
+      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w } : { align: 0 };
+      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * t.text.split('\n').length },
+        el => drawLabel(el, t.text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
-    for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? z0 + (f.z || 0) / 1e3, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
+    for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? 0, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
+    return rs;
   };
-  tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, -1);
+  tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, null);
   for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
-    if (covers(c)) {
-      const r = { x: ox + dx + c.x, y: oy + dy + c.y, w: c.w, h: c.h };
-      add(c.id, c.wz ?? c.z, r, (el, api) => {
-        const e = api.renderControl(c, el);
-        if (e && (dx || dy)) e.style.translate = `${dx}px ${dy}px`;
-      });
-    } else if (c.parts) tree(c.parts, c.z);
+    const rs = c.parts ? tree(c.parts, c) : [];
+    if (BUTTON.test(c.cls) && rs.length) {
+      const x0 = Math.min(...rs.map(o => o.r.x)), y0 = Math.min(...rs.map(o => o.r.y));
+      const r = { x: x0, y: y0, w: Math.max(...rs.map(o => o.r.x + o.r.w)) - x0, h: Math.max(...rs.map(o => o.r.y + o.r.h)) - y0 };
+      add(c.id, Math.max(...rs.map(o => o.z)) + 0.5, r, el => drawButton(el, c, r.x - ox, r.y - oy, r.w, r.h));
+    }
   }
   items.sort((a, b) => a.z - b.z || a.i - b.i);
   const co = items.filter(it => holes.some(h => h.z > it.z && meet(h.rect, it.rect))).map(it => it.id);
@@ -131,24 +136,38 @@ let redrawing = null;   // the window being drawn: what a late atlas redraws
 function drawSprite(el, s, x, y) {
   const sh = sheet(s.tex, redrawing);
   if (!sh) return;
-  const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];
-  const e = ui.sprite(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), rgba[3]);
+  const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];   // a: the alpha it's drawn with (inherited), else its own
+  const e = ui.sprite(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), s.a ?? rgba[3]);
   if (rgba[0] !== 1 || rgba[1] !== 1 || rgba[2] !== 1)   // vertex colour: the trunk dims a row's art to 0.5 grey
     e.style.filter = rgba[0] === rgba[1] && rgba[1] === rgba[2] ? `brightness(${rgba[0]})` : '';
 }
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
-// 18-pixel style
-function drawLabel(el, text, x, y, alpha) {
+// 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
+function drawLabel(el, text, x, y, alpha, { align = 0, w = 0 } = {}) {
   text.split('\n').forEach((line, li) => {
-    let pen = 0;
-    for (const r of runs(line)) {
+    const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : 16;
+    const lw = rs.reduce((n, r) => r.x !== null ? r.x + textWidth(r.s, px(r)) : n + textWidth(r.s, px(r)), 0);
+    let pen = align === 1 ? Math.floor((w - lw) / 2) : align === 2 ? w - lw : 0;
+    for (const r of rs) {
       if (r.x !== null) pen = r.x;
-      const px = r.rgb === TAG_RGB[1] ? 18 : 16, c = [r.rgb >> 16, r.rgb >> 8 & 255, r.rgb & 255].map(v => v / 255);
-      const d = textBox(el, r.s, { x: x + pen, y: y + 16 * li, px, color: [...c, alpha], white: true });
-      if (px === 18) d.style.fontWeight = 'bold';
-      pen += textWidth(r.s, px);
+      const c = [r.rgb >> 16, r.rgb >> 8 & 255, r.rgb & 255].map(v => v / 255);
+      const d = textBox(el, r.s, { x: x + pen, y: y + 16 * li, px: px(r), color: [...c, alpha], white: true });
+      if (px(r) === 18) d.style.fontWeight = 'bold';
+      pen += textWidth(r.s, px(r));
     }
   });
+}
+// a real <button> over a button's art (its look is the art drawn from its parts; the label is its accessible name)
+function drawButton(el, c, x, y, w, h) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn';
+  b.disabled = !c.enabled;
+  b.dataset.state = c.state || 'normal';
+  b.setAttribute('aria-label', c.label || c.name || '');
+  Object.assign(b.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px',
+    background: 'none', border: 0, padding: 0, margin: 0 });
+  el.append(b);
 }
 
 // ---------------------------------------------------------------- the module
@@ -195,7 +214,7 @@ export default {
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
-    live.set(win.id, { win, root: st.inner, plan: plan(win, covers) });
+    live.set(win.id, { win, root: st.inner, plan: plan(win) });
     draw(win.id, api);
   },
   unmount(root, st) {

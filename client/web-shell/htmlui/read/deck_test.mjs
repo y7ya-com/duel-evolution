@@ -29,7 +29,9 @@ w32(win + 0x398 + 4, panel);
 w32(panel + 0x344, win + 0x340);
 w32(panel + 0x368, vt('CWindowTaskDeck', 0x368));   // its own IWindowTaskMediator: the card's owner
 w32(card + 0x344, panel + 0x368);
-wf(panel + 0x46c, 248); wf(panel + 0x474, 488); wf(panel + 0x478, 712);
+const bar = elem('CWindowTaskDeckBar', 0x4b8), side = elem('CWindowTaskFrameThin', 0x3e0);
+w32(panel + 0x36c + 4, bar); w32(panel + 0x384 + 0xc + 4, side);
+wf(bar + 0x494, 248); wf(bar + 0x49c, 488); wf(side + 0x3cc, 608); wf(side + 0x3d4, 104);   // bar x, width; side frame y, h
 w32(panel + 0x3e4 + 4, tab0); w32(panel + 0x3fc, tab0);   // Main in front
 vec(panel + 0x400, [card]);
 [40, 3, 6, 0].forEach((n, i) => dv.setInt32(panel + 0x480 + 4 * i, n, true));

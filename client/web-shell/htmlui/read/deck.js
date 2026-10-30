@@ -5,6 +5,12 @@
 export default h => {
   const { u8, u32, i32, f32, ptr, vec, generic, label } = h;
   const cards = (a, at) => vec(a, 4).map(p => u32(u32(p) + at));   // a vector<Card*> -> the cards' ids
+  const panelRect = (w, frameOf) => {
+    const p = ptr(w + 0x398), bar = p && ptr(p + 0x36c), fr = p && frameOf(p);
+    if (!bar || !fr) return {};
+    const x = f32(bar + 0x494), y = f32(bar + 0x498);
+    return { x, y, w: f32(bar + 0x49c), h: f32(fr + 0x3cc) + f32(fr + 0x3d4) - y, ex: f32(w + 0x70), ey: f32(w + 0x74) };
+  };
   return {
     controls: {
       // DeckWindow.h:355-367: grids 0x400 (main, side, extra, missing: vector<CWindowTaskDeckCard*>), tab[2] 0x3e4,
@@ -29,11 +35,12 @@ export default h => {
       CWindowTaskKabanScroll: c => ({ ...generic(c), maxTop: i32(c + 0x4c8), total: i32(c + 0x4d0) }),
     },
     windows: {
-      // both panels sit in a (0, 0) 336 x 144 window and lay out in screen pixels: the panel's own rect is the window's.
-      // CWindowTaskDeck posX/posY/w/h 0x46c..0x478 (DeckWindow.h:364); CWindowTaskKaban 0x400..0x40c (KabanWindowList.h:478)
-      // ex, ey: where the window's element really is (its controls' x / y are relative to it)
-      CWindowModelDeck: w => { const p = ptr(w + 0x398); return p ? { x: f32(p + 0x46c), y: f32(p + 0x470), w: f32(p + 0x474), h: f32(p + 0x478), ex: f32(w + 0x70), ey: f32(w + 0x74) } : {}; },
-      CWindowModelKaban: w => { const p = ptr(w + 0x398); return p ? { x: f32(p + 0x400), y: f32(p + 0x404), w: f32(p + 0x408), h: f32(p + 0x40c), ex: f32(w + 0x70), ey: f32(w + 0x74) } : {}; },
+      // both panels sit in a (0, 0) 336 x 144 window and lay out in screen pixels (their posX/posY stay 0): the true
+      // rect runs from the header bar (DeckBar x/y/width 0x494..0x49c, DeckParts.h:157-158) down to the bottom frame
+      // (FrameThin rect 0x3c8): the deck's side frame (CWindowTaskDeck 0x384[1], DeckWindow.h:356), the trunk's
+      // frame (CWindowTaskKaban 0x39c, KabanWindowList.h:474). ex/ey: where the window's element really is.
+      CWindowModelDeck: w => panelRect(w, p => ptr(p + 0x384 + 0xc)),
+      CWindowModelKaban: w => panelRect(w, p => ptr(p + 0x39c)),
       // CWindowModelCardDetail (decomp 0x005f68b0 / 0x005f7860): mode 0x3f8 (0 full, 1 text, 2 bar, 3 picture), the top
       // 0x430 (bottom-anchored), heights per mode 0x3fc[4], w 248. CCardDetailViewDlg: shown card 0x43c, the power
       // text 0x494 (a raw CTextElm). The big card and its race / attribute / level icons are queued by the dialog
