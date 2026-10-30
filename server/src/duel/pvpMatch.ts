@@ -207,7 +207,10 @@ export class Matches {
 
   route(c: Conn, msgId: number): PvpMatch | null {
     const m0 = X(c).pvp as PvpMatch | null | undefined;
-    if (m0) return m0;
+    // a new duel's 0x6001 on the duel connection the client kept from a finished match: the old match lets it go,
+    // or every message of the new duel (a PvP or an NPC one) went to the finished match and it never started
+    if (m0 && m0.done && msgId === 0x6001 && !X(c).pvpW) { delete X(c).pvp; delete X(c).pvpI; }
+    else if (m0) return m0;
     if (msgId === 0x6700 && PVP_WATCH) {
       const req = this.watchReq.get(c.peer);
       this.watchReq.delete(c.peer);
