@@ -22,6 +22,7 @@
 #include "win.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/threading.h>
 #endif
 
 enum { TEXT = 64, SETMAX = 24, NSETS = 5 };
@@ -66,12 +67,15 @@ static void search(CPU *c, uint32_t list, int32_t mode, int32_t order, const int
     rc_hfree(vec);
 }
 
-// 0x00b0d6fd wcsstr (the CRT's, cdecl; two callers: the trunk's TEXT search and one other). Case-blind for Latin
+// 0x00b0d6fd wcsstr (the CRT's, cdecl; two callers: the trunk's TEXT search and the duel's deck-list search,
+// SceneDeckList::applySearch, FUN_007693a0). Case-blind for Latin
 // letters while our search runs (a player types "dark" for DARK), exact as the CRT's otherwise.
 static int fold;
 static uint16_t lower(uint16_t ch) { return (ch >= 'A' && ch <= 'Z') || (ch >= 0xc0 && ch <= 0xde && ch != 0xd7) ? ch + 32 : ch; }
 void f_00b0d6fd(CPU *restrict c) {
     RC_LOCALS;
+    // as the exe's own (decomp 0x00b0d6fd), not MSVC's documented one: an empty haystack is NULL even for an empty
+    // needle; a non-empty one with an empty needle is found at once
     uint32_t hay = RD32(c->esp + 4), needle = RD32(c->esp + 8), hit = 0;
     for (uint32_t h = hay; RD16(h); h += 2) {
         uint32_t k = 0;
@@ -141,7 +145,8 @@ EM_JS(void, decksearch_install, (uint32_t base, int T, int S), {
 void rc_decksearch_frame(CPU *c) {
 #ifdef __EMSCRIPTEN__
     static int installed;
-    if (!installed) installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX);
+    if (!installed && emscripten_is_main_runtime_thread())   // the page's Module (as htmlui.c's onYo2Frame)
+        installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX);
 #endif
     if (req.seq == done_seq) return;
     done_seq = req.seq;
