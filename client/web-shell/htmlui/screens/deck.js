@@ -211,6 +211,7 @@ export const vectorArt = s => {
   if (n === 'icon_star_01.png') return { kind: 'star' };
   if (n === 'font_k_star.png') return { kind: 'level', i: u / 14 + 1 };
   if (n === 'scroll_01_c00.png') return { kind: 'scroll', u, v, w, h };
+  if (n === 'icon_syuzoku_01.png') return { kind: 'pixel', n, u, v };
   return null;
 };
 function drawVector(el, a, x, y, w, h, alpha) {
@@ -225,6 +226,11 @@ function drawVector(el, a, x, y, w, h, alpha) {
     return box;
   }
   if (a.kind === 'scroll') return scrollPart(box, a, w, h);
+  if (a.kind === 'pixel') {   // the 21 monster-type pictures stay pixel art (owner): the cell, nearest-neighbour, crisp
+    Object.assign(box.style, { backgroundImage: `url(${base()}${a.n})`, backgroundPosition: `${-a.u}px ${-a.v}px`,
+      backgroundRepeat: 'no-repeat', imageRendering: 'pixelated' });
+    return box;
+  }
   const id = 'dk' + Math.random().toString(36).slice(2, 8);
   let body;
   if (a.kind === 'attr') {
