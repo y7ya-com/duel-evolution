@@ -67,6 +67,10 @@ def main():
 
 
 def make_player(cookie):
+    cw = os.path.join(ROOT, "client", "recomp", "build", "cardwire.mjs")   # bridge.mjs's card-wire codec
+    if not os.path.exists(cw):
+        subprocess.run(["make", "-C", os.path.join(ROOT, "client", "recomp"), "cardwire_js"], check=True,
+                       env=dict(os.environ, EMSDK_PYTHON=os.environ.get("EMSDK_PYTHON", "/opt/homebrew/bin/python3.12")))
     br = subprocess.Popen(["node", os.path.join(R.HERE, "bridge.mjs"), str(LOCAL_OFFSET), f"ws://127.0.0.1:{PORT}/net", str(R.CTL_PORT)],
                           env=dict(os.environ, BRIDGE_COOKIES=json.dumps({"H": cookie}), BRIDGE_ORIGIN=ORIGIN, BRIDGE_WS_OFFSET="1000"),
                           stdout=open(os.path.join(D, "bridge.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
@@ -80,6 +84,9 @@ def make_player(cookie):
         names = X.account(0, create_name=PLAYER)
         if names.get(0) != PLAYER:
             sys.exit(f"stack.py: --player: no character made ({names})")
+        # the starter deck is claimed in game (the API answers 409 otherwise): into a room first, as predeploy does
+        if X.enter_room() is None:
+            sys.exit("stack.py: --player: could not enter a room")
         req = urllib.request.Request(ORIGIN + "/api/de/starter/claim", data=json.dumps({"id": DECK}).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "Origin": ORIGIN, "Cookie": cookie})
         with urllib.request.urlopen(req, timeout=30) as r:

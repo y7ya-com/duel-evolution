@@ -6,7 +6,7 @@
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
-import { loadGlyphs } from '../ui.js';
+import { loadGlyphs, setDeviceScale } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -99,13 +99,15 @@ export async function makeLayer(host, screens, art = 'ui/') {
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
   }
+  // everything drawn again (the device scale changed: sprites are placed for it): each window remounts next frame
+  function reset() { for (const id of [...live.keys()]) unmount(id); }
   function unmount(id) {
     const e = live.get(id);
     e.mod?.unmount?.(e.root, e.state);
     e.root.remove();
     live.delete(id);
   }
-  return { layer, render };
+  return { layer, render, reset };
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
@@ -126,10 +128,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const host = document.createElement('div');
   host.id = 'htmlui-host';
   document.body.append(host);
-  const { render } = await makeLayer(host, screens);
+  const { render, reset } = await makeLayer(host, screens);
+  let k = 0;
   const place = () => {
-    const r = canvas.getBoundingClientRect(), s = r.width / 1024;
+    const r = canvas.getBoundingClientRect(), s = r.width / 1024, k2 = devicePixelRatio * s;
     Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    if (Math.abs(k2 - k) > 1e-3) { k = k2; setDeviceScale(k); reset(); }   // device px per game px
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
