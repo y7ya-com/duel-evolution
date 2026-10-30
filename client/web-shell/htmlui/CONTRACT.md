@@ -166,6 +166,14 @@ a list whose rows the engine still draws (card faces) follows the DOM through `l
 line), call `list.top(i)` or `set()` again and the scroll position stays sensible. The box takes the pointer (pointer-events: auto, even
 in pass mode), so a row the game must see clicked forwards it (`api.click(ctl.id)` or the screen's own handler).
 
+**The engine's own scroll bars (owner, 2026-10-30: "remove the original scrollbars just use native scrolls
+everywhere"):** in any window no screen owns, the bridge (scrollbars.js) hides every shown scroll bar (the scroll family
+above) and lays a native box over its rect; scrolling the box calls the bar's own setValue (`api.setValue(id, v)`,
+htmlui.c's queue: the window is told, as when its thumb is dragged), and the game moving its list moves the box. A
+screen that owns its window replaces this with its own scrollList. Off: htmlui.json `"scrollbars": false`,
+`?HTML_SCROLL=0`, `yo2Html.scrollbars(false)`. A capture of a native scroller needs flip.mjs `--scrollbars` (headless
+hides scroll bars otherwise; macOS's overlay bars draw only while scrolling).
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
 text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every

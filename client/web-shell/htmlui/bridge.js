@@ -3,12 +3,15 @@
 // tell the game not to draw them (the hide/pass tables htmlui.c reads in CElement::onMain).
 // Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
 // ({"on": [...]}). The game cursor is the browser's own (cursor.js) on every screen unless htmlui.json has
-// "cursor": false or the page ?HTML_CURSOR=0 (then the engine draws it, under any HTML window). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
+// "cursor": false or the page ?HTML_CURSOR=0 (then the engine draws it, under any HTML window). The engine's scroll bars
+// are native boxes (scrollbars.js) unless htmlui.json has "scrollbars": false or the page ?HTML_SCROLL=0.
+// Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
+import { engineBars } from './scrollbars.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -167,6 +170,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, defaults.on || []);
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
+  let barsOn = defaults.scrollbars !== false && new URLSearchParams(location.search).get('HTML_SCROLL') !== '0';
   const forced = new Map();   // yo2Html.toggle overrides
   const st = document.createElement('style');
   st.textContent = CURSOR_CSS;
@@ -208,10 +212,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
     });
   };
+  const bars = engineBars(clip);
+  document.body.append(bars.layer);
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    for (const el of [host, fx]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx, bars.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -223,7 +229,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let switching = false, endFrame = 0;
   Module.onYo2Scene = (kind, from, to) => {
     scene = to; switching = kind === 'begin';
-    if (switching) { if (host) host.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
+    if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
   };
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -253,6 +259,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
     char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
     setText(id, s) { queue.push([2, id, String(s)]); },
+    // an engine scroll bar's value (its setValue: the window is told); its vtable rides along: htmlui.c skips a bar
+    // freed since this snapshot
+    setValue(id, v) { queue.push([3, id, v | 0, H32 ? H32[id >>> 2] : 0]); },
     scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
   };
   const QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: after the two tables nq, q[32] {kind, a, b, c}, text[1024]
@@ -319,17 +328,19 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
     // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
     const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide].slice(0, SLOTS);
-    H[t] = ids.length;
-    ids.forEach((id, i) => { H[t + 1 + i] = id; });
-    flush(t, H);
     // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
     // stays hidden through a scene load and while the loader's box (#loading: the boot, a scene's "Loading...") is up,
     // and shows with the first frame the engine presents after the scene's end, as its own windows would
-    if (host) {
-      const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
-      if (host.hidden !== wait) host.hidden = wait;
-    }
+    const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
+    // through a scene load
+    const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...barIds].slice(0, SLOTS);
+    H[t] = ids.length;
+    ids.forEach((id, i) => { H[t + 1 + i] = id; });
+    flush(t, H);
+    if (host && host.hidden !== wait) host.hidden = wait;
+    if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
@@ -353,5 +364,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     isolate(cls) { isolate = cls || null; },   // the flip test: only this window drawn (engine or DOM), on an empty canvas
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,
+    scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
   };
 }
