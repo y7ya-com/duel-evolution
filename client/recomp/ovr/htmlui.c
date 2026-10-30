@@ -14,6 +14,7 @@
 #include "rt.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/threading.h>
 #endif
 
 void o_0060f9e0(CPU *restrict c);
