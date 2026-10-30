@@ -51,8 +51,8 @@ export const ROUTES = {
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
   // the chat route, then the Main Menu (the menu bar's first button) open over the chat's left end (--pair: stacking)
   get 'chat-menu'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ['click', 43, 747], ['wait', 2500]] }; },
-  // then Return to Title: its confirmation dialog (the engine's) over the menu and the chat
-  get 'chat-menu-dialog'() { return { ...ROUTES.chat, steps: [...ROUTES['chat-menu'].steps, ['click', 141, 711], ['wait', 2500]] }; },
+  // then Friend List: its window (the engine's, unless switched on) over the menu and the chat
+  get 'chat-menu-dialog'() { return { ...ROUTES.chat, steps: [...ROUTES['chat-menu'].steps, ['click', 141, 633], ['wait', 3000]] }; },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
   ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
@@ -451,7 +451,9 @@ if (args.includes('--pair')) {
   const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${W}, ${H})`);
   writeFileSync(base + '-html.png', html); writeFileSync(base + '-engine.png', engine);
   writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));
-  console.log('pair:', JSON.stringify({ identical: r.identical, within2: r.within2, windows: (await snap()).windows.filter(w => w.shown).map(w => [w.cls, w.z]) }));
+const s1 = await snap();   // and every button caption not plain black, or with its shadow shown
+  const tinted = s1.windows.flatMap(w => w.controls.filter(c => c.label && (c.color?.slice(0, 3).some(v => v > 0) || c.shadow)).map(c => [w.cls, c.cls, c.label, c.color, c.shadow]));
+  console.log('pair:', JSON.stringify({ identical: r.identical, within2: r.within2, windows: s1.windows.filter(w => w.shown).map(w => [w.cls, w.z]), tinted }));
   b.close(); process.exit(0);
 }
 if (args.includes('--uicheck')) {

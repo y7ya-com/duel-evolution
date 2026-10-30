@@ -72,7 +72,13 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const rectI = (c, o) => ({ x: i32(c + o), y: i32(c + o + 4), w: i32(c + o + 8), h: i32(c + o + 12) });
   const STATE = ['normal', 'hover', 'pressed', 'normal'];   // PRESSED_OUTSIDE looks normal
   const sw = (c, stateAt) => ({ state: u8(c + 0x350) ? STATE[i32(c + stateAt)] || 'normal' : 'disabled' });
-  const caption = c => { const t = textCtl(ptr(ptr(c + 0x5a4) + 0x36c)); return { label: t.text, align: t.align ?? 1 }; };   // TextSwitch caption_ -> ShadowText text_
+  // TextSwitch caption_ (a ShadowText): its text_ (+0x36c) and colour, and its shadow_ (+0x378, the TextSwitch hides it;
+  // D-Mail's Send shows it) with its colour and offset (shadowDx_ / shadowDy_ +0x384 / +0x388)
+  const caption = c => {
+    const s = ptr(c + 0x5a4), t = textCtl(ptr(s + 0x36c)), sh = s && ptr(s + 0x378);
+    return { label: t.text, align: t.align ?? 1, color: t.color,
+      shadow: sh && shown(sh) ? { color: textCtl(sh).color, dx: i32(s + 0x384), dy: i32(s + 0x388) } : null };
+  };
 
   // per class: geometry (window-local) and the family's fields; subclasses fall back along BASE
   const F = {
