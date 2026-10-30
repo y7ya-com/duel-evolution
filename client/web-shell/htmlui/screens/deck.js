@@ -10,7 +10,6 @@
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
 import { textBox, textWidth, FONT, fontCss } from '../controls/basic.js';
-import { panel, titleBar, menuButton } from '../controls/skin.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -281,7 +280,7 @@ export function wrapLines(text, w) {
 // 6 Divine; type 0 Dragon .. 20 Divine-Beast; spell / trap 0 counter, 1 field, 2 equip, 3 continuous, 4 quick-play,
 // 5 ritual, 6 normal; limit = copies allowed (0..3). The game hook turns them into the engine's values.
 // the category chips in the colours of the trunk's own "Rearrange" swatches (sampled from the engine's frame)
-const CATS = [['All', 6, '#d8d8d8'], ['Normal', 0, '#f4dd3f'], ['Effect', 1, '#ffa127'], ['Fusion', 5, '#ba17ef'],
+const CATS = [['All', 6, '#8a8a8a'], ['Normal', 0, '#f4dd3f'], ['Effect', 1, '#ffa127'], ['Fusion', 5, '#ba17ef'],
   ['Ritual', 4, '#2a98ff'], ['Spell', 2, '#31f15a'], ['Trap', 3, '#ff79c8']];
 const ATTRS = ['Light', 'Dark', 'Water', 'Fire', 'Earth', 'Wind', 'Divine'];
 const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Machine', 'Fish', 'Dinosaur', 'Insect', 'Beast',
@@ -293,20 +292,42 @@ export const emptyFilter = () => ({ cat: 6, text: '', attr: [], race: [], icon: 
 // how many criteria beyond the category and the text (the Filters button's badge)
 export const filterCount = f => f.attr.length + f.race.length + f.icon.length + f.level.length + f.limit.length +
   (f.atk[0] != null || f.atk[1] != null) + (f.def[0] != null || f.def[1] != null) + !!f.sort;
+// The look is the deck editor's own (sampled from the engine's frame): silver chips with the card-colour stripe the
+// trunk's rows carry, the side menu's blue bevel for buttons, and a popup built like the Deck / Trunk panels: the
+// silver bevel frame (#dadfe8 .. #b6bbc5 in, #8d919f .. #bcc0cb out), the trunk's lavender header bar (#c6c7d6, #8e8fad
+// to #757f9d) with its glowing title, grey body (#a1a1a1), and light rows like the Side bar (#e0e1dc over #cccccb).
+const BEVEL = 'linear-gradient(to bottom, #fff 0 1px, rgb(105 255 255) 1px, rgb(80 228 255) 18%, rgb(62 178 255) 30%, rgb(37 120 254) 72%, rgb(6 94 254) 80%, rgb(0 0 254) 96%, #fff 96%)';
+const BEVEL_HOVER = 'linear-gradient(to bottom, #fff 0 1px, rgb(207 255 255) 1px, rgb(152 255 255) 20%, rgb(134 237 255) 28%, rgb(118 221 255) 72%, rgb(81 209 255) 82%, rgb(12 188 255) 96%, #fff 96%)';
 const SEARCH_CSS = `
-.dk-search { position: absolute; pointer-events: auto; font: ${fontCss(14)} ; color: #000; }
-.dk-field { position: absolute; box-sizing: border-box; height: 22px; border: 1px solid #5b8fd0; border-radius: 2px;
-  background: linear-gradient(#e9f1fb, #fff 4px); box-shadow: inset 1px 1px 0 #b9cde8; padding: 0 20px 0 6px;
+.dk-search { position: absolute; pointer-events: auto; color: #000; }
+.dk-field { position: absolute; box-sizing: border-box; height: 22px; margin: 0; padding: 0 20px 0 6px; border: 1px solid;
+  border-color: #808080 #e8e8e8 #e8e8e8 #808080; border-radius: 0; background: #fff; box-shadow: inset 1px 1px 0 #c0c0c0;
   font: ${fontCss(14, 20)}; color: #000; outline: none; }
-.dk-field:focus { border-color: #2f6fd8; box-shadow: inset 1px 1px 0 #b9cde8, 0 0 0 1px #9fd0ff; }
-.dk-field::placeholder { color: #7a8796; }
-.dk-x { position: absolute; width: 16px; height: 16px; border: 0; padding: 0; background: none; color: #557; font: bold 13px/16px ${FONT}; }
-.dk-chip { position: absolute; box-sizing: border-box; height: 20px; padding: 0 3px; border: 1px solid #6a6a6a; border-radius: 3px;
-  font: ${fontCss(12, 18)}; color: #111; background: linear-gradient(#fff, var(--c) 70%); white-space: nowrap; }
-.dk-chip[aria-pressed=true] { border-color: #1a3fbf; box-shadow: 0 0 0 1px #fff, 0 0 0 2px #1a3fbf; }
-.dk-sel { padding: 0 2px; appearance: auto; }
-.dk-lbl { position: absolute; left: 12px; color: #fff; font: ${fontCss(14, 16)}; text-shadow: 0 0 2px #035, 0 0 1px #035; }
-.dk-solid::before { opacity: 1 !important; }
+.dk-field:focus { border-color: #1059ff #8fb0ff #8fb0ff #1059ff; }
+.dk-field::placeholder { color: #8a8a8a; }
+.dk-sel { padding: 0 2px; }
+.dk-x { position: absolute; width: 16px; height: 16px; border: 0; padding: 0; background: none; color: #666; font: bold 13px/16px ${FONT}; }
+.dk-chip { position: absolute; box-sizing: border-box; height: 20px; margin: 0; padding: 0 4px 0 8px; border: 1px solid #8a8a8a;
+  border-radius: 2px; background: linear-gradient(#f6f7f9, #d3d6dc); box-shadow: inset 4px 0 0 var(--c);
+  font: ${fontCss(12, 18)}; color: #222; white-space: nowrap; }
+.dk-chip:hover { background: linear-gradient(#fff, #e4e7ec); }
+.dk-chip[aria-pressed=true] { background: #fff; border-color: #2b3a5c; color: #000; font-weight: bold;
+  box-shadow: inset 4px 0 0 var(--c), 0 0 0 1px #2b3a5c; }
+.dk-btn { position: absolute; box-sizing: border-box; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 3px;
+  background: ${BEVEL}; color: #fff; font: bold ${fontCss(14, 24)}; white-space: nowrap; letter-spacing: 0.3px;
+  text-shadow: -1px 0 #1059ff, 1px 0 #1059ff, 0 -1px #1059ff, 0 1px #1059ff, 0 0 2px #0013fe; box-shadow: 0 0 0 1px #fff, 0 1px 2px rgb(0 0 60 / 0.5); }
+.dk-btn:hover { background: ${BEVEL_HOVER}; color: #fdff45;
+  text-shadow: -1px 0 #ff9d10, 1px 0 #ff9d10, 0 -1px #ff9d10, 0 1px #ff9d10, 0 0 2px #c06000; }
+.dk-btn:active { filter: brightness(0.92); }
+.dk-pop { position: absolute; box-sizing: border-box; background: #a1a1a1; border: 1px solid #6e7486;
+  box-shadow: inset 3px 3px 0 #dadfe8, inset 5px 5px 0 #c0c5cf, inset 7px 7px 0 #b6bbc5,
+    inset -3px -3px 0 #8d919f, inset -5px -5px 0 #a5a9b7, inset -7px -7px 0 #bcc0cb, 0 4px 12px rgb(0 0 40 / 0.45); }
+.dk-head { position: absolute; left: 7px; right: 7px; top: 7px; height: 28px;
+  background: linear-gradient(to bottom, #fff 0 1px, #c6c7d6 1px 2px, #8e8fad 2px, #757f9d 27px, #8a8fab 27px); }
+.dk-strip { position: absolute; left: 7px; right: 7px; height: 26px; background: #cccccb; border-top: 1px solid #e0e1dc;
+  border-bottom: 1px solid #a1a1a1; }
+.dk-lbl { position: absolute; left: 8px; color: #000; font: ${fontCss(14, 24)}; }
+.dk-dash { position: absolute; color: #000; font: ${fontCss(14, 24)}; }
 .dk-count { position: absolute; color: #fff; white-space: nowrap; font: ${fontCss(13, 20)}; text-shadow: 0 0 2px #000, 0 0 1px #000; }
 `;
 let searchCssDone = false;
@@ -350,40 +371,59 @@ export function searchPanel(root, apply) {
   el.append(input);
   const clear = btn(el, 'dk-x', '×', 180, 34, false, () => { input.value = f.text = ''; changed(true); input.focus(); });
   clear.setAttribute('aria-label', 'Clear the search');
-  const filters = menuButton(el, { x: 204, y: 30, w: 80, h: 24, label: 'Filters', state: null });
-  filters.onclick = () => { popup ? close() : open(); };
+  const filters = btn(el, 'dk-btn', 'Filters', 204, 30, false, () => { popup ? close() : open(); }, 80);
+  filters.setAttribute('aria-expanded', 'false');
   const chips = document.createElement('div'), count = document.createElement('div');
   el.append(chips, count);
+  Object.assign(chips.style, { position: 'absolute', left: '8px', top: '60px', width: '274px', display: 'flex', gap: '2px' });
   count.className = 'dk-count';
   Object.assign(count.style, { left: '104px', top: '4px' });   // beside the "Trunk" title
   function render() {
     clear.hidden = !f.text;
     const n = filterCount(f);
-    filters.set({ label: n ? `Filters (${n})` : 'Filters' });
+    filters.textContent = n ? `Filters (${n})` : 'Filters';
     chips.replaceChildren();
-    let x = 8;
     for (const [name, v, c] of CATS) {
-      const b = btn(chips, 'dk-chip', name, x, 60, f.cat === v, () => { f.cat = v; changed(true); });
+      const b = btn(chips, 'dk-chip', name, 0, 0, f.cat === v, () => { f.cat = v; changed(true); });
+      Object.assign(b.style, { position: 'static', flex: '1 1 auto', padding: '0 0 0 4px' });
       b.style.setProperty('--c', c);
-      x += Math.ceil(textWidth(name, 12)) + 8 + 2;
     }
     if (popup) fillPopup();
   }
   // the Filters popup (EDOPro's search panel): the game's blue panel and title bar over the list
-  // the game's panel is see-through (alpha 178); over a busy list the popup reads better opaque (dk-solid)
-  function open() { popup = panel(el, { x: 4, y: 88, w: 280, h: 300 }); popup.classList.add('dk-solid'); fillPopup(); }
-  function close() { popup?.remove(); popup = null; }
+  function open() {
+    popup = document.createElement('div');
+    popup.className = 'dk-pop';
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-label', 'Card Search');
+    Object.assign(popup.style, { left: '4px', top: '86px', width: '280px' });
+    el.append(popup);
+    filters.setAttribute('aria-expanded', 'true');
+    fillPopup();
+  }
+  function close() { popup?.remove(); popup = null; filters.setAttribute('aria-expanded', 'false'); }
   // EDOPro's search panel, in text (the owner: words, not icons): one dropdown per field, the ATK / DEF ranges
   function fillPopup() {
     popup.replaceChildren();
-    const bar = titleBar(popup, { x: 0, y: 0, w: 280, title: 'Card Search' });
-    bar.close.onclick = close;
-    let y = 32;
+    // the header bar, its title glowing like the trunk's ("Card Search" is the art's own word), the close box
+    const head = document.createElement('div');
+    head.className = 'dk-head';
+    popup.append(head);
+    drawTextArt(popup, MOJI[5], 12, 9, 1);
+    const x = btn(popup, 'dk-btn', '×', 280 - 2 - 7 - 26, 9, false, close, 22);
+    Object.assign(x.style, { height: '20px', lineHeight: '20px', fontSize: '16px' });
+    x.setAttribute('aria-label', 'Close');
+    let y = 40;
     const row = title => {
+      const strip = document.createElement('div');
+      strip.className = 'dk-strip';
+      strip.style.top = y - 2 + 'px';
+      popup.append(strip);
       const l = document.createElement('div');
       l.className = 'dk-lbl';
       l.textContent = title;
-      l.style.top = y + 3 + 'px';
+      l.style.top = y - 1 + 'px';
+      l.style.left = '14px';
       popup.append(l);
       y += 28;
       return y - 28;
@@ -417,8 +457,8 @@ export function searchPanel(root, apply) {
         popup.append(i);
       });
       const d = document.createElement('div');
-      d.className = 'dk-lbl';
-      Object.assign(d.style, { left: '179px', top: top + 3 + 'px' });
+      d.className = 'dk-dash';
+      Object.assign(d.style, { left: '179px', top: top - 1 + 'px' });
       d.textContent = '–';
       popup.append(d);
     };
@@ -431,11 +471,9 @@ export function searchPanel(root, apply) {
     select('Limit', 'limit', LIMITS);
     select('Sort by', 'sort', SORTS.slice(1));
     y += 6;
-    const reset = menuButton(popup, { x: 12, y, w: 120, label: 'Clear filters', state: null });
-    reset.onclick = () => { Object.assign(f, emptyFilter(), { text: f.text, cat: f.cat }); changed(true); };
-    const done = menuButton(popup, { x: 148, y, w: 120, label: 'Done', state: null });
-    done.onclick = close;
-    popup.style.height = y + 24 + 12 + 'px';
+    btn(popup, 'dk-btn', 'Clear filters', 14, y, false, () => { Object.assign(f, emptyFilter(), { text: f.text, cat: f.cat }); changed(true); }, 120);
+    btn(popup, 'dk-btn', 'Done', 146, y, false, close, 120);
+    popup.style.height = y + 24 + 14 + 'px';
   }
   render();
   // the hits; the engine's own count box beside it shows the total
