@@ -17,6 +17,7 @@ const DRAW = {
     const sh = win.controls.find(k => k.parent === c.id && (k.x !== c.x || k.y !== c.y));
     if (sh) t.style.textShadow = `${sh.x - c.x}px ${sh.y - c.y}px 0 ${basic.textColor(sh.color, true)}`;
   },
+  FramePlane: (el, c) => skin.panel(el, { x: c.x, y: c.y, w: c.w, h: c.h, flat: true }),   // the small dialogs' body (70 %)
   MultiInput: () => {},   // its Input child (at the MultiInput's place) is the field: chat.js's owned()
   ButtonDuel(el, c, api) {
     const b = skin.duelButton(el, { x: c.x, y: c.y, w: c.w, h: c.h, label: c.label, state: c.state === 'disabled' ? 'disabled' : null });

@@ -191,7 +191,7 @@ export function owned(classes, draw, background) {
         seen.add(c.id);
         const isInput = /(^|[^i])Input(Duel)?$/.test(c.cls);   // Input, InputDuel (a MultiInput holds one)
         // an input reported wider than its window (the mail form's Subject: 496 from x 73) ends inside the frame, as drawn
-        if (isInput && c.x + c.w > win.w - 16) c = { ...c, w: win.w - 16 - c.x };
+        if (isInput && c.x + c.w > win.w) c = { ...c, w: win.w - 16 - c.x };
         // the drawing: the input's text is ownInput's, so it doesn't redraw the field
         const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
         let d = st.drawn.get(c.id);
