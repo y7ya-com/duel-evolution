@@ -375,17 +375,35 @@ IMP(KERNEL32, LeaveCriticalSection) { pthread_mutex_unlock(cs_get(ARG(0))); RET(
 // ---------------------------------------------------------------- time
 IMP(KERNEL32, GetTickCount) { RET(0, rc_ticks_ms()); }
 IMP(KERNEL32, QueryPerformanceFrequency) { WR32m(ARG(0), 1000000); WR32m(ARG(0) + 4, 0); RET(1, 1); }
+void rc_gfx_held(void);       // rt/d3d8.cpp: the held step frame of an in-between Present, once due
+int rc_gfx_held_due(void);
 #ifdef __EMSCRIPTEN__
 void rc_web_sleep(uint32_t ms);
 IMP(KERNEL32, Sleep) {   // as below, but a real wait yields to the browser
     if (rc_fastforward && rc_is_main_thread(c)) rc_ff_main_sleep(ARG(0));
     else if (rc_fastforward && ARG(0)) { rc_thread_busy(-1); rc_vwait(ARG(0)); rc_thread_busy(1); }
-    else rc_web_sleep(ARG(0) ? (ARG(0) + rc_timescale - 1) / rc_timescale : 0);
+    else {
+        if (rc_is_main_thread(c)) rc_gfx_held();   // before the yield that shows it
+        rc_web_sleep(ARG(0) ? (ARG(0) + rc_timescale - 1) / rc_timescale : 0);
+    }
     RET(1, 0);
 }
 #else
+// the frame loop's waits between steps: the held frame goes out on time inside them
+static void main_sleep(uint32_t ms) {
+    rc_gfx_held();
+    int due = rc_gfx_held_due();
+    if (due > 0 && (uint32_t)due < ms) {
+        usleep((useconds_t)rc_real_us((uint32_t)due));
+        rc_gfx_held();
+        ms -= (uint32_t)due;
+    }
+    usleep((useconds_t)rc_real_us(ms));
+    rc_gfx_held();
+}
 IMP(KERNEL32, Sleep) {
-    if (!rc_fastforward) usleep((useconds_t)rc_real_us(ARG(0)));
+    if (!rc_fastforward && rc_is_main_thread(c)) main_sleep(ARG(0));
+    else if (!rc_fastforward) usleep((useconds_t)rc_real_us(ARG(0)));
     else if (rc_is_main_thread(c)) rc_ff_main_sleep(ARG(0));   // the frame pacing: no wait, time jumps
     else if (ARG(0)) { rc_thread_busy(-1); rc_vwait(ARG(0)); rc_thread_busy(1); }
     else sched_yield();

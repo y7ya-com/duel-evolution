@@ -44,7 +44,7 @@ Module.preRun.push(() => {
     // Opened on the live site with no query (a bookmark, a Discord return that lost it): the root page's defaults, so
     // every entry path works. Only on the site's own host; local and test pages always pass their own.
     if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
-        const QUERY_ENV = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE"]);
+        const QUERY_ENV = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE", "RC_60", "RC_HWCURSOR"]);   // RC_60=0 / RC_HWCURSOR=0: 30 Hz, the sprite cursor
         q.set("http", location.origin);
         q.set("gateway", (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/net");
         q.set("fonts", "fonts/");

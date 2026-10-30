@@ -6,6 +6,7 @@
 #include "rt.h"
 #include "rc_funcs.h"
 #include <stdio.h>
+#include <string.h>
 
 void o_0059de80(CPU *restrict c);
 void o_00b3d5f6(CPU *restrict c);
@@ -22,6 +23,9 @@ void rc_imgfail(const char *what, uint32_t hr, const char *detail, uint32_t data
     rc_log("image load failed: %s hr %08x%s%s, %u bytes%s, file %.160s", what, hr, *detail ? " " : "", detail, size, head,
            loading ? GS(loading) : "?");
 }
+
+// rt/d3d8.cpp: the texture being made is a cursor image (data/common/m_cursor/mausuk_*), for the web's own cursor
+int rc_loading_cursor(void) { return loading && strstr(GS(loading), "mausuk") != NULL; }
 
 void f_0059de80(CPU *restrict c) {
     uint32_t arg = RD32m(c->esp + 4), was = loading;

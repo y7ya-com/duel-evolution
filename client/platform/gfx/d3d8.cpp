@@ -6,14 +6,17 @@
 //   shader does view * projection and texture stage 0, driven by uniforms. That is all the game uses (DESIGN.md §2).
 // - Textures keep their pixels on the CPU (B,G,R,A, as LockRect hands them out) and are uploaded lazily, as stored,
 //   on the GL thread when drawn; the shader swizzles. Loader threads never touch GL.
-#include <chrono>
 #include "d3d8.h"
 
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #include "gl.h"
 #include "platform.h"
@@ -317,6 +320,7 @@ bool IDirect3DSurface8::write(const RECT& r, const uint8_t* src, int pitch) {
 // ---------------------------------------------------------------- texture
 
 IDirect3DTexture8::~IDirect3DTexture8() {
+    IDirect3DDevice8::forgetTexture(this);
     level0.owner = nullptr;   // its own destructor must not forward to us any more
     if (glFbo) deadFbos.push_back(glFbo);
     if (glFboDepth) deadRenderbuffers.push_back(glFboDepth);
@@ -494,7 +498,10 @@ bool IDirect3DDevice8::init(const D3DPRESENT_PARAMETERS& p) {
     return SetRenderTarget(backBuffer, autoDepth) == D3D_OK;
 }
 
+static void deleteInterp(IDirect3DDevice8* d);
+
 IDirect3DDevice8::~IDirect3DDevice8() {
+    deleteInterp(this);
     if (texture) texture->Release();
     if (target) target->Release();
     if (depth) depth->Release();
@@ -514,17 +521,35 @@ HRESULT IDirect3DDevice8::Reset(D3DPRESENT_PARAMETERS* p) {
     return D3D_OK;
 }
 
-HRESULT IDirect3DDevice8::Present(const RECT*, const RECT*, HWND, const void*) {
-    flush();
+static double nowMs();
+static double swapWorst;   // RC_60_LOG: the longest platformPresent since the last report
+// a back-buffer-sized FBO onto the window (y flipped) and shown
+static void toScreen(IDirect3DDevice8* d, GLuint fbo) {
     int dw, dh;
     platformDrawableSize(&dw, &dh);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, backBuffer->glFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
     glColorMask(1, 1, 1, 1);
-    int bw = (int)(backBuffer->w * scale), bh = (int)(backBuffer->h * scale);
+    int bw = (int)(d->backBuffer->w * d->scale), bh = (int)(d->backBuffer->h * d->scale);
     glBlitFramebuffer(0, 0, bw, bh, 0, dh, dw, 0, GL_COLOR_BUFFER_BIT, dw == bw && dh == bh ? GL_NEAREST : GL_LINEAR);
+    double t0 = nowMs();
     platformPresent();
+    swapWorst = max(swapWorst, nowMs() - t0);
+    d->shown++;
+}
+
+static void presentInterp(IDirect3DDevice8* d);
+static void dropFrames(IDirect3DDevice8* d);
+
+HRESULT IDirect3DDevice8::Present(const RECT*, const RECT*, HWND, const void*) {
+    flush();
+    if (interp && onGlThread()) {
+        presentInterp(this);
+    } else {
+        toScreen(this, backBuffer->glFbo);
+        if (ip && onGlThread()) dropFrames(this);   // turned off: nothing recorded carries over to when it's back on
+    }
     if (!deadTextures.empty()) glDeleteTextures((GLsizei)deadTextures.size(), deadTextures.data());
     if (!deadFbos.empty()) glDeleteFramebuffers((GLsizei)deadFbos.size(), deadFbos.data());
     if (!deadRenderbuffers.empty()) {
@@ -699,6 +724,9 @@ HRESULT IDirect3DDevice8::GetDepthStencilSurface(IDirect3DSurface8** s) {
     return D3D_OK;
 }
 
+static void recordClear(IDirect3DDevice8* d, DWORD count, const D3DRECT* rects, DWORD flags, D3DCOLOR c, float z,
+                        DWORD stencil);
+
 HRESULT IDirect3DDevice8::Clear(DWORD count, const D3DRECT* rects, DWORD flags, D3DCOLOR c, float z, DWORD stencil) {
     flush();
     GLbitfield mask = 0;
@@ -720,6 +748,7 @@ HRESULT IDirect3DDevice8::Clear(DWORD count, const D3DRECT* rects, DWORD flags, 
         mask |= GL_STENCIL_BUFFER_BIT;
     }
     if (!mask) return D3D_OK;
+    if (interp && target == backBuffer && onGlThread()) recordClear(this, count, rects, flags, c, z, stencil);
     bindTarget();
     glEnable(GL_SCISSOR_TEST);   // D3D clears only the viewport (and the rects inside it)
     for (DWORD i = 0; i < (rects ? count : 1); i++) {
@@ -922,11 +951,13 @@ void IDirect3DDevice8::flush() {
         return;
     }
     applyState();
+    if (interp && target == backBuffer) record();
     glBindVertexArray(glVao);
     glBindBuffer(GL_ARRAY_BUFFER, glVbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(batch.size() * sizeof(Vertex)), batch.data(), GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)batch.size());
     batch.clear();
+    batchCalls.clear();
 }
 
 // D3D lighting without lights: rgb = emissive + ambient * D3DRS_AMBIENT, alpha from the diffuse source
@@ -950,6 +981,9 @@ static void lit(const IDirect3DDevice8* d, D3DCOLOR vertexColor, bool hasColor, 
     }
     for (int i = 0; i < 4; i++) out[i] = (uint8_t)(min(max(r[i], 0.f), 1.f) * 255.f + 0.5f);
 }
+
+static void describeCall(IDirect3DDevice8* d, size_t v0);
+static bool noteCursor(IDirect3DDevice8* d, const IDirect3DDevice8::Vertex* v, UINT n);
 
 HRESULT IDirect3DDevice8::DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, const void* v, UINT stride) {
     // ponytail: triangles only (the game draws strips); points and lines would need a batch of their own
@@ -977,18 +1011,384 @@ HRESULT IDirect3DDevice8::DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, con
         if (hasUV) { memcpy(&o.u, p + need - 8, 4); memcpy(&o.v, p + need - 4, 4); }
         else o.u = o.v = 0;
     }
+    if (hwCursor && texture && texture->cursor && target == backBuffer && noteCursor(this, verts.data(), n))
+        return D3D_OK;
+    size_t v0 = batch.size();
     if (type == D3DPT_TRIANGLELIST) {
         batch.insert(batch.end(), verts.begin(), verts.end());
-        return D3D_OK;
-    }
-    for (UINT i = 0; i < count; i++) {
-        if (type == D3DPT_TRIANGLESTRIP) {   // keep the winding of odd triangles
-            batch.push_back(verts[i + (i & 1)]); batch.push_back(verts[i + 1 - (i & 1)]); batch.push_back(verts[i + 2]);
-        } else {
-            batch.push_back(verts[0]); batch.push_back(verts[i + 1]); batch.push_back(verts[i + 2]);
+    } else {
+        for (UINT i = 0; i < count; i++) {
+            if (type == D3DPT_TRIANGLESTRIP) {   // keep the winding of odd triangles
+                batch.push_back(verts[i + (i & 1)]); batch.push_back(verts[i + 1 - (i & 1)]); batch.push_back(verts[i + 2]);
+            } else {
+                batch.push_back(verts[0]); batch.push_back(verts[i + 1]); batch.push_back(verts[i + 2]);
+            }
         }
     }
+    if (interp && target == backBuffer) describeCall(this, v0);
     return D3D_OK;
+}
+
+// ---------------------------------------------------------------- in-between frames (60 Hz on a 30 Hz game)
+// The game steps at a fixed 30 Hz (CApp::frameLoop's 33 ms slots) and counts frames for every animation, fade and
+// timer, so a faster step would play everything faster. Instead the screen gets a frame between each two steps: every
+// back-buffer draw of a step is recorded as it goes out, and its Present shows the step halfway from the one before:
+// each sprite (one DrawPrimitiveUP) is matched to the nearest same sprite last step (same texture, vertex count and
+// UVs; else same texture, vertex count and size, i.e. its next animation frame) and drawn at the midpoint of the two
+// positions and colours, the camera likewise. The step's own frame is held aside and shown half a step later
+// (presentHeld, from the host's main-thread sleep). Game logic, timing, input and everything the game reads back are
+// untouched; the screen trails the step by half a step (~17 ms). Unmatched sprites (new, or moved more than kJump) show
+// where this step put them; render-target draws are not recorded (the in-between frame reads their textures as they
+// are). Off by itself (back to presenting each step once) while steps run late or the in-between frame costs too much.
+static double nowMs() {
+    using namespace std::chrono;
+    return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+}
+namespace {
+constexpr float kJump = 128;   // game pixels a sprite may move in one step and still be in-betweened
+uint32_t fnv(uint32_t h, const void* p, size_t n) {
+    for (size_t i = 0; i < n; i++) h = (h ^ ((const uint8_t*)p)[i]) * 16777619u;
+    return h;
+}
+}  // namespace
+
+struct D3DInterp {
+    struct Batch {
+        DWORD rs[256], tss[29];
+        IDirect3DTexture8* tex;   // null when it died since (forgetTexture): the batch is skipped
+        D3DVIEWPORT8 vp;
+        D3DMATRIX view, proj;
+        bool depth, clear, dead;
+        uint32_t v0, vn, c0, cn;   // its vertices and calls in the frame (a clear: its rects)
+        DWORD cflags, cstencil;
+        D3DCOLOR ccolor;
+        float cz;
+    };
+    struct Frame {
+        std::vector<Batch> batches;
+        std::vector<IDirect3DDevice8::Vertex> verts;
+        std::vector<IDirect3DDevice8::Call> calls;
+        std::vector<uint32_t> callBatch;
+        std::vector<D3DRECT> rects;
+        void clear() { batches.clear(), verts.clear(), calls.clear(), callBatch.clear(), rects.clear(); }
+    };
+    Frame cur, prev;
+    std::vector<int32_t> match;   // per call of cur: its call in prev, or -1
+    std::mutex mu;                // the frames' textures, against a texture dying on a loader thread
+    IDirect3DSurface8 *surf = nullptr, *depthSurf = nullptr;   // the in-between frame's target
+    GLuint heldFbo = 0, heldColor = 0;                         // this step's frame, shown half a step later
+    bool pending = false;
+    double dueAt = 0;
+    double last = 0, interval = 33.3, cost = 0;   // averages: ms between steps' Presents, ms an in-between frame takes
+    uint64_t late = 0;                            // the last 64 steps, a bit each: came over 45 ms after the one before
+    bool off = false;
+    double offUntil = 0, backoff = 10e3;
+};
+static IDirect3DDevice8* interpDev;   // the device with recorded frames (textures die after their device, at exit)
+
+static void dropFrames(IDirect3DDevice8* d) {
+    std::lock_guard<std::mutex> lock(d->ip->mu);
+    d->ip->cur.clear(), d->ip->prev.clear(), d->ip->pending = false;
+}
+
+static void deleteInterp(IDirect3DDevice8* d) {
+    if (!d->ip) return;
+    delete d->ip->surf;
+    delete d->ip->depthSurf;
+    if (d->ip->heldFbo) deadFbos.push_back(d->ip->heldFbo);
+    if (d->ip->heldColor) deadRenderbuffers.push_back(d->ip->heldColor);
+    delete d->ip;
+    d->ip = nullptr;
+    if (interpDev == d) interpDev = nullptr;
+}
+
+// a vertex (world applied) through view, projection and viewport: game pixels; false behind the camera
+static bool screenPx(const IDirect3DDevice8* d, const D3DMATRIX& m, const IDirect3DDevice8::Vertex& v, float* px, float* py) {
+    float w = v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + m.m[3][3];
+    if (w <= 0) return false;
+    *px = d->vp.X + ((v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + m.m[3][0]) / w + 1) * 0.5f * d->vp.Width;
+    *py = d->vp.Y + (1 - (v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + m.m[3][1]) / w) * 0.5f * d->vp.Height;
+    return true;
+}
+
+// The cursor sprite's texels and place (hwCursor): false draws it as usual (not a plain on-screen quad of the shadow)
+static bool noteCursor(IDirect3DDevice8* d, const IDirect3DDevice8::Vertex* v, UINT n) {
+    IDirect3DTexture8* t = d->texture;
+    if (t->shadow.empty() || n < 3) return false;
+    D3DMATRIX m = mul(d->view, d->proj);
+    float x0 = 1e9f, y0 = 1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
+    for (UINT i = 0; i < n; i++) {
+        float px, py;
+        if (!screenPx(d, m, v[i], &px, &py)) return false;
+        x0 = min(x0, px), y0 = min(y0, py);
+        u0 = min(u0, v[i].u), v0 = min(v0, v[i].v), u1 = max(u1, v[i].u), v1 = max(v1, v[i].v);
+    }
+    int tw = (int)t->level0.w, th = (int)t->level0.h;
+    IDirect3DDevice8::CursorDraw c{t, (int)lroundf(u0 * tw), (int)lroundf(v0 * th), (int)lroundf((u1 - u0) * tw),
+                                   (int)lroundf((v1 - v0) * th), x0, y0, true};
+    if (c.u < 0 || c.v < 0 || c.w <= 0 || c.h <= 0 || c.u + c.w > tw || c.v + c.h > th) return false;
+    d->cursorDraw = c;
+    return true;
+}
+
+// One draw call's identity for matching (exact: texture, vertex count, UVs; loose: texture, vertex count, size on
+// screen) and its centre on screen, in game pixels
+static void describeCall(IDirect3DDevice8* d, size_t v0) {
+    if (d->ip && d->ip->off) return;
+    D3DMATRIX m = mul(d->view, d->proj);
+    uint32_t n = (uint32_t)(d->batch.size() - v0), key = fnv(2166136261u, &d->texture, sizeof d->texture);
+    key = fnv(key, &n, 4);
+    float sx = 0, sy = 0, x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    bool behind = false;
+    for (size_t i = v0; i < d->batch.size(); i++) {
+        const IDirect3DDevice8::Vertex& v = d->batch[i];
+        key = fnv(key, &v.u, 8);
+        float px, py;
+        if (!screenPx(d, m, v, &px, &py)) { behind = true; continue; }
+        sx += px, sy += py;
+        x0 = min(x0, px), y0 = min(y0, py), x1 = max(x1, px), y1 = max(y1, py);
+    }
+    IDirect3DDevice8::Call c{key, 0, (uint32_t)v0, n, 0, 0};
+    if (behind || !n) {
+        c.sx = c.sy = NAN;   // never matched
+    } else {
+        c.sx = sx / n, c.sy = sy / n;
+        int32_t size[2] = {(int32_t)((x1 - x0) * 0.5f + 0.5f), (int32_t)((y1 - y0) * 0.5f + 0.5f)};
+        c.loose = fnv(fnv(fnv(2166136261u, &d->texture, sizeof d->texture), &n, 4), size, 8);
+    }
+    d->batchCalls.push_back(c);
+}
+
+// flush(): the batch about to go to the back buffer, with the state it draws with
+void IDirect3DDevice8::record() {
+    if (!ip) ip = new D3DInterp, interpDev = this;
+    if (ip->off) return;
+    std::lock_guard<std::mutex> lock(ip->mu);
+    D3DInterp::Frame& f = ip->cur;
+    D3DInterp::Batch b;
+    memcpy(b.rs, rs, sizeof rs);
+    memcpy(b.tss, tss, sizeof tss);
+    b.tex = texture, b.vp = vp, b.view = view, b.proj = proj;
+    b.depth = depth != nullptr, b.clear = false, b.dead = false;
+    b.v0 = (uint32_t)f.verts.size(), b.vn = (uint32_t)batch.size();
+    b.c0 = (uint32_t)f.calls.size(), b.cn = 0;
+    size_t covered = 0;
+    for (const Call& c : batchCalls) covered += c.n;
+    if (covered == batch.size()) {   // else the calls are not all described (interp turned on mid-batch): none match
+        for (Call c : batchCalls) {
+            c.v0 += b.v0;
+            f.calls.push_back(c);
+            f.callBatch.push_back((uint32_t)f.batches.size());
+        }
+        b.cn = (uint32_t)batchCalls.size();
+    }
+    f.verts.insert(f.verts.end(), batch.begin(), batch.end());
+    f.batches.push_back(b);
+}
+
+static void recordClear(IDirect3DDevice8* d, DWORD count, const D3DRECT* rects, DWORD flags, D3DCOLOR c, float z,
+                        DWORD stencil) {
+    if (!d->ip) d->ip = new D3DInterp, interpDev = d;
+    if (d->ip->off) return;
+    std::lock_guard<std::mutex> lock(d->ip->mu);
+    D3DInterp::Frame& f = d->ip->cur;
+    D3DInterp::Batch b{};
+    b.vp = d->vp, b.depth = d->depth != nullptr, b.clear = true;
+    b.c0 = (uint32_t)f.rects.size(), b.cn = rects ? count : 0;
+    if (rects) f.rects.insert(f.rects.end(), rects, rects + count);
+    b.cflags = flags, b.ccolor = c, b.cz = z, b.cstencil = stencil;
+    f.batches.push_back(b);
+}
+
+void IDirect3DDevice8::forgetTexture(IDirect3DTexture8* t) {
+    IDirect3DDevice8* d = interpDev;
+    if (!d || !d->ip) return;
+    std::lock_guard<std::mutex> lock(d->ip->mu);
+    for (D3DInterp::Frame* f : {&d->ip->cur, &d->ip->prev})
+        for (D3DInterp::Batch& b : f->batches)
+            if (!b.clear && b.tex == t) b.tex = nullptr, b.dead = true;
+}
+
+// each call of cur to the nearest unused call of prev with its exact key, then the rest by their loose key
+static void matchFrames(D3DInterp& ip) {
+    const D3DInterp::Frame &c = ip.cur, &p = ip.prev;
+    ip.match.assign(c.calls.size(), -1);
+    std::vector<char> used(p.calls.size());
+    std::unordered_map<uint32_t, std::vector<uint32_t>> by;
+    auto nearest = [&](const IDirect3DDevice8::Call& cc, uint32_t key) {
+        auto it = by.find(key);
+        if (it == by.end() || cc.sx != cc.sx) return -1;
+        int best = -1;
+        float bd = kJump * kJump;
+        for (uint32_t j : it->second) {
+            if (used[j]) continue;
+            float dx = p.calls[j].sx - cc.sx, dy = p.calls[j].sy - cc.sy, dd = dx * dx + dy * dy;
+            if (dd < bd) bd = dd, best = (int)j;
+        }
+        return best;
+    };
+    for (int pass = 0; pass < 2; pass++) {
+        by.clear();
+        for (uint32_t j = 0; j < p.calls.size(); j++)
+            if (!used[j] && p.calls[j].sx == p.calls[j].sx && !p.batches[p.callBatch[j]].dead)
+                by[pass ? p.calls[j].loose : p.calls[j].key].push_back(j);
+        for (uint32_t i = 0; i < c.calls.size(); i++) {
+            if (ip.match[i] >= 0) continue;
+            int j = nearest(c.calls[i], pass ? c.calls[i].loose : c.calls[i].key);
+            if (j >= 0) used[j] = 1, ip.match[i] = j;
+        }
+    }
+}
+
+// cur's draws, matched ones moved t of the way from prev, into ip->surf
+void IDirect3DDevice8::drawInterp(float t) {
+    D3DInterp& ip = *this->ip;
+    const D3DInterp::Frame &c = ip.cur, &p = ip.prev;
+    IDirect3DSurface8 *sTarget = target, *sDepth = depth;
+    IDirect3DTexture8* sTex = texture;
+    DWORD sRs[256], sTss[29];
+    memcpy(sRs, rs, sizeof rs);
+    memcpy(sTss, tss, sizeof tss);
+    D3DMATRIX sView = view, sProj = proj;
+    D3DVIEWPORT8 sVp = vp;
+    std::vector<Vertex> sBatch;
+    sBatch.swap(batch);
+    std::vector<Call> sCalls;
+    sCalls.swap(batchCalls);
+    interp = false;   // flush and Clear below don't record
+    target = ip.surf;
+    auto lerp = [t](float a, float b) { return a + (b - a) * t; };
+    for (const D3DInterp::Batch& b : c.batches) {
+        if (b.dead) continue;
+        vp = b.vp;
+        depth = b.depth ? ip.depthSurf : nullptr;
+        if (b.clear) {
+            Clear(b.cn, b.cn ? &c.rects[b.c0] : nullptr, b.cflags, b.ccolor, b.cz, b.cstencil);
+            continue;
+        }
+        memcpy(rs, b.rs, sizeof rs);
+        memcpy(tss, b.tss, sizeof tss);
+        texture = b.tex, view = b.view, proj = b.proj;
+        batch.assign(c.verts.begin() + b.v0, c.verts.begin() + b.v0 + b.vn);
+        int cam = -1;
+        for (uint32_t k = 0; k < b.cn; k++) {
+            int j = ip.match[b.c0 + k];
+            if (j < 0) continue;
+            const Call &cc = c.calls[b.c0 + k], &pc = p.calls[j];
+            if (cam < 0) cam = (int)p.callBatch[j];
+            for (uint32_t i = 0; i < cc.n; i++) {
+                Vertex& v = batch[cc.v0 - b.v0 + i];
+                const Vertex& w = p.verts[pc.v0 + i];
+                v.x = lerp(w.x, v.x), v.y = lerp(w.y, v.y), v.z = lerp(w.z, v.z);
+                for (int ch = 0; ch < 4; ch++) v.c[ch] = (uint8_t)(lerp(w.c[ch], v.c[ch]) + 0.5f);
+            }
+        }
+        if (cam >= 0) {   // the camera of the batch its sprites came from, in between too
+            const D3DInterp::Batch& pb = p.batches[cam];
+            for (int i = 0; i < 16; i++) {
+                (&view.m[0][0])[i] = lerp((&pb.view.m[0][0])[i], (&b.view.m[0][0])[i]);
+                (&proj.m[0][0])[i] = lerp((&pb.proj.m[0][0])[i], (&b.proj.m[0][0])[i]);
+            }
+        }
+        flush();
+    }
+    interp = true;
+    target = sTarget, depth = sDepth, texture = sTex;
+    memcpy(rs, sRs, sizeof rs);
+    memcpy(tss, sTss, sizeof tss);
+    view = sView, proj = sProj, vp = sVp;
+    batch.swap(sBatch);
+    batchCalls.swap(sCalls);
+}
+
+static void presentInterp(IDirect3DDevice8* d) {
+    if (!d->ip) d->ip = new D3DInterp, interpDev = d;
+    D3DInterp& ip = *d->ip;
+    double t0 = nowMs();
+    if (ip.last && t0 - ip.last < 100) {   // a load is no step
+        ip.interval += (t0 - ip.last - ip.interval) * 0.1;
+        ip.late = ip.late << 1 | (t0 - ip.last > 45);
+    }
+    ip.last = t0;
+    ip.pending = false;
+    int bw = (int)(d->backBuffer->w * d->scale), bh = (int)(d->backBuffer->h * d->scale);
+    bool between = !ip.off && !ip.prev.batches.empty() && !ip.cur.batches.empty();
+    if (between) {
+        if (!ip.heldFbo) {
+            glGenRenderbuffers(1, &ip.heldColor);
+            glBindRenderbuffer(GL_RENDERBUFFER, ip.heldColor);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, bw, bh);
+            glGenFramebuffers(1, &ip.heldFbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, ip.heldFbo);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, ip.heldColor);
+            ip.surf = new IDirect3DSurface8(*d->backBuffer);   // same size, format and scale; its own GL objects
+            ip.surf->fboDepth = ~0ull;
+            glGenRenderbuffers(1, &ip.surf->glColor);
+            glBindRenderbuffer(GL_RENDERBUFFER, ip.surf->glColor);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, bw, bh);
+            glGenFramebuffers(1, &ip.surf->glFbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, ip.surf->glFbo);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, ip.surf->glColor);
+            ip.depthSurf = new IDirect3DSurface8;
+            ip.depthSurf->glDepth = depthBuffer(bw, bh);
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, d->backBuffer->glFbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ip.heldFbo);
+        glDisable(GL_SCISSOR_TEST);
+        glColorMask(1, 1, 1, 1);
+        glBlitFramebuffer(0, 0, bw, bh, 0, 0, bw, bh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        {
+            std::lock_guard<std::mutex> lock(ip.mu);
+            matchFrames(ip);
+            d->drawInterp(0.5f);
+        }
+        ip.cost += (nowMs() - t0 - ip.cost) * 0.1;
+        static const bool logging = getenv("RC_60_LOG");   // every 300 in-between frames: how much of them moved
+        static unsigned frames, calls, matched;
+        frames++, calls += (unsigned)ip.match.size();
+        for (int32_t j : ip.match) matched += j >= 0;
+        if (logging && frames % 300 == 0) {
+            fprintf(stderr, "gfx: in-between frames: %u calls a frame, %.0f%% matched, %.2f ms each, swap worst %.0f ms\n",
+                    calls / 300, calls ? 100.0 * matched / calls : 0.0, ip.cost, swapWorst);
+            calls = matched = 0, swapWorst = 0;
+        }
+        toScreen(d, ip.surf->glFbo);
+        ip.pending = true;
+        ip.dueAt = t0 + min(max(ip.interval, 25.0), 45.0) / 2;
+    } else {
+        toScreen(d, d->backBuffer->glFbo);
+    }
+    // ponytail: thresholds from a 30 Hz step (33 ms): a quarter of the last 64 steps late, or a costly in-between frame,
+    // turn it off for a while (a lone slow step, a load, is no reason)
+    int lateSteps = __builtin_popcountll(ip.late);
+    if (!ip.off && (lateSteps > 16 || ip.cost > 8)) {
+        fprintf(stderr, "gfx: in-between frames off for %.0f s (%d of 64 steps late, in-between frame %.1f ms)\n",
+                ip.backoff / 1e3, lateSteps, ip.cost);
+        ip.off = true, ip.offUntil = t0 + ip.backoff, ip.backoff = min(ip.backoff * 2, 600e3);
+        ip.cost = 0;
+    } else if (ip.off && t0 >= ip.offUntil && lateSteps < 4) {
+        ip.off = false;
+    }
+    std::lock_guard<std::mutex> lock(ip.mu);
+    std::swap(ip.prev, ip.cur);
+    ip.cur.clear();
+    if (ip.off) ip.prev.clear();
+}
+
+IDirect3DSurface8* IDirect3DDevice8::inBetweenTarget() { return ip ? ip->surf : nullptr; }
+
+int IDirect3DDevice8::heldDueMs() {
+    if (!ip || !ip->pending) return -1;
+    double left = ip->dueAt - nowMs();
+    return left > 0 ? (int)left + 1 : 0;
+}
+
+int IDirect3DDevice8::presentHeld(bool now) {
+    if (!ip || !ip->pending || !onGlThread()) return -1;
+    if (!now && nowMs() < ip->dueAt) return 0;
+    ip->pending = false;
+    toScreen(this, ip->heldFbo);
+    return 1;
 }
 
 // ---------------------------------------------------------------- IDirect3D8

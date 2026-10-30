@@ -326,6 +326,36 @@ int main() {
     dev->SetTextureStageState(0, D3DTSS_MINFILTER, D3DTEXF_LINEAR);
     cut->Release();
 
+    // in-between frames: a quad red at x 0..8 one step and blue at 16..24 the next is purple at 8..16 between them;
+    // the step's own frame stays in the back buffer and is shown half a step later
+    {
+        D3DVIEWPORT8 full{0, 0, 64, 64, 0, 1};
+        dev->SetViewport(&full);
+        dev->SetTexture(0, nullptr);
+        pixelSpace(64, 64);
+        mode0();
+        dev->SetRenderState(D3DRS_LIGHTING, 0);
+        dev->interp = true;
+        for (int step = 0; step < 2; step++) {
+            dev->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xff000000, 1, 0);
+            quad(step * 16.f, 0, step * 16.f + 8, 8, step ? 0xff0000ff : 0xffff0000);
+            dev->Present(nullptr, nullptr, nullptr, nullptr);
+        }
+        IDirect3DSurface8* mid = dev->inBetweenTarget();
+        std::vector<uint8_t> bgra;
+        check(mid && mid->read(bgra), "in-between frame drawn");
+        auto at = [&](int x, int y) { uint32_t v; memcpy(&v, &bgra[((size_t)y * 64 + x) * 4], 4); return v; };
+        if (mid) {
+            check(approx(at(12, 4), 0xff800080), "in-between: the quad halfway, its colour halfway");
+            check(approx(at(4, 4), 0xff000000) && approx(at(20, 4), 0xff000000), "in-between: nothing at either end");
+        }
+        expect(20, 4, 0xff0000ff, "the step's own frame is untouched in the back buffer");
+        check(dev->presentHeld() == 0 && dev->heldDueMs() > 0, "held frame not shown before half a step");
+        SDL_Delay(30);
+        check(dev->presentHeld() == 1 && dev->presentHeld() == -1, "held frame shown once, half a step later");
+        dev->interp = false;
+    }
+
     rtSurf->Release();
     rtTex->Release();
     holed->Release();

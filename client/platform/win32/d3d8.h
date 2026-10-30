@@ -170,6 +170,7 @@ public:
     RECT dirty{};                         // shadow rect not yet uploaded (empty: clean)
     bool isLocked = false;
     int32_t sampler[4] = {-1, -1, -1, -1};   // GL params last set: mag, min, wrap s, wrap t
+    bool cursor = false;                  // the game's mouse cursor image (the host may show it itself: hwCursor)
     void markDirty(const RECT& r);
     void sync();                          // GL thread: create glTex, upload the dirty rect
     ~IDirect3DTexture8() override;
@@ -233,6 +234,24 @@ public:
     void flush();
     void bindTarget();
     void applyState();
+
+    // 60 Hz on a 30 Hz game (d3d8.cpp, "in-between frames"): set by the host; off, nothing below runs
+    // The game's cursor sprite left out of the frame, for the host to show as its own cursor at the display's rate:
+    // set by the host; each Present's last cursor draw (texel rect of its texture, top left in game pixels)
+    bool hwCursor = false;
+    struct CursorDraw { IDirect3DTexture8* tex; int u, v, w, h; float x, y; bool drawn; } cursorDraw{};
+    bool interp = false;
+    unsigned shown = 0;        // frames put on the window
+    struct Call { uint32_t key, loose, v0, n; float sx, sy; };   // one DrawPrimitiveUP in the batch: what matches it
+    std::vector<Call> batchCalls;
+    struct D3DInterp* ip = nullptr;   // the recorded frames, GL objects and pacing
+    int presentHeld(bool now = false);   // GL thread: shows the held frame once due (now: already due); 1 shown,
+                                         // 0 not yet, -1 none pending
+    int heldDueMs();           // ms until it is due (0: now), -1 none pending
+    static void forgetTexture(IDirect3DTexture8* t);   // any thread: its draws leave the recorded frames
+    void drawInterp(float t);
+    IDirect3DSurface8* inBetweenTarget();   // the last in-between frame (tests)
+    void record();
 };
 
 class IDirect3D8 : public D3DUnknown {
