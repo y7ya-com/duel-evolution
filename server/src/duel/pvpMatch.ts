@@ -6,7 +6,8 @@
 import type { Conn } from "../net/conn.ts";
 import { W } from "../net/proto.ts";
 import type { Game } from "../game/game.ts";
-import { keyPort, type Session } from "../game/hub.ts";
+import { type Session } from "../game/hub.ts";
+import { entryKind } from "../game/gate.ts";
 import * as PP from "../game/persist.ts";
 import { freeRecord, isFree } from "../game/freemode.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
@@ -813,12 +814,7 @@ export class PvpMatch {
     } catch (e) { this.log(`[EXC] ${this.name}: registro de duelo: ${errStr(e)}`); }
   }
 
-  roomKind(s: Session): number {
-    try {
-      const k = this.g.roomKinds[keyPort(s.block!) - this.g.ports.roomBase];
-      return k === undefined ? 12 : k;
-    } catch { return 12; }
-  }
+  roomKind(s: Session): number { return entryKind(this.g, s); }
 
   closeMatch(): void {
     this.done = true;

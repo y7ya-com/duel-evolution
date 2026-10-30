@@ -124,6 +124,7 @@ export class Tournaments {
   }
 
   // ---- the tournament (started from the admin)
+  get running(): boolean { return !!this.tour && this.tour.state !== ST.END; }
   startTournament(serial = 1, day = TOUR_DAY, name = TOUR_NAME, maxPlayers = MAX_PLAYERS): Tour {
     const t = (this.tour = new Tour(serial, day, name, maxPlayers, this.now(), this));
     if (AUTO_ENTRY) for (const [pid, c] of this.watch) this.enter(t, c.sess as Session | null, pid);

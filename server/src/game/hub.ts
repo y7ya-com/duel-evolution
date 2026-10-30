@@ -18,6 +18,8 @@ const LIST1_STATE = true;
 const LIST2_DUEL_23 = true;
 export const AREA_BLOCKS = true;
 export const WORLD_AREAS: Record<number, number[]> = { 0: [0, 1, 2, 3, 9], 1: [4, 5, 6, 7] };
+/** One world (gate.ts): every block lists both worlds' areas, Domino's first (the block index of an area). */
+const ALL_AREAS = [...WORLD_AREAS[0], ...WORLD_AREAS[1]];
 export const AUTH_BAD_LOGIN = -240;
 export const AUTH_SERVER_FULL = -200;
 export const AUTH_IN_USE = -242;
@@ -248,14 +250,14 @@ export class Hub {
     return b;
   }
 
-  blockWorld(key: BlockKey): number | null {
-    const kind = this.g.roomKinds[keyPort(key) - this.g.ports.roomBase];
-    if (kind === undefined) return null;
-    return this.g.acadKinds.has(kind) ? 1 : 0;
+  /** The world (0 Domino, 1 Academy) of the area a player is in, whose look is shown (0x4170 registers one per world). */
+  areaWorld(o: Session): number | null {
+    const area = o.block !== null ? this.areaList(o.block)?.[o.ablock || 0] : undefined;
+    return area === undefined ? null : WORLD_AREAS[1].includes(area) ? 1 : 0;
   }
 
   list2Body(o: Session, world?: number | null): Uint8Array {
-    if (world === undefined) world = o.block !== null ? this.blockWorld(o.block) : null;
+    if (world === undefined) world = this.areaWorld(o);
     const parts = world !== null ? (o.partsW.get(world) ?? o.parts) : o.parts;
     let x = 0, y = 0, d = 0;
     if (o.pos && o.pos.length >= 9) { x = u16at(o.pos, 4); y = u16at(o.pos, 6); d = o.pos[8]; }
@@ -281,15 +283,16 @@ export class Hub {
   // ---- areas = blocks (AREA_BLOCKS)
   areaList(key: BlockKey | null): number[] | null {
     if (!AREA_BLOCKS || key === null) return null;
-    const w = this.blockWorld(key);
-    return w === null ? null : WORLD_AREAS[w] ?? null;
+    return ALL_AREAS;
   }
 
   blocklist(key: BlockKey | null, kind: number): Uint8Array | null {
     const areas = this.areaList(key);
     if (!areas || !areas.length) return null;
-    const w = new W().u16(8);
-    areas.forEach((a, i) => w.u16(0).u8(a).u8(kind & 0xff).u8(i));
+    const w = new W().u16(Math.max(8, areas.length));   // the max: more entries than it is the exe's YG_BLOCK_MAX error
+    // an area of the other world carries that world's main kind (Domino City 13, Duelist Academy 14)
+    const acad = this.g.acadKinds.has(kind);
+    areas.forEach((a, i) => w.u16(0).u8(a).u8((WORLD_AREAS[1].includes(a) === acad ? kind : acad ? 13 : 14) & 0xff).u8(i));
     return w.bytes();
   }
 
@@ -441,7 +444,8 @@ export class Hub {
     if (inb && LIST_SELF) rest = [s!, ...rest];
     if (!rest.length) return [];
     let entries: Uint8Array[];
-    if (req === 0x4214) entries = rest.map((o) => cat(new W().u32(o.pid!).bytes(), this.list2Body(o)));
+    // the client files LIST2 parts under ITS OWN world (FUN_006b8eb0), so the asker's
+    if (req === 0x4214) { const w = this.areaWorld(s!); entries = rest.map((o) => cat(new W().u32(o.pid!).bytes(), this.list2Body(o, w))); }
     else if (req === 0x4218 || req === 0x421c) { const i = req === 0x4218 ? 0 : 1; entries = rest.map((o) => cat(new W().u32(o.pid!).bytes(), pad(o.comments[i], 32))); }
     else if (req === 0x4220 || req === 0x4221) entries = rest.map((o) => cat(new W().u32(o.pid!).bytes(), this.list5Body(o)));
     else return [];

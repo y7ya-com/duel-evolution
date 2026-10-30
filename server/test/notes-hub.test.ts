@@ -366,7 +366,7 @@ describe("areas = blocks (AREA_BLOCKS, 06-10)", () => {
     }
   });
 
-  it("BLOCKLIST 0x4201 has one entry per area of the room's world: u16 8, then u16 0, u8 area, u8 kind, u8 id", async () => {
+  it("BLOCKLIST 0x4201 has one entry per area of BOTH worlds (one world), each world's with its kind: u16 max (9), then u16 0, u8 area, u8 kind, u8 id", async () => {
     const h = harness();
     const A = h.client("A");
     await A.account(0, "Alice");
@@ -375,9 +375,10 @@ describe("areas = blocks (AREA_BLOCKS, 06-10)", () => {
     let n = r.mark(); r.send(0x4100, [5, 0]); await r.wait(0x4101, n);
     n = r.mark(); r.send(0x4200);
     const d = (await r.wait(0x4201, n))!;
-    expect(u16(d)).toBe(8);
+    expect(u16(d)).toBe(9);                            // not 8: more entries than the max is YG_BLOCK_MAX
     const ents = Array.from({ length: (d.length - 2) / 5 }, (_, i) => [...d.subarray(2 + 5 * i, 7 + 5 * i)]);
-    expect(ents).toEqual([[0, 0, 4, 14, 0], [0, 0, 5, 14, 1], [0, 0, 6, 14, 2], [0, 0, 7, 14, 3]]);
+    expect(ents).toEqual([[0, 0, 0, 13, 0], [0, 0, 1, 13, 1], [0, 0, 2, 13, 2], [0, 0, 3, 13, 3], [0, 0, 9, 13, 4],
+                          [0, 0, 4, 14, 5], [0, 0, 5, 14, 6], [0, 0, 6, 14, 7], [0, 0, 7, 14, 8]]);
   });
 
   it("crossing a door (0x4202 [id, 1]) moves me to that area's block: 0x4203 says it, the others get 0x3112 op 1 with it", async () => {
