@@ -41,7 +41,7 @@ export function switches(spec, defaults = []) {
 
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
   pointer-events: none; z-index: 5; }
-#htmlui-host .win { position: absolute; overflow: hidden; }
+#htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }
 #htmlui-host .frame, #htmlui-host .layer { left: 0; top: 0; }
@@ -72,7 +72,10 @@ export async function makeLayer(host, screens, art = 'ui/') {
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
-    for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
+    // windows back to front as the engine draws them (drawOrder), then claimed non-window tasks (the shop). Each root is
+    // one stacking context (.win isolation): nothing a screen stacks inside its window (chat.js's z-indexed layers)
+    // reaches above another window
+    for (const w of [...drawOrder(snap.windows), ...snap.tasks || []]) {
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
@@ -136,10 +139,15 @@ export async function makeLayer(host, screens, art = 'ui/') {
 // drawn control's world z, then the list's order. Not the controls' depth alone: one deep control (a trunk row's
 // parts, a dragged card) made a window look in front of a dialog over it. The hole is where that window draws (its
 // drawn box), never its nominal rect; a window that draws nothing cuts none.
+// o (at j in the list) in front of w (at i)
+const ahead = (o, j, w, i) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !== w.wz ? o.wz > w.wz : j > i;
+// the windows back to front by that rule (the DOM order of their roots; the engine's own list order is only the tie)
+export function drawOrder(wins) {
+  return wins.map((w, i) => [w, i]).sort(([a, i], [b, j]) => ahead(a, i, b, j) ? 1 : ahead(b, j, a, i) ? -1 : 0).map(([w]) => w);
+}
 function holes(w, wins, owned) {
   const i = wins.indexOf(w);
-  const ahead = (o, j) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !== w.wz ? o.wz > w.wz : j > i;
-  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j))
+  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j, w, i))
     .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
       o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
   return clip(front, w);

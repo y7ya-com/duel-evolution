@@ -49,6 +49,10 @@ export const ROUTES = {
     ['wait', 2000]], flip: ['CChatWindow'],
     // the pointer on a tab, on the log, on the input line, then a tab held
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
+  // the chat route, then the Main Menu (the menu bar's first button) open over the chat's left end (--pair: stacking)
+  get 'chat-menu'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ['click', 43, 747], ['wait', 2500]] }; },
+  // then Return to Title: its confirmation dialog (the engine's) over the menu and the chat
+  get 'chat-menu-dialog'() { return { ...ROUTES.chat, steps: [...ROUTES['chat-menu'].steps, ['click', 141, 711], ['wait', 2500]] }; },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
   ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
@@ -428,10 +432,18 @@ if (args.includes('--bars')) {
       canvasZ: getComputedStyle(document.getElementById('canvas')).zIndex }; })()`);
   const f = found[0];
   if (f) {
+    // the rows, not only the bar's value: the screen must change when the box moves (rowsPx: pixels changed against
+    // the start) and come back to the start when it returns (backPx ~ 0)
+    const W = Math.round(1024 * dpr), H = Math.round(768 * dpr), start = await b.shot();
+    const px = async a => (await b.ev(`(${DIFF})('data:image/png;base64,${start.toString('base64')}', 'data:image/png;base64,${a.toString('base64')}', ${W}, ${H})`)).px;
     await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); e.scrollTop = e.scrollHeight; })()`); await sleep(1000);
-    r.toEnd = { game: (await bars())[0]?.value, max: f.max };
+    const end = await b.shot();
+    writeFileSync(path.join(out, `bars-${routeName}@${dpr}x-end.png`), end);
+    r.toEnd = { game: (await bars())[0]?.value, max: f.max, rowsPx: await px(end) };
+    await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); e.scrollTop = e.scrollHeight / 2; })()`); await sleep(1000);
+    r.toHalf = { game: (await bars())[0]?.value, rowsPx: await px(await b.shot()) };
     await b.ev(`(() => { const e = document.querySelector('#htmlui-bars > div'); e.scrollTop = 0; })()`); await sleep(1000);
-    r.toTop = { game: (await bars())[0]?.value };
+    r.toTop = { game: (await bars())[0]?.value, backPx: await px(await b.shot()) };
     // the game's own wheel over its rows (left of the bar), as a player's on the canvas
     const p = await toClient(f.x - 60, f.y + f.h / 2);
     await mouse('mouseMoved', p); await sleep(300);
@@ -441,6 +453,22 @@ if (args.includes('--bars')) {
   }
   console.log('bars:', JSON.stringify(r));
   writeFileSync(path.join(out, `bars-${routeName}@${dpr}x.json`), JSON.stringify(r, null, 1));
+  b.close(); process.exit(0);
+}
+// --pair: the whole screen with the HTML UI (as --ui= or the page's switches set it) and with the engine drawing every
+// window, pair-<route>@<dpr>x-{html,engine,heat}.png: windows over windows (stacking) as the engine has them
+if (args.includes('--pair')) {
+  // --css=RULES: a style added first (e.g. the old stacking back, for a before shot)
+  if (opt('css')) await b.ev(`document.head.append(Object.assign(document.createElement('style'), { textContent: ${JSON.stringify(opt('css'))} }))`);
+  await sleep(1000);
+  const html = await b.shot();
+  await b.ev('window.yo2Html.set("0")'); await sleep(1200);
+  const engine = await b.shot();
+  const W = Math.round(1024 * dpr), H = Math.round(768 * dpr), base = path.join(out, `pair-${routeName}@${dpr}x`);
+  const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${W}, ${H})`);
+  writeFileSync(base + '-html.png', html); writeFileSync(base + '-engine.png', engine);
+  writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));
+  console.log('pair:', JSON.stringify({ identical: r.identical, within2: r.within2, windows: (await snap()).windows.filter(w => w.shown).map(w => [w.cls, w.z]) }));
   b.close(); process.exit(0);
 }
 if (args.includes('--uicheck')) {

@@ -15,9 +15,11 @@
 // 3. Owned-mode input the bridge queued (keys, characters, a control's text) is played into the game first, on the
 //    same thread: a Win32 message through CWindowTaskFactory::dispatch (0x5e2700: keys and WM_CHAR go to the focused
 //    control, as the game's own WndProc sends them), a control's setText (vtable slot 17, +0x44: a wide string), or a
-//    scroll bar's value (CWindowTaskScrollBase::setValue 0x005ad460: clamped, the thumb placed, the window told, as
-//    when the thumb is dragged; web-shell/htmlui/scrollbars.js), played only while the bar still has the vtable the
-//    bridge read (a bar freed since is skipped).
+//    scroll bar's value (web-shell/htmlui/scrollbars.js): CWindowTaskScrollBase::setValue (0x005ad460: clamped, the
+//    thumb placed, the window told), then a WM_MOUSEMOVE to the bar's handleMessage (vtable slot 14, +0x38, a
+//    WindowMsg by value), as during a thumb drag: the base bar ignores it, the trunk's CWindowTaskKabanScroll shows
+//    its list from the new step there (it never follows the value otherwise). Played only while the bar still has
+//    the vtable the bridge read (a bar freed since is skipped).
 //    Mouse input is not queued: the bridge sends real canvas events at the control, as a player's mouse would.
 //
 // With an empty hide table (native builds, ?HTML_UI=0) onMain costs one load and a compare.
@@ -115,9 +117,12 @@ static void play(CPU *c) {
             rc_call(&t, RD32(RD32(ctl) + 0x44), 1, &buf);
             rc_hfree(buf);
         } else if (tab.q[i].kind == Q_SETVALUE && tab.q[i].a && tab.q[i].c && RD32(tab.q[i].a) == tab.q[i].c) {
-            uint32_t v = tab.q[i].b;
-            t.ecx = tab.q[i].a;
+            uint32_t ctl = tab.q[i].a, v = tab.q[i].b, msg[8] = {0x200};   // WindowMsg {WM_MOUSEMOVE}
+            t.ecx = ctl;
             rc_call(&t, 0x5ad460, 1, &v);
+            t = *c;
+            t.ecx = ctl;
+            rc_call(&t, RD32(RD32(ctl) + 0x38), 8, msg);
         }
     }
     tab.nq = 0;
