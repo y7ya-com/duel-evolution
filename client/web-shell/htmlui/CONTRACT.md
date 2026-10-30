@@ -118,6 +118,10 @@ export default {
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},
+  hide: (win, snap) => [ids],         // optional: other elements the engine must not draw while the window is owned
+                                      // (its scene's backdrop pieces, not in any window); hide-table semantics
+  backdrop(win, el, api, state) {},   // optional: draw into el, a layer under EVERY window root (a full-screen scene
+                                      // backdrop); called each frame, DOM kept; cleared when no owned window has one
 }
 ```
 
@@ -129,7 +133,9 @@ without its text and caret) for the controls it doesn't customise.
 **Text (owner's rule):** all text is real DOM text, never glyph images: Arial, as the 2008 client asks GDI for it
 (lfHeight 16 = a 16-pixel cell = 1.117 em: 14.3 px on 16-pixel lines), metric-compatible fallbacks after it. Use
 controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, white, wrap })` (or `fontCss(px)` and
-`FONT` in your own CSS); the browser lays it out. A CTextElm's colour multiplies black glyphs, so game text is black
+`FONT` in your own CSS); the browser lays it out. Letter spacing (owner): textBox gives each text
+`spacing(s, px)` (controls/basic.js): (the engine's line width, every glyph in a round(advance) + 1 cell, - Arial's)
+/ characters, so lines are as wide as the game's; text you place yourself uses spacing() too, never a fixed value. A CTextElm's colour multiplies black glyphs, so game text is black
 (alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
 pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
 
