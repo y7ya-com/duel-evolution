@@ -125,7 +125,7 @@ const report = {};
 // computed style and drawn over a capture without it (where the OS puts it: hotspot at the mouse, 1 image px per
 // device px); both isolated (the backdrop animates), the window drawn in HTML, diffed.
 const CURSOR_IMG = String.raw`async (css, px, py, w, h, bare, dpr) => {
-  const m = /url\("?(data:[^")]+)"?\)(?: ([\d.]+)(?:x|dppx))?\)? ([\d.]+) ([\d.]+)/.exec(css);
+  const m = /url\("?((?:data|blob):[^")]+)"?\)(?: ([\d.]+)(?:x|dppx))?\)? ([\d.]+) ([\d.]+)/.exec(css);
   if (!m) return { error: 'no image cursor: ' + css.slice(0, 80) };
   const res = +(m[2] || 1), hx = +m[3], hy = +m[4];
   const img = await createImageBitmap(await (await fetch(m[1])).blob());
@@ -135,7 +135,9 @@ const CURSOR_IMG = String.raw`async (css, px, py, w, h, bare, dpr) => {
   g.drawImage(img, Math.round(px * dpr) - Math.floor(hx * res), Math.round(py * dpr) - Math.floor(hy * res), img.width * dpr / res, img.height * dpr / res);
   const blob = await c.convertToBlob(), buf = new Uint8Array(await blob.arrayBuffer());
   let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-  return { png: btoa(s), res, hx, hy, iw: img.width, ih: img.height, cursorPng: m[1] };
+  const cb = new Uint8Array(await (await fetch(m[1])).arrayBuffer());
+  let cs = ''; for (let i = 0; i < cb.length; i += 0x8000) cs += String.fromCharCode(...cb.subarray(i, i + 0x8000));
+  return { png: btoa(s), res, hx, hy, iw: img.width, ih: img.height, cursorPng: btoa(cs) };
 }`;
 if (args.includes('--cursor')) {
   const btn = (type, p, held) => b.send('Input.dispatchMouseEvent', { type, x: p[0], y: p[1], button: 'left', buttons: held ? 1 : 0, clickCount: 1 });
@@ -172,7 +174,7 @@ if (args.includes('--cursor')) {
     writeFileSync(base + '-bare.png', bare);
     writeFileSync(base + '-css.png', Buffer.from(c.png, 'base64'));
     writeFileSync(base + '-css-html.png', Buffer.from(ch.png, 'base64'));
-    writeFileSync(base + '-cursor.png', Buffer.from(c.cursorPng.split(',')[1], 'base64'));
+    writeFileSync(base + '-cursor.png', Buffer.from(c.cursorPng, 'base64'));
     const r = held === 'click' ? {} : await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${c.png}', ${pw}, ${ph})`);
     if (r.heat) writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));
     delete r.heat;
@@ -181,6 +183,49 @@ if (args.includes('--cursor')) {
     console.log(pose, JSON.stringify({ identical: r.identical, within2: r.within2, max: r.max, px: r.px, same: report[pose].same, hot: [c.hx, c.hy], res: c.res }));
   }
   writeFileSync(path.join(out, `report-cursor@${dpr}x.json`), JSON.stringify(report, null, 1));
+  b.close(); process.exit(0);
+}
+// --anim [--at=x,y]: does the CSS cursor follow the game's cursor animation? The pointer parked (the hand's idle
+// animation), then a click (the ripple): every ~30 ms the game's cursor state (the sprites it draws) and the CSS
+// cursor, for 8 s + 2 s. Reports the states seen, whether each got its own CSS cursor and how many frames the CSS one
+// lagged; anim@<dpr>x.png: the distinct cursor images in order, anim@<dpr>x.json: the timeline.
+if (args.includes('--anim')) {
+  const [ax, ay] = (opt('at') || '690,272').split(',').map(Number), p = await toClient(ax, ay);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p[0], y: p[1] });
+  await sleep(1000);
+  const sample = ms => b.ev(`(async () => {
+    const out = [], t0 = performance.now();
+    while (performance.now() - t0 < ${ms}) {
+      const c = window.yo2Html.snapshot()?.cursor, st = c ? c.sprites.filter(q => q.shown && q.a > 0).map(q => q.tex.slice(q.tex.lastIndexOf('/') + 1) + '@' + (q.wx - c.mx) + ',' + (q.wy - c.my) + '/' + q.a.toFixed(2) + '/' + q.wsx.toFixed(2)).join(' ') : '';
+      out.push([Math.round(performance.now() - t0), st, window.yo2Html.cursorCss()]);
+      await new Promise(r => setTimeout(r, 30));
+    }
+    return out;
+  })()`);
+  const idle = await sample(8000);
+  await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p[0], y: p[1], button: 'left', buttons: 1, clickCount: 1 });
+  await sleep(60);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p[0], y: p[1], button: 'left', buttons: 0, clickCount: 1 });
+  const click = await sample(2000);
+  const tl = [...idle, ...click.map(([t, st, css]) => [t + 8060, st, css])];
+  // per state: the CSS value it settled on (its last); a sample lags when its CSS is not its state's own yet
+  const own = new Map(); for (const [, st, css] of tl) own.set(st, css);
+  const lag = tl.filter(([, st, css]) => css !== own.get(st)).length;
+  const states = [...new Set(tl.map(x => x[1]))], csss = [...new Set(tl.map(x => x[2]))];
+  const urls = csss.map(v => /url\("?([^")]+)"?\)/.exec(v || '')?.[1]).filter(Boolean);
+  const strip = await b.ev(`(async () => {
+    const im = await Promise.all(${JSON.stringify(urls)}.map(async u => createImageBitmap(await (await fetch(u)).blob())));
+    const W = Math.max(1, ...im.map(i => i.width)), H = Math.max(1, ...im.map(i => i.height)), c = new OffscreenCanvas(W * Math.max(1, im.length), H), g = c.getContext('2d');
+    g.fillStyle = '#4a90b8'; g.fillRect(0, 0, c.width, c.height); im.forEach((i, n) => g.drawImage(i, n * W, 0));
+    const buf = new Uint8Array(await (await c.convertToBlob()).arrayBuffer());
+    let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    return btoa(s);
+  })()`);
+  writeFileSync(path.join(out, `anim@${dpr}x.png`), Buffer.from(strip, 'base64'));
+  writeFileSync(path.join(out, `anim@${dpr}x.json`), JSON.stringify(tl.map(([t, st, css]) => [t, st, csss.indexOf(css)]), null, 0));
+  const changes = (k) => tl.filter((x, i) => i && x[k] !== tl[i - 1][k]).length;
+  console.log('anim', JSON.stringify({ samples: tl.length, states: states.length, cssValues: csss.length, stateChanges: changes(1), cssChanges: changes(2),
+    samplesLagging: lag, statesWithoutOwnCss: states.filter(st => !own.get(st)).length, idleStates: new Set(idle.map(x => x[1])).size, clickStates: new Set(click.map(x => x[1])).size }));
   b.close(); process.exit(0);
 }
 // --uicheck: nothing but the cursor changes with the CSS cursor on (the engine's hidden by its element, never by
