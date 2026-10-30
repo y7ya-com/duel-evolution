@@ -79,7 +79,7 @@ export function plan(win) {
       const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink: ctl.name === 'Title' ? 0xffffff : null } : { align: 0 };
       // a paged text field (the card detail's text: pageLines 9): the whole text, wrapped by words, in a native scroll
       // box (the owner's rules: words, not the engine's character wrap; native scrollers)
-      if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 0 && ctl.pageLines < 50 && box.w) {
+      if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 1 && ctl.pageLines < 50 && box.w) {
         const h = box.px * ctl.pageLines;
         add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w, h }, el => drawFlow(el, t, t.wx - ox, t.wy - oy, box.w, h, t.a ?? 1, box.px));
         continue;
@@ -630,14 +630,16 @@ export function searchPanel(root, apply) {
 function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink = null } = {}) {
   text.split('\n').forEach((line, li) => {
     const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : size;
-    const lw = rs.reduce((n, r) => r.x !== null ? r.x + textWidth(r.s, px(r)) : n + textWidth(r.s, px(r)), 0);
+    // a run's width as textBox sets it: Arial plus its letter spacing (controls/basic.js spacing: the game's widths)
+    const rw = r => textWidth(r.s, px(r)) + spacing(r.s, px(r)) * [...r.s].length;
+    const lw = rs.reduce((n, r) => r.x !== null ? r.x + rw(r) : n + rw(r), 0);
     let pen = align === 1 ? Math.floor((w - lw) / 2) : align === 2 ? w - lw : 0;
     for (const r of rs) {
       if (r.x !== null) pen = r.x;
       const rgb = ink !== null && r.rgb === TAG_RGB[0] ? ink : r.rgb, c = [rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255);
       const d = textBox(el, r.s, { x: x + pen, y: y + size * li, px: px(r), color: [...c, alpha], white: true });
       if (px(r) === 18) d.style.fontWeight = 'bold';
-      pen += textWidth(r.s, px(r));
+      pen += rw(r);
     }
   });
 }
