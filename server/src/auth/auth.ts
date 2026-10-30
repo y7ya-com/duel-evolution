@@ -168,11 +168,12 @@ export async function rolesOf(db: D1Database, userId: string): Promise<Role[]> {
   return results.map((r) => r.role);
 }
 
-export interface Verified { userId: string; roles: Role[] }
+export interface Verified { userId: string; roles: Role[]; /** the sign-in name as shown (username plugin), else the display name */ name: string }
 
 /** The signed-in DE user behind this request's session cookie, or null. */
 export async function verifySession(request: Request, env: AuthEnv): Promise<Verified | null> {
   const s = await makeAuth(env).api.getSession({ headers: request.headers }).catch(() => null);
   if (!s) return null;
-  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id) };
+  const u = s.user as { displayUsername?: string | null; username?: string | null; name: string };
+  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id), name: u.displayUsername || u.username || u.name };
 }
