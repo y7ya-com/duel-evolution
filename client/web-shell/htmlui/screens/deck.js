@@ -10,7 +10,7 @@
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
 import { textBox, textWidth, FONT, fontCss, spacing } from '../controls/basic.js';
-import { scrollList } from '../controls/scroll.js';
+import { scrollList, wheelTo as wheelAt } from '../controls/scroll.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -669,17 +669,14 @@ export function trunkScroller(root, api) {
   const list = scrollList(root, { x: 8, y: 88, w: 272, h: 11 * ROW_H, rowH: ROW_H });
   const st = { list, target: null, ctl: null, n: -1 };
   const canvas = () => document.getElementById('canvas');
-  // controls/scroll.js's wheelTo, aimed at the rows: the game scrolls the list only under its own mouse, so the notch
-  // goes where the player's pointer is (over the rows when they wheel there), else the rows' middle (game 872, 396:
-  // the pointer is on the scroll bar), a mousemove first. (api.wheel's control centre: the list's rect reads 0 x 0)
+  // the game scrolls the list only under its own mouse: controls/scroll.js's wheelTo at a game point (it moves the
+  // game's mouse there first): the player's pointer when it's over the rows (they wheel there), else the rows' middle
+  // (they're on the scroll bar)
   let last = null;
   const wheelTo = (ctl, i) => {
-    const c = canvas(), r = c?.getBoundingClientRect(), k = r ? r.width / 1024 : 1;
-    if (!r || ctl.top === i) return;
-    const g = last && [(last[0] - r.left) / k, (last[1] - r.top) / k];
-    const [x, y] = g && g[0] >= 744 && g[0] < 1000 && g[1] >= 88 && g[1] < 88 + 11 * ROW_H ? last : [r.left + 872 * k, r.top + 396 * k];
-    c.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
-    c.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: i > ctl.top ? 120 : -120, deltaMode: 0, clientX: x, clientY: y }));
+    const r = canvas()?.getBoundingClientRect(), k = r ? r.width / 1024 : 1;
+    const g = r && last && [(last[0] - r.left) / k, (last[1] - r.top) / k];
+    wheelAt(api, ctl, i, g && g[0] >= 744 && g[0] < 1000 && g[1] >= 88 && g[1] < 88 + 11 * ROW_H ? g : [872, 396]);
   };
   list.onTop = i => { st.target = i; if (st.ctl) wheelTo(st.ctl, i); };
   const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
