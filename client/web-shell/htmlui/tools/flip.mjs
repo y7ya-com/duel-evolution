@@ -95,6 +95,7 @@ for (const cls of route.flip) {
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
   await sleep(600);   // a few frames: the hide table applies from the next Present
   const html = await b.shot(clip);
+  writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false)`);
   const base = path.join(out, `${cls}@${dpr}x`);
   writeFileSync(base + '-engine.png', engine);

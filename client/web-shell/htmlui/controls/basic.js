@@ -44,13 +44,15 @@ export function textLines(c, areaW, dx = 0, dy = 0, F = fontOf(c)) {
   return all.map((s, i) => [s, dx + (c.align === 1 ? Math.floor((areaW - measure(s, F)) / 2) : c.align === 2 ? areaW - measure(s, F) : 0), dy + i * step]);
 }
 
-// ui.text() writes black glyph coverage; a coloured CTextElm gets its RGB written in, its alpha as opacity. Each line
-// also gets its real text in a transparent span at the same place.
-export function tinted(parent, lines, color = [0, 0, 0, 1], font) {
+// ui.text() writes black glyph coverage, as the game's glyph texture holds it; a CTextElm's colour MULTIPLIES those
+// texels, so black glyphs stay black whatever the colour (CWindowTaskText's default is white) and only its alpha shows.
+// white: the glyphs are white (a ShadowText set up for tinting, src/Result/yo2ResultWindow.cpp): the colour shows.
+// Each line also gets its real text in a transparent span at the same place.
+export function tinted(parent, lines, color = [0, 0, 0, 1], font, white = false) {
   lines = lines.filter(l => l[0]);
   if (!lines.length) return null;
   const cv = text(parent, lines, '', font);
-  const [r, g, b, a] = color;
+  const [r, g, b, a] = white ? color : [0, 0, 0, color[3] ?? 1];
   if (r || g || b) {
     const x = cv.getContext('2d'), img = x.getImageData(0, 0, cv.width, cv.height), d = img.data;
     for (let i = 0; i < d.length; i += 4) { d[i] = r * 255; d[i + 1] = g * 255; d[i + 2] = b * 255; }
@@ -128,6 +130,7 @@ const BUTTON = {
 };
 const R = {
   CWindowTaskFrameBottomThick: {
+    ownAlpha: true,   // its pieces carry the frame's 0.7 (the control's alpha is the same 0.7)
     sig: c => [c.w, c.h, c.band, c.style].join(),
     draw(c) {
       const e = box('div', c);
@@ -224,6 +227,7 @@ export function renderControl(c, el, api, opts) {
 export function syncWindow(root, win, st, api) {
   const seen = new Set();
   for (const c of win.controls) {
+    if (c.parent) continue;   // a part of another control (a caption, a field's plane or bar): its parent draws it
     const r = rendererOf(c.cls);
     if (!r) continue;
     seen.add(c.id);
@@ -238,7 +242,7 @@ export function syncWindow(root, win, st, api) {
     const s = n.el.style;
     s.left = c.x + 'px'; s.top = c.y + 'px';
     s.visibility = c.shown ? '' : 'hidden';
-    s.opacity = c.alpha === 1 ? '' : c.alpha;
+    s.opacity = c.alpha === 1 || r.ownAlpha ? '' : c.alpha;
     r.state?.(n.el, c);
   }
   for (const [id, n] of st) if (!seen.has(id)) { n.el.remove(); st.delete(id); }
