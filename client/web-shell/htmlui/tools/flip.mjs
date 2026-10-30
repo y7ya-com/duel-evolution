@@ -42,7 +42,7 @@ const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
-const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = 8942;
+const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || 8942);   // GAME_PORT: beside another session's run
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
@@ -59,7 +59,9 @@ kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ..
 await sleep(500);
 
 const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }) });
-await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/` : `http://127.0.0.1:${GAME}/?HTML_UI=0`, 'window.yo2Html && Module.yo2Presents > 30');
+if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
+const q = args.includes('--nocursor') ? 'HTML_CURSOR=0' : '';   // --nocursor: the engine's cursor
+await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
