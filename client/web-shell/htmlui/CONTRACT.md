@@ -31,7 +31,7 @@ Window = {
   alpha,                   // 0..1 (fade-ins)
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
-  controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
+  controls: [Control],     // back to front as the engine draws them (world z, then z_); nested controls (a listbox's scroll bar) are listed too, with parent set
   extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough();
                            // a CSpriteElm also has its Sprite fields (below)
 }
