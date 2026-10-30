@@ -4,7 +4,7 @@ import { registerHooks } from 'node:module';
 // web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there)
 registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
   ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
-const { runs, plan, clip, union, passthrough, artName, quickMove, DROP_DECK, DROP_TRUNK } = await import('./deck.js');
+const { runs, plan, clip, union, passthrough, artName, quickMove, DROP_DECK, DROP_TRUNK, flowLines } = await import('./deck.js');
 
 // AtConverter: @digit colours, @@ a literal @, @>N/ moves the pen (and survives a colour tag right after it)
 assert.deepEqual(runs('@942'), [{ s: '42', rgb: 0xffffff, x: null }]);
@@ -55,4 +55,18 @@ assert.deepEqual(quickMove([kaban, deckw], 765, 100), { press: [765, 100], drop:
 assert.deepEqual(quickMove([kaban, deckw], 300, 120), { press: [300, 120], drop: DROP_TRUNK, card: 2, fusion: false });
 assert.deepEqual(quickMove([kaban, deckw], 270, 120).card, 1);
 assert.equal(quickMove([kaban, deckw], 600, 500), null);
+// the card detail, monster -> spell -> monster: each plan comes from that snapshot alone (the power text "4 ATK..." is
+// the engine's CTextElm, hidden for a spell); the text field is one word-wrapped block, never broken mid-word
+const detail = (power, text) => ({ id: 70, cls: 'CCardDetailViewDlg', x: 0, y: 175, w: 248, h: 559, extras: [],
+  labels: [{ id: 71, text: power, wx: 60, wy: 712, wz: 51613, shown: !!power }], controls: [
+    ctl(72, 'CWindowTaskText', { labels: [{ id: 73, text, wx: 8, wy: 497, wz: 51205, shown: true }] },
+      { text, w: 216, fontSize: 16, pageLines: 9, firstLine: 0, align: 0 })] });
+const items = w => plan(w).items.map(i => i.id);
+const mon = '@4Mystic Tomato\n@3[Plant/Effect/DARK]\n@0When this card is destroyed by battle and sent to the Graveyard, you can Special Summon 1 DARK monster.';
+assert.deepEqual(items(detail(' 4 ATK1400/DEF1100', mon)), [73, 71]);
+assert.deepEqual(items(detail('', '@4Enemy Controller\n@0Activate 1 of these effects.')), [73]);   // no stale stats
+assert.deepEqual(items(detail(' 4 ATK2300/DEF   0', mon)), [73, 71]);
+assert.equal(plan(detail('', mon)).items.length, 1);   // one text item: the whole field, not one per wrapped line
+assert.deepEqual(flowLines(mon).map(l => l.map(r => r.s).join('')),
+  ['Mystic Tomato', '[Plant/Effect/DARK]', 'When this card is destroyed by battle and sent to the Graveyard, you can Special Summon 1 DARK monster.']);
 console.log('deck_test ok');
