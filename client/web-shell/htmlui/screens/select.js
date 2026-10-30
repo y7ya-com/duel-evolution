@@ -2,7 +2,7 @@
 // way the engine draws them (ui.js: the game's own atlases, sampled as the game samples them, and its glyphs).
 // Pass mode: the game takes the input; hover / pressed come back in each control's snapshot.
 // The controls here (FrameBottomThick, TextField, TextSwitch, Text) are generic: htmlui-bridge promotes them to controls/.
-import { SHEET, WINDOW_ALPHA, sprite, nine, text, measure } from '../../../html-ui/ui.js';
+import { SHEET, WINDOW_ALPHA, sprite, nine, text, measure } from '../../ui.js';   // web-shell/ui.js: client/html-ui/ui.js as served and shipped
 
 const LH = 16;   // the 16-pixel font's line (CWindowTaskText fontSize; lineGap is added per control)
 
@@ -101,8 +101,7 @@ const R = {
       e.setAttribute('aria-label', c.label || '');
       Object.assign(e.style, { margin: 0, padding: 0, border: 0, background: 'none', font: 'inherit' });
       e.tiles = nine(e, SHEET.button, 0, 0, 0, 0, c.w, c.h);
-      // ponytail: the snapshot has no caption align yet (asked htmlui-bridge); onInit sets LEFT on the four rows only
-      const off = Math.floor((c.h - LH) / 2), al = c.align ?? (c.name === 'プレイヤ選択ボタン' ? 0 : 1);
+      const off = Math.floor((c.h - LH) / 2), al = c.align ?? 1;
       if (c.label) text(e, [[c.label, al === 0 ? 4 : al === 2 ? c.w - 4 - measure(c.label) : Math.floor((c.w - measure(c.label)) / 2), off]]);
       return e;
     },
@@ -145,7 +144,7 @@ function sync(root, win, st) {
 export default {
   classes: ['CWindowPlayerSelect'],
   mode: 'pass',
-  passthrough: c => c.name.startsWith('ＷＵアバター'),   // the waist-up avatar stays engine-drawn
+  passthrough: c => c.cls === 'CWaistUpAvatar',   // the waist-up avatar (window.extras) stays engine-drawn
   mount(win, root, api) {
     const st = new Map();
     sync(root, win, st);

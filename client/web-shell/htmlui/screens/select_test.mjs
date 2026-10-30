@@ -1,8 +1,13 @@
 // node client/web-shell/htmlui/screens/select_test.mjs: Select Player's layout rules (no DOM, no game data).
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-// the browser modules are ES modules in .js files: say so whatever package.json sits above the checkout
-registerHooks({ load: (url, ctx, next) => ({ ...next(url, ctx), ...(url.endsWith('.js') && { format: 'module' }) }) });
+// web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship put it there); it is an ES module whatever
+// package.json sits above the checkout
+const UI = new URL('../../../html-ui/ui.js', import.meta.url).href;
+registerHooks({
+  resolve: (spec, ctx, next) => spec === '../../ui.js' ? { url: UI, shortCircuit: true } : next(spec, ctx),
+  load: (url, ctx, next) => ({ ...next(url, ctx), ...(url === UI && { format: 'module' }) }),
+});
 const { bottomThickPieces, switchColumn, textLines } = await import('./select.js');
 
 // 480 x 272, band 208 (CWindowPlayerSelect::onInit): 14 pieces tiling the window edge to edge, nothing over the header
