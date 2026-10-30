@@ -35,8 +35,8 @@ export function runs(text) {
   return out;
 }
 
-// card faces: the thumbnails (data/MINI, deck and trunk) and the big ones (data/CARD, trade and TP)
-const isArt = e => /^data[\\/](mini|card)[\\/]/i.test(e?.tex || '');
+// card faces: the thumbnails (data/MINI, deck and trunk), the big ones (data/CARD, trade and TP), pack art (the shop)
+const isArt = e => /^data[\\/](mini|card|cardpack)[\\/]/i.test(e?.tex || '');
 const isSwf = e => !e.cls && !('tex' in e) && !('text' in e);   // a Swf part: { id, name, x, y, z, wx, wy, shown }
 // What the engine keeps drawing under the DOM: card faces and swf buttons, plus (co-drawn) whatever this module also
 // draws under them, so a hole shows exactly the engine's pixels (the DOM can't put a layer between two engine ones).
@@ -80,6 +80,7 @@ export function plan(win) {
     return rs;
   };
   tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, null);
+  if (win.parts) tree(win.parts, null);   // a task (the shop's) has its own raw children
   for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
