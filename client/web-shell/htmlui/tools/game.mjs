@@ -101,4 +101,6 @@ srv.on('upgrade', (req, sock, head) => {
   up.on('error', end); sock.on('error', end);
 });
 srv.on('error', e => { console.error(`game.mjs: ${e.code === 'EADDRINUSE' ? `127.0.0.1:${PORT} is taken (another flip running?)` : e.message}`); process.exit(1); });
+// its flip died without stopping it (a SIGKILL): this server goes too (an orphan's parent is launchd, pid 1)
+setInterval(() => { if (process.ppid === 1) process.exit(0); }, 2000).unref();
 srv.listen(PORT, '127.0.0.1', () => console.log('htmlui game on', PORT, '->', SERVER.origin));

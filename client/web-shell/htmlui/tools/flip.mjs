@@ -31,6 +31,8 @@ export const ROUTES = {
   // past Select Player (--uicheck): the character picker (Create Player on the empty row 1), My Room (the test
   // character's row: into the game)
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
+  // the starter-deck picker (starter.js; shipped pages only, --ship): a character that never claimed one, into My Room
+  starter: { player: 'Starter Tester', deck: 0, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 20000]], flip: [] },
   myroom: { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 15000]], flip: [] },
   // the game cursor poses (--cursor), game px: [name, x, y, held]. Empty slots: no click lands on a character
   select: { cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
@@ -74,10 +76,11 @@ const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || 
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => process.exit(1));   // so the line above runs
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : [])],
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : []), ...(route.deck != null ? ['--deck', String(route.deck)] : [])],
     { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...(SLOT != null && { FLIP_SLOT: String(SLOT) }) } });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
@@ -91,8 +94,25 @@ await sleep(500);
 const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }) });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 const q = args.includes('--nocursor') ? 'HTML_CURSOR=0' : '';   // --nocursor: the engine's cursor
-await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
+// --ui=A,B: those classes in HTML from the first frame (?HTML_UI=), not only after the route as --on does
+await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=${opt('ui') || '0'}&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
+// --watch: every animation frame, is an HTML window visible while a scene loads or the loader's box is up? (the owner:
+// the chat came up before the place had loaded). Printed at the end as the bad samples' count and the first few.
+if (args.includes('--watch')) await b.ev(`(() => {
+  window.__watch = { n: 0, bad: [] };
+  let switching = false;
+  Module.onYo2Scene = (kind, from, to) => { switching = kind === 'begin'; };
+  const tick = () => {
+    const host = document.getElementById('htmlui-host'), ld = document.getElementById('loading');
+    const loading = switching || (ld && ld.style.display !== 'none');
+    const shown = host && !host.hidden ? [...host.querySelectorAll('.win')].filter(w => w.style.visibility !== 'hidden').length : 0;
+    window.__watch.n++;
+    if (loading && shown && window.__watch.bad.length < 20) window.__watch.bad.push([Math.round(performance.now()), switching, ld?.style.display, shown]);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})()`);
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
   writeFileSync(path.join(out, 'stuck.png'), await b.shot());
@@ -127,6 +147,7 @@ await b.ev('performance.setResourceTimingBufferSize(5000)');   // the boot's 250
 for (const c of (opt('on') || '').split(',').filter(Boolean)) await b.ev(`window.yo2Html.toggle(${JSON.stringify(c)}, true)`);
 // what the page fetched at a URL ending in /undefined (a name never set), with what asked for it; printed on exit
 const undefinedFetches = () => b.ev(`performance.getEntriesByType('resource').filter(e => /\\/undefined($|[?#])/.test(e.name)).map(e => e.initiatorType + ' ' + e.name)`);
+if (args.includes('--watch')) { const w = await b.ev('window.__watch'); console.log('watch:', JSON.stringify({ frames: w.n, bad: w.bad.length, first: w.bad.slice(0, 5) })); }
 await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
@@ -273,6 +294,14 @@ if (args.includes('--anim')) {
   };
   const click = await clickAndSample(), click2 = await clickAndSample();   // the second: every state already built
   const tl = [...idle, ...click.map(([t, st, css]) => [t + 8060, st, css]), ...click2.map(([t, st, css]) => [t + 10120, st, css])];
+  // a third click, captured every ~50 ms around the click point (the ripple is DOM, so a capture shows it; the OS
+  // cursor never shows headless): ripple@<dpr>x-<n>.png
+  {
+    const [cx, cy] = p, clip = { x: cx - 48, y: cy - 48, width: 96, height: 96 };
+    await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', buttons: 1, clickCount: 1 });
+    await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', buttons: 0, clickCount: 1 });
+    for (let n = 0; n < 10; n++) { writeFileSync(path.join(out, `ripple@${dpr}x-${n}.png`), await b.shot(clip)); await sleep(40); }
+  }
   // per state: the CSS value it settled on (its last); a sample lags when its CSS is not its state's own yet
   const own = new Map(); for (const [, st, css] of tl) own.set(st, css);   // by the end every state has its own
   const lagging = part => part.filter(([, st, css]) => css !== own.get(st)).length;

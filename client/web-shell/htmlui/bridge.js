@@ -8,7 +8,7 @@
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
-import { cursorCss } from './cursor.js';
+import { cursorCss, ripple } from './cursor.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -91,7 +91,9 @@ export async function makeLayer(host, screens, art = 'ui/') {
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
-      const json = JSON.stringify(w.controls);
+      // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
+      // extension's fields change with no control changing
+      const json = JSON.stringify(w);
       if (json === e.json) continue;
       e.json = json;
       const a = e.api ||= { ...api, owned: mod?.mode === 'owned' };
@@ -182,17 +184,47 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   })().catch(e => console.warn('htmlui', e));
   // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
   // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
+  // the click ripple (cursor.js ripple()): the game's sprites at its positions, in a layer over everything, so the CSS
+  // cursor holds the hand only and never swaps image during a click
+  const fx = document.createElement('div');
+  Object.assign(fx.style, { position: 'fixed', left: 0, top: 0, width: '1024px', height: '768px', transformOrigin: '0 0',
+    pointerEvents: 'none', zIndex: 2147483646 });
+  document.body.append(fx);
+  const fxEls = [];
+  const drawRipple = ss => {
+    while (fxEls.length > ss.length) fxEls.pop().remove();
+    ss.forEach((s, i) => {
+      let e = fxEls[i];
+      if (!e) {
+        e = fxEls[i] = document.createElement('div');
+        Object.assign(e.style, { position: 'absolute', overflow: 'hidden' });
+        e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '' }));
+        Object.assign(e.firstChild.style, { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', maxWidth: 'none' });
+        fx.append(e);
+      }
+      const [sx, sy, sw, sh] = s.src, src = 'ui/' + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
+      Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
+      if (e.firstChild.getAttribute('src') !== src) e.firstChild.src = src;
+      e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
+    });
+  };
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    if (host) Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
   place();
 
   let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null, curHid = false;
-  Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
+  // a scene load: from its "begin" to the first frame the engine presents after its "end" (lazyfs.js / loader.js:
+  // assigning adds a listener)
+  let switching = false, endFrame = 0;
+  Module.onYo2Scene = (kind, from, to) => {
+    scene = to; switching = kind === 'begin';
+    if (switching) { if (host) host.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
+  };
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
   // controls' onMain, and drops a press that comes in the same frame as the move). Keys, characters and text: queued
@@ -283,6 +315,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (css === undefined) css = cursorNow;   // a state still building: the last cursor stays (the engine's, if none yet)
     if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
     curHid = css !== null;
+    drawRipple(curHid ? ripple(snap.cursor) : []);   // the engine draws it with the rest of the cursor otherwise
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
     // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
     const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
@@ -290,6 +323,13 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
+    // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
+    // stays hidden through a scene load and while the loader's box (#loading: the boot, a scene's "Loading...") is up,
+    // and shows with the first frame the engine presents after the scene's end, as its own windows would
+    if (host) {
+      const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+      if (host.hidden !== wait) host.hidden = wait;
+    }
     render?.(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];

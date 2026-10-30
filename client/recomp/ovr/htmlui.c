@@ -27,6 +27,7 @@
 #endif
 
 void o_0060f9e0(CPU *restrict c);
+void o_005932f0(CPU *restrict c);
 
 enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 1024 };
 enum { Q_DISPATCH = 1, Q_SETTEXT = 2 };
@@ -74,16 +75,25 @@ static int suppressed(const uint8_t *m, uint32_t el) {
     return 0;
 }
 
-// 0x0060f9e0 CElement::onMain, thiscall, returns true
-void f_0060f9e0(CPU *restrict c) {
+// an onMain whose draw an HTML window replaces: run it with hiddenByParent_ (+0xc6) set for the call (its matrix still
+// updates, nothing is queued), the flag restored after
+static void onMainHidden(CPU *restrict c, void (*orig)(CPU *restrict)) {
     RC_LOCALS;
     uint32_t el = c->ecx;
-    if (!tab.nhide || !suppressed(m, el)) { o_0060f9e0(c); return; }
+    if (!tab.nhide || !suppressed(m, el)) { orig(c); return; }
     uint8_t h = RD8(el + 0xc6);
     WR8(el + 0xc6, 1);
-    o_0060f9e0(c);
+    orig(c);
     WR8(el + 0xc6, h);
 }
+
+// 0x0060f9e0 CElement::onMain, thiscall, returns true
+void f_0060f9e0(CPU *restrict c) { onMainHidden(c, o_0060f9e0); }
+
+// 0x005932f0 CDupSprite::onMain (src/System/CDupSprite.cpp): queues its own tiles and never reaches CElement::onMain,
+// but checks isVisible(false) (disp_ and not hiddenByParent_) first. The 9-slices built on windowDupCreate draw this
+// way (CWindowTaskPictureFrame: the place banner's plate, BalloonFrame): hidden with their HTML window (htmlui-select)
+void f_005932f0(CPU *restrict c) { onMainHidden(c, o_005932f0); }
 
 static void play(CPU *c) {
     RC_LOCALS;
