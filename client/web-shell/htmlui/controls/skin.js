@@ -13,19 +13,29 @@
 //    #329be5 after #4db9f7 / #46b1f2, all at the window's alpha 178/255; the body #84f4ff (solved from two engine pixels over a known backdrop); a
 //    bottom-thick frame (the Main Menu's) has an opaque #e5e5e5 band above its bottom bevel
 // States: the game's (data-state = the snapshot's hover / pressed / disabled, pass mode) or the pointer's (:hover /
-// :active, owned mode). The game's own hover and pressed looks are not sampled yet: ponytail: brighter / sunk until a
-// live capture of them.
+// :active, owned mode). The menu button's are sampled (MBTN); the close box's are still a brighter / darker filter
+// (ponytail: until a live capture of them).
 import { FONT, spacing } from './basic.js';
 
 const OUTLINE = '#4a4a4a';   // the shadow text's edge: thin, four ways (eight read bold next to the engine's)
 const outlined = `text-shadow: 1px 0 ${OUTLINE}, -1px 0 ${OUTLINE}, 0 1px ${OUTLINE}, 0 -1px ${OUTLINE}`;
-const BTN_V = `linear-gradient(to bottom, #f1b780 0.5px, #ffffc8 1.5px, #fff97f 2.5px, #f9e45f 3.5px, #f4d558 4.5px,
-  #f4d558 calc(100% - 3.5px), #f3d054 calc(100% - 2.5px), #f0be45 calc(100% - 1.5px), #eca430 calc(100% - 0.5px))`;
-const BTN_H = `linear-gradient(to right, #f1b757 0.5px, #ffff95 1.5px, #fff673 2.5px, #f9e15d 3.5px, transparent 4.5px,
-  transparent calc(100% - 3.5px), #f3d357 calc(100% - 2.5px), #f2cc51 calc(100% - 1.5px), #f0bd45 calc(100% - 0.5px))`;
-// pressed: the bevel turned over (dark lip on top, light at the bottom)
-const BTN_V_DOWN = `linear-gradient(to bottom, #eca430 0.5px, #f0be45 1.5px, #f3d054 2.5px, #f4d558 3.5px,
-  #f4d558 calc(100% - 4.5px), #f9e45f calc(100% - 3.5px), #fff97f calc(100% - 2.5px), #ffffc8 calc(100% - 1.5px), #f1b780 calc(100% - 0.5px))`;
+// The menu button's looks (main_btn_01_c01's columns 0 normal, 1 hover, 2 pressed; hover and pressed sampled by
+// htmlui-select live): rows from the top edge in, the body, rows to the bottom edge, columns from the left edge in,
+// columns to the right edge, the border (top right bottom left)
+const MBTN = {
+  normal: { top: ['#f1b780', '#ffffc8', '#fff97f', '#f9e45f'], body: '#f4d558', bottom: ['#f3d054', '#f0be45', '#eca430'],
+    left: ['#f1b757', '#ffff95', '#fff673', '#f9e15d'], right: ['#f3d357', '#f2cc51', '#f0bd45'], border: '#e36f08 #e99223 #e68317 #e36f08' },
+  hover: { top: ['#fffec8', '#ffffff', '#ffffe2', '#fcf4b8'], body: '#faeaac', bottom: ['#f9e4a4', '#f6d086', '#f2b55e'],
+    left: ['#fffec8', '#ffffff', '#ffffdf', '#fcf4b6'], right: ['#fae8aa', '#f8e09e', '#f6d086'], border: '#fffe92' },
+  pressed: { top: ['#fada68', '#f8c550', '#fce473', '#fef98c'], body: '#ffff93', bottom: ['#ffff9e', '#ffffd2', '#fffffe'],
+    left: ['#fceb7c', '#fce272', '#fef487', '#fffe91'], right: ['#ffff9b', '#ffffbf', '#ffffed'], border: '#fffe92' },
+};
+// one look as the button's border-color and background: a hard stop per pixel row and column
+const mbtnLook = ({ top, body, bottom, left, right, border }) => {
+  const edge = (dir, near, mid, far) => `linear-gradient(to ${dir}, ${near.map((c, i) => `${c} ${i + 0.5}px`).join(', ')},
+    ${mid} ${near.length + 0.5}px, ${mid} calc(100% - ${far.length + 0.5}px), ${far.map((c, j) => `${c} calc(100% - ${far.length - j - 0.5}px)`).join(', ')})`;
+  return `border-color: ${border}; background: ${edge('right', left, 'transparent', right)}, ${edge('bottom', top, body, bottom)};`;
+};
 
 // The chat's pieces (htmlui-chat), from the atlas texels (data/common/window/*):
 //  - icon bar (iconbar_01_c01, 24 high, 70 %): rows 0..18 the middle column's gradient #fff (rows 0..2) #beffff
@@ -70,10 +80,10 @@ export function plateLook(el, look) { inject(); el.classList.add('yo2-plate'); e
 // built on first use: basic.js imports this file and this file reads basic.js's FONT, so nothing runs at load
 const skinCss = () => `
 .yo2-mbtn { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 1px solid; border-radius: 3px;
-  border-color: #e36f08 #e99223 #e68317 #e36f08; background: ${BTN_H}, ${BTN_V}; color: #fff; ${outlined};
+  ${mbtnLook(MBTN.normal)} color: #fff; ${outlined};
   font: 14.32px/22px ${FONT}; text-align: center; white-space: nowrap; overflow: hidden; cursor: inherit; }
-.yo2-mbtn[data-state=hover], .yo2-mbtn:not([data-state]):hover { filter: brightness(1.07) saturate(1.05); }
-.yo2-mbtn[data-state=pressed], .yo2-mbtn:not([data-state]):active { background: ${BTN_V_DOWN}; }
+.yo2-mbtn[data-state=hover], .yo2-mbtn:not([data-state]):hover { ${mbtnLook(MBTN.hover)} }
+.yo2-mbtn[data-state=pressed], .yo2-mbtn:not([data-state]):active { ${mbtnLook(MBTN.pressed)} }
 .yo2-mbtn[data-state=pressed] > span, .yo2-mbtn:not([data-state]):active > span { position: relative; top: 1px; }
 .yo2-mbtn[data-state=disabled], .yo2-mbtn:disabled { filter: grayscale(0.8) brightness(0.92); color: #e8e8e8; }
 .yo2-title { position: absolute; box-sizing: border-box; height: 22px; color: #fff; ${outlined};
