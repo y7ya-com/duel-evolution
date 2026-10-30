@@ -8,5 +8,6 @@ falls in, instead of everything when emit.py changes)."""
 # ponytail: until the loader is rewritten with wake-ups (phase1-yanesdk)
 IMM_HOOKS = {0x59c8ed: ("0x80u", "rc_texloaders"), 0x59f3a0: ("0x80u", "rc_texloaders"),
              0x6deebc: ("0x2u", "rc_first_scene"),   # the patcher's next scene: the title, not the KONAMI logo
-             0x7fa658: ("0x5u", "rc_online_scene()")}  # ONLINE's next scene: the login, not the rules page (rt/debrand.cpp);
+             0x7fa658: ("0x5u", "rc_online_scene()"),  # ONLINE's next scene: the login, not the rules page (rt/debrand.cpp);
                                                         # the call also tells rt/session.cpp that ONLINE was pressed
+             0x82e753: ("0x2u", "rc_room_min_lv"), 0x82e75f: ("0x1u", "rc_room_hidden_kind")}   # ovr/allrooms.c

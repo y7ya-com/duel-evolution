@@ -46,8 +46,10 @@ i = s.find('<script id="pick">'); assert i > 0 and '<script src="stage' not in s
 # the picker's script names (and its endsWith("/yo2rc.js") check) -> the hashed ones
 for n in ('yo2rc-ios', 'yo2rc-async', 'yo2rc'):
     assert f'{n}.js"' in s, n; s = s.replace(f'{n}.js"', f'{names[n]}"')
-# user-facing name only: no build or engine names in the tab title
-s, n = re.subn(r'<title>[^<]*</title>', '<title>Duel Evolution</title>\n<meta name="description" content="Duel Evolution: the online card-dueling game, in your browser.">', s, count=1)
+# user-facing name only: no build or engine names in the tab title. The title, description, canonical and share tags
+# are index.html's (its <!-- seo --> block), so both pages say the same to search engines and link previews
+seo = re.search(r'<!-- seo.*?<!-- /seo -->\n', open(f'{shell}/index.html').read(), re.S).group(0)
+s, n = re.subn(r'<title>[^<]*</title>\n', lambda m: seo, s, count=1)
 assert n == 1
 # the build id for crash reports (shell.html's /__crash payload)
 s = s.replace('</title>', '</title>\n<meta name="yo2-build" content="%s">' % os.environ['BUILDID'], 1)
@@ -56,6 +58,8 @@ PY
 echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
 cat $O/BUILD.txt
 cp $C/web-shell/index.html $O/
+# for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
+cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
 # the picker's art: html-ui's clamp atlases and glyphs (Konami-derived: from infra/fetch-private.sh, never in git)
 UI="clamp/window_base_01_c01.png clamp/window_base_01_c01.rgb.png clamp/swich_01_c00.png clamp/swich_01_c00.rgb.png
   clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json"
@@ -84,4 +88,4 @@ if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   echo "hashed files live and checked"
 fi
 # the page last: yo2rc.html names the hashed files; index.html is what lets new browsers (phones) in
-up BUILD.txt yo2rc.html index.html
+up BUILD.txt robots.txt sitemap.txt yo2rc.html index.html

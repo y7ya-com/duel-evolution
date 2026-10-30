@@ -1,10 +1,34 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Duel Evolution</title>
-<meta name="description" content="Duel Evolution: the online card-dueling game, in your browser.">
+<!-- seo: infra/ship-client.sh copies this block into yo2rc.html (served on both hosts; the apex is canonical) -->
+<title>Duel Evolution — Yu-Gi-Oh! Online 2 revived, free in your browser</title>
+<meta name="description" content="Duel Evolution is a free fan revival of Yu-Gi-Oh! Online: Duel Evolution (Yu-Gi-Oh! Online 2, 2007–2012). Duel players and NPCs in your browser, no download.">
+<link rel="canonical" href="https://ygoevolution.com/">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1a3a6e">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Duel Evolution">
+<meta property="og:title" content="Duel Evolution — Yu-Gi-Oh! Online 2 revived">
+<meta property="og:description" content="A free fan revival of Yu-Gi-Oh! Online: Duel Evolution (Yu-Gi-Oh! Online 2) in your browser. Duel players and NPCs, build decks, explore. No download.">
+<meta property="og:url" content="https://ygoevolution.com/">
+<meta property="og:image" content="https://ygoevolution.com/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Duel Evolution — Yu-Gi-Oh! Online 2 revived">
+<meta name="twitter:description" content="A free fan revival of Yu-Gi-Oh! Online 2 in your browser. No download.">
+<meta name="twitter:image" content="https://ygoevolution.com/og.jpg">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoGame","name":"Duel Evolution","alternateName":["Yu-Gi-Oh! Online: Duel Evolution","Yu-Gi-Oh! Online 2"],"url":"https://ygoevolution.com/",
+"description":"A free fan revival of Yu-Gi-Oh! Online: Duel Evolution (Yu-Gi-Oh! Online 2, 2007–2012), the online card-dueling game, in the browser. Duel other players and NPCs, build decks and explore the world.",
+"image":"https://ygoevolution.com/og.jpg","genre":["Card game","MMO"],"gamePlatform":"Web browser","playMode":["MultiPlayer","SinglePlayer"],
+"applicationCategory":"Game","operatingSystem":"Web browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
+<!-- /seo -->
 <style>html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 15px system-ui, sans-serif; }
-  p { position: fixed; inset: 0; margin: auto; height: 4em; padding: 0 16px; text-align: center; }</style>
+  .play main { display: none; } main { max-width: 640px; margin: 0 auto; padding: 24px 16px; line-height: 1.5; }
+  #msg { max-width: 640px; margin: 24px auto 0; padding: 0 16px; text-align: center; color: #fff; }</style>
 <p id="msg" hidden></p>
 <script>
   // The site root: the game client (yo2rc.html, the recompiled exe). Same-origin updater HTTP (/yo2/, /app/ -> the game server),
@@ -33,6 +57,24 @@
     q.delete("game"); q.delete("cards"); q.set("fonts", "fonts/");
     q.set("server", "127.0.0.1");
     set("YO2_PORT_OFFSET", "1000");
+    document.documentElement.className = "play";
     location.replace("yo2rc.html?" + q);
   }
 </script>
+<main>
+<h1>Duel Evolution</h1>
+<p>Duel Evolution is a free online card-dueling game that runs in your browser. It revives Yu-Gi-Oh! Online: Duel Evolution, also known as Yu-Gi-Oh! Online 2 (2007–2012): the same world, the same duels, with nothing to download or install.</p>
+<h2>How to play</h2>
+<p>Open the page, sign in, and pick a starter deck. Walk through the world, step into a lobby, and challenge other players or the computer-controlled duelists you meet.</p>
+<h2>Features</h2>
+<ul>
+<li>Real-time duels against other players</li>
+<li>Duels against NPC opponents</li>
+<li>A deck editor to build and tune your decks</li>
+<li>Free Duel mode for quick duels</li>
+<li>Lobbies and chat with other duelists</li>
+<li>Plays on desktop, tablet and phone, in Chrome, Edge, Firefox and Safari</li>
+</ul>
+<p>Duel Evolution is a fan revival. It is not official and is not affiliated with or endorsed by Konami.</p>
+<noscript><p>Duel Evolution needs JavaScript: turn it on to play.</p></noscript>
+</main>

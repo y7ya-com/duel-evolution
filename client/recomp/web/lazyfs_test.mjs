@@ -96,7 +96,7 @@ function makeEnv(store, ls, opts = {}) {
     const Module = {}, ENV = {};
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
-        performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
+        performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
         IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
@@ -484,6 +484,17 @@ console.log("prefetch=0: ok");
         assert.equal(syncXhr, before, "the load reads them without a synchronous request");
         L.soundsLoaded();
         assert.ok(![...L.pinned.values()].some((p) => p.tag === "se"), "unpinned after the load");
+        // a slow link: the wait lasts while chunks come in, and gives up 30 s after the last one (here 5's fetch fails)
+        let t = 0;
+        const w = makeEnv(new Map(), new Map(), { now: () => t }), W = w.Module.yo2Lazy;
+        await w.ready();
+        w.read("/game/Sound.dat", 0, 12 + 3 * 268);
+        fetchFaults.push((r) => r.startsWith(`bytes=${5 * MB}-`));
+        assert.equal(W.sounds(), 0);
+        await settle(W);
+        t = 29000, assert.equal(W.sounds(), 0, "3 and 4 came in");
+        t = 50000, assert.equal(W.sounds(), 0, "50 s since the ask, 21 since the last chunk: still waiting");
+        t = 60000, assert.equal(W.sounds(), 1, "31 s without a chunk: the game reads them");
         const off = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
         await off.ready();
         assert.equal(off.Module.yo2Lazy.sounds(), 1, "prefetch=0: the game reads them as it asks");
