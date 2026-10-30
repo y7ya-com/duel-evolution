@@ -42,7 +42,19 @@ D = os.path.join(R.OUT, f"htmlui-{PORT}")
 
 
 def main():
+    # every child (the d1 / r2 wrangler calls, the bridge) in this process group, killed with it on the way out, however
+    # it ends (wrangler dev has its own session: stopped by `finally`); an orphan (its flip died) stops itself
+    os.setpgrp()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # flip.mjs stops us: let `finally` stop wrangler too
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+    import atexit, threading
+    atexit.register(lambda: os.killpg(os.getpgrp(), signal.SIGKILL))
+    parent = os.getppid()
+    def watch():
+        while os.getppid() == parent:
+            time.sleep(2)
+        os.kill(os.getpid(), signal.SIGTERM)
+    threading.Thread(target=watch, daemon=True).start()
     with socket.socket() as s:
         if s.connect_ex(("127.0.0.1", PORT)) == 0:
             sys.exit(f"stack.py: 127.0.0.1:{PORT} is taken (a stale wrangler dev?)")
