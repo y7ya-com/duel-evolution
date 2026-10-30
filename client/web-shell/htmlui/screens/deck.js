@@ -50,6 +50,8 @@ const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && 
 // a swf's size isn't readable (CSwfEngine's player isn't decompiled): the hole is a generous box, which is exact as
 // long as everything under it is co-drawn
 const SWF_BOX = 32;
+// the swfs whose size is known from their art: the trunk's count box (kabancnt_0..2: 72 x 21) holds the count text
+const SWF_SIZE = { KabanCountBtn: [72, 21] };
 
 // The drawing list of one window: items [{ z, rect (screen), id, draw(el) }] and holes [{ z, rect }], back to front,
 // and `co`: the ids of the items under a hole (passed through as well). Every control is drawn from its parts (the
@@ -79,7 +81,10 @@ export function plan(win) {
       add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * text.split('\n').length },
         el => drawLabel(el, text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
-    for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? 0, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
+    for (const f of P.swfs || []) {
+      const [w, h] = SWF_SIZE[f.name] || [SWF_BOX, SWF_BOX];
+      if (f.shown) hole(f.wz ?? 0, { x: f.wx, y: f.wy, w, h });
+    }
     return rs;
   };
   tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, null);
