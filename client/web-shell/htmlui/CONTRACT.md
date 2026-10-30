@@ -78,7 +78,8 @@ window (the shop's plates: a CEasyTask), grouped by that owner. Not drawn by the
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
 snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
-alpha name at spr label swf textCtl rectF rectI children). Its fields are merged over the base ones (a control class
+alpha name at spr label swf textCtl rectF rectI children generic; `h.generic(c)` is the base family's fields, to
+extend: `CWindowTaskDeckScroll: c => ({ ...h.generic(c), maxLine: h.i32(c + 0x4c8) })`). Its fields are merged over the base ones (a control class
 it lists replaces the generic family). Cite every offset to the src/ header that pins it. Tests beside it
 (read/<group>_test.mjs, using read_test.mjs's synthetic image style).
 

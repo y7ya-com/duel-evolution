@@ -122,7 +122,8 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     CWindowTaskFramePlace: 'CWindowTaskPictureFrame', CWindowTaskDueldiskRearrengeFrame: 'CWindowTaskPictureFrame',
   };
   const h = { u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, alpha, name, at, spr, label, swf,
-    textCtl, rectF, rectI, children: t => list(t + 0x0c) };
+    textCtl, rectF, rectI, children: t => list(t + 0x0c),
+    generic: c => { const k = cls(c), f = F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]); return f ? f(c) : {}; } };
   const exts = EXT.map(e => e(h)), XC = Object.assign({}, ...exts.map(e => e.controls)),
     XW = Object.assign({}, ...exts.map(e => e.windows));
   const fam = k => XC[k] || F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]);
