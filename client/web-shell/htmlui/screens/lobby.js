@@ -151,32 +151,15 @@ function menuBar(win, root, st) {
 }
 
 const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar };
-// Each window's own frame-like control, whose snapshot x / y are its element's local position: its world position
-// less them is where the window really draws. The content is drawn in a box shifted from the window's snapshot place
-// to there, so a window placed from a control whose x is not its element's (a ShadowText's x is its text's offset,
-// its wx the container's: the banner went to x -20 / -150 live) still lines up with the game.
-const ANCHOR = { CMainMenu: 'CWindowTaskFrameMain', CWindowModelPlace: 'CWindowTaskFramePlace', CWindowModelMenu: 'CWindowTaskMenubar' };
-function shift(win, st) {
-  const a = win.controls.find(c => c.cls === ANCHOR[win.cls] && c.wz > 0);
-  const dx = a ? a.wx - a.x - win.x : 0, dy = a ? a.wy - a.y - win.y : 0, t = dx || dy ? `translate(${dx}px, ${dy}px)` : '';
-  if (st.box.style.transform !== t) st.box.style.transform = t;
-}
-
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
-  mount: (win, root) => {
-    inject();
-    const box = Object.assign(document.createElement('div'), { className: 'layer' });   // .layer: absolute at 0, 0
-    root.append(box);
-    return { box };
-  },
+  mount: () => { inject(); return {}; },
   update(win, prev, root, api, st) {
     st.win = win;
-    shift(win, st);
-    if (win.cls === 'CWindowModelMenu' && !icons) { loadIcons().then(() => menuBar(st.win, st.box, st)); return; }
-    DRAW[win.cls](win, st.box, st);
+    if (win.cls === 'CWindowModelMenu' && !icons) { loadIcons().then(() => menuBar(st.win, root, st)); return; }
+    DRAW[win.cls](win, root, st);
   },
   unmount(root) { root.replaceChildren(); },
 };
