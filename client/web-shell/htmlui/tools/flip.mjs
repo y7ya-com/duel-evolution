@@ -95,10 +95,19 @@ if (boot) {   // the shipped page through the route: what it shows and what the 
   const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
   // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
   const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
+  // the bridge's own cost per frame (the whole Module.onYo2Frame: read, cursor, tables), over 3 s
+  const frameMs = await b.ev(`(async () => {
+    const f = Module.onYo2Frame, ts = [];
+    Module.onYo2Frame = (a, h) => { const t = performance.now(); f(a, h); ts.push(performance.now() - t); };
+    await new Promise(r => setTimeout(r, 3000));
+    Module.onYo2Frame = f;
+    ts.sort((a, b) => a - b);
+    return { n: ts.length, median: +ts[ts.length >> 1]?.toFixed(3), p99: +ts[Math.floor(ts.length * 0.99)]?.toFixed(3), max: +ts[ts.length - 1]?.toFixed(3) };
+  })()`);
   const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
   const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
-  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, errors }, null, 1));
-  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, cursor: cursor.slice(0, 24), errors: errors.length }));
+  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
+  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), errors: errors.length }));
   b.close(); process.exit(0);
 }
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
@@ -203,14 +212,17 @@ if (args.includes('--anim')) {
     return out;
   })()`);
   const idle = await sample(8000);
-  await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p[0], y: p[1], button: 'left', buttons: 1, clickCount: 1 });
-  await sleep(60);
-  await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p[0], y: p[1], button: 'left', buttons: 0, clickCount: 1 });
-  const click = await sample(2000);
-  const tl = [...idle, ...click.map(([t, st, css]) => [t + 8060, st, css])];
+  const clickAndSample = async () => {
+    await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p[0], y: p[1], button: 'left', buttons: 1, clickCount: 1 });
+    await sleep(60);
+    await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p[0], y: p[1], button: 'left', buttons: 0, clickCount: 1 });
+    return sample(2000);
+  };
+  const click = await clickAndSample(), click2 = await clickAndSample();   // the second: every state already built
+  const tl = [...idle, ...click.map(([t, st, css]) => [t + 8060, st, css]), ...click2.map(([t, st, css]) => [t + 10120, st, css])];
   // per state: the CSS value it settled on (its last); a sample lags when its CSS is not its state's own yet
-  const own = new Map(); for (const [, st, css] of tl) own.set(st, css);
-  const lag = tl.filter(([, st, css]) => css !== own.get(st)).length;
+  const own = new Map(); for (const [, st, css] of tl) own.set(st, css);   // by the end every state has its own
+  const lagging = part => part.filter(([, st, css]) => css !== own.get(st)).length;
   const states = [...new Set(tl.map(x => x[1]))], csss = [...new Set(tl.map(x => x[2]))];
   const urls = csss.map(v => /url\("?([^")]+)"?\)/.exec(v || '')?.[1]).filter(Boolean);
   const strip = await b.ev(`(async () => {
@@ -225,7 +237,7 @@ if (args.includes('--anim')) {
   writeFileSync(path.join(out, `anim@${dpr}x.json`), JSON.stringify(tl.map(([t, st, css]) => [t, st, csss.indexOf(css)]), null, 0));
   const changes = (k) => tl.filter((x, i) => i && x[k] !== tl[i - 1][k]).length;
   console.log('anim', JSON.stringify({ samples: tl.length, states: states.length, cssValues: csss.length, stateChanges: changes(1), cssChanges: changes(2),
-    samplesLagging: lag, statesWithoutOwnCss: states.filter(st => !own.get(st)).length, idleStates: new Set(idle.map(x => x[1])).size, clickStates: new Set(click.map(x => x[1])).size }));
+    lagging1stClick: lagging(click), lagging2ndClick: lagging(click2), clickSamples: click.length, statesWithoutOwnCss: states.filter(st => !own.get(st)).length, idleStates: new Set(idle.map(x => x[1])).size, clickStates: new Set(click.map(x => x[1])).size }));
   b.close(); process.exit(0);
 }
 // --uicheck: nothing but the cursor changes with the CSS cursor on (the engine's hidden by its element, never by
