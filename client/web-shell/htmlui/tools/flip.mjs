@@ -48,6 +48,14 @@ export const ROUTES = {
     // the pointer on a tab, on the log, on the input line, then a tab held
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
+  // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
+  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
+    ['friends', 656, 'CWindowModelFriendlist'], ['teams', 682, 'CWindowModelTeamlist']].map(([n, y, cls]) =>
+    [n, { player: 'Social Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+      ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['wait', 4000]], flip: [cls] }])),
+  // My Room as Social Tester (the bottom bar, the chat line)
+  'myroom-social': { player: 'Social Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000]], flip: [] },
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
@@ -168,6 +176,7 @@ if (boot) {   // the shipped page through the route: what it shows and what the 
   const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
   const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
   writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
+  if (args.includes('--dump')) writeFileSync(path.join(out, `snapshot-${tag}.json`), JSON.stringify(s, null, 1));   // --dump: the whole snapshot
   console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), moving, errors: errors.length }));
   b.close(); process.exit(0);
 }
