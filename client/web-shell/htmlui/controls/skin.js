@@ -27,6 +27,25 @@ const BTN_H = `linear-gradient(to right, #f1b757 0.5px, #ffff95 1.5px, #fff673 2
 const BTN_V_DOWN = `linear-gradient(to bottom, #eca430 0.5px, #f0be45 1.5px, #f3d054 2.5px, #f4d558 3.5px,
   #f4d558 calc(100% - 4.5px), #f9e45f calc(100% - 3.5px), #fff97f calc(100% - 2.5px), #ffffc8 calc(100% - 1.5px), #f1b780 calc(100% - 0.5px))`;
 
+// The chat's pieces (htmlui-chat), from the atlas texels (data/common/window/*):
+//  - icon bar (iconbar_01_c01, 24 high, 70 %): rows 0..18 the middle column's gradient #fff (rows 0..2) #beffff
+//    #86d9ff #80d3ff > #226cff, a lighter left edge (3 px #daffff > #2d8fff) under a 5-px rounded corner, a darker right
+//    edge (4 px #a6ffff #7dd7f6 #69c5ef > #195def); row 19 #0132d3; rows 20..23 the frame's top (#59c6ff, its side
+//    bevels: 3 #76ffff 1 #68e8ff on the left, 1 #4db9f7 3 #41abef on the right)
+//  - plane (window_base_01_c01's middle tile, 70 %): #fff
+const A70 = (178 / 255).toFixed(3);
+const CHAT_CSS = `
+.yo2-bar { position: absolute; height: 24px; opacity: ${A70};
+  background:
+    linear-gradient(to right, #76ffff 3px, #68e8ff 3px 4px, transparent 4px calc(100% - 4px), #4db9f7 calc(100% - 4px) calc(100% - 3px), #41abef calc(100% - 3px)) 0 20px / 100% 4px no-repeat,
+    linear-gradient(#59c6ff, #59c6ff) 0 20px / 100% 4px no-repeat,
+    linear-gradient(#0132d3, #0132d3) 0 19px / 100% 1px no-repeat,
+    linear-gradient(to bottom, #daffff 5.5px, #a9ffff 6.5px, #8ffaff 8.5px, #2d8fff 18.5px) 0 0 / 3px 19px no-repeat,
+    linear-gradient(to bottom, #a6ffff 0.5px, #7dd7f6 1.5px, #69c5ef 2.5px, #66c1ef 3.5px, #195def 18.5px) 100% 0 / 4px 19px no-repeat,
+    linear-gradient(to bottom, #fff 2.5px, #beffff 3.5px, #86d9ff 4.5px, #80d3ff 5.5px, #226cff 18.5px) 0 0 / 100% 19px no-repeat;
+  border-top-left-radius: 5px 5px; }
+.yo2-plane { position: absolute; background: #fff; opacity: ${A70}; }`;
+
 export const SKIN_CSS = `
 .yo2-mbtn { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 1px solid; border-radius: 3px;
   border-color: #e36f08 #e99223 #e68317 #e36f08; background: ${BTN_H}, ${BTN_V}; color: #fff; ${outlined};
@@ -55,7 +74,8 @@ export const SKIN_CSS = `
     inset 0 -3px 0 #329be5, inset 4px 0 0 #68e8ff, inset 0 4px 0 #79ffff, inset -4px 0 0 #4db9f7, inset 0 -4px 0 #46b1f2,
     inset 7px 0 0 #59c6ff, inset 0 7px 0 #59c6ff, inset -7px 0 0 #59c6ff, inset 0 -7px 0 #59c6ff; }
 .yo2-panel { isolation: isolate; }
-.yo2-band { position: absolute; left: 7px; right: 7px; bottom: 7px; background: #e5e5e5; }`;
+.yo2-band { position: absolute; left: 7px; right: 7px; bottom: 7px; background: #e5e5e5; }
+${CHAT_CSS}`;
 
 function inject() {
   if (document.getElementById('htmlui-skin')) return;
@@ -114,3 +134,7 @@ export function panel(parent, { x = 0, y = 0, w, h, band = 0 } = {}) {
   parent.append(p);
   return p;
 }
+
+// the icon bar along a window's top (CWindowTaskIconbar) and a window's back plane (BackPlane)
+const piece = cls => (parent, r) => { inject(); const d = document.createElement('div'); d.className = cls; place(d, r); parent.append(d); return d; };
+export const iconbar = piece('yo2-bar'), plane = piece('yo2-plane');

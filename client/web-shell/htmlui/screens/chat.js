@@ -2,12 +2,14 @@
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
 // shown on the duel screen only; the server's channel-9 lines land in its list), so nothing here knows tab names.
 // - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
-//   log (real DOM text, selectable here) and the input's field, this file's for the rest (until controls/ has them).
+//   log (real DOM text, selectable here) and the input's field; controls/skin.js (CSS) for the bar and back plane;
+//   the game's bitmaps for the frame, tabs, icons and scroll bar.
 // - Input: tabs and the taller / shorter icons are real <button>s (the art inside, the label text) that click the
 //   game's control; the input line is a real, visible <input> (typing, IME, paste, selection, copy) that commits
 //   through the control's setText, Enter as the game's own WM_CHAR '\r'; the wheel and the scroll bar scroll the log.
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
+const skin = ui && await import('../controls/skin.js');
 
 const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
 
@@ -17,16 +19,15 @@ export function scrollDir(bar, y) {
   return y < top ? -1 : y >= top + bar.thumb.len ? 1 : 0;
 }
 
-// --- The chat's controls, drawn as the game draws them (src/System/window/yo2WindowControls.cpp); not in controls/
-// yet (htmlui-bridge promotes them). Their atlases join ui.js's sheets, so the bridge's loadGlyphs (which runs after
-// the screens are imported) loads them with the rest. ponytail: a page that loaded the glyphs before importing this
-// gets no art for these (the warning says so).
-const ART = { iconbar: ['iconbar_01_c01.png', 72, 24], tab: ['tab_01_c01.png', 64, 24], icon: ['icon_01_c01.png', 48, 96],
-  scroll: ['scroll_01_c00.png', 64, 120] };
-if (ui) for (const [k, [f, w, h]] of Object.entries(ART)) ui.SHEET[k] ??= { url: 'assets/' + f, w, h };
+// --- The chat's controls. The bar (a stretched gradient) and the back plane (flat) are CSS (controls/skin.js, the
+// owner's Skin rule); the frame (a 9-slice), the tabs (plates), the icons and the scroll bar are the game's bitmaps (src/System/window/yo2WindowControls.cpp), their atlases joining
+// ui.js's sheets so the bridge's loadGlyphs loads them. ponytail: a page that loaded the glyphs before importing this
+// gets no icons (the warning says so).
+const ART = { tab: ['tab_01_c01.png', 64, 24], icon: ['icon_01_c01.png', 48, 96], scroll: ['scroll_01_c00.png', 64, 120] };
 const A70 = 178 / 255;   // setAlpha(0.7f): the frames' vertex alpha
-const ICON = { IconShow: [0, 'Show'], IconHide: [24, 'Shorter'], IconExpand: [48, 'Taller'], IconShrink: [72, 'Shrink'] };   // rows in icon_01_c01
 const TAB_TEXT = [[0.2, 0.2, 1, 1], [0.5, 0.5, 0.5, 1]];   // CWindowTaskTab::setLook: current, not (on black glyphs)
+if (ui) for (const [k, [f, w, h]] of Object.entries(ART)) ui.SHEET[k] ??= { url: 'assets/' + f, w, h };
+const ICON = { IconShow: [0, 'Show'], IconHide: [24, 'Shorter'], IconExpand: [48, 'Taller'], IconShrink: [72, 'Shrink'] };   // rows in icon_01_c01
 
 // a real <button> over the control's rect that clicks it in the game (the owner's rule: its art inside, its label text)
 function button(el, c, api, label) {
@@ -42,13 +43,8 @@ function button(el, c, api, label) {
 }
 
 const DRAW = {
-  // three pieces of iconbar_01_c01 (lit at u 0, dimmed at 48), 70 %
-  Iconbar(el, c) {
-    const S = ui.SHEET.iconbar, u = c.active === false ? 48 : 0;
-    ui.sprite(el, S, u, 0, 8, 24, c.x, c.y, 8, 24, A70);
-    ui.sprite(el, S, u + 8, 0, 8, 24, c.x + 8, c.y, c.w - 16, 24, A70);
-    ui.sprite(el, S, u + 16, 0, 8, 24, c.x + c.w - 8, c.y, 8, 24, A70);
-  },
+  Iconbar: (el, c) => skin.iconbar(el, c),
+  BackPlane: (el, c) => skin.plane(el, c),
   // the frame without its top edge: sides, bottom corners and bottom edge of window_base_01_c01, 70 %
   ThinChop(el, c) {
     const S = ui.SHEET.window, { x, y, w, h } = c;
@@ -58,8 +54,6 @@ const DRAW = {
     ui.sprite(el, S, 8, 16, 8, 8, x + 8, y + h - 8, w - 16, 8, A70);
     ui.sprite(el, S, 16, 16, 8, 8, x + w - 8, y + h - 8, 8, 8, A70);
   },
-  // the frame's middle piece over the whole rect, 70 %
-  BackPlane(el, c) { ui.sprite(el, ui.SHEET.window, 8, 8, 8, 8, c.x, c.y, c.w, c.h, A70); },
   // left 16, middle stretched, right 8 of tab_01_c01 (current at u 0, others at 32); the caption at (16, 4)
   Tab(el, c, api) {
     const S = ui.SHEET.tab, u = c.active ? 0 : 32, b = button(el, c, api, c.label || 'Tab');
@@ -92,8 +86,8 @@ function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
   if (!DRAW[fam] && !ICON[fam]) return api.renderControl(c, el);
-  const sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] || (ICON[fam] ? 'icon' : 'window');
-  if (!ui.SHEET[sheet].alpha) {   // its atlas never loaded
+  const sheet = fam === 'Scroll' ? 'scroll' : fam === 'Tab' ? 'tab' : ICON[fam] ? 'icon' : null;
+  if (sheet && !ui.SHEET[sheet].alpha) {   // its atlas never loaded
     if (!warned.has(sheet)) { warned.add(sheet); console.warn('htmlui chat: no art for', sheet); }
     return;
   }
