@@ -137,7 +137,8 @@ export function button(parent, x, y, w, label, onClick, h = 24, show = true) {
   const upd = () => set(down && over ? 2 : over || focus ? 1 : 0);
   b.addEventListener('pointerenter', () => { over = true; upd(); });
   b.addEventListener('pointerleave', () => { over = false; upd(); });
-  b.addEventListener('pointerdown', e => { down = true; b.setPointerCapture(e.pointerId); upd(); });
+  // preventDefault: no compat mouse events, whose focus would land on a node the click just replaced
+  b.addEventListener('pointerdown', e => { e.preventDefault(); down = true; b.setPointerCapture(e.pointerId); upd(); });
   b.addEventListener('pointerup', e => {
     const hit = document.elementsFromPoint(e.clientX, e.clientY).includes(b);
     down = false; over = hit; upd();
