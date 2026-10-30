@@ -194,8 +194,10 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     const r = rectF(w, 0x380);
     // where the window really is: a drawn, unparked top-level control's world position less its local one (the deck
     // scene's chat says y 608 but draws at 712: its rect is stale), else the rect
+    // (local: the element's own pos_ +0x70 / +0x74, which worldPos_ is relative to; not a family's x / y: a ShadowText's
+    // are its text's offset, 20 or 150, while its world position is the container's: the banner moved off-screen)
     const o = byWin.get(w).find(c => !c.parent && c.shown && c.wz > 0 && Math.max(c.x, c.y, c.wx, c.wy) < 9999);
-    if (o) r.x = o.wx - o.x, r.y = o.wy - o.y;
+    if (o) r.x = o.wx - f32(o.id + 0x70), r.y = o.wy - f32(o.id + 0x74);
     if (r.w > 0 && r.h > 0) return r;
     const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.w > 0 && c.h > 0), f = cs.find(c => /Frame/.test(c.cls));
     if (f) return { ...r, w: f.x + f.w, h: f.y + f.h };

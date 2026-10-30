@@ -89,47 +89,89 @@ export function windowFrame(parent, x, y, w, h, headerH) {
   return f;
 }
 
-// Text: one glyph texture per text object (256x256, rows of 16), cells drawn 1:1 at the screen pen.
-// lines: [[string, x, y], ...] sharing one texture, as the game's multi-line text does. font: a loadFont() result
-// (default the 16-pixel glyphs); its height is the cell's.
-export function text(parent, lines, cls = '', font = G) {
-  const TW = 256, TH = 256, tex = new Uint8Array(TW * TH), cells = [], F = font, H = F.height;
-  let pen = 0, row = 0;
-  for (const [s, x, y] of lines) {
-    let dx = x;
-    for (const ch of s) {
-      const g = glyph(ch, F), adv = g.adv + 1;
-      if (pen + adv > TW) { row += H; pen = 0; }
-      if (g.w) {   // the whole black box is written (zeros too), flat addressing like the locked texture
-        const base = (F.ascent + g.y0 + row) * TW + g.x0 + pen;
-        for (let gy = 0; gy < g.h; gy++)
-          for (let gx = 0; gx < g.w; gx++) {
-            const i = base + gy * TW + gx;
-            if (i >= 0 && i < tex.length) tex[i] = Math.floor(g.lv[gy * g.w + gx] * 251 / 64);
-          }
-      }
-      cells.push([pen, row, adv, dx, y]);
-      pen += adv; dx += adv;
-    }
-  }
-  const x0 = Math.min(...lines.map(l => l[1])), y0 = Math.min(...lines.map(l => l[2]));
-  const x1 = Math.max(x0 + 1, ...cells.map(c => c[3] + c[2])), y1 = Math.max(...lines.map(l => l[2])) + H;
-  const c = document.createElement('canvas');
-  c.className = 'tx ' + cls;
-  c.width = x1 - x0; c.height = y1 - y0;
-  Object.assign(c.style, { left: x0 + 'px', top: y0 + 'px' });
-  const img = new ImageData(c.width, c.height);
-  for (const [px, py, adv, dx, dy] of cells)
-    for (let yy = 0; yy < H; yy++)
-      for (let xx = 0; xx < adv; xx++)
-        img.data[((dy - y0 + yy) * c.width + dx - x0 + xx) * 4 + 3] = py + yy < TH ? tex[(py + yy) * TW + px + xx] : 0;
-  c.getContext('2d').putImageData(img, 0, 0);   // black (0,0,0,a): premultiplied storage is lossless
-  parent.append(c);
-  return c;
+
+// ---- Text, the owner's rule: real DOM text in Arial, spaced like the game. The game asks GDI for "Arial" with
+// lfHeight 16 (CreateFontIndirectA, logged in the native build): a 16-pixel cell, which is Arial's winAscent +
+// winDescent = 1.117 em, so 14.3 px Arial on 16-pixel lines (the baseline lands where GDI's does). Metric-compatible
+// fallbacks where Arial is missing.
+export const FONT = 'Arial, "Liberation Sans", Arimo, Helvetica, sans-serif';
+const LH = 16;
+export const fontCss = (px = LH, line = px) => `${+(px / 1.117).toFixed(2)}px/${line}px ${FONT}`;
+let measurer;   // made on first use: importing this file needs no DOM (node tests)
+export const textWidth = (s, px = LH) => {
+  measurer ||= document.createElement('canvas').getContext('2d');
+  measurer.font = fontCss(px);
+  return measurer.measureText(s).width;
+};
+// Letter spacing (owner: Arial, spaced like the game): the engine puts every glyph in a cell round(advance) + 1 wide
+// (CD3DTextTexture cellIncX + 1; the web engine's glyphs are DejaVu Sans, measure() from its glyph table), so a
+// line is wider than Arial sets it. Each text gets (engine width - Arial width) / characters: its lines come out as
+// wide as the game's, in Arial. Other sizes than the 16-pixel table scale it. 1 px (the cell's +1) when the table
+// isn't loaded (node tests).
+export function spacing(s, px = LH) {
+  const lines = String(s).split('\n'), n = lines.reduce((k, l) => k + [...l].length, 0);
+  if (!n) return 0;
+  try {
+    const eng = lines.reduce((k, l) => k + measure(l), 0) * px / LH, ar = lines.reduce((k, l) => k + textWidth(l, px), 0);
+    return Math.round((eng - ar) / n * 100) / 100;
+  } catch { return 1; }
 }
 
-// The game's push button (swich_01_c00: 24x24 9-slice per state; 0 normal, 1 hover, 2 pressed) with a centred label;
-// taller than 24, the middle row stretches. Focusable: Enter/Space press it, focus shows the hover tiles.
+// a text's spacing set on its element, taken back after the last letter (centred and right-aligned text sits as the game's)
+export const spaced = (el, s, px = LH) => { const ls = spacing(s, px); Object.assign(el.style, { letterSpacing: ls + 'px', marginRight: -ls + 'px' }); };
+
+// The 2008 button plate (CWindowTaskSwitch's swich_01_c00.png, one 24 x 24 9-slice per look), sampled texel for texel:
+// a 1 px border, two rows at the top and two at the bottom, two columns each side, the body, and a lighter stripe
+// every 4 rows (from row 5, or 6 for pressed and checked). In CSS (hard-stop gradients) it is sharp at any DPR, where
+// the bitmap's stretched 8-px slices went soft. Looks (switchColumn): 0 normal, 1 hover, 2 pressed, 3 checked,
+// 4 checked + hover. [border, top1, top2, body, stripe, first stripe row, bottom1, bottom2, left1, left2, right1, right2]
+const PLATE = [
+  ['#011434', '#fefdfc', '#f8f4ef', '#f4efe7', '#faf7f3', 5, '#f1ede7', '#c6bba7', '#f7f4ef', '#f6f2eb', '#e9e2d7', '#d3c9b9'],
+  ['#011434', '#ffe8b1', '#ffe9c3', '#ffffff', '#ffffef', 5, '#fff1d0', '#ffb85b', '#ffeac6', '#fff3df', '#ffeed7', '#ffcc89'],
+  ['#011434', '#838383', '#d4d4d4', '#c0c0c0', '#e0e0e0', 6, '#d0d0d0', '#f0f0f0', '#949494', '#b1b1b1', '#c8c8c8', '#cfcfcf'],
+  ['#011434', '#afae64', '#f0efc0', '#fffe92', '#ffffc9', 6, '#fffead', '#ffffe5', '#c6c571', '#eceb87', '#fffea1', '#fffeac'],
+  ['#ffa92e', '#afae64', '#f0efc0', '#fffe92', '#ffffc9', 6, '#fffead', '#ffffe5', '#c6c571', '#eceb87', '#fffea1', '#fffeac'],
+];
+// :is(#htmlui-host, body): an id's weight (the bridge resets #htmlui-host button.btn's border and background), and
+// still a match outside the host (skin.html)
+const plateCss = ([bd, t1, t2, body, st, row, b1, b2, l1, l2, r1, r2], i) => `:is(#htmlui-host, body) .yo2-plate[data-look="${i}"] { border: 1px solid ${bd};
+  background: linear-gradient(to right, ${l1} 0 1px, ${l2} 1px 2px, transparent 2px calc(100% - 2px), ${r1} calc(100% - 2px) calc(100% - 1px), ${r2} calc(100% - 1px)),
+    linear-gradient(to bottom, ${t1} 0 1px, ${t2} 1px 2px, transparent 2px calc(100% - 2px), ${b1} calc(100% - 2px) calc(100% - 1px), ${b2} calc(100% - 1px)),
+    repeating-linear-gradient(to bottom, transparent 0 3px, ${st} 3px 4px) 0 ${row - 4}px / 100% calc(100% - 4px) no-repeat, ${body}; }`;
+// a plate behind a control's caption: the element gets the class and data-look (the switch column); its CSS goes into
+// the page once
+export function plateLook(el, look) {
+  if (!document.getElementById('ui-plate-css')) {
+    const st = document.createElement('style');
+    st.id = 'ui-plate-css';
+    st.textContent = `:is(#htmlui-host, body) .yo2-plate { box-sizing: border-box; border: 1px solid; }\n${PLATE.map(plateCss).join('\n')}`;
+    document.head.append(st);
+  }
+  el.classList.add('yo2-plate');
+  el.dataset.look = look;
+}
+
+// Text: lines [[string, x, y], ...] of real DOM text (Arial, spaced so each line is as wide as the game's glyph cells,
+// which measure() gives: layouts built on measure() keep their places). font: a loadFont() result for another size
+// (its height is the line's), default the 16-pixel one. One block positioned at the lines' top left.
+export function text(parent, lines, cls = '', font = G) {
+  const H = font?.height ?? LH, x0 = Math.min(...lines.map(l => l[1])), y0 = Math.min(...lines.map(l => l[2]));
+  const box = document.createElement('div');
+  box.className = 'tx ' + cls;
+  Object.assign(box.style, { left: x0 + 'px', top: y0 + 'px' });
+  for (const [s, x, y] of lines) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    Object.assign(d.style, { position: 'absolute', left: x - x0 + 'px', top: y - y0 + 'px', font: fontCss(H), color: '#000', whiteSpace: 'pre' });
+    spaced(d, s, H);
+    box.append(d);
+  }
+  parent.append(box);
+  return box;
+}
+
+// The game's push button (swich_01_c00's looks: 0 normal, 1 hover, 2 pressed, as a CSS plate) with a centred Arial
+// label. Focusable: Enter/Space press it, focus shows the hover tiles.
 // show = false: no label drawn (the caller fills the button), the label is still its accessible name.
 export function button(parent, x, y, w, label, onClick, h = 24, show = true) {
   const b = document.createElement('div');
@@ -139,9 +181,9 @@ export function button(parent, x, y, w, label, onClick, h = 24, show = true) {
   b.setAttribute('aria-label', label);
   Object.assign(b.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
   parent.append(b);
-  const tiles = nine(b, SHEET.button, 0, 0, 0, 0, w, h);
-  if (show) text(b, [[label, Math.floor((w - measure(label)) / 2), (h - 16) / 2]]);
-  const set = st => tiles.forEach((t, i) => t.src(st * 24 + (i % 3) * 8, Math.floor(i / 3) * 8));
+  plateLook(b, 0);   // the plate in CSS (sharp at any DPR), its looks the swich_01 columns
+  if (show) text(b, [[label, Math.floor((w - measure(label)) / 2) - 1, (h - 16) / 2 - 1]]);   // -1: inside the plate's border
+  const set = st => { b.dataset.look = st; };
   let over = false, down = false, focus = false;
   const upd = () => set(down && over ? 2 : over || focus ? 1 : 0);
   b.addEventListener('pointerenter', () => { over = true; upd(); });

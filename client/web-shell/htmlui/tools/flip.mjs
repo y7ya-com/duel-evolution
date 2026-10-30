@@ -31,6 +31,8 @@ export const ROUTES = {
   // past Select Player (--uicheck): the character picker (Create Player on the empty row 1), My Room (the test
   // character's row: into the game)
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
+  // the starter-deck picker (starter.js; shipped pages only, --ship): a character that never claimed one, into My Room
+  starter: { player: 'Starter Tester', deck: 0, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 20000]], flip: [] },
   myroom: { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 15000]], flip: [] },
   // the game cursor poses (--cursor), game px: [name, x, y, held]. Empty slots: no click lands on a character
   select: { cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
@@ -88,7 +90,7 @@ process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : [])],
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : []), ...(route.deck != null ? ['--deck', String(route.deck)] : [])],
     { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...(SLOT != null && { FLIP_SLOT: String(SLOT) }) } });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });

@@ -89,6 +89,8 @@ def make_player(cookie):
         names = X.account(0, create_name=PLAYER)
         if names.get(0) != PLAYER:
             sys.exit(f"stack.py: --player: no character made ({names})")
+        if not DECK:   # --deck 0: no starter claimed (the starter picker opens for this character in My Room)
+            return
         # the starter deck is claimed in game (the API answers 409 otherwise): into a room first, as predeploy does
         if X.enter_room() is None:
             sys.exit("stack.py: --player: could not enter a room")
