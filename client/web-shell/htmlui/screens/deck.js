@@ -121,19 +121,12 @@ function sheet(tex, redraw) {
       const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u;
     });
     const j = tex.includes('?') ? name.replace(/_e\.png$/, '_j.png') : null;
-    img(base() + 'clamp/' + name).catch(e => { if (!j) throw e; s.url = base() + j; return img(base() + 'clamp/' + j); }).then(async m => {
+    img(base() + 'clamp/' + name).catch(e => { if (!j) throw e; s.url = base() + j; return img(base() + 'clamp/' + j); }).then(m => {
       const c = new OffscreenCanvas(m.width, m.height).getContext('2d', { willReadFrequently: true });
       c.drawImage(m, 0, 0);
       const d = c.getImageData(0, 0, m.width, m.height).data, alpha = new Uint8Array(d.length / 4);
       for (let i = 0; i < alpha.length; i++) alpha[i] = d[4 * i + 3];
-      let px = null;   // CSS art: straight RGBA texels (the colour of transparent texels from the .rgb copy)
-      if (CSS_ART.test(name)) {
-        c.clearRect(0, 0, m.width, m.height);
-        c.drawImage(await img(s.url.replace(/[^/]*$/, 'clamp/') + s.url.split('/').pop().replace('.png', '.rgb.png')), 0, 0);
-        px = c.getImageData(0, 0, m.width, m.height).data;
-        for (let i = 0; i < alpha.length; i++) px[4 * i + 3] = alpha[i];
-      }
-      Object.assign(s, { w: m.width - 1, h: m.height - 1, ready: true, alpha, px });
+      Object.assign(s, { w: m.width - 1, h: m.height - 1, ready: true, alpha });
       const ids = [...s.waiting];
       s.waiting.clear();
       ids.forEach(id => draw(id, live.get(id)?.api));
@@ -150,54 +143,12 @@ function drawSprite(el, s, x, y) {
   const sh = sheet(s.tex, redrawing);
   if (!sh) return;
   const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];   // a: the alpha it's drawn with (inherited), else its own
-  const e = (sh.px ? cssSprite : ui.sprite)(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), s.a ?? rgba[3]);
+  const e = ui.sprite(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), s.a ?? rgba[3]);
   const c = s.col || rgba;   // vertex colour as drawn (inherited: a back plane's 0.63 grey), else its own
   if (c[0] !== 1 || c[1] !== 1 || c[2] !== 1)   // the trunk dims a row's art to 0.5 grey
     e.style.filter = c[0] === c[1] && c[1] === c[2] ? `brightness(${c[0]})` : '';
 }
-// The owner's style rule: frame, bar, tab and button-bevel art is CSS, not a bitmap: gradients through the cell's own
-// texels (sampled colours), stops at the texel centres where the GPU's bilinear filter puts them (ui.sprite's mapping:
-// clamp texel u + t at (t - 0.5) k + 0.5, D3D's half pixel), so it is the engine's blend and crisp at any DPR. A cell
-// whose rows (or columns) are all one colour is one gradient; a corner is a gradient per texel row, each masked by its
-// bilinear tent and summed (plus-lighter). Pictures (icons, card art, art with baked text) stay ui.sprite bitmaps.
-export const CSS_ART = /^(window_base|deck_carddai|deckbar|decktab|iconbar|swich)_/;
-export function cssSprite(parent, sh, u, v, sw, shh, x, y, w, h, alpha = 1) {
-  const W = sh.w + 1, px = sh.px, kx = w / sw, ky = h / shh;
-  const at = (i, j) => 4 * (j * W + i);
-  const rgb = (i, j) => { const o = at(i, j); return `rgb(${px[o]} ${px[o + 1]} ${px[o + 2]})`; };
-  const a = (i, j) => `rgb(0 0 0 / ${+(px[at(i, j) + 3] / 255).toFixed(4)})`;
-  const grad = (dir, n, k, c) => `linear-gradient(${dir}, ${Array.from({ length: n + 1 }, (_, t) => `${c(t)} ${+((t - 0.5) * k + 0.5).toFixed(3)}px`).join(', ')})`;
-  const same = (p, q) => px[p] === px[q] && px[p + 1] === px[q + 1] && px[p + 2] === px[q + 2] && px[p + 3] === px[q + 3];
-  const flat = (n, m, o) => { for (let i = 0; i <= n; i++) for (let j = 1; j <= m; j++) if (!same(o(i, 0), o(i, j))) return false; return true; };
-  let opaque = true;
-  for (let j = v; j <= v + shh; j++) for (let i = u; i <= u + sw; i++) opaque &&= px[at(i, j) + 3] === 255;
-  // colour and alpha apart (a background and a mask), as D3D filters a straight-alpha texture: a CSS gradient blends
-  // premultiplied, which darkens the transparent edges
-  const paint = (el, dir, n, k, c, ca, more = []) => {
-    const m = [...(opaque ? [] : [grad(dir, n, k, ca)]), ...more].join(', ');
-    Object.assign(el.style, { background: grad(dir, n, k, c), maskImage: m, webkitMaskImage: m,
-      maskComposite: 'intersect', webkitMaskComposite: 'source-in' });
-  };
-  const e = document.createElement('i');
-  e.className = 'sp';
-  Object.assign(e.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: alpha === 1 ? '' : alpha });
-  if (flat(shh, sw, (t, b) => at(u + b, v + t))) paint(e, 'to bottom', shh, ky, t => rgb(u, v + t), t => a(u, v + t));
-  else if (flat(sw, shh, (t, b) => at(u + t, v + b))) paint(e, 'to right', sw, kx, t => rgb(u + t, v), t => a(u + t, v));
-  else {
-    e.style.isolation = 'isolate';
-    for (let t = 0; t <= shh; t++) {
-      const r = document.createElement('b'), c = (t - 0.5) * ky + 0.5;
-      Object.assign(r.style, { width: '100%', height: '100%', transform: 'none', mixBlendMode: 'plus-lighter' });
-      paint(r, 'to right', sw, kx, i => rgb(u + i, v + t), i => a(u + i, v + t),
-        [`linear-gradient(to bottom, transparent ${+(c - ky).toFixed(3)}px, #000 ${+c.toFixed(3)}px, transparent ${+(c + ky).toFixed(3)}px)`]);
-      e.append(r);
-    }
-  }
-  parent.append(e);
-  return e;
-}
-
-// The owner's rule for the glowing outline titles: real text in Audiowide (SIL OFL, Google Fonts: the open font
+// The owner's rule for the glowing outline titles: real text in Audiowide (SIL OFL, with the art: the open font
 // closest to the art's rounded-square lettering, crossbarless A and all), the art's white fill and sampled outline,
 // fitted to the art's ink box: an SVG <text> on its baseline (the box's bottom less the outline), as tall as the box
 // (cap height 0.70 em, ascenders 0.751 em) and stretched to its width (textLength: the art's face is narrower).
@@ -217,19 +168,18 @@ let fontReady = false;
 function drawTextArt(el, [text, outline, x0, y0, x1, y1, italic, glow, ow = OUTLINE], x, y, alpha) {
   if (!fontReady) {
     fontReady = true;
-    // ponytail: Google Fonts' copy (the repo takes no binaries); self-host it with the private art if that matters
-    const l = document.createElement('link');
-    l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Audiowide&display=block';
-    document.head.append(l);
+    // self-hosted with the art (ui/fonts/, the private set: the repo takes no binaries, players' browsers no Google)
+    const st = document.createElement('style');
+    st.textContent = `@font-face { font-family: Audiowide; src: url(${base()}fonts/Audiowide-Regular.woff2) format('woff2'); }`;
+    document.head.append(st);
   }
-  const base = y + y1 - ow, h = y1 - y0 - 2 * ow, px = h / (/[bdfhklt]/.test(text) ? 0.751 : 0.70);
+  const foot = y + y1 - ow, h = y1 - y0 - 2 * ow, px = h / (/[bdfhklt]/.test(text) ? 0.751 : 0.70);
   const svg = document.createElementNS(SVG, 'svg'), t = document.createElementNS(SVG, 'text');
   Object.assign(svg.style, { position: 'absolute', left: 0, top: 0, overflow: 'visible', opacity: alpha === 1 ? '' : alpha,
     filter: glow ? `drop-shadow(0 0 1px ${outline})` : '' });
   svg.setAttribute('width', 1); svg.setAttribute('height', 1);
   // italic: skewed about the baseline, so the art's lean starts at its foot
-  t.setAttribute('transform', `translate(${x + x0 + ow} ${base})${italic ? ' skewX(-12)' : ''}`);
+  t.setAttribute('transform', `translate(${x + x0 + ow} ${foot})${italic ? ' skewX(-12)' : ''}`);
   t.setAttribute('textLength', x1 - x0 - 2 * ow - (italic ? h * Math.tan(Math.PI / 15) : 0));
   t.setAttribute('lengthAdjust', 'spacingAndGlyphs');
   Object.assign(t.style, { font: `${px.toFixed(2)}px Audiowide, ${FONT}`, fill: '#fff', stroke: outline,
@@ -276,7 +226,7 @@ function bevel(el, { w, h, cut, stops }, x, y) {
 const TITLES = ['EDIT DECK', 'CARD SWAP', 'TRADE'];
 const SIDE_TEXT = { LoadBtn: ['LOAD DECK', 9, 134], SaveBtn: ['SAVE DECK', 7, 133], RecipeBtn: ['STRUCTURE DECK', 8, 150],
   ClearBtn: ['CLEAR DECK', 8, 144], ExitBtn: ['EXIT', 8, 61] };
-function drawScene(el, sc, mouse) {
+function drawScene(el, sc) {
   deckBackdrop(el);
   if (sc.title?.shown) {
     const n = +(sc.title.tex.match(/deck_title_0(\d)/)?.[1] || 1);
@@ -286,44 +236,13 @@ function drawScene(el, sc, mouse) {
   for (const b of sc.menu) {
     const t = SIDE_TEXT[b.name];
     if (!b.shown || !t) continue;
-    const hover = inSide(b, mouse);
+    const hover = inSide(b, sc.mouse);
     bevel(el, hover ? SIDE_HOVER : SIDE, b.wx, b.wy);
     const svg = drawTextArt(el, [t[0], hover ? '#ff9d10' : '#1059ff', t[1], 5, t[2], 23, 1, 0, 2], b.wx, b.wy, 1);
     if (hover) svg.firstChild.style.fill = '#fdff45';
   }
 }
-// one backdrop for the whole editor, under every window root (the bridge's #htmlui layer): drawn from the deck
-// window's scene, clipped around the engine's holes (card faces, swfs) like any item. The game's mouse for the side
-// buttons' hover look: the page's own pointer in game px (pass mode: the canvas has it, the DOM only watches)
-// ponytail: it sits in the bridge's host beside its layer; a bridge backdrop hook when another screen wants one
-const sceneSt = { el: null, sc: null, mouse: null };
-function sceneMount(root) {
-  if (sceneSt.el) return;
-  const layer = root.closest('#htmlui');
-  if (!layer) return;
-  sceneSt.el = document.createElement('div');
-  Object.assign(sceneSt.el.style, { position: 'absolute', left: 0, top: 0, width: '1024px', height: '712px', pointerEvents: 'none' });
-  layer.before(sceneSt.el);
-  sceneSt.move = e => {
-    const r = sceneSt.el.getBoundingClientRect(), k = 1024 / r.width;
-    const m = [Math.floor((e.clientX - r.left) * k), Math.floor((e.clientY - r.top) * k)];
-    const was = sceneSt.mouse;
-    sceneSt.mouse = m;
-    if (sceneSt.sc && sceneSt.sc.menu.some(b => inSide(b, m) !== inSide(b, was))) sceneDraw();
-  };
-  addEventListener('pointermove', sceneSt.move, { passive: true });
-}
 const inSide = (b, m) => !!m && m[0] >= b.wx && m[0] < b.wx + SIDE.w && m[1] >= b.wy && m[1] < b.wy + SIDE.h;
-function sceneDraw() {
-  if (!sceneSt.el) return;
-  sceneSt.el.replaceChildren();
-  if (sceneSt.sc) drawScene(sceneSt.el, sceneSt.sc, sceneSt.mouse);
-}
-function sceneUnmount() {
-  sceneSt.el?.remove();
-  removeEventListener('pointermove', sceneSt.move);
-  Object.assign(sceneSt, { el: null, sc: null, move: null });
-}
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
 // 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
@@ -356,7 +275,7 @@ function drawButton(el, c, x, y, w, h) {
 
 // ---------------------------------------------------------------- the module
 // every live deck window: { win, root, plan }, so a hole from one (a dragged card) clips the others
-const live = new Map();
+const live = new Map(), scene = { el: null, key: '' };   // scene: the backdrop's last drawing
 function draw(id, api) {
   const L = live.get(id);
   if (!L) return;
@@ -380,7 +299,7 @@ function reclip() {
   const holes = [...live.values()].flatMap(L => L.plan.holes);
   for (const L of live.values())
     for (const it of L.plan.items) if (it.box) it.box.style.clipPath = clip(it, holes, L.win.x, L.win.y);
-  if (sceneSt.el) sceneSt.el.style.clipPath = clip({ z: -Infinity, rect: { x: 0, y: 0, w: 1024, h: 712 } }, holes, 0, 0);
+  if (scene.el) scene.el.style.clipPath = clip({ z: -Infinity, rect: { x: 0, y: 0, w: 1024, h: 712 } }, holes, 0, 0);
 }
 
 export default {
@@ -400,15 +319,28 @@ export default {
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
     live.set(win.id, { win, root: st.inner, plan: plan(win), api });
-    if (win.scene) {
-      sceneMount(root);
-      if (JSON.stringify(win.scene) !== JSON.stringify(sceneSt.sc)) { sceneSt.sc = win.scene; sceneDraw(); }
-    }
     draw(win.id, api);
+  },
+  // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the
+  // backdrop layer under every window root draws them; redrawn when they or the hovered button change, clipped around
+  // every deck hole (card faces, swfs: the engine draws those)
+  hide: win => win.scene ? [win.scene.bg, win.scene.title, ...win.scene.menu].filter(Boolean).map(e => e.id) : [],
+  backdrop(win, el) {
+    const sc = win.scene;
+    if (!sc) return;
+    const key = JSON.stringify([sc.title, sc.menu, sc.menu.map(b => inSide(b, sc.mouse))]);
+    if (scene.el !== el.firstChild || key !== scene.key) {
+      const d = document.createElement('div');
+      // the layer has no box; down to the deck windows' foot (712): below is the game's menu bar, engine-drawn
+      Object.assign(d.style, { position: 'absolute', left: 0, top: 0, width: '1024px', height: '712px', overflow: 'hidden' });
+      drawScene(d, sc);
+      el.replaceChildren(d);
+      Object.assign(scene, { el: d, key });
+      reclip();
+    }
   },
   unmount(root, st) {
     for (const [id, L] of live) if (L.root === st.inner) live.delete(id);
-    if (![...live.values()].some(L => L.win.scene)) sceneUnmount();
     reclip();
   },
 };
