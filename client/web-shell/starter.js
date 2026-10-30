@@ -162,13 +162,11 @@
             const lr = { x: r.x + cw + 16, y: r.y, w: r.w - cw - 16, h: r.h }, sc = scroller(lr, "deck"), lw = sc.clientWidth - 8;
             const out = [...wrap(deck.blurb, lw, 4), ""];
             const groups = [["monster", "Monsters"], ["spell", "Spells"], ["trap", "Traps"], ["extra", "Extra Deck"]];
-            const cards = deck.cards || [], typed = cards.some((c) => c.type);
             const row = (c) => wrap(`${c.n}x ${c.name}`, lw, 1)[0];
-            if (typed) for (const [ty, label] of groups) {
-                const g = cards.filter((c) => c.type === ty);
-                if (!g.length) continue;
-                out.push(`${label} (${g.reduce((a, c) => a + c.n, 0)})`, ...g.map(row), "");
-            } else out.push(`${cards.reduce((a, c) => a + c.n, 0)} cards`, ...cards.map(row));
+            for (const [ty, label] of groups) {   // the server always sends type
+                const g = (deck.cards || []).filter((c) => c.type === ty).sort((a, b) => a.name.localeCompare(b.name));
+                if (g.length) out.push(`${label} (${g.reduce((a, c) => a + c.n, 0)})`, ...g.map(row), "");
+            }
             lines(sc, out, 0, 0);
             const spacer = document.createElement("div");
             spacer.style.height = 16 * out.length + "px";
@@ -221,8 +219,9 @@
                 const j = await r.json().catch(() => ({}));
                 if (r.ok && j.ok !== false) { done = true; view = "done"; }
                 else {
-                    if (r.status === 409) done = true;
-                    msg = r.status === 409 ? "This character already has its starter deck."
+                    if (j.error === "claimed") done = true;
+                    msg = j.error === "claimed" ? "This character already has its starter deck."
+                        : r.status === 409 ? "Pick a character and enter the game first."   // not-in-game / no-character
                         : r.status === 401 ? "You're signed out. Sign in again, then pick your deck."
                         : "That didn't work. Try again in a moment.";
                     view = "error";
