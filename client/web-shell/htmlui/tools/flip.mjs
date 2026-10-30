@@ -23,6 +23,9 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
   select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // My Room (slot 0's character, 635,344 on Player Select): the chat as its input line along the bottom
+  chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 635, 344, 7], ['scene', 10, 90000], ['window', 'CChatWindow', 30000], ['wait', 3000]], flip: ['CChatWindow'] },
 };
 
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
