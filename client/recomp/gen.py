@@ -75,8 +75,8 @@ def text_reads(f):
             d = op.mem.disp & 0xFFFFFFFF
             if not I.in_text(d):
                 continue
-            if a in f.tables:   # cfg.jump_table: up to 16 bytes of negative slots before, 2 skipped slots
-                out.append((d - 16, 4 * len(f.tables[a]) + 32))
+            if a in f.tables:   # cfg.jump_table: up to 28 bytes of negative slots before (after a neg), 2 skipped slots
+                out.append((d - 28, 4 * len(f.tables[a]) + 44))
             else:   # ponytail: a register index can reach 255 elements past the table
                 out.append((d, op.size * (256 if op.mem.base or op.mem.index else 1)))
     return out
