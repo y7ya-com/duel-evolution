@@ -63,7 +63,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
-    for (const w of snap.windows) {
+    for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
@@ -80,7 +80,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
       }
       if (layer.children[seen.size - 1] !== e.root) layer.insertBefore(e.root, layer.children[seen.size - 1] || null);   // DOM order = draw order
       Object.assign(e.root.style, {
-        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
+        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
@@ -195,8 +195,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
-    const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
-    wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
+    // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
+    const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
+    const owned = new Set(all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
@@ -215,7 +217,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     render(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
-    for (const w of snap.windows) {
+    for (const w of all) {
       const mod = screens.get(w.cls);
       if (!owned.has(w.id) || !mod?.passthrough) continue;
       for (const c of [...w.controls, ...w.extras]) {
