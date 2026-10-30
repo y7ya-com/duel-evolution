@@ -17,8 +17,10 @@
 // def: [lo, hi], sort } with the cards' icon-strip cells for attr (0 Light .. 6 Divine), race (0 Dragon .. 20
 // Divine-Beast) and icon (0 counter .. 5 ritual, 6 normal); the game's values are the cells + 1, a normal spell /
 // trap's icon 0 (CWindowTaskImageCard*::setValue shows cell value - 1; search's ICON 0 = the plain ones).
+#include <stdlib.h>
 #include <string.h>
 #include "rt.h"
+#include "fuzzy.h"
 #include "win.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -67,25 +69,71 @@ static void search(CPU *c, uint32_t list, int32_t mode, int32_t order, const int
     rc_hfree(vec);
 }
 
-// 0x00b0d6fd wcsstr (the CRT's, cdecl; two callers: the trunk's TEXT search and the duel's deck-list search,
-// SceneDeckList::applySearch, FUN_007693a0). Case-blind for Latin
-// letters while our search runs (a player types "dark" for DARK), exact as the CRT's otherwise.
-static int fold;
-static uint16_t lower(uint16_t ch) { return (ch >= 'A' && ch <= 'Z') || (ch >= 0xc0 && ch <= 0xde && ch != 0xd7) ? ch + 32 : ch; }
-void f_00b0d6fd(CPU *restrict c) {
+// The text: ovr/fuzzy.h's match over `shown` (+0x404, SortItems {vtbl, vector<CSortBase {vtbl, card, count, order}>}),
+// the engine's own names and texts (the TEXT search's: FUN_0073bc80 the English name, FUN_0073bd30 + FUN_00743d40 the
+// card text as shown), kept and ranked in place; then the scroll total (FUN_00977150) and the rows from the top
+// (showFrom, 0x009735d0, on the list), as the engine's own search ends
+enum { KONAMI_ID = 0x73bc50, NAME_OF = 0x73bc80, TEXT_OF = 0x73bd30, TEXT_FMT = 0x743d40, SCROLL_TOTAL = 0x977150,
+       SHOW_FROM = 0x9735d0, TEXTBUF = 0x4000, G_KABAN = 0x012b3988 };
+static uint32_t call1(CPU *c, uint32_t fn, uint32_t a) { CPU t = *c; return rc_call(&t, fn, 1, &a); }
+static size_t wread(const uint8_t *m, uint32_t p, uint16_t *out, size_t cap) {
+    size_t n = 0;
+    while (p && n + 1 < cap && (out[n] = RD16(p + 2 * n))) n++;
+    out[n] = 0;
+    return n;
+}
+static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
     RC_LOCALS;
-    // as the exe's own (decomp 0x00b0d6fd), not MSVC's documented one: an empty haystack is NULL even for an empty
-    // needle; a non-empty one with an empty needle is found at once
-    uint32_t hay = RD32(c->esp + 4), needle = RD32(c->esp + 8), hit = 0;
-    for (uint32_t h = hay; RD16(h); h += 2) {
-        uint32_t k = 0;
-        for (uint16_t a, b; (b = RD16(needle + k)) && (a = RD16(h + k)); k += 2)
-            if (fold ? lower(a) != lower(b) : a != b) break;
-        if (!RD16(needle + k)) { hit = h; break; }
+    FzQuery q;
+    fz_query(&q, text, (size_t)ntext);
+    if (!*q.q) return;   // no letters or digits: no text filter
+    uint32_t first = RD32(list + 0x404 + 8), last = RD32(list + 0x404 + 0xc), n = last > first ? (last - first) / 16 : 0;
+    FzHit *hits = n ? malloc(n * sizeof *hits) : NULL;
+    uint8_t *items = n ? malloc(n * 16) : NULL;
+    uint32_t buf = rc_halloc(TEXTBUF, 1), k = 0;
+    static uint16_t w[TEXTBUF / 2];
+    static char norm[TEXTBUF / 2];
+    for (uint32_t i = 0; i < n && hits && items; i++) {
+        uint32_t it = first + 16 * i, kid = call1(c, KONAMI_ID, RD32(it + 4));
+        size_t len = wread(m, call1(c, NAME_OF, kid), w, FZ_LEN + 1);
+        fz_norm(w, len, norm, sizeof norm);
+        int rank = fz_name_rank(&q, norm);
+        if (rank < 0) {   // the card text, only when the name doesn't match
+            CPU t = *c;
+            uint32_t a[2] = {buf, call1(c, TEXT_OF, kid)};
+            WR16(buf, 0);
+            rc_call(&t, TEXT_FMT, 2, a);
+            uint16_t *tw = malloc(TEXTBUF);
+            if (tw) {
+                fz_norm(tw, wread(m, buf, tw, TEXTBUF / 2), norm, sizeof norm);
+                if (fz_text_hit(&q, norm)) rank = 2;
+                free(tw);
+            }
+        }
+        if (rank < 0) continue;
+        hits[k] = (FzHit){rank, "", k};
+        fz_key(w, len, hits[k].key, sizeof hits[k].key);
+        memcpy(items + 16 * k, m + it, 16);
+        k++;
     }
-    c->eax = hit;
-    c->ret_to = RD32(c->esp);
-    c->esp += 4;
+    if (hits && items) {
+        qsort(hits, k, sizeof *hits, fz_cmp);
+        for (uint32_t i = 0; i < k; i++) memcpy(m + first + 16 * i, items + 16 * hits[i].idx, 16);
+        WR32(list + 0x404 + 0xc, first + 16 * k);   // the items are trivially destructible: the rest just drops out
+        // the scroll total: FUN_00977150 is thiscall on g_kaban (DAT_012b3988; it adds 0x3b4 for its scroll TaskPtr
+        // itself, then get() + setTotal: the decomp's free kabanScrollSetTotal), as the exe's callers load ECX
+        uint32_t kaban = RD32(G_KABAN);
+        CPU t = *c;
+        t.ecx = kaban;
+        if (k && kaban) rc_call(&t, SCROLL_TOTAL, 1, &k);
+        t = *c;
+        t.ecx = list;
+        uint32_t top = 0;
+        rc_call(&t, SHOW_FROM, 1, &top);
+    }
+    rc_hfree(buf);
+    free(hits);
+    free(items);
 }
 
 static void run(CPU *c, const struct DeckSearchReq *r) {
@@ -95,14 +143,6 @@ static void run(CPU *c, const struct DeckSearchReq *r) {
     t.ecx = r->list;
     uint32_t cat = r->cat;
     rc_call(&t, SET_CATEGORY, 1, &cat);
-    if (r->ntext > 0 && r->ntext <= TEXT) {
-        uint32_t buf = rc_halloc(2 * r->ntext + 2, 1);
-        for (int32_t k = 0; k < r->ntext; k++) WR16(buf + 2 * k, r->text[k]);
-        fold = 1;
-        search(c, r->list, S_TEXT, 0, NULL, 0, 0, 0, buf);
-        fold = 0;
-        rc_hfree(buf);
-    }
     for (int k = 0; k < NSETS; k++) {
         int32_t n = r->set[k][0];
         if (n > 0 && n <= SETMAX) search(c, r->list, SET_MODE[k], 0, &r->set[k][1], n, 0, 0, 0);
@@ -111,6 +151,7 @@ static void run(CPU *c, const struct DeckSearchReq *r) {
         search(c, r->list, S_ATK, 0, NULL, 0, r->atk[0] < 0 ? 0 : r->atk[0], r->atk[1] < 0 ? ATK_MAX : r->atk[1], 0);
     if (r->def[0] >= 0 || r->def[1] >= 0)
         search(c, r->list, S_DEF, 0, NULL, 0, r->def[0] < 0 ? 0 : r->def[0], r->def[1] < 0 ? ATK_MAX : r->def[1], 0);
+    if (r->ntext > 0 && r->ntext <= TEXT) fuzzy(c, r->list, r->text, r->ntext);   // after the filters: fewer to read
     switch (r->sort) {   // ATK / DEF sorts keep the monsters only (the engine's walk skips the rest)
     case 1: search(c, r->list, S_NAME, 0, NULL, 0, 0, 0, 0); break;
     case 2: search(c, r->list, S_ATK, DOWN, NULL, 0, ATK_MAX, 0, 0); break;

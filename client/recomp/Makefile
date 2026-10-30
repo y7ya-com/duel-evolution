@@ -68,6 +68,9 @@ $(B)/clock_test: rt/clock_test.c rt/clock.c | $(B)
 memmove_test: $(B)/memmove_test   # the recompiled CRT memmove vs libc on the real exe: build/memmove_test [yo2.exe]
 $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
 	$(CC) $(RT_CFLAGS) rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(B)/librc.a -o $@
+fuzzy_test: $(B)/fuzzy_test
+$(B)/fuzzy_test: rt/fuzzy_test.c ovr/fuzzy.h | $(B)
+	$(CC) -O1 -Wall rt/fuzzy_test.c -o $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@
