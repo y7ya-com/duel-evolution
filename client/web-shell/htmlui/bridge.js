@@ -137,7 +137,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set();
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -197,13 +197,24 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
     wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
-    const t = tables >>> 2, H = H32, ids = [...owned];
+    // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
+    // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
+    // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
+    const extraHide = [], extraPass = [];
+    const iso = isolate && snap.windows.find(w => w.cls === isolate);
+    if (iso) {
+      let r = iso.id;
+      for (let d = 0, p; d < 64 && (p = dv.getUint32(r + 8, true)); d++) r = p;   // CTask parent_
+      extraHide.push(r);
+      if (!owned.has(iso.id)) extraPass.push(iso.id);
+    }
+    const t = tables >>> 2, H = H32, ids = [...owned, ...extraHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     render(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
-    const pass = [];
+    const pass = [...extraPass];
     for (const w of snap.windows) {
       const mod = screens.get(w.cls);
       if (!owned.has(w.id) || !mod?.passthrough) continue;
@@ -221,5 +232,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     snapshot: () => last,
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
     set(spec2) { on = switches(spec2, defaults.on || []); forced.clear(); },
+    isolate(cls) { isolate = cls || null; },   // the flip test: only this window drawn (engine or DOM), on an empty canvas
   };
 }
