@@ -41,3 +41,6 @@
 0060f9e0  # CElement::onMain (htmlui.c: no draw for elements under an HTML-drawn window)
 00a51e70  # the field map's wall probe (crossing.c: the pier's ship <-> the dorm's beach)
 005932f0  # CDupSprite::onMain (htmlui.c: its tiles not queued under an HTML-drawn window)
+0052a490  # the file reader's open (chatfree.c: remembers the reader on taboo_?.txt)
+0052b540  # the file reader's next line (chatfree.c: that reader is at its end at once)
+00a75760  # CChatWindow vf04, its init (chatfree.c: then no send cooldown)
