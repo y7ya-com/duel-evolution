@@ -8,9 +8,12 @@ import { isFree } from "./freemode.ts";
 
 export const GATE_PAUSE = 0.03;
 const SINGLE_ROOM: [number, number] = [WORLD_LANG, 14];
-/** Kinds 15 and 16 share 7's and 9's name (GUNSLINGER, TRIAL) and rules, so two rows read the same: not announced
- *  (their ports stay open; ROOM_KINDS' order fixes every port). */
-const UNANNOUNCED_KINDS = new Set([15, 16]);
+/** One world: every room port leads into ONE block holding every area (hub.ts WORLD_AREAS), so the doors only pick
+ *  where a player starts. Announced: blue Domino City (13) and GUNSLINGER (7, 60 s turns for the duels its entrants
+ *  start), red Duelist Academy (14); CHAMPIONSHIP (8, the client's tournament screens) only while a tournament runs.
+ *  The other kinds' ports stay open (ROOM_KINDS' order fixes every port) and land in the same block. */
+const ANNOUNCED_KINDS = [13, 7, 14];
+export const WORLD_KIND = 13;
 /** py ROOM_LANG_MERGE: every language shares the block (key language 0). */
 export const ROOM_LANG_MERGE = true;
 
@@ -38,8 +41,15 @@ export function roomOfPort(g: Game, port: number): [number | null, number] | nul
 export function roomBlockKey(g: Game, port: number, clientLang = 0): BlockKey | null {
   const r = roomOfPort(g, port);
   if (!r) return null;
-  const [lang, i] = r;
-  return blockKey(ROOM_PORT_BASE + i, lang === null ? roomLang(clientLang) : lang);
+  const lang = r[0];
+  return blockKey(ROOM_PORT_BASE + ROOM_KINDS.indexOf(WORLD_KIND), lang === null ? roomLang(clientLang) : lang);
+}
+
+/** The kind of the room a player entered by (its lobby port), 12 (My Room) outside one: the room's rules (GUNSLINGER's
+ *  60 s turns) follow it, since every room shares one block. */
+export function entryKind(g: Game, s: { lobby: Conn | null }): number {
+  const r = s.lobby ? roomOfPort(g, s.lobby.port) : null;
+  return r ? ROOM_KINDS[r[1]] : 12;
 }
 
 /** py bloques.block_key: the shared block of a connection; My Room is per player (null). Free mode has blocks of
@@ -58,7 +68,7 @@ export function gateReply(g: Game, c: Conn, msgId: number): void {
   const entries = [serverEntry(1, 1, "DuelCards", ip, g.ports.game + off),
                    serverEntry(2, 3, "MyRoom", ip, g.ports.lobby + off, 0, 0, 12, 0)];
   const rooms: [number, number][] = g.cfg.singleLobby ? [SINGLE_ROOM]
-    : ROOM_LANGS.flatMap((lang) => ROOM_KINDS.filter((k) => !UNANNOUNCED_KINDS.has(k)).map((kind) => [lang, kind] as [number, number]));
+    : ROOM_LANGS.flatMap((lang) => [...ANNOUNCED_KINDS, ...(g.to?.running ? [8] : [])].map((kind) => [lang, kind] as [number, number]));
   for (const [lang, kind] of rooms) {
     const port = roomPort(g, lang, kind);
     const key = roomBlockKey(g, port, lang);
