@@ -11,7 +11,7 @@ import { loadGlyphs } from '../ui.js';
 import { cursorCss } from './cursor.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
-const SLOTS = 63;
+let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
 export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
   for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
@@ -194,8 +194,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     setText(id, s) { queue.push([2, id, String(s)]); },
     scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
   };
-  const QBASE = 2 + 2 * SLOTS, QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: nq, q[32] {kind, a, b, c}, text[1024]
+  const QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: after the two tables nq, q[32] {kind, a, b, c}, text[1024]
   function flush(t, H) {
+    const QBASE = 2 + 2 * SLOTS;
     if (!queue.length || H[t + QBASE]) return;   // the last batch not played yet
     const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
     let n = 0, used = 0;
@@ -219,8 +220,11 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   };
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
-  Module.onYo2Frame = (tables, heap) => {
-    try { frame(tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+  // slots: the runtime's table size, after a header word that holds it (htmlui.c checks the word is still there: an
+  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header
+  Module.onYo2Frame = (tables, heap, slots) => {
+    SLOTS = slots || 63;
+    try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
   };
   function frame(tables, heap) {
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
