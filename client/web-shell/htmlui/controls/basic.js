@@ -48,8 +48,8 @@ export function textBox(parent, s, { x = 0, y = 0, w, h, align = 0, px = LH, gap
   parent.append(d);
   return d;
 }
-// a CTextElm's colour tags (a full-width ＠ and a digit: the server's chat lines start ＠0) are not text
-export const untag = s => s.replace(/＠\d/g, '');
+// a CTextElm's colour tags (an @, ASCII or full-width, and a digit: the server's chat lines start @0) are not text
+export const untag = s => s.replace(/[@＠]\d/g, '');
 // the lines a CTextElm shows: from firstLine, pageLines of them
 export const shownLines = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
 let measurer;   // made on first use: importing this file needs no DOM (node tests)
