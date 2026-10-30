@@ -11,7 +11,7 @@ import { loadGlyphs } from '../ui.js';
 import { cursorCss } from './cursor.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
-const SLOTS = 63;
+let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
 export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
   for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
@@ -45,7 +45,6 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .sp { overflow: hidden; }
 #htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
   mask-repeat: no-repeat; transform-origin: 0 0; }
-#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
 #htmlui-host .txt { position: absolute; }
 `;
@@ -62,9 +61,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
     st.textContent = CSS;
     document.head.append(st);
   }
-  const layer = document.createElement('div');
+  // a screen's backdrop (its scene's own pictures and title, not in any window: the deck editor's) under every window
+  const back = document.createElement('div'), layer = document.createElement('div');
+  back.className = 'layer';
   layer.id = 'htmlui';
-  host.append(layer);
+  host.append(back, layer);
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
@@ -103,6 +104,17 @@ export async function makeLayer(host, screens, art = 'ui/') {
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
+    // backdrop(win, el, api, state): the first owned window or task whose module has one draws into the layer under
+    // every window (its DOM kept between frames); none: the layer is cleared
+    const bw = [...snap.windows, ...snap.tasks || []].find(w => owned.has(w.id) && screens.get(w.cls)?.backdrop);
+    if (bw) {
+      screens.get(bw.cls).backdrop(bw, back, live.get(bw.id)?.api || api, live.get(bw.id)?.state, snap);
+      // every engine-drawn window draws above the backdrop (the lowest layer): cut where each one draws (the deck's
+      // Save / Load lists and its Yes / No and OK dialogs)
+      const cut = clip(snap.windows.filter(o => o.shown && !owned.has(o.id)).map(o => o.drawn === undefined ? o : o.drawn).filter(Boolean),
+        { x: 0, y: 0, w: 1024, h: 768 });
+      if (back.style.clipPath !== cut) back.style.clipPath = cut;
+    } else if (back.firstChild) back.replaceChildren();
   }
   function unmount(id) {
     const e = live.get(id);
@@ -114,12 +126,34 @@ export async function makeLayer(host, screens, art = 'ui/') {
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
+// In front: drawn deeper (world z, larger is in front) when both are known, else later in the list. The hole is where
+// that window draws (its drawn box: its shown controls), never its nominal rect; a window that draws nothing cuts none.
 function holes(w, wins, owned) {
-  const front = wins.slice(wins.indexOf(w) + 1).filter(o => o.shown && !owned.has(o.id) &&
-    o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
-  if (!front.length) return '';
-  const r = o => `M${o.x - w.x} ${o.y - w.y}h${o.w}v${o.h}h${-o.w}z`;
-  return `path(evenodd, "M0 0h${w.w}v${w.h}h${-w.w}z${front.map(r).join('')}")`;
+  const i = wins.indexOf(w);
+  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && (o.wz && w.wz ? o.wz > w.wz : j > i))
+    .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
+      o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
+  return clip(front, w);
+}
+
+// A clip-path for box (its own coordinates from box.x, box.y) with holes where rects lie (game px). Overlapping rects
+// are merged first (into their bounding box, until none overlap): under evenodd two overlapping holes cancel.
+function clip(rects, box) {
+  const rs = rects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
+  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let i = 0; i < rs.length && !merged; i++) for (let j = i + 1; j < rs.length; j++) if (hit(rs[i], rs[j])) {
+      const a = rs[i], b = rs.splice(j, 1)[0], x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      rs[i] = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+      merged = true;
+      break;
+    }
+  }
+  const inside = rs.filter(o => hit(o, box));
+  if (!inside.length) return '';
+  const r = o => `M${o.x - box.x} ${o.y - box.y}h${o.w}v${o.h}h${-o.w}z`;
+  return `path(evenodd, "M0 0h${box.w}v${box.h}h${-box.w}z${inside.map(r).join('')}")`;
 }
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
@@ -185,8 +219,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     setText(id, s) { queue.push([2, id, String(s)]); },
     scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
   };
-  const QBASE = 2 + 2 * SLOTS, QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: nq, q[32] {kind, a, b, c}, text[1024]
+  const QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: after the two tables nq, q[32] {kind, a, b, c}, text[1024]
   function flush(t, H) {
+    const QBASE = 2 + 2 * SLOTS;
     if (!queue.length || H[t + QBASE]) return;   // the last batch not played yet
     const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
     let n = 0, used = 0;
@@ -210,8 +245,11 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   };
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
-  Module.onYo2Frame = (tables, heap) => {
-    try { frame(tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+  // slots: the runtime's table size, after a header word that holds it (htmlui.c checks the word is still there: an
+  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header
+  Module.onYo2Frame = (tables, heap, slots) => {
+    SLOTS = slots || 63;
+    try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
   };
   function frame(tables, heap) {
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
@@ -242,7 +280,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
     curHid = css !== null;
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
+    // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
+    const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
