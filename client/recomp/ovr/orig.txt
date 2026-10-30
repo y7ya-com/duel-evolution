@@ -44,3 +44,5 @@
 0052a490  # the file reader's open (chatfree.c: remembers the reader on taboo_?.txt)
 0052b540  # the file reader's next line (chatfree.c: that reader is at its end at once)
 00a75760  # CChatWindow vf04, its init (chatfree.c: then no send cooldown)
+00761970  # the duel field's card move (duelmove.c: a move out of a list kind 0xb with an index past its end is skipped)
+00692580  # YG_MSG_DUEL_SETCOMMAND, one duel entry (duelmove.c: the last 20 kept for the skip report)

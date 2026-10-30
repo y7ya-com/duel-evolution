@@ -26,7 +26,9 @@
     if (showLog) { logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
     console.log(s);
     if (/^(rc_trap at|MISSING IMPORT|guest fault|host fault)/.test(s)) crash(s);
+    else if (/^rc_report: /.test(s) && reported++ < 3) setTimeout(() => report(s, false), 500);   // a handled problem worth a look
   };
+  let reported = 0;
   // A guest trap (it logs, then exits), an abort or an exit: report it once to /__crash, then tell the player instead of
   // leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
   let crashed = false;
