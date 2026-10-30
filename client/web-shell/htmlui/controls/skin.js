@@ -55,8 +55,6 @@ const mbtnLook = ({ top, body, bottom, left, right, border }) => {
 //  - icon (icon_01_c01, 16 x 24 cells; the box 15 x 14 from row 3): a 1-px #fff border, #fffc00 inside, bevel top
 //    #fffe86 #fffd40, left #fffd3d #fffc22, right #fae600 #f0b900, bottom #f7d800 #eb9f00; the glyph #005fea (expand: an
 //    arrow head over a block; hide: an X). Hover: box #fefdc0, bevel #fefed8 / #f9e79e / #eca93f, glyph #46c4ff
-//  - scroll bar (scroll_01_c00): track #d4e2e4; arrows 14 x 14 at 1,1 of their 16 x 16, #fff with a 1-px #92979a
-//    border and a #92979a arrow head; the thumb 12 wide at 2, #fff with a 1-px #92979a border
 const A70 = (178 / 255).toFixed(3);
 const tabClip = (top, left0, inset) =>   // the slant: at row y, x = left0 - y (one pixel per row); inset px off the right
   `polygon(${left0 - top}px ${top}px, calc(100% - ${inset}px) ${top}px, calc(100% - ${inset}px) 100%, 0 100%, 0 ${left0}px)`;
@@ -65,7 +63,6 @@ const GLYPH = {   // in the 15 x 14 box
   expand: f => svg("<path d='M7 3h1l4 4v3H3V7z' fill='F'/>", f),
   hide: f => svg("<path d='M3 3l9 8M12 3l-9 8' stroke='F' stroke-width='2.2'/>", f),
 };
-const ARROW = { up: "<path d='M6 4h2l3 3v3H3V7z' fill='#92979a'/>", down: "<path d='M3 4h8v3l-3 3H6L3 7z' fill='#92979a'/>" };   // 14 x 14
 // D-Mail's window (CWindowModelDMail's own 512 x 512 picture, mail_win_01_c01.png, as boxes; sampled from the engine's
 // 1x render): the duel title bar, a #a9aba4 frame (6..505 x 27..477), a slate panel (#7581a3, bevelled, 12..499 x
 // 32..471), the mail list (16..495 x 71..250: 36-pixel rows, white, a #a8acae / #525a5e separator; the scroll column
@@ -164,12 +161,7 @@ const CHAT_CSS = `
 .yo2-icon:active::before, .yo2-icon[data-state=pressed]::before { filter: brightness(0.9); }
 .yo2-icon[data-kind=expand] { --g: ${GLYPH.expand('#005fea')}; --gh: ${GLYPH.expand('#46c4ff')}; }
 .yo2-icon[data-kind=hide] { --g: ${GLYPH.hide('#005fea')}; --gh: ${GLYPH.hide('#46c4ff')}; }
-.yo2-scroll { position: absolute; width: 16px; background: #d4e2e4; }
-.yo2-scroll > i { position: absolute; left: 1px; width: 14px; height: 14px; box-sizing: border-box; border: 1px solid #92979a;
-  background: #fff 0 0 / 14px 14px no-repeat border-box; }
-.yo2-scroll > i:nth-child(1) { top: 1px; background-image: ${svg(ARROW.up, '', '0 0 14 14')}; }
-.yo2-scroll > i:nth-child(2) { bottom: 1px; background-image: ${svg(ARROW.down, '', '0 0 14 14')}; }
-.yo2-scroll > b { position: absolute; left: 2px; width: 12px; box-sizing: border-box; border: 1px solid #92979a; background: #fff; }
+
 ${DUEL_CSS}`;
 
 // The 2008 button plate lives in ui.js (the starter picker draws it too): re-exported here
@@ -300,17 +292,6 @@ export function icon(parent, { x = 0, y = 0, kind, label = kind, state = null } 
   place(b, { x, y });
   parent.append(b);
   return b;
-}
-// A vertical scroll bar (CWindowTaskScroll): length px, the thumb at pos (from below the up arrow), len px
-export function scrollbar(parent, { x = 0, y = 0, length, pos = 0, len = 16 } = {}) {
-  inject();
-  const d = document.createElement('div'), t = document.createElement('b');
-  d.className = 'yo2-scroll';
-  d.append(document.createElement('i'), document.createElement('i'), t);
-  place(d, { x, y, h: length });
-  Object.assign(t.style, { top: 16 + pos + 'px', height: len + 'px' });
-  parent.append(d);
-  return d;
 }
 
 // A duel-style window's frame (CWindowTaskFrameDuel), w x h at the window's 0, 0: the title bar, the body, and the well

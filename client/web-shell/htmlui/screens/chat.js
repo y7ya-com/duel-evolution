@@ -11,14 +11,6 @@ const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
 const scroll = ui && await import('../controls/scroll.js');
 
-const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
-
-// A press at y (bar-local) on a scroll bar: -1 up (the up arrow, the track above the thumb), 1 down, 0 on the thumb.
-export function scrollDir(bar, y) {
-  const top = ARROW + bar.thumb.pos;
-  return y < top ? -1 : y >= top + bar.thumb.len ? 1 : 0;
-}
-
 // --- The chat's controls, CSS (controls/skin.js, the owner's Skin rule: crisp at any scale, colours sampled from the
 // game's art): the bar, the frame, the back plane, the tabs, the taller / shorter icons and the scroll bar.
 const ICON = { IconExpand: ['expand', 'Taller'], IconHide: ['hide', 'Shorter'] };
@@ -46,26 +38,30 @@ function drawControl(c, el, api) {
 }
 
 const key = c => JSON.stringify(c);
-// a pointer's y in an element's own game pixels (the bridge scales the layer)
-const localY = (e, el) => { const r = el.getBoundingClientRect(); return (e.clientY - r.top) * el.offsetHeight / r.height; };
 
-// The scroll bar: a press above or below the thumb (or on an arrow) scrolls the log as the wheel does, max / 10 + 1
-// lines. ponytail: no arrow-sized steps, no thumb drag, until api.scroll is wired.
+// A lone scroll bar (one no list owns: the profile's rows) as a native box over its rect (owner: native scroll bars
+// everywhere; bridge.js's scrollbars.js does the same for windows no screen owns): the box's content stands for the
+// bar's range (page lines in view of max + page), scrolling it sets the bar's value through the game's setValue, and
+// the game moving its value moves the box.
 function ownScroll(c, layer, api) {
-  const d = document.createElement('div');
-  d.className = 'own';
-  let bar = c;
-  d.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    const dir = scrollDir(bar, localY(e, d));
-    if (dir) api.wheel(bar.parent || bar.id, dir * 120);
-  });
-  d.update = c2 => {
+  scroll.inject();
+  const el = document.createElement('div'), inner = document.createElement('div');
+  el.className = 'own yo2-scroll-list';
+  el.append(inner);
+  layer.append(el);
+  let bar = c, at = -1;
+  const range = () => el.scrollHeight - el.clientHeight;
+  el.addEventListener('scroll', () => {
+    const r = range(), v = r > 0 ? Math.round(el.scrollTop / r * bar.max) : 0;
+    if (v !== at) { at = v; api.setValue(bar.id, v); }
+  }, { passive: true });
+  el.update = c2 => {
     bar = c2;
-    Object.assign(d.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
+    Object.assign(el.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.length + 'px' });
+    inner.style.height = c2.length * (c2.max + Math.max(1, c2.page)) / Math.max(1, c2.page) + 'px';
+    if (c2.value !== at) { at = c2.value; el.scrollTop = c2.max ? c2.value / c2.max * range() : 0; }
   };
-  layer.append(d);
-  return d;
+  return el;
 }
 
 // An input: a real <input> (<textarea> for a multi-line one) where the game draws its text (8 in), over the field

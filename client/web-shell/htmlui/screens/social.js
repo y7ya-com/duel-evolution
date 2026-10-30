@@ -26,7 +26,7 @@ const DRAW = {
     if (Math.round((c.y - 32) / c.h) % 2 === 0) r.dataset.dark = '';
   },
   Listbox: () => {},   // a native scroller, chat.js's ownList
-  Scroll: (el, c) => skin.scrollbar(el, { x: c.x, y: c.y, length: c.length, pos: c.thumb.pos, len: c.thumb.len }),
+  Scroll: () => {},   // a native box, chat.js's ownScroll
 };
 
 function draw(c, el, api, win) {

@@ -1,11 +1,6 @@
-// node client/web-shell/htmlui/screens/chat_test.mjs: a press on a scroll bar; a list's update as a delta
+// node client/web-shell/htmlui/screens/chat_test.mjs: a list's update as a delta
 import assert from 'node:assert/strict';
-import { scrollDir, itemsDelta } from './chat.js';
-
-const bar = { length: 112, thumb: { pos: 30, len: 20 } };   // the thumb at 46..66 (after the 16-pixel up arrow)
-assert.equal(scrollDir(bar, 3), -1);
-assert.equal(scrollDir(bar, 46), 0);
-assert.equal(scrollDir(bar, 66), 1);
+import { itemsDelta } from './chat.js';
 
 assert.deepEqual(itemsDelta([], ['a']), [0, ['a']]);
 assert.deepEqual(itemsDelta(['a', 'b'], ['a', 'b']), [0, []]);
