@@ -13,14 +13,11 @@ import { menuButton, titleBar, panel } from '../controls/skin.js';
 // CWindowTaskFramePlace, lobbyname_win_01_c01.png (256 x 52; the body stretched after its first 224 px): a 1 px brown
 // edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
 // #7deffc over its first 219 px, every other row lighter (the art's scan lines).
-// The Main Menu's entry looks the engine draws on hover (cream) and pressed (bevel turned over, pale), main_btn_01_c01's
-// columns 1 and 2 sampled as skin.js's normal one (each pixel the mean of texels x-1..x, y-1..y): a #fffe92 border,
-// four rows / columns in from the top and left, three from the bottom and right; skin.js only brightens or sinks the
-// normal look (not sampled there yet). For skin.js's menuButton once promoted.
 // CWindowTaskMenubar, menuber_01_c01.png (1024 x 32, over menuber_02_c01.png's white field at 0.7): a cyan to blue
-// strip, its top 3 rows lighter, its bottom 3 darker; the message field from x 392, 7 down, 624 x 18, a white edge, its
-// inside see-through (the strip's texels there are transparent; menuber_02's panel shows nothing there live: solved
-// from the engine's pixels, alpha 0).
+// strip, its top 3 rows lighter, its bottom 3 darker; the message field x 392..1016, y 8..24: menuber_02's white panel
+// at 0.698 (the strip's texels there are transparent: live in My Room, over the black backdrop, the engine's field
+// reads #b2b2b2), its edge a pixel of half white blended into the strip (the strip's white texel rows read half a
+// texel up-left). Measured with htmlui-chat in My Room.
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
   border-color: #cbb598 #894009 #893b06 #a57f4e; background: #f2e14f;
@@ -37,21 +34,11 @@ const CSS = `
     linear-gradient(to right, #70ffff 0, #6cdbff 32px, #8ae4ff 64px, #a7eeff 96px, #c1f8ff 128px, #cdfeff 160px,
       #c4feff 224px, #aefeff 256px, #a0f3ff 288px, #8ee4ff 320px, #77d3fe 352px, #64c0fe 384px, #2279fd 700px,
       #0053fb 1016px, #003dd4 1024px);
-  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 393px 8px / 622px 16px no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 625px 17px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
-.lb-field { position: absolute; left: 392px; top: 7px; width: 624px; height: 18px; box-sizing: border-box;
-  border: 1px solid #fff; }
-.lb-icon { position: absolute; width: 80px; height: 32px; }
-#htmlui-host .yo2-mbtn[data-state=hover] { filter: none; border-color: #fffe92;
-  background: linear-gradient(to right, #fffec8 0.5px, #ffffff 1.5px, #ffffdf 2.5px, #fcf4b6 3.5px, transparent 4.5px,
-      transparent calc(100% - 3.5px), #fae8aa calc(100% - 2.5px), #f8e09e calc(100% - 1.5px), #f6d086 calc(100% - 0.5px)),
-    linear-gradient(to bottom, #fffec8 0.5px, #ffffff 1.5px, #ffffe2 2.5px, #fcf4b8 3.5px, #faeaac 4.5px,
-      #faeaac calc(100% - 3.5px), #f9e4a4 calc(100% - 2.5px), #f6d086 calc(100% - 1.5px), #f2b55e calc(100% - 0.5px)); }
-#htmlui-host .yo2-mbtn[data-state=pressed] { filter: none; border-color: #fffe92;
-  background: linear-gradient(to right, #fceb7c 0.5px, #fce272 1.5px, #fef487 2.5px, #fffe91 3.5px, transparent 4.5px,
-      transparent calc(100% - 3.5px), #ffff9b calc(100% - 2.5px), #ffffbf calc(100% - 1.5px), #ffffed calc(100% - 0.5px)),
-    linear-gradient(to bottom, #fada68 0.5px, #f8c550 1.5px, #fce473 2.5px, #fef98c 3.5px, #ffff93 4.5px,
-      #ffff93 calc(100% - 3.5px), #ffff9e calc(100% - 2.5px), #ffffd2 calc(100% - 1.5px), #fffffe calc(100% - 0.5px)); }`;
+.lb-field { position: absolute; left: 392px; top: 8px; width: 625px; height: 17px;
+  background: rgba(255, 255, 255, .698); box-shadow: 0 0 0 1px rgba(255, 255, 255, .5); }
+.lb-icon { position: absolute; width: 80px; height: 32px; }`;
 
 function inject() {
   if (document.getElementById('htmlui-lobby')) return;
@@ -164,7 +151,6 @@ function menuBar(win, root, st) {
 }
 
 const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar };
-
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',

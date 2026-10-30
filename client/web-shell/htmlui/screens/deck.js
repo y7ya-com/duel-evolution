@@ -9,7 +9,8 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { textBox, textWidth, FONT, fontCss } from '../controls/basic.js';
+import { textBox, textWidth, FONT, fontCss, spacing } from '../controls/basic.js';
+import { scrollList, wheelTo as wheelAt } from '../controls/scroll.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -73,13 +74,19 @@ export function plan(win) {
     }
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
-      // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w)
-      // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w), lines
-      // wrapped at that width as the engine wraps them, the page it shows (firstLine, pageLines: the detail's text)
-      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w } : { align: 0 };
-      const text = box.w ? wrapLines(t.text, box.w).slice(ctl.firstLine || 0, (ctl.firstLine || 0) + (ctl.pageLines || 1e9)).join('\n') : t.text;
-      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * text.split('\n').length },
-        el => drawLabel(el, text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
+      // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w).
+      // ponytail: a dialog's "Title" text draws white in the engine (its glyph colour comes from the text texture's
+      // tag converter, CD3DTextTexture +0x64, not read yet): by name until the converter is
+      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink: ctl.name === 'Title' ? 0xffffff : null } : { align: 0 };
+      // a paged text field (the card detail's text: pageLines 9): the whole text, wrapped by words, in a native scroll
+      // box (the owner's rules: words, not the engine's character wrap; native scrollers)
+      if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 1 && ctl.pageLines < 50 && box.w) {
+        const h = box.px * ctl.pageLines;
+        add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w, h }, el => drawFlow(el, t, t.wx - ox, t.wy - oy, box.w, h, t.a ?? 1, box.px));
+        continue;
+      }
+      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * t.text.split('\n').length },
+        el => drawLabel(el, t.text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
     for (const f of P.swfs || []) {
       const [w, h] = SWF_SIZE[f.name] || [SWF_BOX, SWF_BOX];
@@ -92,6 +99,7 @@ export function plan(win) {
   for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
+    if (c.cls === 'CWindowTaskKabanScroll') continue;   // the trunk scrolls natively (trunkScroller): no game scroll bar
     const rs = c.parts ? tree(c.parts, c) : [];
     if (BUTTON.test(c.cls) && rs.length) {
       const x0 = Math.min(...rs.map(o => o.r.x)), y0 = Math.min(...rs.map(o => o.r.y));
@@ -373,25 +381,32 @@ function drawScene(el, sc) {
 }
 const inSide = (b, m) => !!m && m[0] >= b.wx && m[0] < b.wx + SIDE.w && m[1] >= b.wy && m[1] < b.wy + SIDE.h;
 
-// a CTextElm's lines as the engine wraps them: by character, a line ends before the glyph that would pass w (the
-// engine's own glyph advances, ui.js measure; @>N/ puts the pen at N); colour tags carry over to the next line
-export function wrapLines(text, w) {
-  const out = [];
-  for (const line of text.split('\n')) {
-    let cur = '', tag = '', width = 0;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '@' && /[0-9@>]/.test(line[i + 1] || '')) {   // a tag: no width
-        const m = line.slice(i).match(/^@(>\d+\/|\d|@)/);
-        if (m) { cur += m[0]; if (/^@\d$/.test(m[0])) tag = m[0]; if (m[0] === '@@') width += ui.measure('@'); if (m[0][1] === '>') width = parseInt(m[0].slice(2)); i += m[0].length - 1; continue; }
-      }
-      const a = ui.measure(c);
-      if (width + a > w && cur) { out.push(cur); cur = tag; width = 0; }
-      cur += c; width += a;
+// a paged text as the player reads it: its lines (the real '\n's only) as runs of colour; the browser wraps by words
+export const flowLines = text => text.split('\n').map(runs);
+const flowScroll = new Map();   // label id -> [text, scrollTop]: a rebuild keeps the player's place in the same text
+function drawFlow(el, t, x, y, w, h, alpha, px) {
+  const d = document.createElement('div');
+  Object.assign(d.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px',
+    overflowX: 'hidden', overflowY: 'auto', overscrollBehavior: 'contain', pointerEvents: 'auto', scrollbarWidth: 'thin',
+    font: fontCss(px), whiteSpace: 'pre-wrap', wordBreak: 'normal', overflowWrap: 'break-word', opacity: alpha === 1 ? '' : alpha });
+  for (const line of flowLines(t.text)) {
+    const p = document.createElement('div');
+    p.style.letterSpacing = spacing(line.map(r => r.s).join(''), px) + 'px';
+    for (const r of line) {
+      const sp = document.createElement('span'), big = r.rgb === TAG_RGB[1];
+      sp.textContent = r.s;
+      sp.style.color = '#' + r.rgb.toString(16).padStart(6, '0');
+      if (big) Object.assign(sp.style, { fontWeight: 'bold', font: `bold ${fontCss(18)}` });
+      p.append(sp);
     }
-    out.push(cur);
+    if (!line.length) p.append('\u00a0');
+    d.append(p);
   }
-  return out;
+  el.append(d);
+  const kept = flowScroll.get(t.id);
+  if (kept?.[0] === t.text) d.scrollTop = kept[1];
+  d.addEventListener('scroll', () => flowScroll.set(t.id, [t.text, d.scrollTop]), { passive: true });
+  return d;
 }
 
 // ---------------------------------------------------------------- the trunk's search (the owner: "modern, like EDOPro")
@@ -489,7 +504,12 @@ export function searchPanel(root, apply) {
   el.append(plate);
   const input = document.createElement('input');
   input.className = 'dk-field';
-  input.type = 'search';
+  // text, not type="search": that one brings the browser's own clear button (a second ×) beside ours
+  input.type = 'text';
+  input.inputMode = 'search';
+  input.enterKeyHint = 'search';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
   input.placeholder = 'Search name or card text';
   input.setAttribute('aria-label', 'Search the trunk');
   Object.assign(input.style, { left: '8px', top: '31px', width: '192px' });
@@ -607,18 +627,21 @@ export function searchPanel(root, apply) {
 }
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
-// 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
-function drawLabel(el, text, x, y, alpha, { align = 0, w = 0 } = {}) {
+// 18-pixel style. box: { align (0 left, 1 centre, 2 right), w, px (the control's fontSize: 24 for a dialog's title) }
+// as the CTextElm lays its lines out.
+function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink = null } = {}) {
   text.split('\n').forEach((line, li) => {
-    const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : 16;
-    const lw = rs.reduce((n, r) => r.x !== null ? r.x + textWidth(r.s, px(r)) : n + textWidth(r.s, px(r)), 0);
+    const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : size;
+    // a run's width as textBox sets it: Arial plus its letter spacing (controls/basic.js spacing: the game's widths)
+    const rw = r => textWidth(r.s, px(r)) + spacing(r.s, px(r)) * [...r.s].length;
+    const lw = rs.reduce((n, r) => r.x !== null ? r.x + rw(r) : n + rw(r), 0);
     let pen = align === 1 ? Math.floor((w - lw) / 2) : align === 2 ? w - lw : 0;
     for (const r of rs) {
       if (r.x !== null) pen = r.x;
-      const c = [r.rgb >> 16, r.rgb >> 8 & 255, r.rgb & 255].map(v => v / 255);
-      const d = textBox(el, r.s, { x: x + pen, y: y + 16 * li, px: px(r), color: [...c, alpha], white: true });
+      const rgb = ink !== null && r.rgb === TAG_RGB[0] ? ink : r.rgb, c = [rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255);
+      const d = textBox(el, r.s, { x: x + pen, y: y + size * li, px: px(r), color: [...c, alpha], white: true });
       if (px(r) === 18) d.style.fontWeight = 'bold';
-      pen += textWidth(r.s, px(r));
+      pen += rw(r);
     }
   });
 }
@@ -633,6 +656,50 @@ function drawButton(el, c, x, y, w, h) {
   Object.assign(b.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px',
     background: 'none', border: 0, padding: 0, margin: 0 });
   el.append(b);
+}
+
+// ---------------------------------------------------------------- the trunk's native scroller (owner: "native HTML scrollers")
+// A transparent overflow box over the trunk's rows (one empty row per card the list shows, 56 px, as the game's rows):
+// the browser's own scroll bar, wheel, drag and touch. The game's list follows one wheel notch per frame (wheelTo)
+// (controls/scroll.js's way) so the engine's card faces and rows move with it; a search or a filter that moves the game's list moves the box.
+// The box takes the pointer: hover, a press (picking a card up), the drag into the deck, right / double clicks are
+// handed on to the canvas as the same mouse events (pointer capture keeps a drag going outside the box).
+const ROW_H = 56;
+export function trunkScroller(root, api) {
+  const list = scrollList(root, { x: 8, y: 88, w: 272, h: 11 * ROW_H, rowH: ROW_H });
+  const st = { list, target: null, ctl: null, n: -1 };
+  const canvas = () => document.getElementById('canvas');
+  // the game scrolls the list only under its own mouse: controls/scroll.js's wheelTo at a game point (it moves the
+  // game's mouse there first): the player's pointer when it's over the rows (they wheel there), else the rows' middle
+  // (they're on the scroll bar)
+  let last = null;
+  const wheelTo = (ctl, i) => {
+    const r = canvas()?.getBoundingClientRect(), k = r ? r.width / 1024 : 1;
+    const g = r && last && [(last[0] - r.left) / k, (last[1] - r.top) / k];
+    wheelAt(api, ctl, i, g && g[0] >= 744 && g[0] < 1000 && g[1] >= 88 && g[1] < 88 + 11 * ROW_H ? g : [872, 396]);
+  };
+  list.onTop = i => { st.target = i; if (st.ctl) wheelTo(st.ctl, i); };
+  const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons }));
+  const el = list.el;
+  el.addEventListener('pointerdown', e => {
+    if (e.offsetX >= el.clientWidth - 14) return;   // the scroll bar is the browser's (an overlay one is 0 wide: its strip)
+    el.setPointerCapture(e.pointerId);
+    fwd('mousedown', e);
+  });
+  el.addEventListener('pointermove', e => { last = [e.clientX, e.clientY]; fwd('mousemove', e); });
+  el.addEventListener('wheel', e => { last = [e.clientX, e.clientY]; }, { passive: true });
+  el.addEventListener('pointerup', e => { fwd('mouseup', e); if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId); });
+  for (const t of ['contextmenu', 'dblclick']) el.addEventListener(t, e => { e.preventDefault(); fwd(t, e); });
+  // the game's list as the snapshot has it: its length, and where it is
+  st.sync = ctl => {
+    st.ctl = ctl;
+    if (ctl.hits !== st.n) { st.n = ctl.hits; list.set(Array.from({ length: ctl.hits }), () => document.createElement('div')); }
+    if (st.target === null) { if (Math.round(list.el.scrollTop / ROW_H) !== ctl.top) list.top(ctl.top); }
+    else if (ctl.top === st.target) st.target = null;
+    else wheelTo(ctl, st.target);
+  };
+  return st;
 }
 
 // ---------------------------------------------------------------- click to add / remove (owner, after EDOPro)
@@ -732,9 +799,9 @@ function reclip() {
 }
 
 export default {
-  classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CWindowModelFileList', 'CCardDetailViewDlg',
-    'CWindowModelListCard', 'CWindowModelListCardAttr', 'CWindowModelListCardType', 'CWindowModelListCardIcon',
-    'CWindowModelListCardStar', 'CWindowModelListCardForbi'],
+  // not the ListCard* filter dialogs: the trunk search replaces the buttons that opened them, and the same classes are
+  // the duel's pick dialogs (a duel screen's)
+  classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CWindowModelFileList', 'CCardDetailViewDlg'],
   mode: 'pass',
   parts: true,    // the controls' raw sprites / texts / swfs: most of the editor's art
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
@@ -744,18 +811,25 @@ export default {
     const inner = document.createElement('div');
     inner.className = 'layer';
     root.append(inner);
-    // the trunk's search: the game's filter hook (the recomp's Module.yo2KabanFilter) when it has one
     // the trunk's search: the game's filter (ovr/decksearch.c's Module.yo2KabanFilter, on the trunk list the snapshot
     // names; absent in an older runtime: no search)
     const st = { inner, search: null, list: 0 };
-    if (win.cls === 'CWindowModelKaban') st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, f));
+    if (win.cls === 'CWindowModelKaban') {
+      st.scroll = trunkScroller(root, api);   // under the search panel (its Filters popup opens over the list)
+      st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, f));
+    }
     return st;
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
+    // the scene's mouse (the side buttons' hover, drawn by backdrop()) changes every frame the pointer moves: a window
+    // is rebuilt only when anything else in it changed
+    const key = JSON.stringify(win, (k, v) => k === 'mouse' ? undefined : v);
+    if (key === st.key && live.has(win.id)) return;
+    st.key = key;
     live.set(win.id, { win, root: st.inner, plan: plan(win), api });
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
-    if (list) { st.list = list.id; st.search.setCount(list.hits); }
+    if (list) { st.list = list.id; st.search.setCount(list.hits); st.scroll.sync(list); }
     draw(win.id, api);
   },
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the
@@ -764,7 +838,11 @@ export default {
   hide: win => win.scene ? [win.scene.bg, win.scene.title, ...win.scene.menu].filter(Boolean).map(e => e.id) : [],
   backdrop(win, el) {
     const sc = win.scene;
-    if (!sc) return;
+    if (!sc) {   // a window without the scene (the file list on its own): no stale backdrop
+      if (el.firstChild) el.replaceChildren();
+      Object.assign(scene, { el: null, key: '' });
+      return;
+    }
     const key = JSON.stringify([sc.title, sc.menu, sc.menu.map(b => inSide(b, sc.mouse))]);
     if (scene.el !== el.firstChild || key !== scene.key) {
       const d = document.createElement('div');
