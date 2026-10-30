@@ -13,16 +13,21 @@ export const SHEET = {
 export const WINDOW_ALPHA = 178 / 255;   // the frame's vertex alpha
 
 let G;   // glyph atlas: { ascent, height, glyphs: { code: { adv, x0, y0, w, h, lv[] } } }
-export async function loadGlyphs(base = A) {
+// once per page (the starter picker, the HTML UI and the duel-speed button share it); nothing loads until a caller asks
+let loading;
+export const loadGlyphs = (base = A) => loading ||= load(base);
+async function load(base) {
   for (const s of Object.values(SHEET)) s.url = s.url.replace(A, base);
   A = base;
   G = await (await fetch(A + 'glyphs-dejavu16.json')).json();
   const img = u => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u; });
   await Promise.all(Object.values(SHEET).map(async s => {
     const clamp = s.url.replace(A, A + 'clamp/'), [m] = await Promise.all([img(clamp), img(clamp.replace('.png', '.rgb.png'))]);
-    const c = new OffscreenCanvas(m.width, m.height).getContext('2d');
+    const c = new OffscreenCanvas(m.width, m.height).getContext('2d', { willReadFrequently: true });
     c.drawImage(m, 0, 0);
-    s.alpha = c.getImageData(0, 0, m.width, m.height).data.filter((_, i) => i % 4 === 3);   // exact: alpha is stored as is
+    const d = c.getImageData(0, 0, m.width, m.height).data, a = new Uint8Array(m.width * m.height);
+    for (let i = 0; i < a.length; i++) a[i] = d[4 * i + 3];   // exact: alpha is stored as is
+    s.alpha = a;
   }));
 }
 const glyph = (ch, F = G) => F.glyphs[ch.charCodeAt(0)] || F.glyphs[63];   // '?' for anything the atlas lacks
