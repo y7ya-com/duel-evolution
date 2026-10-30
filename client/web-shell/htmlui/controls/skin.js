@@ -15,7 +15,7 @@
 // States: the game's (data-state = the snapshot's hover / pressed / disabled, pass mode) or the pointer's (:hover /
 // :active, owned mode). The menu button's are sampled (MBTN); the close box's are still a brighter / darker filter
 // (ponytail: until a live capture of them).
-import { FONT, spacing } from './basic.js';
+import { FONT, spacing, textBox } from './basic.js';
 
 const OUTLINE = '#4a4a4a';   // the shadow text's edge: thin, four ways (eight read bold next to the engine's)
 const outlined = `text-shadow: 1px 0 ${OUTLINE}, -1px 0 ${OUTLINE}, 0 1px ${OUTLINE}, 0 -1px ${OUTLINE}`;
@@ -45,7 +45,27 @@ const mbtnLook = ({ top, body, bottom, left, right, border }) => {
 //    (row 23 #fff). Stops sit at texel + 1 px: the engine reads every pixel half a texel up-left, so pixel y is
 //    the mean of texel rows y - 1 and y
 //  - plane (window_base_01_c01's middle tile, 70 %): #fff
+//  - chop (window_base_01_c01's sides and bottom, no top, 70 %): left 3 #76ffff, 1 #68e8ff, 3 #59c6ff, 1 #fff; right
+//    1 #fff, 3 #59c6ff, 1 #4db9f7, 3 #41abef; bottom 1 #fff, 3 #59c6ff, 1 #46b1f2, 3 #329be5
+//  - tab (tab_01_c01, 24 high, as wide as its caption + 20): a 45-degree left edge and a 1-px #0132d3 outline (top,
+//    slant, right), a light inner edge, the bottom open. Current: outline from row 2, #fff inner edge (2 rows on top,
+//    1 px on the slant and the right), body rows 5..19 #fafeff #dcfaff #b3f4ff > #81edff. Others: outline from row 1,
+//    #dbdbdb inner edge (1 row / 1 px), body rows 3..18 #39a6d3, #4690d5 #3d98ec > #379dfd (row 19 open: the bar's line
+//    shows under it). Hover: the game has no hover look; ponytail: a brighter body
+//  - icon (icon_01_c01, 16 x 24 cells; the box 15 x 14 from row 3): a 1-px #fff border, #fffc00 inside, bevel top
+//    #fffe86 #fffd40, left #fffd3d #fffc22, right #fae600 #f0b900, bottom #f7d800 #eb9f00; the glyph #005fea (expand: an
+//    arrow head over a block; hide: an X). Hover: box #fefdc0, bevel #fefed8 / #f9e79e / #eca93f, glyph #46c4ff
+//  - scroll bar (scroll_01_c00): track #d4e2e4; arrows 14 x 14 at 1,1 of their 16 x 16, #fff with a 1-px #92979a
+//    border and a #92979a arrow head; the thumb 12 wide at 2, #fff with a 1-px #92979a border
 const A70 = (178 / 255).toFixed(3);
+const tabClip = (top, left0, inset) =>   // the slant: at row y, x = left0 - y (one pixel per row); inset px off the right
+  `polygon(${left0 - top}px ${top}px, calc(100% - ${inset}px) ${top}px, calc(100% - ${inset}px) 100%, 0 100%, 0 ${left0}px)`;
+const svg = (body, fill = '', box = '0 0 15 14') => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${box}'>${body.replaceAll('F', fill)}</svg>`)}")`;
+const GLYPH = {   // in the 15 x 14 box
+  expand: f => svg("<path d='M7 3h1l4 4v3H3V7z' fill='F'/>", f),
+  hide: f => svg("<path d='M3 3l9 8M12 3l-9 8' stroke='F' stroke-width='2.2'/>", f),
+};
+const ARROW = { up: "<path d='M6 4h2l3 3v3H3V7z' fill='#92979a'/>", down: "<path d='M3 4h8v3l-3 3H6L3 7z' fill='#92979a'/>" };   // 14 x 14
 const CHAT_CSS = `
 .yo2-bar { position: absolute; height: 24px; opacity: ${A70};
   background:
@@ -54,7 +74,39 @@ const CHAT_CSS = `
     linear-gradient(to bottom, #a6ffff 1px, #7dd7f6 2px, #69c5ef 3px, #66c1ef 4px, #195def 19px) 100% 0 / 4px 19px no-repeat,
     linear-gradient(to bottom, #fff 3px, #beffff 4px, #86d9ff 5px, #80d3ff 6px, #226cff 19px, #0132d3 20px, #59c6ff 21px, #59c6ff 23px, #fff 24px);
   border-top-left-radius: 5px 5px; }
-.yo2-plane { position: absolute; background: #fff; opacity: ${A70}; }`;
+.yo2-plane { position: absolute; background: #fff; opacity: ${A70}; }
+.yo2-chop { position: absolute; opacity: ${A70};
+  box-shadow: inset 3px 0 #76ffff, inset 0 -3px #329be5, inset -3px 0 #41abef, inset 4px 0 #68e8ff, inset 0 -4px #46b1f2,
+    inset -4px 0 #4db9f7, inset 7px 0 #59c6ff, inset 0 -7px #59c6ff, inset -7px 0 #59c6ff, inset 8px 0 #fff,
+    inset 0 -8px #fff, inset -8px 0 #fff; }
+.yo2-tab { position: absolute; height: 24px; margin: 0; padding: 0; border: 0; background: none; cursor: inherit; }
+.yo2-tab > i { position: absolute; inset: 0; }
+.yo2-tab > i:nth-child(1) { background: #0132d3; clip-path: ${tabClip(1, 17, 0)}; bottom: 5px; }
+.yo2-tab > i:nth-child(2) { background: #dbdbdb; clip-path: ${tabClip(2, 18, 1)}; bottom: 5px; }
+.yo2-tab > i:nth-child(3) { clip-path: ${tabClip(3, 19, 2)}; bottom: 5px;
+  background: linear-gradient(to bottom, #39a6d3 3.5px, #4690d5 4.5px, #3d98ec 11.5px, #379dfd 18.5px); }
+.yo2-tab[aria-pressed=true] > i:nth-child(1) { clip-path: ${tabClip(2, 18, 0)}; bottom: 4px; }
+.yo2-tab[aria-pressed=true] > i:nth-child(2) { background: #fff; clip-path: ${tabClip(3, 19, 1)}; bottom: 4px; }
+.yo2-tab[aria-pressed=true] > i:nth-child(3) { clip-path: ${tabClip(5, 20, 2)}; bottom: 4px;
+  background: linear-gradient(to bottom, #fafeff 5.5px, #dcfaff 9.5px, #b3f4ff 13.5px, #81edff 19.5px); }
+.yo2-tab:not([aria-pressed=true]):hover > i:nth-child(3) { filter: brightness(1.12); }
+.yo2-tab:disabled { pointer-events: none; }
+.yo2-icon { position: absolute; width: 16px; height: 24px; margin: 0; padding: 0; border: 0; background: none; cursor: inherit; }
+.yo2-icon::before { content: ''; position: absolute; left: 0; top: 3px; width: 15px; height: 14px; box-sizing: border-box;
+  border: 1px solid #fff; background: var(--g) center / 15px 14px no-repeat border-box, #fffc00;
+  box-shadow: inset 0 1px #fffe86, inset 0 2px #fffd40, inset 1px 0 #fffd3d, inset 2px 0 #fffc22, inset -1px 0 #f0b900,
+    inset -2px 0 #fae600, inset 0 -1px #eb9f00, inset 0 -2px #f7d800; }
+.yo2-icon:hover::before, .yo2-icon[data-state=hover]::before { background: var(--gh) center / 15px 14px no-repeat border-box, #fefdc0;
+  box-shadow: inset 0 1px #fefed8, inset 1px 0 #fefdcf, inset -1px 0 #efba5a, inset -2px 0 #f9e79e, inset 0 -1px #eaa032, inset 0 -2px #f6d988; }
+.yo2-icon:active::before, .yo2-icon[data-state=pressed]::before { filter: brightness(0.9); }
+.yo2-icon[data-kind=expand] { --g: ${GLYPH.expand('#005fea')}; --gh: ${GLYPH.expand('#46c4ff')}; }
+.yo2-icon[data-kind=hide] { --g: ${GLYPH.hide('#005fea')}; --gh: ${GLYPH.hide('#46c4ff')}; }
+.yo2-scroll { position: absolute; width: 16px; background: #d4e2e4; }
+.yo2-scroll > i { position: absolute; left: 1px; width: 14px; height: 14px; box-sizing: border-box; border: 1px solid #92979a;
+  background: #fff 0 0 / 14px 14px no-repeat border-box; }
+.yo2-scroll > i:nth-child(1) { top: 1px; background-image: ${svg(ARROW.up, '', '0 0 14 14')}; }
+.yo2-scroll > i:nth-child(2) { bottom: 1px; background-image: ${svg(ARROW.down, '', '0 0 14 14')}; }
+.yo2-scroll > b { position: absolute; left: 2px; width: 12px; box-sizing: border-box; border: 1px solid #92979a; background: #fff; }`;
 
 // The 2008 button plate (CWindowTaskSwitch's swich_01_c00.png, one 24 x 24 9-slice per look), sampled texel for texel:
 // a 1 px border, two rows at the top and two at the bottom, two columns each side, the body, and a lighter stripe
@@ -177,4 +229,42 @@ export function panel(parent, { x = 0, y = 0, w, h, band = 0 } = {}) {
 
 // the icon bar along a window's top (CWindowTaskIconbar) and a window's back plane (BackPlane)
 const piece = cls => (parent, r) => { inject(); const d = document.createElement('div'); d.className = cls; place(d, r); parent.append(d); return d; };
-export const iconbar = piece('yo2-bar'), plane = piece('yo2-plane');
+export const iconbar = piece('yo2-bar'), plane = piece('yo2-plane'), chop = piece('yo2-chop');
+
+// A tab (CWindowTaskTab): a <button>, its caption at 16, 4; active: the current tab (aria-pressed)
+export function tab(parent, { x = 0, y = 0, w, label = '', active = false } = {}) {
+  inject();
+  const b = document.createElement('button');
+  b.className = 'yo2-tab';
+  b.type = 'button';
+  b.append(document.createElement('i'), document.createElement('i'), document.createElement('i'));
+  place(b, { x, y, w });
+  b.setAttribute('aria-pressed', !!active);
+  if (label) textBox(b, label, { x: 16, y: 4 });
+  parent.append(b);
+  return b;
+}
+// A window icon (CWindowTaskIconExpand / IconHide: 16 x 24): kind 'expand' (an arrow head) or 'hide' (an X)
+export function icon(parent, { x = 0, y = 0, kind, label = kind, state = null } = {}) {
+  inject();
+  const b = document.createElement('button');
+  b.className = 'yo2-icon';
+  b.type = 'button';
+  b.dataset.kind = kind;
+  b.setAttribute('aria-label', label);
+  setState(b, state);
+  place(b, { x, y });
+  parent.append(b);
+  return b;
+}
+// A vertical scroll bar (CWindowTaskScroll): length px, the thumb at pos (from below the up arrow), len px
+export function scrollbar(parent, { x = 0, y = 0, length, pos = 0, len = 16 } = {}) {
+  inject();
+  const d = document.createElement('div'), t = document.createElement('b');
+  d.className = 'yo2-scroll';
+  d.append(document.createElement('i'), document.createElement('i'), t);
+  place(d, { x, y, h: length });
+  Object.assign(t.style, { top: 16 + pos + 'px', height: len + 'px' });
+  parent.append(d);
+  return d;
+}
