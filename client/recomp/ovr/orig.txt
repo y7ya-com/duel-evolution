@@ -40,3 +40,4 @@
 006af100  # CNetLobby: pop a chat line (ovr/duellog.c: channel-9 lines to the Duel Log tab)
 0060f9e0  # CElement::onMain (htmlui.c: no draw for elements under an HTML-drawn window)
 00a51e70  # the field map's wall probe (crossing.c: the pier's ship <-> the dorm's beach)
+005932f0  # CDupSprite::onMain (htmlui.c: its tiles not queued under an HTML-drawn window)

@@ -4,16 +4,13 @@
 // through api.renderControl / api.syncWindow. FrameBottomThick, TextField, Text and TextSwitch come from
 // htmlui-select's screens/select.js (13deb4f), checked against the decomp; the addresses are in each comment.
 // Buttons (the owner's rule): a real <button>, the original art as its background (the swich_01 frames, per state).
-import { SHEET, WINDOW_ALPHA, sprite, nine, measure } from '../../ui.js';
-import { plateLook } from './skin.js';
+import { SHEET, WINDOW_ALPHA, sprite, nine, FONT, fontCss, spacing, textWidth, plateLook } from '../../ui.js';
+export { FONT, fontCss, spacing, textWidth };
 
 const LH = 16;   // a 16-pixel line (CWindowTaskText fontSize; lineGap is added per control)
 
-// Text: the game asks GDI for "Arial" with lfHeight 16 (CreateFontIndirectA, logged in the native build): a 16-pixel
-// cell, which is Arial's winAscent + winDescent = 1.117 em, so 14.3 px Arial on 16-pixel lines (the baseline lands
-// where GDI's does). Metric-compatible fallbacks where Arial is missing.
-export const FONT = 'Arial, "Liberation Sans", Arimo, Helvetica, sans-serif';
-export const fontCss = (px = LH, line = px) => `${+(px / 1.117).toFixed(2)}px/${line}px ${FONT}`;
+// Text (Arial, the game's metrics and spacing): FONT, fontCss, spacing and textWidth are ui.js's (the starter picker
+// uses them too)
 // a CTextElm's colour MULTIPLIES its glyphs, which are black: black whatever the colour, only its alpha shows (white,
 // CWindowTaskText's default, draws black). white: the glyphs are white (a ShadowText set up for tinting,
 // src/Result/yo2ResultWindow.cpp): the colour shows.
@@ -21,19 +18,6 @@ export const textColor = (color = [0, 0, 0, 1], white = false) => {
   const [r, g, b, a] = white ? color : [0, 0, 0, color[3] ?? 1];
   return `rgba(${r * 255 | 0}, ${g * 255 | 0}, ${b * 255 | 0}, ${a})`;
 };
-// Letter spacing (owner: Arial, spaced like the game): the engine puts every glyph in a cell round(advance) + 1 wide
-// (CD3DTextTexture cellIncX + 1; the web engine's glyphs are DejaVu Sans, ui.js measure() from its glyph table), so a
-// line is wider than Arial sets it. Each text gets (engine width - Arial width) / characters: its lines come out as
-// wide as the game's, in Arial. Other sizes than the 16-pixel table scale it. 1 px (the cell's +1) when the table
-// isn't loaded (node tests).
-export function spacing(s, px = LH) {
-  const lines = String(s).split('\n'), n = lines.reduce((k, l) => k + [...l].length, 0);
-  if (!n) return 0;
-  try {
-    const eng = lines.reduce((k, l) => k + measure(l), 0) * px / LH, ar = lines.reduce((k, l) => k + textWidth(l, px), 0);
-    return Math.round((eng - ar) / n * 100) / 100;
-  } catch { return 1; }
-}
 // Lines of text as one block at x, y; w is the box alignment (0 left, 1 centre, 2 right) and wrapping happen in;
 // h clips it. The layout is the browser's.
 export function textBox(parent, s, { x = 0, y = 0, w, h, align = 0, px = LH, gap = 0, color, white = false, wrap = false } = {}) {
@@ -53,12 +37,6 @@ export function textBox(parent, s, { x = 0, y = 0, w, h, align = 0, px = LH, gap
 export const untag = s => s.replace(/[@＠]\d/g, '');
 // the lines a CTextElm shows: from firstLine, pageLines of them
 export const shownLines = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
-let measurer;   // made on first use: importing this file needs no DOM (node tests)
-export const textWidth = (s, px = LH) => {
-  measurer ||= document.createElement('canvas').getContext('2d');
-  measurer.font = fontCss(px);
-  return measurer.measureText(s).width;
-};
 // [[string, x, y], ...] placed lines (older screens' call): each line a text block at its place
 export function tinted(parent, lines, color, font, white = false) {
   return lines.filter(l => l[0]).map(([s, x, y]) => textBox(parent, s, { x, y, color, white, px: font?.height ?? LH }))[0] || null;

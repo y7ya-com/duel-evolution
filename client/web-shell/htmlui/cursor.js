@@ -10,6 +10,11 @@ const imgs = new Map();    // file name -> loaded Image (null while loading or f
 const cache = new Map();   // state + size -> { v: CSS value } once decoded ({} while building)
 const name = tex => tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
 const drawn = s => s.shown && s.a > 0;
+// the click ripple (mausuk_e01_*): not in the cursor image, which a browser re-decodes (and may flash) at every swap
+// (owner: "flickery when I click"); the bridge draws it in a layer of its own (ripple() below)
+const isRipple = s => name(s.tex).startsWith('mausuk_e01');
+// the ripple's sprites showing this frame (c: snapshot.cursor), back to front
+export const ripple = c => c?.shown ? c.sprites.filter(s => drawn(s) && isRipple(s)).sort((a, b) => a.wz - b.wz) : [];
 const MAX = 128;           // Chromium ignores a cursor over 128 x 128 CSS px
 // Every state is drawn in ONE box around the mouse point (game px; it holds the hand at -16,-16 64 x 64 and the click
 // ripple at its largest, about +-31 around the point): the same size and hotspot for every frame, so nothing can move
@@ -61,7 +66,7 @@ export function cursorCss(c, base, scale, dpr) {
     if (n && !imgs.has(n)) { imgs.set(n, null); const i = new Image(); i.onload = () => imgs.set(n, i); i.src = base + n; }
   }
   if (!c.shown) return 'auto';
-  const on = c.sprites.filter(drawn).sort((a, b) => a.wz - b.wz);   // back to front
+  const on = c.sprites.filter(s => drawn(s) && !isRipple(s)).sort((a, b) => a.wz - b.wz);   // back to front: the hand
   if (!on.length) return 'none';
   if (!on.every(s => imgs.get(name(s.tex)) && (s.mode === 2 || s.mode === 6))) return null;
   const at = on.map(s => ({ s, x: s.wx - c.mx, y: s.wy - c.my, w: s.src[2] * s.wsx, h: s.src[3] * s.wsy }));

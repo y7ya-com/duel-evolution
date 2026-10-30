@@ -155,6 +155,17 @@ yellow menu button; `.set({ label, state })`), `titleBar(parent, { x, y, w, titl
 follow the pointer (owned mode). Sample new pieces from the engine's own render (or the atlas texels) and add them to
 skin.js with their colours cited; skin.html lays them out for a side-by-side.
 
+**Scrolling (owner's rule, 2026-10-30: "the overflow scrollers are just so broken all across the game"):** every HTML
+list or scroll area (chat log, trunk / card lists, file lists, player and NPC lists, mail ...) is a native scroller:
+controls/scroll.js `scrollList(parent, { x, y, w, h, rowH, stick })`, a real overflow: auto box with the browser's own
+scroll bar (styled by scrollbar-color / -width only): wheel, drag, touch momentum and keys are the browser's. The game's
+scroll bar and arrows are not redrawn. `list.set(items, render, key)` keeps rows by key; `stick: true` (logs) keeps the
+bottom in view while the player is there. Keep the game in step: a list whose rows the DOM draws in full needs nothing;
+a list whose rows the engine still draws (card faces) follows the DOM through `list.onTop = i => ...` and
+`wheelTo(api, ctl, i)` (one wheel notch per frame toward that top line); when the game moves its list (a search, a new
+line), call `list.top(i)` or `set()` again and the scroll position stays sensible. The box takes the pointer (pointer-events: auto, even
+in pass mode), so a row the game must see clicked forwards it (`api.click(ctl.id)` or the screen's own handler).
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
 text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
