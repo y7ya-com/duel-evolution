@@ -21,7 +21,7 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, type x y text (no Enter), click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
 // chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
@@ -75,6 +75,16 @@ export const ROUTES = {
     ['wheel', 500, 660, -160], ['wait', 800], ['shot', 'html-scrolled-up'],
     ['say', 636, 720, 'a new line while scrolled up'], ['wait', 1500], ['shot', 'html-new-while-up'],
     ['wheel', 500, 660, 4000], ['wait', 800], ['shot', 'html-back-bottom']], flip: [] },
+  // a duel's Duel Log tab (ovr/duellog.c; the lines from a server with duel/duelText.ts and phase2-duel's dev NPC
+  // challenge: PARITY_SRC=<its server> STACK_VARS=DEV:1,NPC_CHALLENGE:2): a room (the red door's first), Create Duel on
+  // the bar's duel disk, the NPC's request accepted, Rock; in the duel the Duel Log tab, the engine's then HTML's
+  duel: { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
+    ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000],
+    ['leave', 504, 214, 10], ['wait', 10000], ['click', 512, 671], ['wait', 6000], ['shot', 'room'],
+    ['click', 125, 750], ['wait', 2000], ['click', 624, 420], ['wait', 2000], ['shot', 'create'], ['click', 385, 543], ['wait', 5000],
+    ['shot', 'request'], ['click', 504, 404], ['wait', 15000], ['shot', 'rps'], ['leave', 250, 680, 30], ['leave', 250, 680, 30], ['wait', 3000], ['click', 512, 290], ['scene', 28, 120000],
+    ['wait', 20000], ['click', 375, 620], ['wait', 3000], ['shot', 'duellog-engine'], ['on', 'CChatWindow'], ['wait', 2000],
+    ['shot', 'duellog-html']], flip: [] },
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
@@ -171,6 +181,11 @@ for (const [a, x, y, z] of route.steps) {
     for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
+  }
+  if (a === 'type') {   // the field at x, y takes the text z, typed as key events (no Enter)
+    await click(x, y);
+    for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
+    await sleep(800);
   }
   if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
   if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
