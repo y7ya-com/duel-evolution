@@ -76,9 +76,11 @@ export function plan(win) {
       // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w)
       // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w), lines
       // wrapped at that width as the engine wraps them, the page it shows (firstLine, pageLines: the detail's text)
-      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w } : { align: 0 };
+      // ponytail: a dialog's "Title" text draws white in the engine (its glyph colour comes from the text texture's
+      // tag converter, CD3DTextTexture +0x64, not read yet): by name until the converter is
+      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink: ctl.name === 'Title' ? 0xffffff : null } : { align: 0 };
       const text = box.w ? wrapLines(t.text, box.w).slice(ctl.firstLine || 0, (ctl.firstLine || 0) + (ctl.pageLines || 1e9)).join('\n') : t.text;
-      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * text.split('\n').length },
+      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * text.split('\n').length },
         el => drawLabel(el, text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
     for (const f of P.swfs || []) {
@@ -607,16 +609,17 @@ export function searchPanel(root, apply) {
 }
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
-// 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
-function drawLabel(el, text, x, y, alpha, { align = 0, w = 0 } = {}) {
+// 18-pixel style. box: { align (0 left, 1 centre, 2 right), w, px (the control's fontSize: 24 for a dialog's title) }
+// as the CTextElm lays its lines out.
+function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink = null } = {}) {
   text.split('\n').forEach((line, li) => {
-    const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : 16;
+    const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : size;
     const lw = rs.reduce((n, r) => r.x !== null ? r.x + textWidth(r.s, px(r)) : n + textWidth(r.s, px(r)), 0);
     let pen = align === 1 ? Math.floor((w - lw) / 2) : align === 2 ? w - lw : 0;
     for (const r of rs) {
       if (r.x !== null) pen = r.x;
-      const c = [r.rgb >> 16, r.rgb >> 8 & 255, r.rgb & 255].map(v => v / 255);
-      const d = textBox(el, r.s, { x: x + pen, y: y + 16 * li, px: px(r), color: [...c, alpha], white: true });
+      const rgb = ink !== null && r.rgb === TAG_RGB[0] ? ink : r.rgb, c = [rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255);
+      const d = textBox(el, r.s, { x: x + pen, y: y + size * li, px: px(r), color: [...c, alpha], white: true });
       if (px(r) === 18) d.style.fontWeight = 'bold';
       pen += textWidth(r.s, px(r));
     }
@@ -732,9 +735,9 @@ function reclip() {
 }
 
 export default {
-  classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CWindowModelFileList', 'CCardDetailViewDlg',
-    'CWindowModelListCard', 'CWindowModelListCardAttr', 'CWindowModelListCardType', 'CWindowModelListCardIcon',
-    'CWindowModelListCardStar', 'CWindowModelListCardForbi'],
+  // not the ListCard* filter dialogs: the trunk search replaces the buttons that opened them, and the same classes are
+  // the duel's pick dialogs (a duel screen's)
+  classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CWindowModelFileList', 'CCardDetailViewDlg'],
   mode: 'pass',
   parts: true,    // the controls' raw sprites / texts / swfs: most of the editor's art
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
@@ -764,7 +767,11 @@ export default {
   hide: win => win.scene ? [win.scene.bg, win.scene.title, ...win.scene.menu].filter(Boolean).map(e => e.id) : [],
   backdrop(win, el) {
     const sc = win.scene;
-    if (!sc) return;
+    if (!sc) {   // a window without the scene (the file list on its own): no stale backdrop
+      if (el.firstChild) el.replaceChildren();
+      Object.assign(scene, { el: null, key: '' });
+      return;
+    }
     const key = JSON.stringify([sc.title, sc.menu, sc.menu.map(b => inSide(b, sc.mouse))]);
     if (scene.el !== el.firstChild || key !== scene.key) {
       const d = document.createElement('div');
