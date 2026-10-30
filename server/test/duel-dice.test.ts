@@ -8,6 +8,7 @@ import { PY_DUEL_RULE, type Json } from "../src/duel/engine/core.ts";
 import { YO2Duel } from "../src/duel/translator/translator.ts";
 import { cardmap } from "../src/duel/data.ts";
 import { PyRandom } from "../src/util/pyrandom.ts";
+import { DuelLog } from "../src/duel/duelText.ts";
 
 const MEGAMORPH = 22046459, VILEPAWN = 73219648, TIME_WIZARD = 71625222;
 const C_COIN = 0x5c, C_DICE = 0x5d;
@@ -26,10 +27,13 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("dice and co
     const d = new YO2Duel(decks, { first: 1, cardmap: cardmap(), cfg: {}, log: () => {}, rng: new PyRandom() });
     d.start();
     let evs = dc.new("t", decks, { first: 1, seed: 7, shuffle: true, rule: PY_DUEL_RULE, bot: [false, false], auto_chain: true }) as Json[];
+    const dlog = new DuelLog(["Player", "NPC"], { name: (c) => dc.cardDB.name(c), stats: () => ({ atk: 0, def: 0 }) });
+    const lines: string[] = [];
     const dice: number[][] = [], coins: number[][] = [];
     let wizard = -1, vilepawn = -1;
     for (let i = 0; i < 300 && !(dice.length && coins.length); i++) {
       const out = cmds(d.feed_many(evs) as [number, Uint8Array][]);
+      lines.push(...dlog.feed(evs));
       dice.push(...out.filter((c) => c[1] === C_DICE));
       coins.push(...out.filter((c) => c[1] === C_COIN));
       for (const e of evs as any[]) if (e.type === "MOVE" && e.to.location === 4) {
@@ -58,5 +62,8 @@ describe.skipIf(!existsSync(join(ENGINE_DATA_DIR, "scripts.pack")))("dice and co
     expect([die[0], die[2]]).toEqual([1, vilepawn]);   // the die: player 1, Vilepawn's monster zone (not Megamorph's)
     expect(die[3]).toBeGreaterThanOrEqual(1);
     expect(die[3]).toBeLessThanOrEqual(6);
+    // the Duel Log names both tosses
+    expect(lines).toContain(`Turn 2 - NPC's Vilepawn Archfiend rolled a ${die[3]}` + (die[3] === 3 ? " -> Player's Megamorph was negated" : ""));
+    expect(lines.some((s) => /^Coin toss: (Heads|Tails)$/.test(s))).toBe(true);
   }, 120_000);
 });
