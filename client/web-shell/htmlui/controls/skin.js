@@ -55,8 +55,6 @@ const mbtnLook = ({ top, body, bottom, left, right, border }) => {
 //  - icon (icon_01_c01, 16 x 24 cells; the box 15 x 14 from row 3): a 1-px #fff border, #fffc00 inside, bevel top
 //    #fffe86 #fffd40, left #fffd3d #fffc22, right #fae600 #f0b900, bottom #f7d800 #eb9f00; the glyph #005fea (expand: an
 //    arrow head over a block; hide: an X). Hover: box #fefdc0, bevel #fefed8 / #f9e79e / #eca93f, glyph #46c4ff
-//  - scroll bar (scroll_01_c00): track #d4e2e4; arrows 14 x 14 at 1,1 of their 16 x 16, #fff with a 1-px #92979a
-//    border and a #92979a arrow head; the thumb 12 wide at 2, #fff with a 1-px #92979a border
 const A70 = (178 / 255).toFixed(3);
 const tabClip = (top, left0, inset) =>   // the slant: at row y, x = left0 - y (one pixel per row); inset px off the right
   `polygon(${left0 - top}px ${top}px, calc(100% - ${inset}px) ${top}px, calc(100% - ${inset}px) 100%, 0 100%, 0 ${left0}px)`;
@@ -65,11 +63,12 @@ const GLYPH = {   // in the 15 x 14 box
   expand: f => svg("<path d='M7 3h1l4 4v3H3V7z' fill='F'/>", f),
   hide: f => svg("<path d='M3 3l9 8M12 3l-9 8' stroke='F' stroke-width='2.2'/>", f),
 };
-const ARROW = { up: "<path d='M6 4h2l3 3v3H3V7z' fill='#92979a'/>", down: "<path d='M3 4h8v3l-3 3H6L3 7z' fill='#92979a'/>" };   // 14 x 14
 // D-Mail's window (CWindowModelDMail's own 512 x 512 picture, mail_win_01_c01.png, as boxes; sampled from the engine's
 // 1x render): the duel title bar, a #a9aba4 frame (6..505 x 27..477), a slate panel (#7581a3, bevelled, 12..499 x
 // 32..471), the mail list (16..495 x 71..250: 36-pixel rows, white, a #a8acae / #525a5e separator; the scroll column
 // #d2d2d2), a light band (#96a5be > #9caabf, 251..271), the body (16..495 x 272..464, white), the body below #9898a8.
+// The mail form (mail_win_02_c01): a band #88a5bd > #8daac1 (40..95) with white fields edged #808080 (To 16..392 x
+// 48..64, Subject 16..495 x 72..88), the body 16..495 x 104..360, a lower panel #acb9ca > #b5becf (361..471).
 // The duel-style windows (CWindowTaskFrameDuel: My Profile, the Friend / Ignore / Team lists; htmlui-chat), sampled from
 // the engine's own 1x render (window-local px):
 //  - title bar rows 0..23: #f5f5f7 #f0f0f2 #e0e0e5 #c9c9d2 #b9b9c4 #b0b0bc #a8a8b6 #a0a0af #9999a9 (8) > #727288 (19)
@@ -127,6 +126,9 @@ const DUEL_CSS = `
     repeating-linear-gradient(to bottom, #fff 0 31px, #a8acae 31px 32px, #525a5e 32px 33px, #a8acae 33px 36px); }
 .yo2-mail > .bd { border-top: 1px solid #5a647e; border-bottom: 1px solid #58627c;
   background: linear-gradient(to bottom, #96a5be, #9caabf); }
+.yo2-mail > .ff { background: linear-gradient(to bottom, #88a5bd, #8daac1); box-shadow: inset 0 1px #7c92b1, inset 0 -1px #8297b6; }
+.yo2-mail > .fd { background: #fff; border: 1px solid #808080; }
+.yo2-mail > .lo { background: linear-gradient(to bottom, #acb9ca, #b5becf); border-top: 1px solid #636c81; }
 .yo2-mail > .tx { border: 1px solid #8c8f9c; border-right: 0;
   background: linear-gradient(to right, #fff calc(100% - 16px), #e8e8e8 calc(100% - 16px) calc(100% - 15px), #d2d2d2 calc(100% - 15px)); }`;
 const CHAT_CSS = `
@@ -164,12 +166,7 @@ const CHAT_CSS = `
 .yo2-icon:active::before, .yo2-icon[data-state=pressed]::before { filter: brightness(0.9); }
 .yo2-icon[data-kind=expand] { --g: ${GLYPH.expand('#005fea')}; --gh: ${GLYPH.expand('#46c4ff')}; }
 .yo2-icon[data-kind=hide] { --g: ${GLYPH.hide('#005fea')}; --gh: ${GLYPH.hide('#46c4ff')}; }
-.yo2-scroll { position: absolute; width: 16px; background: #d4e2e4; }
-.yo2-scroll > i { position: absolute; left: 1px; width: 14px; height: 14px; box-sizing: border-box; border: 1px solid #92979a;
-  background: #fff 0 0 / 14px 14px no-repeat border-box; }
-.yo2-scroll > i:nth-child(1) { top: 1px; background-image: ${svg(ARROW.up, '', '0 0 14 14')}; }
-.yo2-scroll > i:nth-child(2) { bottom: 1px; background-image: ${svg(ARROW.down, '', '0 0 14 14')}; }
-.yo2-scroll > b { position: absolute; left: 2px; width: 12px; box-sizing: border-box; border: 1px solid #92979a; background: #fff; }
+
 ${DUEL_CSS}`;
 
 // The 2008 button plate lives in ui.js (the starter picker draws it too): re-exported here
@@ -204,6 +201,7 @@ const skinCss = () => `
     inset 0 -3px 0 #329be5, inset 4px 0 0 #68e8ff, inset 0 4px 0 #79ffff, inset -4px 0 0 #4db9f7, inset 0 -4px 0 #46b1f2,
     inset 7px 0 0 #59c6ff, inset 0 7px 0 #59c6ff, inset -7px 0 0 #59c6ff, inset 0 -7px 0 #59c6ff; }
 .yo2-panel { isolation: isolate; }
+.yo2-panel.yo2-flat::before { background: #59c6ff; }   /* CWindowTaskFramePlane: c01's 9 pieces at (24, 0), the centre #59c6ff */
 .yo2-band { position: absolute; left: 7px; right: 7px; bottom: 7px; background: #e5e5e5; }
 ${CHAT_CSS}`;
 
@@ -260,11 +258,12 @@ export function titleBar(parent, { x = 0, y = 0, w, title = '', close = true, cl
 }
 
 // The blue panel frame (window_base_01_c01's bevel, translucent as the window draws it). Children go inside it.
-// band: the bottom-thick frame's grey band above the bottom bevel, in px (the Main Menu's: 6).
-export function panel(parent, { x = 0, y = 0, w, h, band = 0 } = {}) {
+// band: the bottom-thick frame's grey band above the bottom bevel, in px (the Main Menu's: 6). flat: a FramePlane (the
+// same frame round a #59c6ff body: SetComment's and BlacklistInput's dialogs)
+export function panel(parent, { x = 0, y = 0, w, h, band = 0, flat = false } = {}) {
   inject();
   const p = document.createElement('div');
-  p.className = 'yo2-panel';
+  p.className = flat ? 'yo2-panel yo2-flat' : 'yo2-panel';
   place(p, { x, y, w, h });
   if (band) { const b = document.createElement('div'); b.className = 'yo2-band'; b.style.height = band + 'px'; p.append(b); }
   parent.append(p);
@@ -301,17 +300,6 @@ export function icon(parent, { x = 0, y = 0, kind, label = kind, state = null } 
   parent.append(b);
   return b;
 }
-// A vertical scroll bar (CWindowTaskScroll): length px, the thumb at pos (from below the up arrow), len px
-export function scrollbar(parent, { x = 0, y = 0, length, pos = 0, len = 16 } = {}) {
-  inject();
-  const d = document.createElement('div'), t = document.createElement('b');
-  d.className = 'yo2-scroll';
-  d.append(document.createElement('i'), document.createElement('i'), t);
-  place(d, { x, y, h: length });
-  Object.assign(t.style, { top: 16 + pos + 'px', height: len + 'px' });
-  parent.append(d);
-  return d;
-}
 
 // A duel-style window's frame (CWindowTaskFrameDuel), w x h at the window's 0, 0: the title bar, the body, and the well
 // at 13, 32, w - 26, h - 76 (its inside: the content's; children go in .well)
@@ -343,14 +331,19 @@ export function duelButton(parent, { x, y, w, h = 24, label = '', state = null }
 // a list's striped rows (CWindowTaskBackStripe, 16-pixel rows)
 export const stripes = piece('yo2-stripes');
 
-// D-Mail's window background (its 512 x 512 picture as boxes)
-export function mailWindow(parent, { w = 512, h = 512 } = {}) {
+// D-Mail's windows' backgrounds (their 512 x 512 pictures as boxes): the inbox (mail_win_01_c01) or, compose: true,
+// the mail form (mail_win_02_c01: a light band with the To and Subject fields, the body 104..360, a lower panel)
+export function mailWindow(parent, { w = 512, h = 512, compose = false } = {}) {
   inject();
   const d = document.createElement('div');
   d.className = 'yo2-mail';
   place(d, { w, h });
-  for (const [cls, x, y, bw, bh] of [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ls', 16, 71, w - 32, 180],
-    ['bd', 16, 251, w - 32, 21], ['tx', 16, 272, w - 32, 193]]) {
+  const boxes = compose
+    ? [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ff', 16, 40, w - 32, 56], ['fd', 16, 48, 377, 17],
+      ['fd', 16, 72, w - 32, 17], ['tx', 16, 104, w - 32, 257], ['lo', 16, 361, w - 32, 111]]
+    : [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ls', 16, 71, w - 32, 180], ['bd', 16, 251, w - 32, 21],
+      ['tx', 16, 272, w - 32, 193]];
+  for (const [cls, x, y, bw, bh] of boxes) {
     const i = document.createElement('i');
     i.className = cls;
     place(i, { x, y, w: bw, h: bh });

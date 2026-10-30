@@ -11,14 +11,6 @@ const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
 const scroll = ui && await import('../controls/scroll.js');
 
-const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
-
-// A press at y (bar-local) on a scroll bar: -1 up (the up arrow, the track above the thumb), 1 down, 0 on the thumb.
-export function scrollDir(bar, y) {
-  const top = ARROW + bar.thumb.pos;
-  return y < top ? -1 : y >= top + bar.thumb.len ? 1 : 0;
-}
-
 // --- The chat's controls, CSS (controls/skin.js, the owner's Skin rule: crisp at any scale, colours sampled from the
 // game's art): the bar, the frame, the back plane, the tabs, the taller / shorter icons and the scroll bar.
 const ICON = { IconExpand: ['expand', 'Taller'], IconHide: ['hide', 'Shorter'] };
@@ -40,32 +32,36 @@ const DRAW = {
 };
 function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
-  if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  if (/(^|[^i])Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
   if (ICON[fam]) return DRAW.Icon(el, c, api, ICON[fam]);
   return DRAW[fam] ? DRAW[fam](el, c, api) : api.renderControl(c, el);
 }
 
 const key = c => JSON.stringify(c);
-// a pointer's y in an element's own game pixels (the bridge scales the layer)
-const localY = (e, el) => { const r = el.getBoundingClientRect(); return (e.clientY - r.top) * el.offsetHeight / r.height; };
 
-// The scroll bar: a press above or below the thumb (or on an arrow) scrolls the log as the wheel does, max / 10 + 1
-// lines. ponytail: no arrow-sized steps, no thumb drag, until api.scroll is wired.
+// A lone scroll bar (one no list owns: the profile's rows) as a native box over its rect (owner: native scroll bars
+// everywhere; bridge.js's scrollbars.js does the same for windows no screen owns): the box's content stands for the
+// bar's range (page lines in view of max + page), scrolling it sets the bar's value through the game's setValue, and
+// the game moving its value moves the box.
 function ownScroll(c, layer, api) {
-  const d = document.createElement('div');
-  d.className = 'own';
-  let bar = c;
-  d.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    const dir = scrollDir(bar, localY(e, d));
-    if (dir) api.wheel(bar.parent || bar.id, dir * 120);
-  });
-  d.update = c2 => {
+  scroll.inject();
+  const el = document.createElement('div'), inner = document.createElement('div');
+  el.className = 'own yo2-scroll-list';
+  el.append(inner);
+  layer.append(el);
+  let bar = c, at = -1;
+  const range = () => el.scrollHeight - el.clientHeight;
+  el.addEventListener('scroll', () => {
+    const r = range(), v = r > 0 ? Math.round(el.scrollTop / r * bar.max) : 0;
+    if (v !== at) { at = v; api.setValue(bar.id, v); }
+  }, { passive: true });
+  el.update = c2 => {
     bar = c2;
-    Object.assign(d.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
+    Object.assign(el.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.length + 'px' });
+    inner.style.height = c2.length * (c2.max + Math.max(1, c2.page)) / Math.max(1, c2.page) + 'px';
+    if (c2.value !== at) { at = c2.value; el.scrollTop = c2.max ? c2.value / c2.max * range() : 0; }
   };
-  layer.append(d);
-  return d;
+  return el;
 }
 
 // An input: a real <input> (<textarea> for a multi-line one) where the game draws its text (8 in), over the field
@@ -151,12 +147,12 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
 
 const CSS = () => `
 .htmlui-own { user-select: none; }
-.htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
+.htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; }
 .htmlui-own button:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
 .htmlui-own .list { font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
 .htmlui-own .list.yo2-stripes { background-attachment: local; }
 .htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
-.htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
+.htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; background: none; outline: none; resize: none; overflow: hidden; }
 `;
 
 // An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
@@ -185,11 +181,17 @@ export function owned(classes, draw, background) {
 
     update(win, prev, root, api, st) {
       const seen = new Set(), order = [];
-      for (const [n, c] of win.controls.entries()) {
-        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's)
-        if (c.parent) continue;
+      const byId = new Map(win.controls.map(k => [k.id, k]));
+      for (let [n, c] of win.controls.entries()) {
+        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's); but a
+        // MultiInput's Input is the field itself, at the MultiInput's place
+        const up = byId.get(c.parent);
+        if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y, inMulti: true };
+        else if (c.parent) continue;
         seen.add(c.id);
-        const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
+        const isInput = /(^|[^i])Input(Duel)?$/.test(c.cls);   // Input, InputDuel (a MultiInput holds one)
+        // an input reported wider than its window (the mail form's Subject: 496 from x 73) ends inside the frame, as drawn
+        if (isInput && c.x + c.w > win.w) c = { ...c, w: win.w - 16 - c.x };
         // the drawing: the input's text is ownInput's, so it doesn't redraw the field
         const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
         let d = st.drawn.get(c.id);
@@ -203,7 +205,7 @@ export function owned(classes, draw, background) {
           d.k = k;
           const focused = d.el.contains(document.activeElement);   // a tab pressed from the keyboard keeps the focus
           d.el.replaceChildren();
-          if (c.shown) draw(c, d.el, api, win);
+          if (c.shown && !c.inMulti) draw(c, d.el, api, win);   // a MultiInput's field is its window's picture (white)
           if (focused) d.el.querySelector('button')?.focus();
         }
         // the input layer: the scroll bar, the input line
