@@ -4,14 +4,18 @@
 // Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
-import { read } from './read.js';
-import { renderControl } from './controls/basic.js';
-import { loadGlyphs } from '../ui.js';
+import { read, extend } from './read.js';
+import { renderControl, syncWindow, FONTS } from './controls/basic.js';
+import { loadGlyphs, loadFont } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
 
 export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+  for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
+    const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
+    if (m?.default) extend(m.default);
+  }
   const by = new Map();
   for (const n of SCREENS) {
     const m = await import(new URL(n + '.js', base)).catch(() => null);
@@ -39,12 +43,16 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .sp { overflow: hidden; }
 #htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
   mask-repeat: no-repeat; transform-origin: 0 0; }
-#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }`;
+#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
+#htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
+#htmlui-host .rt { position: absolute; font: 16px/16px 'DejaVu Sans', sans-serif; white-space: pre; color: transparent;
+  pointer-events: none; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
 export async function makeLayer(host, screens, art = 'ui/') {
   await loadGlyphs(art);
+  for (const px of [24, 32]) FONTS[px] = await loadFont(px).catch(() => undefined);
   if (!document.getElementById('htmlui-css')) {
     const st = document.createElement('style');
     st.id = 'htmlui-css';
@@ -66,6 +74,9 @@ export async function makeLayer(host, screens, art = 'ui/') {
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
+        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
+        // window in the bubbling phase
+        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
@@ -73,19 +84,19 @@ export async function makeLayer(host, screens, art = 'ui/') {
       Object.assign(e.root.style, {
         left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
+        overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
       const json = JSON.stringify(w.controls);
       if (json === e.json) continue;
       e.json = json;
-      const a = { ...api, owned: mod?.mode === 'owned', renderControl: (c, el) => renderControl(c, el, a) };
+      const a = e.api ||= { ...api, owned: mod?.mode === 'owned' };
+      a.renderControl = (c, el, opts) => renderControl(c, el, a, opts);
+      a.syncWindow = (root, win, st) => syncWindow(root, win, st, a);
       if (mod) {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
-      } else {
-        e.root.replaceChildren();
-        for (const c of w.controls) if (c.shown) renderControl(c, e.root, a);
-      }
+      } else syncWindow(e.root, w, e.st ||= new Map(), a);
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -126,29 +137,84 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, last = null;
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set();
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
-  const api = { click() {}, hover() {}, key() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
-  Module.onYo2Frame = tables => {
-    if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
-    let snap;
-    try { snap = read(dv, ++frameNo, scene); } catch (e) { console.warn('htmlui: read failed', e); return; }
+
+  // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
+  // controls' onMain, and drops a press that comes in the same frame as the move). Keys, characters and text: queued
+  // into the tables, played by htmlui.c at the next Present through the factory's dispatch / the control's setText.
+  const queue = [], waiters = [];
+  const frames = n => new Promise(r => waiters.push([frameNo + n, r]));
+  const at = id => {   // a control's centre in client pixels
+    for (const w of last?.windows || []) for (const c of w.controls) if (c.id === id) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024;
+      return [r.left + (w.x + c.x + c.w / 2) * k, r.top + (w.y + c.y + c.h / 2) * k];
+    }
+    return null;
+  };
+  const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
+    { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
+  const api = {
+    async click(id) {
+      const p = at(id);
+      if (!p) return false;
+      fire('mousemove', p); await frames(2);
+      fire('mousedown', p); await frames(2);
+      fire('mouseup', p); return true;
+    },
+    hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
+    wheel(id, delta) { const p = at(id); if (p) fire('wheel', p, { deltaY: delta, deltaMode: 0 }); return !!p; },
+    key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
+    char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
+    setText(id, s) { queue.push([2, id, String(s)]); },
+    scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
+  };
+  const QBASE = 2 + 2 * SLOTS, QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: nq, q[32] {kind, a, b, c}, text[1024]
+  function flush(t, H) {
+    if (!queue.length || H[t + QBASE]) return;   // the last batch not played yet
+    const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
+    let n = 0, used = 0;
+    while (queue.length && n < QN) {
+      const [kind, a, b, c] = queue[0], o = t + QBASE + 1 + 4 * n;
+      if (kind === 2) {
+        if (used + b.length > TEXT) break;
+        for (let i = 0; i < b.length; i++) T[used + i] = b.charCodeAt(i);
+        H[o] = 2; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
+      } else { H[o] = kind; H[o + 1] = a; H[o + 2] = b; H[o + 3] = c; }
+      queue.shift(); n++;
+    }
+    H[t + QBASE] = n;
+  }
+  let failed = 0;
+  // never throws: this runs inside the game's Present, where an exception is a crash
+  Module.onYo2Frame = (tables, heap) => {
+    try { frame(tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+  };
+  function frame(tables, heap) {
+    if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
+    const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     const pass = [];
     for (const w of snap.windows) {
       const mod = screens.get(w.cls);
-      if (owned.has(w.id) && mod?.passthrough)
-        for (const c of [...w.controls, ...w.extras]) if (mod.passthrough(c)) pass.push(c.id);
+      if (!owned.has(w.id) || !mod?.passthrough) continue;
+      for (const c of [...w.controls, ...w.extras]) {
+        if (mod.passthrough(c)) pass.push(c.id);
+        for (const q of [...c.parts?.sprites || [], ...c.parts?.labels || [], ...c.parts?.swfs || []]) if (mod.passthrough(q, c)) pass.push(q.id);
+      }
     }
-    const t = tables >>> 2, H = Module.HEAPU32, ids = [...owned];
+    const t = tables >>> 2, H = H32, ids = [...owned];
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    flush(t, H);
     render(snap, owned, api);
-  };
+    for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
+  }
   return window.yo2Html = {
     snapshot: () => last,
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },

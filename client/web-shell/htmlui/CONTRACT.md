@@ -32,7 +32,8 @@ Window = {
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
   controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
-  extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough()
+  extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough();
+                           // a CSpriteElm also has its Sprite fields (below)
 }
 
 Control = {
@@ -51,16 +52,36 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | family | classes | fields |
 |---|---|---|
 | text | Text, ShadowText, TextField, TextItem | `text` (string, '\n' between lines), `align` 0 left 1 centre 2 right, `fontSize`, `lineGap`, `firstLine`, `pageLines`, `color` [r,g,b,a] |
-| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `align` (the caption's: 0 left 1 centre 2 right), `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked` |
+| button | Switch, TextSwitch, ButtonMain, ButtonDuel, PictureSwitch, CardWindow, ResultNext | `label`, `align` (the caption's: 0 left 1 centre 2 right), `state` 'normal' \| 'hover' \| 'pressed' \| 'disabled', `checked`, `focused`; PictureSwitch also `art` {normal, hover, pressed, checked: Sprite \| null} |
 | checkbox | Checkbox | `checked` |
 | tab | Tab | `label`, `active` |
 | input | Input, InputDuel, MultiInput | `value`, `password`, `caret` {col, line}, `caretOn` (blink phase), `maxLen`, `multiLine` |
-| list | Listbox, ActiveListbox, Textlist, Listbox* (card variants), NoBackList, DueldiskRearrengeListbox | `items` [string], `selected` (-1), `marks` [bool] (multi-select), `top` (first item shown), `rows` (rows that fit) |
+| list | Listbox, ActiveListbox, Textlist, Listbox* (card variants), NoBackList, DueldiskRearrengeListbox | `items` [string], `selected` (-1), `marks` [bool] (multi-select), `top` (first item shown), `topLine` (first wrapped line shown), `rows` (rows that fit) |
 | scroll | Scroll, ScrollH, ScrollBalloon, DeckScroll, KabanScroll, ResultScroll | `value`, `max`, `page`, `thumb` {pos, len}, `length`, `horizontal` |
 | frame | FrameThin, FrameBottomThick, FrameMain, FramePlane, PictureFrame*, BackPlane, BackStripe, ThinChop | `style` (windowFrameTexture), `band` (FrameBottomThick's band height), `rows`/`selected` (BackStripe) |
 | icon | Iconbar, IconShow/Hide/Expand/Shrink | `active`, `pressed` |
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
+
+Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, sx, sy, rgba, shown }`: the texture's game path as
+the game holds it (`data/common/window/swich_01_c00.png`; a `?` is the loader's language letter), the source rect in
+it (CElement +0x94), the local position (parent-relative) and the world one (wx, wy: worldPos_, as last drawn), the
+scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, shown. Label = `{ id, name, text, x, y, z, wx,
+wy, shown }` (a raw CTextElm; '@n' style tags kept). Swf = `{ id, name, x, y, z, wx, wy, shown }` (a CSwfEngine:
+draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: [Swf] }`.
+
+`name` is the instance name (CTask +0x4c, setInstName; cp932 decoded), else the control's name_ (+0x354).
+
+Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, shown, controls }]`: factory controls whose owner is not a
+window (the shop's plates: a CEasyTask), grouped by that owner. Not drawn by the bridge yet.
+
+**Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
+SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
+snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
+alpha name at spr label swf textCtl rectF rectI children generic; `h.generic(c)` is the base family's fields, to
+extend: `CWindowTaskDeckScroll: c => ({ ...h.generic(c), maxLine: h.i32(c + 0x4c8) })`). Its fields are merged over the base ones (a control class
+it lists replaces the generic family). Cite every offset to the src/ header that pins it. Tests beside it
+(read/<group>_test.mjs, using read_test.mjs's synthetic image style).
 
 More families arrive as screens need them (deck/kaban, trade, duel). Ask htmlui-bridge; until then read what you need
 from `unknown` controls by `name` and geometry.
@@ -76,7 +97,10 @@ export default {
   classes: ['CWindowPlayerSelect'],   // the windows it renders
   mode: 'pass',                       // 'pass': pointer-events none, the game takes input (default, pixel-perfect phase)
                                       // 'owned': the DOM takes input and sends it through api
-  passthrough: c => c.cls === 'CWaistUpAvatar',        // controls or extras the ENGINE keeps drawing under your DOM
+  passthrough: (x, ctl) => x.cls === 'CWaistUpAvatar', // what the ENGINE keeps drawing under your DOM: called with each
+                                                       // control, extra and (with parts) each part (and its control)
+  parts: false,                       // true: every control gets `parts` (its raw sprite / text / swf children)
+  clip: true,                         // false: the window's root doesn't clip to w x h (controls laid out outside it)
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},
@@ -84,17 +108,28 @@ export default {
 ```
 
 A window with no screen module is drawn from its controls by controls/*.js (the generic renderers). A screen module
-may call `api.renderControl(c, parentEl)` for the controls it doesn't customise.
+may call `api.syncWindow(root, win, stateMap)` (the generic path: keyed per control, redrawn only when a control's own
+data changes) or `api.renderControl(c, parentEl, opts)` (one control, once; `{ noText: true }` draws an Input
+without its text and caret) for the controls it doesn't customise.
+
+**Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
+per state: normal / hover / pressed / disabled / checked), its label real text (a transparent `<span class="rt">`
+over the game's glyphs, so it can be selected, found and read out) wherever the game draws the text apart from the
+art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
+screen. `data-state` on the element carries the state for CSS.
 
 ## api (owned mode; also usable in pass mode)
 
 ```js
-api.click(controlId)            // press + release at the control's centre (WM_LBUTTONDOWN/UP through the factory)
+api.click(controlId)            // move, press, release at the control's centre: real canvas mouse events, 2 frames apart
 api.hover(controlId)            // move the game mouse over it
 api.key(vk, down = true)        // a WM_KEYDOWN/UP to the focused control
-api.setText(controlId, string)  // an input's value (commits through the control's setText; IME/paste come from the DOM)
-api.scroll(controlId, value)    // a scroll bar's value
-api.wheel(controlId, delta)     // WM_MOUSEWHEEL over it
+api.char(code)                  // a WM_CHAR to the focused control ('\r' submits an Input, '\b', Tab)
+api.setText(controlId, string)  // an input's value (the control's setText at the next Present; IME/paste come from the DOM)
+api.scroll(controlId, value)    // a scroll bar's value (not wired yet: use api.wheel)
+api.wheel(controlId, delta)     // a wheel event over it (canvas)
+// key / char / setText are queued and played at the next Present (in order); click resolves after the release.
+// Keys typed into an owned window's DOM never reach the game on their own (the bridge stops them at the window root).
 api.text(id)                    // the game's string table entry (for labels the game doesn't show)
 api.art(path)                   // URL of a UI atlas on R2 (ui/<file>): never a path in git
 ```

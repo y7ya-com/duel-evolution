@@ -1,5 +1,5 @@
 // Screenshots of the mock snapshots through the layer: node tools/mockshot.mjs <outdir> [names...] [--dpr=2]
-// (serve.mjs must not be running on 8941; this starts its own).
+// (starts its own serve.mjs on a port of its own).
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +9,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2), dpr = +(args.find(a => a.startsWith('--dpr='))?.slice(6) || 1);
 const [out = 'mockshots', ...names] = args.filter(a => !a.startsWith('--'));
 mkdirSync(out, { recursive: true });
-const srv = spawn('node', [path.join(here, '../serve.mjs'), '8941'], { stdio: 'ignore' });
+const PORT = 8950 + process.pid % 40;   // its own server: never another worktree's on 8941
+const srv = spawn('node', [path.join(here, '../serve.mjs'), String(PORT)], { stdio: ['ignore', 'pipe', 'inherit'] });
 process.on('exit', () => srv.kill());
-await new Promise(r => setTimeout(r, 400));
+await new Promise((ok, no) => { srv.stdout.once('data', ok); srv.once('exit', c => no(new Error('serve.mjs exited ' + c))); });
 const b = await launch({ dpr });
 const list = names.length ? names : readdirSync(path.join(here, '../mock')).map(f => f.replace('.json', ''));
 for (const n of list) {
-  await b.go(`http://127.0.0.1:8941/htmlui/mock.html?s=${n}`);
+  await b.go(`http://127.0.0.1:${PORT}/htmlui/mock.html?s=${n}`);
   writeFileSync(path.join(out, `${n}@${dpr}x.png`), await b.shot());
   console.log(n, 'ok');
 }

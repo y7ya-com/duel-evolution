@@ -1,7 +1,8 @@
 #!/bin/bash
 # ship-client.sh [--build] [prefix]: put a web build of client/ live in R2 ygo-original/<prefix>/ (default recomp-de/,
 # the server's CLIENT_PREFIX). recomp/ is the base the server falls back to for anything missing under the prefix
-# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js, starter.js + ui.js, ui/ art) go up with every prefix.
+# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js, starter.js + ui.js, ui/ art, the
+# HTML UI under h-<hash>/) go up with every prefix.
 #   --build  first run `make web web-async web-ios` in client/recomp (through tools/buildslot.py), else ship its existing build-web/
 # yo2rc.html gets client/web-shell/stage.js (fit-to-window + fullscreen) and loader.js (loading screen; NOLOADER=1
 # leaves it out) just before the runtime script, the product name as its title and the build id for crash reports.
@@ -26,6 +27,7 @@ BUILDID=$(git -C $R rev-parse --short HEAD) NOLOADER=${NOLOADER:-} python3 - $B 
 import hashlib, os, re, sys; b, shell, o = sys.argv[1:]
 rd = lambda p: open(p, 'rb').read()
 def put(name, data):
+    os.makedirs(os.path.dirname(os.path.join(o, name)), exist_ok=True)
     open(os.path.join(o, name), 'wb').write(data); print(name)
 h = lambda *d: hashlib.md5(b''.join(d)).hexdigest()[:10]
 names = {}
@@ -39,9 +41,19 @@ for n in ('stage', 'loader'):
 js = rd(f'{shell}/../html-ui/ui.js'); names['ui'] = f'ui-{h(js)}.js'; put(names['ui'], js)
 js = rd(f'{shell}/starter.js'); q = b'"./ui.js"'; assert js.count(q) == 1
 js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['starter'] = f'starter-{h(js)}.js'; put(names['starter'], js)
+# the HTML UI (web-shell/htmlui, ES modules with relative imports): every file under one content-hashed folder,
+# h-<hash>/htmlui/... beside h-<hash>/ui.js (bridge.js and controls/ import ../ui.js), started by one inline module.
+# Its kill switch is the unhashed htmlui.json beside the page (?HTML_UI= overrides it), never shipped from here.
+hu = os.path.join(shell, 'htmlui')
+mods = sorted(os.path.relpath(os.path.join(d, f), hu) for d, _, fs in os.walk(hu) for f in fs
+              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read'))
+hk = h(rd(f'{shell}/../html-ui/ui.js'), *(m.encode() + rd(os.path.join(hu, m)) for m in mods))
+put(f'h-{hk}/ui.js', rd(f'{shell}/../html-ui/ui.js'))
+for m in mods: put(f'h-{hk}/htmlui/{m}', rd(os.path.join(hu, m)))
 p = os.path.join(o, 'yo2rc.html'); s = open(p).read()
 tag = f'<script src="{names["stage"]}"></script>\n' + ('' if os.environ.get('NOLOADER') else f'<script src="{names["loader"]}"></script>\n') \
-    + f'<script src="{names["starter"]}"></script>\n'
+    + f'<script src="{names["starter"]}"></script>\n' \
+    + f'<script type="module">import("./h-{hk}/htmlui/bridge.js").then(m => m.start(Module)).catch(e => console.warn("htmlui", e));</script>\n'
 i = s.find('<script id="pick">'); assert i > 0 and '<script src="stage' not in s; s = s[:i] + tag + s[i:]
 # the picker's script names (and its endsWith("/yo2rc.js") check) -> the hashed ones
 for n in ('yo2rc-ios', 'yo2rc-async', 'yo2rc'):
@@ -62,7 +74,10 @@ cp $C/web-shell/index.html $O/
 cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
 # the picker's art: html-ui's clamp atlases and glyphs (Konami-derived: from infra/fetch-private.sh, never in git)
 UI="clamp/window_base_01_c01.png clamp/window_base_01_c01.rgb.png clamp/swich_01_c00.png clamp/swich_01_c00.rgb.png
-  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json"
+  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json
+  glyphs-dejavu24.json glyphs-dejavu32.json
+  clamp/iconbar_01_c01.png clamp/iconbar_01_c01.rgb.png clamp/tab_01_c01.png clamp/tab_01_c01.rgb.png
+  clamp/icon_01_c01.png clamp/icon_01_c01.rgb.png clamp/scroll_01_c00.png clamp/scroll_01_c00.rgb.png"
 mkdir -p $O/ui/clamp
 for f in $UI; do cp $C/html-ui/assets/$f $O/ui/$f || { echo "no html-ui/assets/$f (run infra/fetch-private.sh)"; exit 1; }; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters

@@ -1,5 +1,5 @@
 // A headless Chrome for Testing over CDP, for the htmlui tools (mockshot.mjs, flip.mjs). No visible window; refuses
-// to start with under 35 % memory free (the shared Mac's rule). CHROME=<binary> to pick another build.
+// to start with under 25 % memory free (buildslot admits the whole run at 35 %) (the shared Mac's rule). CHROME=<binary> to pick another build.
 import { spawn, execSync } from 'node:child_process';
 import { rmSync, readdirSync } from 'node:fs';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -13,7 +13,7 @@ function chromePath() {
 
 export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768 } = {}) {
   const free = +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
-  if (free < 35) throw new Error(`only ${free}% memory free`);
+  if (free < 25) throw new Error(`only ${free}% memory free`);
   const profile = '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`, '--hide-scrollbars', '--no-first-run', '--use-angle=metal', 'about:blank'], { stdio: 'ignore' });
