@@ -9,7 +9,7 @@ const script = /<script>([\s\S]*?)<\/script>/.exec(html)[1];
 let to = null;
 const ctx = {
     URLSearchParams, SharedArrayBuffer, crossOriginIsolated: true, fetch: () => Promise.resolve(),
-    document: { createElement: () => ({ getContext: () => ({}) }), getElementById: () => ({}) },
+    document: { createElement: () => ({ getContext: () => ({}) }), getElementById: () => ({}), documentElement: {} },
     location: { search: "?game=yiaKk&cards=x&fonts=evil/&gateway=wss://evil/net&http=https://evil&server=6.6.6.6&online=1&log",
                 origin: "https://ygoevolution.com", protocol: "https:", host: "ygoevolution.com", replace: (u) => (to = u) },
 };
