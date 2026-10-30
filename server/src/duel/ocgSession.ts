@@ -264,6 +264,8 @@ export class OcgSession {
           spy: this.g.cfg.npcAiSpy, link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
       }
     }
+    const sess = this.c.sess as Session | undefined;
+    if (sess?.block !== undefined) this.g.hub.sala(sess, "npc duel");
     this.log(`[ocg] duelo ${this.id}: NPC ${this.npcId}, empieza ${first}, regla ${rule}, mazos `
       + `${decks[0].main.length}+${decks[0].extra.length} / ${decks[1].main.length}+${decks[1].extra.length}`);
     return () => dc.new(this.id, decks, o);

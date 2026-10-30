@@ -518,6 +518,7 @@ export class PvpMatch {
       this.ps.dlog = new DuelLog([this.sess[0].name, this.sess[1].name], ct);
       this.ps.onLog = (i, lines) => sendDuelLog(this.g, this.sess[i].lobby, lines);
     }
+    for (const s of this.sess) this.g.hub.sala(s, "pvp duel");
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
     return this.ps.start(first);
   }
