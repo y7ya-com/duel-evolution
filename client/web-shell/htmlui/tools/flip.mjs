@@ -25,7 +25,7 @@ export const ROUTES = {
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
 };
 
-const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.split('=')[1];
+const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
@@ -41,14 +41,10 @@ if (!origin) {   // our own stack
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
 }
-kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin }, stdio: 'inherit' }));
+kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie }, stdio: 'inherit' }));
 await sleep(500);
 
 const b = await launch({ dpr });
-for (const c of cookie.split('; ').filter(Boolean)) {
-  const i = c.indexOf('=');
-  await b.send('Network.setCookie', { name: c.slice(0, i), value: c.slice(i + 1), domain: '127.0.0.1', path: '/' });
-}
 await b.go(`http://127.0.0.1:${GAME}/?HTML_UI=0`, 'window.__htmlui && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.__htmlui.snapshot())').then(JSON.parse);
 const until = async (what, ms, test) => {
