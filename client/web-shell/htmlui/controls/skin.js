@@ -201,6 +201,7 @@ const skinCss = () => `
     inset 0 -3px 0 #329be5, inset 4px 0 0 #68e8ff, inset 0 4px 0 #79ffff, inset -4px 0 0 #4db9f7, inset 0 -4px 0 #46b1f2,
     inset 7px 0 0 #59c6ff, inset 0 7px 0 #59c6ff, inset -7px 0 0 #59c6ff, inset 0 -7px 0 #59c6ff; }
 .yo2-panel { isolation: isolate; }
+.yo2-panel.yo2-flat::before { background: #59c6ff; }   /* CWindowTaskFramePlane: c01's 9 pieces at (24, 0), the centre #59c6ff */
 .yo2-band { position: absolute; left: 7px; right: 7px; bottom: 7px; background: #e5e5e5; }
 ${CHAT_CSS}`;
 
@@ -257,11 +258,12 @@ export function titleBar(parent, { x = 0, y = 0, w, title = '', close = true, cl
 }
 
 // The blue panel frame (window_base_01_c01's bevel, translucent as the window draws it). Children go inside it.
-// band: the bottom-thick frame's grey band above the bottom bevel, in px (the Main Menu's: 6).
-export function panel(parent, { x = 0, y = 0, w, h, band = 0 } = {}) {
+// band: the bottom-thick frame's grey band above the bottom bevel, in px (the Main Menu's: 6). flat: a FramePlane (the
+// same frame round a #59c6ff body: SetComment's and BlacklistInput's dialogs)
+export function panel(parent, { x = 0, y = 0, w, h, band = 0, flat = false } = {}) {
   inject();
   const p = document.createElement('div');
-  p.className = 'yo2-panel';
+  p.className = flat ? 'yo2-panel yo2-flat' : 'yo2-panel';
   place(p, { x, y, w, h });
   if (band) { const b = document.createElement('div'); b.className = 'yo2-band'; b.style.height = band + 'px'; p.append(b); }
   parent.append(p);

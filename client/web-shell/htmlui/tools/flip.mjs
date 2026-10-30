@@ -90,10 +90,14 @@ export const ROUTES = {
   // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)
   ...Object.fromEntries([['profile', 448, 'CWindowModelProfile', [512, 562]], ['dmail', 552, 'CWindowModelDMail', [512, 621]],
     ['ignore', 630, 'CWindowModelBlacklist', [512, 467]], ['friends', 656, 'CWindowModelFriendlist', [737, 467]],
-    ['teams', 682, 'CWindowModelTeamlist', [737, 467]]].map(([n, y, cls, close]) => ['sp-' + n, { player: 'Social Tester',
+    ['teams', 682, 'CWindowModelTeamlist', [737, 467]], ['comment', 503, 'CWindowModelSetComment', [596, 462]],
+    // the Ignore list's Add to Ignore List: its name dialog over the list
+    ['ignoreadd', 630, 'CWindowModelBlacklistInput', [588, 413], ['CWindowModelBlacklist', 711, 467]],
+    ].map(([n, y, cls, close, via]) => ['sp-' + n, { player: 'Social Tester',
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
-      ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['window', cls, 30000], ['wait', 2500],
-      ['shot', 'open-engine'], ['on', cls], ['wait', 1500], ['shot', 'open-html'],
+      ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['shot', 'menu'], ['click', 140, y],
+      ...(via ? [['window', via[0], 30000], ['wait', 2500], ['click', via[1], via[2]]] : []), ['window', cls, 30000], ['wait', 2500],
+      ['shot', 'open-engine'], ['snap', 'open'], ['on', cls], ['wait', 1500], ['shot', 'open-html'],
       ...(n === 'dmail' ? [['click', 322, 180], ['window', 'CWindowModelDMailSend', 20000], ['wait', 2500], ['shot', 'write-engine'],
         ['on', 'CWindowModelDMailSend'], ['wait', 1500], ['shot', 'write-html'], ['type', 420, 208, 'Duel later?'],
         ['type', 500, 300, 'Hi! Want to duel later tonight? My deck is finally ready, and I would like to test it against yours.'],
@@ -203,6 +207,7 @@ for (const [a, x, y, z] of route.steps) {
   }
   if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
   if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
+  if (a === 'snap') writeFileSync(path.join(out, x + '.json'), JSON.stringify(await snap(), null, 1));   // the snapshot here
   if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   // rwalk [[x, y, ms], ...]: the avatar walks while the right button is held, toward the cursor (README "walkto"): held
   // from the first point, the cursor moved along the rest, each held ms
