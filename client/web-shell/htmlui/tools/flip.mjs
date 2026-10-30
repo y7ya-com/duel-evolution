@@ -49,8 +49,6 @@ export const ROUTES = {
     ['wait', 2000]], flip: ['CChatWindow'],
     // the pointer on a tab, on the log, on the input line, then a tab held
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
-  // the chat route with enough lines that the log scrolls (--bars on the engine's chat: a plain list box's bar)
-  get 'chat-scroll'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ...Array.from({ length: 14 }, (_, i) => [['say', 636, 720, 'line ' + (i + 1)], ['wait', 4000]]).flat(), ['wait', 2000]] }; },   // the chat's flood limit: one line per few seconds
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
