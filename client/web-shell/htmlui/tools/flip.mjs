@@ -14,6 +14,7 @@ import readline from 'node:readline';
 import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
 // [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
@@ -32,7 +33,7 @@ process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799', ...(route.player ? ['--player', route.player] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
