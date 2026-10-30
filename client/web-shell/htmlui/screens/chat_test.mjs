@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 // as an ES module whatever package.json says .js is (a home-folder package.json makes it CommonJS)
 const src = readFileSync(new URL('chat.js', import.meta.url), 'utf8');
-const { wrap, visibleLines, scrollValue, indexAt } = await import('data:text/javascript,' + encodeURIComponent(src));
+const { wrap, visibleLines, scrollValue, indexAt, layoutText, rowOf } = await import('data:text/javascript,' + encodeURIComponent(src));
 
 const adv = ch => (ch === 'W' ? 12 : 6);   // a fake cell table (the real one is the game's glyphs, on R2)
 
@@ -32,4 +32,13 @@ assert.equal(indexAt('abc', 2, adv), 0);
 assert.equal(indexAt('abc', 4, adv), 1);
 assert.equal(indexAt('abc', 99, adv), 3);
 assert.equal(indexAt('😀b', 7, adv), 2);   // UTF-16 index after the surrogate pair
+assert.deepEqual(layoutText('', Infinity, adv), [['', 0]]);
+assert.deepEqual(layoutText('abc', Infinity, adv), [['abc', 0]]);
+assert.deepEqual(layoutText('abcd\nef', 18, adv), [['abc', 0], ['d', 3], ['ef', 5]]);
+assert.deepEqual(layoutText('a\n', 18, adv), [['a', 0], ['', 2]]);
+const rows = layoutText('abcd\nef', 18, adv);
+assert.equal(rowOf(rows, 0), 0);
+assert.equal(rowOf(rows, 3), 1);   // the cut: the caret goes to the next row's start
+assert.equal(rowOf(rows, 4), 1);   // before the '\n'
+assert.equal(rowOf(rows, 7), 2);
 console.log('chat ok');

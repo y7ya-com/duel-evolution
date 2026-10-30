@@ -96,37 +96,61 @@ function ownScroll(c, layer, api) {
   return d;
 }
 
-// The input line: a real <input> (never painted, except the IME's composition), the field drawn by the generic
-// renderer, its text/caret/selection drawn here while the DOM has the focus (the game's own while it doesn't).
+// An input's text as the game lays it out: one row per '\n' paragraph cut at the width ([text, first index] each).
+export function layoutText(v, width, adv) {
+  const rows = [];
+  let i = 0;
+  for (const para of v.split('\n')) {
+    for (const r of wrap(para, width, adv)) { rows.push([r, i]); i += r.length; }
+    i++;
+  }
+  return rows;
+}
+// the row an index is on (the last that starts at or before it)
+export const rowOf = (rows, index) => rows.findLastIndex(([, i]) => i <= index);
+
+// An input: a real <input> (<textarea> for a multi-line one), never painted except for the IME's composition; the
+// field drawn by the generic renderer, its text, caret and selection drawn here while the DOM has the focus (the
+// game's own while it doesn't). Keys are the element's own (none reaches the canvas: the game would get them twice).
 function ownInput(c, layer, api, st) {
-  const f = document.createElement('div'), paint = document.createElement('div'), el = document.createElement('input');
+  const f = document.createElement('div'), paint = document.createElement('div');
+  const el = document.createElement(c.multiLine ? 'textarea' : 'input');
   f.className = 'own';
   paint.className = 'paint';
   el.className = 'native';
-  Object.assign(el, { type: 'text', spellcheck: false, autocomplete: 'off', maxLength: c.maxLen });
-  el.setAttribute('aria-label', 'Chat');
+  Object.assign(el, { spellcheck: false, autocomplete: c.password ? 'current-password' : 'off', maxLength: c.maxLen });
+  if (!c.multiLine) el.type = c.password ? 'password' : 'text';
+  el.setAttribute('aria-label', c.name || 'Text');
   f.append(paint, el);
-  // the keys are the <input>'s: none reaches the canvas's handlers (the game would get every key twice)
   for (const t of ['keydown', 'keyup', 'keypress']) el.addEventListener(t, e => e.stopPropagation());
   layer.append(f);
-  let snap = c, composing = false;
+  let snap = c, composing = false, entered = false;
+  const width = () => (snap.multiLine ? snap.w - 2 * TEXT : Infinity);
+  const shown = v => (snap.password ? '*'.repeat(v.length) : v);
   const commit = () => api.setText(snap.id, el.value);
+  const cell = (rows, index) => {   // [x, y] of the cell boundary at index
+    const r = Math.max(0, rowOf(rows, index));
+    return [TEXT + ui.measure(rows[r][0].slice(0, index - rows[r][1])), TEXT + r * LINE];
+  };
   const draw = () => {
     paint.replaceChildren();
-    const own = document.activeElement === el;
-    if (composing) return;   // the <input> shows the composition itself
-    const v = own ? el.value : snap.value;
-    if (v) ui.text(paint, [[v, TEXT, TEXT]]);
-    if (own && el.selectionStart !== el.selectionEnd) {
-      const a = ui.measure(v.slice(0, el.selectionStart)), b = ui.measure(v.slice(0, el.selectionEnd)), h = document.createElement('i');
-      h.className = 'sel';
-      Object.assign(h.style, { left: TEXT + a + 'px', top: TEXT + 'px', width: b - a + 'px', height: '16px' });
-      paint.prepend(h);
-    }
-    const caretOn = own ? st.blink : snap.focused && snap.caretOn;
-    if (caretOn) {
-      const x = own ? ui.measure(v.slice(0, el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd)) : ui.measure([...v].slice(0, snap.caret.col).join(''));
-      ui.sprite(paint, ui.SHEET.caret, 0, 0, 2, 16, TEXT + x, TEXT, 2, 16);
+    if (composing) return;   // the element shows the composition itself
+    const own = document.activeElement === el, v = shown(own ? el.value : snap.value), rows = layoutText(v, width(), ui.advance);
+    const drawn = rows.map(([r], i) => [r, TEXT, TEXT + i * LINE]).filter(([r]) => r);   // one texture, as the game's
+    if (drawn.length) ui.text(paint, drawn);
+    if (own && el.selectionStart !== el.selectionEnd)
+      rows.forEach(([r, i0]) => {
+        const a = Math.max(el.selectionStart, i0), b = Math.min(el.selectionEnd, i0 + r.length);
+        if (a >= b) return;
+        const [x0, y] = cell(rows, a), h = document.createElement('i');
+        h.className = 'sel';
+        Object.assign(h.style, { left: x0 + 'px', top: y + 'px', width: ui.measure(v.slice(a, b)) + 'px', height: LINE + 'px' });
+        paint.prepend(h);
+      });
+    if (own ? st.blink : snap.focused && snap.caretOn) {
+      const [x, y] = own ? cell(rows, el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd)
+        : [TEXT + ui.measure([...(rows[snap.caret.line]?.[0] ?? '')].slice(0, snap.caret.col).join('')), TEXT + snap.caret.line * LINE];
+      ui.sprite(paint, ui.SHEET.caret, 0, 0, 2, 16, x, y, 2, 16);
     }
   };
   const moved = () => { st.blink = true; draw(); };
@@ -137,12 +161,11 @@ function ownInput(c, layer, api, st) {
   el.addEventListener('compositionend', () => { composing = false; f.classList.remove('ime'); commit(); moved(); });
   el.addEventListener('keydown', e => {
     if (e.isComposing) return;
-    if (e.key === 'Enter') {   // send: the game's own Enter (CWindowTaskInput: WM_CHAR '\r' with submitOnEnter_)
+    if (e.key === 'Enter' && !snap.multiLine) {   // the game's own Enter (CWindowTaskInput: WM_CHAR '\r'; the chat sends)
       e.preventDefault();
       commit();
+      entered = true;   // what the game did with it (the chat sends and empties the line) comes back in the snapshot
       api.char(13);
-      el.value = '';
-      moved();
     } else if (e.key === 'Escape') {
       el.blur();
     } else {
@@ -150,10 +173,14 @@ function ownInput(c, layer, api, st) {
     }
   });
   el.addEventListener('select', draw);
-  // a click or drag puts the caret / selection at cell boundaries, as the game's glyphs lay out (the <input>'s own
+  // a click or drag puts the caret / selection at cell boundaries, as the game's glyphs lay out (the element's own
   // font would put it elsewhere)
   let anchor = 0;
-  const at = e => indexAt(el.value, local(e, f)[0] - TEXT, ui.advance);
+  const at = e => {
+    const [x, y] = local(e, f), rows = layoutText(shown(el.value), width(), ui.advance);
+    const [r, i0] = rows[Math.max(0, Math.min(rows.length - 1, Math.floor((y - TEXT) / LINE)))];
+    return i0 + indexAt(r, x - TEXT, ui.advance);
+  };
   f.addEventListener('pointerdown', e => {
     e.preventDefault();
     if (document.activeElement !== el) el.focus();
@@ -171,7 +198,8 @@ function ownInput(c, layer, api, st) {
   f.update = c2 => {
     snap = c2;
     el.maxLength = c2.maxLen;
-    if (document.activeElement !== el) el.value = c2.value;   // the game's text while the DOM isn't editing
+    if (entered || document.activeElement !== el) el.value = c2.value;   // the game's text while the DOM isn't editing
+    entered = false;
     draw();
   };
   f.draw = draw;
@@ -193,19 +221,20 @@ function fillLog(d, lines) {
 }
 
 const CSS = `
-.chat .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
-.chat button.own { cursor: default; color: transparent; font-size: 1px; overflow: hidden; }
-.chat button.own:focus-visible { outline: 1px dotted #fff; }
-.chat .log { overflow: hidden; color: transparent; font: 16px/16px sans-serif; cursor: text; user-select: text; }
-.chat { user-select: none; }
-.chat .log > div { height: ${LINE}px; white-space: pre; }   /* in flow: a copy gets a newline per line */
-.chat .log span { display: inline-block; overflow: hidden; vertical-align: top; }
-.chat .log ::selection { background: rgba(51, 102, 204, .45); }
-.chat .paint, .chat .paint > * { position: absolute; }
-.chat .paint .sel { background: rgba(51, 102, 204, .45); }
-.chat .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 0 0 ${TEXT}px; border: 0;
+.htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
+.htmlui-own button.own { cursor: default; color: transparent; font-size: 1px; overflow: hidden; }
+.htmlui-own button.own:focus-visible { outline: 1px dotted #fff; }
+.htmlui-own .log { overflow: hidden; color: transparent; font: 16px/16px sans-serif; cursor: text; user-select: text; }
+.htmlui-own { user-select: none; }
+.htmlui-own .log > div { height: ${LINE}px; white-space: pre; }   /* in flow: a copy gets a newline per line */
+.htmlui-own .log span { display: inline-block; overflow: hidden; vertical-align: top; }
+.htmlui-own .log ::selection { background: rgba(51, 102, 204, .45); }
+.htmlui-own .paint, .htmlui-own .paint > * { position: absolute; }
+.htmlui-own .paint .sel { background: rgba(51, 102, 204, .45); }
+.htmlui-own .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 0 0 ${TEXT}px; border: 0;
   background: none; opacity: 0; font: 13.75px 'DejaVu Sans', Arial, sans-serif; color: #000; outline: none; }
-.chat .ime .native { opacity: 1; }
+.htmlui-own .ime .native { opacity: 1; }
+textarea.native { padding-top: ${TEXT}px !important; line-height: ${LINE}px; resize: none; }
 `;
 
 const screen = {
@@ -213,13 +242,13 @@ const screen = {
   mode: 'owned',
 
   mount(win, root, api) {
-    if (!document.getElementById('htmlui-chat-css')) {
+    if (!document.getElementById('htmlui-own-css')) {
       const s = document.createElement('style');
-      s.id = 'htmlui-chat-css';
+      s.id = 'htmlui-own-css';
       s.textContent = CSS;
       document.head.append(s);
     }
-    root.classList.add('chat');
+    root.classList.add('htmlui-own');
     const vis = document.createElement('div'), own = document.createElement('div');
     root.append(vis, own);
     const st = { vis, own, drawn: new Map(), owned: new Map(), blink: true, scroll: null };
@@ -232,16 +261,16 @@ const screen = {
   },
 
   update(win, prev, root, api, st) {
-    const seen = new Set();
+    const seen = new Set(), order = [];
     st.scroll = win.controls.find(c => c.cls.endsWith('Scroll') && c.parent) || null;
-    for (const c of win.controls) {
+    for (const [n, c] of win.controls.entries()) {
       seen.add(c.id);
-      const isInput = c.cls.endsWith('Input');
+      const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
       // the drawing: the input's text and caret are ours, so they don't redraw the field
       const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
       let d = st.drawn.get(c.id);
       if (!d) { d = { el: document.createElement('div'), k: null }; d.el.className = 'ctl'; st.drawn.set(c.id, d); }
-      st.vis.append(d.el);   // back to front: snapshot order
+      order.push(d.el);
       if (d.k !== k) {
         d.k = k;
         d.el.replaceChildren();
@@ -257,7 +286,7 @@ const screen = {
         if (!o) continue;
         st.owned.set(c.id, o);
       }
-      st.own.append(o);
+      o.style.zIndex = n;   // stacked as drawn (the current tab over its neighbours); never moved: moving drops focus
       o.hidden = !c.shown;
       place(o, c);
       if (o.tagName === 'BUTTON') {
@@ -273,6 +302,7 @@ const screen = {
         o.update?.(c);
       }
     }
+    if (order.some((e, i) => st.vis.children[i] !== e)) st.vis.replaceChildren(...order);   // back to front
     for (const m of [st.drawn, st.owned])
       for (const [id, d] of m) if (!seen.has(id)) { (d.el || d).remove(); m.delete(id); }
   },
