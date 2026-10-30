@@ -1081,6 +1081,7 @@ struct D3DInterp {
     double dueAt = 0;
     double last = 0, interval = 33.3, cost = 0;   // averages: ms between steps' Presents, ms an in-between frame takes
     uint64_t late = 0;                            // the last 64 steps, a bit each: came over 45 ms after the one before
+    uint64_t costly = 0;                          // the last 64 in-between frames, a bit each: took over 8 ms
     bool off = false;
     double offUntil = 0, backoff = 10e3;
 };
@@ -1331,6 +1332,16 @@ static void presentInterp(IDirect3DDevice8* d) {
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, ip.surf->glColor);
             ip.depthSurf = new IDirect3DSurface8;
             ip.depthSurf->glDepth = depthBuffer(bw, bh);
+            // Opaque from the start: the back buffer is X8 (draws never write its alpha) and the game seldom clears all
+            // of it, so a fresh target's alpha would stay 0 where only draws land. WebKit composites that canvas as
+            // transparent (black screens); Chrome and Firefox ignore it.
+            glDisable(GL_SCISSOR_TEST);
+            glColorMask(1, 1, 1, 1);
+            glClearColor(0, 0, 0, 1);
+            for (GLuint fbo : {ip.heldFbo, ip.surf->glFbo}) {
+                glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
         }
         glBindFramebuffer(GL_READ_FRAMEBUFFER, d->backBuffer->glFbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ip.heldFbo);
@@ -1342,7 +1353,9 @@ static void presentInterp(IDirect3DDevice8* d) {
             matchFrames(ip);
             d->drawInterp(0.5f);
         }
-        ip.cost += (nowMs() - t0 - ip.cost) * 0.1;
+        double took = nowMs() - t0;
+        ip.cost += (took - ip.cost) * 0.1;
+        ip.costly = ip.costly << 1 | (took > 8);
         static const bool logging = getenv("RC_60_LOG");   // every 300 in-between frames: how much of them moved
         static unsigned frames, calls, matched;
         frames++, calls += (unsigned)ip.match.size();
@@ -1358,14 +1371,14 @@ static void presentInterp(IDirect3DDevice8* d) {
     } else {
         toScreen(d, d->backBuffer->glFbo);
     }
-    // ponytail: thresholds from a 30 Hz step (33 ms): a quarter of the last 64 steps late, or a costly in-between frame,
-    // turn it off for a while (a lone slow step, a load, is no reason)
-    int lateSteps = __builtin_popcountll(ip.late);
-    if (!ip.off && (lateSteps > 16 || ip.cost > 8)) {
-        fprintf(stderr, "gfx: in-between frames off for %.0f s (%d of 64 steps late, in-between frame %.1f ms)\n",
-                ip.backoff / 1e3, lateSteps, ip.cost);
+    // ponytail: thresholds from a 30 Hz step (33 ms): a quarter of the last 64 steps late, or of the last 64 in-between
+    // frames over 8 ms, turn it off for a while (a lone slow one, a load or the first frame's setup, is no reason)
+    int lateSteps = __builtin_popcountll(ip.late), costlyFrames = __builtin_popcountll(ip.costly);
+    if (!ip.off && (lateSteps > 16 || costlyFrames > 16)) {
+        fprintf(stderr, "gfx: in-between frames off for %.0f s (%d of 64 steps late, %d of 64 in-between frames over 8 ms)\n",
+                ip.backoff / 1e3, lateSteps, costlyFrames);
         ip.off = true, ip.offUntil = t0 + ip.backoff, ip.backoff = min(ip.backoff * 2, 600e3);
-        ip.cost = 0;
+        ip.cost = 0, ip.costly = 0;
     } else if (ip.off && t0 >= ip.offUntil && lateSteps < 4) {
         ip.off = false;
     }
