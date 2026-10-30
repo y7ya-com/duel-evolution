@@ -91,9 +91,12 @@ if (boot) {   // the shipped page through the route: what it shows and what the 
   writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
   const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
   const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
+  // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
+  const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
+  const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
   const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
-  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, errors }, null, 1));
-  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, cursor, errors: errors.length }));
+  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, errors }, null, 1));
+  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, cursor: cursor.slice(0, 24), errors: errors.length }));
   b.close(); process.exit(0);
 }
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow

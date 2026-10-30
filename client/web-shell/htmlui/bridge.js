@@ -48,7 +48,9 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
 #htmlui-host .txt { position: absolute; }
-html.yo2c, html.yo2c * { cursor: var(--yo2-cursor) !important; }`;
+`;
+// the game cursor (cursor.js) on every element: its own rule, so the cursor never needs the layer
+const CURSOR_CSS = 'html.yo2c, html.yo2c * { cursor: var(--yo2-cursor) !important; }';
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
@@ -126,17 +128,26 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let on = switches(spec, defaults.on || []);
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
   const forced = new Map();   // yo2Html.toggle overrides
-  const screens = await loadScreens();
-  const host = document.createElement('div');
-  host.id = 'htmlui-host';
-  document.body.append(host);
-  const { render } = await makeLayer(host, screens);
+  const st = document.createElement('style');
+  st.textContent = CURSOR_CSS;
+  document.head.append(st);
+  // The layer (screens, atlases, the host) loads only once the switches want a window or task the game shows: a page
+  // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
+  let screens = new Map(), host = null, render = null, loading = null;
+  const init = () => loading ||= (async () => {
+    screens = await loadScreens();
+    host = document.createElement('div');
+    host.id = 'htmlui-host';
+    document.body.append(host);
+    ({ render } = await makeLayer(host, screens));
+    place();
+  })().catch(e => console.warn('htmlui', e));
   // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
   // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    if (host) Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -208,8 +219,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
+    if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
-    const owned = new Set(all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    const owned = new Set(render ? all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id) : []);
     wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
@@ -233,7 +245,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
-    render(snap, owned, api);
+    render?.(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
