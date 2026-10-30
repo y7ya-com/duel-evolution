@@ -99,12 +99,26 @@ export function plan(win) {
   return { items, holes, co };
 }
 
+// rects as disjoint ones covering the same area (vertical slabs between the x edges, y spans merged per slab): an
+// evenodd path cuts each once (overlapping holes, the deck's fanned cards, would cancel out where they overlap)
+export function union(rects) {
+  const xs = [...new Set(rects.flatMap(r => [r.x, r.x + r.w]))].sort((a, b) => a - b), out = [];
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const spans = rects.filter(r => r.x <= xs[i] && r.x + r.w >= xs[i + 1]).map(r => [r.y, r.y + r.h]).sort((a, b) => a[0] - b[0]);
+    for (const [y0, y1] of spans) {
+      const last = out.at(-1);
+      if (last && last.x === xs[i] && y0 <= last.y + last.h) last.h = Math.max(last.h, y1 - last.y);
+      else out.push({ x: xs[i], y: y0, w: xs[i + 1] - xs[i], h: y1 - y0 });
+    }
+  }
+  return out;
+}
 // clip-path for an item: the holes in front of it that it overlaps (local to the window root)
 export function clip(item, holes, ox, oy) {
   const front = holes.filter(h => h.z > item.z && meet(h.rect, item.rect));
   if (!front.length) return '';
   const r = ({ x, y, w, h }) => `M${x - ox} ${y - oy}h${w}v${h}h${-w}z`;
-  return `path(evenodd, "M${-ox} ${-oy}h2048v2048h-2048z${front.map(h => r(h.rect)).join('')}")`;
+  return `path(evenodd, "M${-ox} ${-oy}h2048v2048h-2048z${union(front.map(h => h.rect)).map(r).join('')}")`;
 }
 
 // ---------------------------------------------------------------- atlases (any game texture, by its file name)
@@ -551,15 +565,17 @@ export default {
     inner.className = 'layer';
     root.append(inner);
     // the trunk's search: the game's filter hook (the recomp's Module.yo2KabanFilter) when it has one
-    const search = win.cls === 'CWindowModelKaban'
-      ? searchPanel(root, f => (globalThis.Module?.yo2KabanFilter || api?.kabanFilter)?.(f)) : null;
-    return { inner, search };
+    // the trunk's search: the game's filter (ovr/decksearch.c's Module.yo2KabanFilter, on the trunk list the snapshot
+    // names; absent in an older runtime: no search)
+    const st = { inner, search: null, list: 0 };
+    if (win.cls === 'CWindowModelKaban') st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, f));
+    return st;
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
     live.set(win.id, { win, root: st.inner, plan: plan(win), api });
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
-    if (list) st.search.setCount(list.hits, list.total);
+    if (list) { st.list = list.id; st.search.setCount(list.hits, list.total); }
     draw(win.id, api);
   },
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the

@@ -41,11 +41,13 @@ void f_00686be0(CPU *restrict c) {
 
 void rc_starter_frame(CPU *c);   // starterdeck.c
 void rc_htmlui_frame(CPU *c);    // htmlui.c
+void rc_decksearch_frame(CPU *c);   // decksearch.c
 
 // at every Present (d3d8.cpp)
 void rc_ovr_frame(CPU *c) {
     rc_starter_frame(c);
     rc_htmlui_frame(c);
+    rc_decksearch_frame(c);
     if (!pending) return;
     if (!*(uint8_t *)G(SOUND_ON)) { pending = 0; return; }   // the init failed after all: no sound
 #ifdef __EMSCRIPTEN__

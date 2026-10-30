@@ -4,7 +4,7 @@ import { registerHooks } from 'node:module';
 // web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there)
 registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
   ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
-const { runs, plan, clip, passthrough, artName } = await import('./deck.js');
+const { runs, plan, clip, union, passthrough, artName } = await import('./deck.js');
 
 // AtConverter: @digit colours, @@ a literal @, @>N/ moves the pen (and survives a colour tag right after it)
 assert.deepEqual(runs('@942'), [{ s: '42', rgb: 0xffffff, x: null }]);
@@ -34,8 +34,12 @@ assert.deepEqual(p.holes.map(h => [h.z, h.rect.x]), [[51205, 262], [51206, 290]]
 assert.deepEqual(p.co, [60]);   // only the plane is under a card face
 assert.deepEqual(p.items[4].rect, { x: 300, y: 600, w: 96, h: 24 });
 assert.equal(clip(p.items[1], p.holes, 248, 0), '');   // the limit icon is in front of card 1, clear of card 2
-assert.match(clip(p.items[0], p.holes, 248, 0), /M14 96h50v72h-50z/);   // the plane, around card 1's face
+assert.match(clip(p.items[0], p.holes, 248, 0), /M14 96h28v72h-28zM42 96h22v72h-22zM64 96h28v72h-28z/);   // the plane, around both faces (disjoint slabs)
 const drag = { z: 1e5, rect: { x: 250, y: 10, w: 50, h: 72 } };   // a card dragged over the bar punches through it
 assert.match(clip(p.items[2], [...p.holes, drag], 248, 0), /M2 10h50v72h-50z/);
 assert.ok(passthrough({ id: 9, name: 'SwapIconToMain', x: 0, y: 0, z: 0, wx: 1, wy: 1, shown: true }));   // a swf part
+// overlapping holes (fanned cards) become disjoint rects: none cancels another under evenodd
+assert.deepEqual(union([{ x: 0, y: 0, w: 50, h: 72 }, { x: 28, y: 0, w: 50, h: 72 }]),
+  [{ x: 0, y: 0, w: 28, h: 72 }, { x: 28, y: 0, w: 22, h: 72 }, { x: 50, y: 0, w: 28, h: 72 }]);
+assert.deepEqual(union([{ x: 0, y: 0, w: 10, h: 10 }, { x: 0, y: 20, w: 10, h: 10 }]), [{ x: 0, y: 0, w: 10, h: 10 }, { x: 0, y: 20, w: 10, h: 10 }]);
 console.log('deck_test ok');
