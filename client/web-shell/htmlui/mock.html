@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>htmlui mock</title>
+<style>
+  html, body { margin: 0; background: #234; }
+  #htmlui-host { position: relative !important; }
+</style>
+</head>
+<body>
+<script type="module">
+// A mock snapshot (mock/<s>.json) through the same layer the game uses: ?s=playerselect (default), ?mode=owned to
+// hand screen modules owned mode. Every window is owned here. Clicks in owned mode log to the console.
+import { makeLayer, loadScreens } from './bridge.js';
+const q = new URLSearchParams(location.search);
+const snap = await (await fetch(`mock/${q.get('s') || 'playerselect'}.json`)).json();
+const host = document.createElement('div');
+host.id = 'htmlui-host';
+document.body.append(host);
+const { render } = await makeLayer(host, await loadScreens(), q.get('art') || '../ui/');
+const log = name => (...a) => console.log('api.' + name, ...a);
+const api = { click: log('click'), hover: log('hover'), key: log('key'), setText: log('setText'), scroll: log('scroll'), wheel: log('wheel') };
+render(snap, new Set(snap.windows.map(w => w.id)), api);
+window.__ready = true;
+</script>
+</body>
+</html>
