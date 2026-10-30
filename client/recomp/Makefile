@@ -49,8 +49,8 @@ $(B)/librc.a: $(RC_OBJS) $(B)/rc_table.o
 
 RT_CFLAGS := -O1 -g -Wall -Wno-unused-function -Irt -I$(OUT) $(SANFLAGS)
 
-$(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c $(RT_HDRS) $(B)/librc.a
-	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c $(B)/librc.a -o $@
+$(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
+	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c ovr/allrooms.c $(B)/librc.a -o $@
 
 mem_test: $(B)/mem_test
 $(B)/mem_test: rt/mem_test.c rt/mem.c $(RT_HDRS) | $(B)
