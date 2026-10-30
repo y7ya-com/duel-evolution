@@ -4,7 +4,7 @@ import { registerHooks } from 'node:module';
 // web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there)
 registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
   ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
-const { runs, plan, clip, union, passthrough, artName } = await import('./deck.js');
+const { runs, plan, clip, union, passthrough, artName, quickMove, DROP_DECK, DROP_TRUNK } = await import('./deck.js');
 
 // AtConverter: @digit colours, @@ a literal @, @>N/ moves the pen (and survives a colour tag right after it)
 assert.deepEqual(runs('@942'), [{ s: '42', rgb: 0xffffff, x: null }]);
@@ -42,4 +42,17 @@ assert.ok(passthrough({ id: 9, name: 'SwapIconToMain', x: 0, y: 0, z: 0, wx: 1, 
 assert.deepEqual(union([{ x: 0, y: 0, w: 50, h: 72 }, { x: 28, y: 0, w: 50, h: 72 }]),
   [{ x: 0, y: 0, w: 28, h: 72 }, { x: 28, y: 0, w: 22, h: 72 }, { x: 50, y: 0, w: 28, h: 72 }]);
 assert.deepEqual(union([{ x: 0, y: 0, w: 10, h: 10 }, { x: 0, y: 20, w: 10, h: 10 }]), [{ x: 0, y: 0, w: 10, h: 10 }, { x: 0, y: 20, w: 10, h: 10 }]);
+// click to add / remove: what a right-click at (x, y) moves. A trunk row anywhere (the press lands on its picture, a
+// Fusion flagged for the Extra deck); the deck's fanned cards: the one on top under the pointer
+const kaban = { cls: 'CWindowModelKaban', controls: [
+  ctl(80, 'CWindowTaskKabanListBtn', { sprites: [sp(81, 'data/MINI/9.png', 760, 92, 51130, 25, 36, { sx: 1, sy: 1 })] },
+    { card: 9, color: 6, wx: 744, wy: 88, w: 256, h: 56 })] };
+const deckw = { cls: 'CWindowModelDeck', controls: [
+  ctl(90, 'CWindowTaskDeckCard', { sprites: [sp(91, 'data/MINI/1.png', 262, 96, 51205, 50, 72)] }, { card: 1 }),
+  ctl(92, 'CWindowTaskDeckCard', { sprites: [sp(93, 'data/MINI/2.png', 290, 96, 51206, 50, 72)] }, { card: 2 })] };
+assert.deepEqual(quickMove([kaban, deckw], 900, 120), { press: [772.5, 110], drop: DROP_DECK, card: 9, fusion: true });
+assert.deepEqual(quickMove([kaban, deckw], 765, 100), { press: [765, 100], drop: DROP_DECK, card: 9, fusion: true });
+assert.deepEqual(quickMove([kaban, deckw], 300, 120), { press: [300, 120], drop: DROP_TRUNK, card: 2, fusion: false });
+assert.deepEqual(quickMove([kaban, deckw], 270, 120).card, 1);
+assert.equal(quickMove([kaban, deckw], 600, 500), null);
 console.log('deck_test ok');

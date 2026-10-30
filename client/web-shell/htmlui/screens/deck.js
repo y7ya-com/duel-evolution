@@ -162,6 +162,10 @@ let redrawing = null;   // the id of the window being drawn: what a late atlas r
 function drawSprite(el, s, x, y) {
   const t = textArt(s);
   if (t) return drawTextArt(el, t, x, y, s.a ?? s.rgba?.[3] ?? 1);
+  const g = /^deck_font_01_c0([12])/.exec(artName(s.tex));
+  if (g) return drawDigit(el, s, g[1] === '2', x, y);
+  const vec = vectorArt(s);
+  if (vec) return drawVector(el, vec, x, y, s.src[2] * (s.sx ?? 1), s.src[3] * (s.sy ?? 1), s.a ?? s.rgba?.[3] ?? 1);
   const sh = sheet(s.tex, redrawing);
   if (!sh) return;
   const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];   // a: the alpha it's drawn with (inherited), else its own
@@ -170,6 +174,109 @@ function drawSprite(el, s, x, y) {
   if (c[0] !== 1 || c[1] !== 1 || c[2] !== 1)   // the trunk dims a row's art to 0.5 grey
     e.style.filter = c[0] === c[1] && c[1] === c[2] ? `brightness(${c[0]})` : '';
 }
+// deck_font_01 (the trunk's copy counts, "×000"): glyph cells, 8 x 12, digits 0-9 then a "×", white on a black box
+// (c02: red). Blurry at 2x as a bitmap and glyph images besides (the owner's rules): the box is CSS, the digit Arial.
+function drawDigit(el, s, red, x, y) {
+  const i = s.src[0] / 8, d = document.createElement('div');
+  d.textContent = i >= 10 ? '×' : String(i);
+  Object.assign(d.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: '8px', height: '12px',
+    background: i >= 10 ? 'none' : red ? '#ff0000' : '#000', color: '#fff', font: `bold ${fontCss(13, 12)}`,
+    textAlign: 'center', opacity: (s.a ?? 1) === 1 ? '' : s.a,
+    textShadow: i >= 10 ? '0 0 1px #000, 0 0 1px #000' : '' });
+  el.append(d);
+  return d;
+}
+
+// The small icons and the scroll bar, vector (the owner's rule: what is blurry or pixelated at 2x becomes CSS / SVG
+// with the art's sampled colours): an SVG in the sprite's own 16 x 16 (or w x h) frame, scaled with it.
+// Attribute discs (icon_zokusei_01 cells 0..8): [rim, top, bottom, kanji colour, kanji]; the kanji is the art's own.
+const ATTR_SVG = [['#ffc850', '#fff6d0', '#e0a830', '#3f2610', '光'], ['#2f0847', '#c43ad8', '#730889', '#fff', '闇'],
+  ['#002642', '#0f85ff', '#003e67', '#fff', '水'], ['#4b0310', '#ff3a33', '#b90100', '#fff', '炎'],
+  ['#000', '#5a5a5a', '#000', '#fff', '地'], ['#011701', '#14be32', '#016a0c', '#fff', '風'],
+  ['#f0f067', '#fffbe0', '#e8c040', '#3f2610', '神'], ['#011551', '#8ba7ff', '#0033b9', '#fff', '魔'],
+  ['#010721', '#c03040', '#841c28', '#fff', '罠']];
+// spell / trap icons (icon_mahouwana_01 cells 0..6): the white ring, the brown body, a white symbol
+const ICON_PATH = ['M5 6.5a3.2 3.2 0 1 1 1 4.6M5 6.5V4.2M5 6.5h2.3',   // counter: an arrow turning back
+  'M8 3.6 9.2 6.8 12.4 8 9.2 9.2 8 12.4 6.8 9.2 3.6 8 6.8 6.8Z',            // field: a four-point star
+  'M8 4.2v7.6M4.2 8h7.6',                                                   // equip: a cross
+  'M8 8c-1.2-1.6-3.6-1.6-3.6 0s2.4 1.6 3.6 0 3.6-1.6 3.6 0-2.4 1.6-3.6 0',     // continuous: infinity
+  'M9 3.8 5.6 8.6h2.8L7 12.2l3.4-4.8H7.6Z',                                 // quick-play: a bolt
+  'M8 3.8c1.6 2 2.8 3.2 2.8 5a2.8 2.8 0 0 1-5.6 0c0-.9.5-1.6 1-2.1.1 1 .6 1.5 1.1 1.6C7 6.8 7.4 5.4 8 3.8Z',   // ritual: a flame
+  ''];                                                                      // normal: none
+const SVGNS = 'http://www.w3.org/2000/svg';
+export const vectorArt = s => {
+  const n = artName(s.tex), [u, v, w, h] = s.src;
+  if (n === 'icon_zokusei_01.png' && ATTR_SVG[u / 16]) return { kind: 'attr', i: u / 16 };
+  if (n === 'icon_mahouwana_01.png' && u / 16 < 7) return { kind: 'icon', i: u / 16 };
+  if (n === 'icon_star_01.png') return { kind: 'star' };
+  if (n === 'font_k_star.png') return { kind: 'level', i: u / 14 + 1 };
+  if (n === 'scroll_01_c00.png') return { kind: 'scroll', u, v, w, h };
+  if (n === 'icon_syuzoku_01.png') return { kind: 'pixel', n, u, v };
+  return null;
+};
+function drawVector(el, a, x, y, w, h, alpha) {
+  const box = document.createElement('div');
+  Object.assign(box.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px',
+    opacity: alpha === 1 ? '' : alpha });
+  el.append(box);
+  if (a.kind === 'level') {   // the level beside the star: a glyph strip (italic serif, brown in cream) as Arial text
+    box.textContent = a.i;
+    Object.assign(box.style, { font: `italic bold ${fontCss(14, h)}`, color: '#4f0d00', textAlign: 'center',
+      textShadow: '0 0 1px #e0bb7e, 0 0 1px #e0bb7e, 0 0 2px #e0bb7e' });
+    return box;
+  }
+  if (a.kind === 'scroll') return scrollPart(box, a, w, h);
+  if (a.kind === 'pixel') {   // the 21 monster-type pictures stay pixel art (owner): the cell, nearest-neighbour, crisp
+    Object.assign(box.style, { backgroundImage: `url(${base()}${a.n})`, backgroundPosition: `${-a.u}px ${-a.v}px`,
+      backgroundRepeat: 'no-repeat', imageRendering: 'pixelated' });
+    return box;
+  }
+  const id = 'dk' + Math.random().toString(36).slice(2, 8);
+  let body;
+  if (a.kind === 'attr') {
+    const [rim, top, bot, ink, kanji] = ATTR_SVG[a.i];
+    body = `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${top}"/><stop offset="1" stop-color="${bot}"/></linearGradient></defs>
+      <circle cx="8" cy="8" r="7.6" fill="${rim}"/><circle cx="8" cy="8" r="6.4" fill="url(#${id})"/>
+      <text x="8" y="11.6" text-anchor="middle" font-size="10" font-weight="bold" fill="${ink}"
+        font-family="'Hiragino Sans','Yu Gothic','Noto Sans CJK JP','Microsoft YaHei',sans-serif">${kanji}</text>`;
+  } else if (a.kind === 'icon') {
+    body = `<defs><radialGradient id="${id}" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#e3b289"/><stop offset=".6" stop-color="#b06e37"/><stop offset="1" stop-color="#7c3904"/></radialGradient></defs>
+      <circle cx="8" cy="8" r="7.6" fill="#490e00"/><circle cx="8" cy="8" r="6.9" fill="#fffffd"/>
+      <circle cx="8" cy="8" r="5.8" fill="${a.i === 6 ? '#490e00' : `url(#${id})`}"/>
+      ${ICON_PATH[a.i] ? `<path d="${ICON_PATH[a.i]}" fill="${a.i === 2 || a.i === 0 || a.i === 3 ? 'none' : '#fffffd'}" stroke="#fffffd" stroke-width="${a.i === 2 ? 1.8 : a.i === 1 || a.i === 4 || a.i === 5 ? 0.4 : 1.4}" stroke-linecap="round" stroke-linejoin="round"/>` : ''}`;
+  } else {   // the level star (icon_star_01, 19 x 16): a fiery disc, a yellow star, a white x
+    body = `<defs><radialGradient id="${id}" cx=".45" cy=".45" r=".6"><stop offset="0" stop-color="#e5f41e"/><stop offset=".55" stop-color="#e8701c"/><stop offset=".85" stop-color="#9e2728"/><stop offset="1" stop-color="#3f0607"/></radialGradient></defs>
+      <circle cx="7.5" cy="7.5" r="7.2" fill="url(#${id})"/>
+      <path d="M7.5 2.6 8.9 6 12.4 6.1 9.6 8.3 10.6 11.8 7.5 9.8 4.4 11.8 5.4 8.3 2.6 6.1 6.1 6Z" fill="#f4f87a"/>
+      <path d="M12.6 10.6 17.4 15.4M17.4 10.6 12.6 15.4" stroke="#3f0607" stroke-width="3" stroke-linecap="round"/>
+      <path d="M12.6 10.6 17.4 15.4M17.4 10.6 12.6 15.4" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>`;
+  }
+  box.innerHTML = `<svg xmlns="${SVGNS}" viewBox="0 0 ${a.kind === 'star' ? 19 : 16} 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">${body}</svg>`;
+  return box;
+}
+// scroll_01_c00's cells as CSS (#92979a lines on white, the track #d4e2e4): the arrow buttons (columns 0 / 16 / 32:
+// normal, disabled, pressed), the thumb's top / middle / bottom slices, the track
+function scrollPart(box, { u, v, w, h }, W, H) {
+  const col = u / 16, line = ['#92979a', '#b1b7bb', '#070707'][col] || '#92979a', face = col === 2 ? '#92979a' : '#fff';
+  const ink = ['#92979a', '#e2e9ed', '#fff'][col] || '#92979a';
+  if (u >= 48) { box.style.background = '#d4e2e4'; return box; }   // the track
+  if (v >= 32 && v < 56) {   // the thumb, 12 wide in its 16: the top slice has the top edge, the bottom one the bottom
+    Object.assign(box.style, { boxSizing: 'border-box', left: parseFloat(box.style.left) + 2 * W / 16 + 'px', width: 12 * W / 16 + 'px',
+      background: '#fff', borderLeft: `1px solid ${line}`, borderRight: `1px solid ${line}`,
+      borderTop: v === 32 ? `1px solid ${line}` : '', borderBottom: v === 48 ? `1px solid ${line}` : '' });
+    return box;
+  }
+  // an arrow button: a 14 x 14 square in its 16, the arrow a pentagon (up / down / left / right by the row)
+  const dir = [0, 1, , , 2, 3][v / 16 | 0] ?? 0, P = ['50% 22%,82% 54%,82% 78%,18% 78%,18% 54%', '18% 22%,82% 22%,82% 46%,50% 78%,18% 46%',
+    '78% 18%,78% 82%,46% 82%,22% 50%,46% 18%', '22% 18%,54% 18%,78% 50%,54% 82%,22% 82%'][dir];
+  Object.assign(box.style, { boxSizing: 'border-box', border: `1px solid ${line}`, background: face, margin: '1px',
+    width: W - 2 + 'px', height: H - 2 + 'px' });
+  const tri = document.createElement('div');
+  Object.assign(tri.style, { position: 'absolute', inset: '1px', background: ink, clipPath: `polygon(${P})` });
+  box.append(tri);
+  return box;
+}
+
 // The owner's rule for the glowing outline titles: real text in Audiowide (SIL OFL, with the art: the open font
 // closest to the art's rounded-square lettering, crossbarless A and all), the art's white fill and sampled outline,
 // fitted to the art's ink box: an SVG <text> on its baseline (the box's bottom less the outline), as tall as the box
@@ -528,6 +635,73 @@ function drawButton(el, c, x, y, w, h) {
   el.append(b);
 }
 
+// ---------------------------------------------------------------- click to add / remove (owner, after EDOPro)
+// Right-click or double-click (double-tap on a touch screen) moves one copy: a trunk card into the deck (Main; a
+// Fusion into Extra), a deck card back to the trunk. Drag and drop stays as it is. The move IS the game's own drag,
+// replayed as canvas mouse events: a press on the card (KabanListBtn / DeckCard onMessage pick it up), a release over
+// the drop zone (CDeckScene::main's dropFromTrunk / dropFromDeck), so the copy limits, the deck sizes, the banlist,
+// the dirty flag and the server save are all the game's. Drop zones (DeckEntryMain.cpp deckDropTarget / inTrunkZone):
+// the grids x 256..728, y 88..480 (Extra: ..600); the trunk x 744..956, y 88..600.
+export const DROP_DECK = [490, 300], DROP_TRUNK = [850, 300], FUSION_TAB = [540, 70];
+const KLB_FUSION = 6;   // KabanWindowList.h: a trunk row's frame colour for a Fusion monster
+const inside = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+// what a right-click / double-click at game (x, y) moves, from the deck windows' latest snapshot: { press, drop,
+// card, fusion } (press: where the game must see the button go down: on the card's picture), or null
+export function quickMove(wins, x, y) {
+  const pic = c => c.parts?.sprites?.find(q => q.shown && isArt(q));
+  const kaban = wins.find(w => w.cls === 'CWindowModelKaban'), deck = wins.find(w => w.cls === 'CWindowModelDeck');
+  for (const c of kaban?.controls || []) {
+    if (c.cls !== 'CWindowTaskKabanListBtn' || !c.shown || !(c.card > 0)) continue;
+    const p = pic(c), row = { x: c.wx, y: c.wy, w: c.w, h: c.h };
+    if (!p || !inside(row, x, y)) continue;
+    const r = spriteRect(p);   // anywhere on the row; the press lands on its picture
+    return { press: inside(r, x, y) ? [x, y] : [r.x + r.w / 2, r.y + r.h / 2], drop: DROP_DECK, card: c.card, fusion: c.color === KLB_FUSION };
+  }
+  // the deck's cards fan out over each other: the one drawn on top at (x, y), as the game picks it
+  let top = null;
+  for (const c of deck?.controls || []) {
+    const p = c.cls === 'CWindowTaskDeckCard' && c.shown && c.card > 0 && pic(c);
+    if (p && inside(spriteRect(p), x, y) && (!top || p.wz > top.z)) top = { c, z: p.wz };
+  }
+  return top && { press: [x, y], drop: DROP_TRUNK, card: top.c.card, fusion: false };
+}
+let quickBusy = Promise.resolve(), quickOn = false;
+function quickInstall() {
+  const canvas = document.getElementById('canvas');
+  if (quickOn || !canvas) return;
+  quickOn = true;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const game = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * 1024 / r.width, (e.clientY - r.top) * 1024 / r.width]; };
+  const client = ([x, y]) => { const r = canvas.getBoundingClientRect(), k = r.width / 1024; return [r.left + x * k, r.top + y * k]; };
+  const fire = (type, p) => { const [x, y] = client(p); canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0 })); };
+  // the game reads the mouse once a frame: each step held ~3 frames
+  const press = async p => { fire('mousemove', p); await sleep(50); fire('mousedown', p); await sleep(50); };
+  const release = async p => { fire('mousemove', p); await sleep(50); fire('mouseup', p); await sleep(50); };
+  const act = e => {
+    if (!live.size) return;
+    const at = game(e), wins = [...live.values()].map(L => L.win), m = quickMove(wins, ...at);
+    if (!m) return;
+    e.preventDefault?.();
+    quickBusy = quickBusy.then(async () => {
+      const deck = wins.find(w => w.cls === 'CWindowModelDeck'), view = deck?.controls.find(c => c.cls === 'CWindowTaskDeck')?.view;
+      if (m.fusion && view !== 'extra') { await press(FUSION_TAB); await release(FUSION_TAB); await sleep(100); }
+      await press(m.press);
+      await release(m.drop);
+      fire('mousemove', at);   // the pointer back where the player has it
+    });
+  };
+  canvas.addEventListener('contextmenu', act, true);
+  canvas.addEventListener('dblclick', act, true);
+  // a double-tap (a long press still opens the card detail: the game's)
+  let tap = null;
+  canvas.addEventListener('touchend', e => {
+    const t = e.changedTouches[0], now = performance.now();
+    if (tap && now - tap.t < 350 && Math.hypot(t.clientX - tap.x, t.clientY - tap.y) < 24) { tap = null; act(t); }
+    else tap = { t: now, x: t.clientX, y: t.clientY };
+  }, { capture: true, passive: true });
+}
+
 // ---------------------------------------------------------------- the module
 // every live deck window: { win, root, plan }, so a hole from one (a dragged card) clips the others
 const live = new Map(), scene = { el: null, key: '' };   // scene: the backdrop's last drawing
@@ -566,6 +740,7 @@ export default {
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
   passthrough,
   mount(win, root, api) {
+    quickInstall();
     const inner = document.createElement('div');
     inner.className = 'layer';
     root.append(inner);
