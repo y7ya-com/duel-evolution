@@ -14,6 +14,7 @@ import readline from 'node:readline';
 import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
 // [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
@@ -36,7 +37,7 @@ process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799', ...(route.player ? ['--player', route.player] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
@@ -95,14 +96,27 @@ for (const cls of route.flip) {
   if (!w) { report[cls] = { error: 'not shown' }; continue; }
   const [x0, y0] = await toClient(w.x, w.y), [x1, y1] = await toClient(w.x + w.w, w.y + w.h);
   const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  // isolated: the window alone on an empty canvas in both captures (the backdrops animate, and the frame is 70 %)
+  await b.ev(`window.__htmlui.isolate(${JSON.stringify(cls)})`);
+  await sleep(600);   // a few frames: the hide table applies from the next Present
   const engine = await b.shot(clip);
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
-  await sleep(600);   // a few frames: the hide table applies from the next Present
+  await sleep(600);
   const html = await b.shot(clip);
+  writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
+  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false); window.__htmlui.isolate(null)`);
+  // the owner's before/after: the same state over the real backdrop (not diffed)
+  await sleep(600);
+  const before = await b.shot(clip);
+  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
+  await sleep(600);
+  const after = await b.shot(clip);
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false)`);
   const base = path.join(out, `${cls}@${dpr}x`);
   writeFileSync(base + '-engine.png', engine);
   writeFileSync(base + '-html.png', html);
+  writeFileSync(base + '-before.png', before);
+  writeFileSync(base + '-after.png', after);
   const pw = Math.round(clip.width * dpr), ph = Math.round(clip.height * dpr);
   const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${pw}, ${ph})`);
   writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));

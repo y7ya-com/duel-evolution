@@ -175,7 +175,9 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     id: w, cls: cls(w), ...rectF(w, 0x380), z: f32(w + 0x34c), alpha: alpha(w),
     shown: shown(w) && !(u32(w + 0x20) & 4),   // CTask lockFlags_ bit 2: hidden, no TM_MAIN
     modal: !!u8(w + 0x350), topmost: !!u8(w + 0x35c), active: !!u8(w + 0x351),
-    controls: byWin.get(w).reverse(),           // the factory keeps them front to back
+    // draw order: the window's z (CWindowTaskControll z_ +0x34c: body 0, buttons 2, labels 3; larger is in front),
+    // stable for equal z (the factory's list is not the draw order)
+    controls: byWin.get(w).reverse().sort((a, b) => a.z - b.z),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
     extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
