@@ -29,19 +29,8 @@ const glyph = (ch, F = G) => F.glyphs[ch.charCodeAt(0)] || F.glyphs[63];   // '?
 export const advance = (ch, F) => glyph(ch, F).adv + 1;                     // the game's cell: gmCellIncX + 1
 export const measure = (s, F) => [...s].reduce((w, ch) => w + advance(ch, F), 0);
 // another lfHeight's glyphs (glyphs-dejavu<px>.json beside the 16-pixel one), for text(..., font)
-const fonts = {}, loaded = {};
-export const loadFont = px => fonts[px] ||= fetch(A + `glyphs-dejavu${px}.json`).then(r => r.json()).then(f => (loaded[px] = f));
-// Crisp text on a dense screen: text() draws its canvas at `density` device pixels per game pixel (the page's
-// devicePixelRatio times its own CSS scale), each glyph from the same font rasterised at that size (the same
-// stb_truetype pipeline, tools/glyphs: lfHeight 16 x density), at the 1x layout's pen positions. density 1 (or a size
-// not loaded): the game's own glyph texture, texel for texel. setDensity() loads the sizes it needs.
-let density = 1;
-export const getDensity = () => density;
-export async function setDensity(k) {
-  k = Math.max(1, Math.min(4, Math.round(k)));
-  if (k > 1) await Promise.all([16, 24, 32].map(px => px * k <= 96 ? loadFont(px * k).catch(() => null) : null));
-  density = k;
-}
+const fonts = {};
+export const loadFont = px => fonts[px] ||= fetch(A + `glyphs-dejavu${px}.json`).then(r => r.json());
 
 // src rect (sx,sy,sw,sh) of a sheet onto dst rect (x,y,w,h), sampled as the game samples it: the quad covers exactly
 // dst, its texture is read half a pixel up-left (D3D8 pixel centres), bilinear, clamped at the atlas's top-left edge.
@@ -99,8 +88,6 @@ export function windowFrame(parent, x, y, w, h, headerH) {
 // lines: [[string, x, y], ...] sharing one texture, as the game's multi-line text does. font: a loadFont() result
 // (default the 16-pixel glyphs); its height is the cell's.
 export function text(parent, lines, cls = '', font = G) {
-  const hi = density > 1 && loaded[font.height * density];
-  if (hi) return textHi(parent, lines, cls, font, hi, density);
   const TW = 256, TH = 256, tex = new Uint8Array(TW * TH), cells = [], F = font, H = F.height;
   let pen = 0, row = 0;
   for (const [s, x, y] of lines) {
@@ -132,34 +119,6 @@ export function text(parent, lines, cls = '', font = G) {
       for (let xx = 0; xx < adv; xx++)
         img.data[((dy - y0 + yy) * c.width + dx - x0 + xx) * 4 + 3] = py + yy < TH ? tex[(py + yy) * TW + px + xx] : 0;
   c.getContext('2d').putImageData(img, 0, 0);   // black (0,0,0,a): premultiplied storage is lossless
-  parent.append(c);
-  return c;
-}
-// text() at k device pixels per game pixel: the 1x layout (F's advances, so lines and boxes don't move), each glyph
-// drawn from FK (F rasterised k times larger) at k x its pen position, on a canvas k times denser than its CSS size
-function textHi(parent, lines, cls, F, FK, k) {
-  const H = F.height, cells = [];
-  for (const [s, x, y] of lines) {
-    let dx = x;
-    for (const ch of s) { cells.push([ch, dx, y]); dx += advance(ch, F); }
-  }
-  const x0 = Math.min(...lines.map(l => l[1])), y0 = Math.min(...lines.map(l => l[2]));
-  const x1 = Math.max(x0 + 1, ...cells.map(([ch, dx]) => dx + advance(ch, F))), y1 = Math.max(...lines.map(l => l[2])) + H;
-  const c = document.createElement('canvas');
-  c.className = 'tx ' + cls;
-  c.width = (x1 - x0) * k; c.height = (y1 - y0) * k;
-  Object.assign(c.style, { left: x0 + 'px', top: y0 + 'px', width: x1 - x0 + 'px', height: y1 - y0 + 'px' });
-  const img = new ImageData(c.width, c.height);
-  for (const [ch, dx, dy] of cells) {
-    const g = glyph(ch, FK), ox = (dx - x0) * k + g.x0, oy = (dy - y0) * k + FK.ascent + g.y0;
-    for (let gy = 0; gy < g.h; gy++)
-      for (let gx = 0; gx < g.w; gx++) {
-        const X = ox + gx, Y = oy + gy;
-        if (X >= 0 && Y >= 0 && X < c.width && Y < c.height)
-          img.data[(Y * c.width + X) * 4 + 3] = Math.max(img.data[(Y * c.width + X) * 4 + 3], Math.floor(g.lv[gy * g.w + gx] * 251 / 64));
-      }
-  }
-  c.getContext('2d').putImageData(img, 0, 0);
   parent.append(c);
   return c;
 }

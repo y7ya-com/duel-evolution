@@ -6,7 +6,7 @@
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow, FONTS } from './controls/basic.js';
-import { loadGlyphs, loadFont, setDensity, getDensity } from '../ui.js';
+import { loadGlyphs, loadFont } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -53,7 +53,6 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 export async function makeLayer(host, screens, art = 'ui/') {
   await loadGlyphs(art);
   for (const px of [24, 32]) FONTS[px] = await loadFont(px).catch(() => undefined);
-  await setDensity(devicePixelRatio);
   if (!document.getElementById('htmlui-css')) {
     const st = document.createElement('style');
     st.id = 'htmlui-css';
@@ -102,15 +101,13 @@ export async function makeLayer(host, screens, art = 'ui/') {
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
   }
-  // everything drawn again (the text density changed): each window remounts on the next frame
-  function reset() { for (const id of [...live.keys()]) unmount(id); }
   function unmount(id) {
     const e = live.get(id);
     e.mod?.unmount?.(e.root, e.state);
     e.root.remove();
     live.delete(id);
   }
-  return { layer, render, reset };
+  return { layer, render };
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
@@ -131,13 +128,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const host = document.createElement('div');
   host.id = 'htmlui-host';
   document.body.append(host);
-  const { render, reset } = await makeLayer(host, screens);
+  const { render } = await makeLayer(host, screens);
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = r.width / 1024;
     Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
-    // text drawn at the screen's density (crisp on retina, phones, a big window); 1 = the game's own texels
-    const k = Math.max(1, Math.min(4, Math.round(devicePixelRatio * s)));
-    if (k !== getDensity()) setDensity(k).then(reset);
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
