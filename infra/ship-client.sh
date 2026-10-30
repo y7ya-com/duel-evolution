@@ -74,7 +74,8 @@ cp $C/web-shell/index.html $O/
 cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
 # the picker's art: html-ui's clamp atlases and glyphs (Konami-derived: from infra/fetch-private.sh, never in git)
 UI="clamp/window_base_01_c01.png clamp/window_base_01_c01.rgb.png clamp/swich_01_c00.png clamp/swich_01_c00.rgb.png
-  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json"
+  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json
+  glyphs-dejavu24.json glyphs-dejavu32.json"
 mkdir -p $O/ui/clamp
 for f in $UI; do cp $C/html-ui/assets/$f $O/ui/$f || { echo "no html-ui/assets/$f (run infra/fetch-private.sh)"; exit 1; }; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters

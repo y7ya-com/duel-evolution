@@ -5,8 +5,8 @@
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read } from './read.js';
-import { renderControl } from './controls/basic.js';
-import { loadGlyphs } from '../ui.js';
+import { renderControl, syncWindow, FONTS } from './controls/basic.js';
+import { loadGlyphs, loadFont } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -39,12 +39,16 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .sp { overflow: hidden; }
 #htmlui-host .sp > b { position: absolute; display: block; left: 0; top: 0; background-repeat: no-repeat;
   mask-repeat: no-repeat; transform-origin: 0 0; }
-#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }`;
+#htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
+#htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
+#htmlui-host .rt { position: absolute; font: 16px/16px 'DejaVu Sans', sans-serif; white-space: pre; color: transparent;
+  pointer-events: none; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
 export async function makeLayer(host, screens, art = 'ui/') {
   await loadGlyphs(art);
+  for (const px of [24, 32]) FONTS[px] = await loadFont(px).catch(() => undefined);
   if (!document.getElementById('htmlui-css')) {
     const st = document.createElement('style');
     st.id = 'htmlui-css';
@@ -66,6 +70,9 @@ export async function makeLayer(host, screens, art = 'ui/') {
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
+        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
+        // window in the bubbling phase
+        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
@@ -78,14 +85,13 @@ export async function makeLayer(host, screens, art = 'ui/') {
       const json = JSON.stringify(w.controls);
       if (json === e.json) continue;
       e.json = json;
-      const a = { ...api, owned: mod?.mode === 'owned', renderControl: (c, el) => renderControl(c, el, a) };
+      const a = e.api ||= { ...api, owned: mod?.mode === 'owned' };
+      a.renderControl = (c, el, opts) => renderControl(c, el, a, opts);
+      a.syncWindow = (root, win, st) => syncWindow(root, win, st, a);
       if (mod) {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
-      } else {
-        e.root.replaceChildren();
-        for (const c of w.controls) if (c.shown) renderControl(c, e.root, a);
-      }
+      } else syncWindow(e.root, w, e.st ||= new Map(), a);
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -128,7 +134,52 @@ export async function start(Module, { canvas = document.getElementById('canvas')
 
   let scene = 0, frameNo = 0, dv = null, last = null;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
-  const api = { click() {}, hover() {}, key() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
+
+  // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
+  // controls' onMain, and drops a press that comes in the same frame as the move). Keys, characters and text: queued
+  // into the tables, played by htmlui.c at the next Present through the factory's dispatch / the control's setText.
+  const queue = [], waiters = [];
+  const frames = n => new Promise(r => waiters.push([frameNo + n, r]));
+  const at = id => {   // a control's centre in client pixels
+    for (const w of last?.windows || []) for (const c of w.controls) if (c.id === id) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024;
+      return [r.left + (w.x + c.x + c.w / 2) * k, r.top + (w.y + c.y + c.h / 2) * k];
+    }
+    return null;
+  };
+  const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
+    { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
+  const api = {
+    async click(id) {
+      const p = at(id);
+      if (!p) return false;
+      fire('mousemove', p); await frames(2);
+      fire('mousedown', p); await frames(2);
+      fire('mouseup', p); return true;
+    },
+    hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
+    wheel(id, delta) { const p = at(id); if (p) fire('wheel', p, { deltaY: delta, deltaMode: 0 }); return !!p; },
+    key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
+    char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
+    setText(id, s) { queue.push([2, id, String(s)]); },
+    scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
+  };
+  const QBASE = 2 + 2 * SLOTS, QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: nq, q[32] {kind, a, b, c}, text[1024]
+  function flush(t, H) {
+    if (!queue.length || H[t + QBASE]) return;   // the last batch not played yet
+    const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
+    let n = 0, used = 0;
+    while (queue.length && n < QN) {
+      const [kind, a, b, c] = queue[0], o = t + QBASE + 1 + 4 * n;
+      if (kind === 2) {
+        if (used + b.length > TEXT) break;
+        for (let i = 0; i < b.length; i++) T[used + i] = b.charCodeAt(i);
+        H[o] = 2; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
+      } else { H[o] = kind; H[o + 1] = a; H[o + 2] = b; H[o + 3] = c; }
+      queue.shift(); n++;
+    }
+    H[t + QBASE] = n;
+  }
   Module.onYo2Frame = tables => {
     if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
     let snap;
@@ -147,7 +198,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    flush(t, H);
     render(snap, owned, api);
+    for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   };
   return window.yo2Html = {
     snapshot: () => last,

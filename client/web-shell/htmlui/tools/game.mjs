@@ -42,7 +42,8 @@ const srv = createServer((req, res) => {
     res.writeHead(302, { ...ISO, Location: '/yo2rc.html?' + q }); return res.end();
   }
   const f = p.startsWith('/htmlui/') ? path.join(shell, p) : p === '/ui.js' ? path.join(shell, '../html-ui/ui.js')
-    : p.startsWith('/ui/') ? path.join(ART, p.slice(4)) : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
+    : p.startsWith('/ui/') ? path.join(ART, p.slice(4)) : p === '/game/files.txt' ? path.join(FONTS, '../game/files.txt')
+    : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
     : p.startsWith('/fonts/') ? path.join(FONTS, p.slice(7)) : path.join(BUILD, p);
   let st;
   try { st = statSync(f); } catch { res.writeHead(404, ISO); return res.end(); }

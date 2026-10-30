@@ -11,6 +11,8 @@ import json
 import os
 import secrets
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -27,6 +29,10 @@ D = os.path.join(R.OUT, f"htmlui-{PORT}")
 
 
 def main():
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # flip.mjs stops us: let `finally` stop wrangler too
+    with socket.socket() as s:
+        if s.connect_ex(("127.0.0.1", PORT)) == 0:
+            sys.exit(f"stack.py: 127.0.0.1:{PORT} is taken (a stale wrangler dev?)")
     shutil.rmtree(D, ignore_errors=True)
     os.makedirs(D)
     snap = R.snapshot()
