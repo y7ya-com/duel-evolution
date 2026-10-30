@@ -66,6 +66,7 @@ void onMsg(const PlatformMsg& m, void*) {
 extern "C" void rc_net_poll(void);
 extern "C" void rc_web_sleep(uint32_t ms);
 extern "C" void rc_web_idle(void);
+extern "C" unsigned rc_gfx_shown(void);   // rt/d3d8.cpp
 extern "C" void rc_post(uint32_t hwnd, uint32_t msg, uint32_t w, uint32_t l) {
     std::lock_guard<std::recursive_mutex> lock(qmu);
     queue.push_back({hwnd ? hwnd : mainHwnd, msg, w, l});
@@ -284,10 +285,13 @@ U(GetWindowRect) {
 }
 U(ClientToScreen) { RET(2, 1); }   // the window sits at the screen origin
 U(ScreenToClient) { RET(2, 1); }
+extern "C" int rc_cursor_x, rc_cursor_y;
+int rc_cursor_x, rc_cursor_y;   // where the game last read the mouse (rt/d3d8.cpp: its cursor's hotspot)
 U(GetCursorPos) {
     rc_trace_input(c, "GetCursorPos", 0);
     int x = 0, y = 0, b;
     if (platformUp) platformMouse(&x, &y, &b);
+    rc_cursor_x = x, rc_cursor_y = y;
     WR32m(ARG(0), (uint32_t)x); WR32m(ARG(0) + 4, (uint32_t)y);
     RET(1, 1);
 }
@@ -860,9 +864,12 @@ extern "C" void rc_present_hook(void) {
         if (!start) start = now, cpuStart = cpu;
         last = now, cpuLast = cpu;
         if (frame % 30 == 0) {
-            rc_log("stats frame %d: %.1f fps, worst %.0f ms at %d; cpu %.1f ms/frame, worst %.0f ms at %d", frame,
-                   30e3 / (now - start), worst, worstAt, (cpu - cpuStart) / 30, cpuWorst, cpuWorstAt);
-            start = now, worst = 0, cpuStart = cpu, cpuWorst = 0;
+            static unsigned shownStart;
+            unsigned shown = rc_gfx_shown();   // frames on the window: the steps' plus the in-between ones
+            rc_log("stats frame %d: %.1f fps (%.1f shown), worst %.0f ms at %d; cpu %.1f ms/frame, worst %.0f ms at %d",
+                   frame, 30e3 / (now - start), (shown - shownStart) * 1e3 / (now - start), worst, worstAt,
+                   (cpu - cpuStart) / 30, cpuWorst, cpuWorstAt);
+            start = now, worst = 0, cpuStart = cpu, cpuWorst = 0, shownStart = shown;
         }
     }
     if (maxFrames >= 0 && frame >= maxFrames) {

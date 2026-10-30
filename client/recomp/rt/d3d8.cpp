@@ -2,7 +2,10 @@
 // Guest object = 8 bytes in guest memory: [vtable][index into objs]. Every slot of the real D3D8 vtables exists;
 // the ones the game never calls trap with their name. Every method runs under one lock: the game's texture loader
 // threads create and lock textures while the main thread draws (platform/gfx keeps GL on the main thread).
+#include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <map>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +14,9 @@
 #include <vector>
 
 #include "d3d8.h"   // platform/win32 (the platform/gfx subset)
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "comobj.h"
 
@@ -206,11 +212,20 @@ static D3DPRESENT_PARAMETERS pp_in(uint32_t p) {   // guest layout: 13 dwords (H
     return pp;
 }
 static uint32_t g_gdev;   // the guest IDirect3DDevice8 (one per process), for IDirect3DResource8::GetDevice
+static bool g_between;    // in-between frames wanted for this run (CreateDevice); rc_gfx_between turns them off
 M(d3d, CreateDevice) {
     D3DPRESENT_PARAMETERS pp = pp_in(ARG(5));
     IDirect3DDevice8* dev = nullptr;
     HRESULT hr = THIS(IDirect3D8)->CreateDevice(ARG(1), (D3DDEVTYPE)ARG(2), nullptr, ARG(4), &pp, &dev);
     WR32m(ARG(6), hr ? 0 : (g_gdev = wrap(dev, vt_dev)));
+    // 60 Hz on screen (platform/gfx/d3d8.cpp, in-between frames), except for runs whose clock isn't the wall clock
+    const char* e60 = getenv("RC_60");
+    g_between = !rc_fastforward && rc_timescale == 1 && !(e60 && !strcmp(e60, "0"));
+    if (dev) dev->interp = g_between;
+#ifdef __EMSCRIPTEN__
+    const char* ehw = getenv("RC_HWCURSOR");
+    if (dev) dev->hwCursor = !(ehw && !strcmp(ehw, "0"));
+#endif
     rc_log("d3d8: CreateDevice %ux%u windowed=%u flags=%x -> %x (shell %08x, vtable %08x), render scale %u", pp.BackBufferWidth,
            pp.BackBufferHeight, pp.Windowed, ARG(4), (unsigned)hr, g_gdev, vt_dev, dev ? dev->scale : 0);
     RET(7, hr);
@@ -269,6 +284,7 @@ static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
 extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
+extern "C" int rc_loading_cursor(void);   // ovr/imgfail.c
 extern "C" void rc_imgfail(const char* what, uint32_t hr, const char* detail, uint32_t data, uint32_t size);   // ovr/imgfail.c
 extern "C" void rc_web_frame(void);
 extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R bytes, -1 when unreadable (RC_SCENE_LOG)
@@ -300,6 +316,91 @@ extern "C" void rc_screenshot(int frame) {
     fclose(f);
     rc_log("screenshot: %s (%dx%d)", name, w, h);
 }
+// The step's own frame that an in-between Present held (platform/gfx/d3d8.cpp), once due: from the main thread's
+// waits between steps (Sleep, the web's PeekMessage spin). On the web: once the browser has run an animation frame since
+// the Present, i.e. painted the in-between one, so the two land on display frames of their own.
+#ifdef __EMSCRIPTEN__
+EM_JS(int, web_raf, (void), {
+    if (!Module.yo2RafTick) {
+        Module.yo2Raf = 0;
+        Module.yo2RafTick = () => { Module.yo2Raf++; requestAnimationFrame(Module.yo2RafTick); };
+        requestAnimationFrame(Module.yo2RafTick);
+    }
+    return Module.yo2Raf;
+});
+static int rafAtPresent;
+// The game's cursor sprite as the canvas's CSS cursor (platform/gfx: hwCursor): the image its last frame drew, the
+// hotspot where the game's mouse reading fell in it, scaled like the canvas. The browser moves it at the display's rate
+// instead of the game's 30 Hz frames; a frame that draws none hides it, as the game hid its sprite.
+EM_JS(void, web_cursor, (const uint8_t* bgra, int w, int h, int hx, int hy, int gw, int key), {
+    const cv = Module.canvas;
+    if (!cv) return;
+    if (!w) { cv.style.cursor = 'none'; return; }
+    const r = cv.getBoundingClientRect(), s = Math.min(r.width / gw || 1, 128 / Math.max(w, h));
+    const k = key + ':' + s.toFixed(3), cache = (Module.yo2Cursors = Module.yo2Cursors || new Map());
+    let css = cache.get(k);
+    if (!css) {
+        const a = document.createElement('canvas'), img = new ImageData(w, h);
+        a.width = w, a.height = h;
+        for (let i = 0; i < w * h * 4; i += 4)
+            img.data[i] = HEAPU8[bgra + i + 2], img.data[i + 1] = HEAPU8[bgra + i + 1],
+            img.data[i + 2] = HEAPU8[bgra + i], img.data[i + 3] = HEAPU8[bgra + i + 3];
+        a.getContext('2d').putImageData(img, 0, 0);
+        const b = document.createElement('canvas'), g = b.getContext('2d');
+        b.width = Math.max(1, Math.round(w * s)), b.height = Math.max(1, Math.round(h * s));
+        g.imageSmoothingEnabled = false;
+        g.drawImage(a, 0, 0, b.width, b.height);
+        css = `url(${b.toDataURL()}) ${Math.round(hx * s)} ${Math.round(hy * s)}, none`;
+        cache.set(k, css);
+    }
+    if (cv.style.cursor !== css) cv.style.cursor = css;
+});
+extern "C" int rc_cursor_x, rc_cursor_y;   // rt/user32.cpp
+static void cursor_frame(IDirect3DDevice8* d) {
+    static int64_t last = -1;
+    IDirect3DDevice8::CursorDraw& cd = d->cursorDraw;
+    if (!cd.drawn) {
+        if (last) web_cursor(nullptr, 0, 0, 0, 0, 0, 0);
+        last = 0;
+        return;
+    }
+    cd.drawn = false;
+    int hx = std::clamp(rc_cursor_x - (int)lroundf(cd.x), 0, cd.w - 1), hy = std::clamp(rc_cursor_y - (int)lroundf(cd.y), 0, cd.h - 1);
+    uint32_t k[] = {(uint32_t)(uintptr_t)cd.tex, (uint32_t)cd.u, (uint32_t)cd.v, (uint32_t)cd.w, (uint32_t)cd.h,
+                    (uint32_t)hx, (uint32_t)hy}, key = 2166136261u;
+    for (uint32_t x : k) key = (key ^ x) * 16777619u;
+    if ((int64_t)key + 1 == last) return;
+    last = (int64_t)key + 1;
+    std::vector<uint8_t> px((size_t)cd.w * cd.h * 4);
+    for (int y = 0; y < cd.h; y++)
+        memcpy(&px[(size_t)y * cd.w * 4], &cd.tex->shadow[((size_t)(cd.v + y) * cd.tex->level0.w + cd.u) * 4], (size_t)cd.w * 4);
+    web_cursor(px.data(), cd.w, cd.h, hx, hy, (int)d->backBuffer->w, (int)(key & 0x7fffffff));
+}
+#else
+static void cursor_frame(IDirect3DDevice8*) {}
+#endif
+extern "C" void rc_gfx_held(void) {
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    if (!g_dev) return;
+#ifdef __EMSCRIPTEN__
+    if (web_raf() != rafAtPresent) g_dev->presentHeld(true);
+#else
+    g_dev->presentHeld();
+#endif
+}
+extern "C" void rc_gfx_between(int on) {   // ovr/scene.c: none while a screen switches, nor in the duel's screens
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    if (g_dev) g_dev->interp = g_between && on;
+}
+extern "C" int rc_gfx_held_due(void) {   // ms until it is due, -1 none (the web goes by animation frames: polled)
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    return g_dev ? g_dev->heldDueMs() : -1;
+}
+extern "C" unsigned rc_gfx_shown(void) {   // frames put on the window (RC_FRAMESTATS)
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    return g_dev ? g_dev->shown : 0;
+}
+
 // not M(): the browser yield must happen outside the lock, or loader threads wait out the whole frame
 extern "C" void dev_Present(CPU* c) {
     HRESULT hr;
@@ -310,6 +411,10 @@ extern "C" void dev_Present(CPU* c) {
                                             ARG(2) ? (const RECT*)G(ARG(2)) : nullptr, nullptr, nullptr) : 0;
         rc_present_hook();
         rc_scene_present();
+        cursor_frame(DEV);
+#ifdef __EMSCRIPTEN__
+        rafAtPresent = web_raf();
+#endif
     }
     rc_ovr_frame(c);   // outside the lock too: it may run game code (ovr/sedefer.c)
 #ifdef __EMSCRIPTEN__
@@ -333,6 +438,7 @@ M(dev, GetGammaRamp) {
 M(dev, CreateTexture) {
     IDirect3DTexture8* t = nullptr;
     HRESULT hr = DEV->CreateTexture(ARG(1), ARG(2), ARG(3), ARG(4), (D3DFORMAT)ARG(5), (D3DPOOL)ARG(6), &t);
+    if (t) t->cursor = rc_loading_cursor();
     WR32m(ARG(7), hr ? 0 : wrap(t, vt_tex));
     RET(8, hr);
 }

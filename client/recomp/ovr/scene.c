@@ -23,6 +23,7 @@ static void scene_js(const char *kind, int from, int to) { (void)kind; (void)fro
 void o_0061d6a0(CPU *c);
 void rc_free_scene(CPU *c);   // ovr/freemode.c: My Room's replacement in free mode
 int rc_backbuffer_luma(void);
+void rc_gfx_between(int on);   // rt/d3d8.cpp: in-between frames (platform/gfx/d3d8.cpp) on or off
 
 static int pending, from_id, to_id, logging = -1;
 static uint32_t mgr;   // the CSceneMng (one per process)
@@ -52,6 +53,7 @@ void f_0061d6a0(CPU *c) {
     to_id = (int)RD32(mgr + 0x80);     // nextId_
     t_begin = ms();
     emit("begin");
+    rc_gfx_between(0);   // a new screen: no in-between frames until it's up
     pending = 1;
     o_0061d6a0(c);
 }
@@ -76,4 +78,5 @@ void rc_scene_present(void) {
     if (!pending || fader_black()) return;
     pending = 0;
     emit("end");
+    rc_gfx_between(to_id < 28 || to_id > 30);   // the duel's screens (janken 30, duel 28, its end 29) stay at 30 Hz
 }

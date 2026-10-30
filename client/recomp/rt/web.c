@@ -46,7 +46,9 @@ void rc_web_frame(void) {
 }
 
 // an empty PeekMessage: the game spins on it between frames, so yield once that has gone on for a frame
+void rc_gfx_held(void);   // rt/d3d8.cpp
 void rc_web_idle(void) {
+    if (emscripten_is_main_runtime_thread()) rc_gfx_held();
     if (emscripten_is_main_runtime_thread() && rc_ticks_ms() - last_yield >= 16) rc_web_sleep(0);
 }
 

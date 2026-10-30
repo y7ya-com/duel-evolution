@@ -220,6 +220,11 @@ frames; `RC_PROF=<ms>` (macOS) samples the main thread every millisecond and log
 slower than `<ms>`; with `RC_PROF_DUMP=<file>` every sample is also tallied per scene and written at `RC_FRAMES`, and
 `tools/profsum.py <file>` ranks the guest functions, host leaves and inclusive frames of each scene;
 `RC_PROF_UNDER=f_<addr>` adds the host frames under that innermost guest function to the dump as scene `fff`.
+60 Hz on screen: the game steps at 30 Hz, and platform/gfx shows a frame between each two (every sprite matched to
+itself last step, drawn halfway), the step's own frame half a step later. Logic is unchanged; off in the duel's screens,
+while a screen switches, under RC_FASTFORWARD / RC_TIMESCALE, and by itself while steps run late. `RC_60=0` turns it
+off, `RC_60_LOG=1` logs how much matched; RC_FRAMESTATS's "shown" is frames on the window. On the web the game's
+cursor sprite is the canvas's CSS cursor instead (moves at the display's rate; `RC_HWCURSOR=0` keeps the sprite).
 `ovr/path.c` replaces the avatar's walk path search (A*, 0xa04a30), which re-sorted its whole open list after every
 step (up to ~300 ms of CPU for one click in a lobby), with a heap that pops the nodes in the same order (~0.6 ms);
 `ovr/math.c` replaces D3DX's x87 matrix product (0xb58a89, 6-11% of every scene) with the same arithmetic in C;
