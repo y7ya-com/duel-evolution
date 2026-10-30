@@ -14,12 +14,15 @@ import readline from 'node:readline';
 import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// [action, ...] steps: click x y (game px), wait ms, scene id (until that scene has ended), window cls (until shown)
+// A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
+// [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
+// tries), wait ms,
+// scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
-  select: { steps: [['window', null, 60000], ['click', 512, 458], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
 };
 
-const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.split('=')[1];
+const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
@@ -30,32 +33,36 @@ process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799', ...(route.player ? ['--player', route.player] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
 }
-kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin }, stdio: 'inherit' }));
+kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie }, stdio: 'inherit' }));
 await sleep(500);
 
 const b = await launch({ dpr });
-for (const c of cookie.split('; ').filter(Boolean)) {
-  const i = c.indexOf('=');
-  await b.send('Network.setCookie', { name: c.slice(0, i), value: c.slice(i + 1), domain: '127.0.0.1', path: '/' });
-}
 await b.go(`http://127.0.0.1:${GAME}/?HTML_UI=0`, 'window.__htmlui && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.__htmlui.snapshot())').then(JSON.parse);
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
   writeFileSync(path.join(out, 'stuck.png'), await b.shot());
+  writeFileSync(path.join(out, 'console.txt'), b.logs.join('\n'));
   throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
 };
 const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
 const mouse = (type, [x, y]) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
 
-for (const [a, x, y] of route.steps) {
+const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
+for (const [a, x, y, z] of route.steps) {
   if (a === 'wait') await sleep(x);
-  if (a === 'click') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(400); await mouse('mousePressed', p); await sleep(150); await mouse('mouseReleased', p); await sleep(500); }
+  if (a === 'click') await click(x, y);
+  if (a === 'leave') for (let i = 0; i < 4; i++) {
+    await click(x, y);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 8000 && (await snap())?.scene === z) await sleep(250);
+    if ((await snap())?.scene !== z) break;
+  }
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }
@@ -85,14 +92,27 @@ for (const cls of route.flip) {
   if (!w) { report[cls] = { error: 'not shown' }; continue; }
   const [x0, y0] = await toClient(w.x, w.y), [x1, y1] = await toClient(w.x + w.w, w.y + w.h);
   const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  // isolated: the window alone on an empty canvas in both captures (the backdrops animate, and the frame is 70 %)
+  await b.ev(`window.__htmlui.isolate(${JSON.stringify(cls)})`);
+  await sleep(600);   // a few frames: the hide table applies from the next Present
   const engine = await b.shot(clip);
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
-  await sleep(600);   // a few frames: the hide table applies from the next Present
+  await sleep(600);
   const html = await b.shot(clip);
+  writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
+  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false); window.__htmlui.isolate(null)`);
+  // the owner's before/after: the same state over the real backdrop (not diffed)
+  await sleep(600);
+  const before = await b.shot(clip);
+  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
+  await sleep(600);
+  const after = await b.shot(clip);
   await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false)`);
   const base = path.join(out, `${cls}@${dpr}x`);
   writeFileSync(base + '-engine.png', engine);
   writeFileSync(base + '-html.png', html);
+  writeFileSync(base + '-before.png', before);
+  writeFileSync(base + '-after.png', after);
   const pw = Math.round(clip.width * dpr), ph = Math.round(clip.height * dpr);
   const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${pw}, ${ph})`);
   writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));

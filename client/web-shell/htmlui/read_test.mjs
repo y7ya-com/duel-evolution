@@ -10,6 +10,7 @@ const dv = new DataView(new ArrayBuffer(0x1300000));
 let heap = 0x100000;
 const alloc = n => { const a = heap; heap += (n + 15) & ~15; return a; };
 const w32 = (a, v) => dv.setUint32(a, v >>> 0, true), wf = (a, v) => dv.setFloat32(a, v, true), w8 = (a, v) => dv.setUint8(a, v);
+const str = (a, s) => { const p = alloc(s.length + 1); [...s].forEach((c, i) => dv.setUint8(p + i, c.charCodeAt(0))); w32(a + 4, p); w32(a + 8, s.length); };   // cp932 (ASCII here)
 const wstr = (a, s) => { const p = alloc(2 * s.length + 2); [...s].forEach((c, i) => dv.setUint16(p + 2 * i, c.charCodeAt(0), true)); w32(a + 4, p); w32(a + 8, s.length); };
 const list = (a, items) => {   // vc6::list: circular through a sentinel
   const head = alloc(12), nodes = items.map(() => alloc(12));
@@ -28,7 +29,7 @@ const shadow = elem('CWindowTaskShadowText', 0x398); w32(shadow + 0x36c + 4, txt
 const btn = elem('CWindowTaskTextSwitch', 0x5b8);
 w32(btn + 0x344, win + 0x340); w8(btn + 0x350, 1); w32(btn + 0x5a4 + 4, shadow);
 wf(btn + 0x3d4, 376); wf(btn + 0x3d8, 240); wf(btn + 0x3dc, 88); wf(btn + 0x3e0, 24); dv.setInt32(btn + 0x3e8, 1, true);
-wstr(btn + 0x354, '選択スイッチ');
+str(btn + 0x4c, 'BackSwitch');   // CTask instName
 const avatar = elem('CElement', 0x340);
 list(win + 0x0c, [btn, avatar]);   // CTask children
 
@@ -45,8 +46,15 @@ assert.deepEqual([w.cls, w.x, w.y, w.w, w.h, w.modal, w.shown], ['CWindowPlayerS
 assert.equal(w.controls.length, 1);
 const b = w.controls[0];
 assert.deepEqual([b.cls, b.name, b.label, b.align, b.state, b.x, b.y, b.w, b.h, b.parent],
-  ['CWindowTaskTextSwitch', '選択スイッチ', 'Back', 1, 'hover', 376, 240, 88, 24, 0]);
+  ['CWindowTaskTextSwitch', 'BackSwitch', 'Back', 1, 'hover', 376, 240, 88, 24, 0]);
 assert.deepEqual(w.extras, [{ id: avatar, cls: 'CElement' }]);
+assert.deepEqual(s.tasks, []);
+// parts: a sprite child of the button, on request
+const sp = elem('CSpriteElm', 0x5088); str(sp + 0x358, 'data/common/window/swich_01_c00.png'); dv.setInt32(sp + 0x94 + 8, 24, true);
+list(btn + 0x0c, [sp]);
+const p = read(dv, 8, 7, { parts: new Set([win]) }).windows[0].controls[0].parts;
+assert.deepEqual([p.sprites.length, p.sprites[0].tex, p.sprites[0].src, p.labels.length], [1, 'data/common/window/swich_01_c00.png', [0, 0, 24, 0], 0]);
+assert.equal(read(dv).windows[0].controls[0].parts, undefined);
 w8(btn + 0x350, 0);
 assert.equal(read(dv).windows[0].controls[0].state, 'disabled');
 w32(FACTORY, 0);

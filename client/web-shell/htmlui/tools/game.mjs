@@ -1,7 +1,8 @@
 // The web client with the bridge, for the htmlui tools: a recomp web build (yo2rc.{html,js,wasm}) with bridge.js
 // started in the page, the game and font files, and everything the server answers (/api/, /yo2/, /app/, /__warm and
 // the /net WebSocket) forwarded to a local stack.py. Cross-origin isolated, as production.
-//   SERVER=http://127.0.0.1:8799 BUILD=<build-web> GAME=<web/game> FONTS=<fonts> node tools/game.mjs [port]
+//   SERVER=http://127.0.0.1:8799 COOKIE=<stack.py's cookie> BUILD=<build-web> GAME=<web/game> FONTS=<fonts> node tools/game.mjs [port]
+// COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -9,11 +10,15 @@ import { createReadStream, statSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url)), shell = path.join(here, '../..');
-const PORT = +(process.argv[2] || 8942), SERVER = new URL(process.env.SERVER || 'http://127.0.0.1:8799');
+const PORT = +(process.argv[2] || 8942), SERVER = new URL(process.env.SERVER || 'http://127.0.0.1:8799'), COOKIE = process.env.COOKIE || '';
+const withCookie = h => COOKIE ? { ...h, cookie: [h.cookie, COOKIE].filter(Boolean).join('; ') } : h;
 const DATA = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web';
 const BUILD = process.env.BUILD || path.join(shell, '../recomp/build-web');
 const GAME = process.env.GAME || DATA + '/game', FONTS = process.env.FONTS || DATA + '/public/recomp/fonts';
 const ART = process.env.ART || path.join(shell, '../html-ui/assets');
+// the card wire's table (rt/cardwire.cpp: <game>/merge/data/card_passcode.bin, tools/cardart.py `table`), which the
+// shared web/game copy lacks: without it the client never answers the server's hello and the server drops it
+const CARDS = process.env.CARDS || process.env.HOME + '/Documents/GitHub/de-freeduel/client/recomp/run/game/merge/data/card_passcode.bin';
 const MIME = { html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', wasm: 'application/wasm', json: 'application/json', png: 'image/png', txt: 'text/plain' };
 const ISO = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'same-origin', 'Cache-Control': 'no-store' };
 const BOOT = `<script type="module">import { start } from '/htmlui/bridge.js';
@@ -21,7 +26,7 @@ const go = () => start(Module).then(h => { window.__htmlui = h; }, e => console.
 document.readyState === 'loading' ? addEventListener('DOMContentLoaded', go) : go();</script>`;
 
 const forward = (req, res) => {
-  const r = request({ host: SERVER.hostname, port: SERVER.port, path: req.url, method: req.method, headers: { ...req.headers, host: SERVER.host, origin: SERVER.origin } }, up => {
+  const r = request({ host: SERVER.hostname, port: SERVER.port, path: req.url, method: req.method, headers: withCookie({ ...req.headers, host: SERVER.host, origin: SERVER.origin }) }, up => {
     const h = { ...up.headers, ...ISO };
     if (h['set-cookie']) h['set-cookie'] = [].concat(h['set-cookie']).map(c => c.replace(/;\s*secure/i, ''));
     res.writeHead(up.statusCode, h);
@@ -43,11 +48,16 @@ const srv = createServer((req, res) => {
   }
   const f = p.startsWith('/htmlui/') ? path.join(shell, p) : p === '/ui.js' ? path.join(shell, '../html-ui/ui.js')
     : p.startsWith('/ui/') ? path.join(ART, p.slice(4)) : p === '/game/files.txt' ? path.join(FONTS, '../game/files.txt')
-    : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
+    : p === '/game/merge/data/card_passcode.bin' ? CARDS : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
     : p.startsWith('/fonts/') ? path.join(FONTS, p.slice(7)) : path.join(BUILD, p);
   let st;
   try { st = statSync(f); } catch { res.writeHead(404, ISO); return res.end(); }
   const type = MIME[f.split('.').pop()] || 'application/octet-stream';
+  if (p === '/game/files.txt') {   // + the card table, served below
+    const extra = `${statSync(CARDS).size}\tmerge/data/card_passcode.bin\n`;
+    res.writeHead(200, { ...ISO, 'Content-Type': 'text/plain' });
+    return res.end(readFileSync(f, 'utf8').replace(/\n?$/, '\n') + extra);
+  }
   if (f.endsWith('yo2rc.html')) {
     res.writeHead(200, { ...ISO, 'Content-Type': type });
     return res.end(readFileSync(f, 'utf8').replace('</body>', BOOT + '</body>'));
@@ -65,7 +75,7 @@ const srv = createServer((req, res) => {
 // the gateway WebSocket: the upgrade request and both directions, byte for byte
 srv.on('upgrade', (req, sock, head) => {
   const up = connect(+SERVER.port, SERVER.hostname, () => {
-    const hdr = Object.entries({ ...req.headers, host: SERVER.host, origin: SERVER.origin }).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+    const hdr = Object.entries(withCookie({ ...req.headers, host: SERVER.host, origin: SERVER.origin })).map(([k, v]) => `${k}: ${v}`).join('\r\n');
     up.write(`${req.method} ${req.url} HTTP/1.1\r\n${hdr}\r\n\r\n`);
     up.write(head);
     sock.pipe(up).pipe(sock);

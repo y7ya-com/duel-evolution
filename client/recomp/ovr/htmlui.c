@@ -7,7 +7,7 @@
 //    skipped. Nothing else changes (disp_, hit tests, the factory's message routing), so the game runs exactly as
 //    before and input still reaches its controls. An element under a pass entry (nearer than the hidden window) is
 //    drawn anyway: engine content inside an HTML window (the waist-up avatar, card art, Flash).
-// 2. Module.onYo2Frame?.(tables) at every Present, on the game's thread, after the frame is shown: the bridge reads
+// 2. Module.onYo2Frame?.(tables, HEAPU8) at every Present, on the game's thread, after the frame is shown: the bridge reads
 //    the tree and updates the DOM there. tables: the address of HtmlUiTables below, which the bridge writes.
 // 3. Owned-mode input the bridge queued (keys, characters, a control's text) is played into the game first, on the
 //    same thread: a Win32 message through CWindowTaskFactory::dispatch (0x5e2700: keys and WM_CHAR go to the focused
@@ -87,6 +87,6 @@ void rc_htmlui_frame(CPU *c) {
     if (tab.nq) play(c);
 #ifdef __EMSCRIPTEN__
     if (emscripten_is_main_runtime_thread())
-        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0); }, &tab);
+        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0, HEAPU8); }, &tab);   // HEAPU8: not on Module in every build
 #endif
 }

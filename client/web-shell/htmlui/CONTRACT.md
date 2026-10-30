@@ -63,9 +63,25 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
 
-Sprite = `{ tex, x, y, w, h, u, v, sw, sh, shown }`: the texture's game path (e.g. `data/common/window/swich_01_c00.png`;
-`api.art(tex)` gives its URL once the atlas is on R2), its element position (window-local for a window's own
-sprites), drawn size w x h, and the source rect u, v, sw, sh in the texture.
+Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, sx, sy, rgba, shown }`: the texture's game path as
+the game holds it (`data/common/window/swich_01_c00.png`; a `?` is the loader's language letter), the source rect in
+it (CElement +0x94), the local position (parent-relative) and the world one (wx, wy: worldPos_, as last drawn), the
+scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, shown. Label = `{ id, name, text, x, y, z, wx,
+wy, shown }` (a raw CTextElm; '@n' style tags kept). Swf = `{ id, name, x, y, z, wx, wy, shown }` (a CSwfEngine:
+draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: [Swf] }`.
+
+`name` is the instance name (CTask +0x4c, setInstName; cp932 decoded), else the control's name_ (+0x354).
+
+Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, shown, controls }]`: factory controls whose owner is not a
+window (the shop's plates: a CEasyTask), grouped by that owner. Not drawn by the bridge yet.
+
+**Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
+SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
+snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
+alpha name at spr label swf textCtl rectF rectI children generic; `h.generic(c)` is the base family's fields, to
+extend: `CWindowTaskDeckScroll: c => ({ ...h.generic(c), maxLine: h.i32(c + 0x4c8) })`). Its fields are merged over the base ones (a control class
+it lists replaces the generic family). Cite every offset to the src/ header that pins it. Tests beside it
+(read/<group>_test.mjs, using read_test.mjs's synthetic image style).
 
 More families arrive as screens need them (deck/kaban, trade, duel). Ask htmlui-bridge; until then read what you need
 from `unknown` controls by `name` and geometry.
@@ -81,7 +97,10 @@ export default {
   classes: ['CWindowPlayerSelect'],   // the windows it renders
   mode: 'pass',                       // 'pass': pointer-events none, the game takes input (default, pixel-perfect phase)
                                       // 'owned': the DOM takes input and sends it through api
-  passthrough: c => c.cls === 'CWaistUpAvatar',        // controls or extras the ENGINE keeps drawing under your DOM
+  passthrough: (x, ctl) => x.cls === 'CWaistUpAvatar', // what the ENGINE keeps drawing under your DOM: called with each
+                                                       // control, extra and (with parts) each part (and its control)
+  parts: false,                       // true: every control gets `parts` (its raw sprite / text / swf children)
+  clip: true,                         // false: the window's root doesn't clip to w x h (controls laid out outside it)
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},
@@ -93,10 +112,16 @@ may call `api.syncWindow(root, win, stateMap)` (the generic path: keyed per cont
 data changes) or `api.renderControl(c, parentEl, opts)` (one control, once; `{ noText: true }` draws an Input
 without its text and caret) for the controls it doesn't customise.
 
+**Text (owner's rule):** all text is real DOM text, never glyph images: Arial, as the 2008 client asks GDI for it
+(lfHeight 16 = a 16-pixel cell = 1.117 em: 14.3 px on 16-pixel lines), metric-compatible fallbacks after it. Use
+controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, white, wrap })` (or `fontCss(px)` and
+`FONT` in your own CSS); the browser lays it out. A CTextElm's colour multiplies black glyphs, so game text is black
+(alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
+pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
-per state: normal / hover / pressed / disabled / checked), its label real text (a transparent `<span class="rt">`
-over the game's glyphs, so it can be selected, found and read out) wherever the game draws the text apart from the
-art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
+per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
+text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
 screen. `data-state` on the element carries the state for CSS.
 
 ## api (owned mode; also usable in pass mode)
