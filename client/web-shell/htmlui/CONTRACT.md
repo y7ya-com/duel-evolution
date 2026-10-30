@@ -31,7 +31,7 @@ Window = {
   alpha,                   // 0..1 (fade-ins)
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
-  controls: [Control],     // back to front; nested controls (a listbox's scroll bar) are listed too, with parent set
+  controls: [Control],     // back to front as the engine draws them (world z, then z_); nested controls (a listbox's scroll bar) are listed too, with parent set
   extras: [{ id, cls }],   // the window's other CTask children (the waist-up avatar, plain sprites): for passthrough();
                            // a CSpriteElm also has its Sprite fields (below)
 }
@@ -82,6 +82,13 @@ it from the engine (the hide table takes the task; the element walk reaches it).
 `shown` (windows, tasks, controls) is false when it or any ancestor has a CTask lock bit (+0x20): the game hides the
 shop that way, and a locked subtree is never drawn.
 
+`cursor: { id, shown, mx, my, sprites: [Sprite + { wsx, wsy, col, add, mode }] } | null`: the game's mouse cursor
+(g_app's CMouseManager: the hand's CSwfEngine animations, data/common/m_cursor, down to their CSpriteElm leaves;
+`shown` per sprite = drawn this frame; mx, my: the mouse in game px). On every screen the bridge turns what the engine
+would draw into the browser's own cursor (cursor.js: a CSS cursor on every element, built per state at the device's
+size, exact to the engine's at 1x) and hides the engine's by that one element in the hide table. Screens never set a
+CSS cursor (html.yo2c * overrides them). Off: htmlui.json "cursor": false, ?HTML_CURSOR=0, yo2Html.cursor(false).
+
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
 tasks: { Cls: t => fields }, snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
@@ -125,6 +132,17 @@ controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, whi
 `FONT` in your own CSS); the browser lays it out. A CTextElm's colour multiplies black glyphs, so game text is black
 (alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
 pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
+
+**Skin (owner's rule, 2026-10-30):** where the game's art is a simple gradient, border or bevel (buttons, title bars,
+panel frames, tabs, banners), it is CSS: gradients, borders and shadows in the original's sampled colours, with CSS
+hover / pressed states, so it is sharp at any DPR. Bitmap art only for real pictures (icons, avatars, card art,
+logos). Text stays Arial DOM text. The judgement is "looks the same, sharper", not pixel-identical. Shared
+components, so every screen looks alike: controls/skin.js `menuButton(parent, { x, y, w, h, label, state })` (the
+yellow menu button; `.set({ label, state })`), `titleBar(parent, { x, y, w, title, close })` (the blue title bar,
+`.close` its close box), `panel(parent, { x, y, w, h, band })` (the blue frame, translucent as the window draws it;
+`band` the bottom-thick grey band). `state` is the snapshot's (hover / pressed / disabled: pass mode) or null to
+follow the pointer (owned mode). Sample new pieces from the engine's own render (or the atlas texels) and add them to
+skin.js with their colours cited; skin.html lays them out for a side-by-side.
 
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the

@@ -5,6 +5,7 @@
 import VT from './vtables.js';
 
 export const FACTORY = 0x0126fa8c;   // g_windowFactory (CWindowTaskFactory*)
+export const APP = 0x012711ac;       // g_app (CApp*): its mouseMng_ (+0xc4c) is the CMouseManager the cursor hangs off
 
 // Read extensions (read/<group>.js, owned by the screen session that needs them): ext(h) -> { controls: {cls: c =>
 // fields}, windows: {cls: w => fields}, snapshot: () => fields }, called each read with the helpers h below.
@@ -148,8 +149,26 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     return out;
   };
 
+  // the game's mouse cursor: g_app's CMouseManager. Its sprites are CSpriteElm leaves, whatever builds them: the hand
+  // (CHandCursorTask: 11 CSwfEngine animations, data/common/m_cursor, each CSwfEngine > Offset > CSwfSprite >
+  // CSwfShape > CSpriteElm) or the arrow (CArrowCursorTask::m_picCursor, mausuk_01_c00.png). The engine draws it last
+  // (priority 10000); the bridge draws it above the DOM windows. Each sprite as drawn: worldPos_ (+0xc8), worldScale_
+  // (+0xd4), inheritColor4_ (+0x168) and inheritAddColor_ (+0x178), drawMode_ (+0x188) (src/System/yo2Element.h);
+  // drawn: disp_ and not hiddenByParent_ on it and every element up to the manager
+  const app = u32(APP), mgr = app && u32(app + 0xc4c);
+  // mx, my: the mouse in game pixels (CApp's CMyMouseEx at +0x148: x_ +0x1c, y_ +0x20; src/System/yo2MouseTask.h)
+  const cursor = mgr && cls(mgr) === 'CMouseManager' ? { id: mgr, shown: vis(mgr) && !locked(mgr), mx: i32(app + 0x164), my: i32(app + 0x168), sprites: [] } : null;
+  if (cursor) (function walk(t, d, on) {
+    for (const k of children(t)) {
+      const drawn = on && shown(k);
+      if (cls(k) === 'CSpriteElm') cursor.sprites.push({ ...spr(k), shown: drawn, wsx: f32(k + 0xd4), wsy: f32(k + 0xd8),
+        col: [0, 4, 8, 12].map(o => f32(k + 0x168 + o)), add: [0, 4, 8, 12].map(o => f32(k + 0x178 + o)), mode: i32(k + 0x188) });
+      if (d < 8) walk(k, d + 1, drawn);
+    }
+  })(mgr, 0, true);
+  const drawOrder = (a, b) => a.wz - b.wz || a.z - b.z;
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [] };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -180,9 +199,12 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     id: w, cls: cls(w), ...rectF(w, 0x380), z: f32(w + 0x34c), alpha: alpha(w),
     shown: shown(w) && !locked(w),
     modal: !!u8(w + 0x350), topmost: !!u8(w + 0x35c), active: !!u8(w + 0x351),
-    // draw order: the window's z (CWindowTaskControll z_ +0x34c: body 0, buttons 2, labels 3; larger is in front),
-    // stable for equal z (the factory's list is not the draw order)
-    controls: byWin.get(w).reverse().sort((a, b) => a.z - b.z),
+    // draw order: as the engine drew them, back to front: worldPos_ z (+0xd0; the frame 51153 < field < buttons <
+    // labels 51157 at Select Player), z_ (+0x34c: body 0, buttons 2, labels 3) only between equals. z_ alone misses
+    // what a window places through pos_.z: Select Player's level texts (z_ 0, drawn over their rows), ChangeAvatar's,
+    // FindMenu's, ShopConfirm's. ponytail: a control shown for the first time this frame has no world z yet (0) and
+    // sorts to the back for that one frame
+    controls: byWin.get(w).reverse().sort(drawOrder),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
     extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
@@ -190,7 +212,7 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // the non-window owners (the shop's CShop* tasks), shaped like windows so a screen can claim them; w/h from a read
   // extension's tasks table (a task has no rect of its own)
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
-    shown: shown(t) && !locked(t), controls: cs.reverse().sort((a, b) => a.z - b.z), extras: [],
+    shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

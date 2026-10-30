@@ -17,7 +17,11 @@ out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets')
 data = open(sys.argv[1], 'rb').read()
 _, members = K.read_directory(data)
 by = {m.name.lower(): m for m in members}
-for f in FILES:
+# the game cursor's art (htmlui/cursor.js builds the CSS cursor from it, no clamp copies): the hand
+# (CHandCursorTask's CSwfEngine animations, data/common/m_cursor) and the arrow (CArrowCursorTask)
+CURSOR = sorted(n for n in by if n.startswith('data\\common\\m_cursor\\') and n.endswith('.png')) \
+    + ['data\\common\\window\\mausuk_01_c00.png']
+for f in FILES + CURSOR:
     b = K.member_bytes(data, by[f.lower()])
     open(os.path.join(out, f.rsplit('\\', 1)[1]), 'wb').write(b)
     print(f, len(b), 'bytes')
