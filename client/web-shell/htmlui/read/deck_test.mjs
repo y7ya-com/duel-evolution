@@ -21,7 +21,14 @@ const list = (a, items) => {   // vc6::list: circular through a sentinel
   w32(a + 4, head); w32(a + 8, items.length);
 };
 
+const vstr = (a, t) => { const p = alloc(t.length + 1); [...t].forEach((c, i) => w8(p + i, c.charCodeAt(0))); w32(a + 4, p); w32(a + 8, t.length); };
+// the scene root "deckScene": the background sprite, a side button, the deck window
+const root = elem('CElement', 0x340), bgSpr = elem('CSpriteElm', 0x5088), load = elem('CSwfEngine', 0x460);
+vstr(root + 0x4c, 'deckScene'); vstr(bgSpr + 0x358, 'data/deck/deck_bg_01.png'); vstr(load + 0x4c, 'LoadBtn');
+wf(load + 0xc8, 0); wf(load + 0xcc, 40);
 const win = elem('CWindowModelDeck', 0x3f8);
+list(root + 0x0c, [bgSpr, load, win]);
+w32(win + 8, root);
 w32(win + 0x340, vt('CWindowModelDeck', 0x340));
 wf(win + 0x388, 336); wf(win + 0x38c, 144);
 const panel = elem('CWindowTaskDeck', 0x498), tab0 = elem('CWindowTaskDeckTab', 0x3b8), card = elem('CWindowTaskDeckCard', 0x3b0);
@@ -52,6 +59,7 @@ w32(0x012b3230, drag); dv.setInt32(drag + 4, 2, true); dv.setInt32(drag + 0x10, 
 const s = read(dv, 1, 0x24);
 const W = s.windows.find(w => w.cls === 'CWindowModelDeck');
 assert.deepEqual([W.x, W.y, W.w, W.h], [248, 0, 488, 712]);   // from the header bar to the side frame's bottom
+assert.deepEqual([W.scene.bg.id, W.scene.title, W.scene.menu.map(m => [m.name, m.wy])], [bgSpr, null, [['LoadBtn', 40]]]);
 const P = W.controls.find(c => c.cls === 'CWindowTaskDeck'), C = W.controls.find(c => c.cls === 'CWindowTaskDeckCard');
 assert.deepEqual([P.view, P.counts, P.grids.main, P.grids.side], ['main', { main: 40, side: 3, extra: 6, missing: 0 }, [4007], []]);
 assert.deepEqual([C.card, C.dragging, C.w, C.h, C.parent], [4007, false, 50, 72, panel]);

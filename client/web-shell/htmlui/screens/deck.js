@@ -9,7 +9,7 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { textBox, textWidth } from '../controls/basic.js';
+import { textBox, textWidth, FONT } from '../controls/basic.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -121,28 +121,210 @@ function sheet(tex, redraw) {
       const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u;
     });
     const j = tex.includes('?') ? name.replace(/_e\.png$/, '_j.png') : null;
-    img(base() + 'clamp/' + name).catch(e => { if (!j) throw e; s.url = base() + j; return img(base() + 'clamp/' + j); }).then(m => {
-      const c = new OffscreenCanvas(m.width, m.height).getContext('2d');
+    img(base() + 'clamp/' + name).catch(e => { if (!j) throw e; s.url = base() + j; return img(base() + 'clamp/' + j); }).then(async m => {
+      const c = new OffscreenCanvas(m.width, m.height).getContext('2d', { willReadFrequently: true });
       c.drawImage(m, 0, 0);
-      Object.assign(s, { w: m.width - 1, h: m.height - 1, ready: true,
-        alpha: c.getImageData(0, 0, m.width, m.height).data.filter((_, i) => i % 4 === 3) });
-      s.waiting.forEach(f => f());
+      const d = c.getImageData(0, 0, m.width, m.height).data, alpha = new Uint8Array(d.length / 4);
+      for (let i = 0; i < alpha.length; i++) alpha[i] = d[4 * i + 3];
+      let px = null;   // CSS art: straight RGBA texels (the colour of transparent texels from the .rgb copy)
+      if (CSS_ART.test(name)) {
+        c.clearRect(0, 0, m.width, m.height);
+        c.drawImage(await img(s.url.replace(/[^/]*$/, 'clamp/') + s.url.split('/').pop().replace('.png', '.rgb.png')), 0, 0);
+        px = c.getImageData(0, 0, m.width, m.height).data;
+        for (let i = 0; i < alpha.length; i++) px[4 * i + 3] = alpha[i];
+      }
+      Object.assign(s, { w: m.width - 1, h: m.height - 1, ready: true, alpha, px });
+      const ids = [...s.waiting];
       s.waiting.clear();
+      ids.forEach(id => draw(id, live.get(id)?.api));
     }, () => console.warn('htmlui deck: no art for', tex));
   }
   if (!s.ready) s.waiting.add(redraw);
   return s.ready ? s : null;
 }
 
-let redrawing = null;   // the window being drawn: what a late atlas redraws
+let redrawing = null;   // the id of the window being drawn: what a late atlas redraws (ids, so a Set dedups them)
 function drawSprite(el, s, x, y) {
+  const t = textArt(s);
+  if (t) return drawTextArt(el, t, x, y, s.a ?? s.rgba?.[3] ?? 1);
   const sh = sheet(s.tex, redrawing);
   if (!sh) return;
   const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];   // a: the alpha it's drawn with (inherited), else its own
-  const e = ui.sprite(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), s.a ?? rgba[3]);
-  if (rgba[0] !== 1 || rgba[1] !== 1 || rgba[2] !== 1)   // vertex colour: the trunk dims a row's art to 0.5 grey
-    e.style.filter = rgba[0] === rgba[1] && rgba[1] === rgba[2] ? `brightness(${rgba[0]})` : '';
+  const e = (sh.px ? cssSprite : ui.sprite)(el, sh, u, v, w, h, x, y, w * (s.sx ?? 1), h * (s.sy ?? 1), s.a ?? rgba[3]);
+  const c = s.col || rgba;   // vertex colour as drawn (inherited: a back plane's 0.63 grey), else its own
+  if (c[0] !== 1 || c[1] !== 1 || c[2] !== 1)   // the trunk dims a row's art to 0.5 grey
+    e.style.filter = c[0] === c[1] && c[1] === c[2] ? `brightness(${c[0]})` : '';
 }
+// The owner's style rule: frame, bar, tab and button-bevel art is CSS, not a bitmap: gradients through the cell's own
+// texels (sampled colours), stops at the texel centres where the GPU's bilinear filter puts them (ui.sprite's mapping:
+// clamp texel u + t at (t - 0.5) k + 0.5, D3D's half pixel), so it is the engine's blend and crisp at any DPR. A cell
+// whose rows (or columns) are all one colour is one gradient; a corner is a gradient per texel row, each masked by its
+// bilinear tent and summed (plus-lighter). Pictures (icons, card art, art with baked text) stay ui.sprite bitmaps.
+export const CSS_ART = /^(window_base|deck_carddai|deckbar|decktab|iconbar|swich)_/;
+export function cssSprite(parent, sh, u, v, sw, shh, x, y, w, h, alpha = 1) {
+  const W = sh.w + 1, px = sh.px, kx = w / sw, ky = h / shh;
+  const at = (i, j) => 4 * (j * W + i);
+  const rgb = (i, j) => { const o = at(i, j); return `rgb(${px[o]} ${px[o + 1]} ${px[o + 2]})`; };
+  const a = (i, j) => `rgb(0 0 0 / ${+(px[at(i, j) + 3] / 255).toFixed(4)})`;
+  const grad = (dir, n, k, c) => `linear-gradient(${dir}, ${Array.from({ length: n + 1 }, (_, t) => `${c(t)} ${+((t - 0.5) * k + 0.5).toFixed(3)}px`).join(', ')})`;
+  const same = (p, q) => px[p] === px[q] && px[p + 1] === px[q + 1] && px[p + 2] === px[q + 2] && px[p + 3] === px[q + 3];
+  const flat = (n, m, o) => { for (let i = 0; i <= n; i++) for (let j = 1; j <= m; j++) if (!same(o(i, 0), o(i, j))) return false; return true; };
+  let opaque = true;
+  for (let j = v; j <= v + shh; j++) for (let i = u; i <= u + sw; i++) opaque &&= px[at(i, j) + 3] === 255;
+  // colour and alpha apart (a background and a mask), as D3D filters a straight-alpha texture: a CSS gradient blends
+  // premultiplied, which darkens the transparent edges
+  const paint = (el, dir, n, k, c, ca, more = []) => {
+    const m = [...(opaque ? [] : [grad(dir, n, k, ca)]), ...more].join(', ');
+    Object.assign(el.style, { background: grad(dir, n, k, c), maskImage: m, webkitMaskImage: m,
+      maskComposite: 'intersect', webkitMaskComposite: 'source-in' });
+  };
+  const e = document.createElement('i');
+  e.className = 'sp';
+  Object.assign(e.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: alpha === 1 ? '' : alpha });
+  if (flat(shh, sw, (t, b) => at(u + b, v + t))) paint(e, 'to bottom', shh, ky, t => rgb(u, v + t), t => a(u, v + t));
+  else if (flat(sw, shh, (t, b) => at(u + t, v + b))) paint(e, 'to right', sw, kx, t => rgb(u + t, v), t => a(u + t, v));
+  else {
+    e.style.isolation = 'isolate';
+    for (let t = 0; t <= shh; t++) {
+      const r = document.createElement('b'), c = (t - 0.5) * ky + 0.5;
+      Object.assign(r.style, { width: '100%', height: '100%', transform: 'none', mixBlendMode: 'plus-lighter' });
+      paint(r, 'to right', sw, kx, i => rgb(u + i, v + t), i => a(u + i, v + t),
+        [`linear-gradient(to bottom, transparent ${+(c - ky).toFixed(3)}px, #000 ${+c.toFixed(3)}px, transparent ${+(c + ky).toFixed(3)}px)`]);
+      e.append(r);
+    }
+  }
+  parent.append(e);
+  return e;
+}
+
+// The owner's rule for the glowing outline titles: real text in Audiowide (SIL OFL, Google Fonts: the open font
+// closest to the art's rounded-square lettering, crossbarless A and all), the art's white fill and sampled outline,
+// fitted to the art's ink box: an SVG <text> on its baseline (the box's bottom less the outline), as tall as the box
+// (cap height 0.70 em, ascenders 0.751 em) and stretched to its width (textLength: the art's face is narrower).
+// TEXT_ART: atlas -> its cells by (u, v) -> [text, outline colour, ink box x0 y0 x1 y1 in the cell, italic, glow]
+const MOJI = [['Deck', '#179d33', 1, 4, 65, 26, 1], ['Number of Cards', '#4ddb7a', 1, 9, 127, 27, 1, 1],
+  ['Side', '#4ddb7a', 1, 8, 45, 25, 1, 1], ['Trunk', '#be6e10', 1, 4, 80, 26, 1], ['Rearrange', '#ffb52f', 1, 10, 85, 27, 1, 1],
+  ['Card Search', '#ffb52f', 0, 8, 78, 24, 1, 1], ['Cards Missing', '#4ddb7a', 0, 8, 128, 28, 1, 1]];
+const TEXT_ART = {
+  deck_moji_01: (u, v) => MOJI[v / 28],
+  // the tabs, the front one (u 128) brighter
+  deck_tabmoji_01: (u, v) => v === 0 ? ['Main', u ? '#ff4e46' : '#930101', 18, 4 + v, 60, 19 + u / 128, 0, 1]
+    : ['Fusion', u ? '#ba17ef' : '#6f0293', 18, 5 + u / 128, 76, 19 + u / 128, 0, 1],
+};
+export const textArt = s => TEXT_ART[artName(s.tex).replace(/(_[ej])?\.png$/, '')]?.(s.src[0], s.src[1]);
+const OUTLINE = 2, SVG = 'http://www.w3.org/2000/svg';
+let fontReady = false;
+function drawTextArt(el, [text, outline, x0, y0, x1, y1, italic, glow, ow = OUTLINE], x, y, alpha) {
+  if (!fontReady) {
+    fontReady = true;
+    // ponytail: Google Fonts' copy (the repo takes no binaries); self-host it with the private art if that matters
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Audiowide&display=block';
+    document.head.append(l);
+  }
+  const base = y + y1 - ow, h = y1 - y0 - 2 * ow, px = h / (/[bdfhklt]/.test(text) ? 0.751 : 0.70);
+  const svg = document.createElementNS(SVG, 'svg'), t = document.createElementNS(SVG, 'text');
+  Object.assign(svg.style, { position: 'absolute', left: 0, top: 0, overflow: 'visible', opacity: alpha === 1 ? '' : alpha,
+    filter: glow ? `drop-shadow(0 0 1px ${outline})` : '' });
+  svg.setAttribute('width', 1); svg.setAttribute('height', 1);
+  // italic: skewed about the baseline, so the art's lean starts at its foot
+  t.setAttribute('transform', `translate(${x + x0 + ow} ${base})${italic ? ' skewX(-12)' : ''}`);
+  t.setAttribute('textLength', x1 - x0 - 2 * ow - (italic ? h * Math.tan(Math.PI / 15) : 0));
+  t.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+  Object.assign(t.style, { font: `${px.toFixed(2)}px Audiowide, ${FONT}`, fill: '#fff', stroke: outline,
+    strokeWidth: 2 * ow, strokeLinejoin: 'round', paintOrder: 'stroke fill' });
+  t.textContent = text;
+  svg.append(t);
+  el.append(svg);
+  return svg;
+}
+
+// ---------------------------------------------------------------- the scene around the windows (CDeckScene)
+// The owner's rule: no background photo, no text in art. The brushed-metal background (deck_bg_01) is its sampled
+// colours (a left and a right column gradient, blended across) under SVG fractal noise stretched along x, light and
+// dark: the brushing. The title strip and the five side buttons are CSS bevels (the art's sampled gradients, white
+// rim, slanted end) with Audiowide text.
+const col = cs => `linear-gradient(to bottom, ${cs.map((c, i) => `rgb(${c}) ${(100 * i / (cs.length - 1)).toFixed(1)}%`).join(', ')})`;
+const grain = (seed, rgb) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='1024' height='768'><filter id='n' x='0' y='0' width='1' height='1'><feTurbulence type='fractalNoise' baseFrequency='0.012 0.5' numOctaves='2' seed='${seed}'/><feColorMatrix values='0 0 0 0 ${rgb[0]} 0 0 0 0 ${rgb[1]} 0 0 0 0 ${rgb[2]} 0.4 0 0 0 -0.15'/></filter><rect width='1024' height='768' filter='url(#n)'/></svg>`)}")`;
+export function deckBackdrop(el) {
+  const d = document.createElement('div'), r = document.createElement('div'), mask = 'linear-gradient(to right, transparent 35%, rgb(0 0 0 / 0.75))';
+  Object.assign(d.style, { position: 'absolute', inset: 0, background: `${grain(3, [1, 1, 1])}, ${grain(11, [0.2, 0.22, 0.4])}, ` +
+    col(['160 163 191', '156 159 187', '136 153 182', '126 143 175', '115 133 171', '114 131 171', '105 124 171', '100 117 167', '101 118 172']) });
+  Object.assign(r.style, { position: 'absolute', inset: 0, maskImage: mask, webkitMaskImage: mask,
+    background: col(['143 159 191', '135 152 187', '125 143 181', '114 131 173', '103 120 168', '97 112 162', '92 104 154', '90 101 146', '95 105 154']) });
+  d.append(r);
+  el.append(d);
+  return d;
+}
+// a bevel: [w, h, slant start, gradient stops [rgb, y]...] (deck_title_01: 248 x 40, deck_bottonN_0s: 176 x 27); its
+// white rim is the outer box, the gradient the box inset 1 px (the slant 1.4)
+const STRIP = { w: 248, h: 40, cut: 8, stops: [['105 255 255', 2.5], ['83 231 255', 5.5], ['66 185 255', 8.5], ['36 115 254', 30.5], ['0 67 254', 34.5], ['0 0 254', 37.5]] };
+const SIDE = { w: 176, h: 27, cut: 6, stops: [['105 255 255', 1.5], ['80 228 255', 4.5], ['62 178 255', 7.5], ['37 120 254', 19.5], ['6 94 254', 21.5], ['0 0 254', 25.5]] };
+const SIDE_HOVER = { ...SIDE, stops: [['207 255 255', 1.5], ['152 255 255', 5.5], ['134 237 255', 7.5], ['118 221 255', 19.5], ['81 209 255', 22.5], ['12 188 255', 25.5]] };
+function bevel(el, { w, h, cut, stops }, x, y) {
+  const poly = i => `polygon(0 ${i}px, ${w - 3 - i}px ${i}px, ${w - i}px ${3 + i}px, ${w - i}px ${cut}px, ${w - i * 1.4 - (h - cut)}px ${h - i}px, 0 ${h - i}px)`;
+  const o = document.createElement('div'), g = document.createElement('div');
+  Object.assign(o.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', background: '#fff', clipPath: poly(0) });
+  Object.assign(g.style, { position: 'absolute', inset: 0, clipPath: poly(1),
+    background: `linear-gradient(to bottom, ${stops.map(([c, at]) => `rgb(${c}) ${at}px`).join(', ')})` });
+  o.append(g);
+  el.append(o);
+}
+// the strip's text: deck_title_0N (its white fill box, outline 1); the buttons' (by instance name): the normal look's
+// blue outline, the hover look's yellow fill in orange (the art's ink boxes)
+const TITLES = ['EDIT DECK', 'CARD SWAP', 'TRADE'];
+const SIDE_TEXT = { LoadBtn: ['LOAD DECK', 9, 134], SaveBtn: ['SAVE DECK', 7, 133], RecipeBtn: ['STRUCTURE DECK', 8, 150],
+  ClearBtn: ['CLEAR DECK', 8, 144], ExitBtn: ['EXIT', 8, 61] };
+function drawScene(el, sc, mouse) {
+  deckBackdrop(el);
+  if (sc.title?.shown) {
+    const n = +(sc.title.tex.match(/deck_title_0(\d)/)?.[1] || 1);
+    bevel(el, STRIP, sc.title.wx, sc.title.wy);
+    drawTextArt(el, [TITLES[n - 1] || TITLES[0], '#1059ff', 6, 9, n === 3 ? 169 : 201, 32, 1, 0, 1], sc.title.wx, sc.title.wy, 1);
+  }
+  for (const b of sc.menu) {
+    const t = SIDE_TEXT[b.name];
+    if (!b.shown || !t) continue;
+    const hover = inSide(b, mouse);
+    bevel(el, hover ? SIDE_HOVER : SIDE, b.wx, b.wy);
+    const svg = drawTextArt(el, [t[0], hover ? '#ff9d10' : '#1059ff', t[1], 5, t[2], 23, 1, 0, 2], b.wx, b.wy, 1);
+    if (hover) svg.firstChild.style.fill = '#fdff45';
+  }
+}
+// one backdrop for the whole editor, under every window root (the bridge's #htmlui layer): drawn from the deck
+// window's scene, clipped around the engine's holes (card faces, swfs) like any item. The game's mouse for the side
+// buttons' hover look: the page's own pointer in game px (pass mode: the canvas has it, the DOM only watches)
+// ponytail: it sits in the bridge's host beside its layer; a bridge backdrop hook when another screen wants one
+const sceneSt = { el: null, sc: null, mouse: null };
+function sceneMount(root) {
+  if (sceneSt.el) return;
+  const layer = root.closest('#htmlui');
+  if (!layer) return;
+  sceneSt.el = document.createElement('div');
+  Object.assign(sceneSt.el.style, { position: 'absolute', left: 0, top: 0, width: '1024px', height: '712px', pointerEvents: 'none' });
+  layer.before(sceneSt.el);
+  sceneSt.move = e => {
+    const r = sceneSt.el.getBoundingClientRect(), k = 1024 / r.width;
+    const m = [Math.floor((e.clientX - r.left) * k), Math.floor((e.clientY - r.top) * k)];
+    const was = sceneSt.mouse;
+    sceneSt.mouse = m;
+    if (sceneSt.sc && sceneSt.sc.menu.some(b => inSide(b, m) !== inSide(b, was))) sceneDraw();
+  };
+  addEventListener('pointermove', sceneSt.move, { passive: true });
+}
+const inSide = (b, m) => !!m && m[0] >= b.wx && m[0] < b.wx + SIDE.w && m[1] >= b.wy && m[1] < b.wy + SIDE.h;
+function sceneDraw() {
+  if (!sceneSt.el) return;
+  sceneSt.el.replaceChildren();
+  if (sceneSt.sc) drawScene(sceneSt.el, sceneSt.sc, sceneSt.mouse);
+}
+function sceneUnmount() {
+  sceneSt.el?.remove();
+  removeEventListener('pointermove', sceneSt.move);
+  Object.assign(sceneSt, { el: null, sc: null, move: null });
+}
+
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
 // 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
 function drawLabel(el, text, x, y, alpha, { align = 0, w = 0 } = {}) {
@@ -178,7 +360,7 @@ const live = new Map();
 function draw(id, api) {
   const L = live.get(id);
   if (!L) return;
-  redrawing = () => draw(id, api);
+  redrawing = id;
   const items = L.plan.items;
   L.root.replaceChildren();   // ponytail: full rebuild per changed frame; keyed diff if it shows in a profile
   for (const it of items) {
@@ -198,6 +380,7 @@ function reclip() {
   const holes = [...live.values()].flatMap(L => L.plan.holes);
   for (const L of live.values())
     for (const it of L.plan.items) if (it.box) it.box.style.clipPath = clip(it, holes, L.win.x, L.win.y);
+  if (sceneSt.el) sceneSt.el.style.clipPath = clip({ z: -Infinity, rect: { x: 0, y: 0, w: 1024, h: 712 } }, holes, 0, 0);
 }
 
 export default {
@@ -216,11 +399,16 @@ export default {
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
-    live.set(win.id, { win, root: st.inner, plan: plan(win) });
+    live.set(win.id, { win, root: st.inner, plan: plan(win), api });
+    if (win.scene) {
+      sceneMount(root);
+      if (JSON.stringify(win.scene) !== JSON.stringify(sceneSt.sc)) { sceneSt.sc = win.scene; sceneDraw(); }
+    }
     draw(win.id, api);
   },
   unmount(root, st) {
     for (const [id, L] of live) if (L.root === st.inner) live.delete(id);
+    if (![...live.values()].some(L => L.win.scene)) sceneUnmount();
     reclip();
   },
 };

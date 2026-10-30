@@ -3,13 +3,22 @@
 // from the controls' raw parts (screens/deck.js sets parts: true); this adds the state the HTML needs to know what
 // it shows (cards, counts, view, drag) and the true rects of windows that lay out outside their nominal one.
 export default h => {
-  const { u8, u32, i32, f32, ptr, vec, generic, label } = h;
+  const { u8, u32, i32, f32, ptr, vec, generic, label, children, cls, name, spr, swf } = h;
   const cards = (a, at) => vec(a, 4).map(p => u32(u32(p) + at));   // a vector<Card*> -> the cards' ids
   const panelRect = (w, frameOf) => {
     const p = ptr(w + 0x398), bar = p && ptr(p + 0x36c), fr = p && frameOf(p);
     if (!bar || !fr) return {};
     const x = f32(bar + 0x494), y = f32(bar + 0x498);
     return { x, y, w: f32(bar + 0x49c), h: f32(fr + 0x3cc) + f32(fr + 0x3d4) - y };
+  };
+  // the scene around the windows (DeckEntry.cpp init): the root element "deckScene" (CDeckScene +0x74, every deck window's
+  // CTask parent) holds the background (BG, deck_bg_01 at 2x), the title strip (deck_title_0N: Edit Deck / Card Swap /
+  // Trade) and the five side buttons (CSwfEngine LoadBtn..ExitBtn at (0, 40 + 27 i))
+  const scene = root => {
+    if (!root || name(root) !== 'deckScene') return null;
+    const kids = children(root), sp = kids.filter(k => cls(k) === 'CSpriteElm').map(spr);
+    return { bg: sp.find(e => /deck_bg/.test(e.tex)) || null, title: sp.find(e => /deck_title/.test(e.tex)) || null,
+      menu: kids.filter(k => cls(k) === 'CSwfEngine' && /Btn$/.test(name(k))).map(swf) };
   };
   return {
     controls: {
@@ -39,7 +48,7 @@ export default h => {
       // rect runs from the header bar (DeckBar x/y/width 0x494..0x49c, DeckParts.h:157-158) down to the bottom frame
       // (FrameThin rect 0x3c8): the deck's side frame (CWindowTaskDeck 0x384[1], DeckWindow.h:356), the trunk's
       // frame (CWindowTaskKaban 0x39c, KabanWindowList.h:474).
-      CWindowModelDeck: w => panelRect(w, p => ptr(p + 0x384 + 0xc)),
+      CWindowModelDeck: w => ({ ...panelRect(w, p => ptr(p + 0x384 + 0xc)), scene: scene(u32(w + 8)) }),
       CWindowModelKaban: w => panelRect(w, p => ptr(p + 0x39c)),
       // CWindowModelCardDetail (decomp 0x005f68b0 / 0x005f7860): mode 0x3f8 (0 full, 1 text, 2 bar, 3 picture), the top
       // 0x430 (bottom-anchored), heights per mode 0x3fc[4], w 248. CCardDetailViewDlg: shown card 0x43c, the power
