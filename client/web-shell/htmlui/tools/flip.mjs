@@ -25,6 +25,8 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
+  // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
+  signin: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
   // past Select Player (--uicheck): the character picker (Create Player on the empty row 1), My Room (the test
   // character's row: into the game)
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
