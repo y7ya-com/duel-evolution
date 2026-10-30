@@ -5,8 +5,8 @@
 // 30 a second (every 2nd at 2x, 2 of 3 at 1.5x); the steps in between cost only the logic. The time of day (time():
 // the duel clocks the game shows, which the server owns) and every other scene keep real time. Off under
 // RC_FASTFORWARD (its own clock).
-// Web: Module.yo2DuelSpeed (web/duelspeed.js: the control, kept in localStorage), read on entering a duel scene and
-// every 15 frames in one, so a change applies at once. Native: RC_DUEL_SPEED=1|1.5|2.
+// Web: Module.yo2DuelSpeed (client/web-shell/duelspeed.js: the control, kept in localStorage), read on entering a
+// duel scene and every 15 frames in one, so a change applies at once. Native: RC_DUEL_SPEED=1|1.5|2.
 #include <stdlib.h>
 #include "rt.h"
 #ifdef __EMSCRIPTEN__

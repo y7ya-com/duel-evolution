@@ -1,7 +1,7 @@
 #!/bin/bash
 # ship-client.sh [--build] [prefix]: put a web build of client/ live in R2 ygo-original/<prefix>/ (default recomp-de/,
 # the server's CLIENT_PREFIX). recomp/ is the base the server falls back to for anything missing under the prefix
-# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js, starter.js + ui.js, ui/ art) go up with every prefix.
+# (loader/, game/, fonts/). The web shell files (index.html, stage.js, loader.js, starter.js and duelspeed.js + ui.js, ui/ art) go up with every prefix.
 #   --build  first run `make web web-async web-ios` in client/recomp (through tools/buildslot.py), else ship its existing build-web/
 # yo2rc.html gets client/web-shell/stage.js (fit-to-window + fullscreen) and loader.js (loading screen; NOLOADER=1
 # leaves it out) just before the runtime script, the product name as its title and the build id for crash reports.
@@ -39,9 +39,12 @@ for n in ('stage', 'loader'):
 js = rd(f'{shell}/../html-ui/ui.js'); names['ui'] = f'ui-{h(js)}.js'; put(names['ui'], js)
 js = rd(f'{shell}/starter.js'); q = b'"./ui.js"'; assert js.count(q) == 1
 js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['starter'] = f'starter-{h(js)}.js'; put(names['starter'], js)
+# the Duel speed button (the same widgets and art)
+js = rd(f'{shell}/duelspeed.js'); assert js.count(q) == 1
+js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['duelspeed'] = f'duelspeed-{h(js)}.js'; put(names['duelspeed'], js)
 p = os.path.join(o, 'yo2rc.html'); s = open(p).read()
 tag = f'<script src="{names["stage"]}"></script>\n' + ('' if os.environ.get('NOLOADER') else f'<script src="{names["loader"]}"></script>\n') \
-    + f'<script src="{names["starter"]}"></script>\n'
+    + f'<script src="{names["starter"]}"></script>\n<script src="{names["duelspeed"]}"></script>\n'
 i = s.find('<script id="pick">'); assert i > 0 and '<script src="stage' not in s; s = s[:i] + tag + s[i:]
 # the picker's script names (and its endsWith("/yo2rc.js") check) -> the hashed ones
 for n in ('yo2rc-ios', 'yo2rc-async', 'yo2rc'):
