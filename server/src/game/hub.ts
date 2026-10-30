@@ -328,6 +328,14 @@ export class Hub {
     for (let i = 1; ; i++) { const k = i === 1 ? key : `${key}#${i}`; if (!this.blocks.has(k)) return k; }
   }
 
+  /** A [sala] line (production Workers Logs: room usage): the room kind of the port the player came in by (ROOM_KINDS,
+   *  kept after the rooms merge into one world) and an 8-hex hash of the account, which counts distinct players and
+   *  matches no other log line. Nothing for My Room or another block that isn't a room. */
+  sala(s: Session, what: string): void {
+    const kind = s.block === null ? undefined : this.g.roomKinds[keyPort(s.block) - this.g.ports.roomBase];
+    if (kind !== undefined) this.log(`[sala] kind ${kind}: ${what} ${createHash("sha256").update(`sala|${s.acct}`).digest("hex").slice(0, 8)}`);
+  }
+
   enter(s: Session | null, key: BlockKey | null, ablock: number | null = null): Session[] {
     if (s && ablock !== null && key === null) s.ablock = 0;
     if (!s || s.pid === null || key === null) return s ? [s] : [];
@@ -340,6 +348,7 @@ export class Hub {
       s.block = key; s.pos = null; s.state = 0; s.stateExtra = new Uint8Array(0);
       if (!this.blocks.has(key)) this.blocks.set(key, new Map());
       this.blocks.get(key)!.set(s.pid, s);
+      this.sala(s, "enter");
     }
     const rest = this.others(s);
     if (fresh || moved) {

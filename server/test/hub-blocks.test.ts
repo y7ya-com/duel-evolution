@@ -3,6 +3,7 @@
 import { expect, it } from "vitest";
 import { BLOCK_CAP, baseKey } from "../src/game/hub.ts";
 import { harness, cat, str, type Client } from "./notes-harness.ts";
+import { ROOM_KINDS } from "../src/config.ts";
 
 it("past BLOCK_CAP a room opens block #2; moves stay in a block, global chat crosses, friends join friends", async () => {
   const h = harness();
@@ -37,3 +38,16 @@ it("past BLOCK_CAP a room opens block #2; moves stay in a block, global chat cro
   await fr.enterRoom(); await nf.enterRoom();
   expect([h.game.hub.byPid(fr.pid!)!.block, h.game.hub.byPid(nf.pid!)!.block]).toEqual([`${key}#2`, key]);
 }, 60000);
+
+it("[sala]: entering a room logs its kind and an account hash (same account, same hash; it isn't the account id)", async () => {
+  const h = harness();
+  const a = h.client("A", "userA"), b = h.client("B", "userB");
+  await a.account(0, "A"); await b.account(0, "B");
+  await a.enterRoom(0); await a.enterRoom(2); await b.enterRoom(2);
+  const lines = h.log.filter((s) => s.startsWith("[sala]"));
+  const hash = (i: number) => lines[i].split(" ").pop()!;
+  expect(lines.map((s) => s.replace(/ [0-9a-f]{8}$/, ""))).toEqual([
+    `[sala] kind ${ROOM_KINDS[0]}: enter`, `[sala] kind ${ROOM_KINDS[2]}: enter`, `[sala] kind ${ROOM_KINDS[2]}: enter`]);
+  expect([hash(0) === hash(1), hash(1) === hash(2)]).toEqual([true, false]);
+  expect(lines.join(" ")).not.toContain(h.game.hub.byPid(a.pid!)!.acct.slice(0, 8));
+}, 30000);
