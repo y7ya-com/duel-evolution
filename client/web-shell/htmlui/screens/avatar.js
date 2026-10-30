@@ -7,15 +7,21 @@
 // corner's transparent texels (abmake_btn_01_c01..04: categories 324 x 44, looks normal / hover / chosen;
 // abmake_btn_02_01: items 254 x 34; abmake_btn_03_01: Confirm / Back 162 x 42). The panel (abmake_win_01, 292 x 612 at
 // 703, 60: a 4 px #f4828d edge round a 50 % white body) and the line (abmake_line_01: 4 px of #f4828d, rows 14..17 of a
-// 32 x 32 sprite at x 672, y the chosen category's middle - 16; 69 before a choice) are CSS too. The arrows are
-// pictures (shop_arrow_*). Labels: Arial (textBox), 32 px on the categories, 24 px on the items and Confirm / Back.
+// 32 x 32 sprite at x 672, y the chosen category's middle - 16; 69 before a choice) are CSS too. The page arrows
+// (shop_arrow_04..06 next, 10..12 previous: normal, hover, pressed) are inline SVG, sharp at 2x like the plates: a
+// triangle (3, 4) (31, 32) (3, 60) in their 32 x 64 box, its outer band #fa9f00 round an inner #ffb532 one 6 px in, a
+// two-column light bevel down the left (#ffd282, #ffd996); hover the same in a white glow; pressed pale (the band
+// #fff5d1 to #fde060 top to bottom, the inside #ffd575, the left #facf00); previous the mirror. Labels: Arial (textBox),
+// 32 px on the categories, 24 px on the items and Confirm / Back.
 // Pass mode: the game takes the input; hover and the chosen looks come from the snapshot (the shown art's column).
 import { textBox } from '../controls/basic.js';
 
 // :is(#htmlui-host, body): an id's weight, as skin.js's plates (the bridge resets #htmlui-host button.btn's background)
 const CSS = `
-.av-plate, .av-pic { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 0; cursor: inherit; }
-.av-pic { background-repeat: no-repeat; }
+.av-plate, .av-arrow { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 0; cursor: inherit; }
+.av-arrow > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.av-arrow[data-dir=prev] > svg { transform: scaleX(-1); }
+.av-arrow[data-look=hover] > svg { filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff); }
 .av-panel { position: absolute; left: 704px; top: 61px; width: 290px; height: 610px; box-sizing: border-box;
   border: 4px solid #f4828d; border-radius: 6px; background: rgba(255, 255, 255, .5); }
 .av-link { position: absolute; left: 672px; width: 32px; height: 4px; background: #f4828d; }
@@ -46,7 +52,16 @@ function inject() {
   document.head.append(st);
 }
 
-const PLATE = /^abmake_btn_0[123]_/;
+const PLATE = /^abmake_btn_0[123]_/, ARROW = /^shop_arrow_(\d\d)_/;
+// the page arrow (see the head): looks normal / hover / pressed, drawn pointing right
+const OUTER = '3,4 31,32 3,60', INNER = '3,10 25,32 3,54';
+const arrowSvg = look => {
+  const p = look === 'pressed';
+  return `<svg viewBox="0 0 32 64" aria-hidden="true">${p ? '<defs><linearGradient id="av-ap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff5d1"/><stop offset="1" stop-color="#fde060"/></linearGradient></defs>' : ''}
+<polygon points="${OUTER}" fill="${p ? 'url(#av-ap)' : '#fa9f00'}"/><polygon points="${INNER}" fill="${p ? '#ffd575' : '#ffb532'}"/>
+<clipPath id="av-c${look}"><polygon points="${OUTER}"/></clipPath><g clip-path="url(#av-c${look})">
+<rect x="3" y="0" width="2" height="64" fill="${p ? '#facf00' : '#ffd282'}"/><rect x="5" y="0" width="2" height="64" fill="${p ? '#facf00' : '#ffd996'}"/></g></svg>`;
+};
 const top = c => !c.parent;
 const shownArt = c => Object.values(c.art || {}).find(s => s?.shown) || c.art?.normal;
 const base = t => t.split('/').pop();
@@ -71,18 +86,20 @@ function draw(win, root, st) {
     if (!a) continue;
     seen.add(c.id);
     let b = st.els.get(c.id);
-    const tex = base(a.tex).replace(/\.png$/, ''), plate = PLATE.test(tex);
-    if (!b || b.plate !== plate) {
-      b?.remove();
-      b = Object.assign(document.createElement('button'), { type: 'button', tabIndex: -1, className: plate ? 'btn av-plate' : 'btn av-pic' });
-      b.plate = plate;
+    const tex = base(a.tex).replace(/\.png$/, ''), arrow = ARROW.exec(tex);
+    if (!PLATE.test(tex) && !arrow) continue;
+    if (!b) {
+      b = Object.assign(document.createElement('button'), { type: 'button', tabIndex: -1, className: arrow ? 'btn av-arrow' : 'btn av-plate' });
       st.plates.append(b);
       st.els.set(c.id, b);
     }
     Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
     b.dataset.state = c.state;
-    if (plate) { b.dataset.tex = tex; b.dataset.col = String(Math.round(a.src[0] / a.src[2])); }
-    else Object.assign(b.style, { backgroundImage: `url(ui/${base(a.tex)})`, backgroundPosition: `${-a.src[0]}px ${-a.src[1]}px` });
+    if (arrow) {
+      const k = +arrow[1], look = ['normal', 'hover', 'pressed'][(k - 4) % 6] || 'normal';
+      b.dataset.dir = k >= 10 ? 'prev' : 'next';
+      if (b.dataset.look !== look) { b.dataset.look = look; b.innerHTML = arrowSvg(look); }
+    } else { b.dataset.tex = tex; b.dataset.col = String(Math.round(a.src[0] / a.src[2])); }
   }
   for (const [id, b] of st.els) if (!seen.has(id)) { b.remove(); st.els.delete(id); }
   // the labels: the window's own texts (the categories', the items', Confirm / Back), over the plates
