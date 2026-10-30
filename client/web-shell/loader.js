@@ -5,7 +5,8 @@
 // 24 frames (WebGL draw calls in 24 animation frames; clears alone don't count), or after a 90 s fallback, and is then
 // hidden (display: none). After that it comes back only on the runtime's scene events, Module.onYo2Scene(kind, from, to)
 // from the recomp build (yo2-gfx 6d0c5b25): "begin" (doors, duel result, title -> login...) shows the grid with the ring
-// spun by a CSS animation (the main thread can be busy ~0.5 s while a scene loads; the compositor keeps CSS running),
+// movie played by CSS keyframes made from ring.json (the main thread can be busy ~0.5 s while a scene loads; the
+// compositor keeps CSS transform animations running, in Chrome and WebKit alike),
 // "end" hides it (idempotent). Never on static screens: no draw-call guessing. Never takes pointer events, except its
 // Reload button (booting or a scene load for 45 s). prefers-reduced-motion: no scrolling, the ring stands still.
 (() => {
@@ -17,7 +18,7 @@
     const game = document.getElementById("canvas");
     const box = document.createElement("div");
     box.id = "loading";
-    box.innerHTML = '<canvas width="1024" height="768"></canvas><canvas class="spin" width="600" height="600"></canvas>' +
+    box.innerHTML = '<canvas width="1024" height="768"></canvas><div class="spin"></div>' +
         '<div class="status">Downloading…</div>';
     const css = document.createElement("style");
     css.textContent = `
@@ -29,11 +30,10 @@
       #loading.gone { opacity: 0; }
       #loading.scene { transition: opacity .15s ease-out; }
       #loading.scene.gone { transition: opacity .3s ease-out; }
-      #loading .spin { display: none; position: absolute; left: 50%; top: 47%; width: 58.59%; height: 78.125%;
-        transform: translate(-50%, -50%); }
-      #loading.scene .spin { display: block; animation: yo2spin 2s linear infinite; }
-      @keyframes yo2spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
-      @media (prefers-reduced-motion: reduce) { #loading.scene .spin { animation: none; } }`;
+      #loading .spin { display: none; position: absolute; left: 50%; top: 47%; width: 600px; height: 600px;
+        transform: translate(-50%, -50%) scale(var(--kx, 1), var(--ky, 1)); }
+      #loading.scene .spin { display: block; }
+      #loading .spin img { position: absolute; left: 0; top: 0; width: 480px; height: 480px; transform-origin: 0 0; }`;
     document.head.append(css);
     (game.parentElement || document.body).append(box);
     const ctx = box.firstChild.getContext("2d"), statusEl = box.lastChild, spin = box.children[1];
@@ -43,6 +43,7 @@
     function place() {
         box.style.left = game.offsetLeft + "px"; box.style.top = game.offsetTop + "px";
         box.style.width = game.offsetWidth + "px"; box.style.height = game.offsetHeight + "px";
+        spin.style.setProperty("--kx", game.offsetWidth / W); spin.style.setProperty("--ky", game.offsetHeight / H);   // the ring's 600 px at game scale
     }
 
     // wasm download progress: count the bytes of the .wasm response as the runtime streams it. The first fetch hands
@@ -120,6 +121,7 @@
             m.img = {};
             for (const c of Object.values(m.chars)) if (c.k === "bmp") m.img[c.f] = await img("loader/" + c.f);
             ring = m;
+            ringCss();
             apply(ring.frames[0]); rf = 1;
         }
     }).catch(() => { ring = null; });   // a broken ring.json: the backdrop without the ring
@@ -195,21 +197,39 @@
         offTimer = setTimeout(() => { if (!scene) box.style.display = "none"; }, 700);   // nothing left over the canvas
     }
 
-    // scene loads: the grid (static) + the ring frame turned by CSS, so it keeps spinning while the main thread is busy
-    function drawSpin() {
-        const s = spin.getContext("2d");
-        s.clearRect(0, 0, 600, 600);
-        if (!ring) return;
-        const keep = list;
-        list = new Map(); apply(ring.frames[0]);   // the movie's first frame: the ring face-on
-        s.save(); s.scale(1 / 20, 1 / 20);
-        for (const d of [...list.keys()].sort((x, y) => x - y)) {
-            const e = list.get(d), a = e.cx ? e.cx[3] : 1;
-            if (a <= 0) continue;
-            s.save(); s.transform(...e.m); drawChar(s, e.c, a); s.restore();
+    // scene loads: the grid (static) + the ring movie as CSS. Each ring layer (a 480 px bitmap, 1/20 twips) becomes an
+    // <img> in .spin (600x600 movie px, scaled to the game by place()) with one keyframe per movie frame (30 fps), so the
+    // compositor plays it however busy the main thread is. Linear between frames: WebKit runs steps() keyframes on the
+    // main thread (the ring froze while the game was busy). The last frame is repeated at 100% so the loop jumps back to
+    // frame 0 as the movie does (no tween across the wrap, which mirrors two layers).
+    // Showing .spin (display: none -> block) starts it at frame 0. prefers-reduced-motion: the first frame stands still.
+    function ringCss() {
+        const at = new Map(), kf = new Map(), n = ring.frames.length;
+        const pose = (e) => `transform:matrix(${e.m.slice(0, 4)},${e.m[4] / 20},${e.m[5] / 20})`;
+        ring.frames.forEach((ops, i) => {
+            for (const o of ops) {
+                if (o.rm) { at.delete(o.d); continue; }
+                const e = Object.assign({ m: [1, 0, 0, 1, 0, 0], cx: null }, o.move ? at.get(o.d) : null);   // as apply()
+                if (o.c !== undefined) e.c = o.c;
+                if (o.m) e.m = o.m;
+                if ("cx" in o) e.cx = o.cx;
+                at.set(o.d, e);
+            }
+            for (const [d, e] of at) kf.set(d, (kf.get(d) || "") + `${(i * 100 / n).toFixed(3)}%{${pose(e)}}` + (i === n - 1 ? `100%{${pose(e)}}` : ""));
+        });
+        let rules = "";
+        for (const d of [...at.keys()].sort((x, y) => x - y)) {
+            // ponytail: menu_mark_a01's layers are sprite -> one shape (identity) -> bitmap, and keep their char all movie long
+            const first = ring.frames[0].find((o) => o.d === d), sprite = ring.chars[first.c];
+            const bmp = ring.chars[ring.chars[sprite.frames[0][0].c].bmp];
+            const im = document.createElement("img");
+            im.src = "loader/" + bmp.f; im.alt = ""; im.className = "r" + d;
+            // ponytail: the layer's alpha (cx) is set once, in frame 0, so it's a plain style, not keyframed
+            im.style.cssText = pose(first) + `;opacity:${first.cx ? first.cx[3] : 1}`;
+            spin.append(im);
+            rules += `@keyframes yo2ring${d}{${kf.get(d)}}#loading.scene .spin .r${d}{animation:yo2ring${d} ${n / 30}s linear infinite}`;
         }
-        s.restore();
-        list = keep;
+        css.textContent += rules + "@media (prefers-reduced-motion: reduce) { #loading .spin img { animation: none !important; } }";
     }
     // lazyfs.js makes the scene dispatcher (assigning Module.onYo2Scene adds a listener) only in preRun, after stall.js
     // (a pre-js) has assigned its own handler, which replaced this one (f383812 on: no scene events reached the loader).
@@ -226,7 +246,7 @@
             if (scene) return;
             scene = true;
             clearTimeout(offTimer);
-            place(); draw(true); drawSpin();
+            place(); draw(true);
             status("Loading…");
             box.style.display = "";
             box.classList.add("scene");
