@@ -63,3 +63,24 @@ describe("moderation (moderacion.py)", () => {
     expect(i32((await A.room!.wait(0x4700, k))!)).toBe(0);
   });
 });
+
+describe("admin grant (the owner's recovery)", () => {
+  it("cards into a character's trunk: online, pushed at once (0x7125-0x7127 + 0x4140); offline, into the state", async () => {
+    const h = harness();
+    const A = h.client("A");
+    await A.account(0, "Alice"); await A.enterRoom();
+    const acct = Object.keys(h.state().accounts)[0];
+    const DAD = 65192027, GREPHER = 14536035;
+    const trunk = () => (Object.values(h.state().accounts) as any[])[0].profiles["0"].trunk ?? {};
+    const before = trunk();
+    const n = A.room!.mark();
+    expect(h.game.admin.run("grant", { acct, cards: [DAD, GREPHER, GREPHER, 123] })).toEqual({ added: 3, pushed: true });
+    await h.tick(300);
+    expect([trunk()[DAD] ?? 0, trunk()[GREPHER] ?? 0]).toEqual([(before[DAD] ?? 0) + 1, (before[GREPHER] ?? 0) + 2]);
+    expect([A.room!.all(0x7125, n).length, A.room!.all(0x7127, n).length, A.room!.all(0x4140, n).length]).toEqual([1, 1, 1]);
+    A.room!.send(0x0003); A.room!.close(); await h.tick(300);
+    h.game.hub.sessions.delete(acct);
+    expect(h.game.admin.run("grant", { acct, slot: 0, cards: [DAD] })).toEqual({ added: 1, pushed: false });
+    expect(trunk()[DAD]).toBe((before[DAD] ?? 0) + 2);
+  });
+});

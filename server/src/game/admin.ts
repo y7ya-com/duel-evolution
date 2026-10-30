@@ -6,6 +6,7 @@ import { W } from "../net/proto.ts";
 import * as PP from "./persist.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
+import { pushInventory } from "./starter.ts";
 
 export const AUTH_BANNED = -246;
 const REJECT_CLOSE_S = 1.5;
@@ -90,6 +91,31 @@ export class Admin {
     return n;
   }
 
+  /** Cards into one character's trunk from the admin (the owner's recovery, 2026-10-30): trunkAdd, so the [economia]
+   *  line and the D1 rows follow, and the connected client gets its trunk at once (pushInventory, no reload). Only
+   *  passcodes that exist; repeats are copies. */
+  grant(acct: string, slot: number | null, cards: number[], src = "admin grant"): { added: number; pushed: boolean } {
+    const ok = cards.map(Number).filter((c) => Number.isInteger(c) && PP.cardOk(c));
+    if (!ok.length) return { added: 0, pushed: false };
+    const s = this.g.hub.sessions.get(acct);
+    const raw = this.g.store.loadRaw();
+    const a = raw.accounts?.[acct];
+    const sl = String(slot ?? a?.active_slot ?? 0);
+    if (!a?.profiles?.[sl]) throw new Error(`no character ${acct.slice(0, 8)}/${sl}`);
+    if (s && String(s.slot) === sl) {
+      return this.g.withCtx(s, () => {
+        const st = this.g.loadState();
+        const p = PP.profile(st, Number(sl), false)!;
+        PP.trunkAdd(this.g, p, ok, 1, src);
+        this.g.saveState(st);
+        return { added: ok.length, pushed: pushInventory(this.g, s, p) };
+      });
+    }
+    PP.trunkAdd(this.g, a.profiles[sl], ok, 1, `${src} (${acct.slice(0, 8)}, offline)`);
+    this.g.store.saveRaw(raw);
+    return { added: ok.length, pushed: false };
+  }
+
   /** A server line in every lobby's chat (0x4402 kind 1, the server-wide chat) from "Duel Evolution": the deploy
    *  warning (scripts/deploy.sh). Returns the lobbies it reached. */
   announce(text: string): number {
@@ -139,6 +165,7 @@ export class Admin {
       case "maintenance": return { sent: this.maintenance(Number(body.seconds) || 0) };
       case "announce": return { sent: this.announce(String(body.text ?? "")) };
       case "reset-dormant": return { reset: this.resetDormant() };
+      case "grant": return this.grant(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin grant"));
       case "online": return { online: this.status().players.filter((p) => p.online).length };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
