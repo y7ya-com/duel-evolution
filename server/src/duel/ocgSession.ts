@@ -20,6 +20,9 @@ import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
 import { NpcAi, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
 import { PyRandom } from "../util/pyrandom.ts";
+import { DuelLog, type CardText } from "./duelText.ts";
+import { W } from "../net/proto.ts";
+import type { Session } from "../game/hub.ts";
 
 export const NPC_THINK = 0.4;          // s before each visible NPC decision (py 0.8; the Sender still paces what the client sees)
 export const MAX_NPC_DECISIONS = 3000;  // anti-loop cap per duel
@@ -183,7 +186,11 @@ export class OcgSession {
   private think: Json | null = null;
   private endReq: [number | null, unknown, number] | null = null;
 
-  constructor(readonly g: Game, readonly c: Conn, public finish: Finish, readonly npcId: number, pause: number) {
+  /** The Duel Log (duelLog.ts) and the duel's two names; null when the names were not given (parity, tests). */
+  private dlog: DuelLog | null = null;
+
+  constructor(readonly g: Game, readonly c: Conn, public finish: Finish, readonly npcId: number, pause: number,
+    readonly names: [string, string] | null = null) {
     this.id = OcgSession.nextId++;
     this.out = new Sender(c, g, pause);
   }
@@ -191,6 +198,14 @@ export class OcgSession {
   private log(s: string) { this.g.log(s); }
   private ctx(): Ctx { return (this.c.sess as Ctx) ?? this.g.NO_SESSION; }
   private core(): CoreQ { return (this.dc ??= core()); }
+
+  /** A batch to the client: the translator's messages, then (once they are out) its Duel Log lines on the lobby
+   *  connection's chat as channel DUEL_LOG_CHANNEL, which a client without ovr/duellog.c drops. */
+  private feed(evs: Json[], keep: (m: Msg) => boolean = () => true): void {
+    this.out.put(this.d!.feed_many(evs).filter(keep));
+    const lines = this.dlog?.feed(evs) ?? [];
+    if (lines.length) this.out.put([{ fn: () => sendDuelLog(this.g, (this.c.sess as Session | undefined)?.lobby, lines) }]);
+  }
 
   // ---- decks
   clientDeck(msgId: number, data: Uint8Array): void {
@@ -233,6 +248,8 @@ export class OcgSession {
     d.place_manual = !!this.placeManual;
     d.query = () => this.core().query(this.id);
     this.out.put(d.start());
+    const ct = cardText();
+    if (this.names && ct) this.dlog = new DuelLog(this.names, ct);
     const seed = this.g.rng.randrange(1 << 30);
     const dc = this.core();
     const rule = PY_DUEL_RULE;
@@ -319,11 +336,11 @@ export class OcgSession {
       if (Number.isInteger(last.turn)) this.turn = last.turn as number;
       if (this.brain) for (const e of evs) if (e.ev === "msg") this.brain.observe(e);
       if (last.ev === "select" && last.player === 1 && last.type === "SELECT_CHAIN" && !last.selects && !last.forced && !last.retry) {
-        this.out.put(d.feed_many(evs.slice(0, -1)));
+        this.feed(evs.slice(0, -1));
         return () => this.core().respond(this.id, { type: "SELECT_CHAIN", index: null }, 1);
       }
       if (last.ev === "select" && last.player === 1) {
-        this.out.put(d.feed_many(evs.slice(0, -1)));
+        this.feed(evs.slice(0, -1));
         this.npcDecisions++;
         if (this.npcDecisions > MAX_NPC_DECISIONS) {
           this.log("[ocg] la NPC entra en bucle: se acaba el duelo (gana el jugador)");
@@ -335,7 +352,7 @@ export class OcgSession {
       }
       if (last.ev === "end") {
         d.query = null;
-        this.out.put(d.feed_many(evs.slice(0, -1)).filter((m) => !isEnd(m)));
+        this.feed(evs.slice(0, -1), (m) => !isEnd(m));
         d.finished = true;
         this.over = true;
         const winner = last.winner as number | null | undefined;
@@ -344,7 +361,7 @@ export class OcgSession {
         this.end(winner === 0 || winner === 1 ? winner : null, last.reason || 0, (last.turns as number) || 0);
         return "stop";
       }
-      this.out.put(d.feed_many(evs));
+      this.feed(evs);
       if (last.ev === "select" && (last.player ?? 0) === 0) {
         try { this.out.put(d.sync_stats(this.core().query(this.id))); } catch (e) { this.log(`[ocg] sync_stats: ${errStr(e)}`); }
       }
@@ -405,6 +422,22 @@ export class OcgSession {
   }
 }
 
+// ================================================================================ Duel Log
+/** The chat channel of a Duel Log line (0x4402's second byte): the 2008 client routes channels 0-5 to its tabs and
+ *  drops any other, so only a client with ovr/duellog.c shows it. */
+export const DUEL_LOG_CHANNEL = 9;
+
+/** Card names and stats for the log, from the engine's card DB (null before the host created the engine). */
+export function cardText(): CardText | null {
+  const db = duelCore()?.cardDB;
+  return db ? { name: (c) => (db.get(c) ? db.name(c) : ""), stats: (c) => ({ atk: db.get(c)?.attack ?? 0, def: db.get(c)?.defense ?? 0 }) } : null;
+}
+
+export function sendDuelLog(g: Game, lobby: Conn | null | undefined, lines: readonly string[]): void {
+  if (!lobby || lobby.closed) return;
+  for (const t of lines) g.lp.post(lobby, 0x4402, new W().u8(0).u8(DUEL_LOG_CHANNEL).u32(0).u32(2).s("", 16).s(t, t.length + 1).bytes());
+}
+
 // ================================================================================ PvP
 export const ritualSumOk = (): boolean => !!DEFAULT_CFG.ritual_sum;
 
@@ -421,6 +454,9 @@ export class PvpSession {
   clk: Clk | null;
   placeManual: [boolean, boolean] = [false, false];
   stats: { feedMany(evs: Json[]): void } | null = null;
+  /** The Duel Log (both players get the same public lines) and where player i's lines go (pvpMatch: its lobby). */
+  dlog: DuelLog | null = null;
+  onLog: ((i: number, lines: string[]) => void) | null = null;
   views: [YO2Duel | null, YO2Duel | null] = [null, null];
   /** The spectators' view (public_view: neither side's hidden cards), fed like a player who never decides; its
    *  messages go to onPublic. Set onPublic before start() to have one. */
@@ -515,68 +551,73 @@ export class PvpSession {
     while (!this.over) {
       const evs = this.core().wait(this.id);
       const last = evs[evs.length - 1];
-      const kind = last.ev;
-      if (this.stats) {
-        try { this.stats.feedMany(evs); } catch (e) { this.log(`[pvp] ${this.id}: estadísticas del perfil: ${errStr(e)}`); this.stats = null; }
-      }
-      if (this.clk) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN" && (e.player === 0 || e.player === 1)) this.clkTurn(e.player as number);
-      if (kind !== "error") this.coreErrors = 0;
-      if (Number.isInteger(last.turn)) this.turn = last.turn as number;
-      if (kind === "end") {
-        for (const i of [0, 1]) {
-          const v = this.views[i]!;
-          v.query = null;
-          this.out[i].put(v.feed_many(this.evFor(i, evs.slice(0, -1))).filter((m) => !isEnd(m)));
-          v.finished = true;
+      const logLines = this.dlog?.feed(evs) ?? [];
+      try {
+        const kind = last.ev;
+        if (this.stats) {
+          try { this.stats.feedMany(evs); } catch (e) { this.log(`[pvp] ${this.id}: estadísticas del perfil: ${errStr(e)}`); this.stats = null; }
         }
-        this.feedPub(evs.slice(0, -1));
-        this.over = true;
-        this.ended = true;
-        this.decider = null;
-        const w = last.winner;
-        this.log(`[pvp] fin ${this.id}: ganador ${w}, motivo ${last.reason}, turnos ${last.turns}`);
-        this.lastLp = (last.lp as number[]) ?? null;
-        this.finish(w === 0 || w === 1 ? w : null, last.reason || 0, (last.turns as number) || 0);
-        return;
-      }
-      if (kind === "select") {
-        let p = (last.player ?? 0) as number;
-        p = p === 0 || p === 1 ? p : 0;
-        const o = 1 - p;
-        if (last.type === "SELECT_SUM" && !ritualSumOk()) {
-          for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs.slice(0, -1))));
-          this.feedPub(evs.slice(0, -1));
-          this.sumAutos++;
-          if (this.sumAutos === 1 || last.retry === false) this.log(`[pvp] ${this.id}: SELECT_SUM del jugador ${p}: decide bot.ts`);
-          if (this.sumAutos > PVP_SUM_MAX) {
-            this.log(`[pvp] ${this.id}: SELECT_SUM sin respuesta válida tras ${PVP_SUM_MAX} intentos: se corta el duelo (empate)`);
-            this.end();
-            this.finish(null, "sum", (last.turn as number) || 0);
-            return;
+        if (this.clk) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN" && (e.player === 0 || e.player === 1)) this.clkTurn(e.player as number);
+        if (kind !== "error") this.coreErrors = 0;
+        if (Number.isInteger(last.turn)) this.turn = last.turn as number;
+        if (kind === "end") {
+          for (const i of [0, 1]) {
+            const v = this.views[i]!;
+            v.query = null;
+            this.out[i].put(v.feed_many(this.evFor(i, evs.slice(0, -1))).filter((m) => !isEnd(m)));
+            v.finished = true;
           }
+          this.feedPub(evs.slice(0, -1));
+          this.over = true;
+          this.ended = true;
+          this.decider = null;
+          const w = last.winner;
+          this.log(`[pvp] fin ${this.id}: ganador ${w}, motivo ${last.reason}, turnos ${last.turns}`);
+          this.lastLp = (last.lp as number[]) ?? null;
+          this.finish(w === 0 || w === 1 ? w : null, last.reason || 0, (last.turns as number) || 0);
+          return;
+        }
+        if (kind === "select") {
+          let p = (last.player ?? 0) as number;
+          p = p === 0 || p === 1 ? p : 0;
+          const o = 1 - p;
+          if (last.type === "SELECT_SUM" && !ritualSumOk()) {
+            for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs.slice(0, -1))));
+            this.feedPub(evs.slice(0, -1));
+            this.sumAutos++;
+            if (this.sumAutos === 1 || last.retry === false) this.log(`[pvp] ${this.id}: SELECT_SUM del jugador ${p}: decide bot.ts`);
+            if (this.sumAutos > PVP_SUM_MAX) {
+              this.log(`[pvp] ${this.id}: SELECT_SUM sin respuesta válida tras ${PVP_SUM_MAX} intentos: se corta el duelo (empate)`);
+              this.end();
+              this.finish(null, "sum", (last.turn as number) || 0);
+              return;
+            }
+            return () => this.core().auto(this.id);
+          }
+          this.sumAutos = 0;
+          this.out[o].put(this.views[o]!.feed_many(this.evFor(o, evs.slice(0, -1))));
+          this.feedPub(evs.slice(0, -1));
+          const v = this.views[p]!;
+          this.out[p].put(v.feed_many(this.evFor(p, evs)));
+          try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
+          if (v.needs_auto()) return this.cmd(p, v.auto_response());
+          this.decider = p;
+          if (this.clk) this.clkBegin(p);
+          return;
+        }
+        for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs)));
+        this.feedPub(evs);
+        if (kind === "error") {
+          this.coreErrors++;
+          this.log(`[pvp] error de duelcore en ${this.id} (${this.coreErrors}.º seguido): ${last.error}`);
+          if (this.coreErrors > CORE_ERROR_AUTO) throw new DuelCoreError(`${this.coreErrors} errores seguidos de duelcore: ${last.error}`);
+          this.decider = null;
           return () => this.core().auto(this.id);
         }
-        this.sumAutos = 0;
-        this.out[o].put(this.views[o]!.feed_many(this.evFor(o, evs.slice(0, -1))));
-        this.feedPub(evs.slice(0, -1));
-        const v = this.views[p]!;
-        this.out[p].put(v.feed_many(this.evFor(p, evs)));
-        try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
-        if (v.needs_auto()) return this.cmd(p, v.auto_response());
-        this.decider = p;
-        if (this.clk) this.clkBegin(p);
         return;
+      } finally {   // the batch's Duel Log lines, after its messages
+        if (logLines.length && this.onLog) for (const i of [0, 1]) this.out[i].put([{ fn: () => this.onLog!(i, logLines) }]);
       }
-      for (const i of [0, 1]) this.out[i].put(this.views[i]!.feed_many(this.evFor(i, evs)));
-      this.feedPub(evs);
-      if (kind === "error") {
-        this.coreErrors++;
-        this.log(`[pvp] error de duelcore en ${this.id} (${this.coreErrors}.º seguido): ${last.error}`);
-        if (this.coreErrors > CORE_ERROR_AUTO) throw new DuelCoreError(`${this.coreErrors} errores seguidos de duelcore: ${last.error}`);
-        this.decider = null;
-        return () => this.core().auto(this.id);
-      }
-      return;
     }
   }
 

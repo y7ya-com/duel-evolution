@@ -88,12 +88,12 @@ console.log("shell.html: all checks pass");
 // 2026-10-29) marks the device and reloads once into the 1 GB build; the 1 GB build running out shows the message
 {
     const pick = /<script id="pick">([\s\S]*?)<\/script>/.exec(html)[1];
-    const boot = (store) => {
+    const boot = (store, ua = "Mozilla/5.0 Firefox/158.0", wasm = { Suspending: 1, Memory: class {} }) => {
         const shown = [], heads = [], on = {};
         const el = () => ({ style: {}, querySelector: () => ({}) });
         const ctx = {
-            console: { log() {} }, URLSearchParams, location: { search: "" }, navigator: { userAgent: "Mozilla/5.0 Firefox/158.0", platform: "Win32" },
-            WebAssembly: { Suspending: 1, Memory: class {} }, localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
+            console: { log() {} }, URLSearchParams, location: { search: "" }, navigator: { userAgent: ua, platform: "Win32" },
+            WebAssembly: wasm, localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
             document: { createElement: el, head: { append: (l) => heads.push(l) }, body: { append: (d) => shown.push(d) } },
             addEventListener: (t, f) => (on[t] = f), log() {}, Module: {},
         };
@@ -119,5 +119,12 @@ console.log("shell.html: all checks pass");
     const fresh = new Map(); p = boot(fresh); p.ctx.Module.yo2Presents = 5;
     p.oom("error: uncaught exception: out of memory");
     assert.equal(fresh.get("yo2-small"), undefined);
+    // Chrome before 137 (no JSPI: the 2 GB ASYNCIFY build): no room for 2 GB (32-bit Chrome) -> the 1 GB build at once
+    const chrome109 = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36";
+    const full = class { constructor() { throw new RangeError("WebAssembly.Memory(): could not allocate memory"); } };
+    assert.equal(boot(new Map(), chrome109, { Memory: class {} }).src, "yo2rc-async.js");
+    assert.equal(boot(new Map(), chrome109, { Memory: full }).src, "yo2rc-ios.js");
+    assert.equal(boot(new Map(), chrome109.replace("Chrome/109", "Chrome/140"), { Suspending: 1, Memory: full }).src, "yo2rc-ios.js");
+    assert.equal(boot(new Map(), "Mozilla/5.0 Firefox/158.0", { Suspending: 1, Memory: full }).src, "yo2rc-async.js");   // no trial outside V8
 }
 console.log("shell.html picker: all checks pass");
