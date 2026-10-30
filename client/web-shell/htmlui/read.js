@@ -5,6 +5,7 @@
 import VT from './vtables.js';
 
 export const FACTORY = 0x0126fa8c;   // g_windowFactory (CWindowTaskFactory*)
+export const APP = 0x012711ac;       // g_app (CApp*): its mouseMng_ (+0xc4c) is the CMouseManager the cursor hangs off
 
 // Read extensions (read/<group>.js, owned by the screen session that needs them): ext(h) -> { controls: {cls: c =>
 // fields}, windows: {cls: w => fields}, snapshot: () => fields }, called each read with the helpers h below.
@@ -148,8 +149,24 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     return out;
   };
 
+  // the game's mouse cursor: g_app's CMouseManager. Its sprites are CSpriteElm leaves, whatever builds them: the hand
+  // (CHandCursorTask: 11 CSwfEngine animations, data/common/m_cursor, each CSwfEngine > Offset > CSwfSprite >
+  // CSwfShape > CSpriteElm) or the arrow (CArrowCursorTask::m_picCursor, mausuk_01_c00.png). The engine draws it last
+  // (priority 10000); the bridge draws it above the DOM windows. Each sprite as drawn: worldPos_ (+0xc8), worldScale_
+  // (+0xd4), inheritColor4_ (+0x168) and inheritAddColor_ (+0x178), drawMode_ (+0x188) (src/System/yo2Element.h);
+  // drawn: disp_ and not hiddenByParent_ on it and every element up to the manager
+  const app = u32(APP), mgr = app && u32(app + 0xc4c);
+  const cursor = mgr && cls(mgr) === 'CMouseManager' ? { id: mgr, shown: vis(mgr) && !locked(mgr), sprites: [] } : null;
+  if (cursor) (function walk(t, d, on) {
+    for (const k of children(t)) {
+      const drawn = on && shown(k);
+      if (cls(k) === 'CSpriteElm') cursor.sprites.push({ ...spr(k), shown: drawn, wsx: f32(k + 0xd4), wsy: f32(k + 0xd8),
+        col: [0, 4, 8, 12].map(o => f32(k + 0x168 + o)), add: [0, 4, 8, 12].map(o => f32(k + 0x178 + o)), mode: i32(k + 0x188) });
+      if (d < 8) walk(k, d + 1, drawn);
+    }
+  })(mgr, 0, true);
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [] };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -192,5 +209,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort((a, b) => a.z - b.z), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

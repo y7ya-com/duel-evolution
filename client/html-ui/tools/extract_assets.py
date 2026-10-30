@@ -12,11 +12,15 @@ import kcejyugi as K   # duel-evolution-restore/extraction/tools: KCEJYUGI direc
 FILES = ['data\\common\\window\\window_base_01_c01.png',   # window frame + input field (96x24)
          'data\\common\\window\\swich_01_c00.png',         # buttons: normal / hover / pressed / two yellow (120x24)
          'data\\common\\window\\check_01_c00.png',         # checkbox box + check mark (32x16)
-         'data\\common\\window\\kasoru_01_c00.png']        # text caret (16x16, 2 px used)
+         'data\\common\\window\\kasoru_01_c00.png',        # text caret (16x16, 2 px used)
+         'data\\common\\window\\mausuk_01_c00.png']        # mouse cursor: normal / pressed (80x40, the HTML UI draws it above its windows)
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets')
 data = open(sys.argv[1], 'rb').read()
 _, members = K.read_directory(data)
 by = {m.name.lower(): m for m in members}
+# the hand cursor (CHandCursorTask's CSwfEngine animations, data/common/m_cursor): the HTML UI draws the game cursor
+# above its windows, every frame's sprites as the engine placed them
+FILES += sorted(n for n in by if n.startswith('data\\common\\m_cursor\\') and n.endswith('.png'))
 for f in FILES:
     b = K.member_bytes(data, by[f.lower()])
     open(os.path.join(out, f.rsplit('\\', 1)[1]), 'wb').write(b)

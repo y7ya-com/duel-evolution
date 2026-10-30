@@ -6,7 +6,7 @@
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
-import { loadGlyphs } from '../ui.js';
+import { loadGlyphs, loadSheet, sprite, artBase } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -45,7 +45,26 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
   mask-repeat: no-repeat; transform-origin: 0 0; }
 #htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
-#htmlui-host .txt { position: absolute; }`;
+#htmlui-host .txt { position: absolute; }
+#htmlui-host.gc, #htmlui-host.gc * { cursor: none !important; }`;
+
+// The game cursor's art (snapshot.cursor's sprites: ui/mausuk_*.png), by file name. Every texture under the cursor
+// manager starts loading the first time it is seen (all its states are built up front), so a state is ready before
+// the game first shows it.
+const sheets = new Map();   // name -> sheet, once loaded (null while loading or missing)
+const sheetOf = tex => sheets.get(tex.slice(tex.lastIndexOf('/') + 1).toLowerCase());
+const drawn = s => s.shown && s.a > 0;
+// the bridge draws the cursor (and hides the engine's) only when every sprite showing is one it draws exactly: art
+// loaded, drawn linear and alpha-blended (BLEND 2, SWF_LINEAR 6)
+export function cursorDrawable(c) {
+  if (!c) return false;
+  for (const s of c.sprites) {
+    const n = s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
+    if (n && !sheets.has(n)) { sheets.set(n, null); loadSheet({ url: artBase() + n }).then(sh => sheets.set(n, sh), () => {}); }
+  }
+  const on = c.sprites.filter(drawn);
+  return on.length > 0 && on.every(s => sheetOf(s.tex) && (s.mode === 2 || s.mode === 6));
+}
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
@@ -61,7 +80,40 @@ export async function makeLayer(host, screens, art = 'ui/') {
   layer.id = 'htmlui';
   host.append(layer);
   const live = new Map();   // window id -> { root, mod, state, json, prev }
-  function render(snap, owned, api) {
+  // the game cursor, in front of every window: the canvas is under the DOM, so the engine's would be covered
+  const cur = document.createElement('div');
+  cur.className = 'layer';
+  host.append(cur);
+  const curEls = [], fx = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  Object.assign(fx.style, { position: 'absolute', width: 0, height: 0 });
+  host.append(fx);
+  // a sprite's colour (inheritColor4_ rgb: multiply) and add colour (inheritAddColor_: the white flash frames):
+  // out = texel x col + add, as the engine's shader, on unpremultiplied colour (an SVG colour matrix)
+  const tint = (col, add) => {
+    if (col.slice(0, 3).every(v => v === 1) && add.slice(0, 3).every(v => v === 0)) return '';
+    const id = 'htmlui-tint-' + [...col.slice(0, 3), ...add.slice(0, 3)].join('_').replace(/\./g, 'p');
+    if (!fx.getElementById(id)) fx.insertAdjacentHTML('beforeend', `<filter id="${id}" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="${col[0]} 0 0 0 ${add[0]} 0 ${col[1]} 0 0 ${add[1]} 0 0 ${col[2]} 0 ${add[2]} 0 0 0 1 0"/></filter>`);
+    return `url(#${id})`;
+  };
+  function drawCursor(c) {   // c: snapshot.cursor, or null (the engine draws it)
+    const sps = c?.shown ? c.sprites.filter(s => drawn(s) && sheetOf(s.tex)).sort((a, b) => a.wz - b.wz) : [];   // back to front
+    host.classList.toggle('gc', !!c?.shown);   // the game's cursor is the cursor: no system one over owned DOM
+    while (curEls.length > sps.length) curEls.pop().remove();
+    sps.forEach((s, i) => {
+      const [sx, sy, sw, sh] = s.src, w = sw * s.wsx, h = sh * s.wsy, k = [s.tex, sw, sh, w, h].join();
+      if (curEls[i]?.k !== k) {
+        curEls[i]?.remove();
+        curEls[i] = Object.assign(sprite(cur, sheetOf(s.tex), sx, sy, sw, sh, 0, 0, w, h), { k });
+        if (i < curEls.length - 1) cur.insertBefore(curEls[i], curEls[i + 1]);
+      }
+      const e = curEls[i];
+      if (e.at !== sx + ',' + sy) { e.src(sx, sy); e.at = sx + ',' + sy; }
+      Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', opacity: s.a === 1 ? '' : s.a, filter: tint(s.col, s.add) });
+    });
+  }
+  function render(snap, owned, api, cursor = null) {
+    drawCursor(cursor);
     const seen = new Set();
     for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
       if (!owned.has(w.id)) continue;
@@ -137,7 +189,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null;
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null, curHid = false;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -210,11 +262,16 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       extraHide.push(r);
       if (!owned.has(iso.id)) extraPass.push(iso.id);
     }
-    const t = tables >>> 2, H = H32, ids = [...owned, ...extraHide].slice(0, SLOTS);
+    // the cursor: while any window is HTML, the DOM draws it (above them) and the engine does not. The table takes
+    // effect at the next frame, so the DOM one also shows the frame after (the engine's is still hidden in it)
+    const curOn = owned.size > 0 && cursorDrawable(snap.cursor);
+    if (iso && !curOn && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps the cursor: it is under test too
+    const t = tables >>> 2, H = H32, ids = [...(curOn ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
-    render(snap, owned, api);
+    render(snap, owned, api, curOn || curHid ? snap.cursor : null);
+    curHid = curOn;
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

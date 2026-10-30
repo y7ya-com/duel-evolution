@@ -21,7 +21,7 @@ document.body.append(host);
 const { render } = await makeLayer(host, await loadScreens(), q.get('art') || '../ui/');
 const log = name => (...a) => console.log('api.' + name, ...a);
 const api = Object.fromEntries(['click', 'hover', 'key', 'char', 'setText', 'scroll', 'wheel'].map(n => [n, log(n)]));
-render(snap, new Set(snap.windows.map(w => w.id)), api);
+render(snap, new Set(snap.windows.map(w => w.id)), api, snap.cursor);
 window.__ready = true;
 </script>
 </body>

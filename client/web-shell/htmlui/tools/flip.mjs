@@ -7,6 +7,9 @@
 // --ship: the page as a DRY ship-client.sh made it (game.mjs SHIP); --htmlui=on: the R2 htmlui.json switch on.
 // --boot: no flip; the route, then <outdir>/boot-<tag>.png, .json (snapshot, owned windows, console errors).
 // --phone: an 844 x 390 touch phone at 3x.
+// --cursor: no plain flip; the game cursor over the window in the route's CURSOR poses (hover a button, over text,
+// a button held down, the click ripple: before/after only, its timing differs), each flipped (isolated, the cursor included) and captured over the real backdrop:
+// <outdir>/<cls>-cursor-<pose>@<dpr>x-{engine,html,heat,before,after}.png, report-cursor@<dpr>x.json.
 // route: a name from ROUTES below (the clicks that reach a screen and the window classes to flip there).
 // Writes <outdir>/<cls>@<dpr>x-{engine,html,heat}.png and report.json ({cls: {identical, within2, max, px}}).
 import { spawn } from 'node:child_process';
@@ -22,7 +25,9 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
-  select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // the game cursor poses (--cursor), game px: [name, x, y, held]. Empty slots: no click lands on a character
+  select: { cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
+    steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
   // a player with a character (htmlui-select): LV text, Delete, the waist-up avatar's passthrough
   'select-player': { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
 };
@@ -104,6 +109,62 @@ const DIFF = `async (a, b, w, h) => {
   return { identical: +(100 * same / n).toFixed(2), within2: +(100 * near / n).toFixed(2), max, px: n - same, heat: btoa(s) };
 }`;
 const report = {};
+const shotPair = async (cls, clip) => {   // isolated engine / html, then before / after over the real backdrop
+  await b.ev(`window.yo2Html.isolate(${JSON.stringify(cls)})`);
+  await sleep(600);   // a few frames: the hide table applies from the next Present
+  const engine = await b.shot(clip);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
+  await sleep(600);
+  const html = await b.shot(clip);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false); window.yo2Html.isolate(null)`);
+  await sleep(600);
+  const before = await b.shot(clip);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
+  await sleep(600);
+  const after = await b.shot(clip);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false)`);
+  return { engine, html, before, after };
+};
+const diff = async (base, { engine, html, before, after }, clip) => {
+  for (const [k, v] of Object.entries({ engine, html, before, after })) writeFileSync(`${base}-${k}.png`, v);
+  const pw = Math.round(clip.width * dpr), ph = Math.round(clip.height * dpr);
+  const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${pw}, ${ph})`);
+  writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));
+  delete r.heat;
+  return r;
+};
+if (args.includes('--cursor')) {
+  const btn = (type, p, held) => b.send('Input.dispatchMouseEvent', { type, x: p[0], y: p[1], button: 'left', buttons: held ? 1 : 0, clickCount: 1 });
+  for (const cls of route.flip) for (const [pose, x, y, held] of route.cursor || []) {
+    const w = (await snap()).windows.find(v => v.cls === cls && v.shown);
+    if (!w) { report[pose] = { error: 'not shown' }; continue; }
+    const [x0, y0] = await toClient(w.x, w.y), [x1, y1] = await toClient(w.x + w.w + 40, w.y + w.h + 40);   // + the cursor's 40 x 40
+    const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, p = await toClient(x, y);
+    await btn('mouseMoved', p); await sleep(500);
+    if (held === 'click') {   // the ripple (15 frames): a click and a capture 100 ms on, engine then HTML
+      const shot = async v => {
+        await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, ${v})`); await sleep(600);
+        await btn('mousePressed', p, true); await sleep(60); await btn('mouseReleased', p); await sleep(100);
+        return b.shot(clip);
+      };
+      const base = path.join(out, `${cls}-cursor-${pose}@${dpr}x`);
+      writeFileSync(base + '-before.png', await shot(false));
+      writeFileSync(base + '-after.png', await shot(true));
+      report[pose] = { at: [x, y], cursor: (await snap()).cursor };
+      await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false)`);
+      continue;
+    }
+    if (held) { await btn('mousePressed', p, true); await sleep(400); }
+    const shots = await shotPair(cls, clip);
+    const s = await snap();
+    if (held) { const off = await toClient(2, 2); await btn('mouseMoved', off, true); await sleep(300); await btn('mouseReleased', off); await sleep(300); }
+    const r = await diff(path.join(out, `${cls}-cursor-${pose}@${dpr}x`), shots, clip);
+    report[pose] = { ...r, at: [x, y], held: !!held, cursor: s.cursor };
+    console.log(pose, JSON.stringify({ identical: r.identical, within2: r.within2, max: r.max, px: r.px }));
+  }
+  writeFileSync(path.join(out, `report-cursor@${dpr}x.json`), JSON.stringify(report, null, 1));
+  b.close(); process.exit(0);
+}
 for (const cls of route.flip) {
   const w = (await snap()).windows.find(v => v.cls === cls && v.shown);
   if (!w) { report[cls] = { error: 'not shown' }; continue; }
