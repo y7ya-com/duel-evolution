@@ -14,9 +14,10 @@ import { menuButton, titleBar, panel } from '../controls/skin.js';
 // edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
 // #7deffc over its first 219 px, every other row lighter (the art's scan lines).
 // CWindowTaskMenubar, menuber_01_c01.png (1024 x 32, over menuber_02_c01.png's white field at 0.7): a cyan to blue
-// strip, its top 3 rows lighter, its bottom 3 darker; the message field from x 392, 7 down, 624 x 18, a white edge,
-// its inside menuber_02's white panel at 0.7 (the strip's texels there are transparent: live in My Room, over the black
-// backdrop, the engine's field reads 178 = 255 x 0.7).
+// strip, its top 3 rows lighter, its bottom 3 darker; the message field x 392..1016, y 8..24: menuber_02's white panel
+// at 0.698 (the strip's texels there are transparent: live in My Room, over the black backdrop, the engine's field
+// reads #b2b2b2), its edge a pixel of half white blended into the strip (the strip's white texel rows read half a
+// texel up-left). Measured with htmlui-chat in My Room.
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
   border-color: #cbb598 #894009 #893b06 #a57f4e; background: #f2e14f;
@@ -33,10 +34,10 @@ const CSS = `
     linear-gradient(to right, #70ffff 0, #6cdbff 32px, #8ae4ff 64px, #a7eeff 96px, #c1f8ff 128px, #cdfeff 160px,
       #c4feff 224px, #aefeff 256px, #a0f3ff 288px, #8ee4ff 320px, #77d3fe 352px, #64c0fe 384px, #2279fd 700px,
       #0053fb 1016px, #003dd4 1024px);
-  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 393px 8px / 622px 16px no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 625px 17px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
-.lb-field { position: absolute; left: 392px; top: 7px; width: 624px; height: 18px; box-sizing: border-box;
-  border: 1px solid #fff; background: rgba(255, 255, 255, .7); }
+.lb-field { position: absolute; left: 392px; top: 8px; width: 625px; height: 17px;
+  background: rgba(255, 255, 255, .698); box-shadow: 0 0 0 1px rgba(255, 255, 255, .5); }
 .lb-icon { position: absolute; width: 80px; height: 32px; }`;
 
 function inject() {
