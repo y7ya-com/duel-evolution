@@ -846,6 +846,10 @@ Module.preRun.push(() => {
     for (const [k, env] of [["http", "YO2_HTTP"], ["gateway", "YO2_GATEWAY"], ["server", "YO2_SERVER"]])
         if (q.get(k)) ENV[env] = q.get(k);
     for (const [k, v] of q) if (/^[A-Z][A-Z0-9_]*$/.test(k)) ENV[k] = v;   // e.g. ?RC_VERBOSE=1
+    // In-between frames (60 Hz on screen) stay off on WebKit (Safari, every iOS browser) unless asked for: its canvas
+    // showed black frames with them (phase3, 2026-10-30; the frames themselves are right natively). ?RC_60=1 turns them on.
+    if (!q.has("RC_60") && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Firefox|Edg/.test(navigator.userAgent))
+        ENV.RC_60 = "0";
     // The new server's sign-in, in the game's own UI (rt/session.cpp): ask <http>/api/de/session once (same origin, so
     // the cookie goes along). Signed in -> YO2_SESSION_NAME (no login dialog); anything else, a failed check too, is
     // signed out: the login dialog is the sign-in panel, whose Discord button (YO2_DISCORD_URL) comes back to this page
