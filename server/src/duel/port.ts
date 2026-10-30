@@ -17,6 +17,7 @@ import { deckNpc, npcRule } from "./npcRules.ts";
 import { brainDb, cardmap, duelCore, npcDeck } from "./data.ts";
 import { TYPE_FIELD } from "./brain/cards.ts";
 import { OcgSession } from "./ocgSession.ts";
+import { npcName } from "../game/npcs.ts";
 import { DeckCheck } from "./deckCheck.ts";
 import { DuelReserva } from "./reserva.ts";
 
@@ -257,8 +258,9 @@ export class DuelPort {
     let s = x.ocg ?? null;
     if (s === null && this.g.curSess() === this.g.NO_SESSION) return null;
     if (s === null) {
+      const rival = this.duelRival((c.sess as Ctx) ?? undefined);
       s = x.ocg = new OcgSession(this.g, c, (cc, w, r, t) => this.ocgFinish(cc, w, r, t),
-        this.npcDeckId(this.duelRival((c.sess as Ctx) ?? undefined)), this.cfg.pause);
+        this.npcDeckId(rival), this.cfg.pause, [(c.sess as Session | undefined)?.name || myName(this.g), npcName(rival)]);
     }
     return s;
   }
