@@ -3,7 +3,10 @@
 // The pairs are the owner's before/after captures. Konami-derived output: keep it local (never in git).
 //
 //   python3.12 -I tools/stack.py 8799 &        (or let flip start it: --stack)
-//   node tools/flip.mjs <outdir> <route> [--dpr=2] [--keep]
+//   node tools/flip.mjs <outdir> <route> [--dpr=2] [--keep] [--ship=<dir>] [--htmlui=on] [--boot] [--phone]
+// --ship: the page as a DRY ship-client.sh made it (game.mjs SHIP); --htmlui=on: the R2 htmlui.json switch on.
+// --boot: no flip; the route, then <outdir>/boot-<tag>.png, .json (snapshot, owned windows, console errors).
+// --phone: an 844 x 390 touch phone at 3x.
 // route: a name from ROUTES below (the clicks that reach a screen and the window classes to flip there).
 // Writes <outdir>/<cls>@<dpr>x-{engine,html,heat}.png and report.json ({cls: {identical, within2, max, px}}).
 import { spawn } from 'node:child_process';
@@ -26,7 +29,8 @@ const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
-const dpr = +(opt('dpr') || 1), GAME = 8942;
+const phone = args.includes('--phone'), boot = args.includes('--boot');
+const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = 8942;
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
@@ -38,12 +42,13 @@ if (!origin) {   // our own stack
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
 }
-kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie }, stdio: 'inherit' }));
+kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie,
+  ...(opt('ship') && { SHIP: path.resolve(opt('ship')) }), ...(opt('htmlui') && { HTMLUI: opt('htmlui') }) }, stdio: 'inherit' }));
 await sleep(500);
 
-const b = await launch({ dpr });
-await b.go(`http://127.0.0.1:${GAME}/?HTML_UI=0`, 'window.__htmlui && Module.yo2Presents > 30');
-const snap = () => b.ev('JSON.stringify(window.__htmlui.snapshot())').then(JSON.parse);
+const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }) });
+await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/` : `http://127.0.0.1:${GAME}/?HTML_UI=0`, 'window.yo2Html && Module.yo2Presents > 30');
+const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
   writeFileSync(path.join(out, 'stuck.png'), await b.shot());
@@ -68,6 +73,16 @@ for (const [a, x, y, z] of route.steps) {
 }
 await mouse('mouseMoved', [2, 2]);   // the pointer off the UI
 
+if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
+  await sleep(1500);
+  const tag = `${phone ? 'phone' : 'desktop'}-${opt('htmlui') || 'off'}`;
+  writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
+  const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
+  const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
+  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, errors }, null, 1));
+  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, errors: errors.length }));
+  b.close(); process.exit(0);
+}
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
 // within 2, red more)
 const DIFF = `async (a, b, w, h) => {
@@ -93,21 +108,21 @@ for (const cls of route.flip) {
   const [x0, y0] = await toClient(w.x, w.y), [x1, y1] = await toClient(w.x + w.w, w.y + w.h);
   const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   // isolated: the window alone on an empty canvas in both captures (the backdrops animate, and the frame is 70 %)
-  await b.ev(`window.__htmlui.isolate(${JSON.stringify(cls)})`);
+  await b.ev(`window.yo2Html.isolate(${JSON.stringify(cls)})`);
   await sleep(600);   // a few frames: the hide table applies from the next Present
   const engine = await b.shot(clip);
-  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
   await sleep(600);
   const html = await b.shot(clip);
   writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
-  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false); window.__htmlui.isolate(null)`);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false); window.yo2Html.isolate(null)`);
   // the owner's before/after: the same state over the real backdrop (not diffed)
   await sleep(600);
   const before = await b.shot(clip);
-  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, true)`);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
   await sleep(600);
   const after = await b.shot(clip);
-  await b.ev(`window.__htmlui.toggle(${JSON.stringify(cls)}, false)`);
+  await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false)`);
   const base = path.join(out, `${cls}@${dpr}x`);
   writeFileSync(base + '-engine.png', engine);
   writeFileSync(base + '-html.png', html);

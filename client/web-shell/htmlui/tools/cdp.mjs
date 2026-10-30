@@ -11,7 +11,7 @@ function chromePath() {
   return `${base}/${dir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 }
 
-export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768 } = {}) {
+export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false } = {}) {
   const free = +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
   if (free < 25) throw new Error(`only ${free}% memory free`);
   const profile = '/tmp/htmlui-chrome-' + process.pid;
@@ -42,7 +42,8 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
     return r.result?.result?.value;
   };
   await send('Runtime.enable');
-  await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: dpr, mobile: false });
+  await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: dpr, mobile });
+  if (mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   const go = async (url, ready = 'window.__ready') => {
     await send('Page.navigate', { url });
     for (let i = 0; i < 100; i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }

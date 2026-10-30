@@ -3,6 +3,9 @@
 // the /net WebSocket) forwarded to a local stack.py. Cross-origin isolated, as production.
 //   SERVER=http://127.0.0.1:8799 COOKIE=<stack.py's cookie> BUILD=<build-web> GAME=<web/game> FONTS=<fonts> node tools/game.mjs [port]
 // COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
+// SHIP=<infra/out/<prefix>> (a DRY=1 ship-client.sh): the page as shipped instead (index.html at /, its own scripts and
+// the bridge it injects; loader/ from web-shell/loader). HTMLUI=on: /htmlui.json turns CWindowPlayerSelect on (the
+// R2 file the owner's approval adds); otherwise it is absent, as it ships.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -16,6 +19,7 @@ const DATA = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web';
 const BUILD = process.env.BUILD || path.join(shell, '../recomp/build-web');
 const GAME = process.env.GAME || DATA + '/game', FONTS = process.env.FONTS || DATA + '/public/recomp/fonts';
 const ART = process.env.ART || path.join(shell, '../html-ui/assets');
+const SHIP = process.env.SHIP, HTMLUI = process.env.HTMLUI;
 // the card wire's table (rt/cardwire.cpp: <game>/merge/data/card_passcode.bin, tools/cardart.py `table`), which the
 // shared web/game copy lacks: without it the client never answers the server's hello and the server drops it
 const CARDS = process.env.CARDS || process.env.HOME + '/Documents/GitHub/de-freeduel/client/recomp/run/game/merge/data/card_passcode.bin';
@@ -40,6 +44,19 @@ const srv = createServer((req, res) => {
   const u = new URL(req.url, 'http://x'), p = decodeURIComponent(u.pathname);
   if (p.includes('..')) { res.writeHead(403, ISO); return res.end(); }
   if (/^\/(api|yo2|app)\/|^\/__warm/.test(p)) return forward(req, res);
+  if (p === '/htmlui.json') {
+    if (HTMLUI !== 'on') { res.writeHead(404, ISO); return res.end(); }
+    res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ on: ['CWindowPlayerSelect'] }));
+  }
+  if (SHIP && !p.startsWith('/game/') && !p.startsWith('/fonts/')) {   // the shipped page and its files
+    const f = p === '/' ? path.join(SHIP, 'index.html') : p.startsWith('/loader/') ? path.join(shell, p) : path.join(SHIP, p);
+    try {
+      const b = readFileSync(f);
+      res.writeHead(200, { ...ISO, 'Content-Type': MIME[f.split('.').pop()] || 'application/octet-stream' });
+      return res.end(b);
+    } catch { res.writeHead(404, ISO); return res.end(); }
+  }
   if (p === '/') {
     const q = new URLSearchParams(u.search);
     q.set('http', `http://127.0.0.1:${PORT}`); q.set('gateway', `ws://127.0.0.1:${PORT}/net`);
