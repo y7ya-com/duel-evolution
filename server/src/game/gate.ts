@@ -8,6 +8,9 @@ import { isFree } from "./freemode.ts";
 
 export const GATE_PAUSE = 0.03;
 const SINGLE_ROOM: [number, number] = [WORLD_LANG, 14];
+/** Kinds 15 and 16 share 7's and 9's name (GUNSLINGER, TRIAL) and rules, so two rows read the same: not announced
+ *  (their ports stay open; ROOM_KINDS' order fixes every port). */
+const UNANNOUNCED_KINDS = new Set([15, 16]);
 /** py ROOM_LANG_MERGE: every language shares the block (key language 0). */
 export const ROOM_LANG_MERGE = true;
 
@@ -55,7 +58,7 @@ export function gateReply(g: Game, c: Conn, msgId: number): void {
   const entries = [serverEntry(1, 1, "DuelCards", ip, g.ports.game + off),
                    serverEntry(2, 3, "MyRoom", ip, g.ports.lobby + off, 0, 0, 12, 0)];
   const rooms: [number, number][] = g.cfg.singleLobby ? [SINGLE_ROOM]
-    : ROOM_LANGS.flatMap((lang) => ROOM_KINDS.map((kind) => [lang, kind] as [number, number]));
+    : ROOM_LANGS.flatMap((lang) => ROOM_KINDS.filter((k) => !UNANNOUNCED_KINDS.has(k)).map((kind) => [lang, kind] as [number, number]));
   for (const [lang, kind] of rooms) {
     const port = roomPort(g, lang, kind);
     const key = roomBlockKey(g, port, lang);
