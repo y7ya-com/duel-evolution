@@ -63,22 +63,29 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
 
-Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, sx, sy, rgba, shown }`: the texture's game path as
+Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, wz, a, sx, sy, rgba, shown }`: the texture's game path as
 the game holds it (`data/common/window/swich_01_c00.png`; a `?` is the loader's language letter), the source rect in
 it (CElement +0x94), the local position (parent-relative) and the world one (wx, wy: worldPos_, as last drawn), the
-scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, shown. Label = `{ id, name, text, x, y, z, wx,
+scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, the drawn alpha (a: the colour's alpha times
+the parents', what the engine blends with), shown. Controls also carry wx, wy, wz (worldPos_). Label = `{ id, name, text, x, y, z, wx,
 wy, shown }` (a raw CTextElm; '@n' style tags kept). Swf = `{ id, name, x, y, z, wx, wy, shown }` (a CSwfEngine:
 draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: [Swf] }`.
 
 `name` is the instance name (CTask +0x4c, setInstName; cp932 decoded), else the control's name_ (+0x354).
 
-Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, shown, controls }]`: factory controls whose owner is not a
-window (the shop's plates: a CEasyTask), grouped by that owner. Not drawn by the bridge yet.
+Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, w, h, alpha, shown, controls, extras, parts? }]`: factory
+controls whose owner is not a window (the shop: CShop* tasks), grouped by that owner, shaped like windows. A screen
+module whose `classes` lists a task cls claims it like a window: the bridge renders it (root at x, y, w x h) and hides
+it from the engine (the hide table takes the task; the element walk reaches it). A task has no rect: return { w, h }
+(and x, y if its own are not the box) from a read extension's `tasks: { Cls: t => fields }`. `parts` (with
+`parts: true`) are the task's own raw children, stopping at controls and at other tasks.
+`shown` (windows, tasks, controls) is false when it or any ancestor has a CTask lock bit (+0x20): the game hides the
+shop that way, and a locked subtree is never drawn.
 
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
-snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
-alpha name at spr label swf textCtl rectF rectI children generic; `h.generic(c)` is the base family's fields, to
+tasks: { Cls: t => fields }, snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
+alpha name at spr label swf textCtl rectF rectI children generic locked; `h.generic(c)` is the base family's fields, to
 extend: `CWindowTaskDeckScroll: c => ({ ...h.generic(c), maxLine: h.i32(c + 0x4c8) })`). Its fields are merged over the base ones (a control class
 it lists replaces the generic family). Cite every offset to the src/ header that pins it. Tests beside it
 (read/<group>_test.mjs, using read_test.mjs's synthetic image style).

@@ -23,6 +23,8 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
   select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // a player with a character (htmlui-select): LV text, Delete, the waist-up avatar's passthrough
+  'select-player': { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
   // My Room (slot 0's character, 635,344 on Player Select): the chat as its input line along the bottom
   chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 635, 344, 7], ['scene', 10, 90000], ['window', 'CChatWindow', 30000], ['wait', 3000]], flip: ['CChatWindow'] },
@@ -117,6 +119,8 @@ for (const cls of route.flip) {
   await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
   await sleep(600);
   const html = await b.shot(clip);
+  const hostStyle = await b.ev(`document.getElementById('htmlui-host')?.getAttribute('style')`);
+  if (/hidden/.test(hostStyle || '')) console.log('flip: the HTML layer is hidden:', hostStyle);
   writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
   await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false); window.yo2Html.isolate(null)`);
   // the owner's before/after: the same state over the real backdrop (not diffed)

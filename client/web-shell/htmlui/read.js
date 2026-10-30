@@ -53,8 +53,12 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   };
   const name = t => str(t + 0x4c);                    // CTask instName (setInstName)
   const vis = e => shown(e) && !(u32(e + 0x20) & 2);   // + the task flag the game sets with hiding (no mouse)
+  // any lock bit on it or an ancestor (CTask lockFlags_ +0x20): no TM_MAIN for that subtree, so nothing of it is drawn
+  // (the shop hides this way, never through disp_)
+  const locked = t => { for (let d = 0; t && d < 32; d++, t = u32(t + 8)) if (u32(t + 0x20)) return true; return false; };
   // an element's place: local (parent-relative: inheritTransform) and world (worldPos_ +0xc8, as last drawn)
-  const at = e => ({ x: f32(e + 0x70), y: f32(e + 0x74), z: f32(e + 0x78), wx: f32(e + 0xc8), wy: f32(e + 0xcc), wz: f32(e + 0xd0) });
+  // a: the alpha it is drawn with (inheritColor4_[3]: its colour times its parents')
+  const at = e => ({ x: f32(e + 0x70), y: f32(e + 0x74), z: f32(e + 0x78), wx: f32(e + 0xc8), wy: f32(e + 0xcc), wz: f32(e + 0xd0), a: f32(e + 0x174) });
   // a CSpriteElm: texName_ (+0x358, raw: a '?' language letter is the loader's), the source rect (CElement rect_
   // +0x94: setTexture makes w/h the image's), scale (+0x88: a stretched piece), colour (+0xa4)
   const spr = e => e ? { id: e, name: name(e), tex: str(e + 0x358), src: [0, 4, 8, 12].map(o => i32(e + 0x94 + o)),
@@ -121,18 +125,18 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     CWindowTaskDuelConfigFrame: 'CWindowTaskPictureFrame', CWindowTaskDuellogFrame: 'CWindowTaskPictureFrame',
     CWindowTaskFramePlace: 'CWindowTaskPictureFrame', CWindowTaskDueldiskRearrengeFrame: 'CWindowTaskPictureFrame',
   };
-  const h = { u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, alpha, name, at, spr, label, swf,
+  const h = { u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, locked, alpha, name, at, spr, label, swf,
     textCtl, rectF, rectI, children: t => list(t + 0x0c),
     generic: c => { const k = cls(c), f = F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]); return f ? f(c) : {}; } };
   const exts = EXT.map(e => e(h)), XC = Object.assign({}, ...exts.map(e => e.controls)),
-    XW = Object.assign({}, ...exts.map(e => e.windows));
+    XW = Object.assign({}, ...exts.map(e => e.windows)), XT = Object.assign({}, ...exts.map(e => e.tasks));
   const fam = k => XC[k] || F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]);
   // a control's raw parts: its CTask children (and theirs, 4 deep) that are sprites, text or swf, not controls
   const parts = c => {
     const out = { sprites: [], labels: [], swfs: [] };
     const walk = (t, d) => {
       for (const k of children(t)) {
-        if (ctlSet.has(k)) continue;
+        if (ctlSet.has(k) || byTask.has(k)) continue;   // its own controls / tasks are listed by themselves
         const n = cls(k);
         if (n === 'CSpriteElm') out.sprites.push(spr(k));
         else if (n === 'CTextElm') out.labels.push(label(k));
@@ -155,14 +159,15 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     let parent = 0, o = c;
     for (let d = 0; d < 8; d++) {
       const up = outer(u32(o + 0x344));
-      if (!up || winSet.has(up)) { o = up; break; }
+      if (!up || winSet.has(up) || !ctlSet.has(up)) { o = up; break; }   // a window, or another task (the shop's)
       if (!parent) parent = up;
       o = up;
     }
     if (!o) continue;
     const k = cls(c), f = fam(k), base = {
       id: c, cls: k, name: name(c) || str(c + 0x354), parent,
-      x: f32(c + 0x70), y: f32(c + 0x74), w: 0, h: 0, z: f32(c + 0x34c), alpha: alpha(c), shown: shown(c),
+      x: f32(c + 0x70), y: f32(c + 0x74), w: 0, h: 0, z: f32(c + 0x34c), alpha: alpha(c), shown: shown(c) && !locked(c),
+      wx: f32(c + 0xc8), wy: f32(c + 0xcc), wz: f32(c + 0xd0),   // where it was last drawn (worldPos_)
       enabled: !!u8(c + 0x350), focused: !!u8(c + 0x351),
     };
     if (base.focused) focus = c;
@@ -173,7 +178,7 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   }
   const windows = wins.map(w => ({
     id: w, cls: cls(w), ...rectF(w, 0x380), z: f32(w + 0x34c), alpha: alpha(w),
-    shown: shown(w) && !(u32(w + 0x20) & 4),   // CTask lockFlags_ bit 2: hidden, no TM_MAIN
+    shown: shown(w) && !locked(w),
     modal: !!u8(w + 0x350), topmost: !!u8(w + 0x35c), active: !!u8(w + 0x351),
     // draw order: the window's z (CWindowTaskControll z_ +0x34c: body 0, buttons 2, labels 3; larger is in front),
     // stable for equal z (the factory's list is not the draw order)
@@ -182,6 +187,10 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
   })).reverse();                                // back to front
-  const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), shown: vis(t), controls: cs.reverse() }));
+  // the non-window owners (the shop's CShop* tasks), shaped like windows so a screen can claim them; w/h from a read
+  // extension's tasks table (a task has no rect of its own)
+  const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
+    shown: shown(t) && !locked(t), controls: cs.reverse().sort((a, b) => a.z - b.z), extras: [],
+    ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
   return { v: 1, frame, scene, mouse: null, focus, windows, tasks, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }
