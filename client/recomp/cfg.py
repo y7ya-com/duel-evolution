@@ -21,14 +21,17 @@ def mem_op(i):
     return None
 
 
-def jump_table(i):
-    """`jmp [idx*4 + tbl]` with a relocated table -> list of targets, else None"""
+def jump_table(i, prev=None):
+    """`jmp [idx*4 + tbl]` with a relocated table -> list of targets, else None. prev: the instruction before it"""
     m = mem_op(i)
     if m is None or m.base or m.scale != 4 or m.segment:
         return None
     t, out = m.disp & 0xFFFFFFFF, []
     back = t - 4
-    while back in I.fixups and t - back <= 16 and I.in_text(I.u32(back) or 0):   # CRT memcpy: negative indices
+    # CRT memcpy: negative indices. Its `neg ecx; jmp [ecx*4 + tbl]` (unwind-down, 0xb09432 and 0xb12a52) reaches 7
+    # slots back (a 20-31 byte overlapping copy: crash #13); elsewhere 4, so a neighbouring table isn't read as ours.
+    neg = prev is not None and prev.mnemonic == "neg" and prev.operands[0].type == X.X86_OP_REG and prev.operands[0].reg == m.index
+    while back in I.fixups and t - back <= (28 if neg else 16) and I.in_text(I.u32(back) or 0):
         out.append(I.u32(back))
         back -= 4
     skip = 0
@@ -57,12 +60,12 @@ class Func:
         self.problems = []
         work = [entry]
         while work:
-            a = work.pop()
+            a, i = work.pop(), None
             while a not in self.insns:
                 if not I.in_text(a):
                     self.problems.append(("outside", a))
                     break
-                i = I.decode(a)
+                prev, i = i, I.decode(a)
                 if i is None:
                     self.problems.append(("undecodable", a))
                     break
@@ -82,7 +85,7 @@ class Func:
                             self.labels.add(t)
                             work.append(t)
                     else:
-                        tab = jump_table(i)
+                        tab = jump_table(i, prev)
                         if tab:
                             self.tables[a] = tab
                             for t in tab:
