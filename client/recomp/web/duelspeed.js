@@ -13,7 +13,7 @@ if (typeof document !== "undefined") (() => {
       #duelspeed { position: absolute; top: max(8px, env(safe-area-inset-top)); right: calc(max(8px, env(safe-area-inset-right)) + 40px);
                    z-index: 2; height: 32px; min-width: 44px; padding: 0 9px; border: 0; border-radius: 6px;
                    background: rgba(0,0,0,.45); color: #fff; opacity: .55; cursor: pointer; transition: opacity .15s;
-                   font: 700 13px/32px system-ui, sans-serif; letter-spacing: .02em; }
+                   font: 700 14.3px/32px Arial, "Liberation Sans", Arimo, Helvetica, sans-serif;   /* the 2008 client's GDI Arial (UI rule) */ }
       #duelspeed.solo { right: max(8px, env(safe-area-inset-right)); }
       #duelspeed:hover, #duelspeed:focus-visible { opacity: 1; }
       #duelspeed[hidden] { display: none; }`;
