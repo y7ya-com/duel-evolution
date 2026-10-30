@@ -11,6 +11,10 @@ const cache = new Map();   // state + size -> { v: CSS value } once decoded ({} 
 const name = tex => tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
 const drawn = s => s.shown && s.a > 0;
 const MAX = 128;           // Chromium ignores a cursor over 128 x 128 CSS px
+// Every state is drawn in ONE box around the mouse point (game px; it holds the hand at -16,-16 64 x 64 and the click
+// ripple at its largest, about +-31 around the point): the same size and hotspot for every frame, so nothing can move
+// between frames however the browser places a cursor image. A sprite reaching past it is clipped.
+const BOX = { x: -32, y: -32, w: 81, h: 81 };
 let imageSet;
 let gl;
 // its raw RGBA, as the engine's texture holds it (a 2D canvas would premultiply it and lose the colour of transparent
@@ -61,9 +65,10 @@ export function cursorCss(c, base, scale, dpr) {
   if (!on.length) return 'none';
   if (!on.every(s => imgs.get(name(s.tex)) && (s.mode === 2 || s.mode === 6))) return null;
   const at = on.map(s => ({ s, x: s.wx - c.mx, y: s.wy - c.my, w: s.src[2] * s.wsx, h: s.src[3] * s.wsy }));
-  const x0 = Math.min(...at.map(a => a.x)), y0 = Math.min(...at.map(a => a.y));
-  const bw = Math.max(...at.map(a => a.x + a.w)) + 1 - x0, bh = Math.max(...at.map(a => a.y + a.h)) + 1 - y0;   // +1: the shift
+  const bw = BOX.w, bh = BOX.h;
   const css = Math.min(scale, MAX / bw, MAX / bh);   // CSS px per game px
+  // the hotspot (the mouse point) on a whole CSS pixel (a browser floors it): the sprites drawn from that point
+  const hx = Math.round(-BOX.x * css), hy = Math.round(-BOX.y * css), x0 = -hx / css, y0 = -hy / css;
   imageSet ??= ['image-set', '-webkit-image-set'].find(f => CSS.supports('cursor', `${f}(url(x.png) 1x) 0 0, auto`)) || '';   // Safari: prefixed
   const k = css * (imageSet ? dpr : 1);              // image px per game px
   const key = JSON.stringify([k, css, at.map(a => [name(a.s.tex), a.x, a.y, a.w, a.h, a.s.src, a.s.a, a.s.col, a.s.add])]);
@@ -96,7 +101,6 @@ export function cursorCss(c, base, scale, dpr) {
     }
     g.drawImage(src, tinted ? 0 : sx, tinted ? 0 : sy, sw, sh, dx, dy, a.w * k, a.h * k);
   }
-  const hx = +(-x0 * css).toFixed(2), hy = +(-y0 * css).toFixed(2);
   cv.toBlob(async blob => {
     const url = e.url = URL.createObjectURL(blob), img = new Image();
     img.src = url;
