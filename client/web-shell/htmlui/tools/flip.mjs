@@ -21,7 +21,7 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
 // chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
@@ -50,6 +50,27 @@ export const ROUTES = {
     // the pointer on a tab, on the log, on the input line, then a tab held
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
+  // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
+  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
+    ['friends', 656, 'CWindowModelFriendlist'], ['teams', 682, 'CWindowModelTeamlist']].map(([n, y, cls]) =>
+    [n, { player: 'Social Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+      ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['wait', 4000]], flip: [cls] }])),
+  // My Room as Social Tester (the bottom bar, the chat line)
+  'myroom-social': { player: 'Social Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000]], flip: [] },
+  // the chat's proof (owner: no censoring, no cooldown, word wrap, native scrolling): the lobby chat with a line of
+  // taboo_e.txt's words, a long line and a dozen more sent back to back; the engine's, then HTML's at the bottom,
+  // scrolled up, a new line while up, back at the bottom
+  chatproof: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
+    ['say', 636, 720, 'but come on, the black box bear'],
+    ['say', 636, 720, 'a long message to show how the chat wraps by words: it keeps going past the width of the window and then some more'],
+    ...Array.from({ length: 10 }, (_, i) => ['say', 636, 720, `line ${i + 1}`]),
+    ['wait', 2000], ['shot', 'engine'], ['on', 'CChatWindow'], ['wait', 1500], ['shot', 'html-bottom'],
+    ['wheel', 500, 660, -160], ['wait', 800], ['shot', 'html-scrolled-up'],
+    ['say', 636, 720, 'a new line while scrolled up'], ['wait', 1500], ['shot', 'html-new-while-up'],
+    ['wheel', 500, 660, 4000], ['wait', 800], ['shot', 'html-back-bottom']], flip: [] },
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
@@ -78,6 +99,7 @@ export const ROUTES = {
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
+if (route && opt('flip')) route.flip = opt('flip').split(',');   // --flip=A,B: flip these windows instead of the route's
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
 // --slot=N / FLIP_SLOT=N (0-3): one of several flips side by side, each with its own ports: stack.py 8800+10N (and its
@@ -146,6 +168,9 @@ for (const [a, x, y, z] of route.steps) {
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
   }
+  if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
+  if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
+  if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   // rwalk [[x, y, ms], ...]: the avatar walks while the right button is held, toward the cursor (README "walkto"): held
   // from the first point, the cursor moved along the rest, each held ms
   if (a === 'rwalk') {
@@ -225,6 +250,7 @@ if (boot) {   // the shipped page through the route: what it shows and what the 
   const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
   const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
   writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
+  if (args.includes('--dump')) writeFileSync(path.join(out, `snapshot-${tag}.json`), JSON.stringify(s, null, 1));   // --dump: the whole snapshot
   console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), moving, errors: errors.length }));
   b.close(); process.exit(0);
 }

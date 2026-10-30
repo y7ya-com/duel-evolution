@@ -9,6 +9,7 @@
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
+const scroll = ui && await import('../controls/scroll.js');
 
 const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
 
@@ -25,7 +26,7 @@ const DRAW = {
   Iconbar: (el, c) => skin.iconbar(el, c),
   BackPlane: (el, c) => skin.plane(el, c),
   ThinChop: (el, c) => skin.chop(el, c),
-  Scroll: (el, c) => skin.scrollbar(el, { x: c.x, y: c.y, length: c.length, pos: c.thumb.pos, len: c.thumb.len }),
+  Textlist: () => {},   // the log is ownList's
   Tab(el, c, api) {
     const b = skin.tab(el, { x: c.x, y: c.y, w: c.w, label: c.label, active: c.active });
     b.disabled = !c.enabled;
@@ -77,17 +78,17 @@ function ownInput(c, layer, api) {
   if (!c.multiLine) el.type = c.password ? 'password' : 'text';
   el.setAttribute('aria-label', c.name || 'Text');
   layer.append(el);
-  let snap = c, entered = false;
+  let snap = c, entered = null;   // the line Enter sent, until the game's text moves off it
   const commit = () => api.setText(snap.id, el.value);
   el.addEventListener('focus', () => { el.value = snap.value; api.click(snap.id); });   // the game's focus too
-  el.addEventListener('input', e => { if (!e.isComposing) commit(); });
+  el.addEventListener('input', e => { entered = null; if (!e.isComposing) commit(); });
   el.addEventListener('compositionend', commit);
   el.addEventListener('keydown', e => {
     if (e.isComposing) return;
     if (e.key === 'Enter' && !snap.multiLine) {   // the game's own Enter (CWindowTaskInput: WM_CHAR '\r'; the chat sends)
       e.preventDefault();
       commit();
-      entered = true;   // what the game did with it (the chat sends and empties the line) comes back in the snapshot
+      entered = el.value;   // what the game does with it (the chat sends and empties the line) comes back in a snapshot
       api.char(13);
     } else if (e.key === 'Escape') {
       el.blur();
@@ -96,92 +97,136 @@ function ownInput(c, layer, api) {
   el.update = c2 => {
     snap = c2;
     el.maxLength = c2.maxLen;
-    if (entered || document.activeElement !== el) el.value = c2.value;   // the game's text while the DOM isn't editing
-    entered = false;
+    // the game's text while the DOM isn't editing, or once it has done something with the line Enter sent (the
+    // setText and the Enter play a frame apart: the first snapshot after Enter can still hold the line)
+    if (document.activeElement !== el || (entered !== null && c2.value !== entered)) { el.value = c2.value; entered = null; }
     Object.assign(el.style, { left: c2.x + 8 + 'px', top: c2.y + 8 + 'px', width: c2.w - 16 + 'px', height: c2.h - 16 + 'px' });
   };
   return el;
 }
 
 // the log: the generic list's DOM text, selectable; the wheel over it scrolls the game's list
-function ownLog(d, c, api) {
-  d.classList.add('log');
-  d.setAttribute('role', 'log');
-  d.addEventListener('wheel', e => {
-    e.preventDefault();
-    if (e.deltaY) api.wheel(c.id, Math.sign(e.deltaY) * 120);   // a canvas wheel event over the list (DOM sign)
-  }, { passive: false });
+// A list (the chat log, a name list) as a native scroller (owner: "use native HTML scrollers"; CONTRACT.md
+// "Scrolling"): every item one block of Arial text that wraps by words (a long word or URL breaks only where it must);
+// a log (stick) stays at the bottom while the player is there, never when they scrolled up. New items are appended
+// and dropped ones removed, so a selection in the rest survives a new line. The game's scroll bar is not drawn and its
+// list position doesn't matter (every item is here).
+export function itemsDelta(old, now) {   // [rows to drop at the top, items to append], or null: rebuild
+  for (let d = 0; d <= old.length; d++) {
+    const keep = old.length - d;
+    if (keep <= now.length && old.slice(d).every((s, i) => s === now[i])) return [d, now.slice(keep)];
+  }
+  return null;
+}
+function ownList(c, layer, { stick = false, stripes = false } = {}) {
+  const el = document.createElement('div');
+  scroll.inject();   // every native scroll bar looks alike (controls/scroll.js's rule)
+  el.className = 'own list yo2-scroll-list' + (stripes ? ' yo2-stripes' : '');
+  el.setAttribute('role', stick ? 'log' : 'list');
+  layer.append(el);
+  let shown = [];
+  const row = s => {
+    const r = document.createElement('div');
+    r.className = 'row';
+    r.textContent = s;
+    r.style.letterSpacing = basic.spacing(s) + 'px';
+    return r;
+  };
+  el.update = c2 => {
+    Object.assign(el.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
+    const items = (c2.items || []).map(basic.untag), delta = itemsDelta(shown, items);
+    if (delta && !delta[0] && !delta[1].length) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+    if (delta) {
+      for (let k = 0; k < delta[0]; k++) el.firstChild?.remove();
+      el.append(...delta[1].map(row));
+    } else {
+      el.replaceChildren(...items.map(row));
+    }
+    shown = items;
+    if (stick && bottom) el.scrollTop = el.scrollHeight;
+  };
+  return el;
 }
 
 const CSS = () => `
 .htmlui-own { user-select: none; }
 .htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
 .htmlui-own button:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
-.htmlui-own .log .txt { user-select: text; cursor: text; }
+.htmlui-own .list { font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
+.htmlui-own .list.yo2-stripes { background-attachment: local; }
+.htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
 `;
 
-const screen = {
-  classes: ['CChatWindow'],
-  mode: 'owned',
+// An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
+// changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
+// background(win, el), if given, draws what the window itself draws under its controls (its own picture)
+export function owned(classes, draw, background) {
+  const screen = {
+    classes,
+    mode: 'owned',
 
-  mount(win, root, api) {
-    if (!document.getElementById('htmlui-own-css')) {
-      const s = document.createElement('style');
-      s.id = 'htmlui-own-css';
-      s.textContent = CSS();
-      document.head.append(s);
-    }
-    root.classList.add('htmlui-own');
-    const vis = document.createElement('div'), own = document.createElement('div');
-    root.append(vis, own);
-    const st = { vis, own, drawn: new Map(), owned: new Map() };
-    screen.update(win, null, root, api, st);
-    return st;
-  },
+    mount(win, root, api) {
+      if (!document.getElementById('htmlui-own-css')) {
+        const s = document.createElement('style');
+        s.id = 'htmlui-own-css';
+        s.textContent = CSS();
+        document.head.append(s);
+      }
+      root.classList.add('htmlui-own');
+      const vis = document.createElement('div'), own = document.createElement('div');
+      if (background) { const bg = document.createElement('div'); background(win, bg); root.append(bg); }
+      root.append(vis, own);
+      const st = { vis, own, drawn: new Map(), owned: new Map() };
+      screen.update(win, null, root, api, st);
+      return st;
+    },
 
-  update(win, prev, root, api, st) {
-    const seen = new Set(), order = [], cls = new Map(win.controls.map(c => [c.id, c.cls]));
-    for (const [n, c] of win.controls.entries()) {
-      // a list's own text element (its items, laid out at 0,0 of the list): the list draws them
-      if (c.cls.endsWith('Text') && /Textlist|Listbox$/.test(cls.get(c.parent) || '')) continue;
-      seen.add(c.id);
-      const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
-      // the drawing: the input's text is ownInput's, so it doesn't redraw the field
-      const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
-      let d = st.drawn.get(c.id);
-      if (!d) {
-        d = { el: document.createElement('div'), k: null };
-        d.el.className = 'ctl';
-        if (c.cls.endsWith('Textlist')) ownLog(d.el, c, api);
-        st.drawn.set(c.id, d);
+    update(win, prev, root, api, st) {
+      const seen = new Set(), order = [];
+      for (const [n, c] of win.controls.entries()) {
+        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's)
+        if (c.parent) continue;
+        seen.add(c.id);
+        const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
+        // the drawing: the input's text is ownInput's, so it doesn't redraw the field
+        const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
+        let d = st.drawn.get(c.id);
+        if (!d) {
+          d = { el: document.createElement('div'), k: null };
+          d.el.className = 'ctl';
+          st.drawn.set(c.id, d);
+        }
+        order.push(d.el);
+        if (d.k !== k) {
+          d.k = k;
+          const focused = d.el.contains(document.activeElement);   // a tab pressed from the keyboard keeps the focus
+          d.el.replaceChildren();
+          if (c.shown) draw(c, d.el, api, win);
+          if (focused) d.el.querySelector('button')?.focus();
+        }
+        // the input layer: the scroll bar, the input line
+        let o = st.owned.get(c.id);
+        if (!o) {
+          o = c.cls.endsWith('Textlist') ? ownList(c, st.own, { stick: true }) : /Listbox$/.test(c.cls) ? ownList(c, st.own, { stripes: true })
+            : c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
+          if (!o) continue;
+          st.owned.set(c.id, o);
+        }
+        o.style.zIndex = n;   // stacked as drawn; never moved (moving drops focus)
+        o.style.display = c.shown ? '' : 'none';   // (the hidden attribute loses to .own's display)
+        o.update(c);
       }
-      order.push(d.el);
-      if (d.k !== k) {
-        d.k = k;
-        const focused = d.el.contains(document.activeElement);   // a tab pressed from the keyboard keeps the focus
-        d.el.replaceChildren();
-        if (c.shown) drawControl(c, d.el, api);
-        if (focused) d.el.querySelector('button')?.focus();
-      }
-      // the input layer: the scroll bar, the input line
-      let o = st.owned.get(c.id);
-      if (!o) {
-        o = c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
-        if (!o) continue;
-        st.owned.set(c.id, o);
-      }
-      o.style.zIndex = n;   // stacked as drawn; never moved (moving drops focus)
-      o.style.display = c.shown ? '' : 'none';   // (the hidden attribute loses to .own's display)
-      o.update(c);
-    }
-    if (order.some((e, i) => st.vis.children[i] !== e)) st.vis.replaceChildren(...order);   // back to front
-    for (const m of [st.drawn, st.owned])
-      for (const [id, d] of m) if (!seen.has(id)) { (d.el || d).remove(); m.delete(id); }
-  },
+      if (order.some((e, i) => st.vis.children[i] !== e)) st.vis.replaceChildren(...order);   // back to front
+      for (const m of [st.drawn, st.owned])
+        for (const [id, d] of m) if (!seen.has(id)) { (d.el || d).remove(); m.delete(id); }
+    },
 
-  unmount(root) {
-    root.replaceChildren();
-  },
-};
-export default screen;
+    unmount(root) {
+      root.replaceChildren();
+    },
+  };
+  return screen;
+}
+export default owned(['CChatWindow'], drawControl);
