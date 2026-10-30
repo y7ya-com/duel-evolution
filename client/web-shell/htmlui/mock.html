@@ -13,6 +13,8 @@
 // A mock snapshot (mock/<s>.json) through the same layer the game uses: ?s=playerselect (default), ?mode=owned to
 // hand screen modules owned mode. Every window is owned here. Clicks in owned mode log to the console.
 import { makeLayer, loadScreens } from './bridge.js';
+import { setDeviceScale } from '../ui.js';
+setDeviceScale(devicePixelRatio);   // the layer is at CSS scale 1 here
 const q = new URLSearchParams(location.search);
 const snap = await (await fetch(`mock/${q.get('s') || 'playerselect'}.json`)).json();
 const host = document.createElement('div');

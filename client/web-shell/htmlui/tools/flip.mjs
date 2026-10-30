@@ -23,6 +23,8 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
   select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // a player with a character (htmlui-select): LV text, Delete, the waist-up avatar's passthrough
+  'select-player': { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
 };
 
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);

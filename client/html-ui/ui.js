@@ -39,6 +39,10 @@ export const loadFont = px => fonts[px] ||= fetch(A + `glyphs-dejavu${px}.json`)
 // all opaque that is one image draw, alpha folded in: exact. Where some are not, GL filters unpremultiplied (a
 // transparent texel's RGB, often white, bleeds into the colour) and Chrome premultiplied, so the atlas is drawn opaque
 // (.rgb.png) under a mask of its own alpha: filtered colour x filtered alpha, GL's blend (+-1: the mask is a layer).
+// D3D8's half-pixel shift is half a DEVICE pixel: 0.5 game px at 1x, 0.5 / k when a game pixel covers k device pixels
+// (the HTML UI's layer sets k = devicePixelRatio x its CSS scale; the pixel-exact pages stay at 1x). Sprites made after.
+let HALF = 0.5;
+export const setDeviceScale = k => { HALF = 0.5 / Math.max(1, k); };
 export function sprite(parent, sheet, sx, sy, sw, sh, x, y, w, h, alpha = 1) {
   const e = document.createElement('i'), img = document.createElement('b'), kx = w / sw, ky = h / sh;
   const clamp = sheet.url.replace(A, A + 'clamp/'), W = sheet.w + 1;
@@ -50,7 +54,7 @@ export function sprite(parent, sheet, sx, sy, sw, sh, x, y, w, h, alpha = 1) {
     for (let ty = sy; ty <= sy + sh; ty++) for (let tx = sx; tx <= sx + sw; tx++) opaque &&= sheet.alpha[ty * W + tx] === 255;
     img.style.backgroundImage = `url(${opaque ? clamp : clamp.replace('.png', '.rgb.png')})`;
     img.style.maskImage = opaque ? '' : `url(${clamp})`;
-    img.style.transform = `translate(${0.5 - (sx + 1) * kx}px, ${0.5 - (sy + 1) * ky}px) scale(${kx}, ${ky})`;
+    img.style.transform = `translate(${HALF - (sx + 1) * kx}px, ${HALF - (sy + 1) * ky}px) scale(${kx}, ${ky})`;
   };
   e.src(sx, sy);
   e.append(img);
