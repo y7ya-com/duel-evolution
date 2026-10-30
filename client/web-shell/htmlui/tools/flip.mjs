@@ -56,6 +56,21 @@ export const ROUTES = {
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
+  // Sadie's shop from Beginner's Lobby A (Store[2]): walked by the runtime (rc walkto), Sadie, the category menu
+  'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
+    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
+    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 8000], ['click', 511, 670], ['wait', 3000],
+    // the runtime's walker (BFS over the map's collision colours): the mat under the stairs, the shop's exit
+    ['rc', 'walkto 1200 880 1500'], ['rc', 'walkto exit 2 1200'], ['scene', 14, 120000], ['wait', 4000],
+    // the shop's reader (read/shop.js) loads with its screens: on once, then back to the engine for the flip
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, true))"],
+    ['wait', 3000],
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
+    ['click', 712, 226], ['task', 'CShopCategoryWindow', 20000], ['wait', 2500]], flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
+  // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
+  shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000]], flip: [] },
 };
 
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -86,7 +101,8 @@ await sleep(500);
 
 const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }) });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
-const q = args.includes('--nocursor') ? 'HTML_CURSOR=0' : '';   // --nocursor: the engine's cursor
+// --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
+const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', route.query].filter(Boolean).join('&');
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
 const until = async (what, ms, test) => {
@@ -108,6 +124,19 @@ for (const [a, x, y, z] of route.steps) {
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
   }
+  // rwalk [[x, y, ms], ...]: the avatar walks while the right button is held, toward the cursor (README "walkto"): held
+  // from the first point, the cursor moved along the rest, each held ms
+  if (a === 'rwalk') {
+    let p = await toClient(...x[0]);
+    await mouse('mouseMoved', p); await sleep(300); await mouse('mousePressed', p, 'right'); await sleep(x[0][2]);
+    for (const [px, py, ms] of x.slice(1)) { p = await toClient(px, py); await mouse('mouseMoved', p, 'right'); await sleep(ms); }
+    await mouse('mouseReleased', p, 'right'); await sleep(1000);
+  }
+  if (a === 'js') await b.ev(x);   // an expression in the page (e.g. switch a screen's classes on to load its reader)
+  // rc 'cmd': one line of the runtime's scripted input (recomp README: walkto, clicknpc, ...) appended to the
+  // route's RC_INPUT_FILE (query RC_INPUT_FILE=/rcin.txt), which the game reads every 5 frames
+  if (a === 'rc') await b.ev(`(() => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + ${JSON.stringify(x)} + '\\n'); })()`);
+  if (a === 'task') await until('task ' + x, y, async () => (await snap())?.tasks?.some(t => t.cls === x && t.shown));
   if (a === 'rhold') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p, 'right'); await sleep(z); await mouse('mouseReleased', p, 'right'); await sleep(500); }
   if (a === 'leave') for (let i = 0; i < 4; i++) {
     await click(x, y);
@@ -310,7 +339,7 @@ if (args.includes('--uicheck')) {
   b.close(); process.exit(0);
 }
 for (const cls of route.flip) {
-  const w = (await snap()).windows.find(v => v.cls === cls && v.shown);
+  const s0 = await snap(), w = [...s0.windows, ...s0.tasks || []].find(v => v.cls === cls && v.shown);   // a task too (the shop)
   if (!w) { report[cls] = { error: 'not shown' }; continue; }
   const [x0, y0] = await toClient(w.x, w.y), [x1, y1] = await toClient(w.x + w.w, w.y + w.h);
   const clip = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
