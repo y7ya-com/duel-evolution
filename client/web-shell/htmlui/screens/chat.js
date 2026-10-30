@@ -2,51 +2,19 @@
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
 // shown on the duel screen only; the server's channel-9 lines land in its list), so nothing here knows tab names.
 // - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
-//   list and the input's field, this file's for the rest (below, until controls/ has them).
-// - Input: tabs and the taller / shorter icons are real <button>s (the art inside, the label real text) that click
-//   the game's control; the input line is a real <input> (typing, IME, paste, selection, copy) that commits through
-//   the control's setText, Enter as the game's own WM_CHAR '\r'; the log's lines are real, selectable text laid
-//   cell for cell over the glyphs; the wheel and the scroll bar scroll the log.
+//   log (real DOM text, selectable here) and the input's field, this file's for the rest (until controls/ has them).
+// - Input: tabs and the taller / shorter icons are real <button>s (the art inside, the label text) that click the
+//   game's control; the input line is a real, visible <input> (typing, IME, paste, selection, copy) that commits
+//   through the control's setText, Enter as the game's own WM_CHAR '\r'; the wheel and the scroll bar scroll the log.
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 
-const LINE = 16;     // the list's line pitch (CWindowTaskListbox: 16-pixel rows)
-const TEXT = 8;      // the input's text and caret origin inside the control (CWindowTaskInput::layout / onMain)
 const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
-
-// A log item cut into the lines the list shows: at the cell that would pass the width (the list's text area is
-// w - 16, the scroll bar's column). ponytail: per character, as CTextElm wraps; a word-wrapping item would only move
-// the selectable text, never the glyphs.
-export function wrap(s, width, adv) {
-  const out = [];
-  let line = '', w = 0;
-  for (const ch of s) {
-    const a = adv(ch);
-    if (line && w + a > width) { out.push(line); line = ''; w = 0; }
-    line += ch; w += a;
-  }
-  out.push(line);
-  return out;
-}
-
-// The lines in view: every item wrapped, from topLine, as many as fit (controls/basic.js draws the glyphs the same way).
-export function visibleLines(list, adv) {
-  const first = list.topLine ?? 0;
-  return list.items.flatMap(s => wrap(s, list.w - 16, adv)).slice(first, first + Math.floor(list.h / LINE));
-}
 
 // A press at y (bar-local) on a scroll bar: -1 up (the up arrow, the track above the thumb), 1 down, 0 on the thumb.
 export function scrollDir(bar, y) {
   const top = ARROW + bar.thumb.pos;
   return y < top ? -1 : y >= top + bar.thumb.len ? 1 : 0;
-}
-
-// The character index under x (text-local) in s: the nearest cell boundary, as the game's caretAt picks it.
-export function indexAt(s, x, adv) {
-  let i = 0, w = 0;
-  const chars = [...s];
-  while (i < chars.length && w + adv(chars[i]) / 2 < x) w += adv(chars[i++]);
-  return chars.slice(0, i).join('').length;   // UTF-16 index, what the <input>'s selection counts
 }
 
 // --- The chat's controls, drawn as the game draws them (src/System/window/yo2WindowControls.cpp); not in controls/
@@ -58,7 +26,7 @@ const ART = { iconbar: ['iconbar_01_c01.png', 72, 24], tab: ['tab_01_c01.png', 6
 if (ui) for (const [k, [f, w, h]] of Object.entries(ART)) ui.SHEET[k] ??= { url: 'assets/' + f, w, h };
 const A70 = 178 / 255;   // setAlpha(0.7f): the frames' vertex alpha
 const ICON = { IconShow: [0, 'Show'], IconHide: [24, 'Shorter'], IconExpand: [48, 'Taller'], IconShrink: [72, 'Shrink'] };   // rows in icon_01_c01
-const TAB_TEXT = [[0.2, 0.2, 1, 1], [0.5, 0.5, 0.5, 1]];   // CWindowTaskTab::setLook: current, not
+const TAB_TEXT = [[0.2, 0.2, 1, 1], [0.5, 0.5, 0.5, 1]];   // CWindowTaskTab::setLook: current, not (on black glyphs)
 
 // a real <button> over the control's rect that clicks it in the game (the owner's rule: its art inside, its label text)
 function button(el, c, api, label) {
@@ -99,7 +67,7 @@ const DRAW = {
     ui.sprite(b, S, u, 0, 16, 24, 0, 0, 16, 24);
     ui.sprite(b, S, u + 16, 0, 8, 24, 16, 0, c.w - 24, 24);
     ui.sprite(b, S, u + 24, 0, 8, 24, c.w - 8, 0, 8, 24);
-    if (c.label) basic.tinted(b, [[c.label, 16, 4]], TAB_TEXT[c.active ? 0 : 1]);
+    if (c.label) basic.textBox(b, c.label, { x: 16, y: 4, color: TAB_TEXT[c.active ? 0 : 1] });
   },
   // a 16 x 24 cell of icon_01_c01: normal, hover, pressed side by side
   Icon(el, c, api, [row, label]) {
@@ -123,12 +91,8 @@ const warned = new Set();
 function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
-  if (fam === 'Textlist') {   // the glyphs; the selectable text is the log overlay's (cell-exact), not the generic one
-    api.renderControl(c, el)?.querySelectorAll('.rt').forEach(t => t.remove());
-    return;
-  }
-  const sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] || (ICON[fam] ? 'icon' : 'window');
   if (!DRAW[fam] && !ICON[fam]) return api.renderControl(c, el);
+  const sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] || (ICON[fam] ? 'icon' : 'window');
   if (!ui.SHEET[sheet].alpha) {   // its atlas never loaded
     if (!warned.has(sheet)) { warned.add(sheet); console.warn('htmlui chat: no art for', sheet); }
     return;
@@ -136,26 +100,9 @@ function drawControl(c, el, api) {
   return ICON[fam] ? DRAW.Icon(el, c, api, ICON[fam]) : DRAW[fam](el, c, api);
 }
 
-const place = (el, c) => Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px',
-  width: c.w + 'px', height: c.h + 'px' });
 const key = c => JSON.stringify(c);
-// a pointer in an element's own game pixels (the bridge scales the layer by --s)
-const local = (e, el) => {
-  const r = el.getBoundingClientRect();
-  return [(e.clientX - r.left) * el.offsetWidth / r.width, (e.clientY - r.top) * el.offsetHeight / r.height];
-};
-
-function ownList(c, layer, api) {
-  const d = document.createElement('div');
-  d.className = 'own log';
-  d.setAttribute('role', 'log');
-  d.addEventListener('wheel', e => {
-    e.preventDefault();
-    if (e.deltaY) api.wheel(c.id, Math.sign(e.deltaY) * 120);   // a canvas wheel event over the log (DOM sign)
-  }, { passive: false });
-  layer.append(d);
-  return d;
-}
+// a pointer's y in an element's own game pixels (the bridge scales the layer)
+const localY = (e, el) => { const r = el.getBoundingClientRect(); return (e.clientY - r.top) * el.offsetHeight / r.height; };
 
 // The scroll bar: a press above or below the thumb (or on an arrow) scrolls the log as the wheel does, max / 10 + 1
 // lines. ponytail: no arrow-sized steps, no thumb drag, until api.scroll is wired.
@@ -165,76 +112,32 @@ function ownScroll(c, layer, api) {
   let bar = c;
   d.addEventListener('pointerdown', e => {
     e.preventDefault();
-    const dir = scrollDir(bar, local(e, d)[1]);
+    const dir = scrollDir(bar, localY(e, d));
     if (dir) api.wheel(bar.parent || bar.id, dir * 120);
   });
-  d.update = c2 => { bar = c2; };
+  d.update = c2 => {
+    bar = c2;
+    Object.assign(d.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
+  };
   layer.append(d);
   return d;
 }
 
-// An input's text as the game lays it out: one row per '\n' paragraph cut at the width ([text, first index] each).
-export function layoutText(v, width, adv) {
-  const rows = [];
-  let i = 0;
-  for (const para of v.split('\n')) {
-    for (const r of wrap(para, width, adv)) { rows.push([r, i]); i += r.length; }
-    i++;
-  }
-  return rows;
-}
-// the row an index is on (the last that starts at or before it)
-export const rowOf = (rows, index) => rows.findLastIndex(([, i]) => i <= index);
-
-// An input: a real <input> (<textarea> for a multi-line one), never painted except for the IME's composition; the
-// field drawn by the generic renderer, its text, caret and selection drawn here while the DOM has the focus (the
-// game's own while it doesn't). Its keys stop at the window's root (bridge.js): the game doesn't get them twice.
-function ownInput(c, layer, api, st) {
-  const f = document.createElement('div'), paint = document.createElement('div');
+// An input: a real <input> (<textarea> for a multi-line one) where the game draws its text (8 in), over the field
+// the generic renderer draws. It shows the game's text until it has the focus, then its own (the game gets every
+// edit through setText). Its keys stop at the window's root (bridge.js): the game doesn't get them twice.
+function ownInput(c, layer, api) {
   const el = document.createElement(c.multiLine ? 'textarea' : 'input');
-  f.className = 'own';
-  paint.className = 'paint';
-  el.className = 'native';
+  el.className = 'own native';
   Object.assign(el, { spellcheck: false, autocomplete: c.password ? 'current-password' : 'off', maxLength: c.maxLen });
   if (!c.multiLine) el.type = c.password ? 'password' : 'text';
   el.setAttribute('aria-label', c.name || 'Text');
-  f.append(paint, el);
-  layer.append(f);
-  let snap = c, composing = false, entered = false;
-  const width = () => (snap.multiLine ? snap.w - 2 * TEXT : Infinity);
-  const shown = v => (snap.password ? '*'.repeat(v.length) : v);
+  layer.append(el);
+  let snap = c, entered = false;
   const commit = () => api.setText(snap.id, el.value);
-  const cell = (rows, index) => {   // [x, y] of the cell boundary at index
-    const r = Math.max(0, rowOf(rows, index));
-    return [TEXT + ui.measure(rows[r][0].slice(0, index - rows[r][1])), TEXT + r * LINE];
-  };
-  const draw = () => {
-    paint.replaceChildren();
-    if (composing) return;   // the element shows the composition itself
-    const own = document.activeElement === el, v = shown(own ? el.value : snap.value), rows = layoutText(v, width(), ui.advance);
-    const drawn = rows.map(([r], i) => [r, TEXT, TEXT + i * LINE]).filter(([r]) => r);   // one texture, as the game's
-    if (drawn.length) ui.text(paint, drawn);
-    if (own && el.selectionStart !== el.selectionEnd)
-      rows.forEach(([r, i0]) => {
-        const a = Math.max(el.selectionStart, i0), b = Math.min(el.selectionEnd, i0 + r.length);
-        if (a >= b) return;
-        const [x0, y] = cell(rows, a), h = document.createElement('i');
-        h.className = 'sel';
-        Object.assign(h.style, { left: x0 + 'px', top: y + 'px', width: ui.measure(v.slice(a, b)) + 'px', height: LINE + 'px' });
-        paint.prepend(h);
-      });
-    if (own ? st.blink : snap.focused && snap.caretOn) {
-      const [x, y] = own ? cell(rows, el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd)
-        : [TEXT + ui.measure([...(rows[snap.caret.line]?.[0] ?? '')].slice(0, snap.caret.col).join('')), TEXT + snap.caret.line * LINE];
-      ui.sprite(paint, ui.SHEET.caret, 0, 0, 2, 16, x, y, 2, 16);
-    }
-  };
-  const moved = () => { st.blink = true; draw(); };
-  el.addEventListener('focus', () => { el.value = snap.value; api.click(snap.id); moved(); });   // the game's focus too
-  el.addEventListener('blur', draw);
-  el.addEventListener('input', () => { if (!composing) { commit(); moved(); } });
-  el.addEventListener('compositionstart', () => { composing = true; f.classList.add('ime'); draw(); });
-  el.addEventListener('compositionend', () => { composing = false; f.classList.remove('ime'); commit(); moved(); });
+  el.addEventListener('focus', () => { el.value = snap.value; api.click(snap.id); });   // the game's focus too
+  el.addEventListener('input', e => { if (!e.isComposing) commit(); });
+  el.addEventListener('compositionend', commit);
   el.addEventListener('keydown', e => {
     if (e.isComposing) return;
     if (e.key === 'Enter' && !snap.multiLine) {   // the game's own Enter (CWindowTaskInput: WM_CHAR '\r'; the chat sends)
@@ -244,73 +147,35 @@ function ownInput(c, layer, api, st) {
       api.char(13);
     } else if (e.key === 'Escape') {
       el.blur();
-    } else {
-      requestAnimationFrame(moved);   // arrows, Home, End: the caret moved
     }
   });
-  el.addEventListener('select', draw);
-  // a click or drag puts the caret / selection at cell boundaries, as the game's glyphs lay out (the element's own
-  // font would put it elsewhere)
-  let anchor = 0;
-  const at = e => {
-    const [x, y] = local(e, f), rows = layoutText(shown(el.value), width(), ui.advance);
-    const [r, i0] = rows[Math.max(0, Math.min(rows.length - 1, Math.floor((y - TEXT) / LINE)))];
-    return i0 + indexAt(r, x - TEXT, ui.advance);
-  };
-  f.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    if (document.activeElement !== el) el.focus();
-    anchor = at(e);
-    el.setSelectionRange(anchor, anchor);
-    f.setPointerCapture(e.pointerId);
-    moved();
-  });
-  f.addEventListener('pointermove', e => {
-    if (!f.hasPointerCapture(e.pointerId)) return;
-    const i = at(e);
-    el.setSelectionRange(Math.min(anchor, i), Math.max(anchor, i), i < anchor ? 'backward' : 'forward');
-    moved();
-  });
-  f.update = c2 => {
+  el.update = c2 => {
     snap = c2;
     el.maxLength = c2.maxLen;
     if (entered || document.activeElement !== el) el.value = c2.value;   // the game's text while the DOM isn't editing
     entered = false;
-    draw();
+    Object.assign(el.style, { left: c2.x + 8 + 'px', top: c2.y + 8 + 'px', width: c2.w - 16 + 'px', height: c2.h - 16 + 'px' });
   };
-  f.draw = draw;
-  return f;
+  return el;
 }
 
-// the log's selectable text: one <div> per shown line, one cell-wide <span> per glyph, transparent over the glyphs
-function fillLog(d, lines) {
-  d.replaceChildren(...lines.map(s => {
-    const row = document.createElement('div');
-    for (const ch of s) {
-      const g = document.createElement('span');
-      g.textContent = ch;
-      g.style.width = ui.advance(ch) + 'px';
-      row.append(g);
-    }
-    return row;
-  }));
+// the log: the generic list's DOM text, selectable; the wheel over it scrolls the game's list
+function ownLog(d, c, api) {
+  d.classList.add('log');
+  d.setAttribute('role', 'log');
+  d.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (e.deltaY) api.wheel(c.id, Math.sign(e.deltaY) * 120);   // a canvas wheel event over the list (DOM sign)
+  }, { passive: false });
 }
 
-const CSS = `
+const CSS = () => `
+.htmlui-own { user-select: none; }
 .htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
 .htmlui-own button.btn { position: absolute; cursor: default; }
 .htmlui-own button.btn:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
-.htmlui-own .log { overflow: hidden; color: transparent; font: 16px/16px sans-serif; cursor: text; user-select: text; }
-.htmlui-own { user-select: none; }
-.htmlui-own .log > div { height: ${LINE}px; white-space: pre; }   /* in flow: a copy gets a newline per line */
-.htmlui-own .log span { display: inline-block; overflow: hidden; vertical-align: top; }
-.htmlui-own .log ::selection { background: rgba(51, 102, 204, .45); }
-.htmlui-own .paint, .htmlui-own .paint > * { position: absolute; }
-.htmlui-own .paint .sel { background: rgba(51, 102, 204, .45); }
-.htmlui-own .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 0 0 ${TEXT}px; border: 0;
-  background: none; opacity: 0; font: 13.75px 'DejaVu Sans', Arial, sans-serif; color: #000; outline: none; }
-.htmlui-own .ime .native { opacity: 1; }
-textarea.native { padding-top: ${TEXT}px !important; line-height: ${LINE}px; resize: none; }
+.htmlui-own .log .txt { user-select: text; cursor: text; }
+.htmlui-own .native { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
 `;
 
 const screen = {
@@ -321,17 +186,13 @@ const screen = {
     if (!document.getElementById('htmlui-own-css')) {
       const s = document.createElement('style');
       s.id = 'htmlui-own-css';
-      s.textContent = CSS;
+      s.textContent = CSS();
       document.head.append(s);
     }
     root.classList.add('htmlui-own');
     const vis = document.createElement('div'), own = document.createElement('div');
     root.append(vis, own);
-    const st = { vis, own, drawn: new Map(), owned: new Map(), blink: true };
-    st.timer = setInterval(() => {   // the game's blink: 15 frames on, 15 off
-      st.blink = !st.blink;
-      for (const o of st.owned.values()) o.draw?.();
-    }, ui.BLINK_MS);
+    const st = { vis, own, drawn: new Map(), owned: new Map() };
     screen.update(win, null, root, api, st);
     return st;
   },
@@ -341,10 +202,15 @@ const screen = {
     for (const [n, c] of win.controls.entries()) {
       seen.add(c.id);
       const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
-      // the drawing: the input's text and caret are ownInput's, so they don't redraw the field
+      // the drawing: the input's text is ownInput's, so it doesn't redraw the field
       const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
       let d = st.drawn.get(c.id);
-      if (!d) { d = { el: document.createElement('div'), k: null }; d.el.className = 'ctl'; st.drawn.set(c.id, d); }
+      if (!d) {
+        d = { el: document.createElement('div'), k: null };
+        d.el.className = 'ctl';
+        if (c.cls.endsWith('Textlist')) ownLog(d.el, c, api);
+        st.drawn.set(c.id, d);
+      }
       order.push(d.el);
       if (d.k !== k) {
         d.k = k;
@@ -353,32 +219,23 @@ const screen = {
         if (c.shown) drawControl(c, d.el, api);
         if (focused) d.el.querySelector('button')?.focus();
       }
-      // the input layer: the log's text, the scroll bar, the input line
+      // the input layer: the scroll bar, the input line
       let o = st.owned.get(c.id);
       if (!o) {
-        o = c.cls.endsWith('Textlist') ? ownList(c, st.own, api)
-          : c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api)
-          : isInput ? ownInput(c, st.own, api, st) : null;
+        o = c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
         if (!o) continue;
         st.owned.set(c.id, o);
       }
       o.style.zIndex = n;   // stacked as drawn; never moved (moving drops focus)
-      o.hidden = !c.shown;
-      place(o, c);
-      if (o.classList.contains('log')) {
-        const lines = visibleLines(c, ui.advance), lk = key(lines);
-        if (o.k !== lk) { o.k = lk; fillLog(o, lines); }
-      } else {
-        o.update?.(c);
-      }
+      o.style.display = c.shown ? '' : 'none';   // (the hidden attribute loses to .own's display)
+      o.update(c);
     }
     if (order.some((e, i) => st.vis.children[i] !== e)) st.vis.replaceChildren(...order);   // back to front
     for (const m of [st.drawn, st.owned])
       for (const [id, d] of m) if (!seen.has(id)) { (d.el || d).remove(); m.delete(id); }
   },
 
-  unmount(root, st) {
-    clearInterval(st.timer);
+  unmount(root) {
     root.replaceChildren();
   },
 };
