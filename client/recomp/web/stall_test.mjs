@@ -41,4 +41,18 @@ now += 100, Module.onYo2Scene("begin", 0x1c, 0x20), (now += 300), Module.yo2Fram
 assert.equal(Module.yo2Stalls[2].sw, true, "a scene switch inside it"), assert.equal(Module.yo2Stalls[2].decode, 120);
 for (let i = 0; i < 8; i++) frame(300);
 assert.equal(posts.length, 2, "10 queued: a batch"), assert.equal(posts[1].stalls.length, 10);
+// a duel's frame rate, when the duel scene ends: steps per second and the Duel speed it ran at
+Module.yo2DuelSpeed = 2;
+const n0 = Module.yo2Stalls.length;
+Module.onYo2Scene("begin", 0x1e, 0x1c);
+for (let i = 0; i < 600; i++) frame(25);   // 15 s at 40 fps
+Module.onYo2Scene("begin", 0x1c, 0x1d);
+const fps = Module.yo2Stalls.slice(n0).find((x) => x.kind === "fps");
+assert.ok(fps, "a duel's fps is recorded"), assert.equal(fps.f, 600), assert.equal(fps.fps, 40), assert.equal(fps.speed, 2);
+Module.onYo2Scene("begin", 0x1e, 0x1c);
+for (let i = 0; i < 300; i++) frame(25);
+ctx.document.hidden = true, listeners.visibilitychange(), (ctx.document.hidden = false), listeners.visibilitychange();
+for (let i = 0; i < 300; i++) frame(25);
+Module.onYo2Scene("begin", 0x1c, 0x1d);
+assert.equal(Module.yo2Stalls.filter((x) => x.kind === "fps").length, 1, "not a duel the tab was hidden during");
 console.log("stall_test ok");

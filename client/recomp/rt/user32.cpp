@@ -777,6 +777,7 @@ void run_input(int frame, const std::string& cmd) {
 // fast-forward: whether the coming frame is drawn (its Clear/DrawPrimitiveUP/Present reach GL). Screenshot frames and
 // every RC_FF_RENDER-th frame are; the rest only run the game's logic.
 extern "C" int rc_render_frame = 1;
+extern "C" int rc_duelspeed_frame(int frame);   // ovr/duelspeed.c
 extern "C" int rc_frame_no;   // the present count, for logs (k32io.c RC_IOLAT)
 extern "C" int rc_frame_no = 0;
 
@@ -825,10 +826,9 @@ extern "C" void rc_present_hook(void) {
     walk_step(frame);
     for (int s : shots)
         if (s == frame) rc_screenshot(frame);
-    if (rc_fastforward) {
-        rc_render_frame = ffEvery > 0 && (frame + 1) % ffEvery == 0;
-        for (int s : shots) rc_render_frame |= s == frame + 1;
-    }
+    if (rc_fastforward) rc_render_frame = ffEvery > 0 && (frame + 1) % ffEvery == 0;
+    else rc_render_frame = rc_duelspeed_frame(frame);   // above 1x, still the original 30 drawn frames a second
+    for (int s : shots) rc_render_frame |= s == frame + 1;
     if (frame % 3000 == 0) rc_mem_report("now");
     if (frame % 300 == 0) {   // with the wall-clock frame rate over those 300 frames
         static auto t0 = std::chrono::steady_clock::now();

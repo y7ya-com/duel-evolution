@@ -22,6 +22,7 @@ static void scene_js(const char *kind, int from, int to) { (void)kind; (void)fro
 
 void o_0061d6a0(CPU *c);
 void rc_free_scene(CPU *c);   // ovr/freemode.c: My Room's replacement in free mode
+void rc_duelspeed_scene(int to);   // ovr/duelspeed.c
 int rc_backbuffer_luma(void);
 
 static int pending, from_id, to_id, logging = -1;
@@ -52,6 +53,7 @@ void f_0061d6a0(CPU *c) {
     to_id = (int)RD32(mgr + 0x80);     // nextId_
     t_begin = ms();
     emit("begin");
+    rc_duelspeed_scene(to_id);
     pending = 1;
     o_0061d6a0(c);
 }

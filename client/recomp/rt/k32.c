@@ -380,7 +380,7 @@ void rc_web_sleep(uint32_t ms);
 IMP(KERNEL32, Sleep) {   // as below, but a real wait yields to the browser
     if (rc_fastforward && rc_is_main_thread(c)) rc_ff_main_sleep(ARG(0));
     else if (rc_fastforward && ARG(0)) { rc_thread_busy(-1); rc_vwait(ARG(0)); rc_thread_busy(1); }
-    else rc_web_sleep(ARG(0) ? (ARG(0) + rc_timescale - 1) / rc_timescale : 0);
+    else rc_web_sleep(ARG(0) ? (uint32_t)((rc_real_us(ARG(0)) + 999) / 1000) : 0);
     RET(1, 0);
 }
 #else
@@ -393,15 +393,15 @@ IMP(KERNEL32, Sleep) {
 }
 #endif
 
-static uint64_t wall_us(void) {   // the wall clock, advancing at the guest's rate (RC_TIMESCALE) from the real start time
+static uint64_t wall_us(void) {   // the wall clock, advancing at RC_TIMESCALE (never the duel speed) from the real start time
     static uint64_t w0, m0;
     if (!w0) {
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        m0 = rc_now_us();
+        m0 = rc_wall_us();
         w0 = (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec;
     }
-    return w0 + (rc_now_us() - m0);
+    return w0 + (rc_wall_us() - m0);
 }
 static void filetime_now(uint32_t p) {
     uint64_t ft = (wall_us() + 11644473600000000ull) * 10;
