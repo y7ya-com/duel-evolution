@@ -16,6 +16,9 @@ const DATA = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web';
 const BUILD = process.env.BUILD || path.join(shell, '../recomp/build-web');
 const GAME = process.env.GAME || DATA + '/game', FONTS = process.env.FONTS || DATA + '/public/recomp/fonts';
 const ART = process.env.ART || path.join(shell, '../html-ui/assets');
+// the card wire's table (rt/cardwire.cpp: <game>/merge/data/card_passcode.bin, tools/cardart.py `table`), which the
+// shared web/game copy lacks: without it the client never answers the server's hello and the server drops it
+const CARDS = process.env.CARDS || process.env.HOME + '/Documents/GitHub/de-freeduel/client/recomp/run/game/merge/data/card_passcode.bin';
 const MIME = { html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', wasm: 'application/wasm', json: 'application/json', png: 'image/png', txt: 'text/plain' };
 const ISO = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp', 'Cross-Origin-Resource-Policy': 'same-origin', 'Cache-Control': 'no-store' };
 const BOOT = `<script type="module">import { start } from '/htmlui/bridge.js';
@@ -45,11 +48,16 @@ const srv = createServer((req, res) => {
   }
   const f = p.startsWith('/htmlui/') ? path.join(shell, p) : p === '/ui.js' ? path.join(shell, '../html-ui/ui.js')
     : p.startsWith('/ui/') ? path.join(ART, p.slice(4)) : p === '/game/files.txt' ? path.join(FONTS, '../game/files.txt')
-    : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
+    : p === '/game/merge/data/card_passcode.bin' ? CARDS : p.startsWith('/game/') ? path.join(GAME, p.slice(6))
     : p.startsWith('/fonts/') ? path.join(FONTS, p.slice(7)) : path.join(BUILD, p);
   let st;
   try { st = statSync(f); } catch { res.writeHead(404, ISO); return res.end(); }
   const type = MIME[f.split('.').pop()] || 'application/octet-stream';
+  if (p === '/game/files.txt') {   // + the card table, served below
+    const extra = `${statSync(CARDS).size}\tmerge/data/card_passcode.bin\n`;
+    res.writeHead(200, { ...ISO, 'Content-Type': 'text/plain' });
+    return res.end(readFileSync(f, 'utf8').replace(/\n?$/, '\n') + extra);
+  }
   if (f.endsWith('yo2rc.html')) {
     res.writeHead(200, { ...ISO, 'Content-Type': type });
     return res.end(readFileSync(f, 'utf8').replace('</body>', BOOT + '</body>'));

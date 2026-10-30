@@ -46,6 +46,7 @@ const snap = () => b.ev('JSON.stringify(window.__htmlui.snapshot())').then(JSON.
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
   writeFileSync(path.join(out, 'stuck.png'), await b.shot());
+  writeFileSync(path.join(out, 'console.txt'), b.logs.join('\n'));
   throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
 };
 const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
