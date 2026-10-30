@@ -72,14 +72,12 @@ cat $O/BUILD.txt
 cp $C/web-shell/index.html $O/
 # for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
 cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
-# the picker's art: html-ui's clamp atlases and glyphs (Konami-derived: from infra/fetch-private.sh, never in git)
-UI="clamp/window_base_01_c01.png clamp/window_base_01_c01.rgb.png clamp/swich_01_c00.png clamp/swich_01_c00.rgb.png
-  clamp/check_01_c00.png clamp/check_01_c00.rgb.png clamp/kasoru_01_c00.png clamp/kasoru_01_c00.rgb.png glyphs-dejavu16.json
-  glyphs-dejavu24.json glyphs-dejavu32.json
-  clamp/iconbar_01_c01.png clamp/iconbar_01_c01.rgb.png clamp/tab_01_c01.png clamp/tab_01_c01.rgb.png
-  clamp/icon_01_c01.png clamp/icon_01_c01.rgb.png clamp/scroll_01_c00.png clamp/scroll_01_c00.rgb.png"
-mkdir -p $O/ui/clamp
-for f in $UI; do cp $C/html-ui/assets/$f $O/ui/$f || { echo "no html-ui/assets/$f (run infra/fetch-private.sh)"; exit 1; }; done
+# the UI art (the starter picker's and the HTML UI's): html-ui/assets, atlases + clamp/ + glyphs (Konami-derived:
+# from infra/fetch-private.sh, never in git)
+# every file in it goes up: a screen that needs another atlas drops it (and its clamp/ + .rgb.png) in there
+UI=$(cd $C/html-ui/assets && find . -type f ! -name '.*' | sed 's#^\./##' | sort)
+[ -n "$UI" ] && [ -s $C/html-ui/assets/glyphs-dejavu16.json ] || { echo "no html-ui/assets (run infra/fetch-private.sh)"; exit 1; }
+for f in $UI; do mkdir -p $(dirname $O/ui/$f); cp $C/html-ui/assets/$f $O/ui/$f; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters
 up() {
   for f in "$@"; do

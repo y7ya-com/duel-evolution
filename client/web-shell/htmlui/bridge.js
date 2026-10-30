@@ -197,6 +197,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
     wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
+    const t = tables >>> 2, H = H32, ids = [...owned];
+    H[t] = ids.length;
+    ids.forEach((id, i) => { H[t + 1 + i] = id; });
+    flush(t, H);
+    render(snap, owned, api);
+    // after render: a screen's passthrough may use what its update just worked out
     const pass = [];
     for (const w of snap.windows) {
       const mod = screens.get(w.cls);
@@ -206,15 +212,11 @@ export async function start(Module, { canvas = document.getElementById('canvas')
         for (const q of [...c.parts?.sprites || [], ...c.parts?.labels || [], ...c.parts?.swfs || []]) if (mod.passthrough(q, c)) pass.push(q.id);
       }
     }
-    const t = tables >>> 2, H = H32, ids = [...owned];
-    H[t] = ids.length;
-    ids.forEach((id, i) => { H[t + 1 + i] = id; });
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
-    flush(t, H);
-    render(snap, owned, api);
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   }
+
   return window.yo2Html = {
     snapshot: () => last,
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
