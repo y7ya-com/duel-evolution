@@ -70,6 +70,9 @@ export async function makeLayer(host, screens, art = 'ui/') {
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
+        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
+        // window in the bubbling phase
+        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
@@ -131,7 +134,52 @@ export async function start(Module, { canvas = document.getElementById('canvas')
 
   let scene = 0, frameNo = 0, dv = null, last = null;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
-  const api = { click() {}, hover() {}, key() {}, char() {}, setText() {}, scroll() {}, wheel() {} };   // owned mode: next step
+
+  // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
+  // controls' onMain, and drops a press that comes in the same frame as the move). Keys, characters and text: queued
+  // into the tables, played by htmlui.c at the next Present through the factory's dispatch / the control's setText.
+  const queue = [], waiters = [];
+  const frames = n => new Promise(r => waiters.push([frameNo + n, r]));
+  const at = id => {   // a control's centre in client pixels
+    for (const w of last?.windows || []) for (const c of w.controls) if (c.id === id) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024;
+      return [r.left + (w.x + c.x + c.w / 2) * k, r.top + (w.y + c.y + c.h / 2) * k];
+    }
+    return null;
+  };
+  const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
+    { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
+  const api = {
+    async click(id) {
+      const p = at(id);
+      if (!p) return false;
+      fire('mousemove', p); await frames(2);
+      fire('mousedown', p); await frames(2);
+      fire('mouseup', p); return true;
+    },
+    hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
+    wheel(id, delta) { const p = at(id); if (p) fire('wheel', p, { deltaY: delta, deltaMode: 0 }); return !!p; },
+    key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
+    char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
+    setText(id, s) { queue.push([2, id, String(s)]); },
+    scroll() { console.warn('htmlui: api.scroll is not wired yet (use api.wheel)'); },
+  };
+  const QBASE = 2 + 2 * SLOTS, QN = 32, TEXT = 1024;   // htmlui.c HtmlUiTables: nq, q[32] {kind, a, b, c}, text[1024]
+  function flush(t, H) {
+    if (!queue.length || H[t + QBASE]) return;   // the last batch not played yet
+    const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
+    let n = 0, used = 0;
+    while (queue.length && n < QN) {
+      const [kind, a, b, c] = queue[0], o = t + QBASE + 1 + 4 * n;
+      if (kind === 2) {
+        if (used + b.length > TEXT) break;
+        for (let i = 0; i < b.length; i++) T[used + i] = b.charCodeAt(i);
+        H[o] = 2; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
+      } else { H[o] = kind; H[o + 1] = a; H[o + 2] = b; H[o + 3] = c; }
+      queue.shift(); n++;
+    }
+    H[t + QBASE] = n;
+  }
   Module.onYo2Frame = tables => {
     if (!dv || dv.buffer !== Module.HEAPU8.buffer) dv = new DataView(Module.HEAPU8.buffer);
     let snap;
@@ -150,7 +198,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    flush(t, H);
     render(snap, owned, api);
+    for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   };
   return window.yo2Html = {
     snapshot: () => last,

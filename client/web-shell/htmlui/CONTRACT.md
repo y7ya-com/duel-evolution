@@ -56,7 +56,7 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | checkbox | Checkbox | `checked` |
 | tab | Tab | `label`, `active` |
 | input | Input, InputDuel, MultiInput | `value`, `password`, `caret` {col, line}, `caretOn` (blink phase), `maxLen`, `multiLine` |
-| list | Listbox, ActiveListbox, Textlist, Listbox* (card variants), NoBackList, DueldiskRearrengeListbox | `items` [string], `selected` (-1), `marks` [bool] (multi-select), `top` (first item shown), `rows` (rows that fit) |
+| list | Listbox, ActiveListbox, Textlist, Listbox* (card variants), NoBackList, DueldiskRearrengeListbox | `items` [string], `selected` (-1), `marks` [bool] (multi-select), `top` (first item shown), `topLine` (first wrapped line shown), `rows` (rows that fit) |
 | scroll | Scroll, ScrollH, ScrollBalloon, DeckScroll, KabanScroll, ResultScroll | `value`, `max`, `page`, `thumb` {pos, len}, `length`, `horizontal` |
 | frame | FrameThin, FrameBottomThick, FrameMain, FramePlane, PictureFrame*, BackPlane, BackStripe, ThinChop | `style` (windowFrameTexture), `band` (FrameBottomThick's band height), `rows`/`selected` (BackStripe) |
 | icon | Iconbar, IconShow/Hide/Expand/Shrink | `active`, `pressed` |
@@ -102,13 +102,15 @@ screen. `data-state` on the element carries the state for CSS.
 ## api (owned mode; also usable in pass mode)
 
 ```js
-api.click(controlId)            // press + release at the control's centre (WM_LBUTTONDOWN/UP through the factory)
+api.click(controlId)            // move, press, release at the control's centre: real canvas mouse events, 2 frames apart
 api.hover(controlId)            // move the game mouse over it
 api.key(vk, down = true)        // a WM_KEYDOWN/UP to the focused control
 api.char(code)                  // a WM_CHAR to the focused control ('\r' submits an Input, '\b', Tab)
-api.setText(controlId, string)  // an input's value (commits through the control's setText; IME/paste come from the DOM)
-api.scroll(controlId, value)    // a scroll bar's value
-api.wheel(controlId, delta)     // WM_MOUSEWHEEL over it
+api.setText(controlId, string)  // an input's value (the control's setText at the next Present; IME/paste come from the DOM)
+api.scroll(controlId, value)    // a scroll bar's value (not wired yet: use api.wheel)
+api.wheel(controlId, delta)     // a wheel event over it (canvas)
+// key / char / setText are queued and played at the next Present (in order); click resolves after the release.
+// Keys typed into an owned window's DOM never reach the game on their own (the bridge stops them at the window root).
 api.text(id)                    // the game's string table entry (for labels the game doesn't show)
 api.art(path)                   // URL of a UI atlas on R2 (ui/<file>): never a path in git
 ```

@@ -79,7 +79,7 @@ export function read(dv, frame = 0, scene = 0) {
       caret: { col: i32(c + 0x3dc), line: i32(c + 0x3e0) }, caretOn: !!u8(c + 0x3fc), maxLen: i32(c + 0x3f0),
       multiLine: !!u8(c + 0x3d8) }),
     CWindowTaskListbox: c => ({ ...rectI(c, 0x3ac), items: vec(c + 0x39c, 16).map(wstr), selected: i32(c + 0x3c0),
-      marks: vec(c + 0x3d0, 1).map(a => !!u8(a)), top: i32(c + 0x3c4),
+      marks: vec(c + 0x3d0, 1).map(a => !!u8(a)), top: i32(c + 0x3c4), topLine: i32(c + 0x3c8),
       rows: ptr(c + 0x36c) ? i32(ptr(c + 0x36c) + 0x3a8) : 0 }),
     CWindowTaskScrollBase: c => {
       const h = /ScrollH$/.test(cls(c)), len = f32(c + 0x468);

@@ -5,7 +5,7 @@
 // against the decomp; the addresses are in each comment.
 // Buttons (the owner's rule): a real <button>, the original art as its background (the swich_01 frames, per state),
 // the label real text (a transparent <span> for selection, find and screen readers, over the game's glyphs).
-import { SHEET, WINDOW_ALPHA, sprite, nine, text, measure, input } from '../../ui.js';
+import { SHEET, WINDOW_ALPHA, sprite, nine, text, measure, advance } from '../../ui.js';
 
 const LH = 16;   // the 16-pixel font's line (CWindowTaskText fontSize; lineGap is added per control)
 // the other font sizes the game asks for (CWindowTaskText::setFontSize), loaded by makeLayer: { 24: font, 32: font }
@@ -67,6 +67,23 @@ export function realText(parent, s, x, y, px = LH) {
   Object.assign(t.style, { left: x + 'px', top: y + 'px' }, px !== LH && { font: `${px}px/${px}px 'DejaVu Sans', sans-serif` });
   parent.append(t);
   return t;
+}
+
+// an item cut into the lines the list shows: at the cell that would pass the width (per character, as CTextElm wraps)
+export function wrap(s, width) {
+  const out = [];
+  let line = '', w = 0;
+  for (const ch of s) {
+    const a = advance(ch);
+    if (line && w + a > width) { out.push(line); line = ''; w = 0; }
+    line += ch; w += a;
+  }
+  out.push(line);
+  return out;
+}
+export function visibleLines(c) {
+  const lines = c.items.flatMap(s => wrap(s, c.w - 16)), first = c.topLine || 0;
+  return lines.slice(first, first + Math.floor(c.h / LH));
 }
 
 const box = (tag, c) => {
@@ -144,24 +161,38 @@ const R = {
     },
     state(e, c) { e.tick.style.visibility = c.checked ? '' : 'hidden'; },
   },
-  // opts.noText: the field without its text and caret (an owned screen's own <input> draws those)
+  // CWindowTaskInput::layout (from htmlui-chat's chat.js): the border piece 8 in, (w-16) x (h-16), the fill a pixel
+  // inside it, both opaque; the text and the 2 x 16 caret (kasoru_01) at +8,+8. opts.noText: the field without its
+  // text and caret (an owned screen's own <input> draws those).
   CWindowTaskInput: {
-    sig: c => JSON.stringify([c.w, c.password, c.maxLen]),
+    sig: c => JSON.stringify([c.w, c.h]),
     draw(c, api, opts = {}) {
-      const e = box('div', { ...c, x: c.x, y: c.y });
-      e.field = input(e, 0, 0, c.w, { mask: c.password, max: c.maxLen });
-      e.field.native.tabIndex = -1;
-      e.noText = !!opts.noText;
+      const e = box('div', c);
+      sprite(e, SHEET.window, 80, 16, 8, 8, 8, 8, c.w - 16, c.h - 16);
+      sprite(e, SHEET.window, 56, 8, 8, 8, 9, 9, c.w - 17, c.h - 17);
+      if (!opts.noText) {
+        e.layer = document.createElement('div');
+        e.layer.className = 'layer';
+        e.append(e.layer);
+        e.caret = sprite(e, SHEET.caret, 0, 0, 2, 16, 8, 8, 2, 16);
+      }
       return e;
     },
-    state(e, c) { e.field.set(e.noText ? '' : c.value, !e.noText && c.focused, c.caretOn); },
+    state(e, c) {
+      if (!e.layer) return;
+      const shown = c.password ? '*'.repeat(c.value.length) : c.value;
+      if (e.shown !== shown) { e.shown = shown; e.layer.replaceChildren(); tinted(e.layer, [[shown, 8, 8]]); }
+      e.caret.style.left = 8 + measure(shown.slice(0, c.caret?.col ?? shown.length)) + 'px';
+      e.caret.style.visibility = c.focused && c.caretOn ? '' : 'hidden';
+    },
   },
-  CWindowTaskListbox: {   // the visible items, one 16-pixel line each (the stripe and scroll bar are their own controls)
-    sig: c => JSON.stringify([c.items, c.top, c.rows, c.h]),
+  // CWindowTaskListbox (from htmlui-chat's chat.js): every item wrapped per character at w - 16 (the scroll bar's
+  // column), shown from topLine, as many 16-pixel lines as fit; black, one texture
+  CWindowTaskListbox: {
+    sig: c => JSON.stringify([c.items, c.topLine, c.w, c.h]),
     draw(c) {
       const e = box('div', c);
-      const rows = c.rows || Math.floor(c.h / LH);
-      tinted(e, c.items.slice(c.top, c.top + rows).map((s, i) => [s, 0, i * LH]));
+      tinted(e, visibleLines(c).map((s, i) => [s, 0, i * LH]));
       return e;
     },
   },
