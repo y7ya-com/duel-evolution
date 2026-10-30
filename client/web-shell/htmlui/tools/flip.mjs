@@ -115,29 +115,6 @@ for (const [a, x, y, z] of route.steps) {
 }
 await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
-if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
-  await sleep(1500);
-  const tag = `${phone ? 'phone' : 'desktop'}-${opt('htmlui') || 'off'}`;
-  writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
-  const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
-  const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
-  // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
-  const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
-  // the bridge's own cost per frame (the whole Module.onYo2Frame: read, cursor, tables), over 3 s
-  const frameMs = await b.ev(`(async () => {
-    const f = Module.onYo2Frame, ts = [];
-    Module.onYo2Frame = (a, h) => { const t = performance.now(); f(a, h); ts.push(performance.now() - t); };
-    await new Promise(r => setTimeout(r, 3000));
-    Module.onYo2Frame = f;
-    ts.sort((a, b) => a - b);
-    return { n: ts.length, median: +ts[ts.length >> 1]?.toFixed(3), p99: +ts[Math.floor(ts.length * 0.99)]?.toFixed(3), max: +ts[ts.length - 1]?.toFixed(3) };
-  })()`);
-  const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
-  const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
-  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
-  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), errors: errors.length }));
-  b.close(); process.exit(0);
-}
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
 // within 2, red more)
 const DIFF = `async (a, b, w, h) => {
@@ -156,6 +133,39 @@ const DIFF = `async (a, b, w, h) => {
   const n = A.length / 4;
   return { identical: +(100 * same / n).toFixed(2), within2: +(100 * near / n).toFixed(2), max, px: n - same, heat: btoa(s) };
 }`;
+if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
+  await sleep(1500);
+  const tag = `${phone ? 'phone' : 'desktop'}-${opt('htmlui') || 'off'}`;
+  writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
+  // --moving=x,y,w,h (game px): is that region animating? two captures 0.7 s apart, the pixels that changed
+  let moving;
+  if (opt('moving')) {
+    const [mx, my, mw, mh] = opt('moving').split(',').map(Number), [cx, cy] = await toClient(mx, my), [cx1, cy1] = await toClient(mx + mw, my + mh);
+    const clip = { x: cx, y: cy, width: cx1 - cx, height: cy1 - cy }, a1 = await b.shot(clip);
+    await sleep(700);
+    const a2 = await b.shot(clip);
+    writeFileSync(path.join(out, 'moving-a.png'), a1); writeFileSync(path.join(out, 'moving-b.png'), a2);
+    moving = (await b.ev(`(${DIFF})('data:image/png;base64,${a1.toString('base64')}', 'data:image/png;base64,${a2.toString('base64')}', ${Math.round(clip.width * dpr)}, ${Math.round(clip.height * dpr)})`)).px;
+  }
+  const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
+  const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
+  // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
+  const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
+  // the bridge's own cost per frame (the whole Module.onYo2Frame: read, cursor, tables), over 3 s
+  const frameMs = await b.ev(`(async () => {
+    const f = Module.onYo2Frame, ts = [];
+    Module.onYo2Frame = (a, h) => { const t = performance.now(); f(a, h); ts.push(performance.now() - t); };
+    await new Promise(r => setTimeout(r, 3000));
+    Module.onYo2Frame = f;
+    ts.sort((a, b) => a - b);
+    return { n: ts.length, median: +ts[ts.length >> 1]?.toFixed(3), p99: +ts[Math.floor(ts.length * 0.99)]?.toFixed(3), max: +ts[ts.length - 1]?.toFixed(3) };
+  })()`);
+  const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
+  const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
+  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
+  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), moving, errors: errors.length }));
+  b.close(); process.exit(0);
+}
 const report = {};
 // --cursor: the CSS cursor (cursor.js) against the engine's, per pose. A headless capture never shows the OS cursor,
 // so: the engine's cursor captured (yo2Html.cursor(false)), then the CSS one's image and hotspot read back from the
