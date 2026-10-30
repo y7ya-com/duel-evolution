@@ -8,7 +8,9 @@ const level = c => c.cls === 'CWindowTaskText' && !c.parent;
 export default {
   classes: ['CWindowPlayerSelect'],
   mode: 'pass',
-  passthrough: x => x.cls === 'CWaistUpAvatar',
+  // the bust's parts are composed each frame (CAvatarTexMaker) under the window's one plain CElement child: hidden with
+  // the window, the bust stopped animating (live: frozen on hover, owner's report; htmlui-select 0641ba2), so it passes
+  passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement',
   mount: () => new Map(),
   update(win, prev, root, api, st) {
     api.syncWindow(root, { ...win, controls: [...win.controls.filter(c => !level(c)), ...win.controls.filter(level)] }, st);
