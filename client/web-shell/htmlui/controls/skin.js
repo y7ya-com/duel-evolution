@@ -15,7 +15,7 @@
 // States: the game's (data-state = the snapshot's hover / pressed / disabled, pass mode) or the pointer's (:hover /
 // :active, owned mode). The game's own hover and pressed looks are not sampled yet: ponytail: brighter / sunk until a
 // live capture of them.
-import { FONT } from './basic.js';
+import { FONT, spacing } from './basic.js';
 
 const OUTLINE = '#4a4a4a';   // the shadow text's edge: thin, four ways (eight read bold next to the engine's)
 const outlined = `text-shadow: 1px 0 ${OUTLINE}, -1px 0 ${OUTLINE}, 0 1px ${OUTLINE}, 0 -1px ${OUTLINE}`;
@@ -98,7 +98,10 @@ export function menuButton(parent, { x, y, w, h = 24, label = '', state = 'norma
   b.append(s);
   place(b, { x, y, w, h });
   b.style.lineHeight = h - 2 + 'px';
-  b.set = ({ label: l, state: st } = {}) => { if (l != null) s.textContent = l; if (st !== undefined) setState(b, st); };
+  b.set = ({ label: l, state: st } = {}) => {
+    if (l != null) { const ls = spacing(l); s.textContent = l; Object.assign(s.style, { letterSpacing: ls + 'px', marginRight: -ls + 'px' }); }
+    if (st !== undefined) setState(b, st);
+  };
   b.set({ label, state });
   parent.append(b);
   return b;
@@ -110,7 +113,10 @@ export function titleBar(parent, { x = 0, y = 0, w, title = '', close = true, cl
   const t = document.createElement('div');
   t.className = 'yo2-title';
   place(t, { x, y, w });
-  t.textContent = title;
+  const tt = document.createElement('span'), ls = spacing(title);
+  tt.textContent = title;
+  Object.assign(tt.style, { letterSpacing: ls + 'px', marginRight: -ls + 'px' });
+  t.append(tt);
   if (close) {
     const c = t.close = document.createElement('button');
     c.className = 'yo2-close';
