@@ -7,6 +7,9 @@ import { APP } from '../read.js';
 export default h => {
   const { u8, u32, i32, f32, ptr, vec, generic, label, children, cls, name, spr, swf } = h;
   const cards = (a, at) => vec(a, 4).map(p => u32(u32(p) + at));   // a vector<Card*> -> the cards' ids
+  // the card table (*(0x12a1140 + 0x18): 8 bytes a card by its id, the exe's bit fields, KabanWindowList.h card::): a
+  // monster's attribute ((w1 >> 6) & 0xf) is < 8 (FUN_007177f0). Live: Mystic Tomato 2, a spell 8, a trap 9
+  const monster = id => { const t = u32(0x12a1140 + 0x18); return id > 0 && !!t && ((u32(t + id * 8 + 4) >> 6) & 0xf) < 8; };
   const panelRect = (w, frameOf) => {
     const p = ptr(w + 0x398), bar = p && ptr(p + 0x36c), fr = p && frameOf(p);
     if (!bar || !fr) return {};
@@ -61,12 +64,15 @@ export default h => {
       // 0x430 (bottom-anchored), heights per mode 0x3fc[4], w 248. CCardDetailViewDlg: shown card 0x43c, the power
       // text 0x494 (a raw CTextElm). The big card and its race / attribute / level icons are queued by the dialog
       // itself (decomp 0x0075f7f0, 0x0075f370), not elements: the engine keeps drawing them, the DOM leaves holes.
+      // The power strip (that text and the attribute / race / level icons) is a monster's only: the engine draws it per
+      // card, and its text element keeps the last monster's text and its shown flag through a spell or trap (owner,
+      // live: "1 ATK 100/DEF 100" under Premature Burial). So all of it follows the card shown now: monster
       CCardDetailViewDlg: w => {
         const mode = i32(w + 0x3f8), card = i32(w + 0x43c), top = f32(w + 0x430), pic = (mode === 0 || mode === 3) && card >= 0;
-        const p = ptr(w + 0x494);
-        return { y: top, w: 248, h: i32(w + 0x3fc + 4 * mode), mode, card, scene: scene(u32(w + 8)),
-          holes: pic ? [{ x: 8, y: 24, w: 232, h: 290 }, ...[8, 24, 40].map(x => ({ x, y: 712 - top, w: 16, h: 16 }))] : [],
-          labels: p ? [label(p)] : [] };
+        const p = ptr(w + 0x494), mon = card >= 0 && monster(card);
+        return { y: top, w: 248, h: i32(w + 0x3fc + 4 * mode), mode, card, monster: mon, scene: scene(u32(w + 8)),
+          holes: pic ? [{ x: 8, y: 24, w: 232, h: 290 }, ...(mon ? [8, 24, 40].map(x => ({ x, y: 712 - top, w: 16, h: 16 })) : [])] : [],
+          labels: p && mon ? [label(p)] : [] };
       },
     },
     // DeckWindow.h:93-101: the drag every deck screen shares, *(0x012b3230): state 1 a deck card / 2 a trunk card,
