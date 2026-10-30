@@ -63,10 +63,11 @@ Per-family fields (the bridge fills the family by class; a class it doesn't know
 | menubar | Menubar | `message`, `scroll` (px) |
 | image | Image, Image* card variants | `texture` (game path), `src` {u, v, w, h}, `passthrough` (true: the engine keeps drawing it) |
 
-Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, wz, a, sx, sy, rgba, shown }`: the texture's game path as
+Sprite = `{ id, name, tex, src: [u, v, w, h], x, y, z, wx, wy, wz, a, sx, sy, rgba, col, shown }`: the texture's game path as
 the game holds it (`data/common/window/swich_01_c00.png`; a `?` is the loader's language letter), the source rect in
 it (CElement +0x94), the local position (parent-relative) and the world one (wx, wy: worldPos_, as last drawn), the
-scale (a stretched piece: drawn size = src w/h x sx/sy), the colour, the drawn alpha (a: the colour's alpha times
+scale (a stretched piece: drawn size = src w/h x sx/sy), the colour (rgba: its own; col: the drawn one, its own times
+its parents', inheritColor4_ +0x168), the drawn alpha (a: the colour's alpha times
 the parents', what the engine blends with), shown. Controls also carry wx, wy, wz (worldPos_). Label = `{ id, name, text, x, y, z, wx,
 wy, shown }` (a raw CTextElm; '@n' style tags kept). Swf = `{ id, name, x, y, z, wx, wy, shown }` (a CSwfEngine:
 draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: [Swf] }`.
@@ -118,6 +119,10 @@ export default {
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},
+  hide: (win, snap) => [ids],         // optional: other elements the engine must not draw while the window is owned
+                                      // (its scene's backdrop pieces, not in any window); hide-table semantics
+  backdrop(win, el, api, state) {},   // optional: draw into el, a layer under EVERY window root (a full-screen scene
+                                      // backdrop); called each frame, DOM kept; cleared when no owned window has one
 }
 ```
 
@@ -129,9 +134,22 @@ without its text and caret) for the controls it doesn't customise.
 **Text (owner's rule):** all text is real DOM text, never glyph images: Arial, as the 2008 client asks GDI for it
 (lfHeight 16 = a 16-pixel cell = 1.117 em: 14.3 px on 16-pixel lines), metric-compatible fallbacks after it. Use
 controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, white, wrap })` (or `fontCss(px)` and
-`FONT` in your own CSS); the browser lays it out. A CTextElm's colour multiplies black glyphs, so game text is black
+`FONT` in your own CSS); the browser lays it out. Letter spacing (owner): textBox gives each text
+`spacing(s, px)` (controls/basic.js): (the engine's line width, every glyph in a round(advance) + 1 cell, - Arial's)
+/ characters, so lines are as wide as the game's; text you place yourself uses spacing() too, never a fixed value. A CTextElm's colour multiplies black glyphs, so game text is black
 (alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
 pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
+
+**Skin (owner's rule, 2026-10-30):** where the game's art is a simple gradient, border or bevel (buttons, title bars,
+panel frames, tabs, banners), it is CSS: gradients, borders and shadows in the original's sampled colours, with CSS
+hover / pressed states, so it is sharp at any DPR. Bitmap art only for real pictures (icons, avatars, card art,
+logos). Text stays Arial DOM text. The judgement is "looks the same, sharper", not pixel-identical. Shared
+components, so every screen looks alike: controls/skin.js `menuButton(parent, { x, y, w, h, label, state })` (the
+yellow menu button; `.set({ label, state })`), `titleBar(parent, { x, y, w, title, close })` (the blue title bar,
+`.close` its close box), `panel(parent, { x, y, w, h, band })` (the blue frame, translucent as the window draws it;
+`band` the bottom-thick grey band). `state` is the snapshot's (hover / pressed / disabled: pass mode) or null to
+follow the pointer (owned mode). Sample new pieces from the engine's own render (or the atlas texels) and add them to
+skin.js with their colours cited; skin.html lays them out for a side-by-side.
 
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the

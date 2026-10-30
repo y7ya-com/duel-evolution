@@ -25,6 +25,8 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
+  // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
+  signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
   // past Select Player (--uicheck): the character picker (Create Player on the empty row 1), My Room (the test
   // character's row: into the game)
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
@@ -46,23 +48,28 @@ const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
-const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || 8942);   // GAME_PORT: beside another session's run
+// --slot=N / FLIP_SLOT=N (0-3): one of several flips side by side, each with its own ports: stack.py 8800+10N (and its
+// bridge, see stack.py), game.mjs 8801+10N, the browser's DevTools 9440+N. Without a slot: 8799 / 8942 / pid-based.
+const SLOT = opt('slot') ?? process.env.FLIP_SLOT;
+const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || (SLOT != null ? 8801 + 10 * SLOT : 8942));
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799', ...(route.player ? ['--player', route.player] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : [])],
+    { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...(SLOT != null && { FLIP_SLOT: String(SLOT) }) } });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
 }
+if (route.signedOut) cookie = '';   // the sign-in panel shows only to a signed-out player
 kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie,
   ...(opt('ship') && { SHIP: path.resolve(opt('ship')) }), ...(opt('htmlui') && { HTMLUI: opt('htmlui') }) }, stdio: 'inherit' }));
 await sleep(500);
 
-const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }) });
+const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }) });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 const q = args.includes('--nocursor') ? 'HTML_CURSOR=0' : '';   // --nocursor: the engine's cursor
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');

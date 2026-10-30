@@ -4,7 +4,7 @@
 // through api.renderControl / api.syncWindow. FrameBottomThick, TextField, Text and TextSwitch come from
 // htmlui-select's screens/select.js (13deb4f), checked against the decomp; the addresses are in each comment.
 // Buttons (the owner's rule): a real <button>, the original art as its background (the swich_01 frames, per state).
-import { SHEET, WINDOW_ALPHA, sprite, nine } from '../../ui.js';
+import { SHEET, WINDOW_ALPHA, sprite, nine, measure } from '../../ui.js';
 
 const LH = 16;   // a 16-pixel line (CWindowTaskText fontSize; lineGap is added per control)
 
@@ -20,12 +20,28 @@ export const textColor = (color = [0, 0, 0, 1], white = false) => {
   const [r, g, b, a] = white ? color : [0, 0, 0, color[3] ?? 1];
   return `rgba(${r * 255 | 0}, ${g * 255 | 0}, ${b * 255 | 0}, ${a})`;
 };
+// Letter spacing (owner: Arial, spaced like the game): the engine puts every glyph in a cell round(advance) + 1 wide
+// (CD3DTextTexture cellIncX + 1; the web engine's glyphs are DejaVu Sans, ui.js measure() from its glyph table), so a
+// line is wider than Arial sets it. Each text gets (engine width - Arial width) / characters: its lines come out as
+// wide as the game's, in Arial. Other sizes than the 16-pixel table scale it. 1 px (the cell's +1) when the table
+// isn't loaded (node tests).
+export function spacing(s, px = LH) {
+  const lines = String(s).split('\n'), n = lines.reduce((k, l) => k + [...l].length, 0);
+  if (!n) return 0;
+  try {
+    const eng = lines.reduce((k, l) => k + measure(l), 0) * px / LH, ar = lines.reduce((k, l) => k + textWidth(l, px), 0);
+    return Math.round((eng - ar) / n * 100) / 100;
+  } catch { return 1; }
+}
 // Lines of text as one block at x, y; w is the box alignment (0 left, 1 centre, 2 right) and wrapping happen in;
 // h clips it. The layout is the browser's.
 export function textBox(parent, s, { x = 0, y = 0, w, h, align = 0, px = LH, gap = 0, color, white = false, wrap = false } = {}) {
-  const d = document.createElement('div');
+  const d = document.createElement('div'), t = document.createElement('span'), ls = spacing(s, px);
   d.className = 'txt';
-  d.textContent = s;
+  t.textContent = s;
+  // the spacing after the last letter is not the line's: taken back, so centred and right-aligned text sits as the game's
+  Object.assign(t.style, { letterSpacing: ls + 'px', marginRight: -ls + 'px' });
+  d.append(t);
   Object.assign(d.style, { left: x + 'px', top: y + 'px', font: fontCss(px, px + gap), color: textColor(color, white),
     textAlign: ['left', 'center', 'right'][align] || 'left', whiteSpace: wrap ? 'pre-wrap' : 'pre' },
   w != null && { width: w + 'px' }, h != null && { height: h + 'px', overflow: 'hidden' }, wrap && { wordBreak: 'break-all' });
@@ -166,7 +182,9 @@ const R = {
       if (!e.layer) return;
       const shown = c.password ? '*'.repeat(c.value.length) : c.value;
       if (e.shown !== shown) { e.shown = shown; e.layer.replaceChildren(); textBox(e.layer, shown, { x: 8, y: 8 }); }
-      e.caret.style.left = 8 + Math.round(textWidth(shown.slice(0, c.caret?.col ?? shown.length))) + 'px';
+      // after the text as textBox spaced it: Arial's width plus the text's spacing per character before the caret
+      const before = shown.slice(0, c.caret?.col ?? shown.length);
+      e.caret.style.left = 8 + Math.round(textWidth(before) + spacing(shown) * [...before].length) + 'px';
       e.caret.style.visibility = c.focused && c.caretOn ? '' : 'hidden';
     },
   },

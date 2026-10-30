@@ -62,9 +62,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
     st.textContent = CSS;
     document.head.append(st);
   }
-  const layer = document.createElement('div');
+  // a screen's backdrop (its scene's own pictures and title, not in any window: the deck editor's) under every window
+  const back = document.createElement('div'), layer = document.createElement('div');
+  back.className = 'layer';
   layer.id = 'htmlui';
-  host.append(layer);
+  host.append(back, layer);
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
@@ -103,6 +105,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
+    // backdrop(win, el, api, state): the first owned window or task whose module has one draws into the layer under
+    // every window (its DOM kept between frames); none: the layer is cleared
+    const bw = [...snap.windows, ...snap.tasks || []].find(w => owned.has(w.id) && screens.get(w.cls)?.backdrop);
+    if (bw) screens.get(bw.cls).backdrop(bw, back, live.get(bw.id)?.api || api, live.get(bw.id)?.state);
+    else if (back.firstChild) back.replaceChildren();
   }
   function unmount(id) {
     const e = live.get(id);
@@ -242,7 +249,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
     curHid = css !== null;
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
+    // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
+    const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);

@@ -49,6 +49,10 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
     for (let i = 0; i < 100; i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
     throw new Error('not ready: ' + url + '\n' + logs.join('\n'));
   };
-  const shot = async (clip) => Buffer.from((await send('Page.captureScreenshot', { format: 'png', ...(clip ? { clip: { ...clip, scale: 1 } } : {}) })).result.data, 'base64');
+  const shot = async (clip) => {
+    const r = await send('Page.captureScreenshot', { format: 'png', ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
+    if (!r.result) throw new Error('screenshot: ' + JSON.stringify(r.error || r) + (clip ? ' clip ' + JSON.stringify(clip) : ''));
+    return Buffer.from(r.result.data, 'base64');
+  };
   return { send, ev, go, shot, logs, close: () => { sock.close(); kill(); } };
 }
