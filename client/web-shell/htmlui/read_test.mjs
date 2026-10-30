@@ -2,7 +2,7 @@
 // (CWindowTaskTextSwitch -> caption CWindowTaskShadowText -> CWindowTaskText -> CTextElm "Back") and a waist-up
 // avatar child that is not a control.   node client/web-shell/htmlui/read_test.mjs
 import assert from 'node:assert/strict';
-import { read, FACTORY } from './read.js';
+import { read, FACTORY, APP } from './read.js';
 import VT from './vtables.js';
 
 const vt = (cls, off = 0) => +Object.keys(VT).find(k => VT[k][0] === cls && VT[k][1] === off);
@@ -57,6 +57,18 @@ assert.deepEqual([p.sprites.length, p.sprites[0].tex, p.sprites[0].src, p.labels
 assert.equal(read(dv).windows[0].controls[0].parts, undefined);
 w8(btn + 0x350, 0);
 assert.equal(read(dv).windows[0].controls[0].state, 'disabled');
+// the game cursor: g_app -> mouseMng_ (+0xc4c) -> CSwfEngine -> ... -> CSpriteElm, drawn while every element up to the
+// manager shows
+assert.equal(read(dv).cursor, null);
+const app = alloc(0xc50), mgr = elem('CMouseManager', 0x348), swfE = elem('CSwfEngine', 0x460), hand = elem('CSpriteElm', 0x5088);
+w32(APP, app); w32(app + 0xc4c, mgr); dv.setInt32(app + 0x164, 868, true); dv.setInt32(app + 0x168, 508, true); list(mgr + 0x0c, [swfE]); list(swfE + 0x0c, [hand]);
+str(hand + 0x358, 'data/common/m_cursor/mausuk_n01_c01.png'); wf(hand + 0xc8, 852); wf(hand + 0xd4, 1); wf(hand + 0x168 + 12, 1); dv.setInt32(hand + 0x188, 6, true);
+let cur = read(dv).cursor;
+assert.deepEqual([cur.mx, cur.my], [868, 508]);
+assert.deepEqual([cur.id, cur.shown, cur.sprites.length, cur.sprites[0].tex, cur.sprites[0].wx, cur.sprites[0].shown, cur.sprites[0].mode],
+  [mgr, true, 1, 'data/common/m_cursor/mausuk_n01_c01.png', 852, true, 6]);
+w8(swfE + 0xc4, 0);   // its animation hidden: the sprite is not drawn
+assert.equal(read(dv).cursor.sprites[0].shown, false);
 w32(FACTORY, 0);
 assert.deepEqual(read(dv).windows, []);
 console.log('read_test: ok');

@@ -2,11 +2,13 @@
 // tree (read.js), draw the windows it owns in a DOM layer over the canvas (screens/*.js, else controls/basic.js), and
 // tell the game not to draw them (the hide/pass tables htmlui.c reads in CElement::onMain).
 // Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
-// ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
+// ({"on": [...]}). The game cursor is the browser's own (cursor.js) on every screen unless htmlui.json has
+// "cursor": false or the page ?HTML_CURSOR=0 (then the engine draws it, under any HTML window). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
+import { cursorCss } from './cursor.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -45,7 +47,8 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
   mask-repeat: no-repeat; transform-origin: 0 0; }
 #htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
-#htmlui-host .txt { position: absolute; }`;
+#htmlui-host .txt { position: absolute; }
+html.yo2c, html.yo2c * { cursor: var(--yo2-cursor) !important; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
@@ -63,7 +66,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
-    for (const w of snap.windows) {
+    for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
@@ -80,7 +83,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
       }
       if (layer.children[seen.size - 1] !== e.root) layer.insertBefore(e.root, layer.children[seen.size - 1] || null);   // DOM order = draw order
       Object.assign(e.root.style, {
-        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
+        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
@@ -121,6 +124,7 @@ function holes(w, wins, owned) {
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, defaults.on || []);
+  let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
   const forced = new Map();   // yo2Html.toggle overrides
   const screens = await loadScreens();
   const host = document.createElement('div');
@@ -129,15 +133,16 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const { render } = await makeLayer(host, screens);
   // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
   // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
+  let stageScale = 1;
   const place = () => {
-    const r = canvas.getBoundingClientRect(), s = r.width / 1024;
+    const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
     Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null;
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null, curHid = false;
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -185,6 +190,13 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     }
     H[t + QBASE] = n;
   }
+  let cursorNow = null;
+  const setCursor = v => {   // the CSS cursor on every element (html.yo2c *), or none of ours (null)
+    if (v === cursorNow) return;
+    cursorNow = v;
+    document.documentElement.classList.toggle('yo2c', v !== null);
+    if (v !== null) document.documentElement.style.setProperty('--yo2-cursor', v);
+  };
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
   Module.onYo2Frame = (tables, heap) => {
@@ -195,8 +207,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
-    const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
-    wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
+    // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
+    const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
+    const owned = new Set(all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
@@ -208,14 +222,21 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       extraHide.push(r);
       if (!owned.has(iso.id)) extraPass.push(iso.id);
     }
-    const t = tables >>> 2, H = H32, ids = [...owned, ...extraHide].slice(0, SLOTS);
+    // the cursor (cursor.js): the browser draws it as a CSS cursor, the engine's (that one CMouseManager element) is
+    // hidden. The table takes effect at the next frame, so when the CSS one stops it stays up one more frame (the
+    // engine's is still hidden in it): never a frame without a cursor
+    const css = cursorOn ? cursorCss(snap.cursor, 'ui/', stageScale, devicePixelRatio) : null;
+    if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
+    curHid = css !== null;
+    if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     render(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
-    for (const w of snap.windows) {
+    for (const w of all) {
       const mod = screens.get(w.cls);
       if (!owned.has(w.id) || !mod?.passthrough) continue;
       for (const c of [...w.controls, ...w.extras]) {
@@ -233,5 +254,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
     set(spec2) { on = switches(spec2, defaults.on || []); forced.clear(); },
     isolate(cls) { isolate = cls || null; },   // the flip test: only this window drawn (engine or DOM), on an empty canvas
+    cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
+    cursorCss: () => cursorNow,
   };
 }

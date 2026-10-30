@@ -73,13 +73,26 @@ draw it as passthrough). `parts` = `{ sprites: [Sprite], labels: [Label], swfs: 
 
 `name` is the instance name (CTask +0x4c, setInstName; cp932 decoded), else the control's name_ (+0x354).
 
-Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, shown, controls }]`: factory controls whose owner is not a
-window (the shop's plates: a CEasyTask), grouped by that owner. Not drawn by the bridge yet.
+Snapshot also has `tasks: [{ id, cls, x, y, z, wx, wy, w, h, alpha, shown, controls, extras, parts? }]`: factory
+controls whose owner is not a window (the shop: CShop* tasks), grouped by that owner, shaped like windows. A screen
+module whose `classes` lists a task cls claims it like a window: the bridge renders it (root at x, y, w x h) and hides
+it from the engine (the hide table takes the task; the element walk reaches it). A task has no rect: return { w, h }
+(and x, y if its own are not the box) from a read extension's `tasks: { Cls: t => fields }`. `parts` (with
+`parts: true`) are the task's own raw children, stopping at controls and at other tasks.
+`shown` (windows, tasks, controls) is false when it or any ancestor has a CTask lock bit (+0x20): the game hides the
+shop that way, and a locked subtree is never drawn.
+
+`cursor: { id, shown, mx, my, sprites: [Sprite + { wsx, wsy, col, add, mode }] } | null`: the game's mouse cursor
+(g_app's CMouseManager: the hand's CSwfEngine animations, data/common/m_cursor, down to their CSpriteElm leaves;
+`shown` per sprite = drawn this frame; mx, my: the mouse in game px). On every screen the bridge turns what the engine
+would draw into the browser's own cursor (cursor.js: a CSS cursor on every element, built per state at the device's
+size, exact to the engine's at 1x) and hides the engine's by that one element in the hide table. Screens never set a
+CSS cursor (html.yo2c * overrides them). Off: htmlui.json "cursor": false, ?HTML_CURSOR=0, yo2Html.cursor(false).
 
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },
-snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
-alpha name at spr label swf textCtl rectF rectI children generic; `h.generic(c)` is the base family's fields, to
+tasks: { Cls: t => fields }, snapshot: () => fields })`; `h` holds read.js's helpers (u8 u32 i32 f32 ptr wstr str vec list cls outer shown vis
+alpha name at spr label swf textCtl rectF rectI children generic locked; `h.generic(c)` is the base family's fields, to
 extend: `CWindowTaskDeckScroll: c => ({ ...h.generic(c), maxLine: h.i32(c + 0x4c8) })`). Its fields are merged over the base ones (a control class
 it lists replaces the generic family). Cite every offset to the src/ header that pins it. Tests beside it
 (read/<group>_test.mjs, using read_test.mjs's synthetic image style).
