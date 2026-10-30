@@ -85,8 +85,6 @@ const warned = new Set();
 function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
-  // a chat line's '@n' tags are CTextElm style codes (the server's lines start '@0'): the game shows none of them
-  if (fam === 'Textlist') return api.renderControl({ ...c, items: c.items.map(s => s.replace(/@\d/g, '')) }, el);
   if (!DRAW[fam] && !ICON[fam]) return api.renderControl(c, el);
   const sheet = fam === 'Scroll' ? 'scroll' : fam === 'Tab' ? 'tab' : ICON[fam] ? 'icon' : null;
   if (sheet && !ui.SHEET[sheet].alpha) {   // its atlas never loaded
