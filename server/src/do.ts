@@ -9,7 +9,7 @@ import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo } from "./game/starter.ts";
-import { currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
+import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
@@ -84,6 +84,12 @@ export class WorldDO extends DurableObject<Env> {
       }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
+      if (url.pathname === "/__admin/deck") {
+        if (!this.env.DB) return Response.json({ error: "no D1" }, { status: 503 });
+        const [st, r] = await adminDeck(this.env.DB, g.store.peek().accounts, body as Record<string, unknown>);
+        if (st === 200) console.warn(`[economia] admin: deck "${(body as any).name}" for ${String((body as any).acct).slice(0, 8)} set as current`);
+        return Response.json(r, { status: st });
+      }
       const out = await new Promise<{ ok: unknown } | { error: string }>((res) => this.srv.world.run(() => {
         try { res({ ok: g.admin.run(url.pathname.slice(9), body as Record<string, unknown>) }); } catch (e) { res({ error: String(e) }); }
       }));

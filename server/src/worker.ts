@@ -67,7 +67,8 @@ routes.all("/__admin/*", async (c) => {
 });
 
 // client reports, stored privately (private/ is never served) and never echoed:
-//   /__crash  the page shell POSTs once per crash: JSON up to 64 KB -> R2 private/crashes/<iso-ts>-<rand>.json, 10 per IP per hour
+//   /__crash  the page shell POSTs once per crash: JSON up to 64 KB -> R2 private/crashes/<iso-ts>-<rand>.json, 10 per IP per hour;
+//             the signed-in account's name is added from the session cookie (never the body's), null when signed out
 //   /__stall  web/stall.js POSTs batches of long frames (anonymous): JSON up to 16 KB -> private/stalls/, 30 per IP per hour
 // The rate is counted in a tiny R2 object per (hour, hashed IP). GET /__crashes, /__stalls (admin role) list them
 // (key, size, uploaded); ?key=<key> returns one.
@@ -91,7 +92,8 @@ for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stal
     if (n >= perHour) return c.body(null, 429);
     await bucket.put(rateKey, String(n + 1));
     // the client's IP family: one ISP's IPv6 route to the zone ran at ~76 KB/s against 0.8 MB/s over IPv4 (2026-10-28)
-    const out = row && typeof row === "object" && !Array.isArray(row) ? JSON.stringify({ ...row, ip_family: ipFamily(c.req.raw) }) : body;
+    const account = path === "crash" ? ((await verifySession(c.req.raw, c.env as unknown as AuthEnv).catch(() => null))?.name ?? null) : undefined;
+    const out = row && typeof row === "object" && !Array.isArray(row) ? JSON.stringify({ ...row, ip_family: ipFamily(c.req.raw), account }) : body;
     await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, out, { httpMetadata: { contentType: "application/json" } });
     return c.body(null, 204);
   });

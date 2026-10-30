@@ -6,6 +6,7 @@ import { W } from "../net/proto.ts";
 import * as PP from "./persist.ts";
 import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
+import { pushInventory } from "./starter.ts";
 
 export const AUTH_BANNED = -246;
 const REJECT_CLOSE_S = 1.5;
@@ -90,6 +91,51 @@ export class Admin {
     return n;
   }
 
+  /** Cards into one character's trunk from the admin (the owner's recovery, 2026-10-30): trunkAdd, so the [economia]
+   *  line and the D1 rows follow, and the connected client gets its trunk at once (pushInventory, no reload). Only
+   *  passcodes that exist; repeats are copies. */
+  grant(acct: string, slot: number | null, cards: number[], src = "admin grant"): { added: number; pushed: boolean } {
+    const ok = cards.map(Number).filter((c) => Number.isInteger(c) && PP.cardOk(c));
+    if (!ok.length) return { added: 0, pushed: false };
+    const r = this.trunkEdit(acct, slot, (p) => PP.trunkAdd(this.g, p, ok, 1, src));
+    return { added: ok.length, pushed: r.pushed };
+  }
+
+  /** Cards out of one character's trunk (trunkRemove: what it doesn't hold is skipped), logged and pushed like grant. */
+  take(acct: string, slot: number | null, cards: number[], src = "admin take"): { removed: number; pushed: boolean } {
+    const ok = cards.map(Number).filter((c) => Number.isInteger(c) && c > 0);
+    if (!ok.length) return { removed: 0, pushed: false };
+    let removed = 0;
+    const r = this.trunkEdit(acct, slot, (p) => {
+      const n0 = PP.trunkPairs(p).reduce((n, [, k]) => n + k, 0);
+      PP.trunkRemove(p, ok, this.g, src);
+      removed = n0 - PP.trunkPairs(p).reduce((n, [, k]) => n + k, 0);
+    });
+    return { removed, pushed: r.pushed };
+  }
+
+  /** One character's profile edited by fn and saved: in its session's context when it is the active one (and the
+   *  connected client gets its trunk and player data at once), else in the stored state. */
+  private trunkEdit(acct: string, slot: number | null, fn: (p: PP.P) => void): { pushed: boolean } {
+    const s = this.g.hub.sessions.get(acct);
+    const raw = this.g.store.loadRaw();
+    const a = raw.accounts?.[acct];
+    const sl = String(slot ?? a?.active_slot ?? 0);
+    if (!a?.profiles?.[sl]) throw new Error(`no character ${acct.slice(0, 8)}/${sl}`);
+    if (s && String(s.slot) === sl) {
+      return this.g.withCtx(s, () => {
+        const st = this.g.loadState();
+        const p = PP.profile(st, Number(sl), false)!;
+        fn(p);
+        this.g.saveState(st);
+        return { pushed: pushInventory(this.g, s, p) };
+      });
+    }
+    fn(a.profiles[sl]);
+    this.g.store.saveRaw(raw);
+    return { pushed: false };
+  }
+
   /** A server line in every lobby's chat (0x4402 kind 1, the server-wide chat) from "Duel Evolution": the deploy
    *  warning (scripts/deploy.sh). Returns the lobbies it reached. */
   announce(text: string): number {
@@ -139,6 +185,8 @@ export class Admin {
       case "maintenance": return { sent: this.maintenance(Number(body.seconds) || 0) };
       case "announce": return { sent: this.announce(String(body.text ?? "")) };
       case "reset-dormant": return { reset: this.resetDormant() };
+      case "take": return this.take(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin take"));
+      case "grant": return this.grant(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin grant"));
       case "online": return { online: this.status().players.filter((p) => p.online).length };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };

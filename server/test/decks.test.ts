@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";
-import { currentOf, DECKS_MAX, deckCurrent, deckDelete, deckIn, deckPut, decksGet, nameOk } from "../src/game/decks.ts";
+import { adminDeck, currentOf, DECKS_MAX, deckCurrent, deckDelete, deckIn, deckPut, decksGet, nameOk } from "../src/game/decks.ts";
 import { STARTER_DECKS } from "../src/game/starter.ts";
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite"); // vite 5 drops a static node:sqlite
@@ -70,4 +70,15 @@ it("at most DECKS_MAX live decks; bodies are checked", async () => {
   expect(deckIn({ name: "DOGS, CATS AND SPACE", main: [DM] })).toEqual({ name: "DOGS, CATS AND SPACE", main: [DM], side: [], extra: [] });
   expect(nameOk("あ".repeat(40))).toBe(true);
   expect([currentOf({ current: true, mode: "free" }), currentOf({ current: true }), currentOf({})]).toEqual(["free", "bad mode", null]);
+});
+
+it("adminDeck: a character's deck saved and made World's current; an unknown character or a bad deck is refused", async () => {
+  const db = d1(), accounts = { acct: { active_slot: 0, profiles: { 0: {} } } };
+  expect(await adminDeck(db, accounts, { acct: "acct", name: "DARK ARMED DRAGON 2008", main: [DM, DMG] }, 7)).toEqual([200, { updated: 7 }]);
+  const [, g] = await decksGet(db, O) as any;
+  expect([g.current, g.decks.map((d: any) => [d.name, d.main])]).toEqual([{ world: "DARK ARMED DRAGON 2008", free: null }, [["DARK ARMED DRAGON 2008", [DM, DMG]]]]);
+  expect((await adminDeck(db, accounts, { acct: "acct", name: "Free one", main: [DM], mode: "free" }))[0]).toBe(200);
+  expect((((await decksGet(db, O))[1]) as any).current).toEqual({ world: "DARK ARMED DRAGON 2008", free: "Free one" });
+  expect((await adminDeck(db, accounts, { acct: "nobody", name: "x", main: [DM] }))[0]).toBe(404);
+  expect(await adminDeck(db, accounts, { acct: "acct", name: "a/b", main: [DM] })).toEqual([400, { error: "bad name" }]);
 });

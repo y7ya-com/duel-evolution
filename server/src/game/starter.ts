@@ -108,6 +108,18 @@ export function pushInventory(g: Game, s: Session, p: PP.P): boolean {
   return true;
 }
 
+/** The character's soul-bound copies (PP.bindCards). A starter claimed before binding existed is bound now, its deck's
+ *  copies up to what the trunk still holds (copies traded away since stay unbound: no trade history says which). */
+export function boundOf(p: PP.P): Record<string, number> {
+  if (p.bound === undefined) {
+    p.bound = {};
+    const id = PP.int(p.starter ?? 0);
+    if (id in STARTER_DECKS && ydc[String(id)]) { const d = legalDeck(id); PP.bindCards(p, [...d.main, ...d.extra]); }
+  }
+  PP.clampBound(p);
+  return p.bound;
+}
+
 /** GET /api/de/starter */
 export function starterInfo(g: Game, userId: string): Record<string, unknown> {
   const s = active(g, userId);
@@ -135,6 +147,7 @@ export function starterClaim(g: Game, userId: string, id: number): [number, Reco
     if (!starterClaimable(p)) return [409, { error: "claimed" }];
     const cards = [...deck.main, ...deck.extra];
     PP.trunkAdd(g, p, cards, 1, `starter deck ${id}`);
+    PP.bindCards(p, cards);   // free: kept, never traded (PP.bindCards)
     const recipe = PP.recipeBit(id);
     if (recipe !== null) PP.pbinSet(p, recipe); // the deck's recipe, as a purchase gives it: Edit Deck's Recipe list (next 0x3114)
     p.starter = id;

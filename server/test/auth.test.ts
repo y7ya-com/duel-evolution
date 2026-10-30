@@ -5,7 +5,7 @@ import { getPlatformProxy } from "wrangler";
 import type { AuthEnv } from "../src/auth/env.ts";
 import { authApp } from "../src/auth/routes.ts";
 import { canUseAccount, gateUpgrade, USER_HEADER } from "../src/auth/binding.ts";
-import { makeAuth, SIGNIN_LOCK_AFTER } from "../src/auth/auth.ts";
+import { makeAuth, SIGNIN_LOCK_AFTER, verifySession } from "../src/auth/auth.ts";
 import { nameProblem } from "../src/auth/names.ts";
 
 const ORIGIN = "https://de.test";
@@ -177,6 +177,12 @@ describe("name + password", () => {
     expect((await unknown.json() as { message: string }).message).toBe((await wrong.json() as { message: string }).message);
     expect(await db().prepare("SELECT count(*) AS n FROM user WHERE username = 'nobody'").first("n")).toBe(0);
     expect((await signIn("KNOWN")).status).toBe(200);
+  });
+
+  it("verifySession names the signed-in account as typed (what /__crash stores), null signed out", async () => {
+    const a = await user("CrashName");
+    expect((await verifySession(new Request(`${ORIGIN}/__crash`, { headers: { cookie: a.cookie } }), env))?.name).toBe("CrashName");
+    expect(await verifySession(new Request(`${ORIGIN}/__crash`), env)).toBeNull();
   });
 
   it("each sign-in gets a new token; sign-out revokes it at once", async () => {

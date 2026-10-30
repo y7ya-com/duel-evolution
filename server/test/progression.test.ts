@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
 import { check } from "../src/duel/deckCheck.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
-import { legalDeck, starterClaim, starterInfo, STARTER_DECKS } from "../src/game/starter.ts";
+import { boundOf, legalDeck, starterClaim, starterInfo, STARTER_DECKS } from "../src/game/starter.ts";
 import { harness, be32, cat, i32, u32, type Harness } from "./notes-harness.ts";
 
 afterEach(() => { vi.useRealTimers(); PP.setProgression(false); });
@@ -53,6 +53,7 @@ describe("progression", () => {
     p = prof(h);
     const pick = legalDeck(7003).main;
     expect([sum(p.trunk), p.starter, pick.every((c) => p.trunk[String(c)] > 0)]).toEqual([40, 7003, true]);
+    expect(p.bound).toEqual(p.trunk); // the free deck is soul-bound, every copy
     expect(p.pbin.includes(792 + 1)).toBe(true); // 7003's recipe (right 792 + 1), as buying it sets: Edit Deck's Recipe list
     expect(h.log.some((l) => l.startsWith("[economia]") && l.includes("cards +40 (starter deck 7003)"))).toBe(true);
     // a claim from before the recipe bit gets it at its next 0x3114
@@ -130,5 +131,29 @@ describe("progression", () => {
     PP.setProgression(false);
     const off: any = { profiles: { "0": { name: "X", rec: {}, trunk: { "1": 3 }, pbin: [] } } };
     expect(PP.profile(off, 0)!.trunk).toEqual({ "1": 3 });
+  });
+});
+
+describe("soul-bound starter copies (PP.bindCards)", () => {
+  it("a past claimer is bound on first use, up to what it still holds; removals take unbound copies first; D1 keeps it", () => {
+    const deck = [...legalDeck(8001).main, ...legalDeck(8001).extra];
+    const cnt = (c: number) => deck.filter((x) => x === c).length;
+    const c0 = deck.reduce((m, c) => (cnt(c) > cnt(m) ? c : m), deck[0]), n0 = cnt(c0);   // a card with 2+ copies
+    const trunk: Record<string, number> = {};
+    for (const c of deck) trunk[String(c)] = (trunk[String(c)] ?? 0) + 1;
+    trunk[String(c0)] -= 1;                    // one copy traded away before binding existed
+    const extra = PP.validCardIds().values().next().value!;
+    trunk[String(extra)] = (trunk[String(extra)] ?? 0) + 2;   // two bought copies of some card
+    const p: any = { name: "P", prog: 1, starter: 8001, rec: {}, trunk, pbin: [] };
+    const b = boundOf(p);
+    expect([b[String(c0)], Object.values(b).reduce((x: number, v) => x + v, 0)]).toEqual([n0 - 1, deck.length - 1]);
+    expect(boundOf(p)).toEqual(b);              // once: not bound again
+    const owned = p.trunk[String(c0)];
+    PP.trunkRemove(p, [c0]);                    // owned == bound here, so a removal takes a bound copy
+    expect([p.trunk[String(c0)] ?? 0, p.bound[String(c0)] ?? 0]).toEqual([owned - 1, owned - 1]);
+    PP.bindCards(p, [extra, extra, extra]);     // never more than owned
+    expect(p.bound[String(extra)]).toBe(p.trunk[String(extra)]);
+    const back = rowsToState(stateToRows({ accounts: { a: { profiles: { 0: p } } } })) as any;
+    expect(back.accounts.a.profiles["0"].bound).toEqual(p.bound);
   });
 });
