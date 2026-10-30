@@ -9,6 +9,7 @@
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
+const scroll = ui && await import('../controls/scroll.js');
 
 const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
 
@@ -119,7 +120,8 @@ export function itemsDelta(old, now) {   // [rows to drop at the top, items to a
 }
 function ownList(c, layer, { stick = false, stripes = false } = {}) {
   const el = document.createElement('div');
-  el.className = 'own list' + (stripes ? ' yo2-stripes' : '');
+  scroll.inject();   // every native scroll bar looks alike (controls/scroll.js's rule)
+  el.className = 'own list yo2-scroll-list' + (stripes ? ' yo2-stripes' : '');
   el.setAttribute('role', stick ? 'log' : 'list');
   layer.append(el);
   let shown = [];
@@ -151,8 +153,7 @@ const CSS = () => `
 .htmlui-own { user-select: none; }
 .htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
 .htmlui-own button:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
-.htmlui-own .list { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
-  scrollbar-color: #5f9fd3 rgba(255, 255, 255, .35); font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
+.htmlui-own .list { font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
 .htmlui-own .list.yo2-stripes { background-attachment: local; }
 .htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
 .htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
