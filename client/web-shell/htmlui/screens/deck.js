@@ -9,7 +9,7 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { covers } from '../controls/basic.js';
+import { covers, realText } from '../controls/basic.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -36,45 +36,57 @@ export function runs(text) {
 }
 
 const isArt = e => /^data[\\/]mini[\\/]/i.test(e?.tex || '');
-// what the engine keeps drawing under the DOM: card faces, swf buttons (the bridge offers controls, extras, sprites, swfs)
-export const passthrough = e => isArt(e) || e.cls === 'CSwfEngine' || !!e.swf;
+const isSwf = e => !e.cls && !('tex' in e) && !('text' in e);   // a Swf part: { id, name, x, y, z, wx, wy, shown }
+// What the engine keeps drawing under the DOM: card faces and swf buttons, plus (co-drawn) whatever this module also
+// draws under them, so a hole shows exactly the engine's pixels (the DOM can't put a layer between two engine ones).
+// The co-drawn set is last frame's plan: the bridge asks before it hands over the new snapshot.
+const coPass = new Set();
+export const passthrough = x => isArt(x) || isSwf(x) || coPass.has(x.id);
 
 // a sprite's screen rect: world position, src size times scale
 export const spriteRect = s => ({ x: s.wx ?? s.x, y: s.wy ?? s.y, w: s.src[2] * (s.sx ?? 1), h: s.src[3] * (s.sy ?? 1) });
 const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// a swf's size isn't readable (CSwfEngine's player isn't decompiled): the hole is a generous box, which is exact as
+// long as everything under it is co-drawn
+const SWF_BOX = 32;
 
-// The drawing list of one window: [{ z, rect (screen), draw(el) }] plus its holes [{ z, rect }], back to front.
-// Controls the generic renderers know (frames, text, buttons, lists, scrolls) are drawn by them at the control's depth.
+// The drawing list of one window: items [{ z, rect (screen), id, draw(el, api) }] and holes [{ z, rect }], back to
+// front, and `co`: the ids of the items under a hole (passed through as well). Controls the generic renderers know
+// are drawn by them; any other control is drawn from its parts (the engine's own sprites and texts).
+// z: an element's depth relative to its control's (parts have no world z; their local z orders them inside it).
 export function plan(win, covers) {
-  const items = [], holes = [], ox = win.x, oy = win.y;
+  const items = [], holes = [], ox = win.x, oy = win.y, dx = (win.ex ?? ox) - ox, dy = (win.ey ?? oy) - oy;
   const hole = (z, rect) => holes.push({ z, rect });
-  const add = (z, rect, draw) => items.push({ z, rect, draw, i: items.length });
-  const tree = (owner, z0) => {
-    for (const s of owner.sprites || []) {
-      if (!s.shown) continue;
-      const r = spriteRect(s), z = s.wz ?? z0;
-      if (passthrough(s)) hole(z, r); else add(z, r, el => drawSprite(el, s, r.x - ox, r.y - oy));
+  const add = (id, z, rect, draw) => items.push({ id, z, rect, draw, i: items.length });
+  const tree = (P, z0) => {
+    for (const s of P.sprites || []) {
+      if (!s.shown || !s.tex) continue;
+      const r = spriteRect(s), z = z0 + (s.z || 0) / 1e3;
+      if (isArt(s)) hole(z, r); else add(s.id, z, r, el => drawSprite(el, s, r.x - ox, r.y - oy));
     }
-    for (const t of owner.labels || []) {
+    for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       const x = t.wx ?? t.x, y = t.wy ?? t.y, lines = t.text.split('\n');
-      add(t.wz ?? z0, { x, y, w: Math.max(...lines.map(l => ui.measure(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
+      add(t.id, z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => ui.measure(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
         el => drawLabel(el, t.text, x - ox, y - oy, t.rgba?.[3] ?? 1));
     }
-    for (const f of owner.swfs || []) if (f.shown) hole(f.wz ?? z0, { x: f.wx ?? f.x, y: f.wy ?? f.y, w: f.w, h: f.h });
+    for (const f of P.swfs || []) if (f.shown) hole(z0 + (f.z || 0) / 1e3, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
   };
-  tree(win, -1);
-  if (win.artHole) hole(win.artZ ?? 1e9, { x: ox + win.artHole.x, y: oy + win.artHole.y, w: win.artHole.w, h: win.artHole.h });
+  tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, -1);
+  for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
-    const r = { x: ox + c.x, y: oy + c.y, w: c.w, h: c.h };
-    if (passthrough(c)) hole(c.z, r);
-    else if (c.texture) add(c.z, r, el => drawImage(el, c));
-    else if (covers(c)) add(c.z, r, (el, api) => api.renderControl(c, el));
-    tree(c, c.z);
+    if (covers(c)) {
+      const r = { x: ox + dx + c.x, y: oy + dy + c.y, w: c.w, h: c.h };
+      add(c.id, c.z, r, (el, api) => {
+        const e = api.renderControl(c, el);
+        if (e && (dx || dy)) e.style.translate = `${dx}px ${dy}px`;
+      });
+    } else if (c.parts) tree(c.parts, c.z);
   }
   items.sort((a, b) => a.z - b.z || a.i - b.i);
-  return { items, holes };
+  const co = items.filter(it => holes.some(h => h.z > it.z && meet(h.rect, it.rect))).map(it => it.id);
+  return { items, holes, co };
 }
 
 // clip-path for an item: the holes in front of it that it overlaps (local to the window root)
@@ -122,10 +134,6 @@ function drawSprite(el, s, x, y) {
   if (rgba[0] !== 1 || rgba[1] !== 1 || rgba[2] !== 1)   // vertex colour: the trunk dims a row's art to 0.5 grey
     e.style.filter = rgba[0] === rgba[1] && rgba[1] === rgba[2] ? `brightness(${rgba[0]})` : '';
 }
-function drawImage(el, c) {   // v1 image family: { texture, src {u, v, w, h} } at the control's rect
-  const { u, v, w, h } = c.src;
-  drawSprite(el, { tex: c.texture, src: [u, v, w, h], sx: c.w / w, sy: c.h / h, rgba: [1, 1, 1, c.alpha ?? 1] }, c.x, c.y);
-}
 // tagged text: one glyph texture for the whole string (as CTextElm builds it), each run recoloured in place
 function drawLabel(el, text, x, y, alpha) {
   text.split('\n').forEach((line, li) => {
@@ -142,6 +150,7 @@ function drawLabel(el, text, x, y, alpha) {
       g.fillRect(cx - x0, 0, ui.measure(s), cv.height);
     }
     if (alpha !== 1) cv.style.opacity = alpha;
+    realText(el, rs.map(r => r.s).join(''), cells[0][1], cells[0][2]);   // the real text, for find / select / screen readers
   });
 }
 
@@ -166,6 +175,8 @@ function draw(id, api) {
   reclip();
 }
 function reclip() {
+  coPass.clear();
+  for (const L of live.values()) L.plan.co.forEach(id => coPass.add(id));
   const holes = [...live.values()].flatMap(L => L.plan.holes);
   for (const L of live.values())
     for (const it of L.plan.items) if (it.box) it.box.style.clipPath = clip(it, holes, L.win.x, L.win.y);
@@ -176,17 +187,16 @@ export default {
     'CWindowModelListCard', 'CWindowModelListCardAttr', 'CWindowModelListCardType', 'CWindowModelListCardIcon',
     'CWindowModelListCardStar', 'CWindowModelListCardForbi'],
   mode: 'pass',
+  parts: true,    // the controls' raw sprites / texts / swfs: most of the editor's art
+  clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
   passthrough,
   mount(win, root) {
-    // the deck models sit at (0, 0) with a nominal 336 x 144 rect but lay out in screen pixels: no clipping
-    root.style.overflow = 'visible';
     const inner = document.createElement('div');
     inner.className = 'layer';
     root.append(inner);
     return { inner };
   },
   update(win, prev, root, api, st) {
-    root.style.overflow = 'visible';
     root.setAttribute('aria-label', win.cls);
     live.set(win.id, { win, root: st.inner, plan: plan(win, covers) });
     draw(win.id, api);
