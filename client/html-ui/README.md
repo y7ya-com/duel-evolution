@@ -75,7 +75,7 @@ Captures (needs the recomp web build and game data, `tools/serve.mjs` paths at t
 3. `python3 tools/goldens.py <captures>` writes `golden/` (frame, backdrop, widget state read off the draws, draws).
 
 Assets: `python3 tools/extract_assets.py <merge.dat> <dir with kcejyugi.py>`; glyphs: `cc -O1 -ffp-contract=off -I
-<dir with stb_truetype.h> tools/glyphs/glyphs.c -o glyphs -lm && ./glyphs dejavusans.ttf 16 > assets/glyphs-dejavu16.json`.
+<dir with stb_truetype.h> tools/glyphs/glyphs.c -o glyphs -lm && ./glyphs dejavusans.ttf 16 > assets/glyphs-dejavu16.json` (and 24, 32 for the HTML UI's larger text: `ui.loadFont(px)`).
 
 `ui.js` is also what `client/web-shell/starter.js` (the starter-deck picker) draws with: `loadGlyphs(base)` takes the
 art's folder, and buttons take keyboard focus (Tab; Enter/Space press; focus shows the hover tiles).

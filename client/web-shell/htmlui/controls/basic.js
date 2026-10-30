@@ -8,6 +8,9 @@
 import { SHEET, WINDOW_ALPHA, sprite, nine, text, measure, input } from '../../ui.js';
 
 const LH = 16;   // the 16-pixel font's line (CWindowTaskText fontSize; lineGap is added per control)
+// the other font sizes the game asks for (CWindowTaskText::setFontSize), loaded by makeLayer: { 24: font, 32: font }
+export const FONTS = {};
+const fontOf = c => c.fontSize && c.fontSize !== LH ? FONTS[c.fontSize] : undefined;
 
 // CWindowTaskFrameBottomThick::layout (0x005a5b40): 14 8x8 pieces of window_base_01_c0<style>, the frame over
 // h - band, the band below it; no centre piece above the band (the window's text field's back plane fills it).
@@ -35,18 +38,18 @@ export function switchColumn({ state, checked, focused }) {
 
 // CTextElm placement: lines from firstLine, pageLines of them, each fontSize + lineGap down; align 0 left, 1 centred
 // (floor, as the game centres), 2 right, inside an area areaW wide.
-export function textLines(c, areaW, dx = 0, dy = 0) {
+export function textLines(c, areaW, dx = 0, dy = 0, F = fontOf(c)) {
   const step = (c.fontSize || LH) + (c.lineGap || 0), first = c.firstLine || 0;
   const all = (c.text || '').split('\n').slice(first, first + (c.pageLines || Infinity));
-  return all.map((s, i) => [s, dx + (c.align === 1 ? Math.floor((areaW - measure(s)) / 2) : c.align === 2 ? areaW - measure(s) : 0), dy + i * step]);
+  return all.map((s, i) => [s, dx + (c.align === 1 ? Math.floor((areaW - measure(s, F)) / 2) : c.align === 2 ? areaW - measure(s, F) : 0), dy + i * step]);
 }
 
 // ui.text() writes black glyph coverage; a coloured CTextElm gets its RGB written in, its alpha as opacity. Each line
 // also gets its real text in a transparent span at the same place.
-export function tinted(parent, lines, color = [0, 0, 0, 1]) {
+export function tinted(parent, lines, color = [0, 0, 0, 1], font) {
   lines = lines.filter(l => l[0]);
   if (!lines.length) return null;
-  const cv = text(parent, lines);
+  const cv = text(parent, lines, '', font);
   const [r, g, b, a] = color;
   if (r || g || b) {
     const x = cv.getContext('2d'), img = x.getImageData(0, 0, cv.width, cv.height), d = img.data;
@@ -54,14 +57,14 @@ export function tinted(parent, lines, color = [0, 0, 0, 1]) {
     x.putImageData(img, 0, 0);
   }
   if (a !== 1) cv.style.opacity = a;
-  for (const [s, x, y] of lines) realText(parent, s, x, y);
+  for (const [s, x, y] of lines) realText(parent, s, x, y, font?.height);
   return cv;
 }
-export function realText(parent, s, x, y) {
+export function realText(parent, s, x, y, px = LH) {
   const t = document.createElement('span');
   t.className = 'rt';
   t.textContent = s;
-  Object.assign(t.style, { left: x + 'px', top: y + 'px' });
+  Object.assign(t.style, { left: x + 'px', top: y + 'px' }, px !== LH && { font: `${px}px/${px}px 'DejaVu Sans', sans-serif` });
   parent.append(t);
   return t;
 }
@@ -75,10 +78,10 @@ const box = (tag, c) => {
 // One renderer per class: draw(c, api, opts) builds the element, sig(c) is what a redraw depends on, state(e, c)
 // applies what changes every frame (looks, values) without a redraw.
 const TEXT = {
-  sig: c => JSON.stringify([c.w, c.text, c.align, c.firstLine, c.pageLines, c.lineGap, c.color]),
+  sig: c => JSON.stringify([c.w, c.text, c.align, c.firstLine, c.pageLines, c.lineGap, c.color, c.fontSize]),
   draw(c) {
     const e = box('div', c);
-    tinted(e, textLines(c, c.w), c.color);
+    tinted(e, textLines(c, c.w), c.color, fontOf(c));
     return e;
   },
 };

@@ -5,8 +5,8 @@
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read } from './read.js';
-import { renderControl, syncWindow } from './controls/basic.js';
-import { loadGlyphs } from '../ui.js';
+import { renderControl, syncWindow, FONTS } from './controls/basic.js';
+import { loadGlyphs, loadFont } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -48,6 +48,7 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 // and glyphs (R2; never in git).
 export async function makeLayer(host, screens, art = 'ui/') {
   await loadGlyphs(art);
+  for (const px of [24, 32]) FONTS[px] = await loadFont(px).catch(() => undefined);
   if (!document.getElementById('htmlui-css')) {
     const st = document.createElement('style');
     st.id = 'htmlui-css';
