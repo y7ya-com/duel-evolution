@@ -1,7 +1,8 @@
 // The web client with the bridge, for the htmlui tools: a recomp web build (yo2rc.{html,js,wasm}) with bridge.js
 // started in the page, the game and font files, and everything the server answers (/api/, /yo2/, /app/, /__warm and
 // the /net WebSocket) forwarded to a local stack.py. Cross-origin isolated, as production.
-//   SERVER=http://127.0.0.1:8799 BUILD=<build-web> GAME=<web/game> FONTS=<fonts> node tools/game.mjs [port]
+//   SERVER=http://127.0.0.1:8799 COOKIE=<stack.py's cookie> BUILD=<build-web> GAME=<web/game> FONTS=<fonts> node tools/game.mjs [port]
+// COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -9,7 +10,8 @@ import { createReadStream, statSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url)), shell = path.join(here, '../..');
-const PORT = +(process.argv[2] || 8942), SERVER = new URL(process.env.SERVER || 'http://127.0.0.1:8799');
+const PORT = +(process.argv[2] || 8942), SERVER = new URL(process.env.SERVER || 'http://127.0.0.1:8799'), COOKIE = process.env.COOKIE || '';
+const withCookie = h => COOKIE ? { ...h, cookie: [h.cookie, COOKIE].filter(Boolean).join('; ') } : h;
 const DATA = process.env.HOME + '/Documents/GitHub/yo2-decomp-data/web';
 const BUILD = process.env.BUILD || path.join(shell, '../recomp/build-web');
 const GAME = process.env.GAME || DATA + '/game', FONTS = process.env.FONTS || DATA + '/public/recomp/fonts';
@@ -21,7 +23,7 @@ const go = () => start(Module).then(h => { window.__htmlui = h; }, e => console.
 document.readyState === 'loading' ? addEventListener('DOMContentLoaded', go) : go();</script>`;
 
 const forward = (req, res) => {
-  const r = request({ host: SERVER.hostname, port: SERVER.port, path: req.url, method: req.method, headers: { ...req.headers, host: SERVER.host, origin: SERVER.origin } }, up => {
+  const r = request({ host: SERVER.hostname, port: SERVER.port, path: req.url, method: req.method, headers: withCookie({ ...req.headers, host: SERVER.host, origin: SERVER.origin }) }, up => {
     const h = { ...up.headers, ...ISO };
     if (h['set-cookie']) h['set-cookie'] = [].concat(h['set-cookie']).map(c => c.replace(/;\s*secure/i, ''));
     res.writeHead(up.statusCode, h);
@@ -65,7 +67,7 @@ const srv = createServer((req, res) => {
 // the gateway WebSocket: the upgrade request and both directions, byte for byte
 srv.on('upgrade', (req, sock, head) => {
   const up = connect(+SERVER.port, SERVER.hostname, () => {
-    const hdr = Object.entries({ ...req.headers, host: SERVER.host, origin: SERVER.origin }).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+    const hdr = Object.entries(withCookie({ ...req.headers, host: SERVER.host, origin: SERVER.origin })).map(([k, v]) => `${k}: ${v}`).join('\r\n');
     up.write(`${req.method} ${req.url} HTTP/1.1\r\n${hdr}\r\n\r\n`);
     up.write(head);
     sock.pipe(up).pipe(sock);
