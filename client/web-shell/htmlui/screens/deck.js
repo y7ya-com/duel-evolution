@@ -53,7 +53,7 @@ const SWF_BOX = 32;
 // The drawing list of one window: items [{ z, rect (screen), id, draw(el, api) }] and holes [{ z, rect }], back to
 // front, and `co`: the ids of the items under a hole (passed through as well). Controls the generic renderers know
 // are drawn by them; any other control is drawn from its parts (the engine's own sprites and texts).
-// z: an element's depth relative to its control's (parts have no world z; their local z orders them inside it).
+// z: world z (the engine's sort key) where the snapshot has it, else the control's depth + the part's local z.
 export function plan(win, covers) {
   const items = [], holes = [], ox = win.x, oy = win.y, dx = (win.ex ?? ox) - ox, dy = (win.ey ?? oy) - oy;
   const hole = (z, rect) => holes.push({ z, rect });
@@ -61,16 +61,16 @@ export function plan(win, covers) {
   const tree = (P, z0) => {
     for (const s of P.sprites || []) {
       if (!s.shown || !s.tex) continue;
-      const r = spriteRect(s), z = z0 + (s.z || 0) / 1e3;
+      const r = spriteRect(s), z = s.wz ?? z0 + (s.z || 0) / 1e3;
       if (isArt(s)) hole(z, r); else add(s.id, z, r, el => drawSprite(el, s, r.x - ox, r.y - oy));
     }
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       const x = t.wx ?? t.x, y = t.wy ?? t.y, lines = t.text.split('\n');
-      add(t.id, z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => ui.measure(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
+      add(t.id, t.wz ?? z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => ui.measure(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
         el => drawLabel(el, t.text, x - ox, y - oy, t.rgba?.[3] ?? 1));
     }
-    for (const f of P.swfs || []) if (f.shown) hole(z0 + (f.z || 0) / 1e3, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
+    for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? z0 + (f.z || 0) / 1e3, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
   };
   tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, -1);
   for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
@@ -78,7 +78,7 @@ export function plan(win, covers) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
     if (covers(c)) {
       const r = { x: ox + dx + c.x, y: oy + dy + c.y, w: c.w, h: c.h };
-      add(c.id, c.z, r, (el, api) => {
+      add(c.id, c.wz ?? c.z, r, (el, api) => {
         const e = api.renderControl(c, el);
         if (e && (dx || dy)) e.style.translate = `${dx}px ${dy}px`;
       });
