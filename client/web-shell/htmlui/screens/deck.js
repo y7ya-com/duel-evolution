@@ -162,6 +162,8 @@ let redrawing = null;   // the id of the window being drawn: what a late atlas r
 function drawSprite(el, s, x, y) {
   const t = textArt(s);
   if (t) return drawTextArt(el, t, x, y, s.a ?? s.rgba?.[3] ?? 1);
+  const g = /^deck_font_01_c0([12])/.exec(artName(s.tex));
+  if (g) return drawDigit(el, s, g[1] === '2', x, y);
   const sh = sheet(s.tex, redrawing);
   if (!sh) return;
   const [u, v, w, h] = s.src, rgba = s.rgba || [1, 1, 1, 1];   // a: the alpha it's drawn with (inherited), else its own
@@ -170,6 +172,19 @@ function drawSprite(el, s, x, y) {
   if (c[0] !== 1 || c[1] !== 1 || c[2] !== 1)   // the trunk dims a row's art to 0.5 grey
     e.style.filter = c[0] === c[1] && c[1] === c[2] ? `brightness(${c[0]})` : '';
 }
+// deck_font_01 (the trunk's copy counts, "×000"): glyph cells, 8 x 12, digits 0-9 then a "×", white on a black box
+// (c02: red). Blurry at 2x as a bitmap and glyph images besides (the owner's rules): the box is CSS, the digit Arial.
+function drawDigit(el, s, red, x, y) {
+  const i = s.src[0] / 8, d = document.createElement('div');
+  d.textContent = i >= 10 ? '×' : String(i);
+  Object.assign(d.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: '8px', height: '12px',
+    background: i >= 10 ? 'none' : red ? '#ff0000' : '#000', color: '#fff', font: `bold ${fontCss(13, 12)}`,
+    textAlign: 'center', opacity: (s.a ?? 1) === 1 ? '' : s.a,
+    textShadow: i >= 10 ? '0 0 1px #000, 0 0 1px #000' : '' });
+  el.append(d);
+  return d;
+}
+
 // The owner's rule for the glowing outline titles: real text in Audiowide (SIL OFL, with the art: the open font
 // closest to the art's rounded-square lettering, crossbarless A and all), the art's white fill and sampled outline,
 // fitted to the art's ink box: an SVG <text> on its baseline (the box's bottom less the outline), as tall as the box
