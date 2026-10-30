@@ -32,17 +32,17 @@ const BTN_V_DOWN = `linear-gradient(to bottom, #eca430 0.5px, #f0be45 1.5px, #f3
 //    #86d9ff #80d3ff > #226cff, a lighter left edge (3 px #daffff > #2d8fff) under a 5-px rounded corner, a darker right
 //    edge (4 px #a6ffff #7dd7f6 #69c5ef > #195def); row 19 #0132d3; rows 20..23 the frame's top (#59c6ff, its side
 //    bevels: 3 #76ffff 1 #68e8ff on the left, 1 #4db9f7 3 #41abef on the right)
+//    (row 23 #fff). Stops sit at texel + 1 px: the engine reads every pixel half a texel up-left, so pixel y is
+//    the mean of texel rows y - 1 and y
 //  - plane (window_base_01_c01's middle tile, 70 %): #fff
 const A70 = (178 / 255).toFixed(3);
 const CHAT_CSS = `
 .yo2-bar { position: absolute; height: 24px; opacity: ${A70};
   background:
-    linear-gradient(to right, #76ffff 3px, #68e8ff 3px 4px, transparent 4px calc(100% - 4px), #4db9f7 calc(100% - 4px) calc(100% - 3px), #41abef calc(100% - 3px)) 0 20px / 100% 4px no-repeat,
-    linear-gradient(#59c6ff, #59c6ff) 0 20px / 100% 4px no-repeat,
-    linear-gradient(#0132d3, #0132d3) 0 19px / 100% 1px no-repeat,
-    linear-gradient(to bottom, #daffff 5.5px, #a9ffff 6.5px, #8ffaff 8.5px, #2d8fff 18.5px) 0 0 / 3px 19px no-repeat,
-    linear-gradient(to bottom, #a6ffff 0.5px, #7dd7f6 1.5px, #69c5ef 2.5px, #66c1ef 3.5px, #195def 18.5px) 100% 0 / 4px 19px no-repeat,
-    linear-gradient(to bottom, #fff 2.5px, #beffff 3.5px, #86d9ff 4.5px, #80d3ff 5.5px, #226cff 18.5px) 0 0 / 100% 19px no-repeat;
+    linear-gradient(to right, #76ffff 3px, #68e8ff 4px, #59c6ff 5px, #59c6ff calc(100% - 4px), #4db9f7 calc(100% - 3px), #41abef calc(100% - 2px)) 0 21px / 100% 2px no-repeat,
+    linear-gradient(to bottom, #daffff 6px, #a9ffff 7px, #8ffaff 9px, #2d8fff 19px) 0 0 / 3px 19px no-repeat,
+    linear-gradient(to bottom, #a6ffff 1px, #7dd7f6 2px, #69c5ef 3px, #66c1ef 4px, #195def 19px) 100% 0 / 4px 19px no-repeat,
+    linear-gradient(to bottom, #fff 3px, #beffff 4px, #86d9ff 5px, #80d3ff 6px, #226cff 19px, #0132d3 20px, #59c6ff 21px, #59c6ff 23px, #fff 24px);
   border-top-left-radius: 5px 5px; }
 .yo2-plane { position: absolute; background: #fff; opacity: ${A70}; }`;
 

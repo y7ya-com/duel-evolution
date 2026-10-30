@@ -85,6 +85,8 @@ const warned = new Set();
 function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  // a chat line's '@n' tags are CTextElm style codes (the server's lines start '@0'): the game shows none of them
+  if (fam === 'Textlist') return api.renderControl({ ...c, items: c.items.map(s => s.replace(/@\d/g, '')) }, el);
   if (!DRAW[fam] && !ICON[fam]) return api.renderControl(c, el);
   const sheet = fam === 'Scroll' ? 'scroll' : fam === 'Tab' ? 'tab' : ICON[fam] ? 'icon' : null;
   if (sheet && !ui.SHEET[sheet].alpha) {   // its atlas never loaded
@@ -122,7 +124,7 @@ function ownScroll(c, layer, api) {
 // edit through setText). Its keys stop at the window's root (bridge.js): the game doesn't get them twice.
 function ownInput(c, layer, api) {
   const el = document.createElement(c.multiLine ? 'textarea' : 'input');
-  el.className = 'own native';
+  el.className = 'own chat-in';   // (not .native: the bridge keeps those transparent)
   Object.assign(el, { spellcheck: false, autocomplete: c.password ? 'current-password' : 'off', maxLength: c.maxLen });
   if (!c.multiLine) el.type = c.password ? 'password' : 'text';
   el.setAttribute('aria-label', c.name || 'Text');
@@ -169,7 +171,7 @@ const CSS = () => `
 .htmlui-own button.btn { position: absolute; cursor: default; }
 .htmlui-own button.btn:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
 .htmlui-own .log .txt { user-select: text; cursor: text; }
-.htmlui-own .native { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
+.htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
 `;
 
 const screen = {
@@ -192,8 +194,10 @@ const screen = {
   },
 
   update(win, prev, root, api, st) {
-    const seen = new Set(), order = [];
+    const seen = new Set(), order = [], cls = new Map(win.controls.map(c => [c.id, c.cls]));
     for (const [n, c] of win.controls.entries()) {
+      // a list's own text element (its items, laid out at 0,0 of the list): the list draws them
+      if (c.cls.endsWith('Text') && /Textlist|Listbox$/.test(cls.get(c.parent) || '')) continue;
       seen.add(c.id);
       const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
       // the drawing: the input's text is ownInput's, so it doesn't redraw the field
