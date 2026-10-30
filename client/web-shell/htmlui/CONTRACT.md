@@ -29,6 +29,7 @@ Window = {
   x, y, w, h,              // game pixels, top left (CWindowTaskModel +0x380..+0x38c)
   z,                       // factory order (smaller = in front)
   wz,                      // how deep the engine draws it: its frontmost drawn control's world z (larger = in front; 0 = none drawn)
+  drawn,                   // where it draws: { x, y, w, h } around its shown, drawn top-level controls, or null (draws nothing)
   alpha,                   // 0..1 (fade-ins)
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
