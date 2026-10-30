@@ -176,12 +176,16 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // a hidden part at 99999), or null (it draws nothing). ponytail: one box (a label's text box can overstate it);
   // per-control rects if a window ever needs a finer hole
   const PARKED = 9999;
+  // A text control counts only its lines (its box can be far taller: the file list's "always hidden" row count reads
+  // shown with a box past the dialog's frame), an empty or invisible one not at all.
+  const inkH = c => c.text === undefined ? c.h
+    : c.text ? Math.min(c.h, c.text.split('\n').length * (c.fontSize || 16) + (c.lineGap || 0)) : 0;
   const drawnBox = w => {
-    const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.wz > 0 && c.w > 0 && c.h > 0 &&
+    const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.alpha > 0 && c.wz > 0 && c.w > 0 && inkH(c) > 0 &&
       Math.max(c.x, c.y, c.wx, c.wy) < PARKED);
     if (!cs.length) return null;
     const x0 = Math.min(...cs.map(c => c.wx)), y0 = Math.min(...cs.map(c => c.wy));
-    return { x: x0, y: y0, w: Math.max(...cs.map(c => c.wx + c.w)) - x0, h: Math.max(...cs.map(c => c.wy + c.h)) - y0 };
+    return { x: x0, y: y0, w: Math.max(...cs.map(c => c.wx + c.w)) - x0, h: Math.max(...cs.map(c => c.wy + inkH(c))) - y0 };
   };
   // a window's box (CWindowTaskModel +0x380): x, y, w, h; a window that never sets its size (CWindowLogin as
   // rt/session.cpp rearranges it reads 0 x 0) gets its frame control's, else its shown top-level controls' extent

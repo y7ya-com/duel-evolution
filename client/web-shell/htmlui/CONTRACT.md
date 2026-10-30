@@ -142,10 +142,12 @@ controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, whi
 (alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
 pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
 
-**Skin (owner's rule, 2026-10-30):** where the game's art is a simple gradient, border or bevel (buttons, title bars,
-panel frames, tabs, banners), it is CSS: gradients, borders and shadows in the original's sampled colours, with CSS
-hover / pressed states, so it is sharp at any DPR. Bitmap art only for real pictures (icons, avatars, card art,
-logos). Text stays Arial DOM text. The judgement is "looks the same, sharper", not pixel-identical. Shared
+**Skin (owner's rule, 2026-10-30, sharpened: "my problem is pixelated garbage"):** the test is the 2x DPR look. Any
+art that looks pixelated or blurry at 2x (tabs, small icons, bevels, bars, button plates, title bars, banners) is
+recreated in CSS / SVG with the original's sampled colours, with CSS hover / pressed states, so it is sharp at any DPR
+and still looks like 2008. Bitmaps only for real pictures (avatars, card art, photos, logos). A 9-slice stays art only
+where it stays crisp at 2x (smooth translucent frames). Text stays Arial DOM text (spaced by `spacing()`). The judgement
+is "looks the same, sharper", not pixel-identical. Shared
 components, so every screen looks alike: controls/skin.js `menuButton(parent, { x, y, w, h, label, state })` (the
 yellow menu button; `.set({ label, state })`), `titleBar(parent, { x, y, w, title, close })` (the blue title bar,
 `.close` its close box), `panel(parent, { x, y, w, h, band })` (the blue frame, translucent as the window draws it;

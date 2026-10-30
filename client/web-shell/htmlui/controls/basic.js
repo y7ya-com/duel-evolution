@@ -5,6 +5,7 @@
 // htmlui-select's screens/select.js (13deb4f), checked against the decomp; the addresses are in each comment.
 // Buttons (the owner's rule): a real <button>, the original art as its background (the swich_01 frames, per state).
 import { SHEET, WINDOW_ALPHA, sprite, nine, measure } from '../../ui.js';
+import { plateLook } from './skin.js';
 
 const LH = 16;   // a 16-pixel line (CWindowTaskText fontSize; lineGap is added per control)
 
@@ -103,7 +104,8 @@ const TEXT = {
     return e;
   },
 };
-// CWindowTaskTextSwitch (0x005ba7d0 / 0x005baa40): swich_01's 9-slice in the state's column, a black 16-pixel caption
+// CWindowTaskTextSwitch (0x005ba7d0 / 0x005baa40): swich_01's plate in the state's column (CSS, skin.js plateLook:
+// the bitmap's stretched slices were soft at 2x, the owner's Skin rule), a black 16-pixel caption
 // (h - 16) / 2 down, 4 in from the left (LEFT), centred (CENTRE) or 4 in from the right (RIGHT).
 const BUTTON = {
   sig: c => JSON.stringify([c.w, c.h, c.label, c.align]),
@@ -113,7 +115,7 @@ const BUTTON = {
     e.className = 'btn';
     e.tabIndex = api?.owned ? 0 : -1;   // pass mode: the game owns focus and keys
     if (api?.owned) e.addEventListener('click', () => api.click(c.id));
-    e.tiles = nine(e, SHEET.button, 0, 0, 0, 0, c.w, c.h);
+    plateLook(e, 0);
     const al = c.align ?? 1, side = al === 0 || al === 2;
     if (c.label) textBox(e, c.label, { x: side ? 4 : 0, y: Math.floor((c.h - LH) / 2), w: side ? c.w - 8 : c.w, align: al });
     return e;
@@ -122,9 +124,7 @@ const BUTTON = {
     const col = switchColumn(c);
     e.dataset.state = c.state;
     e.disabled = c.state === 'disabled';
-    if (e.col === col) return;
-    e.col = col;
-    e.tiles.forEach((t, i) => t.src(col * 24 + (i % 3) * 8, Math.floor(i / 3) * 8));
+    if (e.dataset.look !== String(col)) e.dataset.look = col;
   },
 };
 const R = {
