@@ -277,8 +277,9 @@ export function wrapLines(text, w) {
 // filtering is the engine's (CWindowTaskKabanList: applyCategory, then search() narrowing per criterion), so the
 // list, its drag and drop and the deck rules stay the game's: the panel hands the filter to the game (Module /
 // api.kabanFilter, the recomp's hook) and reads the hit count back from the snapshot.
-// Values are the strips' cells: attribute 0 Light .. 6 Divine; type 0 Dragon .. 20 Divine-Beast; spell / trap icon
-// 0 counter, 1 field, 2 equip, 3 continuous, 4 quick-play, 5 ritual, 6 normal; limit = copies allowed (0..3).
+// Values are the cards' icon strip cells (the game's own order, checked against live rows): attribute 0 Light ..
+// 6 Divine; type 0 Dragon .. 20 Divine-Beast; spell / trap 0 counter, 1 field, 2 equip, 3 continuous, 4 quick-play,
+// 5 ritual, 6 normal; limit = copies allowed (0..3). The game hook turns them into the engine's values.
 // the category chips in the colours of the trunk's own "Rearrange" swatches (sampled from the engine's frame)
 const CATS = [['All', 6, '#d8d8d8'], ['Normal', 0, '#f4dd3f'], ['Effect', 1, '#ffa127'], ['Fusion', 5, '#ba17ef'],
   ['Ritual', 4, '#2a98ff'], ['Spell', 2, '#31f15a'], ['Trap', 3, '#ff79c8']];
@@ -287,7 +288,7 @@ const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Mach
   'Beast-Warrior', 'Plant', 'Aqua', 'Warrior', 'Winged Beast', 'Fairy', 'Spellcaster', 'Thunder', 'Reptile', 'Divine-Beast'];
 const ICONS = ['Counter', 'Field', 'Equip', 'Continuous', 'Quick-Play', 'Ritual', 'Normal'];
 const LIMITS = [['Forbidden', 0], ['Limited', 1], ['Semi-limited', 2], ['Unlimited', 3]];
-const SORTS = [['Default', ''], ['Name', 'name'], ['ATK ↓', 'atk-'], ['ATK ↑', 'atk+'], ['DEF ↓', 'def-'], ['DEF ↑', 'def+']];
+const SORTS = [['Default', ''], ['Name', 'name'], ['ATK, high to low', 'atk-'], ['ATK, low to high', 'atk+'], ['DEF, high to low', 'def-'], ['DEF, low to high', 'def+']];
 export const emptyFilter = () => ({ cat: 6, text: '', attr: [], race: [], icon: [], level: [], limit: [], atk: [null, null], def: [null, null], sort: '' });
 // how many criteria beyond the category and the text (the Filters button's badge)
 export const filterCount = f => f.attr.length + f.race.length + f.icon.length + f.level.length + f.limit.length +
@@ -303,12 +304,8 @@ const SEARCH_CSS = `
 .dk-chip { position: absolute; box-sizing: border-box; height: 20px; padding: 0 3px; border: 1px solid #6a6a6a; border-radius: 3px;
   font: ${fontCss(12, 18)}; color: #111; background: linear-gradient(#fff, var(--c) 70%); white-space: nowrap; }
 .dk-chip[aria-pressed=true] { border-color: #1a3fbf; box-shadow: 0 0 0 1px #fff, 0 0 0 2px #1a3fbf; }
-.dk-icon { position: relative; width: 20px; height: 20px; padding: 1px; border: 1px solid transparent; border-radius: 3px; background: none; }
-.dk-icon > i { display: block; width: 16px; height: 16px; background-repeat: no-repeat; image-rendering: auto; }
-.dk-icon[aria-pressed=true] { border-color: #1a3fbf; background: #fffbd0; }
-.dk-row { position: absolute; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
-.dk-lbl { position: absolute; left: 12px; color: #fff; font: ${fontCss(13, 16)}; text-shadow: 0 0 2px #035, 0 0 1px #035; }
-.dk-num { position: static; width: 52px; height: 20px; padding: 0 4px; }
+.dk-sel { padding: 0 2px; appearance: auto; }
+.dk-lbl { position: absolute; left: 12px; color: #fff; font: ${fontCss(14, 16)}; text-shadow: 0 0 2px #035, 0 0 1px #035; }
 .dk-solid::before { opacity: 1 !important; }
 .dk-count { position: absolute; color: #fff; white-space: nowrap; font: ${fontCss(13, 20)}; text-shadow: 0 0 2px #000, 0 0 1px #000; }
 `;
@@ -374,53 +371,71 @@ export function searchPanel(root, apply) {
   }
   // the Filters popup (EDOPro's search panel): the game's blue panel and title bar over the list
   // the game's panel is see-through (alpha 178); over a busy list the popup reads better opaque (dk-solid)
-  function open() { popup = panel(el, { x: 4, y: 88, w: 280, h: 420 }); popup.classList.add('dk-solid'); fillPopup(); }
+  function open() { popup = panel(el, { x: 4, y: 88, w: 280, h: 300 }); popup.classList.add('dk-solid'); fillPopup(); }
   function close() { popup?.remove(); popup = null; }
+  // EDOPro's search panel, in text (the owner: words, not icons): one dropdown per field, the ATK / DEF ranges
   function fillPopup() {
     popup.replaceChildren();
     const bar = titleBar(popup, { x: 0, y: 0, w: 280, title: 'Card Search' });
     bar.close.onclick = close;
-    let y = 28;
-    const section = (title, h) => { const l = document.createElement('div'); l.className = 'dk-lbl'; l.textContent = title; l.style.top = y + 'px'; popup.append(l); const r = document.createElement('div'); r.className = 'dk-row'; r.style.top = y + 16 + 'px'; popup.append(r); y += 16 + h + 6; return r; };
-    const toggle = (arr, v) => () => { const i = arr.indexOf(v); i < 0 ? arr.push(v) : arr.splice(i, 1); changed(true); };
-    const icons = (row, strip, names, arr) => names.forEach((n, i) => {
-      const b = btn(row, 'dk-icon', '', 0, 0, arr.includes(i), toggle(arr, i));
-      Object.assign(b.style, { position: 'relative', left: 0, top: 0 });
-      b.title = n; b.setAttribute('aria-label', n);
-      const ic = document.createElement('i');
-      ic.style.backgroundImage = `url(${base()}${strip})`;
-      ic.style.backgroundPosition = `${-16 * i}px 0`;
-      b.append(ic);
-    });
-    icons(section('Attribute', 20), 'icon_zokusei_01.png', ATTRS, f.attr);
-    icons(section('Type', 42), 'icon_syuzoku_01.png', RACES, f.race);
-    icons(section('Spell / Trap', 20), 'icon_mahouwana_01.png', ICONS, f.icon);
-    const lv = section('Level / Rank', 20);
-    for (let i = 1; i <= 12; i++) { const b = btn(lv, 'dk-chip', String(i), 0, 0, f.level.includes(i), toggle(f.level, i)); Object.assign(b.style, { position: 'relative', left: 0, top: 0, width: '19px', padding: 0, textAlign: 'center' }); b.style.setProperty('--c', '#e8e8e8'); }
+    let y = 32;
+    const row = title => {
+      const l = document.createElement('div');
+      l.className = 'dk-lbl';
+      l.textContent = title;
+      l.style.top = y + 3 + 'px';
+      popup.append(l);
+      y += 28;
+      return y - 28;
+    };
+    const select = (title, key, opts) => {
+      const top = row(title), sel = document.createElement('select');
+      sel.className = 'dk-field dk-sel';
+      sel.setAttribute('aria-label', title);
+      Object.assign(sel.style, { left: '96px', top: top + 'px', width: '172px' });
+      for (const [n, v] of [[key === 'sort' ? 'Default' : 'Any', ''], ...opts]) sel.append(new Option(n, v));
+      const cur = Array.isArray(f[key]) ? f[key][0] : f[key];
+      sel.value = cur == null ? '' : String(cur);
+      sel.onchange = () => {
+        const v = sel.value === '' ? null : key === 'sort' ? sel.value : +sel.value;
+        if (Array.isArray(f[key])) f[key] = v == null ? [] : [v]; else f[key] = v ?? '';
+        changed(true);
+      };
+      popup.append(sel);
+    };
     const range = (title, key) => {
-      const r = section(title, 20);
+      const top = row(title);
       [0, 1].forEach(k => {
         const i = document.createElement('input');
-        i.className = 'dk-field dk-num';
+        i.className = 'dk-field';
         i.inputMode = 'numeric';
         i.placeholder = k ? 'max' : 'min';
         i.setAttribute('aria-label', `${title} ${k ? 'at most' : 'at least'}`);
+        Object.assign(i.style, { left: 96 + 94 * k + 'px', top: top + 'px', width: '78px', paddingRight: '4px' });
         i.value = f[key][k] ?? '';
         i.onchange = () => { const v = parseInt(i.value); f[key][k] = Number.isFinite(v) ? v : null; changed(true); };
-        r.append(i);
-        if (!k) { const d = document.createElement('span'); d.textContent = '–'; d.style.color = '#fff'; r.append(d); }
+        popup.append(i);
       });
+      const d = document.createElement('div');
+      d.className = 'dk-lbl';
+      Object.assign(d.style, { left: '179px', top: top + 3 + 'px' });
+      d.textContent = '–';
+      popup.append(d);
     };
+    select('Attribute', 'attr', ATTRS.map((n, i) => [n, i]));
+    select('Type', 'race', RACES.map((n, i) => [n, i]));
+    select('Spell / Trap', 'icon', ICONS.map((n, i) => [n, i]));
+    select('Level / Rank', 'level', Array.from({ length: 12 }, (_, i) => [`Level ${i + 1}`, i + 1]));
     range('ATK', 'atk');
     range('DEF', 'def');
-    const lim = section('Limit', 20);
-    for (const [n, v] of LIMITS) { const b = btn(lim, 'dk-chip', n, 0, 0, f.limit.includes(v), toggle(f.limit, v)); Object.assign(b.style, { position: 'relative', left: 0, top: 0 }); b.style.setProperty('--c', '#e8e8e8'); }
-    const so = section('Sort', 20);
-    for (const [n, v] of SORTS) { const b = btn(so, 'dk-chip', n, 0, 0, f.sort === v, () => { f.sort = v; changed(true); }); Object.assign(b.style, { position: 'relative', left: 0, top: 0 }); b.style.setProperty('--c', '#e8e8e8'); }
-    const reset = menuButton(popup, { x: 12, y: 420 - 34, w: 120, label: 'Clear filters', state: null });
-    reset.onclick = () => { Object.assign(f, emptyFilter(), { text: f.text }); changed(true); };
-    const done = menuButton(popup, { x: 148, y: 420 - 34, w: 120, label: 'Done', state: null });
+    select('Limit', 'limit', LIMITS);
+    select('Sort by', 'sort', SORTS.slice(1));
+    y += 6;
+    const reset = menuButton(popup, { x: 12, y, w: 120, label: 'Clear filters', state: null });
+    reset.onclick = () => { Object.assign(f, emptyFilter(), { text: f.text, cat: f.cat }); changed(true); };
+    const done = menuButton(popup, { x: 148, y, w: 120, label: 'Done', state: null });
     done.onclick = close;
+    popup.style.height = y + 24 + 12 + 'px';
   }
   render();
   // the hits; the engine's own count box beside it shows the total
