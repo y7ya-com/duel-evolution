@@ -75,9 +75,12 @@ export function plan(win) {
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w).
-      // ponytail: a dialog's "Title" text draws white in the engine (its glyph colour comes from the text texture's
-      // tag converter, CD3DTextTexture +0x64, not read yet): by name until the converter is
-      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink: ctl.name === 'Title' ? 0xffffff : null } : { align: 0 };
+      // the glyph colour: a CTextElm's glyphs are black (its colour only shows its alpha), except the text half of a
+      // CWindowTaskShadowText, whose glyphs are white and take the control's colour (the shop's "Exit Store" and
+      // "5000MP" white; the file list's "Save New" black); a dialog's "Title" text is white too
+      const shadowText = ctl?.name === 'CWindowTaskShadowTextのテキスト' && ctl.color;
+      const ink = shadowText ? ctl.color.slice(0, 3).reduce((v, x) => v << 8 | Math.round(x * 255), 0) : ctl?.name === 'Title' ? 0xffffff : null;
+      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink } : { align: 0 };
       // a paged text field (the card detail's text: pageLines 9): the whole text, wrapped by words, in a native scroll
       // box (the owner's rules: words, not the engine's character wrap; native scrollers)
       if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 1 && ctl.pageLines < 50 && box.w) {
