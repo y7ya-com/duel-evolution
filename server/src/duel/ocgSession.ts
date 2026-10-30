@@ -301,8 +301,11 @@ export class OcgSession {
     this.end(null, "error", this.turn);
   }
 
-  // ---- the event loop until the player is needed
-  async pump(): Promise<void> {
+  /** The event loop until the player is needed. afterReply: a client's play started it, so the client has caught up
+   *  and its screen stands still until the NPC's next visible decision: the first one skips NPC_THINK (duel-pacing.md:
+   *  ~200-270 ms of still screen each time); the rest keep it, hidden behind what the client is still playing. */
+  async pump(afterReply = false): Promise<void> {
+    let quick = afterReply;
     for (;;) {
       const r = await step(this.g, this.ctx(), (): "stop" | "think" | Op => {
         try { return this.pumpSome(); } catch (e) { this.fatal(e); return "stop"; }
@@ -310,7 +313,7 @@ export class OcgSession {
       if (typeof r === "function") { await this.run(r); continue; }
       await this.flushEnd();
       if (r !== "think") return;
-      await sleep(NPC_THINK);
+      if (quick) quick = false; else await sleep(NPC_THINK);
     }
   }
 
@@ -403,7 +406,7 @@ export class OcgSession {
     });
     if (op) await this.run(op);
     await this.flushEnd();
-    if (op) await this.pump();
+    if (op) await this.pump(true);
   }
 
   /** The end is sent by duelfin (h_6350/h_6423). */
