@@ -60,7 +60,7 @@ const SWF_SIZE = { KabanCountBtn: [72, 21] };
 // in the deck, so the parts' world position and world z (the engine's sort key) are what places and orders them.
 // A button-family control also gets a real <button> over its art (the owner's rule; pass mode: it doesn't take input).
 const BUTTON = /Switch$|^CWindowTaskButton|ResultNext$/;
-export function plan(win) {
+export function plan(win, editor = true) {
   const items = [], holes = [], ox = win.x, oy = win.y;
   const hole = (z, rect) => holes.push({ z, rect });
   const add = (id, z, rect, draw) => items.push({ id, z, rect, draw, i: items.length });
@@ -102,7 +102,7 @@ export function plan(win) {
   for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
-    if (c.cls === 'CWindowTaskKabanScroll') continue;   // the trunk scrolls natively (trunkScroller): no game scroll bar
+    if (editor && c.cls === 'CWindowTaskKabanScroll') continue;   // the trunk scrolls natively (trunkScroller): no game scroll bar
     const rs = c.parts ? tree(c.parts, c) : [];
     if (BUTTON.test(c.cls) && rs.length) {
       const x0 = Math.min(...rs.map(o => o.r.x)), y0 = Math.min(...rs.map(o => o.r.y));
@@ -749,7 +749,7 @@ function quickInstall() {
   const press = async p => { fire('mousemove', p); await sleep(50); fire('mousedown', p); await sleep(50); };
   const release = async p => { fire('mousemove', p); await sleep(50); fire('mouseup', p); await sleep(50); };
   const act = e => {
-    if (!live.size) return;
+    if (!live.size || !inEditor()) return;
     const at = game(e), wins = [...live.values()].map(L => L.win), m = quickMove(wins, ...at);
     if (!m) return;
     e.preventDefault?.();
@@ -773,6 +773,12 @@ function quickInstall() {
 }
 
 // ---------------------------------------------------------------- the module
+// The deck windows are the deck editor's (DeckEntry, scene 0x24) and also Card Swap's, TP's and the present's
+// (0x26..0x28, the trade reuses CWindowModelKaban / Deck). The editor's own additions (the trunk search, its native
+// scroller, click-to-add with the editor's drop zones, the scene backdrop) belong to the editor only. Elsewhere the
+// windows are drawn as the engine has them (owner, live: the search header was over the trade partner's panel)
+export const EDITOR_SCENE = 0x24;
+const inEditor = snap => (snap || globalThis.yo2Html?.snapshot?.())?.scene === EDITOR_SCENE;
 // every live deck window: { win, root, plan }, so a hole from one (a dragged card) clips the others
 const live = new Map(), scene = { el: null, key: '' };   // scene: the backdrop's last drawing
 function draw(id, api) {
@@ -816,8 +822,8 @@ export default {
     root.append(inner);
     // the trunk's search: the game's filter (ovr/decksearch.c's Module.yo2KabanFilter, on the trunk list the snapshot
     // names; absent in an older runtime: no search)
-    const st = { inner, search: null, list: 0 };
-    if (win.cls === 'CWindowModelKaban') {
+    const st = { inner, search: null, list: 0, editor: inEditor() };
+    if (win.cls === 'CWindowModelKaban' && st.editor) {
       st.scroll = trunkScroller(root, api);   // under the search panel (its Filters popup opens over the list)
       st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, f));
     }
@@ -830,7 +836,7 @@ export default {
     const key = JSON.stringify(win, (k, v) => k === 'mouse' ? undefined : v);
     if (key === st.key && live.has(win.id)) return;
     st.key = key;
-    live.set(win.id, { win, root: st.inner, plan: plan(win), api });
+    live.set(win.id, { win, root: st.inner, plan: plan(win, st.editor), api });
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
     if (list) { st.list = list.id; st.search.setCount(list.hits); st.scroll.sync(list); }
     draw(win.id, api);
@@ -838,9 +844,9 @@ export default {
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the
   // backdrop layer under every window root draws them; redrawn when they or the hovered button change, clipped around
   // every deck hole (card faces, swfs: the engine draws those)
-  hide: win => win.scene ? [win.scene.bg, win.scene.title, ...win.scene.menu].filter(Boolean).map(e => e.id) : [],
-  backdrop(win, el) {
-    const sc = win.scene;
+  hide: (win, snap) => win.scene && inEditor(snap) ? [win.scene.bg, win.scene.title, ...win.scene.menu].filter(Boolean).map(e => e.id) : [],
+  backdrop(win, el, api, state, snap) {
+    const sc = inEditor(snap) && win.scene;
     if (!sc) {   // a window without the scene (the file list on its own): no stale backdrop
       if (el.firstChild) el.replaceChildren();
       Object.assign(scene, { el: null, key: '' });
