@@ -9,7 +9,8 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { textBox, textWidth, FONT } from '../controls/basic.js';
+import { textBox, textWidth, FONT, fontCss } from '../controls/basic.js';
+import { panel, titleBar, menuButton } from '../controls/skin.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -268,6 +269,164 @@ export function wrapLines(text, w) {
   return out;
 }
 
+// ---------------------------------------------------------------- the trunk's search (the owner: "modern, like EDOPro")
+// EDOPro's deck editor searches from one panel over its results list: a live text box (name and card text), the
+// category, attribute / type / level / ATK / DEF / limit filters and the sort, the hit count beside it. Here: the trunk's
+// header row becomes that search box and the category chips (the game's own card-frame colours), its icon row the hit
+// count and a Filters button opening the rest (the game's blue panel, the cards' own icon strips as chips). The
+// filtering is the engine's (CWindowTaskKabanList: applyCategory, then search() narrowing per criterion), so the
+// list, its drag and drop and the deck rules stay the game's: the panel hands the filter to the game (Module /
+// api.kabanFilter, the recomp's hook) and reads the hit count back from the snapshot.
+// Values are the strips' cells: attribute 0 Light .. 6 Divine; type 0 Dragon .. 20 Divine-Beast; spell / trap icon
+// 0 counter, 1 field, 2 equip, 3 continuous, 4 quick-play, 5 ritual, 6 normal; limit = copies allowed (0..3).
+// the category chips in the colours of the trunk's own "Rearrange" swatches (sampled from the engine's frame)
+const CATS = [['All', 6, '#d8d8d8'], ['Normal', 0, '#f4dd3f'], ['Effect', 1, '#ffa127'], ['Fusion', 5, '#ba17ef'],
+  ['Ritual', 4, '#2a98ff'], ['Spell', 2, '#31f15a'], ['Trap', 3, '#ff79c8']];
+const ATTRS = ['Light', 'Dark', 'Water', 'Fire', 'Earth', 'Wind', 'Divine'];
+const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Machine', 'Fish', 'Dinosaur', 'Insect', 'Beast',
+  'Beast-Warrior', 'Plant', 'Aqua', 'Warrior', 'Winged Beast', 'Fairy', 'Spellcaster', 'Thunder', 'Reptile', 'Divine-Beast'];
+const ICONS = ['Counter', 'Field', 'Equip', 'Continuous', 'Quick-Play', 'Ritual', 'Normal'];
+const LIMITS = [['Forbidden', 0], ['Limited', 1], ['Semi-limited', 2], ['Unlimited', 3]];
+const SORTS = [['Default', ''], ['Name', 'name'], ['ATK ↓', 'atk-'], ['ATK ↑', 'atk+'], ['DEF ↓', 'def-'], ['DEF ↑', 'def+']];
+export const emptyFilter = () => ({ cat: 6, text: '', attr: [], race: [], icon: [], level: [], limit: [], atk: [null, null], def: [null, null], sort: '' });
+// how many criteria beyond the category and the text (the Filters button's badge)
+export const filterCount = f => f.attr.length + f.race.length + f.icon.length + f.level.length + f.limit.length +
+  (f.atk[0] != null || f.atk[1] != null) + (f.def[0] != null || f.def[1] != null) + !!f.sort;
+const SEARCH_CSS = `
+.dk-search { position: absolute; pointer-events: auto; font: ${fontCss(14)} ; color: #000; }
+.dk-field { position: absolute; box-sizing: border-box; height: 22px; border: 1px solid #5b8fd0; border-radius: 2px;
+  background: linear-gradient(#e9f1fb, #fff 4px); box-shadow: inset 1px 1px 0 #b9cde8; padding: 0 20px 0 6px;
+  font: ${fontCss(14, 20)}; color: #000; outline: none; }
+.dk-field:focus { border-color: #2f6fd8; box-shadow: inset 1px 1px 0 #b9cde8, 0 0 0 1px #9fd0ff; }
+.dk-field::placeholder { color: #7a8796; }
+.dk-x { position: absolute; width: 16px; height: 16px; border: 0; padding: 0; background: none; color: #557; font: bold 13px/16px ${FONT}; }
+.dk-chip { position: absolute; box-sizing: border-box; height: 20px; padding: 0 3px; border: 1px solid #6a6a6a; border-radius: 3px;
+  font: ${fontCss(12, 18)}; color: #111; background: linear-gradient(#fff, var(--c) 70%); white-space: nowrap; }
+.dk-chip[aria-pressed=true] { border-color: #1a3fbf; box-shadow: 0 0 0 1px #fff, 0 0 0 2px #1a3fbf; }
+.dk-icon { position: relative; width: 20px; height: 20px; padding: 1px; border: 1px solid transparent; border-radius: 3px; background: none; }
+.dk-icon > i { display: block; width: 16px; height: 16px; background-repeat: no-repeat; image-rendering: auto; }
+.dk-icon[aria-pressed=true] { border-color: #1a3fbf; background: #fffbd0; }
+.dk-row { position: absolute; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.dk-lbl { position: absolute; left: 12px; color: #fff; font: ${fontCss(13, 16)}; text-shadow: 0 0 2px #035, 0 0 1px #035; }
+.dk-num { position: static; width: 52px; height: 20px; padding: 0 4px; }
+.dk-solid::before { opacity: 1 !important; }
+.dk-count { position: absolute; color: #fff; white-space: nowrap; font: ${fontCss(13, 20)}; text-shadow: 0 0 2px #000, 0 0 1px #000; }
+`;
+let searchCssDone = false;
+// the trunk's search panel in the Kaban window's root (x, y: the window's corner), kept between frames (its input
+// keeps focus and caret); f: the filter, apply(f) hands it to the game
+export function searchPanel(root, apply) {
+  if (!searchCssDone) {
+    searchCssDone = true;
+    const st = document.createElement('style');
+    st.textContent = SEARCH_CSS;
+    document.head.append(st);
+  }
+  const f = emptyFilter(), el = document.createElement('div');
+  el.className = 'dk-search';
+  root.append(el);
+  let timer = 0, popup = null;
+  const changed = (now = false) => { clearTimeout(timer); timer = setTimeout(() => apply(structuredClone(f)), now ? 0 : 150); render(); };
+  const btn = (parent, cls, text, x, y, on, click, w) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls;
+    b.textContent = text;
+    b.setAttribute('aria-pressed', on);
+    Object.assign(b.style, { left: x + 'px', top: y + 'px' }, w && { width: w + 'px' });
+    b.onclick = click;
+    parent.append(b);
+    return b;
+  };
+  // the header: the search box over the "Rearrange" row, the category chips and the count over the icon row, on the
+  // header's plate (#b0b0c3, sampled)
+  const plate = document.createElement('div');
+  Object.assign(plate.style, { position: 'absolute', left: '2px', top: '28px', width: '284px', height: '58px', background: '#b0b0c3' });
+  el.append(plate);
+  const input = document.createElement('input');
+  input.className = 'dk-field';
+  input.type = 'search';
+  input.placeholder = 'Search name or card text';
+  input.setAttribute('aria-label', 'Search the trunk');
+  Object.assign(input.style, { left: '8px', top: '31px', width: '192px' });
+  input.oninput = () => { f.text = input.value; changed(); };
+  el.append(input);
+  const clear = btn(el, 'dk-x', '×', 180, 34, false, () => { input.value = f.text = ''; changed(true); input.focus(); });
+  clear.setAttribute('aria-label', 'Clear the search');
+  const filters = menuButton(el, { x: 204, y: 30, w: 80, h: 24, label: 'Filters', state: null });
+  filters.onclick = () => { popup ? close() : open(); };
+  const chips = document.createElement('div'), count = document.createElement('div');
+  el.append(chips, count);
+  count.className = 'dk-count';
+  Object.assign(count.style, { left: '104px', top: '4px' });   // beside the "Trunk" title
+  function render() {
+    clear.hidden = !f.text;
+    const n = filterCount(f);
+    filters.set({ label: n ? `Filters (${n})` : 'Filters' });
+    chips.replaceChildren();
+    let x = 8;
+    for (const [name, v, c] of CATS) {
+      const b = btn(chips, 'dk-chip', name, x, 60, f.cat === v, () => { f.cat = v; changed(true); });
+      b.style.setProperty('--c', c);
+      x += Math.ceil(textWidth(name, 12)) + 8 + 2;
+    }
+    if (popup) fillPopup();
+  }
+  // the Filters popup (EDOPro's search panel): the game's blue panel and title bar over the list
+  // the game's panel is see-through (alpha 178); over a busy list the popup reads better opaque (dk-solid)
+  function open() { popup = panel(el, { x: 4, y: 88, w: 280, h: 420 }); popup.classList.add('dk-solid'); fillPopup(); }
+  function close() { popup?.remove(); popup = null; }
+  function fillPopup() {
+    popup.replaceChildren();
+    const bar = titleBar(popup, { x: 0, y: 0, w: 280, title: 'Card Search' });
+    bar.close.onclick = close;
+    let y = 28;
+    const section = (title, h) => { const l = document.createElement('div'); l.className = 'dk-lbl'; l.textContent = title; l.style.top = y + 'px'; popup.append(l); const r = document.createElement('div'); r.className = 'dk-row'; r.style.top = y + 16 + 'px'; popup.append(r); y += 16 + h + 6; return r; };
+    const toggle = (arr, v) => () => { const i = arr.indexOf(v); i < 0 ? arr.push(v) : arr.splice(i, 1); changed(true); };
+    const icons = (row, strip, names, arr) => names.forEach((n, i) => {
+      const b = btn(row, 'dk-icon', '', 0, 0, arr.includes(i), toggle(arr, i));
+      Object.assign(b.style, { position: 'relative', left: 0, top: 0 });
+      b.title = n; b.setAttribute('aria-label', n);
+      const ic = document.createElement('i');
+      ic.style.backgroundImage = `url(${base()}${strip})`;
+      ic.style.backgroundPosition = `${-16 * i}px 0`;
+      b.append(ic);
+    });
+    icons(section('Attribute', 20), 'icon_zokusei_01.png', ATTRS, f.attr);
+    icons(section('Type', 42), 'icon_syuzoku_01.png', RACES, f.race);
+    icons(section('Spell / Trap', 20), 'icon_mahouwana_01.png', ICONS, f.icon);
+    const lv = section('Level / Rank', 20);
+    for (let i = 1; i <= 12; i++) { const b = btn(lv, 'dk-chip', String(i), 0, 0, f.level.includes(i), toggle(f.level, i)); Object.assign(b.style, { position: 'relative', left: 0, top: 0, width: '19px', padding: 0, textAlign: 'center' }); b.style.setProperty('--c', '#e8e8e8'); }
+    const range = (title, key) => {
+      const r = section(title, 20);
+      [0, 1].forEach(k => {
+        const i = document.createElement('input');
+        i.className = 'dk-field dk-num';
+        i.inputMode = 'numeric';
+        i.placeholder = k ? 'max' : 'min';
+        i.setAttribute('aria-label', `${title} ${k ? 'at most' : 'at least'}`);
+        i.value = f[key][k] ?? '';
+        i.onchange = () => { const v = parseInt(i.value); f[key][k] = Number.isFinite(v) ? v : null; changed(true); };
+        r.append(i);
+        if (!k) { const d = document.createElement('span'); d.textContent = '–'; d.style.color = '#fff'; r.append(d); }
+      });
+    };
+    range('ATK', 'atk');
+    range('DEF', 'def');
+    const lim = section('Limit', 20);
+    for (const [n, v] of LIMITS) { const b = btn(lim, 'dk-chip', n, 0, 0, f.limit.includes(v), toggle(f.limit, v)); Object.assign(b.style, { position: 'relative', left: 0, top: 0 }); b.style.setProperty('--c', '#e8e8e8'); }
+    const so = section('Sort', 20);
+    for (const [n, v] of SORTS) { const b = btn(so, 'dk-chip', n, 0, 0, f.sort === v, () => { f.sort = v; changed(true); }); Object.assign(b.style, { position: 'relative', left: 0, top: 0 }); b.style.setProperty('--c', '#e8e8e8'); }
+    const reset = menuButton(popup, { x: 12, y: 420 - 34, w: 120, label: 'Clear filters', state: null });
+    reset.onclick = () => { Object.assign(f, emptyFilter(), { text: f.text }); changed(true); };
+    const done = menuButton(popup, { x: 148, y: 420 - 34, w: 120, label: 'Done', state: null });
+    done.onclick = close;
+  }
+  render();
+  // the hits; the engine's own count box beside it shows the total
+  return { el, setCount: (n, total) => { count.textContent = n == null ? '' : `${n} / ${total} shown`; } };
+}
+
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
 // 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
 function drawLabel(el, text, x, y, alpha, { align = 0, w = 0 } = {}) {
@@ -334,15 +493,20 @@ export default {
   parts: true,    // the controls' raw sprites / texts / swfs: most of the editor's art
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
   passthrough,
-  mount(win, root) {
+  mount(win, root, api) {
     const inner = document.createElement('div');
     inner.className = 'layer';
     root.append(inner);
-    return { inner };
+    // the trunk's search: the game's filter hook (the recomp's Module.yo2KabanFilter) when it has one
+    const search = win.cls === 'CWindowModelKaban'
+      ? searchPanel(root, f => (globalThis.Module?.yo2KabanFilter || api?.kabanFilter)?.(f)) : null;
+    return { inner, search };
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
     live.set(win.id, { win, root: st.inner, plan: plan(win), api });
+    const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
+    if (list) st.search.setCount(list.hits, list.total);
     draw(win.id, api);
   },
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the
