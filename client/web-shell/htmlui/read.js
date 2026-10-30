@@ -221,6 +221,9 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     // FindMenu's, ShopConfirm's. ponytail: a control shown for the first time this frame has no world z yet (0) and
     // sorts to the back for that one frame
     controls: byWin.get(w).reverse().sort(drawOrder),
+    // wz: how deep the engine draws the window, its frontmost drawn control's world z (0: none drawn yet); the
+    // factory's list is not the draw order (the deck's chat bar is listed after its panels and drawn under them)
+    wz: Math.max(0, ...byWin.get(w).filter(c => c.shown && c.wz > 0).map(c => c.wz)),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
     extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),

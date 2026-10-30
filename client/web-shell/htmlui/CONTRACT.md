@@ -20,7 +20,7 @@ Snapshot = {
   scene: 7,                // SceneId (src/System/yo2SceneManager.h: 7 player select, 9 change avatar, 10 My Room, 11 lobby, 0x1c duel ...)
   mouse: { x, y, l, r },   // game pixels (1024 x 768), buttons down
   focus: 0x51a2c0 | 0,     // the focused control's id
-  windows: [Window],       // BACK TO FRONT (draw order)
+  windows: [Window],       // the factory's order (back to front, roughly: for overlap use wz)
 }
 
 Window = {
@@ -28,6 +28,7 @@ Window = {
   cls: 'CWindowPlayerSelect',   // RTTI class name
   x, y, w, h,              // game pixels, top left (CWindowTaskModel +0x380..+0x38c)
   z,                       // factory order (smaller = in front)
+  wz,                      // how deep the engine draws it: its frontmost drawn control's world z (larger = in front; 0 = none drawn)
   alpha,                   // 0..1 (fade-ins)
   shown,                   // false while the game hides it (CElement disp_ / a hidden parent)
   modal, topmost, active,  // CWindowTaskModel +0x350, +0x35c, +0x351
