@@ -490,8 +490,8 @@ export function searchPanel(root, apply) {
     popup.style.height = y + 24 + 14 + 'px';
   }
   render();
-  // the hits; the engine's own count box beside it shows the total
-  return { el, setCount: (n, total) => { count.textContent = n == null ? '' : `${n} / ${total} shown`; } };
+  // the hits (the engine's own count box beside them is the deck's size)
+  return { el, setCount: n => { count.textContent = n == null ? '' : `${n} shown`; } };
 }
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
@@ -575,7 +575,7 @@ export default {
     root.setAttribute('aria-label', win.cls);
     live.set(win.id, { win, root: st.inner, plan: plan(win), api });
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
-    if (list) { st.list = list.id; st.search.setCount(list.hits, list.total); }
+    if (list) { st.list = list.id; st.search.setCount(list.hits); }
     draw(win.id, api);
   },
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the

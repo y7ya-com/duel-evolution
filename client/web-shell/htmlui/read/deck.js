@@ -36,9 +36,10 @@ export default h => {
       // DeckWindow.h:222-226: card 0x3a0, dragging 0x3a4, enabled 0x3ae; 50 x 72 at 0x388 (init 0x00946670)
       CWindowTaskDeckCard: c => ({ card: u32(c + 0x3a0), dragging: !!u8(c + 0x3a4), w: f32(c + 0x388), h: f32(c + 0x38c) }),
       // KabanWindowList.h:374-380: rowCount 0x418, category 0x434 (0 normal .. 6 all), top 0x438
-      // the cards in `all` (0x3f0) and `shown` (0x404, the filtered list: hits): SortItems {vtbl, vector<CSortBase 0x10>}
+      // hits: the cards in `shown` (0x404, the filtered list; SortItems {vtbl, vector<CSortBase 0x10>}). `all` (0x3f0)
+      // lists every card in the game, owned or not: no total from it
       CWindowTaskKabanList: c => ({ rowCount: i32(c + 0x418), category: i32(c + 0x434), top: i32(c + 0x438),
-        total: vec(c + 0x3f0 + 4, 0x10).length, hits: vec(c + 0x404 + 4, 0x10).length }),
+        hits: vec(c + 0x404 + 4, 0x10).length }),
       // KabanWindowList.h:301-306: card 0x4f8 (<= 0 empty), color 0x4fd (the frame sheet), 256 x 56 at 0x4e0
       CWindowTaskKabanListBtn: c => ({ card: i32(c + 0x4f8), color: u8(c + 0x4fd), w: f32(c + 0x4e0), h: f32(c + 0x4e4) }),
       // KabanWindow.h:310: the drag cursor's card 0x388
