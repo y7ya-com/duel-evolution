@@ -65,9 +65,11 @@ $(B)/cardwire.mjs: rt/cardwire_js.cpp rt/cardwire.cpp ../src/Net/md5.h | $(B)
 clock_test: $(B)/clock_test
 $(B)/clock_test: rt/clock_test.c rt/clock.c | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/clock_test.c rt/clock.c -o $@
-memmove_test: $(B)/memmove_test   # the recompiled CRT memmove vs libc on the real exe: build/memmove_test [yo2.exe]
+memmove_test: $(B)/memmove_test $(B)/memmove_ovr_test   # the recompiled CRT memmove vs libc on the real exe: build/memmove_test [yo2.exe]
 $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
 	$(CC) $(RT_CFLAGS) rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(B)/librc.a -o $@
+$(B)/memmove_ovr_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c ovr/memmove.c $(RT_HDRS) $(B)/librc.a
+	$(CC) $(RT_CFLAGS) rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c ovr/memmove.c $(B)/librc.a -o $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@

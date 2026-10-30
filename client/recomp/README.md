@@ -230,6 +230,9 @@ CD3DSpriteTrans's 0x588a50, ~20% of My Room) lock the one texel instead of mirro
 the text-page clear and decode.c's texture fill write every texel of their lock, so they pass D3DLOCK_DISCARD and the runtime skips copying the old texels into the guest's lock mirror (`RC_DISCARD=compare` poisons the mirror instead and logs any texel left unwritten at unlock); a read of a file the lookup did not find fails without its stat and open (`RC_PATHS=compare` opens anyway), and reads of
 the game folder keep their fd when closed for the next open of that path (merge.dat is reopened for every asset). `RC_ASTAR=compare` / `RC_MATH=compare` run original and override on every call
 and log any byte that differs.
+`ovr/memmove.c` runs the CRT memmove/memcpy (0xb09270, its twin 0xb12890) as libc's memmove: the recompiled copies
+dispatch through jump tables, and one slot the generator missed crashed an overlapping 20-31 byte copy (#13; cfg.py
+now recovers it); a count of 2 GB or more copies nothing, logged once (`make memmove_test`).
 Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it
 with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours; under
 ASan, Homebrew's sdl2-compat finds SDL3 only through the libSDL3.dylib link the build puts beside the binary).
