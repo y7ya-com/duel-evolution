@@ -113,6 +113,11 @@ for (const [a, x, y, z] of route.steps) {
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }
+// --on=A,B: those classes in HTML too, from here on (another screen's window over the route's: the chat over the deck)
+await b.ev('performance.setResourceTimingBufferSize(5000)');   // the boot's 250 would drop what follows
+for (const c of (opt('on') || '').split(',').filter(Boolean)) await b.ev(`window.yo2Html.toggle(${JSON.stringify(c)}, true)`);
+// what the page fetched at a URL ending in /undefined (a name never set), with what asked for it; printed on exit
+const undefinedFetches = () => b.ev(`performance.getEntriesByType('resource').filter(e => /\\/undefined($|[?#])/.test(e.name)).map(e => e.initiatorType + ' ' + e.name)`);
 await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
@@ -335,6 +340,7 @@ for (const cls of route.flip) {
   console.log(cls, JSON.stringify({ identical: r.identical, within2: r.within2, max: r.max, px: r.px }));
 }
 writeFileSync(path.join(out, `report@${dpr}x.json`), JSON.stringify(report, null, 1));
+console.log('undefined fetches:', JSON.stringify(await undefinedFetches()));
 writeFileSync(path.join(out, `full@${dpr}x.png`), await b.shot());
 if (!args.includes('--keep')) { b.close(); process.exit(0); }
 console.log('kept open: Ctrl-C to stop');
