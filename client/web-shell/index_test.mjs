@@ -24,4 +24,27 @@ assert.equal(q.get("gateway"), "wss://ygoevolution.com/net");
 assert.equal(q.get("server"), "127.0.0.1");
 assert.equal(q.get("online"), "1");
 assert.equal(q.has("log"), true);
+
+// a browser that can't run the game: the message, no redirect, and one report to /__crash with the reason and browser
+for (const [over, block, words] of [[{ crossOriginIsolated: false }, "shared-memory", "Firefox or a current Chrome"],
+                                    [{ gl: null }, "webgl2", "no WebGL 2"]]) {
+    const msg = { hidden: true }, posts = [];
+    let went = null;
+    const c = {
+        URLSearchParams, SharedArrayBuffer, crossOriginIsolated: true, navigator: { userAgent: "Mozilla/5.0 Chrome/109.0.0.0" },
+        fetch: (u, o) => (posts.push([u, JSON.parse(o.body)]), Promise.resolve()),
+        document: { createElement: () => ({ getContext: () => ("gl" in over ? over.gl : {}) }), getElementById: () => msg },
+        location: { search: "", pathname: "/", origin: "https://ygoevolution.com", protocol: "https:", host: "ygoevolution.com", replace: (u) => (went = u) },
+        ...over,
+    };
+    c.window = c;
+    vm.runInNewContext(script, c);
+    assert.equal(went, null);
+    assert.equal(msg.hidden, false);
+    assert.ok(msg.textContent.includes(words), msg.textContent);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0][0], "/__crash");
+    assert.equal(posts[0][1].why, "blocked: " + block);
+    assert.equal(posts[0][1].ua, "Mozilla/5.0 Chrome/109.0.0.0");
+}
 console.log("index.html: all checks pass");
