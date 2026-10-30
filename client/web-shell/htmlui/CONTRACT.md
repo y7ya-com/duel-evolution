@@ -133,6 +133,17 @@ controls/basic.js's `textBox(parent, s, { x, y, w, h, align, px, gap, color, whi
 (alpha only) unless the glyphs are white (`white: true`). ui.js's glyph `text()` stays for the pixel-exact login
 pages only. The flip test's text pixels differ from the engine's by design; the art around them stays exact.
 
+**Skin (owner's rule, 2026-10-30):** where the game's art is a simple gradient, border or bevel (buttons, title bars,
+panel frames, tabs, banners), it is CSS: gradients, borders and shadows in the original's sampled colours, with CSS
+hover / pressed states, so it is sharp at any DPR. Bitmap art only for real pictures (icons, avatars, card art,
+logos). Text stays Arial DOM text. The judgement is "looks the same, sharper", not pixel-identical. Shared
+components, so every screen looks alike: controls/skin.js `menuButton(parent, { x, y, w, h, label, state })` (the
+yellow menu button; `.set({ label, state })`), `titleBar(parent, { x, y, w, title, close })` (the blue title bar,
+`.close` its close box), `panel(parent, { x, y, w, h, band })` (the blue frame, translucent as the window draws it;
+`band` the bottom-thick grey band). `state` is the snapshot's (hover / pressed / disabled: pass mode) or null to
+follow the pointer (owned mode). Sample new pieces from the engine's own render (or the atlas texels) and add them to
+skin.js with their colours cited; skin.html lays them out for a side-by-side.
+
 **Buttons (owner's rule):** every button is a real `<button>`. Its look is the original art (the sprite frames, one
 per state: normal / hover / pressed / disabled / checked), its label real text (textBox) wherever the game draws the
 text apart from the art; text baked into the art stays in the image. Use controls/basic.js's button (or the same pattern) in every
