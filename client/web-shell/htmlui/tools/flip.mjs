@@ -75,33 +75,16 @@ export const ROUTES = {
     ['wheel', 500, 660, -160], ['wait', 800], ['shot', 'html-scrolled-up'],
     ['say', 636, 720, 'a new line while scrolled up'], ['wait', 1500], ['shot', 'html-new-while-up'],
     ['wheel', 500, 660, 4000], ['wait', 800], ['shot', 'html-back-bottom']], flip: [] },
-  // a duel (the Duel Log tab, ovr/duellog.c; the server's lines: PARITY_SRC=<a server with duel/duelText.ts>, whose red
-  // door's first room is Duelist Academy): A-lien in the Academy, walked to and clicked by the runtime (recomp README), its dialog, Start Duel, Rock, First to go
-  duel: { player: 'Duel Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
-    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
-    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 214, 10], ['wait', 10000], ['click', 511, 670], ['wait', 12000],
-    ['rc', 'walkto npc A-lien 1500'], ['rc', '+30:clicknpc A-lien'], ['rc', '+680:move 512 170'], ['rc', '+690:click 512 170'],
-    ['rc', '+840:click 512 170'], ['rc', '+1130:move 427 436'], ['rc', '+1140:click 427 436'], ['rc', '+1690:move 250 680'],
-    ['rc', '+1700:click 250 680'], ['rc', '+2480:move 512 290'], ['rc', '+2490:click 512 290'],
-    ['scene', 28, 240000], ['wait', 12000], ['shot', 'duel-engine']], flip: [] },
-  // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
-  // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
-  // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)
-  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile', [512, 562]], ['dmail', 552, 'CWindowModelDMail', [512, 621]],
-    ['ignore', 630, 'CWindowModelBlacklist', [512, 467]], ['friends', 656, 'CWindowModelFriendlist', [737, 467]],
-    ['teams', 682, 'CWindowModelTeamlist', [737, 467]]].map(([n, y, cls, close]) => ['sp-' + n, { player: 'Social Tester',
-    steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
-      ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['window', cls, 30000], ['wait', 2500],
-      ['shot', 'open-engine'], ['on', cls], ['wait', 1500], ['shot', 'open-html'],
-      ...(n === 'dmail' ? [['click', 322, 180], ['window', 'CWindowModelDMailSend', 20000], ['wait', 2500], ['shot', 'write-engine'],
-        ['on', 'CWindowModelDMailSend'], ['wait', 1500], ['shot', 'write-html'], ['type', 420, 208, 'Duel later?'],
-        ['type', 500, 300, 'Hi! Want to duel later tonight? My deck is finally ready, and I would like to test it against yours.'],
-        ['wait', 1500], ['shot', 'typed-html']] : [['click', ...close], ['wait', 2500], ['shot', 'closed-html']])],
-    flip: [] }])),
-  duelprobe: { player: 'Duel Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
-    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
-    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 214, 10], ['wait', 10000], ['shot', 'in'], ['click', 512, 671], ['wait', 8000],
-    ['shot', 'ok'], ['rc', 'walkto npc A-lien 1500'], ['wait', 30000], ['shot', 'walked'], ['window', 'NoSuchWindow', 1000]], flip: [] },
+  // a duel's Duel Log tab (ovr/duellog.c; the lines from a server with duel/duelText.ts and phase2-duel's dev NPC
+  // challenge: PARITY_SRC=<its server> STACK_VARS=DEV:1,NPC_CHALLENGE:2): a room (the red door's first), Create Duel on
+  // the bar's duel disk, the NPC's request accepted, Rock; in the duel the Duel Log tab, the engine's then HTML's
+  duel: { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
+    ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000],
+    ['leave', 504, 214, 10], ['wait', 10000], ['click', 512, 671], ['wait', 6000], ['shot', 'room'],
+    ['click', 125, 750], ['wait', 2000], ['click', 624, 420], ['wait', 2000], ['shot', 'create'], ['click', 385, 543], ['wait', 5000],
+    ['shot', 'request'], ['click', 504, 404], ['wait', 15000], ['shot', 'rps'], ['leave', 250, 680, 30], ['leave', 250, 680, 30], ['wait', 3000], ['click', 512, 290], ['scene', 28, 120000],
+    ['wait', 20000], ['click', 375, 620], ['wait', 3000], ['shot', 'duellog-engine'], ['on', 'CChatWindow'], ['wait', 2000],
+    ['shot', 'duellog-html']], flip: [] },
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
