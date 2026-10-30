@@ -1,5 +1,7 @@
-// The My Room doors: with a one-room server (YOLaucher's YO2_SINGLE_LOBBY) straight into that room, no pickers;
-// otherwise straight to the door's room list, in the language the server's rooms use (no language picker).
+// The My Room doors: straight into the door's room when the server announces only one kind of room behind it (one
+// world: blue Domino City, red Duelist Academy), or into the only room of a one-room server (YOLaucher's
+// YO2_SINGLE_LOBBY), with no pickers; otherwise (a tournament's CHAMPIONSHIP beside Domino City) straight to the door's
+// room list, in the language the server's rooms use (no language picker).
 #include "rc.h"
 #include "rt.h"
 
@@ -43,12 +45,34 @@ static uint32_t single_room(CPU *c) {
     return room;
 }
 
+// The door's room when every lobby of the gate list behind that door (blue 0xd: kinds 13 7 15 8, red 0xe: 14 1 9 16 17
+// 10 20, as FUN_0082e170 lists them) is of one kind: the first of them (the languages share one block on the server),
+// else 0. None behind the door: a one-room server's only lobby.
+static uint32_t door_room(CPU *c, uint32_t door) {
+    RC_LOCALS;
+    static const uint8_t blue[] = {13, 7, 15, 8}, red[] = {14, 1, 9, 16, 17, 10, 20};
+    const uint8_t *kinds = door == 0xd ? blue : red;
+    unsigned nk = door == 0xd ? sizeof blue : sizeof red;
+    uint32_t net = RD32(0x12711ac), gate = net ? RD32(net + 0xc64) : 0, room = 0;
+    if (!gate || RD8(gate + 0x548)) return 0;
+    for (uint32_t it = RD32(gate + 0x534 + 8), end = RD32(gate + 0x534 + 0xc); it != end; it += 8) {
+        uint32_t e = RD32(it + 4);
+        if (!e || RD32(e + 8) != 3) continue;
+        unsigned k = 0;
+        while (k < nk && kinds[k] != RD8(e + 0x33)) k++;
+        if (k == nk) continue;
+        if (!room) room = e;
+        else if (RD8(room + 0x33) != RD8(e + 0x33)) return 0;
+    }
+    return room ? room : single_room(c);
+}
+
 // 0x0082c9c0 CMyRoom2MapTask::open(door), thiscall, ret 4: a door (0xd blue, 0xe red) was walked through. The original
 // asks CConnectLobby (this+0xe0) for a fresh gate list and opens the language list; FUN_0082d750 then shows the
 // door's rooms (filtered by LV: only Beginners' Rooms at LV 0-1, "Room not available" at the blue door) and on a pick
 // sets +0x80 room no., +0x7c kind, +0x84, and +0x74 = 2, which My Room (FUN_00829b20) turns into GoToMap.
-// Here, when the list the client already holds has exactly one lobby, that pick happens at once, from either door. The
-// lobby connect (FUN_0069deb0 -> FUN_006abe10) looks the room up in that same list; no fresh one is needed.
+// Here, when the list the client already holds has one kind of lobby behind the door (door_room), that pick happens at
+// once. The lobby connect (FUN_0069deb0 -> FUN_006abe10) looks the room up in that same list; no fresh one is needed.
 void f_0082c9c0(CPU *c) {
     RC_LOCALS;
     uint32_t self = c->ecx, door = RD32(c->esp + 4), room;
@@ -57,7 +81,7 @@ void f_0082c9c0(CPU *c) {
     if (!call(c, f_00adaed0, 0x82c9cf)) return;
     if (c->eax & 0xff) {
         WR32(self + 0x7c, door);
-        if ((room = single_room(c))) {
+        if ((room = door_room(c, door))) {
             WR32(self + 0x78, RD8(room + 0x32));   // language
             WR32(self + 0x7c, RD8(room + 0x33));   // kind
             WR32(self + 0x80, RD8(room + 0x34));   // room no.
