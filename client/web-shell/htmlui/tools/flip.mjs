@@ -120,6 +120,8 @@ for (const cls of route.flip) {
   await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
   await sleep(600);
   const html = await b.shot(clip);
+  const hostStyle = await b.ev(`document.getElementById('htmlui-host')?.getAttribute('style')`);
+  if (/hidden/.test(hostStyle || '')) console.log('flip: the HTML layer is hidden:', hostStyle);
   writeFileSync(path.join(out, `${cls}-dom.html`), await b.ev(`document.getElementById('htmlui-host').outerHTML`));
   await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, false); window.yo2Html.isolate(null)`);
   // the owner's before/after: the same state over the real backdrop (not diffed)

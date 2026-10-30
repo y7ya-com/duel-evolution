@@ -6,7 +6,7 @@
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
-import { loadGlyphs, setDeviceScale } from '../ui.js';
+import { loadGlyphs } from '../ui.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -63,7 +63,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
-    for (const w of snap.windows) {
+    for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
@@ -80,7 +80,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
       }
       if (layer.children[seen.size - 1] !== e.root) layer.insertBefore(e.root, layer.children[seen.size - 1] || null);   // DOM order = draw order
       Object.assign(e.root.style, {
-        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
+        left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
@@ -99,15 +99,13 @@ export async function makeLayer(host, screens, art = 'ui/') {
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
   }
-  // everything drawn again (the device scale changed: sprites are placed for it): each window remounts next frame
-  function reset() { for (const id of [...live.keys()]) unmount(id); }
   function unmount(id) {
     const e = live.get(id);
     e.mod?.unmount?.(e.root, e.state);
     e.root.remove();
     live.delete(id);
   }
-  return { layer, render, reset };
+  return { layer, render };
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
@@ -128,12 +126,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const host = document.createElement('div');
   host.id = 'htmlui-host';
   document.body.append(host);
-  const { render, reset } = await makeLayer(host, screens);
-  let k = 0;
+  const { render } = await makeLayer(host, screens);
+  // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
+  // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
   const place = () => {
-    const r = canvas.getBoundingClientRect(), s = r.width / 1024, k2 = devicePixelRatio * s;
+    const r = canvas.getBoundingClientRect(), s = r.width / 1024;
     Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
-    if (Math.abs(k2 - k) > 1e-3) { k = k2; setDeviceScale(k); reset(); }   // device px per game px
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -197,8 +195,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
-    const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
-    wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
+    // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
+    const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
+    const owned = new Set(all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
@@ -217,7 +217,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     render(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
-    for (const w of snap.windows) {
+    for (const w of all) {
       const mod = screens.get(w.cls);
       if (!owned.has(w.id) || !mod?.passthrough) continue;
       for (const c of [...w.controls, ...w.extras]) {
