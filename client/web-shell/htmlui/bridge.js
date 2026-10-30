@@ -126,11 +126,15 @@ export async function makeLayer(host, screens, art = 'ui/') {
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
-// In front: drawn deeper (world z, larger is in front) when both are known, else later in the list. The hole is where
-// that window draws (its drawn box: its shown controls), never its nominal rect; a window that draws nothing cuts none.
+// In front: the larger window z (CWindowTaskModel z_ +0x34c: each window 50 above the one opened before it: the deck
+// editor's Kaban 51153 < Deck 51203 < chat 51303 < its Save list 51353 < the "saved" box 51553), then the frontmost
+// drawn control's world z, then the list's order. Not the controls' depth alone: one deep control (a trunk row's
+// parts, a dragged card) made a window look in front of a dialog over it. The hole is where that window draws (its
+// drawn box), never its nominal rect; a window that draws nothing cuts none.
 function holes(w, wins, owned) {
   const i = wins.indexOf(w);
-  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && (o.wz && w.wz ? o.wz > w.wz : j > i))
+  const ahead = (o, j) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !== w.wz ? o.wz > w.wz : j > i;
+  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j))
     .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
       o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
   return clip(front, w);

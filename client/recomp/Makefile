@@ -65,6 +65,9 @@ $(B)/cardwire.mjs: rt/cardwire_js.cpp rt/cardwire.cpp ../src/Net/md5.h | $(B)
 clock_test: $(B)/clock_test
 $(B)/clock_test: rt/clock_test.c rt/clock.c | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/clock_test.c rt/clock.c -o $@
+xstring_test: $(B)/xstring_test   # ovr/xstring.c on the real exe: build/xstring_test [yo2.exe]
+$(B)/xstring_test: rt/xstring_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c ovr/xstring.c $(RT_HDRS) $(B)/ovr_orig.o $(B)/librc.a
+	$(CC) $(RT_CFLAGS) rt/xstring_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c ovr/xstring.c $(B)/ovr_orig.o $(B)/librc.a -o $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@

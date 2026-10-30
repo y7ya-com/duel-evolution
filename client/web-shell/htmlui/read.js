@@ -192,6 +192,10 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // (a label's text box can be far bigger than its text: the 2008 login labels are 256 x 256)
   const box = w => {
     const r = rectF(w, 0x380);
+    // where the window really is: a drawn, unparked top-level control's world position less its local one (the deck
+    // scene's chat says y 608 but draws at 712: its rect is stale), else the rect
+    const o = byWin.get(w).find(c => !c.parent && c.shown && c.wz > 0 && Math.max(c.x, c.y, c.wx, c.wy) < 9999);
+    if (o) r.x = o.wx - o.x, r.y = o.wy - o.y;
     if (r.w > 0 && r.h > 0) return r;
     const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.w > 0 && c.h > 0), f = cs.find(c => /Frame/.test(c.cls));
     if (f) return { ...r, w: f.x + f.w, h: f.y + f.h };
