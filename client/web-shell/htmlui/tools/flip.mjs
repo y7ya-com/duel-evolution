@@ -21,7 +21,8 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
+// [action, ...] steps: click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
@@ -37,6 +38,15 @@ export const ROUTES = {
   // a player with a character (htmlui-select): LV text, Delete, the waist-up avatar's passthrough
   'select-player': { player: 'Duelist B', cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // the lobby's chat: Chat Tester's My Room, the red door held with the right button (its room menu), Lobby, the NPC
+  // popup's OK
+  chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
+    ['say', 636, 720, 'hello lobby'], ['say', 636, 720, 'a longer line to see how the log wraps a message that runs past the width of the chat window, then keeps going for a while'],
+    ['wait', 2000]], flip: ['CChatWindow'],
+    // the pointer on a tab, on the log, on the input line, then a tab held
+    cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
@@ -81,12 +91,19 @@ const until = async (what, ms, test) => {
   throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
 };
 const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
-const mouse = (type, [x, y]) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
+const mouse = (type, [x, y], button = 'left') => b.send('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mousePressed' ? (button === 'right' ? 2 : 1) : 0, clickCount: 1 });
 
 const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
 for (const [a, x, y, z] of route.steps) {
   if (a === 'wait') await sleep(x);
   if (a === 'click') await click(x, y);
+  if (a === 'say') {   // the chat line at x, y takes the text z and Enter, typed as key events (the game's own input)
+    await click(x, y);
+    for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
+    await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+    await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
+  }
+  if (a === 'rhold') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p, 'right'); await sleep(z); await mouse('mouseReleased', p, 'right'); await sleep(500); }
   if (a === 'leave') for (let i = 0; i < 4; i++) {
     await click(x, y);
     const t0 = Date.now();
@@ -96,7 +113,7 @@ for (const [a, x, y, z] of route.steps) {
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }
-await mouse('mouseMoved', [2, 2]);   // the pointer off the UI
+await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
 if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
   await sleep(1500);
