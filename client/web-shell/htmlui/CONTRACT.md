@@ -82,11 +82,12 @@ it from the engine (the hide table takes the task; the element walk reaches it).
 `shown` (windows, tasks, controls) is false when it or any ancestor has a CTask lock bit (+0x20): the game hides the
 shop that way, and a locked subtree is never drawn.
 
-`cursor: { id, shown, sprites: [Sprite + { wsx, wsy, col, add, mode }] } | null`: the game's mouse cursor (g_app's
-CMouseManager: the hand's CSwfEngine animations, data/common/m_cursor, down to their CSpriteElm leaves; `shown` per
-sprite = drawn this frame). The engine draws it on the canvas, under the DOM, so while any window is HTML the bridge draws it
-itself in a layer above every window and hides the engine's (the manager goes in the hide table). Screens never draw
-it and never set a CSS cursor: the host gets `cursor: none` while the game cursor is the DOM one.
+`cursor: { id, shown, mx, my, sprites: [Sprite + { wsx, wsy, col, add, mode }] } | null`: the game's mouse cursor
+(g_app's CMouseManager: the hand's CSwfEngine animations, data/common/m_cursor, down to their CSpriteElm leaves;
+`shown` per sprite = drawn this frame; mx, my: the mouse in game px). On every screen the bridge turns what the engine
+would draw into the browser's own cursor (cursor.js: a CSS cursor on every element, built per state at the device's
+size, exact to the engine's at 1x) and hides the engine's by that one element in the hide table. Screens never set a
+CSS cursor (html.yo2c * overrides them). Off: htmlui.json "cursor": false, ?HTML_CURSOR=0, yo2Html.cursor(false).
 
 **Read extensions:** `read/<group>.js` (owned by the screen session, like screens/<group>.js; the names are the
 SCREENS list in bridge.js) default-exports `h => ({ controls: { Cls: c => fields }, windows: { Cls: w => fields },

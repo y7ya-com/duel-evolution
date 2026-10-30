@@ -156,7 +156,8 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // (+0xd4), inheritColor4_ (+0x168) and inheritAddColor_ (+0x178), drawMode_ (+0x188) (src/System/yo2Element.h);
   // drawn: disp_ and not hiddenByParent_ on it and every element up to the manager
   const app = u32(APP), mgr = app && u32(app + 0xc4c);
-  const cursor = mgr && cls(mgr) === 'CMouseManager' ? { id: mgr, shown: vis(mgr) && !locked(mgr), sprites: [] } : null;
+  // mx, my: the mouse in game pixels (CApp's CMyMouseEx at +0x148: x_ +0x1c, y_ +0x20; src/System/yo2MouseTask.h)
+  const cursor = mgr && cls(mgr) === 'CMouseManager' ? { id: mgr, shown: vis(mgr) && !locked(mgr), mx: i32(app + 0x164), my: i32(app + 0x168), sprites: [] } : null;
   if (cursor) (function walk(t, d, on) {
     for (const k of children(t)) {
       const drawn = on && shown(k);

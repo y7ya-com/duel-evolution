@@ -2,11 +2,13 @@
 // tree (read.js), draw the windows it owns in a DOM layer over the canvas (screens/*.js, else controls/basic.js), and
 // tell the game not to draw them (the hide/pass tables htmlui.c reads in CElement::onMain).
 // Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
-// ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
+// ({"on": [...]}). The game cursor is the browser's own (cursor.js) on every screen unless htmlui.json has
+// "cursor": false or the page ?HTML_CURSOR=0 (then the engine draws it, under any HTML window). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
-import { loadGlyphs, loadSheet, sprite, artBase } from '../ui.js';
+import { loadGlyphs } from '../ui.js';
+import { cursorCss } from './cursor.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 const SLOTS = 63;
@@ -46,25 +48,7 @@ const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; hei
 #htmlui-host .native { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; }
 #htmlui-host button.btn { margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; }
 #htmlui-host .txt { position: absolute; }
-#htmlui-host.gc, #htmlui-host.gc * { cursor: none !important; }`;
-
-// The game cursor's art (snapshot.cursor's sprites: ui/mausuk_*.png), by file name. Every texture under the cursor
-// manager starts loading the first time it is seen (all its states are built up front), so a state is ready before
-// the game first shows it.
-const sheets = new Map();   // name -> sheet, once loaded (null while loading or missing)
-const sheetOf = tex => sheets.get(tex.slice(tex.lastIndexOf('/') + 1).toLowerCase());
-const drawn = s => s.shown && s.a > 0;
-// the bridge draws the cursor (and hides the engine's) only when every sprite showing is one it draws exactly: art
-// loaded, drawn linear and alpha-blended (BLEND 2, SWF_LINEAR 6)
-export function cursorDrawable(c) {
-  if (!c) return false;
-  for (const s of c.sprites) {
-    const n = s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
-    if (n && !sheets.has(n)) { sheets.set(n, null); loadSheet({ url: artBase() + n }).then(sh => sheets.set(n, sh), () => {}); }
-  }
-  const on = c.sprites.filter(drawn);
-  return on.length > 0 && on.every(s => sheetOf(s.tex) && (s.mode === 2 || s.mode === 6));
-}
+html.yo2c, html.yo2c * { cursor: var(--yo2-cursor) !important; }`;
 
 // The DOM side, shared by the game and mock.html: one root per owned window, back to front. art: the ui/ atlases
 // and glyphs (R2; never in git).
@@ -80,40 +64,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   layer.id = 'htmlui';
   host.append(layer);
   const live = new Map();   // window id -> { root, mod, state, json, prev }
-  // the game cursor, in front of every window: the canvas is under the DOM, so the engine's would be covered
-  const cur = document.createElement('div');
-  cur.className = 'layer';
-  host.append(cur);
-  const curEls = [], fx = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  Object.assign(fx.style, { position: 'absolute', width: 0, height: 0 });
-  host.append(fx);
-  // a sprite's colour (inheritColor4_ rgb: multiply) and add colour (inheritAddColor_: the white flash frames):
-  // out = texel x col + add, as the engine's shader, on unpremultiplied colour (an SVG colour matrix)
-  const tint = (col, add) => {
-    if (col.slice(0, 3).every(v => v === 1) && add.slice(0, 3).every(v => v === 0)) return '';
-    const id = 'htmlui-tint-' + [...col.slice(0, 3), ...add.slice(0, 3)].join('_').replace(/\./g, 'p');
-    if (!fx.getElementById(id)) fx.insertAdjacentHTML('beforeend', `<filter id="${id}" color-interpolation-filters="sRGB">
-      <feColorMatrix type="matrix" values="${col[0]} 0 0 0 ${add[0]} 0 ${col[1]} 0 0 ${add[1]} 0 0 ${col[2]} 0 ${add[2]} 0 0 0 1 0"/></filter>`);
-    return `url(#${id})`;
-  };
-  function drawCursor(c) {   // c: snapshot.cursor, or null (the engine draws it)
-    const sps = c?.shown ? c.sprites.filter(s => drawn(s) && sheetOf(s.tex)).sort((a, b) => a.wz - b.wz) : [];   // back to front
-    host.classList.toggle('gc', !!c?.shown);   // the game's cursor is the cursor: no system one over owned DOM
-    while (curEls.length > sps.length) curEls.pop().remove();
-    sps.forEach((s, i) => {
-      const [sx, sy, sw, sh] = s.src, w = sw * s.wsx, h = sh * s.wsy, k = [s.tex, sw, sh, w, h].join();
-      if (curEls[i]?.k !== k) {
-        curEls[i]?.remove();
-        curEls[i] = Object.assign(sprite(cur, sheetOf(s.tex), sx, sy, sw, sh, 0, 0, w, h), { k });
-        if (i < curEls.length - 1) cur.insertBefore(curEls[i], curEls[i + 1]);
-      }
-      const e = curEls[i];
-      if (e.at !== sx + ',' + sy) { e.src(sx, sy); e.at = sx + ',' + sy; }
-      Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', opacity: s.a === 1 ? '' : s.a, filter: tint(s.col, s.add) });
-    });
-  }
-  function render(snap, owned, api, cursor = null) {
-    drawCursor(cursor);
+  function render(snap, owned, api) {
     const seen = new Set();
     for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
       if (!owned.has(w.id)) continue;
@@ -173,6 +124,7 @@ function holes(w, wins, owned) {
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, defaults.on || []);
+  let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
   const forced = new Map();   // yo2Html.toggle overrides
   const screens = await loadScreens();
   const host = document.createElement('div');
@@ -181,8 +133,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const { render } = await makeLayer(host, screens);
   // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
   // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
+  let stageScale = 1;
   const place = () => {
-    const r = canvas.getBoundingClientRect(), s = r.width / 1024;
+    const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
     Object.assign(host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
@@ -237,6 +190,13 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     }
     H[t + QBASE] = n;
   }
+  let cursorNow = null;
+  const setCursor = v => {   // the CSS cursor on every element (html.yo2c *), or none of ours (null)
+    if (v === cursorNow) return;
+    cursorNow = v;
+    document.documentElement.classList.toggle('yo2c', v !== null);
+    if (v !== null) document.documentElement.style.setProperty('--yo2-cursor', v);
+  };
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
   Module.onYo2Frame = (tables, heap) => {
@@ -262,16 +222,18 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       extraHide.push(r);
       if (!owned.has(iso.id)) extraPass.push(iso.id);
     }
-    // the cursor: while any window is HTML, the DOM draws it (above them) and the engine does not. The table takes
-    // effect at the next frame, so the DOM one also shows the frame after (the engine's is still hidden in it)
-    const curOn = owned.size > 0 && cursorDrawable(snap.cursor);
-    if (iso && !curOn && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps the cursor: it is under test too
-    const t = tables >>> 2, H = H32, ids = [...(curOn ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
+    // the cursor (cursor.js): the browser draws it as a CSS cursor, the engine's (that one CMouseManager element) is
+    // hidden. The table takes effect at the next frame, so when the CSS one stops it stays up one more frame (the
+    // engine's is still hidden in it): never a frame without a cursor
+    const css = cursorOn ? cursorCss(snap.cursor, 'ui/', stageScale, devicePixelRatio) : null;
+    if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
+    curHid = css !== null;
+    if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
-    render(snap, owned, api, curOn || curHid ? snap.cursor : null);
-    curHid = curOn;
+    render(snap, owned, api);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
@@ -292,5 +254,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
     set(spec2) { on = switches(spec2, defaults.on || []); forced.clear(); },
     isolate(cls) { isolate = cls || null; },   // the flip test: only this window drawn (engine or DOM), on an empty canvas
+    cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
+    cursorCss: () => cursorNow,
   };
 }

@@ -17,19 +17,14 @@ export async function loadGlyphs(base = A) {
   for (const s of Object.values(SHEET)) s.url = s.url.replace(A, base);
   A = base;
   G = await (await fetch(A + 'glyphs-dejavu16.json')).json();
-  await Promise.all(Object.values(SHEET).map(loadSheet));
-}
-// a sheet { url } (under the base) ready for sprite(): its clamp atlas's alpha, and w / h when not given
-export async function loadSheet(s) {
   const img = u => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = u; });
-  const clamp = s.url.replace(A, A + 'clamp/'), [m] = await Promise.all([img(clamp), img(clamp.replace('.png', '.rgb.png'))]);
-  const c = new OffscreenCanvas(m.width, m.height).getContext('2d');
-  c.drawImage(m, 0, 0);
-  s.alpha = c.getImageData(0, 0, m.width, m.height).data.filter((_, i) => i % 4 === 3);   // exact: alpha is stored as is
-  s.w ??= m.width - 1; s.h ??= m.height - 1;
-  return s;
+  await Promise.all(Object.values(SHEET).map(async s => {
+    const clamp = s.url.replace(A, A + 'clamp/'), [m] = await Promise.all([img(clamp), img(clamp.replace('.png', '.rgb.png'))]);
+    const c = new OffscreenCanvas(m.width, m.height).getContext('2d');
+    c.drawImage(m, 0, 0);
+    s.alpha = c.getImageData(0, 0, m.width, m.height).data.filter((_, i) => i % 4 === 3);   // exact: alpha is stored as is
+  }));
 }
-export const artBase = () => A;
 const glyph = (ch, F = G) => F.glyphs[ch.charCodeAt(0)] || F.glyphs[63];   // '?' for anything the atlas lacks
 export const advance = (ch, F) => glyph(ch, F).adv + 1;                     // the game's cell: gmCellIncX + 1
 export const measure = (s, F) => [...s].reduce((w, ch) => w + advance(ch, F), 0);

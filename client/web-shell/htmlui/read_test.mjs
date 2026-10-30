@@ -61,9 +61,10 @@ assert.equal(read(dv).windows[0].controls[0].state, 'disabled');
 // manager shows
 assert.equal(read(dv).cursor, null);
 const app = alloc(0xc50), mgr = elem('CMouseManager', 0x348), swfE = elem('CSwfEngine', 0x460), hand = elem('CSpriteElm', 0x5088);
-w32(APP, app); w32(app + 0xc4c, mgr); list(mgr + 0x0c, [swfE]); list(swfE + 0x0c, [hand]);
+w32(APP, app); w32(app + 0xc4c, mgr); dv.setInt32(app + 0x164, 868, true); dv.setInt32(app + 0x168, 508, true); list(mgr + 0x0c, [swfE]); list(swfE + 0x0c, [hand]);
 str(hand + 0x358, 'data/common/m_cursor/mausuk_n01_c01.png'); wf(hand + 0xc8, 852); wf(hand + 0xd4, 1); wf(hand + 0x168 + 12, 1); dv.setInt32(hand + 0x188, 6, true);
 let cur = read(dv).cursor;
+assert.deepEqual([cur.mx, cur.my], [868, 508]);
 assert.deepEqual([cur.id, cur.shown, cur.sprites.length, cur.sprites[0].tex, cur.sprites[0].wx, cur.sprites[0].shown, cur.sprites[0].mode],
   [mgr, true, 1, 'data/common/m_cursor/mausuk_n01_c01.png', 852, true, 6]);
 w8(swfE + 0xc4, 0);   // its animation hidden: the sprite is not drawn
