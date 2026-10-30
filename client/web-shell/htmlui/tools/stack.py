@@ -22,15 +22,20 @@ import time
 import urllib.request
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+# FLIP_SLOT=N (0-3): one of several stacks side by side (flip.mjs --slot): its own port 8800+10N, bridge control port
+# 7020+N and local game ports (bridge.mjs listens on ~150 ports above its offset: 4600+200N)
+SLOT = int(os.environ.get("FLIP_SLOT", "-1"))
+if SLOT >= 0:
+    os.environ["PARITY_CTL_PORT"] = str(7020 + SLOT)
 os.environ.setdefault("PARITY_CTL_PORT", "7019")   # the bridge's control port: predeploy / parity runs hold 6999
 sys.path.insert(0, os.path.join(ROOT, "server", "parity"))
 import run as R  # noqa: E402
 
 ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 OPT = {k: v for k, v in zip(sys.argv[1:], sys.argv[2:]) if k.startswith("--")}
-PORT = int(ARGS[0]) if ARGS else 8799
+PORT = int(ARGS[0]) if ARGS else 8800 + 10 * SLOT if SLOT >= 0 else 8799
 PLAYER, DECK = OPT.get("--player"), int(OPT.get("--deck", 8001))
-LOCAL_OFFSET = 4400   # bridge.mjs's local ports (5730 + offset ...): predeploy uses 4300
+LOCAL_OFFSET = 4600 + 200 * SLOT if SLOT >= 0 else 4400   # bridge.mjs's local ports (5730 + offset ...): predeploy uses 4300
 ORIGIN = f"http://127.0.0.1:{PORT}"
 SECRET = secrets.token_urlsafe(36)
 D = os.path.join(R.OUT, f"htmlui-{PORT}")

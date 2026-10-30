@@ -7,14 +7,18 @@
 //    skipped. Nothing else changes (disp_, hit tests, the factory's message routing), so the game runs exactly as
 //    before and input still reaches its controls. An element under a pass entry (nearer than the hidden window) is
 //    drawn anyway: engine content inside an HTML window (the waist-up avatar, card art, Flash).
-// 2. Module.onYo2Frame?.(tables, HEAPU8) at every Present, on the game's thread, after the frame is shown: the bridge reads
-//    the tree and updates the DOM there. tables: the address of HtmlUiTables below, which the bridge writes.
+// 2. Module.onYo2Frame?.(tables, HEAPU8, SLOTS) at every Present, on the game's thread, after the frame is shown: the
+//    bridge reads the tree and updates the DOM there. tables: the address of HtmlUiTables below, which the bridge
+//    writes. Its first word is SLOTS, set here before the call: a bridge that writes another layout (an older one,
+//    63 slots, no third argument) overwrites it, and the tables are then ignored (the engine draws everything). The
+//    tables become a hash set once per frame, so a lookup costs the same with 1 entry or 255.
 // 3. Owned-mode input the bridge queued (keys, characters, a control's text) is played into the game first, on the
 //    same thread: a Win32 message through CWindowTaskFactory::dispatch (0x5e2700: keys and WM_CHAR go to the focused
 //    control, as the game's own WndProc sends them), or a control's setText (vtable slot 17, +0x44: a wide string).
 //    Mouse input is not queued: the bridge sends real canvas events at the control, as a player's mouse would.
 //
 // With an empty hide table (native builds, ?HTML_UI=0) onMain costs one load and a compare.
+#include <string.h>
 #include "rt.h"
 #include "win.h"
 #ifdef __EMSCRIPTEN__
@@ -24,9 +28,10 @@
 
 void o_0060f9e0(CPU *restrict c);
 
-enum { SLOTS = 63, DEPTH = 32, QUEUE = 32, TEXT = 1024 };
+enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 1024 };
 enum { Q_DISPATCH = 1, Q_SETTEXT = 2 };
 struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the address onYo2Frame gets)
+    uint32_t slots;                // SLOTS, set before every call: the layout's check (see 2. above)
     uint32_t nhide, hide[SLOTS];   // windows the DOM draws (CWindowTaskModel addresses)
     uint32_t npass, pass[SLOTS];   // elements under them the engine keeps drawing
     uint32_t nq;                   // queued input, played at the next Present, then nq = 0
@@ -35,18 +40,36 @@ struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the ad
 };
 static struct HtmlUiTables tab;
 
-static int in(const uint32_t *v, uint32_t n, uint32_t a) {
-    for (uint32_t i = 0; i < n; i++)
-        if (v[i] == a) return 1;
+// the tables as one hash set (open addressing, HASH > 2 * SLOTS): address -> 1 hide | 2 pass
+static uint32_t hkey[HASH];
+static uint8_t hkind[HASH];
+static uint32_t slot_of(uint32_t a) { return ((a >> 2) * 2654435761u) >> (32 - 10); }   // HASH = 1 << 10
+static void put(uint32_t a, uint8_t k) {
+    if (!a) return;
+    uint32_t i = slot_of(a);
+    while (hkey[i] && hkey[i] != a) i = (i + 1) & (HASH - 1);
+    hkey[i] = a;
+    hkind[i] |= k;
+}
+static uint8_t kind(uint32_t a) {
+    for (uint32_t i = slot_of(a); hkey[i]; i = (i + 1) & (HASH - 1))
+        if (hkey[i] == a) return hkind[i];
     return 0;
 }
-
-// the nearest listed ancestor (the element included) decides; CTask::parent_ is +0x08
-static int suppressed(const uint8_t *m, uint32_t el) {
+static void build(void) {
+    memset(hkey, 0, sizeof hkey);
+    memset(hkind, 0, sizeof hkind);
     uint32_t nh = tab.nhide < SLOTS ? tab.nhide : SLOTS, np = tab.npass < SLOTS ? tab.npass : SLOTS;
+    for (uint32_t i = 0; i < nh; i++) put(tab.hide[i], 1);
+    for (uint32_t i = 0; i < np; i++) put(tab.pass[i], 2);
+}
+
+// the nearest listed ancestor (the element included) decides, a pass over a hide; CTask::parent_ is +0x08
+static int suppressed(const uint8_t *m, uint32_t el) {
     for (int d = 0; el && d < DEPTH; d++, el = RD32(el + 8)) {
-        if (in(tab.pass, np, el)) return 0;
-        if (in(tab.hide, nh, el)) return 1;
+        uint8_t k = kind(el);
+        if (k & 2) return 0;
+        if (k & 1) return 1;
     }
     return 0;
 }
@@ -86,7 +109,11 @@ static void play(CPU *c) {
 void rc_htmlui_frame(CPU *c) {
     if (tab.nq) play(c);
 #ifdef __EMSCRIPTEN__
-    if (emscripten_is_main_runtime_thread())
-        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0, HEAPU8); }, &tab);   // HEAPU8: not on Module in every build
+    if (emscripten_is_main_runtime_thread()) {
+        tab.slots = SLOTS;
+        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0, HEAPU8, $1); }, &tab, SLOTS);   // HEAPU8: not on Module in every build
+        if (tab.slots != SLOTS) tab.nhide = tab.npass = tab.nq = 0;   // another layout: ignored
+        build();
+    }
 #endif
 }

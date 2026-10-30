@@ -2,7 +2,7 @@
 // (CWindowTaskTextSwitch -> caption CWindowTaskShadowText -> CWindowTaskText -> CTextElm "Back") and a waist-up
 // avatar child that is not a control.   node client/web-shell/htmlui/read_test.mjs
 import assert from 'node:assert/strict';
-import { read, FACTORY, APP } from './read.js';
+import { read, FACTORY, APP, SCENE_MNG } from './read.js';
 import VT from './vtables.js';
 
 const vt = (cls, off = 0) => +Object.keys(VT).find(k => VT[k][0] === cls && VT[k][1] === off);
@@ -71,4 +71,8 @@ w8(swfE + 0xc4, 0);   // its animation hidden: the sprite is not drawn
 assert.equal(read(dv).cursor.sprites[0].shown, false);
 w32(FACTORY, 0);
 assert.deepEqual(read(dv).windows, []);
+// the scene: the game's CSceneMng when there is one (a late bridge missed the event), else the event's
+assert.equal(read(dv, 0, 7).scene, 7);
+const sm = alloc(0x80); w32(SCENE_MNG, sm); dv.setInt32(sm + 0x7c, 4, true);
+assert.equal(read(dv, 0, 0).scene, 4);
 console.log('read_test: ok');

@@ -21,10 +21,13 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
+// [action, ...] steps: click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
+  // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
+  signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
   // past Select Player (--uicheck): the character picker (Create Player on the empty row 1), My Room (the test
   // character's row: into the game)
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
@@ -33,8 +36,21 @@ export const ROUTES = {
   select: { cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
   // a player with a character (htmlui-select): LV text, Delete, the waist-up avatar's passthrough
-  'select-player': { player: 'Duelist B', cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 384], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
+  'select-player': { player: 'Duelist B', cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  // the lobby's chat: Chat Tester's My Room, the red door held with the right button (its room menu), Lobby, the NPC
+  // popup's OK
+  chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
+    ['say', 636, 720, 'hello lobby'], ['say', 636, 720, 'a longer line to see how the log wraps a message that runs past the width of the chat window, then keeps going for a while'],
+    ['wait', 2000]], flip: ['CChatWindow'],
+    // the pointer on a tab, on the log, on the input line, then a tab held
+    cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
+  // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
+  deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
+    ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
 };
 
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -42,23 +58,28 @@ const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
-const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || 8942);   // GAME_PORT: beside another session's run
+// --slot=N / FLIP_SLOT=N (0-3): one of several flips side by side, each with its own ports: stack.py 8800+10N (and its
+// bridge, see stack.py), game.mjs 8801+10N, the browser's DevTools 9440+N. Without a slot: 8799 / 8942 / pid-based.
+const SLOT = opt('slot') ?? process.env.FLIP_SLOT;
+const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || (SLOT != null ? 8801 + 10 * SLOT : 8942));
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
-  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), '8799', ...(route.player ? ['--player', route.player] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
+  const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : [])],
+    { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...(SLOT != null && { FLIP_SLOT: String(SLOT) }) } });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
   ({ origin, cookie } = JSON.parse(line));
 }
+if (route.signedOut) cookie = '';   // the sign-in panel shows only to a signed-out player
 kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie,
   ...(opt('ship') && { SHIP: path.resolve(opt('ship')) }), ...(opt('htmlui') && { HTMLUI: opt('htmlui') }) }, stdio: 'inherit' }));
 await sleep(500);
 
-const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }) });
+const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }) });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 const q = args.includes('--nocursor') ? 'HTML_CURSOR=0' : '';   // --nocursor: the engine's cursor
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
@@ -70,12 +91,19 @@ const until = async (what, ms, test) => {
   throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
 };
 const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
-const mouse = (type, [x, y]) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
+const mouse = (type, [x, y], button = 'left') => b.send('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mousePressed' ? (button === 'right' ? 2 : 1) : 0, clickCount: 1 });
 
 const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
 for (const [a, x, y, z] of route.steps) {
   if (a === 'wait') await sleep(x);
   if (a === 'click') await click(x, y);
+  if (a === 'say') {   // the chat line at x, y takes the text z and Enter, typed as key events (the game's own input)
+    await click(x, y);
+    for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
+    await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+    await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
+  }
+  if (a === 'rhold') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p, 'right'); await sleep(z); await mouse('mouseReleased', p, 'right'); await sleep(500); }
   if (a === 'leave') for (let i = 0; i < 4; i++) {
     await click(x, y);
     const t0 = Date.now();
@@ -85,31 +113,8 @@ for (const [a, x, y, z] of route.steps) {
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }
-await mouse('mouseMoved', [2, 2]);   // the pointer off the UI
+await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
-if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
-  await sleep(1500);
-  const tag = `${phone ? 'phone' : 'desktop'}-${opt('htmlui') || 'off'}`;
-  writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
-  const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
-  const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
-  // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
-  const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
-  // the bridge's own cost per frame (the whole Module.onYo2Frame: read, cursor, tables), over 3 s
-  const frameMs = await b.ev(`(async () => {
-    const f = Module.onYo2Frame, ts = [];
-    Module.onYo2Frame = (a, h) => { const t = performance.now(); f(a, h); ts.push(performance.now() - t); };
-    await new Promise(r => setTimeout(r, 3000));
-    Module.onYo2Frame = f;
-    ts.sort((a, b) => a - b);
-    return { n: ts.length, median: +ts[ts.length >> 1]?.toFixed(3), p99: +ts[Math.floor(ts.length * 0.99)]?.toFixed(3), max: +ts[ts.length - 1]?.toFixed(3) };
-  })()`);
-  const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
-  const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
-  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
-  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), errors: errors.length }));
-  b.close(); process.exit(0);
-}
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
 // within 2, red more)
 const DIFF = `async (a, b, w, h) => {
@@ -128,6 +133,39 @@ const DIFF = `async (a, b, w, h) => {
   const n = A.length / 4;
   return { identical: +(100 * same / n).toFixed(2), within2: +(100 * near / n).toFixed(2), max, px: n - same, heat: btoa(s) };
 }`;
+if (boot) {   // the shipped page through the route: what it shows and what the bridge owns, no flip
+  await sleep(1500);
+  const tag = `${phone ? 'phone' : 'desktop'}-${opt('htmlui') || 'off'}`;
+  writeFileSync(path.join(out, `boot-${tag}.png`), await b.shot());
+  // --moving=x,y,w,h (game px): is that region animating? two captures 0.7 s apart, the pixels that changed
+  let moving;
+  if (opt('moving')) {
+    const [mx, my, mw, mh] = opt('moving').split(',').map(Number), [cx, cy] = await toClient(mx, my), [cx1, cy1] = await toClient(mx + mw, my + mh);
+    const clip = { x: cx, y: cy, width: cx1 - cx, height: cy1 - cy }, a1 = await b.shot(clip);
+    await sleep(700);
+    const a2 = await b.shot(clip);
+    writeFileSync(path.join(out, 'moving-a.png'), a1); writeFileSync(path.join(out, 'moving-b.png'), a2);
+    moving = (await b.ev(`(${DIFF})('data:image/png;base64,${a1.toString('base64')}', 'data:image/png;base64,${a2.toString('base64')}', ${Math.round(clip.width * dpr)}, ${Math.round(clip.height * dpr)})`)).px;
+  }
+  const s = await snap(), wins = await b.ev(`[...document.querySelectorAll('#htmlui-host .win')].length`);
+  const cursor = (await b.ev(`getComputedStyle(document.getElementById('canvas')).cursor`)).replace(/base64,[^"]+/, 'base64,...');
+  // what the page fetched for the HTML UI (atlases, glyphs, screen modules: none with htmlui.json off) and its long tasks
+  const loads = await b.ev(`performance.getEntriesByType('resource').map(e => e.name).filter(n => /\\/(ui\\/(clamp\\/|glyphs)|htmlui\\/(screens|read)\\/)/.test(n)).length`);
+  // the bridge's own cost per frame (the whole Module.onYo2Frame: read, cursor, tables), over 3 s
+  const frameMs = await b.ev(`(async () => {
+    const f = Module.onYo2Frame, ts = [];
+    Module.onYo2Frame = (a, h) => { const t = performance.now(); f(a, h); ts.push(performance.now() - t); };
+    await new Promise(r => setTimeout(r, 3000));
+    Module.onYo2Frame = f;
+    ts.sort((a, b) => a - b);
+    return { n: ts.length, median: +ts[ts.length >> 1]?.toFixed(3), p99: +ts[Math.floor(ts.length * 0.99)]?.toFixed(3), max: +ts[ts.length - 1]?.toFixed(3) };
+  })()`);
+  const longTasks = await b.ev(`new Promise(ok => new PerformanceObserver((l, o) => { o.disconnect(); ok(l.getEntries().map(e => Math.round(e.duration)).sort((a, b) => b - a).slice(0, 6)); }).observe({ type: 'longtask', buffered: true }))`);
+  const errors = b.logs.filter(l => /^(error|exception)/.test(l) || /htmlui/.test(l));
+  writeFileSync(path.join(out, `boot-${tag}.json`), JSON.stringify({ scene: s?.scene, windows: s?.windows.map(w => w.cls), htmlWindows: wins, cursor, htmluiLoads: loads, longTasks, frameMs, errors }, null, 1));
+  console.log(tag, JSON.stringify({ scene: s?.scene, htmlWindows: wins, htmluiLoads: loads, longTasks, frameMs, cursor: cursor.slice(0, 24), moving, errors: errors.length }));
+  b.close(); process.exit(0);
+}
 const report = {};
 // --cursor: the CSS cursor (cursor.js) against the engine's, per pose. A headless capture never shows the OS cursor,
 // so: the engine's cursor captured (yo2Html.cursor(false)), then the CSS one's image and hotspot read back from the

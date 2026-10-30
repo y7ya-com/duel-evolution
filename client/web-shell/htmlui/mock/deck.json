@@ -1,0 +1,728 @@
+{
+ "v": 1,
+ "frame": 4600,
+ "scene": 36,
+ "_note": "MOCK (hand-made from htmlui-deck-fields.md; ids and some positions made up): the deck bar, three counters, one main-grid card with a limit icon, one trunk row",
+ "mouse": null,
+ "focus": 0,
+ "windows": [
+  {
+   "id": 6291456,
+   "cls": "CWindowModelDeck",
+   "x": 248,
+   "y": 0,
+   "w": 488,
+   "h": 712,
+   "ex": 0,
+   "ey": 0,
+   "z": 0,
+   "alpha": 1,
+   "shown": true,
+   "modal": false,
+   "topmost": false,
+   "active": true,
+   "extras": [],
+   "controls": [
+    {
+     "id": 7365632,
+     "cls": "CWindowTaskDeckBar",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 0,
+     "h": 0,
+     "z": 26,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7341056,
+        "name": "",
+        "tex": "data/deck/deckbar_01_c02.png",
+        "src": [
+         0,
+         0,
+         8,
+         88
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 26,
+        "wx": 248,
+        "wy": 0,
+        "wz": 26,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7342080,
+        "name": "",
+        "tex": "data/deck/deckbar_01_c02.png",
+        "src": [
+         8,
+         0,
+         8,
+         88
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 26,
+        "wx": 256,
+        "wy": 0,
+        "wz": 26,
+        "sx": 59,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7343104,
+        "name": "",
+        "tex": "data/deck/deckbar_01_c02.png",
+        "src": [
+         16,
+         0,
+         8,
+         88
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 26,
+        "wx": 728,
+        "wy": 0,
+        "wz": 26,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7344128,
+        "name": "",
+        "tex": "data/deck/deck_moji_01_?.png",
+        "src": [
+         0,
+         0,
+         160,
+         28
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 27,
+        "wx": 256,
+        "wy": 0,
+        "wz": 27,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7366656,
+     "cls": "CWindowTaskDeckNumber",
+     "name": "",
+     "parent": 0,
+     "x": 248,
+     "y": 29,
+     "w": 0,
+     "h": 0,
+     "z": 27,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7345152,
+        "name": "",
+        "tex": "data/deck/deck_cardcount_01_?.png",
+        "src": [
+         0,
+         0,
+         34,
+         25
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 27,
+        "wx": 402,
+        "wy": 60,
+        "wz": 27,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7346176,
+        "name": "",
+        "tex": "data/deck/deck_cardcount_01_?.png",
+        "src": [
+         34,
+         0,
+         34,
+         25
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 27,
+        "wx": 480,
+        "wy": 29,
+        "wz": 27,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7347200,
+        "name": "",
+        "tex": "data/deck/deck_cardcount_01_?.png",
+        "src": [
+         68,
+         0,
+         34,
+         25
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 27,
+        "wx": 520,
+        "wy": 29,
+        "wz": 27,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [
+       {
+        "id": 7348224,
+        "name": "",
+        "text": "@942",
+        "x": 0,
+        "y": 0,
+        "z": 28,
+        "wx": 411,
+        "wy": 64,
+        "wz": 28,
+        "shown": true
+       },
+       {
+        "id": 7349248,
+        "name": "",
+        "text": "@06",
+        "x": 0,
+        "y": 0,
+        "z": 28,
+        "wx": 497,
+        "wy": 33,
+        "wz": 28,
+        "shown": true
+       },
+       {
+        "id": 7350272,
+        "name": "",
+        "text": "@03",
+        "x": 0,
+        "y": 0,
+        "z": 28,
+        "wx": 537,
+        "wy": 33,
+        "wz": 28,
+        "shown": true
+       }
+      ],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7367680,
+     "cls": "CWindowTaskDeckCard",
+     "name": "",
+     "parent": 0,
+     "x": 262,
+     "y": 96,
+     "w": 50,
+     "h": 72,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "card": 4007,
+     "dragging": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7351296,
+        "name": "",
+        "tex": "data/MINI/4007.png",
+        "src": [
+         0,
+         0,
+         50,
+         72
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 262,
+        "wy": 96,
+        "wz": 0,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7352320,
+        "name": "",
+        "tex": "data/common/icon/icon_seigen_01.png",
+        "src": [
+         16,
+         0,
+         16,
+         16
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 1,
+        "wx": 262,
+        "wy": 96,
+        "wz": 1,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    }
+   ]
+  },
+  {
+   "id": 6815744,
+   "cls": "CWindowModelKaban",
+   "x": 736,
+   "y": 0,
+   "w": 288,
+   "h": 712,
+   "ex": 0,
+   "ey": 0,
+   "z": 0,
+   "alpha": 1,
+   "shown": true,
+   "modal": false,
+   "topmost": false,
+   "active": true,
+   "extras": [],
+   "controls": [
+    {
+     "id": 7368704,
+     "cls": "CWindowTaskKabanListBtn",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 256,
+     "h": 56,
+     "z": 8,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "card": 4007,
+     "color": 4,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7353344,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c04.png",
+        "src": [
+         0,
+         0,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 744,
+        "wy": 88,
+        "wz": 0,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7354368,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c04.png",
+        "src": [
+         0,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 744,
+        "wy": 96,
+        "wz": 0,
+        "sx": 1,
+        "sy": 5,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7355392,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c04.png",
+        "src": [
+         0,
+         16,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 744,
+        "wy": 136,
+        "wz": 0,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7356416,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c01.png",
+        "src": [
+         8,
+         0,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 752,
+        "wy": 88,
+        "wz": 0,
+        "sx": 31,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7357440,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 752,
+        "wy": 96,
+        "wz": 0,
+        "sx": 31,
+        "sy": 5,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7358464,
+        "name": "",
+        "tex": "data/deck/deck_carddai_01_c01.png",
+        "src": [
+         8,
+         16,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "wx": 752,
+        "wy": 136,
+        "wz": 0,
+        "sx": 31,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7359488,
+        "name": "",
+        "tex": "data/MINI/4007.png",
+        "src": [
+         0,
+         0,
+         50,
+         72
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 1,
+        "wx": 759,
+        "wy": 91,
+        "wz": 1,
+        "sx": 0.694444,
+        "sy": 0.694444,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [
+       {
+        "id": 7360512,
+        "name": "",
+        "text": "Earthbound Spirit",
+        "x": 0,
+        "y": 0,
+        "z": 2,
+        "wx": 800,
+        "wy": 120,
+        "wz": 2,
+        "shown": true
+       }
+      ],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7369728,
+     "cls": "CWindowTaskDeckFigure",
+     "name": "",
+     "parent": 0,
+     "x": 16,
+     "y": 40,
+     "w": 0,
+     "h": 0,
+     "z": 9,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7361536,
+        "name": "",
+        "tex": "data/deck/deck_font_01_c01.png",
+        "src": [
+         0,
+         0,
+         8,
+         12
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 3,
+        "wx": 784,
+        "wy": 128,
+        "wz": 3,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7362560,
+        "name": "",
+        "tex": "data/deck/deck_font_01_c01.png",
+        "src": [
+         0,
+         0,
+         8,
+         12
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 3,
+        "wx": 776,
+        "wy": 128,
+        "wz": 3,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7363584,
+        "name": "",
+        "tex": "data/deck/deck_font_01_c01.png",
+        "src": [
+         0,
+         0,
+         8,
+         12
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 3,
+        "wx": 768,
+        "wy": 128,
+        "wz": 3,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7364608,
+        "name": "",
+        "tex": "data/deck/deck_font_01_c01.png",
+        "src": [
+         80,
+         0,
+         8,
+         12
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 3,
+        "wx": 760,
+        "wy": 128,
+        "wz": 3,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    }
+   ]
+  }
+ ],
+ "tasks": []
+}

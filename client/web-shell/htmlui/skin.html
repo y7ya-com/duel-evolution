@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>htmlui skin</title>
+<style>
+  html, body { margin: 0; background: #234; }
+  #stage { position: relative; width: 1024px; height: 768px; background: center / cover no-repeat; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+// controls/skin.js laid out as the lobby Main Menu (CMainMenu, as the engine draws it: notes nodp-mainmenu.png):
+// the frame at 0,386 282 x 350, the title bar over its top, 12 buttons 258 x 24 at x 12 from y 413 every 26.
+// ?bg=<url under /ui/>: a backdrop (Konami-derived: served from ART, never in git). ?state=hover|pressed: button 2's.
+import { menuButton, titleBar, panel } from './controls/skin.js';
+const q = new URLSearchParams(location.search), st = document.getElementById('stage');
+if (q.get('bg')) st.style.backgroundImage = `url(/ui/${q.get('bg')})`;
+const p = panel(st, { x: 0, y: 386, w: 282, h: 350, band: 6 });
+titleBar(p, { x: 0, y: 0, w: 282, title: 'Main Menu' });
+['Edit Deck', 'My Profile', 'Change Title', 'Create Comment', 'DUEL OPTIONS', 'D-Mail', 'Audio', 'Duel Log',
+  'Ignore List', 'Friend List', 'Team List', 'Return to Title'].forEach((label, i) =>
+  menuButton(p, { x: 12, y: 27 + 26 * i, w: 258, label, state: i === 1 && q.get('state') || 'normal' }));
+window.__ready = true;
+</script>
+</body>
+</html>
