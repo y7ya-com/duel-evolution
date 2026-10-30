@@ -5,6 +5,7 @@
 import VT from './vtables.js';
 
 export const FACTORY = 0x0126fa8c;   // g_windowFactory (CWindowTaskFactory*)
+export const SCENE_MNG = 0x01271790;   // CSceneMng::s_instance: sceneId_ (+0x7c) is the current scene (src/System/yo2SceneManager.h)
 export const APP = 0x012711ac;       // g_app (CApp*): its mouseMng_ (+0xc4c) is the CMouseManager the cursor hangs off
 
 // Read extensions (read/<group>.js, owned by the screen session that needs them): ext(h) -> { controls: {cls: c =>
@@ -63,7 +64,8 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // a CSpriteElm: texName_ (+0x358, raw: a '?' language letter is the loader's), the source rect (CElement rect_
   // +0x94: setTexture makes w/h the image's), scale (+0x88: a stretched piece), colour (+0xa4)
   const spr = e => e ? { id: e, name: name(e), tex: str(e + 0x358), src: [0, 4, 8, 12].map(o => i32(e + 0x94 + o)),
-    ...at(e), sx: f32(e + 0x88), sy: f32(e + 0x8c), rgba: [0, 4, 8, 12].map(o => f32(e + 0xa4 + o)), shown: vis(e) } : null;
+    ...at(e), sx: f32(e + 0x88), sy: f32(e + 0x8c), rgba: [0, 4, 8, 12].map(o => f32(e + 0xa4 + o)),
+    col: [0, 4, 8, 12].map(o => f32(e + 0x168 + o)), shown: vis(e) } : null;   // col: inheritColor4_, its colour x its parents' (what is drawn)
   const label = e => ({ id: e, name: name(e), text: wstr(e + 0x410), ...at(e), shown: vis(e) });   // a CTextElm
   const swf = e => ({ id: e, name: name(e), ...at(e), shown: vis(e) });                            // a CSwfEngine
   const rectF = (c, o) => ({ x: f32(c + o), y: f32(c + o + 4), w: f32(c + o + 8), h: f32(c + o + 12) });
@@ -166,6 +168,33 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
       if (d < 8) walk(k, d + 1, drawn);
     }
   })(mgr, 0, true);
+  const drawOrder = (a, b) => a.wz - b.wz || a.z - b.z;
+  // where a window actually draws: the box around its shown, drawn top-level controls at their world positions (as
+  // last drawn: the deck scene's chat window says y 608 but draws its bar at 712), parked ones left out (the game parks
+  // a hidden part at 99999), or null (it draws nothing). ponytail: one box (a label's text box can overstate it);
+  // per-control rects if a window ever needs a finer hole
+  const PARKED = 9999;
+  const drawnBox = w => {
+    const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.wz > 0 && c.w > 0 && c.h > 0 &&
+      Math.max(c.x, c.y, c.wx, c.wy) < PARKED);
+    if (!cs.length) return null;
+    const x0 = Math.min(...cs.map(c => c.wx)), y0 = Math.min(...cs.map(c => c.wy));
+    return { x: x0, y: y0, w: Math.max(...cs.map(c => c.wx + c.w)) - x0, h: Math.max(...cs.map(c => c.wy + c.h)) - y0 };
+  };
+  // a window's box (CWindowTaskModel +0x380): x, y, w, h; a window that never sets its size (CWindowLogin as
+  // rt/session.cpp rearranges it reads 0 x 0) gets its frame control's, else its shown top-level controls' extent
+  // (a label's text box can be far bigger than its text: the 2008 login labels are 256 x 256)
+  const box = w => {
+    const r = rectF(w, 0x380);
+    if (r.w > 0 && r.h > 0) return r;
+    const cs = byWin.get(w).filter(c => !c.parent && c.shown && c.w > 0 && c.h > 0), f = cs.find(c => /Frame/.test(c.cls));
+    if (f) return { ...r, w: f.x + f.w, h: f.y + f.h };
+    return { ...r, w: Math.max(0, ...cs.map(c => c.x + c.w)), h: Math.max(0, ...cs.map(c => c.y + c.h)) };
+  };
+  // the scene as the game holds it, so a bridge that started after a scene change still knows it (Module.onYo2Scene
+  // tells only listeners already added: on a loaded machine the title came before start() and scene stayed 0)
+  const sm = u32(SCENE_MNG);
+  if (sm) scene = i32(sm + 0x7c);
   const fac = u32(FACTORY);
   if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor };
   const wins = list(fac + 0x10), winSet = new Set(wins);
@@ -195,12 +224,19 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     (winSet.has(o) ? byWin : byTask.set(o, byTask.get(o) || []) && byTask).get(o).push(ctl);
   }
   const windows = wins.map(w => ({
-    id: w, cls: cls(w), ...rectF(w, 0x380), z: f32(w + 0x34c), alpha: alpha(w),
+    id: w, cls: cls(w), ...box(w), z: f32(w + 0x34c), alpha: alpha(w),
     shown: shown(w) && !locked(w),
     modal: !!u8(w + 0x350), topmost: !!u8(w + 0x35c), active: !!u8(w + 0x351),
-    // draw order: the window's z (CWindowTaskControll z_ +0x34c: body 0, buttons 2, labels 3; larger is in front),
-    // stable for equal z (the factory's list is not the draw order)
-    controls: byWin.get(w).reverse().sort((a, b) => a.z - b.z),
+    // draw order: as the engine drew them, back to front: worldPos_ z (+0xd0; the frame 51153 < field < buttons <
+    // labels 51157 at Select Player), z_ (+0x34c: body 0, buttons 2, labels 3) only between equals. z_ alone misses
+    // what a window places through pos_.z: Select Player's level texts (z_ 0, drawn over their rows), ChangeAvatar's,
+    // FindMenu's, ShopConfirm's. ponytail: a control shown for the first time this frame has no world z yet (0) and
+    // sorts to the back for that one frame
+    controls: byWin.get(w).reverse().sort(drawOrder),
+    // wz: how deep the engine draws the window, its frontmost drawn control's world z (0: none drawn yet); the
+    // factory's list is not the draw order (the deck's chat bar is listed after its panels and drawn under them)
+    wz: Math.max(0, ...byWin.get(w).filter(c => c.shown && c.wz > 0).map(c => c.wz)),
+    drawn: drawnBox(w),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
     extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
@@ -208,7 +244,7 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // the non-window owners (the shop's CShop* tasks), shaped like windows so a screen can claim them; w/h from a read
   // extension's tasks table (a task has no rect of its own)
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
-    shown: shown(t) && !locked(t), controls: cs.reverse().sort((a, b) => a.z - b.z), extras: [],
+    shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
   return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }
