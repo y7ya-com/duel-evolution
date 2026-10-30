@@ -237,7 +237,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // the cursor (cursor.js): the browser draws it as a CSS cursor, the engine's (that one CMouseManager element) is
     // hidden. The table takes effect at the next frame, so when the CSS one stops it stays up one more frame (the
     // engine's is still hidden in it): never a frame without a cursor
-    const css = cursorOn ? cursorCss(snap.cursor, 'ui/', stageScale, devicePixelRatio) : null;
+    let css = cursorOn ? cursorCss(snap.cursor, 'ui/', stageScale, devicePixelRatio) : null;
+    if (css === undefined) css = cursorNow;   // a state still building: the last cursor stays (the engine's, if none yet)
     if (css !== null) setCursor(css); else if (!curHid) setCursor(null);
     curHid = css !== null;
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor

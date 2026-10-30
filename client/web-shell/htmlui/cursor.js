@@ -2,9 +2,12 @@
 // bridge hands over snapshot.cursor (what the engine would draw under g_app's CMouseManager: the hand's CSwfEngine
 // sprites) and gets the CSS cursor value for it; the engine's is hidden by that one element in htmlui.c's hide table
 // (never by texture). Each state is drawn once into an image at the device's size (stage scale x DPR), as the engine
-// draws it: the half-texel shift and bilinear filter, colour x col + add, alpha; then cached by state.
+// draws it: the half-texel shift and bilinear filter, colour x col + add, alpha; then cached by state as an object URL,
+// decoded before its first use, so swapping states (the hand's animations, 30 Hz) costs a style change and never
+// shows the browser's fallback while an image loads. A state seen for the first time keeps the last cursor up for the
+// frame or two it takes to build.
 const imgs = new Map();    // file name -> loaded Image (null while loading or failed)
-const cache = new Map();   // state + size -> CSS value
+const cache = new Map();   // state + size -> { v: CSS value } once decoded ({} while building)
 const name = tex => tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
 const drawn = s => s.shown && s.a > 0;
 const MAX = 128;           // Chromium ignores a cursor over 128 x 128 CSS px
@@ -44,8 +47,9 @@ function layer(img, [sx, sy, w, h], col, add) {
 }
 
 // c: snapshot.cursor; base: the art (ui/); scale: canvas CSS px per game px. Returns the CSS cursor ('auto' outside the
-// game, where it shows the system one; 'none' when the game draws none), or null when it cannot be drawn exactly yet
-// (art loading, a draw mode other than linear alpha-blend): the engine keeps drawing it then.
+// game, where it shows the system one; 'none' when the game draws none), undefined while this state's image is being
+// built (keep the current cursor), or null when it cannot be drawn exactly (art loading, a draw mode other than linear
+// alpha-blend): the engine keeps drawing it then.
 export function cursorCss(c, base, scale, dpr) {
   if (!c) return null;
   for (const s of c.sprites) {   // every state's art loads the first time the manager is seen (all are built up front)
@@ -63,8 +67,10 @@ export function cursorCss(c, base, scale, dpr) {
   imageSet ??= ['image-set', '-webkit-image-set'].find(f => CSS.supports('cursor', `${f}(url(x.png) 1x) 0 0, auto`)) || '';   // Safari: prefixed
   const k = css * (imageSet ? dpr : 1);              // image px per game px
   const key = JSON.stringify([k, css, at.map(a => [name(a.s.tex), a.x, a.y, a.w, a.h, a.s.src, a.s.a, a.s.col, a.s.add])]);
-  let v = cache.get(key);
-  if (v) return v;
+  let e = cache.get(key);
+  if (e) return e.v;
+  if (cache.size > 400) { for (const o of cache.values()) if (o.url) URL.revokeObjectURL(o.url); cache.clear(); }   // ponytail: never evicted one by one
+  cache.set(key, e = {});
   const cv = document.createElement('canvas'), g = cv.getContext('2d');
   cv.width = Math.ceil(bw * k); cv.height = Math.ceil(bh * k);
   for (const a of at) {
@@ -90,9 +96,12 @@ export function cursorCss(c, base, scale, dpr) {
     }
     g.drawImage(src, tinted ? 0 : sx, tinted ? 0 : sy, sw, sh, dx, dy, a.w * k, a.h * k);
   }
-  const url = `url(${cv.toDataURL('image/png')})`, hx = +(-x0 * css).toFixed(2), hy = +(-y0 * css).toFixed(2);
-  v = `${imageSet ? `${imageSet}(${url} ${dpr}x)` : url} ${hx} ${hy}, auto`;
-  if (cache.size > 400) cache.clear();   // ponytail: a few dozen states x a few sizes; cleared, never evicted
-  cache.set(key, v);
-  return v;
+  const hx = +(-x0 * css).toFixed(2), hy = +(-y0 * css).toFixed(2);
+  cv.toBlob(async blob => {
+    const url = e.url = URL.createObjectURL(blob), img = new Image();
+    img.src = url;
+    await img.decode().catch(() => {});
+    e.v = `${imageSet ? `${imageSet}(url(${url}) ${dpr}x)` : `url(${url})`} ${hx} ${hy}, auto`;
+  }, 'image/png');
+  return undefined;
 }
