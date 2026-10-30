@@ -163,7 +163,9 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   if (cursor) (function walk(t, d, on) {
     for (const k of children(t)) {
       const drawn = on && shown(k);
-      if (cls(k) === 'CSpriteElm') cursor.sprites.push({ ...spr(k), shown: drawn, wsx: f32(k + 0xd4), wsy: f32(k + 0xd8),
+      // wsx, wsy: the scale it is drawn at, world_'s _11 / _22 (+0xe0 / +0xf4): the click ripple grows through its
+      // matrix while worldScale_ (+0xd4) stays 1 (read from that, the ripple slid up-left at a fixed size)
+      if (cls(k) === 'CSpriteElm') cursor.sprites.push({ ...spr(k), shown: drawn, wsx: f32(k + 0xe0), wsy: f32(k + 0xf4),
         col: [0, 4, 8, 12].map(o => f32(k + 0x168 + o)), add: [0, 4, 8, 12].map(o => f32(k + 0x178 + o)), mode: i32(k + 0x188) });
       if (d < 8) walk(k, d + 1, drawn);
     }
