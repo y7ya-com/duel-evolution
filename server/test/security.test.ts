@@ -343,7 +343,7 @@ describe("game page links (yo2rc.html)", () => {
   const ok = `http=${encodeURIComponent(O)}&gateway=${encodeURIComponent("wss://ygoevolution.com/net")}&fonts=fonts%2F&server=127.0.0.1&YO2_PORT_OFFSET=1000`;
   it("a link can't point the game at another host or script it; the root page's own query passes", () => {
     expect(safeGameQuery(new URL(`${O}/yo2rc.html?${ok}`))).toBeNull();
-    expect(safeGameQuery(new URL(`${O}/yo2rc.html?${ok}&RC_VERBOSE=1&online=1&log`))).toBeNull();
+    expect(safeGameQuery(new URL(`${O}/yo2rc.html?${ok}&RC_VERBOSE=1&RC_60=0&RC_HWCURSOR=0&online=1&log`))).toBeNull();
     const fix = (q: string) => new URLSearchParams(safeGameQuery(new URL(`${O}/yo2rc.html?${q}`)) ?? q);
     const bad = fix(`${ok.replace("ygoevolution.com%2Fnet", "attacker.example%2Fnet")}&RC_INPUT=click&YO2_DISCORD_URL=https://evil&game=x&online=1`);
     expect(bad.get("gateway")).toBe("wss://ygoevolution.com/net");

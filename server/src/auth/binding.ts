@@ -46,7 +46,7 @@ export function canUseAccount(peerUserId: string | null, owner: string | null | 
 
 /** Uppercase query keys a game page may carry: lazyfs turns every uppercase key into a game environment variable
  *  (RC_INPUT would script clicks, YO2_DISCORD_URL redirect the sign-in), so a link gets only these. */
-const GAME_ENV_KEYS = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE"]);
+const GAME_ENV_KEYS = new Set(["YO2_PORT_OFFSET", "RC_VERBOSE", "RC_60", "RC_HWCURSOR"]);   // RC_60=0, RC_HWCURSOR=0: rt/d3d8.cpp's kill switches
 
 /**
  * The query a page load of the game (yo2rc.html) must have on this origin, or null when it already has it: the
