@@ -83,4 +83,5 @@ srv.on('upgrade', (req, sock, head) => {
   const end = () => { up.destroy(); sock.destroy(); };
   up.on('error', end); sock.on('error', end);
 });
+srv.on('error', e => { console.error(`game.mjs: ${e.code === 'EADDRINUSE' ? `127.0.0.1:${PORT} is taken (another flip running?)` : e.message}`); process.exit(1); });
 srv.listen(PORT, '127.0.0.1', () => console.log('htmlui game on', PORT, '->', SERVER.origin));
