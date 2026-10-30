@@ -1,15 +1,15 @@
 // The chat window (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp), owned by the DOM.
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
 // shown on the duel screen only; the server's channel-9 lines land in its list), so nothing here knows tab names.
-// - Drawing: every control through the generic renderers (api.renderControl), each redrawn only when its snapshot
-//   changes. The input's text, caret and selection are drawn here while the DOM's <input> has the focus.
-// - Input: tabs, the △ / ▽ icons and any button are <button>s that click the game's control; the input line is a real
-//   <input> (typing, IME, paste, selection, copy) that commits through the control's setText, Enter sending as the
-//   game's own WM_CHAR '\r'; the log's lines are real, selectable text over the glyphs; the wheel and the scroll bar
-//   scroll the log.
+// - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
+//   list and the input's field, this file's for the rest (below, until controls/ has them).
+// - Input: tabs and the taller / shorter icons are real <button>s (the art inside, the label real text) that click
+//   the game's control; the input line is a real <input> (typing, IME, paste, selection, copy) that commits through
+//   the control's setText, Enter as the game's own WM_CHAR '\r'; the log's lines are real, selectable text laid
+//   cell for cell over the glyphs; the wheel and the scroll bar scroll the log.
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
+const basic = ui && await import('../controls/basic.js');
 
-const BUTTON = /(Tab|IconExpand|IconHide|IconShow|IconShrink|Switch|ButtonMain|ButtonDuel|CardWindow)$/;
 const LINE = 16;     // the list's line pitch (CWindowTaskListbox: 16-pixel rows)
 const TEXT = 8;      // the input's text and caret origin inside the control (CWindowTaskInput::layout / onMain)
 const ARROW = 16;    // the scroll bar's arrows (CWindowTaskScroll::loadImages)
@@ -29,22 +29,16 @@ export function wrap(s, width, adv) {
   return out;
 }
 
-// The lines in view: every item wrapped, from the scroll bar's value (the first line shown), as many as fit.
-export function visibleLines(list, scroll, adv) {
-  const lines = list.items.flatMap(s => wrap(s, list.w - 16, adv));
-  const first = scroll ? scroll.value : 0;
-  return lines.slice(first, first + Math.floor(list.h / LINE));
+// The lines in view: every item wrapped, from topLine, as many as fit (controls/basic.js draws the glyphs the same way).
+export function visibleLines(list, adv) {
+  const first = list.topLine ?? 0;
+  return list.items.flatMap(s => wrap(s, list.w - 16, adv)).slice(first, first + Math.floor(list.h / LINE));
 }
 
-// A pointer at y (bar-local) on a scroll bar: the arrows step, the track maps to a value (CWindowTaskScroll::drag's
-// posToValue: thumb positions 0..length - arrows - thumb over 0..max).
-export function scrollValue(bar, y) {
-  if (y < ARROW) return Math.max(0, bar.value - 1);
-  if (y >= bar.length - ARROW) return Math.min(bar.max, bar.value + 1);
-  const span = bar.length - 2 * ARROW - bar.thumb.len;
-  if (span <= 0) return bar.value;
-  const v = Math.round((y - ARROW - bar.thumb.len / 2) / span * bar.max);
-  return Math.max(0, Math.min(bar.max, v));
+// A press at y (bar-local) on a scroll bar: -1 up (the up arrow, the track above the thumb), 1 down, 0 on the thumb.
+export function scrollDir(bar, y) {
+  const top = ARROW + bar.thumb.pos;
+  return y < top ? -1 : y >= top + bar.thumb.len ? 1 : 0;
 }
 
 // The character index under x (text-local) in s: the nearest cell boundary, as the game's caretAt picks it.
@@ -63,15 +57,20 @@ const ART = { iconbar: ['iconbar_01_c01.png', 72, 24], tab: ['tab_01_c01.png', 6
   scroll: ['scroll_01_c00.png', 64, 120] };
 if (ui) for (const [k, [f, w, h]] of Object.entries(ART)) ui.SHEET[k] ??= { url: 'assets/' + f, w, h };
 const A70 = 178 / 255;   // setAlpha(0.7f): the frames' vertex alpha
-const ICON_ROW = { IconShow: 0, IconHide: 24, IconExpand: 48, IconShrink: 72 };   // the looks' rows in icon_01_c01
-const TAB_TEXT = [[51, 51, 255], [127, 127, 127]];   // CWindowTaskTab::setLook: (.2, .2, 1) current, (.5, .5, .5) not
+const ICON = { IconShow: [0, 'Show'], IconHide: [24, 'Shorter'], IconExpand: [48, 'Taller'], IconShrink: [72, 'Shrink'] };   // rows in icon_01_c01
+const TAB_TEXT = [[0.2, 0.2, 1, 1], [0.5, 0.5, 0.5, 1]];   // CWindowTaskTab::setLook: current, not
 
-// glyphs in one colour (the game's vertex colour times the glyph's alpha)
-function tinted(el, lines, [r, g, b]) {
-  const cv = ui.text(el, lines), x = cv.getContext('2d');
-  x.globalCompositeOperation = 'source-in';
-  x.fillStyle = `rgb(${r}, ${g}, ${b})`;
-  x.fillRect(0, 0, cv.width, cv.height);
+// a real <button> over the control's rect that clicks it in the game (the owner's rule: its art inside, its label text)
+function button(el, c, api, label) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn';
+  Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
+  b.disabled = !c.enabled;
+  b.setAttribute('aria-label', label);
+  b.addEventListener('click', () => api.click(c.id));
+  el.append(b);
+  return b;
 }
 
 const DRAW = {
@@ -94,15 +93,21 @@ const DRAW = {
   // the frame's middle piece over the whole rect, 70 %
   BackPlane(el, c) { ui.sprite(el, ui.SHEET.window, 8, 8, 8, 8, c.x, c.y, c.w, c.h, A70); },
   // left 16, middle stretched, right 8 of tab_01_c01 (current at u 0, others at 32); the caption at (16, 4)
-  Tab(el, c) {
-    const S = ui.SHEET.tab, u = c.active ? 0 : 32;
-    ui.sprite(el, S, u, 0, 16, 24, c.x, c.y, 16, 24);
-    ui.sprite(el, S, u + 16, 0, 8, 24, c.x + 16, c.y, c.w - 24, 24);
-    ui.sprite(el, S, u + 24, 0, 8, 24, c.x + c.w - 8, c.y, 8, 24);
-    if (c.label) tinted(el, [[c.label, c.x + 16, c.y + 4]], TAB_TEXT[c.active ? 0 : 1]);
+  Tab(el, c, api) {
+    const S = ui.SHEET.tab, u = c.active ? 0 : 32, b = button(el, c, api, c.label || 'Tab');
+    b.setAttribute('aria-pressed', !!c.active);
+    ui.sprite(b, S, u, 0, 16, 24, 0, 0, 16, 24);
+    ui.sprite(b, S, u + 16, 0, 8, 24, 16, 0, c.w - 24, 24);
+    ui.sprite(b, S, u + 24, 0, 8, 24, c.w - 8, 0, 8, 24);
+    if (c.label) basic.tinted(b, [[c.label, 16, 4]], TAB_TEXT[c.active ? 0 : 1]);
   },
   // a 16 x 24 cell of icon_01_c01: normal, hover, pressed side by side
-  Icon(el, c, row) { ui.sprite(el, ui.SHEET.icon, c.pressed ? 32 : 0, row, 16, 24, c.x, c.y, 16, 24); },
+  Icon(el, c, api, [row, label]) {
+    const b = button(el, c, api, label), sp = ui.sprite(b, ui.SHEET.icon, c.pressed ? 32 : 0, row, 16, 24, 0, 0, 16, 24);
+    const look = n => () => { if (!c.pressed) sp.src(n, row); };
+    b.addEventListener('pointerenter', look(16));
+    b.addEventListener('pointerleave', look(0));
+  },
   // arrows 16 x 16 at the ends, the thumb (top, middle stretched, bottom) at its position, the track stretched
   Scroll(el, c) {
     const S = ui.SHEET.scroll, { x, y } = c, L = c.thumb.len, p = c.thumb.pos;
@@ -113,29 +118,22 @@ const DRAW = {
     ui.sprite(el, S, 0, 40, 16, 8, x, y + 24 + p, 16, L - 16);
     ui.sprite(el, S, 0, 48, 16, 8, x, y + 8 + L + p, 16, 8);
   },
-  // the field (CWindowTaskInput::layout): the border piece 8 in, the fill a pixel inside it, opaque; text: ownInput
-  Input(el, c) {
-    ui.sprite(el, ui.SHEET.window, 80, 16, 8, 8, c.x + 8, c.y + 8, c.w - 16, c.h - 16);
-    ui.sprite(el, ui.SHEET.window, 56, 8, 8, 8, c.x + 9, c.y + 9, c.w - 17, c.h - 17);
-  },
-  // the log's shown lines, black, 16 px apart, one texture (the list's text element)
-  Textlist(el, c, scroll) {
-    const rows = visibleLines(c, scroll, ui.advance).map((s, i) => [s, c.x, c.y + i * LINE]).filter(([s]) => s);
-    if (rows.length) ui.text(el, rows);
-  },
 };
 const warned = new Set();
-function drawControl(c, el, api, st) {
-  const fam = c.cls.replace(/^CWindowTask/, ''), sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] ||
-    (fam in ICON_ROW ? 'icon' : 'window');
-  if (!ui.SHEET[sheet].alpha) {   // its atlas never loaded: leave it to the generic renderer
-    if (!warned.has(sheet)) { warned.add(sheet); console.warn('htmlui chat: no art for', sheet); }
-    return api.renderControl(c, el);
+function drawControl(c, el, api) {
+  const fam = c.cls.replace(/^CWindowTask/, '');
+  if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  if (fam === 'Textlist') {   // the glyphs; the selectable text is the log overlay's (cell-exact), not the generic one
+    api.renderControl(c, el)?.querySelectorAll('.rt').forEach(t => t.remove());
+    return;
   }
-  if (fam in ICON_ROW) return DRAW.Icon(el, c, ICON_ROW[fam]);
-  if (fam === 'MultiInput' || fam === 'InputDuel') return DRAW.Input(el, c);
-  if (fam === 'Textlist') return DRAW.Textlist(el, c, st.scroll?.parent === c.id ? st.scroll : null);
-  return DRAW[fam] ? DRAW[fam](el, c) : api.renderControl(c, el);
+  const sheet = { Iconbar: 'iconbar', Tab: 'tab', Scroll: 'scroll' }[fam] || (ICON[fam] ? 'icon' : 'window');
+  if (!DRAW[fam] && !ICON[fam]) return api.renderControl(c, el);
+  if (!ui.SHEET[sheet].alpha) {   // its atlas never loaded
+    if (!warned.has(sheet)) { warned.add(sheet); console.warn('htmlui chat: no art for', sheet); }
+    return;
+  }
+  return ICON[fam] ? DRAW.Icon(el, c, api, ICON[fam]) : DRAW[fam](el, c, api);
 }
 
 const place = (el, c) => Object.assign(el.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px',
@@ -147,33 +145,29 @@ const local = (e, el) => {
   return [(e.clientX - r.left) * el.offsetWidth / r.width, (e.clientY - r.top) * el.offsetHeight / r.height];
 };
 
-function ownButton(c, layer, api) {
-  const b = document.createElement('button');
-  b.className = 'own';
-  b.addEventListener('click', () => api.click(c.id));
-  layer.append(b);
-  return b;
-}
-
 function ownList(c, layer, api) {
   const d = document.createElement('div');
   d.className = 'own log';
   d.setAttribute('role', 'log');
   d.addEventListener('wheel', e => {
     e.preventDefault();
-    if (e.deltaY) api.wheel(c.id, e.deltaY < 0 ? 120 : -120);   // WM_MOUSEWHEEL over the log: up is positive
+    if (e.deltaY) api.wheel(c.id, Math.sign(e.deltaY) * 120);   // a canvas wheel event over the log (DOM sign)
   }, { passive: false });
   layer.append(d);
   return d;
 }
 
+// The scroll bar: a press above or below the thumb (or on an arrow) scrolls the log as the wheel does, max / 10 + 1
+// lines. ponytail: no arrow-sized steps, no thumb drag, until api.scroll is wired.
 function ownScroll(c, layer, api) {
   const d = document.createElement('div');
   d.className = 'own';
   let bar = c;
-  const at = e => api.scroll(bar.id, scrollValue(bar, local(e, d)[1]));
-  d.addEventListener('pointerdown', e => { e.preventDefault(); d.setPointerCapture(e.pointerId); at(e); });
-  d.addEventListener('pointermove', e => { if (d.hasPointerCapture(e.pointerId)) at(e); });
+  d.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const dir = scrollDir(bar, local(e, d)[1]);
+    if (dir) api.wheel(bar.parent || bar.id, dir * 120);
+  });
   d.update = c2 => { bar = c2; };
   layer.append(d);
   return d;
@@ -194,7 +188,7 @@ export const rowOf = (rows, index) => rows.findLastIndex(([, i]) => i <= index);
 
 // An input: a real <input> (<textarea> for a multi-line one), never painted except for the IME's composition; the
 // field drawn by the generic renderer, its text, caret and selection drawn here while the DOM has the focus (the
-// game's own while it doesn't). Keys are the element's own (none reaches the canvas: the game would get them twice).
+// game's own while it doesn't). Its keys stop at the window's root (bridge.js): the game doesn't get them twice.
 function ownInput(c, layer, api, st) {
   const f = document.createElement('div'), paint = document.createElement('div');
   const el = document.createElement(c.multiLine ? 'textarea' : 'input');
@@ -205,7 +199,6 @@ function ownInput(c, layer, api, st) {
   if (!c.multiLine) el.type = c.password ? 'password' : 'text';
   el.setAttribute('aria-label', c.name || 'Text');
   f.append(paint, el);
-  for (const t of ['keydown', 'keyup', 'keypress']) el.addEventListener(t, e => e.stopPropagation());
   layer.append(f);
   let snap = c, composing = false, entered = false;
   const width = () => (snap.multiLine ? snap.w - 2 * TEXT : Infinity);
@@ -305,8 +298,8 @@ function fillLog(d, lines) {
 
 const CSS = `
 .htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
-.htmlui-own button.own { cursor: default; color: transparent; font-size: 1px; overflow: hidden; }
-.htmlui-own button.own:focus-visible { outline: 1px dotted #fff; }
+.htmlui-own button.btn { position: absolute; cursor: default; }
+.htmlui-own button.btn:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
 .htmlui-own .log { overflow: hidden; color: transparent; font: 16px/16px sans-serif; cursor: text; user-select: text; }
 .htmlui-own { user-select: none; }
 .htmlui-own .log > div { height: ${LINE}px; white-space: pre; }   /* in flow: a copy gets a newline per line */
@@ -334,7 +327,7 @@ const screen = {
     root.classList.add('htmlui-own');
     const vis = document.createElement('div'), own = document.createElement('div');
     root.append(vis, own);
-    const st = { vis, own, drawn: new Map(), owned: new Map(), blink: true, scroll: null };
+    const st = { vis, own, drawn: new Map(), owned: new Map(), blink: true };
     st.timer = setInterval(() => {   // the game's blink: 15 frames on, 15 off
       st.blink = !st.blink;
       for (const o of st.owned.values()) o.draw?.();
@@ -345,42 +338,35 @@ const screen = {
 
   update(win, prev, root, api, st) {
     const seen = new Set(), order = [];
-    st.scroll = win.controls.find(c => c.cls.endsWith('Scroll') && c.parent) || null;
     for (const [n, c] of win.controls.entries()) {
       seen.add(c.id);
       const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
-      // the drawing: the input's text and caret are ours, so they don't redraw the field
-      const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false }
-        : c.cls.endsWith('Textlist') ? [c, st.scroll?.value] : c);   // the log scrolls with its bar
+      // the drawing: the input's text and caret are ownInput's, so they don't redraw the field
+      const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
       let d = st.drawn.get(c.id);
       if (!d) { d = { el: document.createElement('div'), k: null }; d.el.className = 'ctl'; st.drawn.set(c.id, d); }
       order.push(d.el);
       if (d.k !== k) {
         d.k = k;
+        const focused = d.el.contains(document.activeElement);   // a tab pressed from the keyboard keeps the focus
         d.el.replaceChildren();
-        if (c.shown) drawControl(c, d.el, api, st);
+        if (c.shown) drawControl(c, d.el, api);
+        if (focused) d.el.querySelector('button')?.focus();
       }
-      // the input layer
+      // the input layer: the log's text, the scroll bar, the input line
       let o = st.owned.get(c.id);
       if (!o) {
-        o = BUTTON.test(c.cls) ? ownButton(c, st.own, api)
-          : c.cls.endsWith('Textlist') ? ownList(c, st.own, api)
+        o = c.cls.endsWith('Textlist') ? ownList(c, st.own, api)
           : c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api)
           : isInput ? ownInput(c, st.own, api, st) : null;
         if (!o) continue;
         st.owned.set(c.id, o);
       }
-      o.style.zIndex = n;   // stacked as drawn (the current tab over its neighbours); never moved: moving drops focus
+      o.style.zIndex = n;   // stacked as drawn; never moved (moving drops focus)
       o.hidden = !c.shown;
       place(o, c);
-      if (o.tagName === 'BUTTON') {
-        o.textContent = c.label ?? '';
-        o.disabled = !c.enabled;
-        if ('active' in c && c.cls.endsWith('Tab')) o.setAttribute('aria-pressed', c.active);
-        if (!c.label) o.setAttribute('aria-label', c.cls.includes('Expand') ? 'Taller' : c.cls.includes('Hide') ? 'Shorter' : c.name || c.cls);
-      } else if (o.classList.contains('log')) {
-        const lines = visibleLines(c, st.scroll?.parent === c.id ? st.scroll : null, ui.advance);
-        const lk = key(lines);
+      if (o.classList.contains('log')) {
+        const lines = visibleLines(c, ui.advance), lk = key(lines);
         if (o.k !== lk) { o.k = lk; fillLog(o, lines); }
       } else {
         o.update?.(c);

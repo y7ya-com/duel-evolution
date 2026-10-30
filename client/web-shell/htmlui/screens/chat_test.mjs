@@ -1,9 +1,6 @@
 // node client/web-shell/htmlui/screens/chat_test.mjs: the chat window's log wrap / view, scroll bar and caret maths
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-// as an ES module whatever package.json says .js is (a home-folder package.json makes it CommonJS)
-const src = readFileSync(new URL('chat.js', import.meta.url), 'utf8');
-const { wrap, visibleLines, scrollValue, indexAt, layoutText, rowOf } = await import('data:text/javascript,' + encodeURIComponent(src));
+import { wrap, visibleLines, scrollDir, indexAt, layoutText, rowOf } from './chat.js';
 
 const adv = ch => (ch === 'W' ? 12 : 6);   // a fake cell table (the real one is the game's glyphs, on R2)
 
@@ -13,19 +10,17 @@ assert.deepEqual(wrap('abcd', 18, adv), ['abc', 'd']);
 assert.deepEqual(wrap('aWa', 18, adv), ['aW', 'a']);
 
 const list = { items: ['abcdefgh', 'x', 'y', 'z'], w: 16 + 24, h: 32 };   // 4 cells a line, 2 lines in view
-assert.deepEqual(visibleLines(list, null, adv), ['abcd', 'efgh']);
-assert.deepEqual(visibleLines(list, { value: 2 }, adv), ['x', 'y']);
-assert.deepEqual(visibleLines(list, { value: 4 }, adv), ['z']);
+assert.deepEqual(visibleLines(list, adv), ['abcd', 'efgh']);
+assert.deepEqual(visibleLines({ ...list, topLine: 2 }, adv), ['x', 'y']);
+assert.deepEqual(visibleLines({ ...list, topLine: 4 }, adv), ['z']);
 
-const bar = { value: 5, max: 10, length: 112, thumb: { len: 20 } };   // track: 112 - 32 - 20 = 60 px over 0..10
-assert.equal(scrollValue(bar, 3), 4);
-assert.equal(scrollValue(bar, 110), 6);
-assert.equal(scrollValue({ ...bar, value: 0 }, 3), 0);
-assert.equal(scrollValue({ ...bar, value: 10 }, 110), 10);
-assert.equal(scrollValue(bar, 16 + 10), 0);
-assert.equal(scrollValue(bar, 16 + 10 + 30), 5);
-assert.equal(scrollValue(bar, 16 + 10 + 60), 10);
-assert.equal(scrollValue({ ...bar, max: 0, value: 0, thumb: { len: 80 } }, 50), 0);
+const bar = { length: 112, thumb: { pos: 30, len: 20 } };   // the thumb at 46..66
+assert.equal(scrollDir(bar, 3), -1);
+assert.equal(scrollDir(bar, 45), -1);
+assert.equal(scrollDir(bar, 46), 0);
+assert.equal(scrollDir(bar, 65), 0);
+assert.equal(scrollDir(bar, 66), 1);
+assert.equal(scrollDir(bar, 110), 1);
 
 assert.equal(indexAt('abc', 0, adv), 0);
 assert.equal(indexAt('abc', 2, adv), 0);
