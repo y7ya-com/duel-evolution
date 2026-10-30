@@ -8,8 +8,9 @@
 //   stick: a log (the chat): new items keep it at the bottom while the player is there, never when they scrolled up
 //   list.onTop = i => {}: the first row in view after the player scrolls (to drive the game's list, below)
 //   list.top(i): show row i first (the game moved its list: a search, a jump)
-// wheelTo(api, ctl, i): for a list whose rows the ENGINE still draws (card faces in the trunk): one wheel notch per
-//   frame toward ctl's top line i (ctl: its snapshot control, topLine read by read.js), through api.wheel
+// wheelTo(api, ctl, i, gp): for a list whose rows the ENGINE still draws (card faces in the trunk): one wheel notch per
+//   frame toward ctl's top line i (ctl: its snapshot control, topLine read by read.js), through api.wheel, aimed at the
+//   game point gp when given (a list whose rect reads 0 x 0), else ctl's centre
 import { FONT } from './basic.js';
 
 const CSS = `
@@ -70,7 +71,7 @@ export function scrollList(parent, { x = 0, y = 0, w, h, rowH = 16, stick = fals
 
 // One wheel notch per call toward top line i of the game's list ctl (call it from the screen's update, every frame,
 // until ctl.topLine === i): the game scrolls its own rows, which the engine keeps drawing under the DOM.
-export function wheelTo(api, ctl, i) {
+export function wheelTo(api, ctl, i, gp) {
   const at = ctl.topLine ?? ctl.top ?? 0;
-  if (at !== i) api.wheel(ctl.id, i > at ? 120 : -120);
+  if (at !== i) api.wheel(ctl.id, i > at ? 120 : -120, gp);
 }

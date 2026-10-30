@@ -162,7 +162,7 @@ scroll bar (styled by scrollbar-color / -width only): wheel, drag, touch momentu
 scroll bar and arrows are not redrawn. `list.set(items, render, key)` keeps rows by key; `stick: true` (logs) keeps the
 bottom in view while the player is there. Keep the game in step: a list whose rows the DOM draws in full needs nothing;
 a list whose rows the engine still draws (card faces) follows the DOM through `list.onTop = i => ...` and
-`wheelTo(api, ctl, i)` (one wheel notch per frame toward that top line); when the game moves its list (a search, a new
+`wheelTo(api, ctl, i, gp)` (one wheel notch per frame toward that top line, aimed at game point gp when the list's rect reads 0 x 0); when the game moves its list (a search, a new
 line), call `list.top(i)` or `set()` again and the scroll position stays sensible. The box takes the pointer (pointer-events: auto, even
 in pass mode), so a row the game must see clicked forwards it (`api.click(ctl.id)` or the screen's own handler).
 

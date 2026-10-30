@@ -249,7 +249,15 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       fire('mouseup', p); return true;
     },
     hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
-    wheel(id, delta) { const p = at(id); if (p) fire('wheel', p, { deltaY: delta, deltaMode: 0 }); return !!p; },
+    // gp: a game point [x, y] to aim at instead of the control's centre (a list whose rect reads 0 x 0, the trunk), with a
+    // mousemove there first: the game scrolls a list only under its own mouse
+    wheel(id, delta, gp) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
+      if (!p) return false;
+      if (gp) fire('mousemove', p);
+      fire('wheel', p, { deltaY: delta, deltaMode: 0 });
+      return true;
+    },
     key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
     char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
     setText(id, s) { queue.push([2, id, String(s)]); },
