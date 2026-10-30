@@ -10,7 +10,7 @@
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
 import { textBox, textWidth, FONT, fontCss, spacing } from '../controls/basic.js';
-import { scrollList, wheelTo as wheelAt } from '../controls/scroll.js';
+import { scrollList } from '../controls/scroll.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -670,18 +670,32 @@ function drawButton(el, c, x, y, w, h) {
 const ROW_H = 56;
 export function trunkScroller(root, api) {
   const list = scrollList(root, { x: 8, y: 88, w: 272, h: 11 * ROW_H, rowH: ROW_H });
-  const st = { list, target: null, ctl: null, n: -1 };
+  const st = { list, target: null, ctl: null, n: -1, pend: null, wait: 0 };
   const canvas = () => document.getElementById('canvas');
-  // the game scrolls the list only under its own mouse: controls/scroll.js's wheelTo at a game point (it moves the
-  // game's mouse there first): the player's pointer when it's over the rows (they wheel there), else the rows' middle
-  // (they're on the scroll bar)
+  // the game scrolls the list only under its own mouse: api.wheel at a game point (it moves the game's mouse there
+  // first): the player's pointer when it's over the rows (they wheel there), else the rows' middle (on the scroll bar)
   let last = null;
-  const wheelTo = (ctl, i) => {
+  const point = () => {
     const r = canvas()?.getBoundingClientRect(), k = r ? r.width / 1024 : 1;
     const g = r && last && [(last[0] - r.left) / k, (last[1] - r.top) / k];
-    wheelAt(api, ctl, i, g && g[0] >= 744 && g[0] < 1000 && g[1] >= 88 && g[1] < 88 + 11 * ROW_H ? g : [872, 396]);
+    return g && g[0] >= 744 && g[0] < 1000 && g[1] >= 88 && g[1] < 88 + 11 * ROW_H ? g : [872, 396];
   };
-  list.onTop = i => { st.target = i; if (st.ctl) wheelTo(st.ctl, i); };
+  // the whole way in one burst: the game takes every wheel message queued for a frame (a line each), so n notches at
+  // once move n lines in one frame (3000 measured, exact). A notch a frame took a minute over a 3211-card trunk and
+  // held the game's mouse on the trunk all that time (phase3, ship-p5f). pend: the line already asked for (a drag
+  // scrolls several times a frame, before the snapshot shows the last burst); not there 10 frames on: again from
+  // where the game is
+  const toward = i => {
+    const ctl = st.ctl;
+    if (!ctl) return;
+    const n = i - (st.pend ?? ctl.top), gp = point();
+    for (let k = 0; k < Math.abs(n); k++) api.wheel(ctl.id, n > 0 ? 120 : -120, gp);
+    st.pend = i;
+    st.wait = 10;
+  };
+  list.onTop = i => { st.target = i; toward(i); };
+  // a press anywhere else drops a catch-up still running
+  document.addEventListener('pointerdown', e => { if (!list.el.contains(e.target)) st.target = st.pend = null; }, true);
   const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
     clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons }));
   const el = list.el;
@@ -699,8 +713,8 @@ export function trunkScroller(root, api) {
     st.ctl = ctl;
     if (ctl.hits !== st.n) { st.n = ctl.hits; list.set(Array.from({ length: ctl.hits }), () => document.createElement('div')); }
     if (st.target === null) { if (Math.round(list.el.scrollTop / ROW_H) !== ctl.top) list.top(ctl.top); }
-    else if (ctl.top === st.target) st.target = null;
-    else wheelTo(ctl, st.target);
+    else if (ctl.top === st.target) st.target = st.pend = null;
+    else if (st.wait-- <= 0) { st.pend = null; toward(st.target); }
   };
   return st;
 }
