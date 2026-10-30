@@ -6,7 +6,14 @@ import VT from './vtables.js';
 
 export const FACTORY = 0x0126fa8c;   // g_windowFactory (CWindowTaskFactory*)
 
-export function read(dv, frame = 0, scene = 0) {
+// Read extensions (read/<group>.js, owned by the screen session that needs them): ext(h) -> { controls: {cls: c =>
+// fields}, windows: {cls: w => fields}, snapshot: () => fields }, called each read with the helpers h below.
+const EXT = [];
+export const extend = ext => { EXT.push(ext); };
+const SJIS = new TextDecoder('shift_jis');   // the game's ANSI code page (cp932): instance names, paths
+
+// opts.parts: window ids whose controls also get `parts` (their raw sprite / text / swf children)
+export function read(dv, frame = 0, scene = 0, opts = {}) {
   const u8 = a => dv.getUint8(a), u32 = a => dv.getUint32(a, true), i32 = a => dv.getInt32(a, true);
   const f32 = a => dv.getFloat32(a, true);
   const ptr = a => u32(a + 4);                        // CTaskPtr<T>: task_ at +4
@@ -40,18 +47,20 @@ export function read(dv, frame = 0, scene = 0) {
     pageLines: ptr(t + 0x368) ? i32(ptr(t + 0x368) + 0x754) : 0,
     color: ptr(t + 0x368) ? [0, 4, 8, 12].map(o => f32(ptr(t + 0x368) + 0xa4 + o)) : [0, 0, 0, 1],
   } : { text: '' };
-  const str = a => {                                  // vc6::string (the game's ANSI code page: paths are ASCII)
+  const str = a => {                                  // vc6::string, cp932
     const p = u32(a + 4), n = Math.min(u32(a + 8), 512);
-    let r = '';
-    for (let i = 0; p && i < n; i++) r += String.fromCharCode(u8(p + i));
-    return r;
+    return p && n ? SJIS.decode(new Uint8Array(dv.buffer, p, n).slice()) : '';
   };
-  // a CSpriteElm: its texture (texName_ +0x358) and the CD3DSprite it draws (sprite_ +0x340: dst_ +0x04, src_ +0x14)
-  const spr = e => {
-    const d = e && u32(e + 0x340);
-    return e && d ? { tex: str(e + 0x358), x: f32(e + 0x70), y: f32(e + 0x74), w: i32(d + 0x0c), h: i32(d + 0x10),
-      u: i32(d + 0x14), v: i32(d + 0x18), sw: i32(d + 0x1c), sh: i32(d + 0x20), shown: shown(e) } : null;
-  };
+  const name = t => str(t + 0x4c);                    // CTask instName (setInstName)
+  const vis = e => shown(e) && !(u32(e + 0x20) & 2);   // + the task flag the game sets with hiding (no mouse)
+  // an element's place: local (parent-relative: inheritTransform) and world (worldPos_ +0xc8, as last drawn)
+  const at = e => ({ x: f32(e + 0x70), y: f32(e + 0x74), z: f32(e + 0x78), wx: f32(e + 0xc8), wy: f32(e + 0xcc) });
+  // a CSpriteElm: texName_ (+0x358, raw: a '?' language letter is the loader's), the source rect (CElement rect_
+  // +0x94: setTexture makes w/h the image's), scale (+0x88: a stretched piece), colour (+0xa4)
+  const spr = e => e ? { id: e, name: name(e), tex: str(e + 0x358), src: [0, 4, 8, 12].map(o => i32(e + 0x94 + o)),
+    ...at(e), sx: f32(e + 0x88), sy: f32(e + 0x8c), rgba: [0, 4, 8, 12].map(o => f32(e + 0xa4 + o)), shown: vis(e) } : null;
+  const label = e => ({ id: e, name: name(e), text: wstr(e + 0x410), ...at(e), shown: vis(e) });   // a CTextElm
+  const swf = e => ({ id: e, name: name(e), ...at(e), shown: vis(e) });                            // a CSwfEngine
   const rectF = (c, o) => ({ x: f32(c + o), y: f32(c + o + 4), w: f32(c + o + 8), h: f32(c + o + 12) });
   const rectI = (c, o) => ({ x: i32(c + o), y: i32(c + o + 4), w: i32(c + o + 8), h: i32(c + o + 12) });
   const STATE = ['normal', 'hover', 'pressed', 'normal'];   // PRESSED_OUTSIDE looks normal
@@ -112,12 +121,32 @@ export function read(dv, frame = 0, scene = 0) {
     CWindowTaskDuelConfigFrame: 'CWindowTaskPictureFrame', CWindowTaskDuellogFrame: 'CWindowTaskPictureFrame',
     CWindowTaskFramePlace: 'CWindowTaskPictureFrame', CWindowTaskDueldiskRearrengeFrame: 'CWindowTaskPictureFrame',
   };
-  const fam = k => F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]);
+  const h = { u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, alpha, name, at, spr, label, swf,
+    textCtl, rectF, rectI, children: t => list(t + 0x0c) };
+  const exts = EXT.map(e => e(h)), XC = Object.assign({}, ...exts.map(e => e.controls)),
+    XW = Object.assign({}, ...exts.map(e => e.windows));
+  const fam = k => XC[k] || F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]);
+  // a control's raw parts: its CTask children (and theirs, 4 deep) that are sprites, text or swf, not controls
+  const parts = c => {
+    const out = { sprites: [], labels: [], swfs: [] };
+    const walk = (t, d) => {
+      for (const k of children(t)) {
+        if (ctlSet.has(k)) continue;
+        const n = cls(k);
+        if (n === 'CSpriteElm') out.sprites.push(spr(k));
+        else if (n === 'CTextElm') out.labels.push(label(k));
+        else if (n === 'CSwfEngine') out.swfs.push(swf(k));
+        if (d < 4) walk(k, d + 1);
+      }
+    };
+    walk(c, 0);
+    return out;
+  };
 
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [] };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [] };
   const wins = list(fac + 0x10), winSet = new Set(wins);
-  const byWin = new Map(wins.map(w => [w, []]));
+  const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
   const ctls = vec(fac, 4).map(u32), ctlSet = new Set(ctls);
   for (const c of ctls) {
@@ -129,14 +158,17 @@ export function read(dv, frame = 0, scene = 0) {
       if (!parent) parent = up;
       o = up;
     }
-    if (!winSet.has(o)) continue;
+    if (!o) continue;
     const k = cls(c), f = fam(k), base = {
-      id: c, cls: k, name: wstr(c + 0x354), parent,
+      id: c, cls: k, name: name(c) || str(c + 0x354), parent,
       x: f32(c + 0x70), y: f32(c + 0x74), w: 0, h: 0, z: f32(c + 0x34c), alpha: alpha(c), shown: shown(c),
       enabled: !!u8(c + 0x350), focused: !!u8(c + 0x351),
     };
     if (base.focused) focus = c;
-    byWin.get(o).push(f ? { ...base, ...f(c) } : { ...base, unknown: true });
+    const ctl = f ? { ...base, ...f(c) } : { ...base, unknown: true };
+    if (opts.parts?.has(o)) ctl.parts = parts(c);
+    // owned by a window, or (the shop) by another task: grouped under it in `tasks`
+    (winSet.has(o) ? byWin : byTask.set(o, byTask.get(o) || []) && byTask).get(o).push(ctl);
   }
   const windows = wins.map(w => ({
     id: w, cls: cls(w), ...rectF(w, 0x380), z: f32(w + 0x34c), alpha: alpha(w),
@@ -144,7 +176,9 @@ export function read(dv, frame = 0, scene = 0) {
     modal: !!u8(w + 0x350), topmost: !!u8(w + 0x35c), active: !!u8(w + 0x351),
     controls: byWin.get(w).reverse(),           // the factory keeps them front to back
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
-    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { id: t, cls: 'CSpriteElm', ...spr(t) } : { id: t, cls: cls(t) }),
+    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
+    ...XW[cls(w)]?.(w),
   })).reverse();                                // back to front
-  return { v: 1, frame, scene, mouse: null, focus, windows };
+  const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), shown: vis(t), controls: cs.reverse() }));
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

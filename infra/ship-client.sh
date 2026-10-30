@@ -46,7 +46,7 @@ js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['starter'] = f'starter-
 # Its kill switch is the unhashed htmlui.json beside the page (?HTML_UI= overrides it), never shipped from here.
 hu = os.path.join(shell, 'htmlui')
 mods = sorted(os.path.relpath(os.path.join(d, f), hu) for d, _, fs in os.walk(hu) for f in fs
-              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens'))
+              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read'))
 hk = h(rd(f'{shell}/../html-ui/ui.js'), *(m.encode() + rd(os.path.join(hu, m)) for m in mods))
 put(f'h-{hk}/ui.js', rd(f'{shell}/../html-ui/ui.js'))
 for m in mods: put(f'h-{hk}/htmlui/{m}', rd(os.path.join(hu, m)))

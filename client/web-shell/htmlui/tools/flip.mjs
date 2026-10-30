@@ -14,9 +14,11 @@ import readline from 'node:readline';
 import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// [action, ...] steps: click x y (game px), wait ms, scene id (until that scene has ended), window cls (until shown)
+// [action, ...] steps: click x y (game px), leave x y scene (click until the scene is no longer that one, up to 4
+// tries), wait ms,
+// scene id ms (until that scene), window cls ms (until shown)
 export const ROUTES = {
-  select: { steps: [['window', null, 60000], ['click', 512, 458], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
+  select: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
 };
 
 const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${k}=`))?.split('=')[1];
@@ -53,9 +55,16 @@ const until = async (what, ms, test) => {
 const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
 const mouse = (type, [x, y]) => b.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mousePressed' ? 1 : 0, clickCount: 1 });
 
-for (const [a, x, y] of route.steps) {
+const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
+for (const [a, x, y, z] of route.steps) {
   if (a === 'wait') await sleep(x);
-  if (a === 'click') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(400); await mouse('mousePressed', p); await sleep(150); await mouse('mouseReleased', p); await sleep(500); }
+  if (a === 'click') await click(x, y);
+  if (a === 'leave') for (let i = 0; i < 4; i++) {
+    await click(x, y);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 8000 && (await snap())?.scene === z) await sleep(250);
+    if ((await snap())?.scene !== z) break;
+  }
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }

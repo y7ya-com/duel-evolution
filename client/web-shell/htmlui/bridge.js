@@ -4,7 +4,7 @@
 // Kill switches: ?HTML_UI=0 | all | A,B (only those) | -A,-B (the defaults without those); defaults: htmlui.json
 // ({"on": [...]}). Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
-import { read } from './read.js';
+import { read, extend } from './read.js';
 import { renderControl, syncWindow, FONTS } from './controls/basic.js';
 import { loadGlyphs, loadFont } from '../ui.js';
 
@@ -12,6 +12,10 @@ const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 
 const SLOTS = 63;
 
 export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+  for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
+    const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
+    if (m?.default) extend(m.default);
+  }
   const by = new Map();
   for (const n of SCREENS) {
     const m = await import(new URL(n + '.js', base)).catch(() => null);
@@ -80,6 +84,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
       Object.assign(e.root.style, {
         left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
+        overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
       const json = JSON.stringify(w.controls);
@@ -132,7 +137,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   addEventListener('resize', place);
   place();
 
-  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null;
+  let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set();
   Module.onYo2Scene = (kind, from, to) => { scene = to; };   // adds a listener (lazyfs.js / loader.js)
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -187,15 +192,19 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   };
   function frame(tables, heap) {
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
-    const snap = read(dv, ++frameNo, scene);
+    const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : on(c);
     const owned = new Set(snap.windows.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id));
+    wantParts = new Set(snap.windows.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     const pass = [];
     for (const w of snap.windows) {
       const mod = screens.get(w.cls);
-      if (owned.has(w.id) && mod?.passthrough)
-        for (const c of [...w.controls, ...w.extras]) if (mod.passthrough(c)) pass.push(c.id);
+      if (!owned.has(w.id) || !mod?.passthrough) continue;
+      for (const c of [...w.controls, ...w.extras]) {
+        if (mod.passthrough(c)) pass.push(c.id);
+        for (const q of [...c.parts?.sprites || [], ...c.parts?.labels || [], ...c.parts?.swfs || []]) if (mod.passthrough(q, c)) pass.push(q.id);
+      }
     }
     const t = tables >>> 2, H = H32, ids = [...owned];
     H[t] = ids.length;
