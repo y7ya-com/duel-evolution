@@ -20,7 +20,7 @@ void f_00761970(CPU *restrict c) {
         if (end < begin || begin + idx * 16 >= end) {
             static int warned;
             uint32_t to = ARG(2), tw = to ? (uint32_t)(rc_mem[to] | rc_mem[to + 1] << 8) : 0;
-            if (!warned++) rc_log("duel move: index %u past the view's list (%u cards; engine hand count %u), side %u, "
+            if (!warned++) rc_log("rc_report: duel move: index %u past the view's list (%u cards; engine hand count %u), side %u, "
                                   "from %04x to %04x: skipped", idx, end >= begin ? (end - begin) / 16 : 0,
                                   RD32m(0x012c888c + (w & 1) * 899 * 4), w & 1, w, tw);
             RET(3, 0);
