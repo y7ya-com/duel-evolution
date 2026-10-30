@@ -83,4 +83,19 @@ describe("admin grant (the owner's recovery)", () => {
     expect(h.game.admin.run("grant", { acct, slot: 0, cards: [DAD] })).toEqual({ added: 1, pushed: false });
     expect(trunk()[DAD]).toBe((before[DAD] ?? 0) + 2);
   });
+
+  it("take: cards out of the trunk (what it doesn't hold is skipped), pushed at once while online", async () => {
+    const h = harness();
+    const A = h.client("A");
+    await A.account(0, "Alice"); await A.enterRoom();
+    const acct = Object.keys(h.state().accounts)[0];
+    const DAD = 65192027, GREPHER = 14536035;
+    const trunk = () => (Object.values(h.state().accounts) as any[])[0].profiles["0"].trunk ?? {};
+    const st = h.state(); (Object.values(st.accounts) as any[])[0].profiles["0"].trunk = { [DAD]: 1, [GREPHER]: 2 }; h.game.store.saveRaw(st);
+    const n = A.room!.mark();
+    expect(h.game.admin.run("take", { acct, cards: [GREPHER, DAD, DAD] })).toEqual({ removed: 2, pushed: true });
+    await h.tick(300);
+    expect(trunk()).toEqual({ [GREPHER]: 1 });
+    expect(A.room!.all(0x7127, n).length).toBe(1);
+  });
 });

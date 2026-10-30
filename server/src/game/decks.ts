@@ -102,6 +102,18 @@ export async function deckCurrent(db: D1Database, key: string, b: Record<string,
   return [200, { updated: now }];
 }
 
+/** The admin's "deck" (POST /__admin/deck {acct, slot?, name, main, side?, extra?, mode?}): a character's deck saved
+ *  and made that mode's current one (World by default). Live as the store is; the client installs it at its next
+ *  player select, when the page reads /api/de/decks. `accounts` = the state's accounts, to refuse an unknown one. */
+export async function adminDeck(db: D1Database, accounts: Record<string, any> | undefined, b: Record<string, unknown>, now = Date.now()): Promise<Res> {
+  const a = accounts?.[String(b.acct)];
+  const slot = String(b.slot ?? a?.active_slot ?? 0);
+  if (!a?.profiles?.[slot]) return [404, { error: "no such character" }];
+  const d = deckIn(b);
+  if (typeof d === "string") return [400, { error: d }];
+  return deckPut(db, `${b.acct}/${slot}`, d, modeOf(b.mode) ?? "world", now);
+}
+
 /** A tombstone: the cards are dropped, the name kept with the time, so another device doesn't upload it again. */
 export async function deckDelete(db: D1Database, key: string, name: string, now = Date.now()): Promise<Res> {
   const old = await one(db, key, name);

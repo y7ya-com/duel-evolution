@@ -97,6 +97,26 @@ export class Admin {
   grant(acct: string, slot: number | null, cards: number[], src = "admin grant"): { added: number; pushed: boolean } {
     const ok = cards.map(Number).filter((c) => Number.isInteger(c) && PP.cardOk(c));
     if (!ok.length) return { added: 0, pushed: false };
+    const r = this.trunkEdit(acct, slot, (p) => PP.trunkAdd(this.g, p, ok, 1, src));
+    return { added: ok.length, pushed: r.pushed };
+  }
+
+  /** Cards out of one character's trunk (trunkRemove: what it doesn't hold is skipped), logged and pushed like grant. */
+  take(acct: string, slot: number | null, cards: number[], src = "admin take"): { removed: number; pushed: boolean } {
+    const ok = cards.map(Number).filter((c) => Number.isInteger(c) && c > 0);
+    if (!ok.length) return { removed: 0, pushed: false };
+    let removed = 0;
+    const r = this.trunkEdit(acct, slot, (p) => {
+      const n0 = PP.trunkPairs(p).reduce((n, [, k]) => n + k, 0);
+      PP.trunkRemove(p, ok, this.g, src);
+      removed = n0 - PP.trunkPairs(p).reduce((n, [, k]) => n + k, 0);
+    });
+    return { removed, pushed: r.pushed };
+  }
+
+  /** One character's profile edited by fn and saved: in its session's context when it is the active one (and the
+   *  connected client gets its trunk and player data at once), else in the stored state. */
+  private trunkEdit(acct: string, slot: number | null, fn: (p: PP.P) => void): { pushed: boolean } {
     const s = this.g.hub.sessions.get(acct);
     const raw = this.g.store.loadRaw();
     const a = raw.accounts?.[acct];
@@ -106,14 +126,14 @@ export class Admin {
       return this.g.withCtx(s, () => {
         const st = this.g.loadState();
         const p = PP.profile(st, Number(sl), false)!;
-        PP.trunkAdd(this.g, p, ok, 1, src);
+        fn(p);
         this.g.saveState(st);
-        return { added: ok.length, pushed: pushInventory(this.g, s, p) };
+        return { pushed: pushInventory(this.g, s, p) };
       });
     }
-    PP.trunkAdd(this.g, a.profiles[sl], ok, 1, `${src} (${acct.slice(0, 8)}, offline)`);
+    fn(a.profiles[sl]);
     this.g.store.saveRaw(raw);
-    return { added: ok.length, pushed: false };
+    return { pushed: false };
   }
 
   /** A server line in every lobby's chat (0x4402 kind 1, the server-wide chat) from "Duel Evolution": the deploy
@@ -165,6 +185,7 @@ export class Admin {
       case "maintenance": return { sent: this.maintenance(Number(body.seconds) || 0) };
       case "announce": return { sent: this.announce(String(body.text ?? "")) };
       case "reset-dormant": return { reset: this.resetDormant() };
+      case "take": return this.take(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin take"));
       case "grant": return this.grant(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin grant"));
       case "online": return { online: this.status().players.filter((p) => p.online).length };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
