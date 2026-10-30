@@ -91,7 +91,9 @@ export async function makeLayer(host, screens, art = 'ui/') {
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
-      const json = JSON.stringify(w.controls);
+      // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
+      // extension's fields change with no control changing
+      const json = JSON.stringify(w);
       if (json === e.json) continue;
       e.json = json;
       const a = e.api ||= { ...api, owned: mod?.mode === 'owned' };
