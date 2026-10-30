@@ -147,12 +147,12 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
 
 const CSS = () => `
 .htmlui-own { user-select: none; }
-.htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; background: none; }
+.htmlui-own .own { position: absolute; display: block; margin: 0; padding: 0; border: 0; }
 .htmlui-own button:focus-visible { outline: 1px dotted #fff; outline-offset: -2px; }
 .htmlui-own .list { font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
 .htmlui-own .list.yo2-stripes { background-attachment: local; }
 .htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
-.htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; outline: none; resize: none; overflow: hidden; }
+.htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; background: none; outline: none; resize: none; overflow: hidden; }
 `;
 
 // An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
