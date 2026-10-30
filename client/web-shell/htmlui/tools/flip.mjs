@@ -87,6 +87,7 @@ const dpr = +(opt('dpr') || (phone ? 3 : 1)), GAME = +(process.env.GAME_PORT || 
 mkdirSync(out, { recursive: true });
 const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => process.exit(1));   // so the line above runs
 
 let origin = opt('server'), cookie = opt('cookie');
 if (!origin) {   // our own stack
@@ -105,8 +106,25 @@ const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 // --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
 const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', route.query].filter(Boolean).join('&');
-await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=0&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
+// --ui=A,B: those classes in HTML from the first frame (?HTML_UI=), not only after the route as --on does
+await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=${opt('ui') || '0'}&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
+// --watch: every animation frame, is an HTML window visible while a scene loads or the loader's box is up? (the owner:
+// the chat came up before the place had loaded). Printed at the end as the bad samples' count and the first few.
+if (args.includes('--watch')) await b.ev(`(() => {
+  window.__watch = { n: 0, bad: [] };
+  let switching = false;
+  Module.onYo2Scene = (kind, from, to) => { switching = kind === 'begin'; };
+  const tick = () => {
+    const host = document.getElementById('htmlui-host'), ld = document.getElementById('loading');
+    const loading = switching || (ld && ld.style.display !== 'none');
+    const shown = host && !host.hidden ? [...host.querySelectorAll('.win')].filter(w => w.style.visibility !== 'hidden').length : 0;
+    window.__watch.n++;
+    if (loading && shown && window.__watch.bad.length < 20) window.__watch.bad.push([Math.round(performance.now()), switching, ld?.style.display, shown]);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+})()`);
 const until = async (what, ms, test) => {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
   writeFileSync(path.join(out, 'stuck.png'), await b.shot());
@@ -154,6 +172,7 @@ await b.ev('performance.setResourceTimingBufferSize(5000)');   // the boot's 250
 for (const c of (opt('on') || '').split(',').filter(Boolean)) await b.ev(`window.yo2Html.toggle(${JSON.stringify(c)}, true)`);
 // what the page fetched at a URL ending in /undefined (a name never set), with what asked for it; printed on exit
 const undefinedFetches = () => b.ev(`performance.getEntriesByType('resource').filter(e => /\\/undefined($|[?#])/.test(e.name)).map(e => e.initiatorType + ' ' + e.name)`);
+if (args.includes('--watch')) { const w = await b.ev('window.__watch'); console.log('watch:', JSON.stringify({ frames: w.n, bad: w.bad.length, first: w.bad.slice(0, 5) })); }
 await mouse('mouseMoved', opt('pointer') ? await toClient(...opt('pointer').split(',').map(Number)) : [2, 2]);   // the pointer off the UI (--pointer=x,y: there, e.g. on a tab with --nocursor)
 
 // the diff runs in the page: both captures decoded, compared over the rect, a heat map drawn (grey same, yellow
@@ -299,6 +318,14 @@ if (args.includes('--anim')) {
   };
   const click = await clickAndSample(), click2 = await clickAndSample();   // the second: every state already built
   const tl = [...idle, ...click.map(([t, st, css]) => [t + 8060, st, css]), ...click2.map(([t, st, css]) => [t + 10120, st, css])];
+  // a third click, captured every ~50 ms around the click point (the ripple is DOM, so a capture shows it; the OS
+  // cursor never shows headless): ripple@<dpr>x-<n>.png
+  {
+    const [cx, cy] = p, clip = { x: cx - 48, y: cy - 48, width: 96, height: 96 };
+    await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', buttons: 1, clickCount: 1 });
+    await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', buttons: 0, clickCount: 1 });
+    for (let n = 0; n < 10; n++) { writeFileSync(path.join(out, `ripple@${dpr}x-${n}.png`), await b.shot(clip)); await sleep(40); }
+  }
   // per state: the CSS value it settled on (its last); a sample lags when its CSS is not its state's own yet
   const own = new Map(); for (const [, st, css] of tl) own.set(st, css);   // by the end every state has its own
   const lagging = part => part.filter(([, st, css]) => css !== own.get(st)).length;
