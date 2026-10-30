@@ -9,7 +9,7 @@
 // Pass mode: the game takes the mouse, drag and drop included; saves go through CDeckManager::save as before
 // (decksync.c's onYo2DeckSaved / Deleted / Current hooks see the same calls).
 import * as ui from '../../ui.js';
-import { covers, realText } from '../controls/basic.js';
+import { covers, textBox, textWidth } from '../controls/basic.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -67,7 +67,7 @@ export function plan(win, covers) {
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       const x = t.wx ?? t.x, y = t.wy ?? t.y, lines = t.text.split('\n');
-      add(t.id, t.wz ?? z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => ui.measure(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
+      add(t.id, t.wz ?? z0 + (t.z || 0) / 1e3, { x, y, w: Math.max(...lines.map(l => textWidth(l.replace(/@(\d|>\d*\/?)/g, '')))), h: 16 * lines.length },
         el => drawLabel(el, t.text, x - ox, y - oy, t.rgba?.[3] ?? 1));
     }
     for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? z0 + (f.z || 0) / 1e3, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
@@ -136,23 +136,18 @@ function drawSprite(el, s, x, y) {
   if (rgba[0] !== 1 || rgba[1] !== 1 || rgba[2] !== 1)   // vertex colour: the trunk dims a row's art to 0.5 grey
     e.style.filter = rgba[0] === rgba[1] && rgba[1] === rgba[2] ? `brightness(${rgba[0]})` : '';
 }
-// tagged text: one glyph texture for the whole string (as CTextElm builds it), each run recoloured in place
+// tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
+// 18-pixel style
 function drawLabel(el, text, x, y, alpha) {
   text.split('\n').forEach((line, li) => {
-    const rs = runs(line);
-    if (!rs.length) return;
     let pen = 0;
-    const cells = rs.map(r => { if (r.x !== null) pen = r.x; const a = pen; pen += ui.measure(r.s); return [r.s, x + a, y + 16 * li, r.rgb]; });
-    const cv = ui.text(el, cells.map(([s, cx, cy]) => [s, cx, cy]));
-    const g = cv.getContext('2d'), x0 = parseFloat(cv.style.left);
-    g.globalCompositeOperation = 'source-atop';
-    for (const [s, cx, , rgb] of cells) {
-      if (!rgb) continue;
-      g.fillStyle = '#' + rgb.toString(16).padStart(6, '0');
-      g.fillRect(cx - x0, 0, ui.measure(s), cv.height);
+    for (const r of runs(line)) {
+      if (r.x !== null) pen = r.x;
+      const px = r.rgb === TAG_RGB[1] ? 18 : 16, c = [r.rgb >> 16, r.rgb >> 8 & 255, r.rgb & 255].map(v => v / 255);
+      const d = textBox(el, r.s, { x: x + pen, y: y + 16 * li, px, color: [...c, alpha], white: true });
+      if (px === 18) d.style.fontWeight = 'bold';
+      pen += textWidth(r.s, px);
     }
-    if (alpha !== 1) cv.style.opacity = alpha;
-    realText(el, rs.map(r => r.s).join(''), cells[0][1], cells[0][2]);   // the real text, for find / select / screen readers
   });
 }
 
