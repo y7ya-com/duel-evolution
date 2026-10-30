@@ -5,12 +5,12 @@
 // shared string holding a NUL comes out cut at the NUL. replace(pos, n, str, pos2, n2) (0x671860) takes its lengths
 // before that, so its tail move, _Len - pos - n, goes negative. On Windows that is the same wild memmove.
 // So here the un-share keeps _Len bytes, and the original then finds the string unshared and runs as it always did.
-// The memmove guard catches any other member that does the same: a count of 2 GB or more is logged and skipped.
+// The memmove itself is ovr/memmove.c (libc's memmove; a count of 2 GB or more is logged and skipped).
 #include <string.h>
 #include "rt.h"
 #include "rc_funcs.h"
 
-void o_00671860(CPU *restrict c), o_00b09270(CPU *restrict c);
+void o_00671860(CPU *restrict c);
 
 void f_00671860(CPU *restrict c) {   // string& string::replace(pos, n, const string&, pos2, n2), thiscall, ret 0x14
     uint32_t s = c->ecx, p = RD32m(s + 4);
@@ -28,17 +28,4 @@ void f_00671860(CPU *restrict c) {   // string& string::replace(pos, n, const st
         c->ecx = s;
     }
     o_00671860(c);
-}
-
-void f_00b09270(CPU *restrict c) {   // void *memmove(dst, src, n) (also memcpy), cdecl
-    uint32_t n = RD32m(c->esp + 12);
-    if (n >= 0x80000000u) {
-        rc_log("memmove(%08x, %08x, %d) from %08x: negative count, skipped", RD32m(c->esp + 4), RD32m(c->esp + 8),
-               (int32_t)n, RD32m(c->esp));
-        c->eax = RD32m(c->esp + 4);
-        c->ret_to = RD32m(c->esp);
-        c->esp += 4;
-        return;
-    }
-    o_00b09270(c);
 }
