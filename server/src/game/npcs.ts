@@ -23,6 +23,8 @@ export const ORIGINALS: Record<number, [string, number | null, number]> = {
   38: ["Kain", 5, 4259068], 33: ["Kyuros", null, 94192409], 31: ["lalala", 6, 65403020], 29: ["Mika", null, 91345518], 26: ["NiaNia", 4, 61370518],
   34: ["Queen Ryo", 7, 87910978], 28: ["Rain", null, 60806437], 44: ["raMon", 5, 75043725], 49: ["sabasaba", 7, 38992735], 30: ["Zuno", 7, 52417194],
 };
+/** An NPC's name as the 2008 client shows it. */
+export const npcName = (nid: number): string => ORIGINALS[nid]?.[0] ?? INFO.get(nid)?.name ?? "NPC";
 const AREA_BASE: Record<number, number> = { 4: 1, 5: 9, 6: 17, 7: 25, 0: 33, 1: 41, 2: 49, 3: 57 };
 const FIXED_POINTS: Record<number, number> = { 43: 2, 26: 4 };
 const POINT_ORDER = [1, 3, 5, 7, 2, 4, 6, 8];

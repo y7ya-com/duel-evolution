@@ -47,6 +47,7 @@ export const C_EFFECT_ADD = 0x36, C_EFFECT_DEL = 0x37, EFFECT_SET_STATS = 0x1c5f
 export const C_LINK = 0x42, C_LOCKON = 0x29;
 export const C_TRIBUTE = 0x46, C_TRIBUTE_MARK = 0x4a, C_FUSION_MARK = 0x4b, C_FUSION_MAT = 0x4c, C_FUSION_RUN = 0x4d;
 export const HINTMSG_RELEASE = 500, HINTMSG_FMATERIAL = 511;
+export const HINT_CARD = 10;   // ocgcore hint_type: a card's effect is applying (the card's code in hint)
 export const T_STARS = 0x1f, VIEW_SET_MATERIAL = 0x29, DLGT_RITUAL = 0xe;
 export const DLG_RITUAL_MONSTER = 286, DLG_RITUAL_STARS = 207, DLG_RITUAL_DECK = 289;
 export const KIND_RITUAL = 8, KIND_OPP_HAND = 8, DLG_PICK_OPP_HAND = 244;

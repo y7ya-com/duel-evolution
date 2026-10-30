@@ -1487,12 +1487,23 @@ export class YO2Duel {
   }
 
   _m_TOSS_DICE(ev: Ev): Out[] {
-    const p = ev.player;
-    const zone = this.cfg.toss_anim ? this._toss_zone(p)[1] : 0;
-    return (get(ev, "results", []) as number[]).slice(0, 2).map((r) => engine(K.C_DICE, p, zone, r));
+    // the client draws the die at (command player, zone): both name the card that rolls, not the roller and someone
+    // else's chain link (an Archfiend rolling on the opponent's Megamorph showed its die on the wrong side of the field)
+    const [j, zone] = this.cfg.toss_anim ? this._toss_zone(ev.player) : [ev.player, 0];
+    return (get(ev, "results", []) as number[]).slice(0, 2).map((r) => engine(K.C_DICE, j, zone, r));
   }
 
+  /** (player, zone) of the card that tosses: the one a HINT_CARD right before names (a continuous effect such as an
+   *  Archfiend's, which rolls while the opponent's link resolves), else the resolving chain link. */
   _toss_zone(p: number): [number, number] {
+    const prev = this._batch && this._bi ? this._batch[this._bi - 1] : null;
+    if (prev && prev.type === "HINT" && prev.hint_type === K.HINT_CARD) {
+      const s = this.side[p];
+      for (const where of ["mz", "sz"] as const) {
+        const i = s[where].findIndex((u) => u != null && this.card(u).code === prev.hint);
+        if (i >= 0) return [p, this.yo2_zone(where, i)[0]];
+      }
+    }
     const n = this.solving || this.chain.length;
     if (n > 0 && n <= this.chain.length) return this.chain[n - 1];
     return [p, 0];

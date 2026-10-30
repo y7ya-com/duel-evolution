@@ -15,7 +15,8 @@ import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
 import { deckHash } from "./deckCheck.ts";
 import * as DFM from "./duelfin.ts";
 import * as DL from "./duellog.ts";
-import { PvpSession, Sender, type SItem } from "./ocgSession.ts";
+import { PvpSession, Sender, cardText, sendDuelLog, type SItem } from "./ocgSession.ts";
+import { DuelLog } from "./duelText.ts";
 import { X } from "./port.ts";
 
 type P = Record<string, any>;
@@ -512,6 +513,11 @@ export class PvpMatch {
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
+    const ct = cardText();
+    if (ct) {
+      this.ps.dlog = new DuelLog([this.sess[0].name, this.sess[1].name], ct);
+      this.ps.onLog = (i, lines) => sendDuelLog(this.g, this.sess[i].lobby, lines);
+    }
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
     return this.ps.start(first);
   }
