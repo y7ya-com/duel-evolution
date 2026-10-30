@@ -99,13 +99,15 @@ describe("trade (research/intercambio)", () => {
 
   /** A whole trade between A and B with these trunks: each offers its cards, both ready and confirm. Returns the
    *  0x7121 result (1 done, 0 failed), the chat lines A got after it, and both trunks. */
-  async function trade(trunkA: Record<string, number>, trunkB: Record<string, number>, giveA: number[], giveB: number[]) {
+  async function trade(trunkA: Record<string, number>, trunkB: Record<string, number>, giveA: number[], giveB: number[],
+    boundA: Record<string, number> = {}) {
     const h = harness();
     const [A, B] = await players(h, 2);
     const setTrunk = (i: number, trunk: Record<string, number>) => {
       const st = h.state(); (Object.values(st.accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].trunk = trunk; h.game.store.saveRaw(st);
     };
     setTrunk(0, trunkA); setTrunk(1, trunkB);
+    { const st = h.state(); (Object.values(st.accounts) as any[]).find((a) => a.idx === 1).profiles["0"].bound = boundA; h.game.store.saveRaw(st); }
     let m = B.room!.mark();
     expect(i32(await ask(A, 0x7000, t(0x7102, be32(B.pid!)), 0x7103))).toBe(0);
     const off = (await B.room!.wait(0x7104, m))!;
@@ -151,6 +153,15 @@ describe("trade (research/intercambio)", () => {
     expect(r1.chat).toEqual(["Trade cancelled: you must keep at least 40 cards."]);
     const r2 = await trade(A0, B0, [pc(1)], [pc(2), pc(2)]);          // B would keep 39
     expect([r2.end, r2.a, r2.b]).toEqual([0, A0, B0]);
+  });
+
+  it("soul-bound copies don't move: only owned − bound can be offered (the chat says why)", async () => {
+    const A0 = { [pc(1)]: 3, [pc(3)]: 40 }, B0 = { [pc(2)]: 3, [pc(4)]: 40 };
+    const r1 = await trade(A0, B0, [pc(1), pc(1)], [pc(2), pc(2)], { [pc(1)]: 2 });   // 1 unbound, 2 offered
+    expect([r1.end, r1.a, r1.b]).toEqual([0, A0, B0]);
+    expect(r1.chat).toEqual(["Trade cancelled: starter cards can't be traded."]);
+    const r2 = await trade(A0, B0, [pc(1)], [pc(2)], { [pc(1)]: 2 });                 // the unbound one moves
+    expect([r2.end, r2.a[pc(1)], r2.a[pc(2)], r2.b[pc(1)]]).toEqual([1, 2, 1, 1]);
   });
 });
 

@@ -5,6 +5,7 @@ import type { Game } from "./game.ts";
 import type { Session } from "./hub.ts";
 import * as PP from "./persist.ts";
 import { SANCTION_TRADE } from "./lobby.ts";
+import { boundOf } from "./starter.ts";
 
 const SUB = { TRADESTART: 0x7101, REQTRADE: 0x7102, OFFERREPLY: 0x7105, CANCELREQ: 0x7108, USEREXIT: 0x7112, ADDCARD: 0x7113,
   DELETECARD: 0x7114, SETSTATUS: 0x7117, LASTCONFIRM: 0x7119, ARRIVE: 0x7122, CLEAR: 0x7128, READY: 0x7132 };
@@ -17,7 +18,7 @@ const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
 /** A swap never leaves either side with fewer cards than a deck needs (the owner's rule, 2026-10-30: below 40 the
  *  client keeps the player in Edit Deck); the trunk is the whole collection, decks only point into it. */
 export const TRADE_MIN_CARDS = 40;
-const MIN_CARDS_TEXT = `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`;
+const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: starter cards can't be traded." };
 const s32 = (v: number) => new W().u32(v).bytes();
 const EMPTY: Uint8Array = new Uint8Array(0);
 const name16 = (t: string) => { const raw = Buffer.from([...String(t || "Duelista")].map((ch) => (ch.charCodeAt(0) > 255 ? "?" : ch)).join(""), "latin1").subarray(0, 15); const o = new Uint8Array(16); o.set(raw); return o; };
@@ -80,16 +81,21 @@ export class Trades {
   }
 
   /** The swap, checked and applied in one synchronous step (the WorldDO is single-threaded): true when done, false
-   *  when the cards aren't there, "min" when a side would be left with fewer than TRADE_MIN_CARDS. */
-  private execute(t: Trade): boolean | "min" {
+   *  when the cards aren't there, "bound" when a side offers soul-bound copies (PP.bindCards: only owned - bound move),
+   *  "min" when a side would be left with fewer than TRADE_MIN_CARDS. */
+  private execute(t: Trade): boolean | "min" | "bound" {
     const { a, b } = t;
     const giveA = [...t.offer.get(a.pid!)!], giveB = [...t.offer.get(b.pid!)!];
     try {
       for (const [s, give, take] of [[a, giveA, giveB], [b, giveB, giveA]] as [Session, number[], number[]][]) {
         const need = new Map<number, number>();
         for (const x of give) need.set(x, (need.get(x) ?? 0) + 1);
-        const have = this.withProfile(s, (p) => ({ ...(p.trunk ?? {}) }));
+        const [have, bound] = this.withProfile(s, (p) => [{ ...(p.trunk ?? {}) }, { ...boundOf(p) }]);
         for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
+        for (const [cid, n] of need) if (n > PP.int(have[String(cid)] ?? 0) - PP.int(bound[String(cid)] ?? 0)) {
+          this.g.log(`[AVISO] [intercambio] pid ${s.pid} offers ${n} of ${cid}, ${bound[String(cid)]} of them soul-bound: cancelled`);
+          return "bound";
+        }
         const after = Object.values(have).reduce((n: number, v) => n + PP.int(v), 0) - give.length + take.length;
         if (after < TRADE_MIN_CARDS) {
           this.g.log(`[AVISO] [intercambio] pid ${s.pid} would keep ${after} cards (< ${TRADE_MIN_CARDS}): cancelled`);
@@ -225,7 +231,7 @@ export class Trades {
       this.to(t, p, M.TRADEEND, Uint8Array.of(done ? 1 : 0), c);
       if (done) this.sendTrunk(t, p, c);
       // why, as a server line in the chat (the trade screen has no text of its own for it)
-      if (r === "min") this.to(t, p, 0x4402, new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(MIN_CARDS_TEXT, MIN_CARDS_TEXT.length + 1).bytes(), c);
+      if (r === "min" || r === "bound") { const x = CANCEL_TEXT[r]; this.to(t, p, 0x4402, new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(x, x.length + 1).bytes(), c); }
     }
   }
 

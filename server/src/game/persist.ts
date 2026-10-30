@@ -187,6 +187,7 @@ export function progressionReset(p: P): boolean {
   if (PROGRESSION && pbinTest(p, STARTER_RIGHT) && !pbinTest(p, STARTER_RIGHT + 1)) pbinSet(p, STARTER_RIGHT, false);
   if (!PROGRESSION || int(p.prog ?? 0) >= PROGRESSION_EPOCH) return false;
   p.trunk = {};
+  delete p.bound;
   p.pbin = (p.pbin ?? []).filter((b: number) => b < STARTUP_PRESENT_RANGE[0] || b > STARTUP_PRESENT_RANGE[1]);
   delete p.starter;
   const r = (p.rec ??= {});
@@ -320,7 +321,26 @@ export function trunkRemove(p: P, cards: unknown[], g: Game | null = null, src =
     const k = String(int(cid));
     if ((t[k] ?? 0) > 0) { t[k] -= 1; if (!t[k]) delete t[k]; removed.push(int(cid)); }
   }
+  clampBound(p);
   econCards(g, p, "-", removed, src);
+}
+
+// ---- soul-bound copies (the owner, 2026-10-30): cards given free (the starter deck, the retired Startup Present) can't
+// be traded, so new accounts can't farm them onto one. p.bound = card -> bound copies, never more than owned; a removal
+// takes the unbound copies first (only what's left over owned is unbound). Earned cards (shop, PvP, NPC prizes,
+// tournaments) and the admin's grant stay free to trade.
+/** Binds these cards (repeats are copies), up to what the trunk holds. */
+export function bindCards(p: P, cards: unknown[]): void {
+  const b: Record<string, number> = (p.bound ??= {});
+  for (const c of cards) { const k = String(int(c)); b[k] = (b[k] ?? 0) + 1; }
+  clampBound(p);
+}
+export function clampBound(p: P): void {
+  if (!p.bound) return;
+  for (const [k, n] of Object.entries(p.bound as Record<string, number>)) {
+    const m = Math.min(int(n), int(p.trunk?.[k] ?? 0));
+    if (m > 0) p.bound[k] = m; else delete p.bound[k];
+  }
 }
 
 export function sanitizeTrunk(p: P): string[] {

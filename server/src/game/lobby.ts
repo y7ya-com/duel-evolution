@@ -747,7 +747,7 @@ export class Lobby {
     const st = this.g.loadState();
     const p = PP.profile(st, mySlot(this.g, st));
     const [r, cards] = this.startupPresentResult(data, p);
-    if (r === 0) { PP.trunkAdd(this.g, p!, cards, 1, "0x8402 Startup Present"); this.g.saveState(st); }
+    if (r === 0) { PP.trunkAdd(this.g, p!, cards, 1, "0x8402 Startup Present"); PP.bindCards(p!, cards); this.g.saveState(st); }
     const w = new W().u32(r).u8(cards.length);
     for (const cid of cards) w.u32(cid);
     c.send(0x8402, w.bytes());
