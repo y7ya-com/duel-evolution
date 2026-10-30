@@ -6,6 +6,7 @@ import { accountId, legacyId } from "../util/cifrado.ts";
 import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
 import { modeAgrees } from "./freemode.ts";
+import { entryKind } from "./gate.ts";
 
 export const PID_BASE = 1000;
 export const SESSION_RELEASE_S = 120;    // py YO2_SESION_LIBERAR_S
@@ -335,8 +336,8 @@ export class Hub {
    *  kept after the rooms merge into one world) and an 8-hex hash of the account, which counts distinct players and
    *  matches no other log line. Nothing for My Room or another block that isn't a room. */
   sala(s: Session, what: string): void {
-    const kind = s.block === null ? undefined : this.g.roomKinds[keyPort(s.block) - this.g.ports.roomBase];
-    if (kind !== undefined) this.log(`[sala] kind ${kind}: ${what} ${createHash("sha256").update(`sala|${s.acct}`).digest("hex").slice(0, 8)}`);
+    const kind = s.block === null ? 12 : entryKind(this.g, s);   // one world: the block says nothing, the lobby port does
+    if (kind !== 12) this.log(`[sala] kind ${kind}: ${what} ${createHash("sha256").update(`sala|${s.acct}`).digest("hex").slice(0, 8)}`);
   }
 
   enter(s: Session | null, key: BlockKey | null, ablock: number | null = null): Session[] {
