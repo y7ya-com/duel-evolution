@@ -166,6 +166,11 @@ INTENTIONAL):
   reaches the extra deck -> monster zone MOVE (or a decision ends the batch first). The translator fixture tests
   replay py with it off, and a named test checks that only the summonless materials change. The `npc` scenario has
   no fusion, so `parity/run.py` needs no mask.
+- **The die and the coin are drawn on the card that tosses** (translator `toss_on_card`). The client draws them at
+  (command player, zone). py sent the roller with the resolving chain link's zone, so an Archfiend rolling on the
+  opponent's Megamorph showed its die over the opponent's empty S/T zone. The translator now uses the card a HINT_CARD
+  right before the toss names (a continuous effect: Archfiends, Second Coin Toss), else the chain link, player and
+  zone both. The py-parity replays turn it off.
 - **No blank NPC gifts** (`persist.ts` `bitShown`). The client's item-get window (CCardPackCheckScene state 0x21)
   draws a page only for avatar parts, 挑戦権, recipes and titles (PBIN classes 1-3, 7, 8, 10). Any other bit gets an
   empty page. py put the 途中景品 GET済み flag (class 6) in every 5-win NPC prize, so each one showed a blank page. Yami

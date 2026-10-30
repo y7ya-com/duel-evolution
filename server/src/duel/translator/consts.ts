@@ -178,7 +178,9 @@ export const DEFAULT_CFG: Record<string, any> = {
   attack_aim: true, aim_target_bit: CMD_GENERIC, look_modes: { [ZONE_GRAVE]: 1, [ZONE_BANISH]: 4, [ZONE_EXTRA]: 1 },
   list_picks: true, place_manual: true, place_order: "centre", card_link: true, link_kind_equip: 10, link_kind_target: 9,
   link_target_anim: true, target_lockon: true, lockon_pile: true, counters: true, swap_cmd: true, monst_shuffle: true,
-  field_move_3d: true, toss_anim: true, coin_call: 1, tribute_anim: true, tribute_mark: false, fusion_anim: true,
+  field_move_3d: true, toss_anim: true,
+  toss_on_card: true,   // ours, not py's (DESIGN.md "Deliberate changes from 2008"); py-parity replays: off
+  coin_call: 1, tribute_anim: true, tribute_mark: false, fusion_anim: true,
   fusion_needs_summon: true,   // ours, not py's (DESIGN.md "Deliberate changes from 2008"); py-parity replays: off
   fusion_official: true, turn_timer: 180, turn_limit: true, tiempo_gunslinger: 60.0, tiempo_respuesta: 180.0,
   tiempo_margen: 3.0, retry_auto: 2, field_change: true, position_dialog: true, announce_dialogs: true,

@@ -78,8 +78,8 @@ function replay(name: string, t: Totals, o: ReplayOpts = {}) {
         const vi = s.v;
         // py's automatic placement takes the first free zone from the left (src/duel/zones.ts); py marks fusion
         // materials whether or not the summon follows (fusion_needs_summon); py's SELECT_UNSELECT_CARD from a pile is
-        // a mask on the pile, not the card list (unselect_list)
-        const cfg = { place_order: "py", fusion_needs_summon: false, unselect_list: false, ...s.cfg, ...o.cfg };
+        // a mask on the pile, not the card list (unselect_list); py's die and coin sit on the chain link (toss_on_card)
+        const cfg = { place_order: "py", fusion_needs_summon: false, unselect_list: false, toss_on_card: false, ...s.cfg, ...o.cfg };
         const d = new YO2Duel(s.decks, { first: s.first, cardmap: cardmap(), cfg, rng, clock: () => take("clk") });
         if (doc.kind !== "unit") d.query = () => (pvp && vi === 1 ? mirror_state(take("q")) : take("q"));
         views[vi] = d;
