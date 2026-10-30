@@ -72,9 +72,12 @@ export function plan(win) {
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w)
+      // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w), lines
+      // wrapped at that width as the engine wraps them, the page it shows (firstLine, pageLines: the detail's text)
       const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w } : { align: 0 };
-      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * t.text.split('\n').length },
-        el => drawLabel(el, t.text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
+      const text = box.w ? wrapLines(t.text, box.w).slice(ctl.firstLine || 0, (ctl.firstLine || 0) + (ctl.pageLines || 1e9)).join('\n') : t.text;
+      add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: 16 * text.split('\n').length },
+        el => drawLabel(el, text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
     for (const f of P.swfs || []) if (f.shown) hole(f.wz ?? 0, { x: f.wx, y: f.wy, w: SWF_BOX, h: SWF_BOX });
     return rs;
@@ -243,6 +246,27 @@ function drawScene(el, sc) {
   }
 }
 const inSide = (b, m) => !!m && m[0] >= b.wx && m[0] < b.wx + SIDE.w && m[1] >= b.wy && m[1] < b.wy + SIDE.h;
+
+// a CTextElm's lines as the engine wraps them: by character, a line ends before the glyph that would pass w (the
+// engine's own glyph advances, ui.js measure; @>N/ puts the pen at N); colour tags carry over to the next line
+export function wrapLines(text, w) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    let cur = '', tag = '', width = 0;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '@' && /[0-9@>]/.test(line[i + 1] || '')) {   // a tag: no width
+        const m = line.slice(i).match(/^@(>\d+\/|\d|@)/);
+        if (m) { cur += m[0]; if (/^@\d$/.test(m[0])) tag = m[0]; if (m[0] === '@@') width += ui.measure('@'); if (m[0][1] === '>') width = parseInt(m[0].slice(2)); i += m[0].length - 1; continue; }
+      }
+      const a = ui.measure(c);
+      if (width + a > w && cur) { out.push(cur); cur = tag; width = 0; }
+      cur += c; width += a;
+    }
+    out.push(cur);
+  }
+  return out;
+}
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
 // 18-pixel style. box: { align (0 left, 1 centre, 2 right), w } as the CTextElm lays its lines out.
