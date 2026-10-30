@@ -121,8 +121,10 @@ export async function makeLayer(host, screens, art = 'ui/') {
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
+// In front: drawn deeper (world z, larger is in front) when both are known, else later in the list.
 function holes(w, wins, owned) {
-  const front = wins.slice(wins.indexOf(w) + 1).filter(o => o.shown && !owned.has(o.id) &&
+  const i = wins.indexOf(w);
+  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && (o.wz && w.wz ? o.wz > w.wz : j > i) &&
     o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
   if (!front.length) return '';
   const r = o => `M${o.x - w.x} ${o.y - w.y}h${o.w}v${o.h}h${-o.w}z`;
