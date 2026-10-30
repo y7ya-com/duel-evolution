@@ -336,8 +336,8 @@ int main() {
         mode0();
         dev->SetRenderState(D3DRS_LIGHTING, 0);
         dev->interp = true;
-        for (int step = 0; step < 2; step++) {
-            dev->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xff000000, 1, 0);
+        for (int step = 0; step < 2; step++) {   // the second step doesn't clear: its in-between frame is draws only
+            if (!step) dev->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xff000000, 1, 0);
             quad(step * 16.f, 0, step * 16.f + 8, 8, step ? 0xff0000ff : 0xffff0000);
             dev->Present(nullptr, nullptr, nullptr, nullptr);
         }
@@ -347,9 +347,10 @@ int main() {
         auto at = [&](int x, int y) { uint32_t v; memcpy(&v, &bgra[((size_t)y * 64 + x) * 4], 4); return v; };
         if (mid) {
             check(approx(at(12, 4), 0xff800080), "in-between: the quad halfway, its colour halfway");
-            check(approx(at(4, 4), 0xff000000) && approx(at(20, 4), 0xff000000), "in-between: nothing at either end");
+            check(approx(at(4, 4), 0xff000000) && approx(at(20, 4), 0xff000000), "in-between: nothing at either end, opaque");
         }
         expect(20, 4, 0xff0000ff, "the step's own frame is untouched in the back buffer");
+        expect(4, 4, 0xffff0000, "...with the step before it under (no clear)");
         check(dev->presentHeld() == 0 && dev->heldDueMs() > 0, "held frame not shown before half a step");
         SDL_Delay(30);
         check(dev->presentHeld() == 1 && dev->presentHeld() == -1, "held frame shown once, half a step later");
