@@ -25,9 +25,12 @@ export async function loadGlyphs(base = A) {
     s.alpha = c.getImageData(0, 0, m.width, m.height).data.filter((_, i) => i % 4 === 3);   // exact: alpha is stored as is
   }));
 }
-const glyph = ch => G.glyphs[ch.charCodeAt(0)] || G.glyphs[63];   // '?' for anything the atlas lacks
-export const advance = ch => glyph(ch).adv + 1;                     // the game's cell: gmCellIncX + 1
-export const measure = s => [...s].reduce((w, ch) => w + advance(ch), 0);
+const glyph = (ch, F = G) => F.glyphs[ch.charCodeAt(0)] || F.glyphs[63];   // '?' for anything the atlas lacks
+export const advance = (ch, F) => glyph(ch, F).adv + 1;                     // the game's cell: gmCellIncX + 1
+export const measure = (s, F) => [...s].reduce((w, ch) => w + advance(ch, F), 0);
+// another lfHeight's glyphs (glyphs-dejavu<px>.json beside the 16-pixel one), for text(..., font)
+const fonts = {};
+export const loadFont = px => fonts[px] ||= fetch(A + `glyphs-dejavu${px}.json`).then(r => r.json());
 
 // src rect (sx,sy,sw,sh) of a sheet onto dst rect (x,y,w,h), sampled as the game samples it: the quad covers exactly
 // dst, its texture is read half a pixel up-left (D3D8 pixel centres), bilinear, clamped at the atlas's top-left edge.
@@ -82,17 +85,18 @@ export function windowFrame(parent, x, y, w, h, headerH) {
 }
 
 // Text: one glyph texture per text object (256x256, rows of 16), cells drawn 1:1 at the screen pen.
-// lines: [[string, x, y], ...] sharing one texture, as the game's multi-line text does.
-export function text(parent, lines, cls = '') {
-  const TW = 256, TH = 256, tex = new Uint8Array(TW * TH), cells = [];
+// lines: [[string, x, y], ...] sharing one texture, as the game's multi-line text does. font: a loadFont() result
+// (default the 16-pixel glyphs); its height is the cell's.
+export function text(parent, lines, cls = '', font = G) {
+  const TW = 256, TH = 256, tex = new Uint8Array(TW * TH), cells = [], F = font, H = F.height;
   let pen = 0, row = 0;
   for (const [s, x, y] of lines) {
     let dx = x;
     for (const ch of s) {
-      const g = glyph(ch), adv = g.adv + 1;
-      if (pen + adv > TW) { row += 16; pen = 0; }
+      const g = glyph(ch, F), adv = g.adv + 1;
+      if (pen + adv > TW) { row += H; pen = 0; }
       if (g.w) {   // the whole black box is written (zeros too), flat addressing like the locked texture
-        const base = (G.ascent + g.y0 + row) * TW + g.x0 + pen;
+        const base = (F.ascent + g.y0 + row) * TW + g.x0 + pen;
         for (let gy = 0; gy < g.h; gy++)
           for (let gx = 0; gx < g.w; gx++) {
             const i = base + gy * TW + gx;
@@ -104,14 +108,14 @@ export function text(parent, lines, cls = '') {
     }
   }
   const x0 = Math.min(...lines.map(l => l[1])), y0 = Math.min(...lines.map(l => l[2]));
-  const x1 = Math.max(x0 + 1, ...cells.map(c => c[3] + c[2])), y1 = Math.max(...lines.map(l => l[2])) + 16;
+  const x1 = Math.max(x0 + 1, ...cells.map(c => c[3] + c[2])), y1 = Math.max(...lines.map(l => l[2])) + H;
   const c = document.createElement('canvas');
   c.className = 'tx ' + cls;
   c.width = x1 - x0; c.height = y1 - y0;
   Object.assign(c.style, { left: x0 + 'px', top: y0 + 'px' });
   const img = new ImageData(c.width, c.height);
   for (const [px, py, adv, dx, dy] of cells)
-    for (let yy = 0; yy < 16; yy++)
+    for (let yy = 0; yy < H; yy++)
       for (let xx = 0; xx < adv; xx++)
         img.data[((dy - y0 + yy) * c.width + dx - x0 + xx) * 4 + 3] = py + yy < TH ? tex[(py + yy) * TW + px + xx] : 0;
   c.getContext('2d').putImageData(img, 0, 0);   // black (0,0,0,a): premultiplied storage is lossless
