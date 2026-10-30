@@ -9,10 +9,11 @@ import { isFree } from "./freemode.ts";
 export const GATE_PAUSE = 0.03;
 const SINGLE_ROOM: [number, number] = [WORLD_LANG, 14];
 /** One world: every room port leads into ONE block holding every area (hub.ts WORLD_AREAS), so the doors only pick
- *  where a player starts. Announced: blue Domino City (13) and GUNSLINGER (7, 60 s turns for the duels its entrants
- *  start), red Duelist Academy (14); CHAMPIONSHIP (8, the client's tournament screens) only while a tournament runs.
- *  The other kinds' ports stay open (ROOM_KINDS' order fixes every port) and land in the same block. */
-const ANNOUNCED_KINDS = [13, 7, 14];
+ *  where a player starts. Announced: one room per door, blue Domino City (13) and red Duelist Academy (14), which the
+ *  client enters straight from the door (rt/gate.c); CHAMPIONSHIP (8, the client's tournament screens) only while a
+ *  tournament runs. The other kinds' ports stay open (ROOM_KINDS' order fixes every port) and land in the same block;
+ *  their rules still follow the entry port. */
+const ANNOUNCED_KINDS = [13, 14];
 export const WORLD_KIND = 13;
 /** py ROOM_LANG_MERGE: every language shares the block (key language 0). */
 export const ROOM_LANG_MERGE = true;

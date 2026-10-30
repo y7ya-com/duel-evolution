@@ -28,8 +28,8 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     const es = entries(ls);
     expect(es[0]).toMatchObject({ sid: 1, kind: 1, name: "DuelCards", port: 5731 });
     expect(es[1]).toMatchObject({ sid: 2, kind: 3, name: "MyRoom", port: 5732, b1: 0, b2: 12, b3: 0 });
-    expect(es.length).toBe(2 + 8 * 3);                  // every language (b1 0-7) × Domino City, GUNSLINGER, Duelist Academy
-    expect([...new Set(es.slice(2).map((e) => e.b2))]).toEqual([13, 7, 14]);
+    expect(es.length).toBe(2 + 8 * 2);                  // every language (b1 0-7) × one room per door: Domino City, Duelist Academy
+    expect([...new Set(es.slice(2).map((e) => e.b2))]).toEqual([13, 14]);
     expect(es.slice(2).every((e) => e.kind === 3 && e.b3 === 0)).toBe(true);
   });
 
@@ -48,7 +48,7 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     await A.account(0, "Alice"); await B.account(0, "Bob");
     await A.enterRoom(4); await B.enterRoom(4);         // kind 14
     const es = entries((await h.client("C").gate())!);
-    expect(es.slice(2).map((e) => e.extra)).toEqual(new Array(8 * 3).fill(2));   // one world; ROOM_LANG_MERGE
+    expect(es.slice(2).map((e) => e.extra)).toEqual(new Array(8 * 2).fill(2));   // one world; ROOM_LANG_MERGE
   });
 
   it("PORT_OFFSET: every announced port carries the offset", async () => {
@@ -74,7 +74,7 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     expect(port(0, 13)).toBe(5800);
     expect(port(5, 14)).toBe(5800 + 5 * 11 + 4);
     expect(port(7, 13)).toBe(5800 + 6 * 11);           // Korean (7) takes franja 6
-    expect(new Set(es.map((e) => e.port)).size).toBe(24);
+    expect(new Set(es.map((e) => e.port)).size).toBe(16);
   });
 
   it("10-10 ROOM_PER_LANG: the block key carries the room's language, not the client's", async () => {
