@@ -21,7 +21,7 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, type x y text (no Enter), click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
 // chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
@@ -90,7 +90,9 @@ export const ROUTES = {
       ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, y], ['window', cls, 30000], ['wait', 2500],
       ['shot', 'open-engine'], ['on', cls], ['wait', 1500], ['shot', 'open-html'],
       ...(n === 'dmail' ? [['click', 322, 180], ['window', 'CWindowModelDMailSend', 20000], ['wait', 2500], ['shot', 'write-engine'],
-        ['on', 'CWindowModelDMailSend'], ['wait', 1500], ['shot', 'write-html']] : [['click', ...close], ['wait', 2500], ['shot', 'closed-html']])],
+        ['on', 'CWindowModelDMailSend'], ['wait', 1500], ['shot', 'write-html'], ['type', 420, 208, 'Duel later?'],
+        ['type', 500, 300, 'Hi! Want to duel later tonight? My deck is finally ready, and I would like to test it against yours.'],
+        ['wait', 1500], ['shot', 'typed-html']] : [['click', ...close], ['wait', 2500], ['shot', 'closed-html']])],
     flip: [] }])),
   duelprobe: { player: 'Duel Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
     ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
@@ -192,6 +194,11 @@ for (const [a, x, y, z] of route.steps) {
     for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
+  }
+  if (a === 'type') {   // the field at x, y takes the text z, typed as key events (no Enter)
+    await click(x, y);
+    for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
+    await sleep(800);
   }
   if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
   if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture

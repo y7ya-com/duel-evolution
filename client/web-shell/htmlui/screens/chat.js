@@ -32,7 +32,7 @@ const DRAW = {
 };
 function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
-  if (/Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  if (/(^|[^i])Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
   if (ICON[fam]) return DRAW.Icon(el, c, api, ICON[fam]);
   return DRAW[fam] ? DRAW[fam](el, c, api) : api.renderControl(c, el);
 }
@@ -181,11 +181,17 @@ export function owned(classes, draw, background) {
 
     update(win, prev, root, api, st) {
       const seen = new Set(), order = [];
-      for (const [n, c] of win.controls.entries()) {
-        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's)
-        if (c.parent) continue;
+      const byId = new Map(win.controls.map(k => [k.id, k]));
+      for (let [n, c] of win.controls.entries()) {
+        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's); but a
+        // MultiInput's Input is the field itself, at the MultiInput's place
+        const up = byId.get(c.parent);
+        if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y };
+        else if (c.parent) continue;
         seen.add(c.id);
-        const isInput = /Input(Duel)?$/.test(c.cls);   // Input, MultiInput, InputDuel
+        const isInput = /(^|[^i])Input(Duel)?$/.test(c.cls);   // Input, InputDuel (a MultiInput holds one)
+        // an input reported wider than its window (the mail form's Subject: 496 from x 73) ends inside the frame, as drawn
+        if (isInput && c.x + c.w > win.w - 16) c = { ...c, w: win.w - 16 - c.x };
         // the drawing: the input's text is ownInput's, so it doesn't redraw the field
         const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
         let d = st.drawn.get(c.id);

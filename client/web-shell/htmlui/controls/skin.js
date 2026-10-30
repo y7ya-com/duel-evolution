@@ -67,6 +67,8 @@ const GLYPH = {   // in the 15 x 14 box
 // 1x render): the duel title bar, a #a9aba4 frame (6..505 x 27..477), a slate panel (#7581a3, bevelled, 12..499 x
 // 32..471), the mail list (16..495 x 71..250: 36-pixel rows, white, a #a8acae / #525a5e separator; the scroll column
 // #d2d2d2), a light band (#96a5be > #9caabf, 251..271), the body (16..495 x 272..464, white), the body below #9898a8.
+// The mail form (mail_win_02_c01): a band #88a5bd > #8daac1 (40..95) with white fields edged #808080 (To 16..392 x
+// 48..64, Subject 16..495 x 72..88), the body 16..495 x 104..360, a lower panel #acb9ca > #b5becf (361..471).
 // The duel-style windows (CWindowTaskFrameDuel: My Profile, the Friend / Ignore / Team lists; htmlui-chat), sampled from
 // the engine's own 1x render (window-local px):
 //  - title bar rows 0..23: #f5f5f7 #f0f0f2 #e0e0e5 #c9c9d2 #b9b9c4 #b0b0bc #a8a8b6 #a0a0af #9999a9 (8) > #727288 (19)
@@ -124,6 +126,9 @@ const DUEL_CSS = `
     repeating-linear-gradient(to bottom, #fff 0 31px, #a8acae 31px 32px, #525a5e 32px 33px, #a8acae 33px 36px); }
 .yo2-mail > .bd { border-top: 1px solid #5a647e; border-bottom: 1px solid #58627c;
   background: linear-gradient(to bottom, #96a5be, #9caabf); }
+.yo2-mail > .ff { background: linear-gradient(to bottom, #88a5bd, #8daac1); box-shadow: inset 0 1px #7c92b1, inset 0 -1px #8297b6; }
+.yo2-mail > .fd { background: #fff; border: 1px solid #808080; }
+.yo2-mail > .lo { background: linear-gradient(to bottom, #acb9ca, #b5becf); border-top: 1px solid #636c81; }
 .yo2-mail > .tx { border: 1px solid #8c8f9c; border-right: 0;
   background: linear-gradient(to right, #fff calc(100% - 16px), #e8e8e8 calc(100% - 16px) calc(100% - 15px), #d2d2d2 calc(100% - 15px)); }`;
 const CHAT_CSS = `
@@ -324,14 +329,19 @@ export function duelButton(parent, { x, y, w, h = 24, label = '', state = null }
 // a list's striped rows (CWindowTaskBackStripe, 16-pixel rows)
 export const stripes = piece('yo2-stripes');
 
-// D-Mail's window background (its 512 x 512 picture as boxes)
-export function mailWindow(parent, { w = 512, h = 512 } = {}) {
+// D-Mail's windows' backgrounds (their 512 x 512 pictures as boxes): the inbox (mail_win_01_c01) or, compose: true,
+// the mail form (mail_win_02_c01: a light band with the To and Subject fields, the body 104..360, a lower panel)
+export function mailWindow(parent, { w = 512, h = 512, compose = false } = {}) {
   inject();
   const d = document.createElement('div');
   d.className = 'yo2-mail';
   place(d, { w, h });
-  for (const [cls, x, y, bw, bh] of [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ls', 16, 71, w - 32, 180],
-    ['bd', 16, 251, w - 32, 21], ['tx', 16, 272, w - 32, 193]]) {
+  const boxes = compose
+    ? [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ff', 16, 40, w - 32, 56], ['fd', 16, 48, 377, 17],
+      ['fd', 16, 72, w - 32, 17], ['tx', 16, 104, w - 32, 257], ['lo', 16, 361, w - 32, 111]]
+    : [['fr', 6, 27, w - 12, 451], ['sl', 12, 32, w - 24, 440], ['ls', 16, 71, w - 32, 180], ['bd', 16, 251, w - 32, 21],
+      ['tx', 16, 272, w - 32, 193]];
+  for (const [cls, x, y, bw, bh] of boxes) {
     const i = document.createElement('i');
     i.className = cls;
     place(i, { x, y, w: bw, h: bh });
