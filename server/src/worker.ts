@@ -267,6 +267,8 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
   const headers = new Headers(ISOLATION);
   obj.writeHttpMetadata(headers);
   headers.set("Content-Type", TYPES[key.split(".").pop() ?? ""] ?? "application/octet-stream");
+  // search engines may index the apex's front page and its share images; the game's files and original. (a copy) stay noindex
+  if (url.hostname === "ygoevolution.com" && /^(index\.html|og\.jpg|favicon\.png|apple-touch-icon\.png)$/.test(rel)) headers.delete("X-Robots-Tag");
   headers.set("ETag", obj.httpEtag);
   headers.set("Accept-Ranges", "bytes");
   // ?v=<ETag> (the client's prefetch) names this exact version: cache it for good; a stale v gets the usual headers.
