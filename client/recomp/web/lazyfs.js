@@ -848,6 +848,12 @@ Module.preRun.push(() => {
     for (const [k, env] of [["http", "YO2_HTTP"], ["gateway", "YO2_GATEWAY"], ["server", "YO2_SERVER"]])
         if (q.get(k)) ENV[env] = q.get(k);
     for (const [k, v] of q) if (/^[A-Z][A-Z0-9_]*$/.test(k)) ENV[k] = v;   // e.g. ?RC_VERBOSE=1
+    // ponytail: UA sniff. The in-between frames (rt/d3d8.cpp, RC_60) still come out partly see-through, which WebKit
+    // composites as black flicker: 30 Hz on Safari and every iPhone/iPad browser (all WebKit) unless the link asks
+    // (?RC_60=1). Delete once platform/gfx keeps those frames opaque.
+    const nav = globalThis.navigator ?? {}, ua = nav.userAgent ?? "";
+    if (!q.has("RC_60") && (/iPhone|iPad|iPod/.test(ua) || nav.platform === "MacIntel" && nav.maxTouchPoints > 1 ||
+        /AppleWebKit/.test(ua) && !/Chrome\/|Chromium\//.test(ua))) ENV.RC_60 = "0";
     // The new server's sign-in, in the game's own UI (rt/session.cpp): ask <http>/api/de/session once (same origin, so
     // the cookie goes along). Signed in -> YO2_SESSION_NAME (no login dialog); anything else, a failed check too, is
     // signed out: the login dialog is the sign-in panel, whose Discord button (YO2_DISCORD_URL) comes back to this page
