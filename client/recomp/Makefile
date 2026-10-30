@@ -19,7 +19,7 @@ RC_SRCS := $(wildcard $(OUT)/rc_[0-9]*.c)
 RC_OBJS := $(patsubst $(OUT)/%.c,$(B)/%.o,$(RC_SRCS))
 # strong f_XXXXXXXX overrides of recompiled functions (README "Overrides")
 OVR_SRCS := $(wildcard ovr/*.c)
-RT_SRCS := rt/rt.c rt/mem.c rt/k32.c rt/k32io.c rt/cp932.c rt/winmm.c rt/misc.c rt/wsock.c rt/wininet.c rt/gate.c rt/prof.c rt/decktap.c rt/audioui.c
+RT_SRCS := rt/rt.c rt/clock.c rt/mem.c rt/k32.c rt/k32io.c rt/cp932.c rt/winmm.c rt/misc.c rt/wsock.c rt/wininet.c rt/gate.c rt/prof.c rt/decktap.c rt/audioui.c
 RT_CXX := rt/audio.cpp rt/cardwire.cpp rt/user32.cpp rt/debrand.cpp rt/freetitle.cpp rt/session.cpp rt/ui_kit.cpp ../platform/vfs/vfs.cpp rt/d3d8.cpp rt/gdi32.cpp rt/plat_glue.cpp rt/comobj.cpp rt/dinput.cpp rt/dsound.cpp ../platform/audio/dsound.cpp ../platform/sdl/platform.cpp ../platform/gfx/d3d8.cpp \
   ../platform/win32/gdi.cpp ../platform/win32/font.cpp ../platform/win32/text.cpp
 SDL_CFLAGS := $(shell sdl2-config --cflags)
@@ -49,8 +49,8 @@ $(B)/librc.a: $(RC_OBJS) $(B)/rc_table.o
 
 RT_CFLAGS := -O1 -g -Wall -Wno-unused-function -Irt -I$(OUT) $(SANFLAGS)
 
-$(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c $(RT_HDRS) $(B)/librc.a
-	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c $(B)/librc.a -o $@
+$(B)/rcdiff: rt/rcdiff.c rt/rt.c rt/mem.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
+	$(CC) $(RT_CFLAGS) rt/rcdiff.c rt/rt.c rt/mem.c ovr/allrooms.c $(B)/librc.a -o $@
 
 mem_test: $(B)/mem_test
 $(B)/mem_test: rt/mem_test.c rt/mem.c $(RT_HDRS) | $(B)
@@ -62,6 +62,12 @@ cardwire_js: $(B)/cardwire.mjs   # the codec for server/parity/bridge.mjs
 $(B)/cardwire.mjs: rt/cardwire_js.cpp rt/cardwire.cpp ../src/Net/md5.h | $(B)
 	em++ -std=c++17 -O1 -Wall rt/cardwire_js.cpp -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=node -sALLOW_MEMORY_GROWTH \
 	  -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8 -o $@
+clock_test: $(B)/clock_test
+$(B)/clock_test: rt/clock_test.c rt/clock.c | $(B)
+	$(CC) $(RT_CFLAGS) -pthread rt/clock_test.c rt/clock.c -o $@
+memmove_test: $(B)/memmove_test   # the recompiled CRT memmove vs libc on the real exe: build/memmove_test [yo2.exe]
+$(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
+	$(CC) $(RT_CFLAGS) rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(B)/librc.a -o $@
 fuzzy_test: $(B)/fuzzy_test
 $(B)/fuzzy_test: rt/fuzzy_test.c ovr/fuzzy.h | $(B)
 	$(CC) -O1 -Wall rt/fuzzy_test.c -o $@

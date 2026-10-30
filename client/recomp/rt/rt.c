@@ -409,22 +409,11 @@ CPU *rc_new_thread_cpu(uint32_t stack_size) {
 void rc_set_cur(CPU *c) { pthread_setspecific(cur_key, c); }
 
 // RC_TIMESCALE=N (test runs): the game's clocks run N times faster and its sleeps and timeouts last 1/N as long, so a
-// scripted run reaches each scene in fewer wall seconds. Every clock the guest sees comes from rc_now_us.
-uint32_t rc_timescale = 1;
-static uint64_t mono_us(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000 + (uint64_t)ts.tv_nsec / 1000;
-}
-static uint64_t t0_us, skip_us;
-uint64_t rc_now_us(void) { return t0_us + (mono_us() - t0_us) * rc_timescale + __atomic_load_n(&skip_us, __ATOMIC_RELAXED); }
-uint64_t rc_real_us(uint32_t ms) { return (uint64_t)ms * 1000 / rc_timescale; }   // a guest wait, in host time
-
+// scripted run reaches each scene in fewer wall seconds (rt/clock.c).
 // RC_FASTFORWARD=1 (test runs): virtual time. The guest main thread's Sleep advances the clock and returns at once, so
 // the game's frame pacing never waits and frames run back to back; other threads wait for the virtual clock to reach
 // their deadline (rc_vwait). Real time still flows underneath (x RC_TIMESCALE), so nothing waits forever on it.
 int rc_fastforward;
-void rc_time_skip(uint64_t us) { __atomic_add_fetch(&skip_us, us, __ATOMIC_RELAXED); }
 // Discrete-event step: the other guest threads (loaders, timers, network) count themselves busy while they run guest
 // code and idle while blocked in Sleep or a wait. The main thread's frame-pacing Sleep first waits for them all to be
 // idle (at most RC_FF_IDLE_MS real ms, default 200, against a thread blocked somewhere uncounted), then jumps the
@@ -434,12 +423,12 @@ void rc_thread_busy(int d) { __atomic_add_fetch(&busy_threads, d, __ATOMIC_SEQ_C
 void rc_ff_main_sleep(uint32_t ms) {
     static uint64_t cap_us;
     if (!cap_us) cap_us = (getenv("RC_FF_IDLE_MS") ? (uint64_t)atoi(getenv("RC_FF_IDLE_MS")) : 200) * 1000;
-    uint64_t t = mono_us();
+    uint64_t t = rc_mono_us();
 #ifdef __EMSCRIPTEN__
     void rc_web_sleep(uint32_t ms);   // the browser thread: let workers' proxied calls run while it waits
-    while (__atomic_load_n(&busy_threads, __ATOMIC_SEQ_CST) > 0 && mono_us() - t < cap_us) rc_web_sleep(0);
+    while (__atomic_load_n(&busy_threads, __ATOMIC_SEQ_CST) > 0 && rc_mono_us() - t < cap_us) rc_web_sleep(0);
 #else
-    while (__atomic_load_n(&busy_threads, __ATOMIC_SEQ_CST) > 0 && mono_us() - t < cap_us) usleep(100);
+    while (__atomic_load_n(&busy_threads, __ATOMIC_SEQ_CST) > 0 && rc_mono_us() - t < cap_us) usleep(100);
 #endif
     static unsigned capped;   // the cap hit: a thread stays busy (spinning on Sleep(0) or a 0 ms wait?) and each frame
     int busy = __atomic_load_n(&busy_threads, __ATOMIC_SEQ_CST);   // costs RC_FF_IDLE_MS: say so now and then
@@ -461,8 +450,7 @@ uint32_t rc_online_scene(void) { return 6; }   // ONLINE: the login (rt/session.
 void rc_init(const char *exe) {
     pthread_key_create(&cur_key, NULL);
     cur_ready = 1;
-    t0_us = mono_us();
-    if (getenv("RC_TIMESCALE") && atoi(getenv("RC_TIMESCALE")) > 1) rc_timescale = (uint32_t)atoi(getenv("RC_TIMESCALE"));
+    rc_clock_init(getenv("RC_TIMESCALE") ? (uint32_t)atoi(getenv("RC_TIMESCALE")) : 1);
     rc_fastforward = getenv("RC_FASTFORWARD") && atoi(getenv("RC_FASTFORWARD")) > 0;
     {
         extern uint32_t rc_heap_hi;

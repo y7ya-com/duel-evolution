@@ -37,13 +37,19 @@
   // Chrome/Edge run the JSPI build, Safari/Firefox the ASYNCIFY one, iPhone/iPad its 1 GB variant (yo2rc.html picks).
   // Phones and tablets are welcome: stage.js does touch, the on-screen keyboard and the layout. Only these are truly missing:
   const gl2 = (() => { try { return !!document.createElement("canvas").getContext("webgl2"); } catch (e) { return false; } })();
-  const why = !window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined" ? "This browser blocks the shared memory the game needs. Update it, or open the page in current Chrome, Edge, Firefox or Safari."
-    : !gl2 ? "This browser has no WebGL 2 (or it is turned off). Turn on hardware acceleration, or try another browser."
-    : "";
-  if (why) {
+  const block = !window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined" ? "shared-memory" : !gl2 ? "webgl2" : "";
+  const why = {
+    "shared-memory": "This browser is too old for the game, or it is an app's built-in browser. Update it, or open this page in Firefox or a current Chrome, Edge or Safari.",
+    webgl2: "This browser can't draw the game (no WebGL 2): the graphics card or its driver may be too old, or hardware acceleration is off. Turn hardware acceleration on, update the graphics driver, or try Firefox.",
+  }[block];
+  if (block) {
     const m = document.getElementById("msg");
     m.textContent = why;
     m.hidden = false;
+    // a blocked browser never reaches the game's crash reporter: one row per load (the reason and the browser, nothing personal)
+    fetch("/__crash", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ why: "blocked: " + block, fatal: true, ua: navigator.userAgent, url: location.pathname, coi: !!window.crossOriginIsolated,
+        sab: typeof SharedArrayBuffer !== "undefined", gl2 }) }).catch(() => {});
   } else {
     fetch("__warm", { keepalive: true }).catch(() => {});   // wake the game server while the client boots (survives the redirect)
     const q = new URLSearchParams(location.search);

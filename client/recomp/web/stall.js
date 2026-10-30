@@ -21,6 +21,9 @@
 // A wait (kind "wait") is the server's side in a duel (janken 0x1e, duel 0x1c): the game sent and nothing came back
 // for over 2 s, frames still drawn (the NPC thinking, the opponent, the server). ponytail: any reply ends it, and a
 // send that expects none followed by a quiet spell counts too; read waits per scene and duel kind.
+// A duel's frame rate (kind "fps"), when the duel scene (0x1c) ends on a page visible all along: ms in it, f frames
+// (game steps), fps = f per second, speed the Duel speed (client/web-shell/duelspeed.js). The duel loop's step is
+// 30 fps, times the speed: a device below that plays the duel's frame-counted cinematics slower than 2008 did.
 // Batches go to POST /__stall (private R2, admin-readable): 10 stalls, 60 s after the first unsent one, or the page
 // hiding. Anonymous (a random id per page load, the build, the browser), at most 60 stalls per page load.
 //   ?nostall  off; Module.yo2Stalls has every stall recorded (measurements read it)
@@ -32,7 +35,19 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
     // hiddenAt: the last visibility change either way (a stall that spans one is the browser's timers, not the game)
     addEventListener("visibilitychange", () => { hiddenAt = performance.now(); if (document.hidden) flush(true); });
     addEventListener("pagehide", () => flush(true));
-    Module.onYo2Scene = (kind, from, to) => { scene = to; swAt = performance.now(); };   // adds a listener (lazyfs.js)
+    let duelAt = 0, duelF = 0;
+    Module.onYo2Scene = (kind, from, to) => {   // adds a listener (lazyfs.js)
+        const now = performance.now();
+        if (kind === "begin" && to === 0x1c && from !== 0x1c) duelAt = now, duelF = frame;
+        else if (kind === "begin" && from === 0x1c && to !== 0x1c && duelAt) {
+            if (!document.hidden && hiddenAt < duelAt && now - duelAt > 10000)
+                push({ kind: "fps", t: Math.round(duelAt), ms: Math.round(now - duelAt), f: frame - duelF,
+                       fps: Math.round((frame - duelF) * 10000 / (now - duelAt)) / 10, speed: +Module.yo2DuelSpeed || 1,
+                       duel: Module.yo2Lazy?.duel || "" });
+            duelAt = 0;
+        }
+        scene = to; swAt = now;
+    };
     const since = (log, t0) => (log || []).filter((e) => e[0] + e[1] >= t0).map((e) => e.slice(1));
     const sum = (l) => l.reduce((a, e) => a + e[0], 0);
     let focusAt = document.hasFocus ? +document.hasFocus() : 1;

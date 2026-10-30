@@ -6,7 +6,8 @@
 import type { Conn } from "../net/conn.ts";
 import { W } from "../net/proto.ts";
 import type { Game } from "../game/game.ts";
-import { keyPort, type Session } from "../game/hub.ts";
+import { type Session } from "../game/hub.ts";
+import { entryKind } from "../game/gate.ts";
 import * as PP from "../game/persist.ts";
 import { freeRecord, isFree } from "../game/freemode.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
@@ -15,7 +16,8 @@ import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
 import { deckHash } from "./deckCheck.ts";
 import * as DFM from "./duelfin.ts";
 import * as DL from "./duellog.ts";
-import { PvpSession, Sender, type SItem } from "./ocgSession.ts";
+import { PvpSession, Sender, cardText, sendDuelLog, type SItem } from "./ocgSession.ts";
+import { DuelLog } from "./duelText.ts";
 import { X } from "./port.ts";
 
 type P = Record<string, any>;
@@ -205,7 +207,10 @@ export class Matches {
 
   route(c: Conn, msgId: number): PvpMatch | null {
     const m0 = X(c).pvp as PvpMatch | null | undefined;
-    if (m0) return m0;
+    // a new duel's 0x6001 on the duel connection the client kept from a finished match: the old match lets it go,
+    // or every message of the new duel (a PvP or an NPC one) went to the finished match and it never started
+    if (m0 && m0.done && msgId === 0x6001 && !X(c).pvpW) { delete X(c).pvp; delete X(c).pvpI; }
+    else if (m0) return m0;
     if (msgId === 0x6700 && PVP_WATCH) {
       const req = this.watchReq.get(c.peer);
       this.watchReq.delete(c.peer);
@@ -512,6 +517,12 @@ export class PvpMatch {
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
+    const ct = cardText();
+    if (ct) {
+      this.ps.dlog = new DuelLog([this.sess[0].name, this.sess[1].name], ct);
+      this.ps.onLog = (i, lines) => sendDuelLog(this.g, this.sess[i].lobby, lines);
+    }
+    for (const s of this.sess) this.g.hub.sala(s, "pvp duel");
     this.log(`[pvp] ${this.name}: arranca` + (this.bo3() ? ` la partida ${this.firsts.length} del match` : "") + `, empieza ${first}; ${why}`);
     return this.ps.start(first);
   }
@@ -813,12 +824,7 @@ export class PvpMatch {
     } catch (e) { this.log(`[EXC] ${this.name}: registro de duelo: ${errStr(e)}`); }
   }
 
-  roomKind(s: Session): number {
-    try {
-      const k = this.g.roomKinds[keyPort(s.block!) - this.g.ports.roomBase];
-      return k === undefined ? 12 : k;
-    } catch { return 12; }
-  }
+  roomKind(s: Session): number { return entryKind(this.g, s); }
 
   closeMatch(): void {
     this.done = true;

@@ -26,8 +26,13 @@ struct RcThread {
 };
 void rc_free_thread_stack(CPU *c);
 extern uint32_t rc_timescale;
-uint64_t rc_now_us(void);           // the guest's monotonic clock (scaled by RC_TIMESCALE)
+uint64_t rc_now_us(void);           // the guest's tick clock (RC_TIMESCALE x the duel speed: rt/clock.c)
+uint64_t rc_wall_us(void);          // the guest's time of day (RC_TIMESCALE only)
+uint64_t rc_mono_us(void);          // the host's monotonic clock
 uint64_t rc_real_us(uint32_t ms);   // a guest wait of ms, in host microseconds
+void rc_clock_init(uint32_t timescale);
+void rc_set_tick_rate(uint32_t permille);   // ovr/duelspeed.c: 1000 = real time
+uint32_t rc_tick_rate(void);                // RC_TIMESCALE x that, in permille
 extern int rc_fastforward;          // RC_FASTFORWARD: virtual time, frames back to back, rendering only when needed
 void rc_time_skip(uint64_t us);     // advance the guest clock (fast-forward)
 void rc_thread_busy(int delta);     // fast-forward: a non-main guest thread starts/stops running (+1/-1)

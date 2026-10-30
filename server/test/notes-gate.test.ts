@@ -2,6 +2,7 @@
 // ROOM_LANG_MERGE) -> src/game/gate.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, cstr, u16, u32 } from "./notes-harness.ts";
+import { entryKind } from "../src/game/gate.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -27,8 +28,8 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     const es = entries(ls);
     expect(es[0]).toMatchObject({ sid: 1, kind: 1, name: "DuelCards", port: 5731 });
     expect(es[1]).toMatchObject({ sid: 2, kind: 3, name: "MyRoom", port: 5732, b1: 0, b2: 12, b3: 0 });
-    expect(es.length).toBe(2 + 8 * 9);                  // every language (b1 0-7) × every room kind but 15, 16
-    expect(es.some((e) => e.b2 === 15 || e.b2 === 16)).toBe(false);   // same names as 7 and 9
+    expect(es.length).toBe(2 + 8 * 2);                  // every language (b1 0-7) × one room per door: Domino City, Duelist Academy
+    expect([...new Set(es.slice(2).map((e) => e.b2))]).toEqual([13, 14]);
     expect(es.slice(2).every((e) => e.kind === 3 && e.b3 === 0)).toBe(true);
   });
 
@@ -47,8 +48,7 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     await A.account(0, "Alice"); await B.account(0, "Bob");
     await A.enterRoom(4); await B.enterRoom(4);         // kind 14
     const es = entries((await h.client("C").gate())!);
-    expect(es.filter((e) => e.b2 === 14).map((e) => e.extra)).toEqual(new Array(8).fill(2));   // ROOM_LANG_MERGE
-    expect(es.filter((e) => e.b2 === 13).every((e) => e.extra === 0)).toBe(true);
+    expect(es.slice(2).map((e) => e.extra)).toEqual(new Array(8 * 2).fill(2));   // one world; ROOM_LANG_MERGE
   });
 
   it("PORT_OFFSET: every announced port carries the offset", async () => {
@@ -70,11 +70,11 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     const es = entries((await h.client("A").gate())!).slice(2);
     const port = (b1: number, b2: number) => es.find((e) => e.b1 === b1 && e.b2 === b2)!.port;
     expect(port(6, 13)).toBe(5740);
-    expect(port(6, 20)).toBe(5750);
+    expect(port(6, 14)).toBe(5744);
     expect(port(0, 13)).toBe(5800);
     expect(port(5, 14)).toBe(5800 + 5 * 11 + 4);
     expect(port(7, 13)).toBe(5800 + 6 * 11);           // Korean (7) takes franja 6
-    expect(new Set(es.map((e) => e.port)).size).toBe(72);
+    expect(new Set(es.map((e) => e.port)).size).toBe(16);
   });
 
   it("10-10 ROOM_PER_LANG: the block key carries the room's language, not the client's", async () => {
@@ -85,6 +85,31 @@ describe("gate 5730 (puerta.gate_reply)", () => {
     await B.enterRoom(0, 5, 0, undefined, 5740);            // world room, Spanish client
     const keys = [...h.game.hub.blocks.keys()].sort();
     expect(keys).toEqual(["5740|5", "5740|6"]);
+  });
+
+  it("CHAMPIONSHIP (8) is announced only while a tournament runs", async () => {
+    const h = harness();
+    expect(entries((await h.client("A").gate())!).some((e) => e.b2 === 8)).toBe(false);
+    h.game.to!.startTournament();
+    expect(entries((await h.client("B").gate())!).filter((e) => e.b2 === 8).length).toBe(8);
+  });
+
+  it("one world: whichever room port they take (blue 13, GUNSLINGER 7, red 14, an old 9), players share one block", async () => {
+    const h = harness();
+    const [A, B, C, D] = ["A", "B", "C", "D"].map((n) => h.client(n));
+    await A.account(0, "Alice"); await B.account(0, "Bob"); await C.account(0, "Cid"); await D.account(0, "Dee");
+    await A.enterRoom(0); await B.enterRoom(1); await C.enterRoom(4); await D.enterRoom(6);
+    expect([...h.game.hub.blocks.keys()]).toEqual(["5740|0"]);
+    expect(h.game.hub.blocks.get("5740|0")!.size).toBe(4);
+  });
+
+  it("one world: a room's rules follow the port its player entered by (GUNSLINGER 7 keeps its 60 s turns)", async () => {
+    const h = harness();
+    const A = h.client("A"), B = h.client("B");
+    await A.account(0, "Alice"); await B.account(0, "Bob");
+    await A.enterRoom(1); await B.enterRoom(0);
+    const kind = (pid: number | null) => entryKind(h.game, h.game.hub.byPid(pid!)!);
+    expect([kind(A.pid), kind(B.pid)]).toEqual([7, 13]);
   });
 
   it("ROOM_LANG_MERGE: without ROOM_PER_LANG clients of every language share the block (key language 0)", async () => {

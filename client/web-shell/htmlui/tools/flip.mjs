@@ -217,6 +217,9 @@ for (const [a, x, y, z] of route.steps) {
   // route's RC_INPUT_FILE (query RC_INPUT_FILE=/rcin.txt), which the game reads every 5 frames
   if (a === 'rc') await b.ev(`(() => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + ${JSON.stringify(x)} + '\\n'); })()`);
   if (a === 'task') await until('task ' + x, y, async () => (await snap())?.tasks?.some(t => t.cls === x && t.shown));
+  if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
+  if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
+  if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   if (a === 'rhold') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p, 'right'); await sleep(z); await mouse('mouseReleased', p, 'right'); await sleep(500); }
   if (a === 'leave') for (let i = 0; i < 4; i++) {
     await click(x, y);

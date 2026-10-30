@@ -26,7 +26,9 @@
     if (showLog) { logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
     console.log(s);
     if (/^(rc_trap at|MISSING IMPORT|guest fault|host fault)/.test(s)) crash(s);
+    else if (/^rc_report: /.test(s) && reported++ < 3) setTimeout(() => report(s, false), 500);   // a handled problem worth a look
   };
+  let reported = 0;
   // A guest trap (it logs, then exits), an abort or an exit: report it once to /__crash, then tell the player instead of
   // leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
   let crashed = false;
@@ -98,9 +100,9 @@
   // browser has it (and the page has no ?async), else ASYNCIFY (make web-async).
   // Firefox always gets ASYNCIFY: its JSPI (on by default from 158) breaks the synchronous Range XHRs from a suspended
   // stack and its WebGL refuses views of the JSPI build's 2 GB heap.
-  // Each build creates its whole shared memory at boot. Phones (32-bit Chrome) often can't reserve the JSPI build's 2 GB
-  // ("WebAssembly.Memory(): could not allocate memory"), so V8 tries that size first and falls back to the 1 GB build
-  // (ASYNCIFY runs in Chrome too). The trial memory is garbage at once: V8 collects it if the real one needs the room.
+  // Each build creates its whole shared memory at boot. Phones and 32-bit Chrome often can't reserve a 2 GB build's
+  // memory ("WebAssembly.Memory(): could not allocate memory"), so V8 (Chrome, Edge: the JSPI build, or the ASYNCIFY one
+  // before Chrome 137) tries that size first and falls back to the 1 GB build (ASYNCIFY runs in Chrome too). The trial memory is garbage at once: V8 collects it if the real one needs the room.
   // Not tried on WebKit, which commits all of it. Firefox (Windows commits a shared memory whole) can get the 2 GB
   // ASYNCIFY memory and then run out compiling the wasm ("InternalError: out of memory", field 2026-10-29): a 2 GB
   // build that runs out before its first frame marks the device (localStorage yo2-small) and reloads once into the
@@ -113,7 +115,7 @@
     const s = document.createElement("script");
     s.async = true;
     s.src = ios || small ? "yo2rc-ios.js" : "Suspending" in WebAssembly && !navigator.userAgent.includes("Firefox/") && !q.has("async") ? "yo2rc.js" : "yo2rc-async.js";
-    if (s.src.endsWith("/yo2rc.js")) try { new WebAssembly.Memory({ initial: 32768, maximum: 32768, shared: true }); }
+    if (!/yo2rc-ios[-.]/.test(s.src) && navigator.userAgent.includes("Chrome/")) try { new WebAssembly.Memory({ initial: 32768, maximum: 32768, shared: true }); }
       catch (e) { log("no room for a 2 GB memory (" + e.message + "): the 1 GB build"); s.src = "yo2rc-ios.js"; }
     // start the wasm download now, beside the runtime script, not once that script has run (Emscripten's own
     // fetch(…, { credentials: "same-origin" }) then takes this response: crossorigin "anonymous" is the same mode)
