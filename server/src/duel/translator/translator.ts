@@ -145,6 +145,8 @@ export class YO2Duel {
   retry_n = 0;
   field_shown: [number, number] | null = null;
   _field_seen = new Map<number, number>();
+  /** "side+pile" already logged by _pile_drift (once per duel). */
+  _drift = new Set<string>();
   fusion_armed = false;
   fusion_mats: number[] = [];
   fusion_started: number[] = [];
@@ -1669,6 +1671,7 @@ export class YO2Duel {
 
   _sync_board(state: any, resend = true): Msg[] {
     if (!truthy(state) || this._syncing) return [];
+    this._pile_drift(state);
     let out: Msg[] = [];
     ((state.players || []) as any[]).slice(0, 2).forEach((pl, p) => {
       for (const [key, loc_] of [["mzone", K.OCG_MZONE], ["szone", K.OCG_SZONE]] as [string, number][]) {
@@ -1695,6 +1698,22 @@ export class YO2Duel {
       }
     }
     return out;
+  }
+
+  /** The client's piles follow this mirror, and its engine moves cards by index: a mirror pile of another size than
+   *  ocgcore's means the client is about to be told a move out of a slot it does not have (a client crash in the hand
+   *  vector, 2026-10-30). Logged once per side and pile, to reach Workers Logs ([AVISO]). */
+  _pile_drift(state: any): void {
+    ((state.players || []) as any[]).slice(0, 2).forEach((pl, p) => {
+      const s = this.side[p];
+      const n: [PileName, unknown][] = [["hand", pl.hand], ["grave", pl.grave], ["banish", pl.removed]];
+      if (isInt(pl.deck_count)) n.push(["deck", Array(pl.deck_count)]);
+      for (const [where, cards] of n) {
+        if (!Array.isArray(cards) || cards.length === s.pile(where).length || this._drift.has(`${p}${where}`)) continue;
+        this._drift.add(`${p}${where}`);
+        this.log(`[AVISO] [traductor] desfase de ${where} j${p}: espejo ${s.pile(where).length}, ocgcore ${cards.length} (turno ${this.turn_no})`);
+      }
+    });
   }
 
   /** ocg_duel calls sync_stats after feed_many (= sync_board). */
