@@ -16,6 +16,8 @@ import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
+/** After /__admin/shutdown, how long new game sockets are refused if no deploy replaces this instance. */
+const STOP_S = 120;
 
 export class WorldDO extends DurableObject<Env> {
   private srv!: Server;
@@ -23,7 +25,7 @@ export class WorldDO extends DurableObject<Env> {
   private sink: D1Sink | null = null;
   private nextPeer = 1;
   /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
-  private sockets = new Set<WebSocket>();
+  private sockets = new Map<WebSocket, () => void>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -77,11 +79,18 @@ export class WorldDO extends DurableObject<Env> {
       // the version this instance runs: after a deploy the old instance keeps serving its sockets for minutes
       if (url.pathname === "/__admin/version") return Response.json({ v: this.env.CF_VERSION_METADATA?.id ?? "dev" });
       if (url.pathname === "/__admin/shutdown") {
-        // a planned deploy: 4012 "server-update" tells the web client to reconnect at once (not a network loss)
+        // a planned deploy, just before `wrangler deploy` (immediate DO code update, scripts/deploy.sh): 4012
+        // "server-update" tells the web client to wait for the new version; each socket's game side closes now (duels
+        // end with no result, g.stopping); the D1 writes they cause are flushed; new game sockets are refused until the
+        // new code answers (else a client lands here and drops again). A deploy that never comes: back after STOP_S.
         const n = this.sockets.size;
-        this.srv.game.stopping = true;
-        for (const ws of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } }
-        return Response.json({ closed: n });
+        const g = this.srv.game;
+        g.stopping = true;
+        setTimeout(() => { g.stopping = false; }, STOP_S * 1000);
+        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(); }
+        await new Promise((r) => setTimeout(r, 2000));   // the close handlers' saves (world queue, PvP queues)
+        await this.sink?.flush();
+        return Response.json({ closed: n, flushed: !!this.sink });
       }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
@@ -180,6 +189,7 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(this.srv.game.store.loadRaw());
     }
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 });
+    if (this.srv.game.stopping) return new Response("server-update", { status: 503 });
     if (!this.srv.world.canOpen(request.headers.get("x-de-user"))) return new Response("too many game connections", { status: 429 });
     const { 0: client, 1: ws } = new WebSocketPair();
     ws.accept();
@@ -196,8 +206,8 @@ export class WorldDO extends DurableObject<Env> {
     // keepalive: a text frame every 30 s, so a WebSocket whose client is asleep (a hidden tab sends its 60 s heartbeats
     // late) never sits idle long enough for the edge to close it. The client drops text frames without an "id".
     const ka = setInterval(() => { try { ws.send(KEEPALIVE); } catch { /* closing */ } }, KEEPALIVE_S * 1000);
-    this.sockets.add(ws);
     const bye = () => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id); };
+    this.sockets.set(ws, bye);
     ws.addEventListener("close", bye);
     ws.addEventListener("error", bye);
     return new Response(null, { status: 101, webSocket: client });
