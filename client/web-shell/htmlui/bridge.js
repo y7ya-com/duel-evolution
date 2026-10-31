@@ -362,7 +362,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
     // through a scene load
     const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...barIds].slice(0, SLOTS);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);

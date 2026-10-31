@@ -213,8 +213,17 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // tells only listeners already added: on a loaded machine the title came before start() and scene stayed 0)
   const sm = u32(SCENE_MNG);
   if (sm) scene = i32(sm + 0x7c);
+  // the title movie's four buttons (scene 4; src/title/titleEntry.cpp): CTitleScene::m_pBaseElm (under the root, beside
+  // the CMouseManager) > CTitleScene::m_title (CSwfEngine) > Offset > CSwfButton2 btn_start, btn_option, btn_web,
+  // btn_clear. Modern UI draws its own and hides these (their clicks still reach them)
+  const title = scene !== 4 || !mgr ? [] : (() => {
+    const base = children(u32(mgr + 8)).find(k => name(k) === 'CTitleScene::m_pBaseElm');
+    const movie = base && children(base).find(k => name(k) === 'CTitleScene::m_title');
+    const off = movie && children(movie).find(k => name(k) === 'Offset');
+    return off ? children(off).filter(k => cls(k) === 'CSwfButton2' && /^btn_/.test(name(k))).map(k => ({ id: k, name: name(k) })) : [];
+  })();
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -264,5 +273,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

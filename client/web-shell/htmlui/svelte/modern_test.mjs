@@ -176,7 +176,11 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   const q = s => new URLSearchParams(s), canvas = {};
   let mu = modernUi({ canvas, query: q('') });
   assert.equal(mu.on(), false, 'legacy is the default');
+  const titleSnap = { title: [{ id: 11, name: 'btn_start' }, { id: 12, name: 'btn_option' }] };
+  assert.deepEqual(mu.hide(titleSnap, false), [], 'legacy draws its own title buttons');
   assert.equal(mu.set(true), true);
+  assert.deepEqual(mu.hide(titleSnap, false), [11, 12], 'modern hides the title movie\'s buttons');
+  assert.deepEqual(mu.hide(titleSnap, true), [], 'not through a scene load');
   assert.equal(store.get('yo2.modernUI'), '1', 'remembered');
   assert.equal(modernUi({ canvas, query: q('') }).on(), true, 'remembered across loads');
   assert.equal(modernUi({ canvas, query: q('MODERN_UI=0') }).on(), false, '?MODERN_UI=0 wins for the page');

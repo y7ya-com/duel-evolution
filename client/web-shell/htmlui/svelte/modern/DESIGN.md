@@ -98,8 +98,9 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Toasts in place of modal OK boxes.
 
 ## Screens and what changed
-- **Title:** the engine's slanted buttons become a glass plate of slanted plates (the 2008 parallelogram), ONLINE in
-  gold. The same four actions; the same clicks reach the engine.
+- **Title:** four slanted bars (the 2008 parallelogram) standing on the title art as the 2008 ones do, with no plate
+  behind them. Each has its own depth: a white rim, the bar's fill and a soft drop shadow. ONLINE is taller and gold.
+  The engine stops drawing the title movie's own buttons (read.js `title`, the hide table); the same clicks reach them.
 - **Select Player:**
   - Slots become rows with a gold initial disc, the name, "Slot n" and a level chip. Delete is a trash icon beside its
     slot; empty slots are dashed with a plus.
@@ -160,7 +161,7 @@ The two assessments ran separately. The detector found nothing; the reviews foun
 - **Keyboard.** Select Player, the lists and Profile focus their first control on open, so Esc and the arrows work at
   once. The Main Menu's arrows reach the switch.
 - **Hit targets.** At least 24 px: icon buttons, player rows.
-- **Motion.** The title menu honours prefers-reduced-motion. Its focus is an outline, not a no-op filter.
+- **Motion.** The title menu honours prefers-reduced-motion. Its focus turns the bar's rim gold.
 - **Deck.**
   - The search chips show their colour as a dot, not a side stripe.
   - Trunk row tints are stronger.
@@ -173,7 +174,6 @@ The two assessments ran separately. The detector found nothing; the reviews foun
   - The place chip's counts align.
   - The dock is hidden where the scene has no buttons.
 - **Kept as decided.**
-  - The title menu keeps its plate: it has to cover the engine's own title buttons, which the HTML layer cannot hide.
   - "Remove from Friend List" stays as the engine enables it.
 
 ## Development

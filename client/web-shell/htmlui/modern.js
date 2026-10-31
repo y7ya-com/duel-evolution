@@ -4,8 +4,9 @@
 //   on:   ?MODERN_UI=1 | 0 (this page only), else localStorage "yo2.modernUI" === "1"
 //   kill: htmlui.json "modern": false (no switch, never on)
 //   live: yo2Html.modern(true | false)
-// The title scene's menu is the scene's own art, not a window: in modern mode a DOM menu covers it and plays the
-// same clicks on the canvas (the buttons' centres below). Everything else goes through the window screens.
+// The title scene's menu is the title movie's own buttons, not a window: in modern mode the engine stops drawing them
+// (hide(): the hide table; they still take the clicks), and a DOM menu stands in their place and plays the same clicks
+// on the canvas (the buttons' centres below). Everything else goes through the window screens.
 const KEY = 'yo2.modernUI';
 // the title scene's four buttons (scene 4, game px): their centres, as the engine lays them out
 const TITLE = [['ONLINE', 512, 458], ['OPTIONS', 512, 505], ['DECK EDITOR', 512, 552], ['FREE DUEL', 512, 600]];
@@ -35,8 +36,7 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
   }
   layer.innerHTML = `
     <nav class="mu-tmenu" aria-label="Title menu">
-      ${TITLE.map(([l], i) => `<button type="button" class="mu-tbtn${i ? '' : ' mu-tbtn-primary'}" data-i="${i}"><span>${l}</span>
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg></button>`).join('')}
+      ${TITLE.map(([l], i) => `<button type="button" class="mu-tbtn${i ? '' : ' mu-tbtn-primary'}" data-i="${i}"><span class="mu-tfill"></span><span class="mu-tlbl">${l}</span></button>`).join('')}
     </nav>
     <label class="mu-switch"><input type="checkbox" role="switch"><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Modern UI</span></label>`;
@@ -93,6 +93,8 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     onChange: f => listeners.add(f),
     mods,
     layer,
+    // the engine's title buttons, for the hide table while modern is on (the DOM menu stands in for them)
+    hide: (snap, wait) => on && !wait ? (snap.title || []).map(b => b.id) : [],
     // each frame: the title layer shows on the title scene (4) once it is up, with no window over it (OPTIONS opens one)
     frame(snap, scene, wait) {
       const title = !killed && scene === 4 && !wait && !snap.windows.some(w => w.shown && w.drawn);
@@ -105,32 +107,31 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
 const CSS = `
 #mu-title { font-family: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; }
-#mu-title .mu-tmenu { position: absolute; left: 306px; top: 424px; width: 412px; padding: 14px 22px 16px;
-  display: none; flex-direction: column; gap: 8px; pointer-events: auto; box-sizing: border-box; border-radius: 22px 22px 22px 8px;
-  background: rgba(255, 255, 255, .78); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  box-shadow: 0 0 0 1px var(--plate-edge, #b6c4d6), inset 0 1px 0 #fff, 0 20px 40px -16px rgba(10, 35, 80, .55), 0 4px 10px rgba(10, 35, 80, .2);
-  animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
+/* the menu: four bars standing on the title art as the 2008 ones do, no plate behind them; each its own depth (a white
+   rim, the bar's fill, a soft drop shadow). The 2008 slant, the 2008 order; ONLINE taller and in the menu's gold */
+#mu-title .mu-tmenu { position: absolute; left: 318px; top: 424px; width: 392px; display: none; flex-direction: column; gap: 7px;
+  pointer-events: auto; animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
 #mu-title.mu-on .mu-tmenu { display: flex; }
-/* the 2008 title buttons: slanted blue bars, white heavy italic with the blue outline; ONLINE in the menu's gold */
-#mu-title .mu-tbtn { position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 28px; margin: 0;
-  border: 0; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic; color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 20, 60, .45);
-  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
-  background: var(--bar, linear-gradient(180deg, #4b8ee3, #2462c2));
+#mu-title .mu-tbtn { --s: 24px; position: relative; display: flex; align-items: center; justify-content: center; height: 44px; padding: 0 30px; margin: 0;
+  border: 0; background: none; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic; color: #fff;
+  filter: drop-shadow(0 7px 10px rgba(8, 32, 84, .34)) drop-shadow(0 1px 2px rgba(8, 32, 84, .4));
   transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s; }
-#mu-title .mu-tbtn::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+#mu-title .mu-tbtn::before, #mu-title .mu-tfill { content: ''; position: absolute; clip-path: polygon(var(--s) 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%); }
+#mu-title .mu-tbtn::before { inset: 0; background: linear-gradient(180deg, #fff, #d3e4fb); }
+#mu-title .mu-tfill { inset: 2px 3px; overflow: hidden; background: var(--bar, linear-gradient(180deg, #4b8ee3, #2462c2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }
+#mu-title .mu-tfill::after { content: ''; position: absolute; inset: 0;
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
   transition: background-position .5s cubic-bezier(.16, 1, .3, 1); }
-#mu-title .mu-tbtn svg { display: none; }
-#mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(4px); filter: brightness(1.12) saturate(1.1); }
-#mu-title .mu-tbtn:hover::after, #mu-title .mu-tbtn:focus-visible::after { background-position: 260% 0; }
-#mu-title .mu-tbtn:focus-visible { outline: 2px solid #0a3fc8; outline-offset: 3px; }
-#mu-title .mu-tbtn:active { transform: translateX(2px); filter: brightness(.95); }
-#mu-title .mu-tbtn-primary { height: 54px; font-size: 25px; color: #3a2400;
-  text-shadow: 0 1px 0 rgba(255, 255, 220, .9);
-  clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
-  background: var(--gold, linear-gradient(180deg, #fff4c4, #f3c64f)); }
-#mu-title .mu-tbtn-primary:hover, #mu-title .mu-tbtn-primary:focus-visible { filter: brightness(1.06) saturate(1.15); }
+#mu-title .mu-tlbl { position: relative; text-shadow: 0 1px 0 rgba(0, 25, 80, .55), 0 0 6px rgba(0, 25, 80, .35); }
+#mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(4px);
+  filter: drop-shadow(0 10px 14px rgba(8, 32, 84, .4)) drop-shadow(0 1px 2px rgba(8, 32, 84, .4)) brightness(1.08) saturate(1.08); }
+#mu-title .mu-tbtn:hover .mu-tfill::after, #mu-title .mu-tbtn:focus-visible .mu-tfill::after { background-position: 260% 0; }
+#mu-title .mu-tbtn:focus-visible::before { background: linear-gradient(180deg, #fff6c8, #ffc93d); }
+#mu-title .mu-tbtn:active { transform: translateX(2px); filter: drop-shadow(0 3px 5px rgba(8, 32, 84, .4)) brightness(.96); }
+#mu-title .mu-tbtn-primary { --s: 28px; height: 52px; font-size: 25px; color: #3a2400; }
+#mu-title .mu-tbtn-primary .mu-tfill { background: var(--gold, linear-gradient(180deg, #fff4c4, #f3c64f)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8); }
+#mu-title .mu-tbtn-primary .mu-tlbl { text-shadow: 0 1px 0 rgba(255, 255, 220, .9); }
 #mu-title .mu-switch { position: absolute; right: 20px; bottom: 20px; display: flex; align-items: center; gap: 10px; height: 34px;
   padding: 0 14px 0 8px; border-radius: 17px; pointer-events: auto; color: #0b2a5c; font-family: inherit; font-weight: 700; font-size: 13px; line-height: 1; letter-spacing: .02em;
   background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(205, 243, 255, .95));
