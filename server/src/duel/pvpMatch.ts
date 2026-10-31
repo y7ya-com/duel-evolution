@@ -168,6 +168,8 @@ class PvpTx {
     this.tx.put(out);
     if (PVP_WATCH && this.side === 0) this.m.watchPump();
   }
+  /** Recorded 0x6202s sent again (a re-attached client's missed ones): not recorded twice. */
+  again(msgs: readonly SItem[]): void { this.tx.put(msgs); }
 }
 
 type Item = ["msg", Conn, number, Uint8Array] | ["close", Conn] | ["watch", Conn] | ["timeout"] | ["cancel", string]
@@ -292,6 +294,8 @@ export class PvpMatch {
   /** Per player: closes mid-duel so far (a grace timer only counts for its own), and a re-attach owing the prompt. */
   private goneGen = [0, 0];
   private resume = [false, false];
+  /** Per side: the recorder's 0x6202 count when this game started (a re-attach's count is of this duel's). */
+  private recAt = [0, 0];
   private chain: Promise<void> = Promise.resolve();
 
   constructor(readonly hub: Matches, sa: Session, sb: Session) {
@@ -389,7 +393,17 @@ export class PvpMatch {
     if (mid === 0x0003) return;
     if (mid === 0x6001) {
       this.send(i, 0x6007, new W().u32(1).bytes());
-      if (this.resume[i]) { this.resume[i] = false; this.ps?.resend(i); }
+      if (this.resume[i]) {
+        this.resume[i] = false;
+        // u32 pid + u32 n (phase2-net's re-attach): the 0x6202s this duel's client got; everything after them again,
+        // the pending prompt last. A plain 4-byte 0x6001: the pending prompt only
+        if (data.length < 8) this.ps?.resend(i);
+        else {
+          const mine = this.rec().entries.filter((e) => e[0] === i).slice(this.recAt[i] + u32at(data, 4)).map((e) => e[1]);
+          this.log(`[AVISO] [pvp] ${this.name}: el jugador ${i} vuelve con ${u32at(data, 4)} mensajes: ${mine.length} otra vez`);
+          this.tx[i]?.again(mine);
+        }
+      }
       return;
     }
     if (mid === 0x6600) return;
@@ -536,6 +550,7 @@ export class PvpMatch {
     const first = this.first ?? 0;
     const [clock, why] = this.clockCfg();
     this.needStart = false;
+    this.recAt = [0, 1].map((k) => this.rec().entries.filter((e) => e[0] === k).length);
     this.firsts.push(first);
     this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);

@@ -44,7 +44,8 @@ routes.get("/__version", (c) => c.json({ v: c.env.CF_VERSION_METADATA?.id ?? "de
 // (index.html: gateway = <host>/net); /boxedwine-network stays for builds and links that name it
 routes.on("GET", ["/boxedwine-network", "/net"], async (c) => {
   const fwd = await gateUpgrade(c.req.raw, c.env as unknown as AuthEnv);
-  return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network", fwd);
+  // the query too: ?sid=&resume=1, the client's tunnel resume (world.ts)
+  return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network" + new URL(c.req.url).search, fwd);
 });
 
 // admin actions on live players: a session with the admin role (role_grant); the header is always ours

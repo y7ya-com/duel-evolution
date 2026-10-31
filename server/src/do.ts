@@ -25,7 +25,7 @@ export class WorldDO extends DurableObject<Env> {
   private sink: D1Sink | null = null;
   private nextPeer = 1;
   /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
-  private sockets = new Map<WebSocket, () => void>();
+  private sockets = new Map<WebSocket, (hold?: boolean) => void>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -87,7 +87,7 @@ export class WorldDO extends DurableObject<Env> {
         const g = this.srv.game;
         g.stopping = true;
         setTimeout(() => { g.stopping = false; }, STOP_S * 1000);
-        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(); }
+        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(false); }
         await new Promise((r) => setTimeout(r, 2000));   // the close handlers' saves (world queue, PvP queues)
         await this.sink?.flush();
         return Response.json({ closed: n, flushed: !!this.sink });
@@ -176,6 +176,17 @@ export class WorldDO extends DurableObject<Env> {
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__dev/cut" && this.env.DEV === "1") {
+      // wrangler dev only: the server side cuts one player's virtual socket (POST {acct, port: 5760}), as a duel-socket
+      // drop does: phase2-net's duel re-attach test
+      const b = (await request.json().catch(() => ({}))) as { acct?: string; port?: number };
+      const out = await new Promise<number>((res) => this.srv.world.run(() => {
+        const c = this.srv.game.hub.sessions.get(String(b.acct))?.conns.get(Number(b.port ?? 5760));
+        if (c && !c.closed) this.srv.world.close(c, "cut (dev)");
+        res(c ? 1 : 0);
+      }));
+      return Response.json({ cut: out });
+    }
     if (url.pathname === "/__dev/state" && this.env.DEV === "1") {
       // parity runs: start from the same state.json as py (never enabled outside wrangler dev). With D1 in use, the
       // seeded state replaces what D1 had (the sink diffs it against D1's rows), so D1 always mirrors the server.
@@ -197,8 +208,10 @@ export class WorldDO extends DurableObject<Env> {
     const id = `ws${this.nextPeer++}`;
     const world = this.srv.world;
     // x-de-user: the DE account's user id, set by the Worker after checking the session (null only on the parity bridge)
+    // ?sid= (32 hex, the client's tunnel id) and &resume=1 after a drop: world.ts holds and hands over its sockets
+    const sid = /^[0-9a-f]{32}$/.test(url.searchParams.get("sid") ?? "") ? url.searchParams.get("sid") : null;
     world.openPeer(id, request.headers.get("x-de-user"), (s) => { try { ws.send(s); } catch { /* closing */ } },
-      (b) => { try { ws.send(b); return true; } catch { return false; } });
+      (b) => { try { ws.send(b); return true; } catch { return false; } }, sid, url.searchParams.get("resume") === "1");
     ws.addEventListener("message", (e) => {
       if (typeof e.data === "string") world.onText(id, e.data);
       else world.onBinary(id, new Uint8Array(e.data as ArrayBuffer));
@@ -206,10 +219,11 @@ export class WorldDO extends DurableObject<Env> {
     // keepalive: a text frame every 30 s, so a WebSocket whose client is asleep (a hidden tab sends its 60 s heartbeats
     // late) never sits idle long enough for the edge to close it. The client drops text frames without an "id".
     const ka = setInterval(() => { try { ws.send(KEEPALIVE); } catch { /* closing */ } }, KEEPALIVE_S * 1000);
-    const bye = () => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id); };
+    // hold: a dropped WebSocket's sockets wait for a resume; a deploy's shutdown closes them at once
+    const bye = (hold = true) => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id, hold); };
     this.sockets.set(ws, bye);
-    ws.addEventListener("close", bye);
-    ws.addEventListener("error", bye);
+    ws.addEventListener("close", () => bye());
+    ws.addEventListener("error", () => bye());
     return new Response(null, { status: 101, webSocket: client });
   }
 }

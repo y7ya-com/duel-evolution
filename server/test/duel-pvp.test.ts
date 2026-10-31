@@ -257,6 +257,22 @@ describe.skipIf(!have)("PvP through the duel port", () => {
       await until(() => m.done);
     }, 120_000);
 
+    it("a re-attach that says how many 0x6202 it got (u32 pid + u32 n) gets every later one again, in order", async () => {
+      const { A, m } = await duelOn("8");
+      const seen = A.got.duel.filter(([x]) => x === 0x6202).map(([, d]) => Buffer.from(d).toString("hex"));
+      await drop(m, A);
+      const rd = new Reader(), got2: [number, Uint8Array][] = [];
+      A.duel = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-Alfa8b", (b) => { for (const x of rd.feed(b)) got2.push([x.id, x.data]); return true; }, DUEL_PORT);
+      await send(A, 0x6001, new W().u32(A.s.pid!).u32(seen.length - 2).bytes());   // as if the last two never arrived
+      await until(() => got2.filter(([x]) => x === 0x6202).length >= 2);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(got2.filter(([x]) => x === 0x6202).map(([, d]) => Buffer.from(d).toString("hex"))).toEqual(seen.slice(-2));
+      await send(A, 0x6350, new W().u32(0).u32(0xd).u32(0).u32(10).bytes());
+      await until(() => got2.some(([x, d]) => x === 0x6202 && type6202(d) === 0x1b && u32(d, 4) === 0x32));
+      await send(A, 0x6423, new W().u32(1).bytes());
+      await until(() => m.done);
+    }, 120_000);
+
     it("a deploy's shutdown (g.stopping): the duel ends at once with no result", async () => {
       const { A, m } = await duelOn("7");
       const before = rec();
