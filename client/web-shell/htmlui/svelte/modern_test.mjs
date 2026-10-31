@@ -95,6 +95,12 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(d.text, 'Do you want to leave My Room?');
   assert.deepEqual(d.buttons.map(b => b.label), ['Yes', 'No']);
   assert.equal(L.leaveButton(d.buttons).label, 'No');
+  assert.equal(d.input, null);
+  const q = L.dialog(win('CWindowModelInput1', [ctl('FramePlane'), ctl('Text', { text: 'Enter your Player Name' }), ctl('Input', { maxLen: 16, value: '' }),
+    ctl('TextSwitch', { x: 44, label: 'OK' }), ctl('TextSwitch', { x: 212, label: 'Cancel' })]));
+  assert.equal(q.text, 'Enter your Player Name');
+  assert.equal(q.input.maxLen, 16);
+  assert.equal(L.leaveButton(q.buttons).label, 'Cancel');
 }
 
 // D-Mail: the inbox's rows from their own texts, the body; Write Mail's fields named by their labels

@@ -106,11 +106,13 @@ export function profile(win) {
   };
 }
 
-// ---- a Yes / No (or OK) dialog: its message and its switches
+// ---- a Yes / No (or OK) dialog: its message and its switches; a prompt (CWindowModelInput1: the player's name ...)
+// also its one-line input
 export function dialog(win) {
   const cs = win.controls.filter(c => c.shown && top(c));
   return {
     text: untag(cs.find(c => /TextField$|Text$/.test(c.cls) && c.text)?.text || ''),
+    input: cs.find(c => /CWindowTaskInput$/.test(c.cls)) || null,
     buttons: cs.filter(c => /Switch$|ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.x - b.x),
   };
 }
