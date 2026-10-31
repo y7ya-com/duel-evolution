@@ -82,8 +82,18 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Before: grey boxes over the game.
   - Now: the message centred, the primary in gold, Enter on the primary, Esc on the way out, a light scrim behind.
   - The name prompt (Create Player) has a real field.
+- **OK boxes:**
+  - Before: modal boxes that stop play for news ("saved", "sent").
+  - Now: an OK box that is only news (CWindowModelDialogOk, a message and its one OK) shows as a toast at the top for
+    five seconds, and its OK is pressed at once. Error boxes stay modal, in the modern dialog.
+  - Unit-tested; not yet seen live: no flow on the local stack raised one.
+- **Create Comment:** a form with the Greeting and Duel Message fields, OK in gold.
+- **Friend List:**
+  - Each friend shows online or offline and where they are, from the site's `GET /api/de/friends` (`[{ pid, name,
+    online, place }]`; yo2-server-ts). Nothing extra while it doesn't answer.
+  - A Mail button on each friend: the list closed, D-Mail opened, Write Mail pressed (macro.js writeMail).
 - **Proposed, not built:** these need engine or server state the snapshot doesn't carry, or flows not mapped yet.
-  - Friends' online status, with inline Mail / Duel / Visit on each friend.
+  - Inline Duel / Visit on each friend (their lobby flows aren't mapped yet).
   - Character cards with deck and last-played info.
   - Toasts in place of modal OK boxes.
 

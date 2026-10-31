@@ -153,6 +153,15 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.toastable(win('CWindowModelDialogOk', [ctl('TextField', { text: '' }), ctl('TextSwitch', { label: 'OK' })])), null);
 }
 
+// friends' presence by name
+{
+  const m = L.presence([{ pid: 1, name: 'Kain', online: true, place: 'Duelist Academy' }, { name: 'raMon', online: false }, null, { online: true }]);
+  assert.deepEqual(m.get('kain'), { online: true, place: 'Duelist Academy' });
+  assert.equal(m.get('ramon').online, false);
+  assert.equal(m.size, 2);
+  assert.equal(L.presence(null).size, 0);
+}
+
 // the switch (../modern.js) on a stub page: default off, ?MODERN_UI= wins, remembered, killed by htmlui.json
 {
   const store = new Map();

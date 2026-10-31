@@ -196,3 +196,11 @@ export function toastable(win) {
   return win.cls === 'CWindowModelDialogOk' && d.text.trim() && d.buttons.length === 1 && /^OK$/i.test(d.buttons[0].label.trim())
     ? { text: d.text.trim(), ok: d.buttons[0] } : null;
 }
+
+// ---- friends' presence (GET /api/de/friends, same origin: [{ pid, name, online, place }]) by name, lower case; a name
+// the list has and the answer lacks has no presence (shown as the list shows it)
+export function presence(rows) {
+  const m = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) if (r && typeof r.name === 'string') m.set(r.name.trim().toLowerCase(), { online: !!r.online, place: String(r.place || '') });
+  return m;
+}

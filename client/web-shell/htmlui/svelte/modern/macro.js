@@ -59,3 +59,12 @@ export function quickKey(e) {
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || e.target?.isContentEditable) return null;
   return QUICK.find(q => q[3] === e.key.toUpperCase()) || null;
 }
+
+// D-Mail's Write Mail from anywhere the Main Menu is: the menu's D-Mail, then the inbox's Write Mail switch
+export async function writeMail(api) {
+  if (!await menu(api, 'D-Mail')) return false;
+  const w = await waitFor(s => s.windows.find(w => w.cls === 'CWindowModelDMail' && w.shown)?.controls.find(c => c.shown && /TextSwitch$/.test(c.cls) && c.label?.trim() === 'Write Mail'));
+  if (!w) return false;
+  await api.click(w.id);
+  return true;
+}
