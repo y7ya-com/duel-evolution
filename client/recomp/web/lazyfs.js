@@ -318,21 +318,27 @@ Module.preRun.push(() => {
     let cardTocLoad = null, cardHead = null;   // cardHead: card.dat's chunk 0, kept for the session (no pin to lose)
     // a chunk into memory, fetched again when a synchronous read aborted it (up to 5 tries)
     const fetchSure = async (url, i, tag) => { for (let k = 0; k < 5 && !memChunk(url, i); k++) await fetchChunk({ url, i, pri: 0, tag, keep: true }); };
-    const cardToc = () => (cardTocLoad = cardTocLoad || (async () => {   // card.dat's directory (~870 KB: chunk 0)
-        await fetchSure(cardArc, 0, "toc");
-        const first = memChunk(cardArc, 0);
-        if (!first) throw new Error("card.dat directory not read");
+    async function archToc(url, into) {   // card.dat's or mini.dat's directory (~870 KB: chunk 0) into name -> [from, to)
+        await fetchSure(url, 0, "toc");
+        const first = memChunk(url, 0);
+        if (!first) throw new Error("directory not read");
         const n = first[8] | first[9] << 8 | first[10] << 16 | first[11] << 24, end = 12 + n * 268;
         const toc = new Uint8Array(end);
         for (let i = 0; i * CHUNK < end; i++) {
-            await fetchSure(cardArc, i, "toc");
-            const c = memChunk(cardArc, i);
-            if (!c) throw new Error("card.dat directory not read");
+            await fetchSure(url, i, "toc");
+            const c = memChunk(url, i);
+            if (!c) throw new Error("directory not read");
             toc.set(c.subarray(0, Math.min(CHUNK, end - i * CHUNK)), i * CHUNK);
         }
-        for (const [name, off, len] of tocEntries(toc, end)) cardFiles.set(name, [off, off + len]);
-        cardHead = memChunk(cardArc, 0) || first;   // the game reads the directory and list_card.txt again at card scenes
-    })().catch((e) => { cardTocLoad = null; throw e; }));
+        for (const [name, off, len] of tocEntries(toc, end)) into.set(name, [off, off + len]);
+        return memChunk(url, 0) || first;
+    }
+    const cardToc = () => (cardTocLoad = cardTocLoad || archToc(cardArc, cardFiles)
+        .then((h) => { cardHead = h; })   // the game reads the directory and list_card.txt again at card scenes
+        .catch((e) => { cardTocLoad = null; throw e; }));
+    const miniFiles = new Map();   // mini.dat entry name -> [from, to): the same names as card.dat's
+    let miniTocLoad = null;
+    const miniToc = () => (miniTocLoad = miniTocLoad || archToc(miniArc, miniFiles).catch((e) => { miniTocLoad = null; throw e; }));
     // ---- card art without waiting (card.dat). A read inside a JPEG entry that isn't all in memory gets a placeholder
     // JPEG of the same 400x580 instead (padded with zeros to the entry's length), with the entry's offset in its comment
     // ("yo2-placeholder:<10 digits>"); its chunks go first in the background queue. ovr/decode.c makes the texture from
@@ -468,6 +474,17 @@ Module.preRun.push(() => {
     }
     // A card's art: merge.dat's data/card/<name>, or with card.dat its <passcode>.jpg there
     const artEntry = (name) => (cardArc ? [cardArc, cardFiles.get(name)] : [archive, files2.get("data/card/" + name)]);
+    // The duel's cards' art, and their thumbnails when mini.dat is not preloaded whole (thumbsOk): a thumbnail is read
+    // synchronously, no placeholder (stalls 3bc028a3/fe594f03: a phone off Wi-Fi, 9 mini.dat misses of ~0.4 s in one NPC
+    // duel, each a card shown for the first time)
+    async function duelEntries(names) {
+        const e = names.map(artEntry);
+        if (miniArc && !thumbsOk()) {
+            await miniToc().catch(() => {});
+            for (const n of names) e.push([miniArc, miniFiles.get(n)]);
+        }
+        return e;
+    }
     let cardNumbers = null;     // merge.dat's list_card.txt: YO2 card id -> Konami card number ("4336.png"), for the fields
     const lines = (b) => { let t = ""; for (const c of b) t += String.fromCharCode(c); return t.split(/\r?\n/).map((x) => x.trim().toLowerCase()); };
     let cardNamesLoad = null;
@@ -499,7 +516,7 @@ Module.preRun.push(() => {
         if (tag === "deck") pendingDeck = null;
         await loadCardNames();
         const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))];
-        stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
+        stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(await duelEntries(names), tag, 2);
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
@@ -619,7 +636,7 @@ Module.preRun.push(() => {
         if (!prefetchOn || !cardArc) return;
         await cardToc();
         const names = [...new Set(pcs)].map((pc) => (cardFiles.has(pc + ".jpg") ? pc + ".jpg" : pc + ".png"));
-        stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(names.map(artEntry), tag, 2);
+        stats[tag + "Cards"] = pcs.length, stats[tag + "Chunks"] = pinFiles(await duelEntries(names), tag, 2);
         await loadPcTable();
         // after the scene's own fieldBackgrounds([]) (it awaits the card names first): the later pin of the "field" tag
         // wins, and that must be the one with the Field Spell
