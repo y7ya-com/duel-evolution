@@ -185,7 +185,7 @@ export default {
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
   mount: (win) => { inject(); return { id: win.id }; },
-  passthrough: x => [...kept.values()].some(k => k.has(x.id)),
+  passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),   // a kept control's parts too
   update(win, prev, root, api, st) {
     st.win = win;
     st.api = api;
