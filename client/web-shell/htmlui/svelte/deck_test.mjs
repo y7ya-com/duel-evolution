@@ -67,4 +67,12 @@ assert.deepEqual(kinds(detail(' 4 ATK2300/DEF   0', mon)), [[73, 'flow', mon], [
 const st = ctl(80, 'CWindowTaskShadowText', { labels: [{ id: 81, text: 'Exit Store', wx: 0, wy: 0, wz: 1, shown: true }] },
   { name: 'CWindowTaskShadowTextのテキスト', text: 'Exit Store', color: [1, 1, 1, 1], w: 100 });
 assert.equal(same({ id: 79, cls: 'X', x: 0, y: 0, controls: [st] }).items[0].box.ink, 0xffffff);
+// the duel's card detail (htmlui-deck 4ee02bd): the text box is the control's rect even with a stale pageLines, and
+// never reaches into the stats strip; the port agrees with deck.js
+const duel = (h, pageLines) => ({ id: 90, cls: 'CCardDetailViewDlg', x: 0, y: 608, w: 248, h: 126, extras: [],
+  labels: [{ id: 91, text: ' 4 ATK1600/DEF1000', wx: 60, wy: 712, wz: 51613, shown: true }], controls: [
+    ctl(92, 'CWindowTaskText', { labels: [{ id: 93, text: 'A monster.', wx: 8, wy: 632, wz: 51205, shown: true }] },
+      { text: 'A monster.', w: 216, h, wx: 8, wy: 632, fontSize: 16, pageLines, firstLine: 0, align: 0 })] });
+assert.deepEqual(same(duel(80, 12)).items.find(i => i.id === 93).rect, { x: 8, y: 632, w: 216, h: 80 });
+assert.deepEqual(same(duel(120, 4)).items.find(i => i.id === 93).rect, { x: 8, y: 632, w: 216, h: 80 });
 console.log('svelte deck_test ok');
