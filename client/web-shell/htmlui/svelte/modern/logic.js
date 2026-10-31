@@ -215,7 +215,7 @@ export function presence(rows) {
 // engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
-  'CFindMenu', 'CWindowModelDuelFind', 'CFixedsentenceList',
+  'CWindowModelDuelFind', 'CFixedsentenceList',
   'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
@@ -461,4 +461,15 @@ export function pickList(win) {
     bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown),
     close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
   };
+}
+
+// ---- the player list's search menu (CFindMenu: one ActiveListbox of filters and orders): its entries in two groups,
+// what to show (Single / Match Duels, Friends, Proximity, Show all) and how to order ('Display by ...'), each with its
+// index in the game's list
+export function findMenu(win) {
+  const list = win.controls.find(c => c.shown && top(c) && /Listbox$/.test(c.cls));
+  const all = listItems(list).map((label, i) => ({ i, label: label.trim() }));
+  const sort = all.filter(e => /^Display by/i.test(e.label));
+  return { list, groups: [['Show', all.filter(e => !sort.includes(e))], ['Order', sort]].filter(g => g[1].length),
+    bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown) };
 }

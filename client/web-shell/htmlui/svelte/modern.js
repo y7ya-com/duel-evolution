@@ -25,6 +25,7 @@ import ItemGet from './modern/ItemGet.svelte';
 import NpcCard from './modern/NpcCard.svelte';
 import Balloon from './modern/Balloon.svelte';
 import PickList from './modern/PickList.svelte';
+import FindMenu from './modern/FindMenu.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -117,7 +118,7 @@ const screens = [
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
   screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
-    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList }, { mode: 'owned', clip: false }),
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList, CFindMenu: FindMenu }, { mode: 'owned', clip: false }),
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),

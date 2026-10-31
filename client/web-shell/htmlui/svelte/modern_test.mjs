@@ -301,6 +301,13 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([p.title, p.names, !!p.close, p.bar], ['', ['Alexis Rhodes', 'Kain'], true, undefined]);
 }
 
+// the search menu: what to show, then how to order, each with its index in the game's list
+{
+  const items = ['Search for Single Duels', 'Search for Match Duels', 'Display by Level', 'Display by name', 'Search for Friends', 'Proximity Search', 'Show all'];
+  const f = L.findMenu(win('CFindMenu', [ctl('FrameThin', { w: 256, h: 128 }), ctl('ActiveListbox', { x: 8, y: 8, w: 240, h: 112, items, selected: -1 })]));
+  assert.deepEqual(f.groups.map(([n, es]) => [n, es.map(e => e.i)]), [['Show', [0, 1, 4, 5, 6]], ['Order', [2, 3]]]);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

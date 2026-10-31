@@ -159,6 +159,10 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
     (the engine's), the speaker on a gold tag, the line in large type, a "Continue" cue. The game's '・' marks (a
     glyph the 2008 font lacked: a box) read as '…'. The bubble takes the focus: Space or Enter goes on, as a click
     anywhere does. The duel offer that ends a challenge is the modern Yes / No.
+- **Find players** (the player list's search, CFindMenu; FindMenu.svelte, owned): a menu rising from the player list
+  beside its search button (the game opened it over the list's own top), its entries grouped as Show (single / match
+  duels, friends, nearby, everyone) and Order (by level, by name) with icons. Focus on the first entry; Up / Down,
+  Enter, Esc closes (a click on the player list's title bar, as the game closes it on a click elsewhere).
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
