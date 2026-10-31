@@ -22,23 +22,26 @@
   /* the search panel (Search.svelte's dk-* pieces) in the modern look */
   .mu-search { pointer-events: none; }
   .mu-search :global(.dk-field) { height: 24px; border: 0; border-radius: 12px; padding: 0 22px 0 10px; font: inherit; font-size: 12.5px;
-    color: var(--navy-900); background: linear-gradient(180deg, #fff, var(--silver-50));
-    box-shadow: inset 0 1px 2px rgba(4, 17, 43, .35), 0 0 0 1px rgba(4, 17, 43, .6); }
-  .mu-search :global(.dk-field:focus) { box-shadow: inset 0 1px 2px rgba(4, 17, 43, .35), 0 0 0 1px rgba(4, 17, 43, .6), 0 0 0 3px rgba(117, 255, 255, .55); }
-  .mu-search :global(.dk-chip) { border: 0; border-radius: 6px; padding-left: 7px !important; margin-right: 2px;
-    color: var(--ink); background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px rgba(150, 205, 255, .3), inset 3px 0 0 var(--c); }
-  .mu-search :global(.dk-chip:hover) { background: rgba(150, 205, 255, .18); }
-  .mu-search :global(.dk-chip[aria-pressed=true]) { color: var(--navy-900); background: linear-gradient(180deg, var(--gold-200), var(--gold-300));
-    box-shadow: 0 0 0 1px var(--gold-edge), inset 3px 0 0 var(--c); font-weight: 700; }
-  .mu-search :global(.dk-btn) { border-radius: 10px 10px 10px 4px; font: inherit; font-size: 12.5px; font-weight: 650; text-shadow: none; color: var(--gold-ink);
-    background: linear-gradient(180deg, var(--gold-200) 0%, var(--gold-300) 44%, var(--gold-400) 56%, var(--gold-500) 100%);
-    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 rgba(255, 255, 255, .85), 0 2px 4px rgba(40, 20, 0, .35); }
-  .mu-search :global(.dk-btn:hover) { color: var(--gold-ink); text-shadow: none; background: linear-gradient(180deg, #fffbd9, #f9ea80 44%, #f4cc3e 56%, #eaae22); }
+    color: var(--ink-strong); background: #fff; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px #e08a1e; }
+  .mu-search :global(.dk-field:focus) { box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px #0985ff, 0 0 0 3px rgba(0, 150, 255, .35); }
+  .mu-search :global(.dk-field::placeholder) { color: #5b6f8c; }
+  .mu-search :global(.dk-chip) { border: 0; border-radius: 10px; margin-right: 2px; color: var(--ink-strong); background: #fff;
+    box-shadow: inset 0 0 0 1px rgba(58, 157, 230, .6); }
+  /* the category's colour as a dot (no side stripe) */
+  .mu-search :global(.dk-chip::before) { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%;
+    background: var(--c); vertical-align: 1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .2); }
+  .mu-search :global(.dk-chip:hover) { background: #e2f7ff; }
+  .mu-search :global(.dk-chip[aria-pressed=true]) { color: var(--gold-ink); background: linear-gradient(180deg, #ffffc8, #f4d558);
+    box-shadow: 0 0 0 1px var(--gold-edge); font-weight: 700; }
+  .mu-search :global(.dk-btn) { border-radius: 10px 10px 10px 4px; font: inherit; font-size: 12.5px; font-weight: 750; text-shadow: none; color: var(--gold-ink);
+    background: linear-gradient(180deg, #ffffc8 0%, #fff97f 30%, #f9e45f 50%, #f4d558 62%, #f0be45 85%, #eca430 100%);
+    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 #fff, 0 2px 4px rgba(160, 80, 0, .3); }
+  .mu-search :global(.dk-btn:hover) { color: var(--gold-ink); text-shadow: none; background: linear-gradient(180deg, #ffffff, #ffffe2 30%, #fcf4b8 50%, #faeaac 62%, #f2b55e); }
   .mu-search :global(.dk-pop) { border: 0; border-radius: 14px 14px 14px 5px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, 0) 34%), linear-gradient(160deg, #1b51b6, var(--navy-700) 52%, var(--navy-800));
-    box-shadow: 0 0 0 1px rgba(4, 17, 43, .92), inset 0 0 0 1px rgba(150, 205, 255, .3), 0 18px 40px -14px rgba(2, 10, 30, .75); }
-  .mu-search :global(.dk-head), .mu-search :global(.dk-strip) { background: rgba(255, 255, 255, .06); border: 0; border-radius: 8px; }
-  .mu-search :global(.dk-lbl), .mu-search :global(.dk-dash) { color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 600; line-height: 24px; }
-  .mu-search :global(.dk-count) { font: inherit; font-size: 12px; font-weight: 600; color: var(--sky-300); text-shadow: none; }
-  .mu-search :global(.dk-x) { color: var(--silver-400); }
+    background: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, .1) 50%), linear-gradient(180deg, #e8fbff, #b9f1ff 50%, #8fe6fc);
+    box-shadow: 0 0 0 1px #2f8fd6, inset 0 0 0 2px rgba(167, 255, 255, .9), 0 18px 36px -14px rgba(10, 60, 130, .55); }
+  .mu-search :global(.dk-head), .mu-search :global(.dk-strip) { background: rgba(255, 255, 255, .6); border: 0; border-radius: 8px; }
+  .mu-search :global(.dk-lbl), .mu-search :global(.dk-dash) { color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 700; line-height: 24px; }
+  .mu-search :global(.dk-count) { font: inherit; font-size: 12px; font-weight: 800; color: #b35a00; text-shadow: 0 1px 0 #fff; }
+  .mu-search :global(.dk-x) { color: var(--ink-3); }
 </style>

@@ -45,7 +45,7 @@
       {#each names as n, i (i)}
         <li><button type="button" class:on={p.list.selected === i} onclick={() => pick(i)}><span class="dot" aria-hidden="true"></span>{n}</button></li>
       {:else}
-        <li class="empty">No one else is here yet.</li>
+        <li class="empty">Just you here for now.</li>
       {/each}
     </ul>
   </section>
@@ -54,17 +54,17 @@
 <style>
   .players { left: 0; top: 0; display: flex; flex-direction: column; border-radius: 16px 16px 16px 6px; animation: none; }
   header { display: flex; align-items: center; gap: 6px; height: 30px; padding: 4px 4px 0 12px; flex: none; }
-  header :global(.lead) { color: var(--gold-300); }
-  h2 { flex: 1; margin: 0; font-size: 12.5px; font-weight: 650; color: #fff; }
-  .n { margin-left: 4px; font-weight: 600; color: var(--sky-300); }
-  header .mu-icon-btn { width: 24px; height: 22px; }
+  header :global(.lead) { color: var(--icon); }
+  h2 { flex: 1; margin: 0; font-size: 12.5px; font-weight: 750; color: var(--ink-strong); }
+  .n { margin-left: 4px; font-weight: 700; color: var(--azure-500); }
+  header .mu-icon-btn { width: 28px; height: 24px; }
   header .mu-icon-btn:disabled { opacity: .35; }
   .list { flex: 1; min-height: 0; list-style: none; margin: 2px 6px 6px; padding: 3px; border-radius: 8px;
-    background: rgba(4, 17, 43, .42); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(150, 205, 255, .12); }
-  .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12.5px;
+    background: var(--well); box-shadow: var(--well-shadow); }
+  .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12.5px;
     font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s; }
-  .list button:hover { background: rgba(150, 205, 255, .14); }
-  .list button.on { background: linear-gradient(180deg, rgba(125, 239, 252, .26), rgba(9, 133, 255, .2)); color: #fff; }
+  .list button:hover { background: #e2f7ff; }
+  .list button.on { background: linear-gradient(180deg, #7deffc, #0985ff); color: #fff; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: #4ce38a; box-shadow: 0 0 6px rgba(76, 227, 138, .8); }
   .empty { padding: 6px 8px; font-size: 12px; color: var(--ink-3); }
 </style>

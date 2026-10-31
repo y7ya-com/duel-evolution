@@ -31,11 +31,10 @@
 </div>
 
 <style>
-  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(2, 10, 30, .45); animation: fade .2s var(--ease) both; }
+  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); animation: fade .2s var(--ease) both; }
   @keyframes fade { from { opacity: 0; } }
   .box { left: 0; top: 0; padding: 22px 22px 18px; }
-  p { margin: 0; min-height: 22px; font-size: 15px; font-weight: 600; line-height: 1.45; color: #fff; text-align: center; white-space: pre-wrap;
-    text-shadow: 0 1px 2px rgba(2, 10, 30, .5); text-wrap: balance; }
+  p { margin: 0; min-height: 22px; font-size: 15px; font-weight: 700; line-height: 1.45; color: var(--ink-strong); text-align: center; white-space: pre-wrap; text-wrap: balance; }
   .prompt-field { margin-top: 8px; }
   footer { display: flex; justify-content: center; gap: 12px; margin-top: 14px; }
   footer .mu-btn { min-width: 110px; }

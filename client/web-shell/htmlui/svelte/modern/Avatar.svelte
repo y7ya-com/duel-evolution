@@ -37,29 +37,28 @@
 
 <style>
   .panel { left: 703px; top: 60px; width: 292px; height: 612px; border-radius: 18px 18px 6px 18px; }
-  .link { position: absolute; left: 652px; width: 52px; height: 2px; border-radius: 1px;
-    background: linear-gradient(90deg, var(--gold-300), var(--cyan)); box-shadow: 0 0 8px rgba(117, 255, 255, .6); transition: top .2s var(--ease); }
-  .sw { position: absolute; display: flex; align-items: center; padding: 0 18px; border-radius: 12px 12px 12px 4px; font-weight: 650; color: var(--ink);
-    text-shadow: 0 1px 1px rgba(4, 16, 44, .55); white-space: nowrap; overflow: hidden;
-    background: linear-gradient(180deg, rgba(125, 239, 252, .24), rgba(9, 133, 255, .2) 50%, rgba(9, 90, 210, .5));
-    box-shadow: 0 0 0 1px rgba(4, 17, 43, .8), inset 0 0 0 1px rgba(160, 225, 255, .42), inset 0 1px 0 rgba(255, 255, 255, .32), 0 3px 8px rgba(2, 10, 30, .35);
+  .link { position: absolute; left: 652px; width: 52px; height: 3px; border-radius: 2px;
+    background: linear-gradient(90deg, #f4d558, #0985ff); transition: top .2s var(--ease); }
+  .sw { position: absolute; display: flex; align-items: center; padding: 0 18px; border-radius: 12px 12px 12px 4px; font-weight: 700; color: var(--ink-strong);
+    white-space: nowrap; overflow: hidden; background: var(--sky-glass);
+    box-shadow: 0 0 0 1px #3a9de6, inset 0 1px 0 #fff, inset 0 -2px 0 rgba(41, 120, 210, .2), 0 3px 6px rgba(10, 60, 130, .25);
     transition: transform .14s var(--ease), box-shadow .14s, background .14s; }
   .sw span { overflow: hidden; text-overflow: ellipsis; }
   .category { font-size: 16px; letter-spacing: .02em; }
   .item { font-size: 13.5px; padding: 0 14px; }
   .action { justify-content: center; font-size: 15px; letter-spacing: .04em; }
-  .sw[data-look='hover'] { transform: translateX(3px); box-shadow: 0 0 0 1px rgba(4, 17, 43, .8), inset 0 0 0 1px rgba(190, 240, 255, .85),
-    inset 0 1px 0 rgba(255, 255, 255, .45), 0 8px 18px -6px rgba(0, 170, 255, .7); }
-  .sw[data-look='pressed'] { transform: none; filter: brightness(.94); }
-  .sw[data-look='disabled'] { opacity: .45; }
-  .sw.gold { color: var(--gold-ink); text-shadow: 0 1px 0 rgba(255, 250, 210, .7);
-    background: linear-gradient(180deg, var(--gold-200) 0%, var(--gold-300) 44%, var(--gold-400) 56%, var(--gold-500) 100%);
-    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 rgba(255, 255, 255, .85), inset 0 -2px 0 rgba(137, 64, 9, .28), 0 4px 10px rgba(40, 20, 0, .4); }
+  .sw[data-look='hover'] { transform: translateX(3px); background: var(--sky-glass-hover);
+    box-shadow: 0 0 0 1px #0985ff, 0 0 0 3px rgba(0, 180, 255, .3), inset 0 1px 0 #fff, 0 8px 16px -6px rgba(0, 120, 230, .5); }
+  .sw[data-look='pressed'] { transform: none; filter: brightness(.95); }
+  .sw[data-look='disabled'] { opacity: .5; }
+  .sw.gold { color: var(--gold-ink);
+    background: linear-gradient(180deg, #ffffc8 0%, #fff97f 30%, #f9e45f 50%, #f4d558 62%, #f0be45 85%, #eca430 100%);
+    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 #fff, inset 0 -2px 0 rgba(200, 100, 0, .25), 0 4px 10px rgba(160, 80, 0, .35); }
   .arrow { position: absolute; display: grid; place-items: center; width: 36px; height: 36px; margin-left: -2px; border-radius: 50%; color: var(--gold-ink);
-    background: radial-gradient(circle at 35% 30%, var(--gold-200), var(--gold-400) 60%, var(--gold-500));
-    box-shadow: 0 0 0 1px var(--gold-edge), 0 3px 8px rgba(40, 20, 0, .45); transition: transform .14s var(--ease); }
+    background: radial-gradient(circle at 35% 30%, #ffffc8, #f9e45f 55%, #eca430); box-shadow: 0 0 0 1px var(--gold-edge), 0 3px 8px rgba(160, 80, 0, .4);
+    transition: transform .14s var(--ease); }
   .arrow .mu-ico { width: 20px; height: 20px; stroke-width: 2.4; }
   .arrow[data-look='hover'] { transform: scale(1.1); }
   .arrow[data-look='pressed'] { transform: scale(.94); }
-  .loose { position: absolute; font-size: 13px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(2, 10, 30, .7); white-space: pre-wrap; }
+  .loose { position: absolute; font-size: 13px; font-weight: 700; color: var(--ink-strong); white-space: pre-wrap; text-shadow: 0 1px 0 #fff; }
 </style>

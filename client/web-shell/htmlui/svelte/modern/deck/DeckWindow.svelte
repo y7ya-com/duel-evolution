@@ -23,9 +23,9 @@
 </script>
 
 <div class="mu">
-  {#if win.modal}<div class="scrim" style:left="{-win.x}px" style:top="{-win.y}px"></div>{/if}
+  {#if win.modal && win.cls === 'CWindowModelFileList'}<div class="scrim" style:left="{-win.x}px" style:top="{-win.y}px"></div>{/if}
   <div class="mu-plate dplate" class:detail={win.cls === 'CCardDetailViewDlg'} style:width="{box.w}px" style:height="{box.h}px" style:clip-path={cut}>
-    {#if head}<div class="band" style:height="{head}px"></div>{/if}
+    {#if head}<div class="band" class:trunk={win.cls === 'CWindowModelKaban'} class:detail={head === 24} style:height="{head}px"></div>{/if}
     <!-- the switches' plates (the game's state: pass mode), under every item: their captions are items above -->
     {#each buttons as b (b.id)}
       <div class="mu-btn sw" data-state={b.enabled ? b.state : 'disabled'} style:left="{b.x}px" style:top="{b.y}px" style:width="{b.w}px" style:height="{b.h}px"></div>
@@ -41,14 +41,14 @@
 </div>
 
 <style>
-  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(2, 10, 30, .45); animation: mu-fade .2s var(--ease) both; }
+  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); animation: mu-fade .2s var(--ease) both; }
   @keyframes mu-fade { from { opacity: 0; } }
   .dplate { left: 0; top: 0; border-radius: 14px 14px 14px 5px; animation: none; }
   .detail { border-radius: 14px 14px 5px 14px; }
   .band { position: absolute; left: 0; right: 0; top: 0; border-radius: 14px 14px 0 0;
-    background: linear-gradient(180deg, rgba(125, 239, 252, .16), rgba(9, 133, 255, .06)); }
-  .band::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 1px;
-    background: linear-gradient(90deg, rgba(117, 255, 255, .7), rgba(117, 255, 255, .1) 75%, transparent); }
+    background: linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(230, 255, 235, .6)); box-shadow: inset 0 -2px 0 #2fbf55; }
+  .band.trunk { background: linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(255, 240, 220, .6)); box-shadow: inset 0 -2px 0 #e08a1e; }
+  .band.detail { background: linear-gradient(180deg, #f2fbff 0%, #a3d7f3 40%, #4e93f5 82%, #336deb 100%); box-shadow: 0 1px 0 #234cdb; }
   .sw { position: absolute; padding: 0; z-index: 2; }
   .layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 </style>

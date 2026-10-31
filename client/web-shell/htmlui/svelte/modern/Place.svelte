@@ -29,11 +29,12 @@
 
 <style>
   .chip { display: flex; align-items: center; gap: 10px; padding: 6px 14px 7px 10px; border-radius: 14px 14px 14px 5px; min-width: 190px; }
-  .chip :global(.pin) { color: var(--gold-300); filter: drop-shadow(0 1px 1px rgba(2, 10, 30, .6)); }
-  .lines { display: flex; flex-direction: column; gap: 1px; }
-  .line { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+  .chip :global(.pin) { color: var(--icon); }
+  .lines { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 1px; align-items: baseline; }
+  .line { display: contents; }
+  .count { justify-self: end; }
   .name { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-  .first .name { font-size: 14.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 1px rgba(2, 10, 30, .55); }
-  .count { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--sky-300); }
+  .first .name { font-size: 14.5px; font-weight: 800; color: var(--ink-strong); }
+  .count { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 700; color: var(--azure-500); }
   .count i { font-style: normal; opacity: .5; }
 </style>

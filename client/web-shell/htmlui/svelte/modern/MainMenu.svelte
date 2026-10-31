@@ -16,10 +16,10 @@
   const click = c => c && c.state !== 'disabled' && view.api.click(c.id);
   const modern = () => window.yo2Html?.modern(false);
   let panel;
-  $effect(() => { panel?.querySelector('.tile')?.focus({ preventScroll: true }); });
+  $effect(() => { panel?.querySelector('button.tile')?.focus({ preventScroll: true }); });
   function keys(ev) {
     if (ev.key === 'Escape') { ev.preventDefault(); click(close); return; }
-    const ts = [...panel.querySelectorAll('.tile')], i = ts.indexOf(document.activeElement);
+    const ts = [...panel.querySelectorAll('button.tile, .switch input')], i = ts.indexOf(document.activeElement);
     const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[ev.key];
     if (step && i >= 0) { ev.preventDefault(); ts[Math.max(0, Math.min(ts.length - 1, i + step))].focus(); }
   }
@@ -39,7 +39,7 @@
           <h3>{name}</h3>
           <div class="grid">
             {#each items as b (b.id)}
-              <button type="button" class="tile" class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
+              <button type="button" class="tile" class:gold={name !== 'System'} class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
                 onclick={() => click(b)}>
                 <Icon name={ICONS[b.label] || 'sparkle'} />
                 <span>{nice(b.label)}</span>
@@ -63,30 +63,34 @@
 <style>
   .panel { left: 6px; bottom: 8px; width: 372px; padding: 0 0 12px; }
   .groups { padding: 6px 12px 0; display: flex; flex-direction: column; gap: 8px; }
-  h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--sky-300); opacity: .85; }
+  h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: 10px 10px 10px 4px;
-    font-weight: 600; color: var(--ink); text-shadow: 0 1px 1px rgba(2, 10, 30, .45);
-    background: linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .03));
-    box-shadow: inset 0 0 0 1px rgba(150, 205, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .12);
-    transition: transform .14s var(--ease), background .14s, box-shadow .14s; }
-  .tile :global(.mu-ico) { color: var(--gold-300); transition: transform .14s var(--ease); }
-  .tile span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .tile:hover, .tile:focus-visible, .tile[data-state='hover'] { outline: none; transform: translateY(-1px);
-    background: linear-gradient(180deg, rgba(125, 239, 252, .26), rgba(9, 133, 255, .2));
-    box-shadow: inset 0 0 0 1px rgba(190, 240, 255, .72), inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 14px -6px rgba(0, 170, 255, .7); }
-  .tile:hover :global(.mu-ico), .tile:focus-visible :global(.mu-ico) { transform: scale(1.08); }
-  .tile:active { transform: translateY(0); }
-  .tile:disabled { opacity: .4; transform: none; }
-  /* a group's odd last tile takes the whole row */
   .grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .quit :global(.mu-ico) { color: var(--ink-2); }
+  /* a tile: the 2008 menu's gold bar (System: sky glass) */
+  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: 10px 10px 10px 4px;
+    font-weight: 700; color: var(--ink-strong); background: var(--sky-glass);
+    box-shadow: 0 0 0 1px #3a9de6, inset 0 1px 0 #fff, 0 2px 3px rgba(10, 60, 130, .2);
+    transition: transform .14s var(--ease), background .14s, box-shadow .14s; }
+  .tile.gold { color: var(--gold-ink);
+    background: linear-gradient(180deg, #ffffc8 0%, #fff97f 30%, #f9e45f 50%, #f4d558 62%, #f0be45 85%, #eca430 100%);
+    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 #fff, inset 0 -2px 0 rgba(200, 100, 0, .22), 0 2px 3px rgba(160, 80, 0, .25); }
+  .tile :global(.mu-ico) { color: #c25a00; transition: transform .14s var(--ease); }
+  .tile:not(.gold) :global(.mu-ico) { color: var(--azure-500); }
+  .tile span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .tile:hover, .tile[data-state='hover'] { transform: translateY(-1px); background: var(--sky-glass-hover);
+    box-shadow: 0 0 0 1px #2a8fe0, 0 0 0 3px rgba(0, 180, 255, .25), inset 0 1px 0 #fff, 0 6px 12px -5px rgba(0, 120, 230, .45); }
+  .tile.gold:hover, .tile.gold[data-state='hover'] {
+    background: linear-gradient(180deg, #ffffff 0%, #ffffe2 30%, #fcf4b8 50%, #faeaac 62%, #f6d086 85%, #f2b55e 100%);
+    box-shadow: 0 0 0 1px var(--gold-edge), 0 0 0 3px rgba(255, 200, 40, .35), inset 0 1px 0 #fff, 0 6px 12px -5px rgba(180, 90, 0, .4); }
+  .tile:hover :global(.mu-ico) { transform: scale(1.08); }
+  .tile:focus-visible { outline: 2px solid var(--azure-500); outline-offset: 2px; }
+  .tile:active { transform: translateY(0); filter: brightness(.96); }
+  .tile:disabled { opacity: .45; transform: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
   .switch span:not(.track):not(.knob) { flex: 1; }
-  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: linear-gradient(180deg, var(--gold-400), var(--gold-300));
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35), 0 0 0 1px rgba(4, 17, 43, .7); transition: background .18s; }
+  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: linear-gradient(180deg, var(--gold-500), var(--gold-300));
+    box-shadow: inset 0 1px 2px rgba(120, 60, 0, .35), 0 0 0 1px var(--gold-edge); }
   .knob { position: absolute; left: 14px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #fff, #dfe8f3 55%, #9fb3cc); box-shadow: 0 1px 2px rgba(0, 0, 0, .45);
-    transition: left .2s var(--ease); }
-  .switch:has(input:focus-visible) { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    background: radial-gradient(circle at 35% 30%, #fff, #e8eef5 55%, #b6c4d6); box-shadow: 0 1px 2px rgba(0, 0, 0, .35); transition: left .2s var(--ease); }
+  .switch:has(input:focus-visible) { outline: 2px solid var(--azure-500); outline-offset: 2px; }
 </style>

@@ -29,11 +29,11 @@
   .dock { position: absolute; left: 0; top: 0; width: 1024px; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 6px;
     background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, 0) 50%),
       linear-gradient(90deg, #0e3d8f 0%, #0a2a66 45%, #082052 100%);
-    box-shadow: 0 -1px 0 rgba(4, 17, 43, .9), inset 0 1px 0 rgba(117, 255, 255, .55), 0 -8px 20px -10px rgba(2, 10, 30, .6); }
+    box-shadow: 0 -1px 0 #1f6fd0, inset 0 1px 0 rgba(255, 255, 255, .8), 0 -6px 16px -10px rgba(10, 60, 130, .5); }
   .dock::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
     background: linear-gradient(90deg, var(--cyan), rgba(117, 255, 255, .2) 60%, rgba(117, 255, 255, .05)); }
   .menu { height: 24px; padding: 0 12px 0 9px; font-size: 12.5px; border-radius: 8px 8px 8px 3px; gap: 6px; }
   .status { flex: 1; min-width: 0; height: 22px; line-height: 22px; padding: 0 12px; border-radius: 7px; font-size: 12.5px; color: var(--ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    background: rgba(4, 17, 43, .55); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(150, 205, 255, .16); }
+    color: var(--ink-strong); background: rgba(255, 255, 255, .75); box-shadow: inset 0 1px 2px rgba(11, 42, 92, .25), inset 0 0 0 1px rgba(255, 255, 255, .8); }
 </style>

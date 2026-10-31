@@ -106,51 +106,46 @@ const CSS = `
 #mu-title { font-family: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; }
 #mu-title .mu-tmenu { position: absolute; left: 306px; top: 424px; width: 412px; padding: 14px 22px 16px;
-  display: none; flex-direction: column; gap: 8px; pointer-events: auto; box-sizing: border-box; border-radius: 24px 24px 24px 8px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, 0) 42%),
-    repeating-linear-gradient(180deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 3px),
-    linear-gradient(160deg, #1d56c0 0%, #0e3275 58%, #0a2350 100%);
-  box-shadow: 0 0 0 1px rgba(6, 20, 52, .9), inset 0 0 0 1px rgba(150, 205, 255, .32), inset 0 1px 0 rgba(255, 255, 255, .4),
-    0 26px 50px -18px rgba(2, 10, 30, .7), 0 6px 14px rgba(2, 10, 30, .35);
+  display: none; flex-direction: column; gap: 8px; pointer-events: auto; box-sizing: border-box; border-radius: 22px 22px 22px 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .75), rgba(255, 255, 255, .2) 48%, rgba(255, 255, 255, 0) 52%),
+    linear-gradient(180deg, rgba(232, 251, 255, .92), rgba(143, 230, 252, .9));
+  box-shadow: 0 0 0 1px #2f8fd6, inset 0 0 0 2px rgba(167, 255, 255, .9), 0 20px 40px -16px rgba(10, 60, 130, .6), 0 4px 10px rgba(10, 60, 130, .25);
   animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
 #mu-title.mu-on .mu-tmenu { display: flex; }
-#mu-title .mu-tmenu::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none;
-  background: linear-gradient(180deg, #f3f7fc, #8fa3bd 48%, #dfe8f3 100%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
-/* the 2008 title buttons' slant (a parallelogram plate, its right end raked), now glass with a sheen */
-#mu-title .mu-tbtn { position: relative; display: flex; align-items: center; justify-content: center; height: 40px; padding: 0 28px; margin: 0;
-  border: 0; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic;
-  color: #eaf6ff; text-shadow: 0 1px 2px rgba(4, 16, 44, .7);
+/* the 2008 title buttons: slanted blue bars, white heavy italic with the blue outline; ONLINE in the menu's gold */
+#mu-title .mu-tbtn { position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 28px; margin: 0;
+  border: 0; font-family: inherit; font-weight: 900; font-size: 21px; line-height: 1; letter-spacing: .04em; font-style: italic; color: #fff;
+  text-shadow: -1.5px 0 #0a3fc8, 1.5px 0 #0a3fc8, 0 -1.5px #0a3fc8, 0 1.5px #0a3fc8, 0 2px 4px rgba(0, 40, 160, .5);
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
-  background: linear-gradient(180deg, rgba(160, 245, 255, .55) 0, rgba(125, 239, 252, .35) 2px, rgba(9, 133, 255, .42) 48%, rgba(0, 70, 220, .72) 52%, rgba(0, 40, 170, .8) 100%);
-  transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s, background .16s; }
+  background: linear-gradient(180deg, #a8f8ff 0%, #5fd6ff 22%, #2a9cff 48%, #0a6af0 52%, #0050e0 78%, #1a7cff 100%);
+  transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s; }
 #mu-title .mu-tbtn::after { content: ''; position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .28) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
   transition: background-position .5s cubic-bezier(.16, 1, .3, 1); }
 #mu-title .mu-tbtn svg { display: none; }
 #mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(4px); filter: brightness(1.12) saturate(1.1); }
 #mu-title .mu-tbtn:hover::after, #mu-title .mu-tbtn:focus-visible::after { background-position: 260% 0; }
-#mu-title .mu-tbtn:focus-visible { filter: brightness(1.12); outline: 2px solid #75ffff; outline-offset: 3px; text-decoration: underline 2px #75ffff; text-underline-offset: 5px; }
+#mu-title .mu-tbtn:focus-visible { outline: 2px solid #0a3fc8; outline-offset: 3px; }
 #mu-title .mu-tbtn:active { transform: translateX(2px); filter: brightness(.95); }
-#mu-title .mu-tbtn-primary { height: 54px; font-size: 24px; color: #3a2200; text-shadow: 0 1px 0 rgba(255, 250, 210, .75);
+#mu-title .mu-tbtn-primary { height: 54px; font-size: 26px; color: #fff;
+  text-shadow: -1.5px 0 #c25a00, 1.5px 0 #c25a00, 0 -1.5px #c25a00, 0 1.5px #c25a00, 0 2px 4px rgba(160, 70, 0, .45);
   clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
-  background: linear-gradient(180deg, #fffbe0 0, #f7e46c 46%, #f1c330 54%, #e39a14 100%); }
+  background: linear-gradient(180deg, #ffffc8 0%, #fff97f 28%, #f9e45f 48%, #f4d558 60%, #f0be45 82%, #eca430 100%); }
 #mu-title .mu-tbtn-primary:hover, #mu-title .mu-tbtn-primary:focus-visible { filter: brightness(1.06) saturate(1.15); }
 #mu-title .mu-switch { position: absolute; right: 20px; bottom: 20px; display: flex; align-items: center; gap: 10px; height: 34px;
-  padding: 0 14px 0 8px; border-radius: 17px; pointer-events: auto; color: #eaf6ff; font-family: inherit; font-weight: 600; font-size: 13px; line-height: 1; letter-spacing: .02em;
-  background: linear-gradient(180deg, rgba(14, 50, 117, .88), rgba(10, 35, 80, .92));
-  box-shadow: 0 0 0 1px rgba(6, 20, 52, .85), inset 0 0 0 1px rgba(150, 205, 255, .3), inset 0 1px 0 rgba(255, 255, 255, .25),
-    0 8px 20px -8px rgba(2, 10, 30, .7); }
+  padding: 0 14px 0 8px; border-radius: 17px; pointer-events: auto; color: #0b2a5c; font-family: inherit; font-weight: 700; font-size: 13px; line-height: 1; letter-spacing: .02em;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(205, 243, 255, .95));
+  box-shadow: 0 0 0 1px #2f8fd6, inset 0 1px 0 #fff, 0 8px 18px -8px rgba(10, 60, 130, .55); }
 #mu-title .mu-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
 #mu-title .mu-track { position: relative; width: 38px; height: 22px; border-radius: 11px; flex: none;
-  background: linear-gradient(180deg, #6f82a6, #8698bb); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), 0 0 0 1px rgba(6, 20, 52, .8);
+  background: linear-gradient(180deg, #8698bb, #a9b8d3); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .35), 0 0 0 1px #5a6f95;
   transition: background .18s; }
 #mu-title .mu-knob { position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff, #dfe8f3 55%, #9fb3cc); box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+  background: radial-gradient(circle at 35% 30%, #fff, #e8eef5 55%, #b6c4d6); box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
   transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
-#mu-title input:checked + .mu-track { background: linear-gradient(180deg, #f1c330, #f7e46c); }
+#mu-title input:checked + .mu-track { background: linear-gradient(180deg, #eca430, #fff97f); box-shadow: inset 0 1px 2px rgba(120, 60, 0, .35), 0 0 0 1px #e36f08; }
 #mu-title input:checked + .mu-track .mu-knob { transform: translateX(16px); }
-#mu-title input:focus-visible + .mu-track { box-shadow: 0 0 0 2px #75ffff, inset 0 1px 2px rgba(0, 0, 0, .45); }
+#mu-title input:focus-visible + .mu-track { box-shadow: 0 0 0 2px #0985ff, inset 0 1px 2px rgba(0, 0, 0, .35); }
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
 @media (prefers-reduced-motion: reduce) { #mu-title *, #mu-title *::after { animation: none !important; transition: none !important; } }
 `;

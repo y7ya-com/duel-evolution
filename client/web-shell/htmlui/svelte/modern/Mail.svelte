@@ -77,31 +77,31 @@
 </div>
 
 <style>
-  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(2, 10, 30, .45); }
+  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); }
   .box { left: 0; top: 0; display: flex; flex-direction: column; }
-  .box :global(.lead) { color: var(--gold-300); }
+  .box :global(.lead) { color: #fff97f; }
   .actions { display: flex; gap: 8px; padding: 12px 16px 0; }
   .actions :global(.mu-btn:last-child:not(:first-child)) { margin-left: auto; }
   .to { display: flex; flex-direction: column; gap: 5px; }
   .to .row { display: flex; gap: 8px; }
-  .to output { flex: 1; height: 30px; line-height: 30px; padding: 0 12px; border-radius: 10px; font-weight: 650; color: #fff;
-    background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px rgba(150, 205, 255, .25); }
+  .to output { flex: 1; height: 30px; line-height: 30px; padding: 0 12px; border-radius: 10px; font-weight: 750; color: var(--ink-strong);
+    background: var(--well); box-shadow: var(--well-shadow); }
   .to output.none { color: var(--ink-3); font-weight: 500; }
   .rows { list-style: none; margin: 10px 16px 0; padding: 4px; height: 178px; flex: none; border-radius: 10px;
-    background: rgba(4, 17, 43, .42); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(150, 205, 255, .12); }
+    background: var(--well); box-shadow: var(--well-shadow); }
   .rows button { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--ink-2);
     transition: background .12s; }
-  .rows button:hover { background: rgba(150, 205, 255, .14); color: #fff; }
-  .rows button :global(.mu-ico) { color: var(--gold-300); }
+  .rows button:hover { background: #e2f7ff; color: var(--ink-strong); }
+  .rows button :global(.mu-ico) { color: var(--icon); }
   .rows span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .rows .main { flex: 1; font-weight: 650; color: #fff; }
+  .rows .main { flex: 1; font-weight: 750; color: var(--ink-strong); }
   .empty { padding: 10px; color: var(--ink-3); }
   .body { flex: 1; min-height: 0; margin: 10px 16px 0; padding: 12px 14px; border-radius: 10px; white-space: pre-wrap; line-height: 1.5;
-    color: var(--ink); user-select: text; background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 1px rgba(150, 205, 255, .16); }
+    color: var(--ink); user-select: text; background: var(--well); box-shadow: var(--well-shadow); }
   .form { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 0; }
   .form label { display: flex; flex-direction: column; gap: 5px; }
   .form label.grow { flex: 1; min-height: 0; }
   .form label.grow :global(textarea) { flex: 1; min-height: 0; }
-  .form span, .to > span { font-size: 11.5px; font-weight: 650; color: var(--sky-300); letter-spacing: .02em; }
+  .form span, .to > span { font-size: 11.5px; font-weight: 750; color: var(--ink-2); letter-spacing: .02em; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; }
 </style>

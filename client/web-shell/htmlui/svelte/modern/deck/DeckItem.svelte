@@ -17,7 +17,7 @@
     return 'content';
   };
   // the trunk row plates by variant (c01 monsters' grey-green, c02 spells', c04 traps', c00 the list's foot)
-  export const ROW = { c00: 'rgba(4, 17, 43, .0)', c01: 'rgba(255, 255, 255, .07)', c02: 'rgba(70, 230, 160, .10)', c04: 'rgba(230, 90, 200, .10)' };
+  export const ROW = { c00: 'rgba(255, 255, 255, 0)', c01: 'rgba(255, 255, 255, .75)', c02: 'rgba(200, 255, 225, .8)', c04: 'rgba(255, 215, 245, .8)' };
 </script>
 
 <script>
@@ -43,11 +43,11 @@
     {:else if k === 'icon'}
       <svg class="chev" viewBox="0 0 16 24" style:left="{it.x}px" style:top="{it.y}px" aria-hidden="true"><path d={it.s.src[1] >= 48 ? 'M4 10l4 4 4-4' : 'M4 14l4-4 4 4'} /></svg>
     {:else if word}
-      <span class="word" class:tab={/^(Main|Fusion)$/.test(word[0])} class:front style:left="{it.x + word[2]}px" style:top="{it.y}px" style:height="{H}px" style:opacity={it.s.a ?? 1}>{word[0]}</span>
+      <span class="word" class:tab={/^(Main|Fusion)$/.test(word[0])} class:warm={/^(Trunk|Rearrange|Card Search)$/.test(word[0])} class:front style:left="{it.x + word[2]}px" style:top="{it.y}px" style:height="{H}px" style:opacity={it.s.a ?? 1}>{word[0]}</span>
     {:else if it.kind === 'sprite'}
       <Sprite s={it.s} x={it.x} y={it.y} />
     {:else if it.kind === 'label'}
-      <Label text={it.text} x={it.x} y={it.y} alpha={it.alpha} box={{ ...it.box, ink: it.box.ink ?? 0xeaf6ff }} />
+      <Label text={it.text} x={it.x} y={it.y} alpha={it.alpha} box={{ ...it.box, ink: it.box.ink ?? 0x0b2a5c }} />
     {:else if it.kind === 'flow'}
       <div class="flow"><Flow text={it.text} x={it.x} y={it.y} w={it.w} h={it.h} alpha={it.alpha} px={it.px} /></div>
     {:else if it.kind === 'button'}
@@ -61,11 +61,12 @@
 
 <style>
   .row { position: absolute; }
-  .chev { position: absolute; width: 16px; height: 24px; fill: none; stroke: var(--ink-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .word { position: absolute; display: flex; align-items: center; white-space: nowrap; font-size: 15px; font-weight: 700; letter-spacing: .01em; color: #fff;
-    text-shadow: 0 1px 2px rgba(2, 10, 30, .7); }
-  .word.tab { font-size: 13px; font-weight: 650; color: var(--ink-3); }
-  .word.tab.front { color: #fff; }
-  /* the card text's plain (black) runs light on the plate; coloured runs keep their colour */
-  .flow :global(span[style*='color: rgb(0, 0, 0)']) { color: var(--ink) !important; }
+  .chev { position: absolute; width: 16px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  /* the word art's words in its colours (Deck / Number of Cards green, Trunk / Rearrange orange): heavy italic, as the art */
+  .word { position: absolute; display: flex; align-items: center; white-space: nowrap; font-size: 16px; font-weight: 900; font-style: italic; letter-spacing: .01em;
+    color: #0e8a2a; text-shadow: 0 1px 0 #fff; }
+  .word.warm { color: #b35a00; }
+  .word.tab { font-size: 13px; font-weight: 800; color: var(--ink-3); }
+  .word.tab.front { color: #c4161c; }
+  /* the card text as the engine colours it (dark on the light plate) */
 </style>
