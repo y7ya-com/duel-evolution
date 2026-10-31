@@ -12,6 +12,7 @@ import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
+import { modernUi } from './modern.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -85,7 +86,8 @@ export async function makeLayer(host, screens, art = 'ui/') {
       seen.add(w.id);
       let e = live.get(w.id);
       const mod = screens.get(w.cls);
-      if (e && e.cls !== w.cls) { unmount(w.id); e = null; }   // the address was reused
+      // the address was reused, or another screen took the class (Modern UI switched)
+      if (e && (e.cls !== w.cls || e.mod !== mod)) { unmount(w.id); e = null; }
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
@@ -190,9 +192,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   document.head.append(st);
   // The layer (screens, atlases, the host) loads only once the switches want a window or task the game shows: a page
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
-  let screens = new Map(), host = null, render = null, loading = null;
+  // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
+  const mu = modernUi({ defaults, canvas });
+  let legacy = new Map(), host = null, render = null, loading = null;
+  const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   const init = () => loading ||= (async () => {
-    screens = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
+    legacy = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);
@@ -230,7 +235,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    for (const el of [host, fx, bars.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx, bars.layer, mu.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -321,7 +326,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
-    const want = c => forced.has(c) ? forced.get(c) : on(c);
+    const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
@@ -363,6 +368,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
+    mu.frame(snap, scene, wait);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
@@ -386,5 +392,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,
     scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
+    modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered), as the title page's switch
   };
 }
