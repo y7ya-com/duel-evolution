@@ -27,11 +27,12 @@
   $effect(() => {
     if (!quick) return;
     const key = e => {
-      // a game field being typed into: one in a window the game draws (a modern window's fields are DOM: the chat's line
-      // keeps the game's focus after Enter, which must not eat the keys)
+      // a game field being typed into: one in a window whose input is the game's (the engine's own, or a pass-mode modern
+      // one: the generic windows). An owned modern window's fields are DOM: the chat's line keeps the game's focus after
+      // Enter, which must not eat the keys
       const snap = globalThis.yo2Html?.snapshot?.(), f = snap?.focus;
       const owner = f && snap.windows.find(w => w.controls.some(c => c.id === f));
-      if (f && !(owner && globalThis.yo2Html?.modernScreens?.has(owner.cls))) return;
+      if (f && globalThis.yo2Html?.modernScreens?.get(owner?.cls)?.mode !== 'owned') return;
       if (e.key === 'Enter' && !/^(INPUT|TEXTAREA|BUTTON)$/.test(e.target?.tagName || '')) {
         const line = document.querySelector('.mu .composer input');
         if (line) { e.preventDefault(); e.stopPropagation(); line.focus(); }

@@ -162,6 +162,73 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.presence(null).size, 0);
 }
 
+// the generic window: the plate from the outer frame, the title strip, each family, the engine's pictures cut out
+{
+  const frame = ctl('FrameThin', { x: 0, y: 0, w: 400, h: 200 }), inner = ctl('FramePlane', { x: 10, y: 60, w: 200, h: 100 });
+  const title = ctl('ShadowText', { x: 12, y: 8, w: 200, h: 16, text: '@0Duel Log' });
+  const body = ctl('Text', { x: 12, y: 40, w: 300, h: 32, text: 'one\ntwo\nthree', firstLine: 1, pageLines: 1 });
+  const ok = ctl('TextSwitch', { x: 300, y: 160, w: 80, h: 24, label: 'OK', state: 'hover' });
+  const caption = ctl('Text', { x: 0, y: 0, w: 80, h: 24, text: 'OK', parent: ok.id });
+  const input = ctl('Input', { x: 12, y: 100, w: 120, h: 22, value: 'abc' }), inText = ctl('Text', { text: 'abc', parent: input.id });
+  const list = ctl('Listbox', { x: 220, y: 60, w: 160, h: 72, items: ['a', '@1b', 'c', 'd', 'e'], top: 1, rows: 3, selected: 2 });
+  const bar = ctl('Scroll', { x: 150, y: 0, w: 10, h: 72, parent: list.id, value: 1, max: 2, page: 3 });
+  const pic = ctl('Image', { x: 20, y: 70, w: 64, h: 64 }), picText = ctl('Text', { text: 'in the picture', parent: pic.id });
+  const flag = ctl('PictureSwitch', { x: 90, y: 70, w: 48, h: 32, label: '' }), okPic = ctl('PictureSwitch', { x: 200, y: 160, w: 90, h: 24, label: 'Cancel' });
+  const slider = ctl('Slider', { x: 40, y: 170, w: 0, h: 0, parts: { sprites: [{ shown: true, src: [0, 0, 200, 8], wx: 140, wy: 222 }, { shown: true, src: [0, 0, 12, 20], wx: 200, wy: 216 }] } });
+  const hidden = ctl('Text', { x: 0, y: 0, w: 10, h: 10, text: 'gone', shown: false });
+  const w = win('CWindowModelDuellogTop', [frame, inner, title, body, ok, caption, input, inText, list, bar, pic, picText, flag, okPic, slider, hidden],
+    { x: 100, y: 50, extras: [{ id: id++, cls: 'CSpriteElm', shown: true, src: [0, 0, 32, 16], sx: 2, sy: 1, wx: 150, wy: 60 }] });
+  const g = L.generic(w);
+  assert.deepEqual(g.plate, { x: 0, y: 0, w: 400, h: 200 });
+  assert.equal(g.band.title, 'Duel Log', 'the heading ShadowText is the title strip');
+  assert.deepEqual(g.items.map(i => i.kind), ['well', 'text', 'button', 'input', 'list', 'scroll', 'button', 'slider'], 'one item a control; parts and pictures not apart');
+  const sl = g.items.at(-1);
+  assert.deepEqual([sl.c.x, sl.c.y, sl.c.w, sl.c.h], [40, 166, 200, 20], 'a slider over its sprites');
+  assert.ok(Math.abs(sl.knob.frac - .33) < .01, 'its knob where the engine put it');
+  assert.equal(g.items.find(i => i.kind === 'text').text, 'two', 'the shown lines only');
+  assert.equal(g.items.find(i => i.kind === 'button').gold, true, 'OK is the primary');
+  assert.equal(g.items.at(-2).label, 'Cancel', 'a picture switch with a caption is a button');
+  assert.deepEqual(g.items.find(i => i.kind === 'list').rows.map(r => [r.text, r.selected]), [['b', false], ['c', true], ['d', false]]);
+  assert.deepEqual([g.items.find(i => i.kind === 'scroll').c.x, g.items.find(i => i.kind === 'scroll').c.y], [370, 60], 'a list\'s bar at the list\'s place');
+  assert.deepEqual(g.holes, [{ x: 20, y: 70, w: 64, h: 64 }, { x: 90, y: 70, w: 48, h: 32 }, { x: 50, y: 10, w: 64, h: 16 }],
+    'the picture, the captionless switch, the sprite extra: window-local');
+  assert.deepEqual(g.backdrop, []);
+  assert.equal(g.keep.length, 3, 'the engine keeps the picture, the flag and the extra (the slider is drawn here)');
+  // a window whose look is one picture (Options: option_dai): the plate stands in for it, its texts' field a well
+  const field = ctl('TextField', { x: 8, y: 8, w: 344, h: 356, text: '' }), plane = ctl('BackPlane', { x: 0, y: 0, w: 344, h: 356, parent: field.id });
+  const bd = { id: id++, cls: 'CSpriteElm', shown: true, src: [0, 0, 360, 372], wx: 332, wy: 198 };
+  const o = L.generic(win('COptionDlg', [plane, field, ctl('Text', { x: 8, y: 16, w: 344, h: 16, text: '[Language]' })], { x: 332, y: 198, w: 360, h: 372, extras: [bd] }));
+  assert.deepEqual(o.plate, { x: 0, y: 0, w: 360, h: 372 });
+  assert.deepEqual(o.backdrop, [bd.id]);
+  assert.deepEqual(o.items.map(i => i.kind), ['well', 'text']);
+  assert.deepEqual(o.holes, []);
+  // the Duel Log: its frame a class of its own, tabs that are pictures with their captions laid over them
+  const dl = L.generic(win('CWindowModelDuellogTop', [ctl('DuellogFrame', { x: 0, y: 0, w: 492, h: 452 }),
+    ctl('PictureSwitch', { x: 22, y: 53, w: 224, h: 32, label: '' }), ctl('ShadowText', { x: -28, y: 61, w: 324, h: 32, text: 'Latest Duel Logs' }),
+    ctl('PictureSwitch', { x: 234, y: 160, w: 24, h: 16, label: '' }),
+    { id: id++, cls: 'CWindowResultScroll', parent: 0, x: 455, y: 170, w: 16, h: 230, shown: true, value: 0, max: 4, page: 8 }], { w: 492, h: 452 }));
+  assert.deepEqual(dl.plate, { x: 0, y: 0, w: 492, h: 452 }, 'a class named ...Frame is a frame');
+  assert.deepEqual(dl.items.map(i => [i.kind, i.label]), [['button', 'Latest Duel Logs'], ['scroll', undefined]], 'the caption on its picture switch, once');
+  assert.equal(dl.keep.length, 1, 'the engine keeps only the small arrow picture');
+  // Duel Options: its frame reads 80 x 24 (the plate is the window), labels in 256 x 256 default boxes (no wells)
+  const dc = L.generic(win('CWindowModelDuelConfig', [ctl('DuelConfigFrame', { x: 0, y: 0, w: 80, h: 24 }),
+    ctl('ShadowText', { x: 0, y: 4, w: 492, h: 16, text: 'DUEL OPTIONS' }), ctl('ShadowText', { x: 38, y: 37, w: 256, h: 256, text: 'Auto Tracking' })], { w: 492, h: 452 }));
+  assert.deepEqual(dc.plate, { x: 0, y: 0, w: 492, h: 452 });
+  assert.equal(dc.band.title, 'DUEL OPTIONS');
+  assert.deepEqual(dc.items.map(i => i.kind), ['text']);
+  // a label in a default box above a picture switch is not its caption (only a text whose first line is on it)
+  const dc2 = L.generic(win('CWindowModelDuelConfig', [ctl('ShadowText', { x: 38, y: 141, w: 256, h: 256, text: 'Auto Tracking' }),
+    ctl('PictureSwitch', { x: 22, y: 157, w: 224, h: 32, label: '' }), ctl('ShadowText', { x: 22, y: 165, w: 224, h: 16, align: 1, text: 'Auto Cancel' })], { w: 492, h: 452 }));
+  assert.deepEqual(dc2.items.map(i => [i.kind, i.label ?? i.text]), [['text', 'Auto Tracking'], ['button', 'Auto Cancel']]);
+  // a well and its text share a control: the screen keys items by kind and id
+  const keys = o.items.map(i => i.kind + i.c.id);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.equal(L.generic(win('CWindowModelProgress', [ctl('Text', { x: 0, y: 0, w: 50, h: 16, text: 'Loading' })])).plate, null, 'no frame, no plate');
+  assert.equal(L.thumb({ max: 0 }), null, 'nothing to scroll: no thumb');
+  assert.ok(!L.GENERIC.includes('CWindowLogin'), 'the 2008 ID / password form is never drawn');
+  assert.equal(new Set(L.GENERIC).size, L.GENERIC.length);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

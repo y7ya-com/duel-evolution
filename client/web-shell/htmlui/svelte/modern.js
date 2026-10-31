@@ -17,6 +17,8 @@ import Toast from './modern/Toast.svelte';
 import Form from './modern/Form.svelte';
 import Mail from './modern/Mail.svelte';
 import Avatar from './modern/Avatar.svelte';
+import Generic from './modern/Generic.svelte';
+import { GENERIC, generic } from './modern/logic.js';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -90,6 +92,20 @@ const deckEditor = {
   backdrop: (win, el, api, state) => deckScreen.backdrop(win, el, api, state, { scene: -1 }),   // no scene: the editor covers it
 };
 
+// every other window (logic.js GENERIC): the modern look over the engine's own controls, the engine keeping the input;
+// what it can't draw (pictures, Flash, unknown controls, sprite extras) the engine keeps drawing, except a sprite that is
+// the window's backdrop (the plate stands in for it). parts: an unknown control's sprites place its hole
+const genericBase = screen(Object.fromEntries(GENERIC.map(c => [c, Generic])));
+const kept = new Map();   // window id -> what the engine keeps drawing in it (logic.js generic keep)
+const genericScreen = {
+  ...genericBase, mode: 'pass', clip: false, parts: true,
+  mount(win, root, api) { kept.set(win.id, new Set(generic(win).keep)); return { ...genericBase.mount(win, root, api), id: win.id }; },
+  update(win, prev, root, api, st) { kept.set(win.id, new Set(generic(win).keep)); genericBase.update(win, prev, root, api, st); },
+  unmount(root, st) { kept.delete(st.id); genericBase.unmount(root, st); },
+  // a part of a kept control isn't listed: the nearest listed ancestor (the kept control) decides (htmlui.c)
+  passthrough: x => [...kept.values()].some(k => k.has(x.id)),
+};
+
 const screens = [
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
@@ -99,6 +115,7 @@ const screens = [
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
+  genericScreen,
   deckEditor,
   { ...deckScreen, classes: ['CWindowModelFileList'], backdrop: undefined },
 ];

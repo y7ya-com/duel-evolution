@@ -142,16 +142,29 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
     on hover.
   - The trunk search is restyled. A modal dialog dims the editor and is cut only by its own card faces.
 
-## Not covered (the legacy look stays, by design or for now)
-- **Drawn by the game itself, left as the engine draws them:** Duel Options, the Duel Log browser and D-Mail. They are
-  windows of pictures and custom frames; a modern version needs their own readers first.
-- **Shop:** its windows are picture banners and the engine's animated parts (title, frame, MP plate), which the HTML
-  layer can only pass through, not restyle. A modern shop needs readers for those parts first.
-- **Trade:** the deck windows it reuses are modern; its own windows are not.
-- **Duel HUD:** no HTML duel screen exists yet (htmlui-duel-plan.md).
-- **Audio settings:** its own HTML page (web/audiopage.js); not touched.
-- **The title menu's places:** taken from the engine's layout (modern.js TITLE). If the title scene's buttons move, update
-  them there.
+## Coverage: every window modern (2026-10-31)
+The game has 107 window classes (every CWindowTaskModel subclass in client/include/yo2). In Modern UI each is bespoke
+(svelte/modern.js), generic (logic.js GENERIC, Generic.svelte) or deliberately not drawn; the inventory is
+modern-ui-coverage.md in the coordinator's notes.
+- **The generic window** (Generic.svelte, logic.js generic): any window without a bespoke screen, its controls in the
+  modern look at the engine's own places. Pass mode: the engine keeps every input (click, hover, keys, typing, wheel,
+  drag) and its own focus; the DOM only paints, so a window nobody has looked at can't gain an input bug.
+  - Plate: the outermost frame; a frame of the window's own class (DuellogFrame); a frame reading far smaller than its
+    window (DuelConfigFrame: 80 x 24) or a picture that is the window's backdrop (Options' option_dai) stand for the
+    whole window. A ShadowText heading the plate is the title strip.
+  - Text, buttons (gold for OK / Yes / Send), fields with their caret, lists (rows from the engine's top, the selected
+    row), checkboxes, tabs, scroll bars (thumb only: the engine's bar takes the drag), icons, sliders (drawn from their
+    sprites: the track and the knob where the engine puts it). A picture switch with a caption, or with a text laid over
+    it (the Duel Log's tabs), is a button. A text field with a back plane, or a large text area, sits in a well.
+  - What it can't draw stays the engine's, cut out of everything drawn here (evenodd clip-path): pictures (flags, card
+    art, screen modes), Flash, unknown controls (their sprites place the hole when they have no size), sprite extras.
+  - Seen live: Options (title), Duel Log, Duel Options.
+- **Never drawn:** CWindowLogin (the 2008 ID / password form must never show), base classes, CDeckCardLoader (no
+  controls), CWindowTaskCardArea (trade's drag stays the engine's), CWindowModelTitleConfig.
+- **Still legacy:** the shop (CShop* tasks, not windows: the generic renderer takes windows only), the duel field itself
+  (not windows), Audio settings (its own page, web/audiopage.js).
+- **The title menu's places:** taken from the engine's layout (modern.js TITLE). If the title scene's buttons move,
+  update them there.
 
 ## Critique (2026-10-31, impeccable: design review + detector evidence, against the legacy captures)
 The two assessments ran separately. The detector found nothing; the reviews found these, all fixed in one pass.

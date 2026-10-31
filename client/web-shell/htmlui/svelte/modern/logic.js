@@ -204,3 +204,164 @@ export function presence(rows) {
   for (const r of Array.isArray(rows) ? rows : []) if (r && typeof r.name === 'string') m.set(r.name.trim().toLowerCase(), { online: !!r.online, place: String(r.place || '') });
   return m;
 }
+
+// ---- the generic window (Generic.svelte): any window with no bespoke modern screen, drawn from its controls in the
+// modern look at the engine's own places. Pass mode: the engine keeps every input (click, hover, keys, typing, wheel,
+// drag) and the DOM only paints, so a window nobody has looked at can't gain an input bug. Pictures, Flash and controls
+// the bridge doesn't know stay the engine's (passthrough), cut out of the plate.
+// The windows it takes (svelte/modern/DESIGN.md "Coverage"; the inventory: every CWindowTaskModel subclass in
+// client/include/yo2): the generic ones, and htmlui-select's until their bespoke screens land. Not here: the bespoke
+// ones (svelte/modern.js), base classes, CDeckCardLoader (no controls), CWindowTaskCardArea (trade's drag: the
+// engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
+export const GENERIC = [
+  // htmlui-select's, until theirs land
+  'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelMove', 'CWindowModelList', 'CFixedsentenceList',
+  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelDuelConfig', 'CWindowModelBalloon',
+  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
+  // the rest
+  'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
+  'CWindowModelDuellogOperation', 'CWindowModelDuellogSearch', 'CWindowModelDuellogTop', 'CWindowModelDuellogTour',
+  'CWindowModelDuelpass150', 'CWindowModelDuelpassInputCode', 'CWindowModelDuelpassUSB', 'CWindowModelFriendEnum', 'CWindowModelHelp',
+  'CWindowModelInput2', 'CWindowModelInputValue', 'CWindowModelItemGet', 'CWindowModelJoinGunsling', 'CWindowModelListCard',
+  'CWindowModelListCardAttr', 'CWindowModelListCardForbi', 'CWindowModelListCardIcon', 'CWindowModelListCardPack',
+  'CWindowModelListCardStar', 'CWindowModelListCardType', 'CWindowModelPictureButton', 'CWindowModelPresent', 'CWindowModelProgress',
+  'CWindowModelReturnButton', 'CWindowModelThin', 'CWindowModelThinImg', 'CWindowModelTp', 'CWindowModelTrade', 'ParamWindow',
+  // the duel's
+  'CUDiceDialog', 'CUDiscardDialog', 'CUGHelpManager', 'CULockOnDialog', 'CUOkDialog', 'CUPhaseSelectDialog', 'CUPhaseYesNoDialog',
+  'CURitualDialog', 'CUSelectAttributeDialog', 'CUSelectCoinDialog', 'CUSelectDialog', 'CUSelectNumDialog', 'CUSelectStandDialog',
+  'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowDeckList', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
+  'CWindowResult', 'CWindowResultNext', 'CWindowResultNpc',
+];
+
+// a control's family (CONTRACT.md's), by class; 'engine': the engine keeps drawing it (pictures, Flash, unknown)
+const FAMILIES = [
+  ['frame', /^(Frame|PictureFrame|BackPlane|BackStripe|ThinChop)|Frame$/], ['text', /^(Text|ShadowText|TextField|TextItem)$/],
+  ['button', /^(Switch|TextSwitch|ButtonMain|ButtonDuel|ResultNext)$/], ['check', /^Checkbox$/], ['tab', /^Tab$/],
+  ['input', /^(Input|InputDuel|MultiInput)$/], ['list', /Listbox|Textlist|NoBackList/], ['scroll', /Scroll/],
+  ['icon', /^Icon(Show|Hide|Expand|Shrink)$/], ['bar', /^(Iconbar|Menubar)$/], ['slider', /^Slider$/],
+];
+export function family(c) {
+  if (/^CWindow\w*Scroll$/.test(c.cls || '')) return 'scroll';   // CWindowResultScroll
+  if (!/^CWindowTask/.test(c.cls || '')) return 'engine';
+  const k = c.cls.slice(11);
+  // a picture switch with a caption (Options' OK / Cancel) is a button; one without (a flag, a screen mode) a picture
+  if (k === 'PictureSwitch') return untag(c.label || '').trim() ? 'button' : 'engine';
+  return FAMILIES.find(([, r]) => r.test(k))?.[0] || 'engine';
+}
+const area = r => r.w * r.h;
+const has = r => r.w > 0 && r.h > 0;
+// the box around rects
+const union = rs => {
+  if (!rs.length) return null;
+  const x = Math.min(...rs.map(r => r.x)), y = Math.min(...rs.map(r => r.y));
+  return { x, y, w: Math.max(...rs.map(r => r.x + r.w)) - x, h: Math.max(...rs.map(r => r.y + r.h)) - y };
+};
+// a sprite's drawn rect, window-local
+const spriteRect = (s, win) => s.shown === false || !s.src || s.wx == null ? null
+  : { x: s.wx - win.x, y: s.wy - win.y, w: s.src[2] * (s.sx ?? 1), h: s.src[3] * (s.sy ?? 1) };
+
+// what a generic window shows: { plate, band, items, holes, backdrop, keep }.
+// - Only top-level controls are drawn (a nested one is a part its parent draws: a caption, a field's plane), and a
+//   list's scroll bar (nested: its x / y are the list's, as every nested control's are its parent's).
+// - plate: the outermost frame's rect, else the whole window when a picture is its backdrop (backdrop: those sprite
+//   extras, covering most of the window: not drawn, the plate instead), else none.
+// - band: the title strip ({ h, title }) when a ShadowText heads the plate.
+// - items: { kind, c, ... } back to front. holes: the rects the engine still draws (cut out of the plate): pictures,
+//   Flash, unknown controls (with no size of their own: the box around their sprites, `parts`), sprite extras.
+// - keep: what the engine keeps drawing (passthrough): those top-level controls (their parts follow them) and extras.
+export function generic(win) {
+  const shown = win.controls.filter(c => c.shown !== false);
+  const top = shown.filter(c => !c.parent);
+  const kids = id => shown.filter(c => c.parent === id);
+  const backdrop = [], extras = [];
+  for (const e of win.extras || []) {
+    const r = spriteRect(e, win);
+    if (r && has(r)) (area(r) >= win.w * win.h * .6 ? backdrop : extras).push({ e, r });
+  }
+  // an unknown control over most of the window is its frame too (drawn as the plate, not cut out)
+  const big = c => has(c) && area(c) >= win.w * win.h * .6;
+  const fam = new Map(top.map(c => [c.id, family(c) === 'engine' && big(c) ? 'frame' : family(c)]));
+  // a captionless picture switch with a text laid over it (the Duel Log's tabs): a button with that caption
+  // a caption's box about its button's height: its centre (the Duel Log's are wider than their tabs, centred on them);
+  // a taller box (256 x 256 by default: Duel Options' labels): where its first line starts
+  const inside = (t, b) => {
+    const tall = t.h > b.h * 1.5;
+    const x = !tall || t.align === 1 ? t.x + t.w / 2 : t.align === 2 ? t.x + t.w - 8 : t.x + 8, y = tall ? t.y + (t.fontSize || 16) / 2 : t.y + t.h / 2;
+    return x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h;
+  };
+  const captions = new Map(), used = new Set();
+  for (const b of top) {
+    if (!/PictureSwitch$/.test(b.cls) || fam.get(b.id) !== 'engine' || area(b) < 1500) continue;
+    const ts = top.filter(t => !used.has(t.id) && family(t) === 'text' && t.text?.trim() && inside(t, b));
+    if (!ts.length) continue;
+    ts.forEach(t => used.add(t.id));
+    captions.set(b.id, ts.map(t => untag(t.text).trim()).join(' '));
+    fam.set(b.id, 'button');
+  }
+  const frames = top.filter(c => fam.get(c.id) === 'frame' && has(c)).sort((a, b) => area(b) - area(a));
+  // a frame that reads far smaller than its window (Duel Options' DuelConfigFrame: 80 x 24) stands for the whole window
+  const plate = frames[0] && area(frames[0]) >= win.w * win.h * .5 ? { x: frames[0].x, y: frames[0].y, w: frames[0].w, h: frames[0].h }
+    : frames[0] || backdrop.length ? { x: 0, y: 0, w: win.w, h: win.h } : null;
+  const title = plate && top.find(c => /ShadowText$/.test(c.cls) && c.text?.trim() && c.y - plate.y < 30 && c.y >= plate.y - 4);
+  const band = title ? { h: Math.max(30, Math.min(44, title.y - plate.y + title.h + 7)), title: untag(title.text).trim(), c: title } : null;
+  const items = [], holes = [], keep = [];
+  for (const c of top) {
+    const f = fam.get(c.id);
+    if (c === title || used.has(c.id)) continue;
+    if (f === 'engine') {
+      keep.push(c.id);
+      const r = has(c) ? c : union((c.parts?.sprites || []).map(s => spriteRect(s, win)).filter(r => r && has(r)));
+      if (r) holes.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+      continue;
+    }
+    if (f === 'frame') {
+      // an inner frame (not the plate, not a list's stripes): a well
+      if (c !== frames[0] && has(c) && area(c) < area(plate) * .85 && !/BackStripe/.test(c.cls)) items.push({ kind: 'well', c });
+      continue;
+    }
+    if (f === 'text') {
+      // a text field with its own back plane, or a large text area (the Duel Log's log): a well under its text
+      // (256 x 256 is a text's default box, not an area: Duel Options' labels)
+      const well = has(c) && (/TextField$/.test(c.cls) && kids(c.id).some(k => family(k) === 'frame') || c.w >= 160 && c.h >= 64 && !(c.w === 256 && c.h === 256));
+      if (well) items.push({ kind: 'well', c });
+      const t = shownText(c);
+      if (t.trim()) items.push({ kind: 'text', c, text: t, heading: /ShadowText$/.test(c.cls), well });
+      continue;
+    }
+    if (f === 'list') {
+      items.push({ kind: 'list', c, rows: listRows(c) });
+      for (const k of kids(c.id)) {
+        const t = family(k) === 'scroll' && thumb(k);
+        if (t) items.push({ kind: 'scroll', c: { ...k, x: c.x + k.x, y: c.y + k.y }, thumb: t });
+      }
+      continue;
+    }
+    if (f === 'scroll') { const t = thumb(c); if (t) items.push({ kind: 'scroll', c, thumb: t }); continue; }
+    if (f === 'bar') { if (/Menubar$/.test(c.cls) && c.message) items.push({ kind: 'text', c, text: untag(c.message) }); continue; }
+    if (f === 'button') { const label = captions.get(c.id) ?? untag(c.label || '').trim(); items.push({ kind: 'button', c, label, gold: primary({ label }) }); continue; }
+    if (f === 'slider') {
+      // no fields of its own: its sprites (parts) are the track and the knob (the narrowest), drawn here at their places
+      const rs = (c.parts?.sprites || []).map(s => spriteRect(s, win)).filter(r => r && has(r));
+      const box = union(rs), knob = rs.length > 1 ? rs.reduce((a, b) => b.w < a.w ? b : a) : null;
+      if (box) items.push({ kind: 'slider', c: { ...c, ...box }, knob: knob && { x: knob.x - box.x + knob.w / 2, frac: box.w ? (knob.x + knob.w / 2 - box.x) / box.w : 0 } });
+      continue;
+    }
+    items.push({ kind: f, c });
+  }
+  for (const { e, r } of extras) { holes.push(r); keep.push(e.id); }
+  return { plate, band, items, holes, backdrop: backdrop.map(b => b.e.id), keep };
+}
+// a text control's shown lines (from firstLine, pageLines of them), colour tags out
+export const shownText = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
+// a list's shown rows: [{ i, text, selected, marked }] from its top, as many as fit
+export function listRows(c) {
+  const items = c.items || [], top = c.top || 0, n = c.rows || Math.max(1, Math.floor((c.h || 0) / 18));
+  return items.slice(top, top + n).map((s, k) => ({ i: top + k, text: untag(s), selected: c.selected === top + k, marked: !!c.marks?.[top + k] }));
+}
+// a scroll bar's thumb as fractions of its track ({ at, len }), or null when there's nothing to scroll
+export function thumb(c) {
+  const max = c.max || 0, page = Math.max(1, c.page || 1);
+  if (max <= 0) return null;
+  const len = Math.max(.08, Math.min(1, page / (max + page)));
+  return { at: Math.min(1, Math.max(0, (c.value || 0) / max)) * (1 - len), len };
+}
