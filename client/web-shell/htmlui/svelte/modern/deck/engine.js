@@ -83,6 +83,7 @@ export const add = (card, to) => queue(async () => {
   const list = listOf(snap());
   if (!list || !Module.yo2KabanFilter) return false;
   Module.yo2KabanFilter(list.id, { cat: 6, text: card.name });
+  await frames(2);   // applied at the next Present: rows read before it are the last filter's
   const row = await waitFor(s2 => win(s2, 'CWindowModelKaban')?.controls.find(c => c.cls === 'CWindowTaskKabanListBtn' && c.shown && c.card === card.id), 2000);
   if (!row) return false;
   s = snap();
@@ -136,14 +137,25 @@ export const saveAs = (api, name) => queue(async () => {
   const done = s => win(s, 'CWindowModelDialogOk');
   const b = win(snap(), 'CWindowModelDeck')?.scene?.menu.find(m => m.name === 'SaveBtn' && m.shown);
   const fl = b && await press({ wx: b.wx, wy: b.wy, w: 160, h: 26 }, s => win(s, 'CWindowModelFileList'));
-  const inp = fl && await press(btn(fl, 'save new'), s => win(s, 'CWindowModelInputValue'));
-  const field = inp?.controls.find(c => /Input$/.test(c.cls));
-  if (!field) return false;
-  // typed into it, as the player's keys (its setText shows the text but the prompt's value stays empty)
-  for (const ch of name) api.char(ch.charCodeAt(0));
-  await frames(3 + Math.ceil(name.length / 16));
-  // OK: saved, or (a deck of that name already) the overwrite question, Yes
-  const r = await press(btn(inp, 'yes') || btn(inp, 'ok'), s => done(s) || win(s, 'CWindowModelDialogYesNo'));
+  const rows = fl && (await waitFor(s => listbox(win(s, 'CWindowModelFileList')), 1000))?.items.map(untag);
+  if (!rows) return false;
+  let r;
+  const at = rows.findIndex(n => n.toLowerCase() === name.toLowerCase());
+  if (at >= 0) {
+    // a listed deck: its row and OK (FL_PICK), the overwrite question next: the file keeps its exact name (a starter's
+    // "EQUIP TO BEAT DOWN": the name prompt takes no spaces)
+    if (!(await select(api, at))) return false;
+    r = await press(btn(win(snap(), 'CWindowModelFileList'), 'ok'), s => done(s) || win(s, 'CWindowModelDialogYesNo'));
+  } else {
+    const inp = await press(btn(fl, 'save new'), s => win(s, 'CWindowModelInputValue'));
+    const field = inp?.controls.find(c => /Input$/.test(c.cls));
+    if (!field) return false;
+    // typed into it, as the player's keys (its setText shows the text but the prompt's value stays empty)
+    for (const ch of name) api.char(ch.charCodeAt(0));
+    await frames(3 + Math.ceil(name.length / 16));
+    // OK: saved, or (a deck of that name already) the overwrite question, Yes
+    r = await press(btn(inp, 'yes') || btn(inp, 'ok'), s => done(s) || win(s, 'CWindowModelDialogYesNo'));
+  }
   const ok = r && (r.cls === 'CWindowModelDialogOk' ? r : await press(btn(r, 'yes'), done));
   if (!ok) return false;
   // its OK closes it and the save list (DeckEntryMain.cpp pollSaved); the editor says so itself
@@ -155,7 +167,8 @@ export const saveAs = (api, name) => queue(async () => {
 // packs of data\cardpack), opened out of sight; its rows are shown by the editor, and a pick plays the row's click and
 // OK (DeckEntryMain.cpp pollLoadList / pollRecipeList), Cancel its Cancel
 const listbox = w => w?.controls.find(c => c.cls === 'CWindowTaskListbox' && c.shown);
-const untag = s => String(s ?? '').replace(/[@＠]\d/g, '');
+// a row's text without the engine's tags (screens/deck.js: @9 a colour, @>64/ the pen at x 64)
+const untag = s => String(s ?? '').replace(/@>\d+\/|[@＠]\d/g, '').trim();
 const sideAt = name => {
   const b = win(snap(), 'CWindowModelDeck')?.scene?.menu.find(m => m.name === name && m.shown);
   return b && { wx: b.wx, wy: b.wy, w: 160, h: 26 };
@@ -167,8 +180,8 @@ export const openList = name => queue(async () => {
   const lb = fl && (await waitFor(s => listbox(win(s, 'CWindowModelFileList')), 1000));
   return lb ? lb.items.map(untag) : null;
 });
-// pick row i of the open list (scrolled to it by the wheel first; api: the bridge's) and press OK
-export const pickRow = (api, i) => queue(async () => {
+// select row i of the open file list, scrolled to it by the wheel first (api: the bridge's)
+async function select(api, i) {
   let lb = listbox(win(snap(), 'CWindowModelFileList'));
   for (let k = 0; lb && k < 40 && !(i >= lb.top && i < lb.top + lb.rows); k++) {
     api.wheel(lb.id, i < lb.top ? -120 : 120, centre(lb));
@@ -177,9 +190,11 @@ export const pickRow = (api, i) => queue(async () => {
   }
   if (!lb) return false;
   const rh = lb.h / (lb.rows || 8), row = { wx: lb.wx, wy: lb.wy + rh * (i - lb.top), w: Math.min(80, lb.w), h: rh };
-  if (!(await press(row, s => listbox(win(s, 'CWindowModelFileList'))?.selected === i))) return false;
-  return !!(await press(btn(win(snap(), 'CWindowModelFileList'), 'ok'), s => !win(s, 'CWindowModelFileList')));
-});
+  return !!(await press(row, s => listbox(win(s, 'CWindowModelFileList'))?.selected === i));
+}
+// pick row i of the open list and press OK
+export const pickRow = (api, i) => queue(async () =>
+  (await select(api, i)) && !!(await press(btn(win(snap(), 'CWindowModelFileList'), 'ok'), s => !win(s, 'CWindowModelFileList'))));
 export const closeList = () => queue(async () => {
   const fl = win(snap(), 'CWindowModelFileList');
   return !fl || !!(await press(btn(fl, 'cancel'), s => !win(s, 'CWindowModelFileList')));

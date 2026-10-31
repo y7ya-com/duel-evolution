@@ -50,12 +50,22 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Before: no sign of new lines on another tab, and losing your place when reading back.
   - Now: a red unread count on each tab, and a "n new messages" pill that jumps to the latest while you read older lines.
   - Names stand out from messages; system lines are amber.
-- **Deck editor:**
-  - Before: no idea whether the deck is legal until the game complains, and only mouse trips to the side bars.
-  - Now: a live check strip ("Ready to duel" or "Not legal yet", with Main 40–60, Fusion and Side up to 15, missing cards
-    flagged).
-  - Keys: / for the trunk search, Ctrl+S for Save Deck, Ctrl+O for Load Deck.
-  - Search-as-you-type and the filter chips stay (the legacy HTML trunk), restyled.
+- **Deck editor (Edit Deck), rebuilt EDOPro-style (deck/Editor.svelte, owned):**
+  - Before: a trunk of eleven text rows to scroll and drag from, cards seen only one at a time in the detail panel,
+    no idea whether the deck is legal until the game complains, files only through the side bars.
+  - Now: the card under the pointer shown large on the left (its art, type line, ATK / DEF and text); the deck in the
+    middle (Main, Fusion, Side as grids of card faces, each with its count and rule); the trunk on the right as a grid
+    of full cards with the copies left and in the deck, limits marked.
+  - Search across names, then card text: fuzzy (prefix, words in any order, initials "bewd", letters in order). The
+    filters stay in view: type, attribute (the game's own words), level range, ATK / DEF range, sort, cards not owned.
+  - Adding and removing: double-click or right-click (Shift: the Side Deck, or Main ↔ Side), drag between the trunk and
+    the sections, Enter / Shift+Enter / Delete on a focused card. A refused move says why ("Limited to 1", "Fusion
+    monsters go to the Fusion Deck").
+  - The bar: the deck's name with an unsaved dot, the live check ("Ready to duel" / "Not legal yet"), Load and
+    Structure Deck as pickers, Clear, Save As (a name field), Save (gold), Exit. Keys: / search, Ctrl+S save,
+    Ctrl+Shift+S save as, Ctrl+O load.
+  - Every change is the engine's own (deck/engine.js): its drag and drop, tabs, side buttons and file list, played out
+    of sight under a "Saving…" veil. The card data is read from the exe's tables (read/deck.js), never a file in git.
 - **Select Player:**
   - Before: four identical bars and a Delete beside each.
   - Now: cards with an initial disc, the level chip and "Slot n is free" on the empty ones.
@@ -76,7 +86,6 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Friends' online status, with inline Mail / Duel / Visit on each friend.
   - Character cards with deck and last-played info.
   - Toasts in place of modal OK boxes.
-  - EDOPro-style full-art card grid with sort, and add / remove on double-click.
 
 ## Screens and what changed
 - **Title:** the engine's slanted buttons become a glass plate of slanted plates (the 2008 parallelogram), ONLINE in
@@ -108,7 +117,8 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   Wins, Losses, Score, Win%, % of Cards Collected, Miles).
 - **Yes / No dialog:** the message centred, Yes in gold. Enter is on the primary, Esc is No; a scrim dims the game
   behind it.
-- **Deck editor (also Card Swap / Trade, which reuse its windows; see also UX changes):**
+- **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
+  reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
   - The legacy deck's plan says where everything is. Card faces, attribute, type, limit and star icons, copy counts
     and the count chips stay as they are.

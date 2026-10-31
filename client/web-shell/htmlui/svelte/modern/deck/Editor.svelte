@@ -31,7 +31,8 @@
   let qt = 0;
   $effect(() => { const v = q; clearTimeout(qt); qt = setTimeout(() => { f.q = v; }, 90); });
   const attrs = $derived([1, 2, 3, 4, 5, 6, 7].map(a => [a, db?.dlg?.(a + 0x212) || ''])  .filter(a => a[1]));
-  const pool = $derived(poolView(all, { ...f, attr: [...f.attr], level: [...f.level], atk: [...f.atk], def: [...f.def] }, left, db?.desc));
+  // the cards the player has: copies left in the trunk or in the deck (the legacy trunk lists both)
+  const pool = $derived(poolView(all, { ...f, attr: [...f.attr], level: [...f.level], atk: [...f.atk], def: [...f.def] }, id => left(id) + (inDeck.get(id) || 0), db?.desc));
   const filtered = $derived(f.type !== 'all' || f.attr.length || f.level[0] > 0 || f.level[1] < 12 || f.atk.some(v => v !== '') || f.def.some(v => v !== '') || !f.owned);
   const reset = () => { const o = f.owned; f = structuredClone(NO_FILTER); f.owned = o; q = ''; };
   const toggleAttr = a => { f.attr = f.attr.includes(a) ? f.attr.filter(x => x !== a) : [...f.attr, a]; };
@@ -185,7 +186,7 @@
       <svg viewBox="0 0 20 20" aria-hidden="true">{#if check?.ok}<path d="M5 10.5l3.2 3.2L15 7" />{:else}<path d="M10 5.5v5.5M10 14.2v.3" />{/if}</svg>
       {check?.ok ? 'Ready to duel' : 'Not legal yet'}
     </div>
-    <span class="status" class:bad={noteBad} role="status" aria-live="polite">{note || (busy ? 'Working…' : '')}</span>
+    <span class="status" class:bad={noteBad} role="status" aria-live="polite" title={note}>{note || (busy ? 'Working…' : '')}</span>
     <nav class="acts" aria-label="Deck files">
       <button type="button" class="mu-btn" onclick={() => openPicker('load')} aria-expanded={picker?.kind === 'load'} title="Load a saved deck (Ctrl+O)">Load</button>
       <button type="button" class="mu-btn" onclick={() => openPicker('recipe')} aria-expanded={picker?.kind === 'recipe'} title="Start from a Structure Deck">Structure Deck</button>
@@ -316,7 +317,7 @@
         </div>
       {:else}
         <div class="empty-pool">
-          <p>No cards match{q ? ` “${q}”` : ''}.</p>
+          <p>{filtered || q ? `No cards match${q ? ` “${q}”` : ''}.` : 'No cards in your trunk yet.'}</p>
           {#if filtered || q}<button type="button" class="mu-btn" onclick={reset}>Clear filters</button>{/if}
         </div>
       {/each}
@@ -342,7 +343,7 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), inset 0 -1px 0 #1240a8, 0 2px 8px rgba(10, 60, 130, .3); z-index: 2; }
   .word { margin: 0; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em; text-transform: uppercase; color: #fff; white-space: nowrap;
     text-shadow: -1.5px 0 #0a3fc8, 1.5px 0 #0a3fc8, 0 -1.5px #0a3fc8, 0 1.5px #0a3fc8, 0 2px 6px rgba(0, 30, 120, .5); }
-  .file { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 170px; height: 28px; padding: 0 12px; border-radius: 14px;
+  .file { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 28px; padding: 0 12px; border-radius: 14px;
     background: rgba(4, 30, 100, .35); box-shadow: inset 0 1px 2px rgba(0, 0, 40, .35); color: #fff; font-weight: 700; }
   .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-300); box-shadow: 0 0 0 1px var(--gold-edge); flex: none; }
