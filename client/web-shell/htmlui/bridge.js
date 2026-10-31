@@ -393,7 +393,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,
     scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
-    modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered), as the title page's switch
+    modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered): the players' "Legacy UI" switch, inverted
     modernScreens: mu.mods,   // (development: a rebuilt gen/modern.js swapped in, see svelte/modern/DESIGN.md)
   };
 }

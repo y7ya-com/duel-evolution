@@ -1,7 +1,8 @@
 // Modern UI: Duel Evolution's 2026 skin, a second set of screens (svelte/modern.js -> gen/modern.js) picked over the
-// legacy ones while it is on. Legacy is the default. The title page carries the "Modern UI" switch (it applies at
-// once, no reload, and is remembered per browser); the modern Main Menu has it too.
-//   on:   ?MODERN_UI=1 | 0 (this page only), else localStorage "yo2.modernUI" === "1"
+// legacy ones while it is on. Legacy is the default. Players see it as the "Legacy UI" switch (owner): on = the
+// original UI, off = the Modern UI, on until a player turns it off. It is on the title page (it applies at once, no
+// reload, and is remembered per browser) and in the modern Main Menu's System group. The code keeps "modern" (on = Modern UI):
+//   on:   ?LEGACY_UI=0 | 1 or ?MODERN_UI=1 | 0 (this page only), else localStorage "yo2.modernUI" === "1"
 //   kill: htmlui.json "modern": false (no switch, never on)
 //   live: yo2Html.modern(true | false)
 // The title scene's menu is the title movie's own buttons, not a window: in modern mode the engine stops drawing them
@@ -13,8 +14,8 @@ const TITLE = [['ONLINE', 512, 458], ['OPTIONS', 512, 505], ['DECK EDITOR', 512,
 
 export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(location.search) }) {
   const killed = defaults.modern === false;
-  const q = query.get('MODERN_UI');
-  let on = !killed && (q != null ? q === '1' : (() => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } })());
+  const q = query.get('MODERN_UI'), lq = query.get('LEGACY_UI');
+  let on = !killed && (lq != null ? lq !== '1' : q != null ? q === '1' : (() => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } })());
   const mods = new Map();   // window class -> modern screen module
   let loading = null;
   const load = () => loading ||= import(new URL('./gen/modern.js', import.meta.url))
@@ -39,7 +40,7 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
       ${TITLE.map(([l], i) => `<button type="button" class="mu-tbtn${i ? '' : ' mu-tbtn-primary'}" data-i="${i}"><span class="mu-tfill"></span><span class="mu-tlbl">${l}</span></button>`).join('')}
     </nav>
     <label class="mu-switch"><input type="checkbox" role="switch"><span class="mu-track"><span class="mu-knob"></span></span>
-      <span class="mu-switch-label">Modern UI</span></label>`;
+      <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
   const listeners = new Set();
   const set = v => {
@@ -48,12 +49,13 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     on = v;
     try { localStorage.setItem(KEY, on ? '1' : '0'); } catch {}
     if (on) load();
-    box.checked = on;
+    box.checked = !on;
     listeners.forEach(f => f(on));
     return on;
   };
-  box.checked = on;
-  box.addEventListener('change', () => set(box.checked));
+  // the switch reads "Legacy UI": checked is the original UI
+  box.checked = !on;
+  box.addEventListener('change', () => set(!box.checked));
   // a title button: the same click on the canvas, at that button (move first: the engine takes a press only over a
   // button it has seen the mouse on)
   const fire = (type, x, y) => {

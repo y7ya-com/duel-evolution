@@ -162,10 +162,11 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.presence(null).size, 0);
 }
 
-// the switch (../modern.js) on a stub page: default off, ?MODERN_UI= wins, remembered, killed by htmlui.json
+// the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
-  const el = () => ({ style: {}, classList: { toggle() {} }, append() {}, addEventListener() {}, querySelector: () => el(), set innerHTML(v) {}, hidden: true, checked: false });
+  let box;   // the title's switch input
+  const el = () => ({ style: {}, classList: { toggle() {} }, append() {}, addEventListener() {}, querySelector: s => s === 'input' ? (box ||= el()) : el(), set innerHTML(v) {}, hidden: true, checked: false });
   Object.assign(globalThis, {
     localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) },
     document: { createElement: el, head: { append() {} }, body: { append() {} } },
@@ -176,16 +177,22 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   const q = s => new URLSearchParams(s), canvas = {};
   let mu = modernUi({ canvas, query: q('') });
   assert.equal(mu.on(), false, 'legacy is the default');
+  assert.equal(box.checked, true, 'the switch reads "Legacy UI": on by default');
   const titleSnap = { title: [{ id: 11, name: 'btn_start' }, { id: 12, name: 'btn_option' }] };
   assert.deepEqual(mu.hide(titleSnap, false), [], 'legacy draws its own title buttons');
   assert.equal(mu.set(true), true);
   assert.deepEqual(mu.hide(titleSnap, false), [11, 12], 'modern hides the title movie\'s buttons');
+  assert.equal(box.checked, false, 'Legacy UI off while modern');
   assert.deepEqual(mu.hide(titleSnap, true), [], 'not through a scene load');
   assert.equal(store.get('yo2.modernUI'), '1', 'remembered');
   assert.equal(modernUi({ canvas, query: q('') }).on(), true, 'remembered across loads');
   assert.equal(modernUi({ canvas, query: q('MODERN_UI=0') }).on(), false, '?MODERN_UI=0 wins for the page');
   store.set('yo2.modernUI', '0');
   assert.equal(modernUi({ canvas, query: q('MODERN_UI=1') }).on(), true, '?MODERN_UI=1 wins for the page');
+  assert.equal(modernUi({ canvas, query: q('LEGACY_UI=0') }).on(), true, '?LEGACY_UI=0: modern for the page');
+  store.set('yo2.modernUI', '1');
+  assert.equal(modernUi({ canvas, query: q('LEGACY_UI=1&MODERN_UI=1') }).on(), false, '?LEGACY_UI=1: the original UI, over the rest');
+  store.set('yo2.modernUI', '0');
   mu = modernUi({ canvas, query: q('MODERN_UI=1'), defaults: { modern: false } });
   assert.equal(mu.on(), false, 'htmlui.json "modern": false kills it');
   assert.equal(mu.set(true), false);

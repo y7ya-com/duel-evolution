@@ -2,7 +2,7 @@
   // The Main Menu, modern (CMainMenu, src/Game/yo2MenuMain.cpp). The engine's one long list of twelve yellow buttons
   // becomes four groups of tiles, each with its icon; every tile clicks the engine's own ButtonMain (logic.js
   // menuGroups: by label, so a button the game adds or hides follows). The × and Esc click its IconHide. System also
-  // carries the Modern UI switch (yo2Html.modern: off puts the legacy menu back in the same frame).
+  // carries the "Legacy UI" switch, off here (yo2Html.modern(false) when turned on: the legacy menu comes back in the same frame).
   import { menuGroups, ICONS, nice } from './logic.js';
 </script>
 
@@ -46,10 +46,10 @@
               </button>
             {/each}
             {#if name === 'System'}
-              <label class="tile switch" title="Turn the Modern UI off: the 2008 interface comes back at once">
+              <label class="tile switch" title="Turn Legacy UI on: the original 2008 interface comes back at once">
                 <Icon name="sparkle" />
-                <span>Modern UI</span>
-                <input type="checkbox" role="switch" checked onchange={modern} />
+                <span>Legacy UI</span>
+                <input type="checkbox" role="switch" onchange={modern} />
                 <span class="track" aria-hidden="true"><span class="knob"></span></span>
               </label>
             {/if}
@@ -82,7 +82,10 @@
   .tile:disabled { opacity: .45; transform: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
   .switch span:not(.track):not(.knob) { flex: 1; }
-  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: var(--sel); box-shadow: inset 0 1px 2px rgba(0, 20, 60, .3); }
-  .knob { position: absolute; left: 14px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: left .2s var(--ease); }
+  /* off (the Modern UI): a grey track, the knob left; on (only for the moment before the legacy menu takes over): blue, right */
+  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: var(--n500, #8a98ad); box-shadow: inset 0 1px 2px rgba(0, 20, 60, .3); transition: background .18s; }
+  .switch input:checked + .track { background: var(--sel); }
+  .switch input:checked + .track .knob { left: 14px; }
+  .knob { position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: left .2s var(--ease); }
   .switch:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 </style>

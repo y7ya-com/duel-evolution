@@ -4,11 +4,14 @@ The 2008 interface, remade with 2026 material. Not flat: the same blues, silver 
 restraint. Every window keeps its job and its names; the layout and the flow are rethought where that helps.
 
 ## The switch
-- **Title page:** "Modern UI" switch, bottom right. It applies at once (no reload) and is remembered in this browser.
-- **In game:** Main Menu, System group, "Modern UI". Off puts the legacy window back in the same frame.
-- **Page only:** `?MODERN_UI=1` or `?MODERN_UI=0`.
-- **Kill switch:** htmlui.json `"modern": false` (no switch, never on).
-- **Console:** `yo2Html.modern(true | false)`.
+- **Players see it as "Legacy UI"** (owner): on = the original 2008 UI, off = the Modern UI. It is on until a player
+  turns it off, so players who never touch it keep the original UI.
+- **Title page:** the "Legacy UI" switch, bottom right. It applies at once (no reload) and is remembered in this browser.
+- **In game:** Main Menu, System group, "Legacy UI" (off there). Turning it on puts the legacy window back in the same frame.
+- **Page only:** `?LEGACY_UI=1` (original) or `?LEGACY_UI=0` (modern). The older `?MODERN_UI=1 | 0` still works.
+- **Kill switch:** htmlui.json `"modern": false` (no switch, never modern).
+- **Code and storage keep "modern":** `yo2Html.modern(true | false)` (true = Modern UI); localStorage `yo2.modernUI`
+  `"1"` = Modern UI, so a choice saved before the rename reads the same.
 - Mechanics: `../modern.js` holds the switch and the title page layer. `bridge.js` picks gen/modern.js's screen over the
   legacy one for a window class while it is on; a window whose screen changes is remounted.
 
@@ -110,7 +113,7 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Twelve identical yellow bars become four groups: Play, You, Social, System.
   - Tiles have icons and a two-column grid; a group's odd last tile spans the row.
   - "DUEL OPTIONS" reads "Duel Options".
-  - Esc or × closes it; the arrow keys move between tiles. The Modern UI switch lives here too.
+  - Esc or × closes it; the arrow keys move between tiles. The Legacy UI switch lives here too.
 - **Bottom bar:**
   - Becomes a dock: Menu (gold), Duel, Move as labelled buttons.
   - The engine's message line becomes a status field.
