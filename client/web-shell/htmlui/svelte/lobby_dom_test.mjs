@@ -76,6 +76,24 @@ const m = await b.ev(`(() => {
 assert.deepEqual(m.frame, [364, 374], 'the frame: the widest row + 38');
 assert.equal(m.close, 364 + 350);
 assert.ok(m.rows.length === 2 && m.rows.every(x => x <= 364 + 374 - 24), 'every row left of the gutter: ' + m.rows);
+// the pick list (Svelte only): its rows from the top line, the selected one, the scroll bar shown past a page as a
+// native box; then scrolled one line and the selection moved: no row left over
+const pick = (top, sel, bar) => snap([win(60, 'CWindowModelList', { x: 600, y: 90, w: 248, h: 128 }, [ctl(61, 'CWindowTaskIconbar', { w: 248, h: 24, alpha: 0.7 }),
+  ctl(62, 'CWindowTaskThinChop', { y: 24, w: 248, h: 104, alpha: 0.7 }),
+  ctl(63, 'CWindowTaskActiveListbox', { x: 8, y: 24, w: 232, h: 96, items: ['@0Kain', '@0Alexis Rhodes', ...'abcdefg'], topLine: top, rows: 6 }),
+  ctl(64, 'CWindowTaskBackStripe', { parent: 63, w: 232, h: 96, rows: 6, selected: sel, alpha: 0.7 }),
+  ctl(65, 'CWindowTaskText', { parent: 63, w: 216, h: 96, align: 1, text: '' }),
+  ctl(66, 'CWindowTaskScroll', { parent: 63, x: 216, w: 16, h: 96, shown: bar, value: top, max: 3, page: 6, length: 96 }),
+  ctl(67, 'CWindowTaskIconHide', { x: 229, w: 16, h: 24 })])]);
+const p = [];
+for (const s of [pick(0, 0, false), pick(1, 2, true)]) p.push(await b.ev(`(() => {
+  window.__render(${JSON.stringify(s)});
+  const rows = [...document.querySelectorAll('#htmlui .row')];
+  return { text: document.getElementById('htmlui').innerText.replace(/\\s+/g, ' ').trim(), rows: rows.length,
+    sel: rows.findIndex(r => getComputedStyle(r).backgroundImage.includes('0, 132, 255')), box: !!document.querySelector('#htmlui .yo2-scroll-list') };
+})()`));
+assert.deepEqual(p.map(q => [q.rows, q.sel, q.box]), [[6, 0, false], [6, 2, true]]);
+assert.ok(p[0].text.startsWith('Kain Alexis Rhodes a') && p[1].text.startsWith('Alexis Rhodes a b') && !p[1].text.includes('Kain'), JSON.stringify(p.map(q => q.text)));
 if (b.logs.length) console.log(b.logs.join('\n'));
 assert.ok(!b.logs.some(l => /error|svelte/i.test(l)), 'no page errors');
 console.log('svelte lobby_dom_test ok', svelte.map(s => s.length).join());
