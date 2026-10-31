@@ -46,3 +46,4 @@
 00a75760  # CChatWindow vf04, its init (chatfree.c: then no send cooldown)
 00761970  # the duel field's card move (duelmove.c: a move out of a list kind 0xb with an index past its end is skipped)
 00692580  # YG_MSG_DUEL_SETCOMMAND, one duel entry (duelmove.c: the last 20 kept for the skip report)
+00922010  # miniFile, the card mini-picture name (minifile.c: an id outside the table gets entry 0)
