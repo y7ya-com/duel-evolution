@@ -18,11 +18,14 @@ enum { ENTER_MYROOM = 1, BUSY_DONE = 2, BUSY_FAILED = 3, BLOCK_FULL = -502 };
 
 void o_00a01740(CPU *c);
 
-static void net_state(int reconnecting, int attempt) {
+static int reconnecting;
+
+static void net_state(int on, int attempt) {
+    reconnecting = on;
 #ifdef __EMSCRIPTEN__
-    MAIN_THREAD_ASYNC_EM_ASM({ globalThis.yo2Net = {reconnecting: !!$0, attempt: $1}; }, reconnecting, attempt);
+    MAIN_THREAD_ASYNC_EM_ASM({ globalThis.yo2Net = {reconnecting: !!$0, attempt: $1}; }, on, attempt);
 #else
-    (void)reconnecting, (void)attempt;
+    (void)attempt;
 #endif
 }
 
@@ -39,7 +42,7 @@ int rc_myroom_retry(uint32_t self) {
         WR32m(self + 0x70, ENTER_MYROOM);
         return 1;
     }
-    if (busy == BUSY_DONE && fails) fails = 0, net_state(0, 0);
+    if (busy == BUSY_DONE && reconnecting) fails = 0, net_state(0, 0);
     if (busy != BUSY_FAILED) return 0;
     uint32_t s = fails < 4 ? 1u << fails : 15;
     fails++;
@@ -50,13 +53,17 @@ int rc_myroom_retry(uint32_t self) {
 }
 
 // 0x00a01740 the area map's wait for the lobby task after an exit (fastcall, this): a failure other than a full block
-// is the back-to-My-Room request (+0x2d9 0, +0x2d0 1, +0x270 11, as FUN_00a02da0 sets them) instead of the error box.
+// is the back-to-My-Room request instead of the error box: the avatar's controller stopped and +0x2c0 8, as the
+// walk-out exit to My Room does, then +0x2d9 0, +0x2d0 1, +0x270 11 (FUN_00a02da0).
 void f_00a01740(CPU *c) {
     uint32_t self = c->ecx, task = RD32m(self + 0xfc);
     int result = task ? (int)RD32m(task + 0x8c) : 0;
     if (task && RD32m(task + 0x88) == BUSY_FAILED && result != BLOCK_FULL) {
         rc_log("lobby: area move failed [%d]: back to My Room", result);
         net_state(1, 0);
+        uint32_t ctrl = RD32m(self + 0x294);   // CChibiAvatarCtrl: stopped first, as the walk-out exit does (FUN_009fb8c0)
+        if (ctrl) WR32m(ctrl + 0x20, RD32m(ctrl + 0x20) | 1);
+        WR32m(self + 0x2c0, 8);
         rc_mem[self + 0x2d9] = 0, rc_mem[self + 0x2d0] = 1;
         WR32m(self + 0x270, 0xb);
         c->ret_to = RD32m(c->esp), c->esp += 4;
