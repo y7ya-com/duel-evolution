@@ -1,5 +1,6 @@
 // One-step actions made of the engine's own clicks (no new engine or server behaviour): the dock's quick actions open
 // the Main Menu and press its button, the menu kept out of sight meanwhile (html.mu-macro: MainMenu.svelte hides).
+import { rowPoint } from './logic.js';
 const snap = () => globalThis.yo2Html?.snapshot?.();
 const frame = () => new Promise(r => requestAnimationFrame(r));
 
@@ -68,4 +69,24 @@ export async function writeMail(api) {
   if (!w) return false;
   await api.click(w.id);
   return true;
+}
+
+const frames = n => new Promise(r => { let k = 0; const f = () => ++k >= n ? r() : requestAnimationFrame(f); requestAnimationFrame(f); });
+// click row i of a game list (window win), scrolling the list's bar to it first when it is out of view (n: its rows)
+export async function pickRow(api, win, list, bar, i, n) {
+  const rows = Math.max(1, list.rows || 6);
+  let top = list.top || 0;
+  if ((i < top || i >= top + rows) && bar) { top = Math.min(i, Math.max(0, n - rows)); api.setValue(bar.id, top); await frames(3); }
+  return api.click(list.id, rowPoint(win, list, i, top));
+}
+
+// focus the first `sel` in `panel` once it can take it (a window's root turns visible a few frames after the game says
+// the window is shown): tried every 50 ms for 1.5 s; returns the stop, for an $effect
+export function focusSoon(panel, sel) {
+  let n = 0;
+  const t = setInterval(() => {
+    panel?.querySelector(sel)?.focus({ preventScroll: true });
+    if (panel?.contains(document.activeElement) || ++n > 30) clearInterval(t);
+  }, 50);
+  return () => clearInterval(t);
 }

@@ -204,6 +204,34 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
     changes; Cancel or Esc drops them.
   - Keys: focus opens on the first setting's choice; the arrows choose within a setting, Tab moves between settings,
     Enter is OK, Esc Cancel.
+- **Move** (the bar's door, CWindowModelMove; Move.svelte, owned; before, plain buttons on a green frame with the
+  count squeezed into the caption): "Where to?", a row per place with its name and a fill meter for its head count
+  (red when full), the ×. Past six places the game shows six at a time: the wheel or the arrows past either end
+  scroll its list. Keys: focus on the first place, Up / Down, Enter goes, Esc closes.
+- **Unlocks and items** (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"; ItemGet.svelte, pass):
+  the engine keeps drawing the portrait card (the window's sprite extras pass through); its lines become one blue
+  ribbon across the card's foot and its OK a large gold button that takes the focus, so Enter, Space or Esc dismisses
+  it. (The generic window had dropped the portrait: its extras have no rect.)
+- **Clicking a character** (the lobby's NPCs and players):
+  - **Pick list** (CWindowModelList, who is under the click; PickList.svelte, owned): a small "Choose" popover at
+    the game's place, a row per name with an initial badge. Focus opens on the first row, so Enter picks it at once;
+    Up / Down, Esc closes. (Picking makes your character walk over first: the card opens when you arrive.)
+  - **Duelist card** (CNpcListMenu, CPlayerListMenu; NpcCard.svelte, pass): the name on the title strip, the record
+    as three figures (wins, losses, win rate) instead of "Win%" over "Wins0/Losses0", the deck ("Unknown" for the
+    game's "?????"), the about text in a well that scrolls with the wheel. A click elsewhere closes it, as before.
+  - **Speech bubble** (CWindowModelBalloon; Balloon.svelte, pass): a white bubble with its tail toward the portrait
+    (the engine's), the speaker on a gold tag, the line in large type, a "Continue" cue. The game's '・' marks (a
+    glyph the 2008 font lacked: a box) read as '…'. The bubble takes the focus: Space or Enter goes on, as a click
+    anywhere does. The duel offer that ends a challenge is the modern Yes / No.
+- **Find players** (the player list's search, CFindMenu; FindMenu.svelte, owned): a menu rising from the player list
+  beside its search button (the game opened it over the list's own top), its entries grouped as Show (single / match
+  duels, friends, nearby, everyone) and Order (by level, by name) with icons. Focus on the first entry; Up / Down,
+  Enter, Esc closes (a click on the player list's title bar, as the game closes it on a click elsewhere).
+- **Duel disk case** (My Room's shelf case, CDuelDiskList; DiskCase.svelte, pass): a plate framing the game's own
+  grid of disks (its sprites stay the engine's, as does dragging one onto a lit shelf slot to put it on show), a
+  "Duel Disks" tab, the page arrows as chevrons, the hovered disk's name in bold before its text, Close in gold. With
+  nothing pointed at yet, the well says what to do: drag a disk onto a lit slot. Close takes the focus (Esc, Enter);
+  the left / right arrow keys turn the page.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
