@@ -5,6 +5,9 @@
   // is the snapshot's deck (CWindowTaskDeck grids, read/deck.js) and the trunk's counts (yo2Deck.trunk).
   import { deckCheck } from '../logic.js';
   import Icon from '../Icon.svelte';
+  import GameButton from '../game/GameButton.svelte';
+  import GamePanel from '../game/GamePanel.svelte';
+  import GameTabs from '../game/GameTabs.svelte';
   import { picture, cached } from './pictures.js';
   import * as E from './engine.js';
   import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion } from './editor.js';
@@ -195,50 +198,53 @@
     </div>
     <span class="status" role="status" aria-live="polite" title={note}>{#if note}<span class:bad={noteBad}>{note}</span>{:else if busy}Working…{/if}</span>
     <nav class="acts" aria-label="Deck files">
-      <button type="button" class="mu-btn" onclick={() => openPicker('load')} aria-expanded={picker?.kind === 'load'} title="Load a saved deck (Ctrl+O)">Load</button>
-      <button type="button" class="mu-btn" onclick={() => openPicker('recipe')} aria-expanded={picker?.kind === 'recipe'} title="Start from a Structure Deck">Structure Deck</button>
-      <button type="button" class="mu-btn" onclick={() => sideBtn('ClearBtn')} title="Empty the deck">Clear</button>
+      <GameButton label="Load" onclick={() => openPicker('load')} aria-expanded={picker?.kind === 'load'} title="Load a saved deck (Ctrl+O)" />
+      <GameButton label="Structure Deck" onclick={() => openPicker('recipe')} aria-expanded={picker?.kind === 'recipe'} title="Start from a Structure Deck" />
+      <GameButton label="Clear" onclick={() => sideBtn('ClearBtn')} title="Empty the deck" />
       <span class="sep"></span>
       <div class="as">
-        <button type="button" class="mu-btn" onclick={openAs} aria-expanded={asOpen} title="Save under a new name (Ctrl+Shift+S)">Save As…</button>
+        <GameButton label="Save As…" onclick={openAs} aria-expanded={asOpen} title="Save under a new name (Ctrl+Shift+S)" />
         {#if asOpen}
-          <form class="pop mu-plate" onsubmit={e => { e.preventDefault(); save(asName); }} onkeydown={e => { if (e.key === 'Escape') { e.stopPropagation(); asOpen = false; } }}>
-            <label for="ed-as">Deck name</label>
-            <input id="ed-as" bind:this={asField} bind:value={asName} oninput={() => (asName = cleanName(asName))} maxlength="20" autocomplete="off" spellcheck="false" aria-describedby="ed-as-hint" />
-            <small id="ed-as-hint">Letters and numbers. A deck of the same name is replaced.</small>
-            <div class="row"><button type="button" class="mu-btn" onclick={() => (asOpen = false)}>Cancel</button><button type="submit" class="mu-btn gold" disabled={!asName.trim()}>Save</button></div>
-          </form>
+          <GamePanel title="Save As" class="pop" role="dialog" onclose={() => (asOpen = false)}>
+            <form class="body" onsubmit={e => { e.preventDefault(); save(asName); }}>
+              <label for="ed-as">Deck name</label>
+              <input id="ed-as" class="mu-field" bind:this={asField} bind:value={asName} oninput={() => (asName = cleanName(asName))} maxlength="20" autocomplete="off" spellcheck="false" aria-describedby="ed-as-hint" />
+              <small id="ed-as-hint">Letters and numbers. A deck of the same name is replaced.</small>
+              <div class="row"><GameButton label="Cancel" onclick={() => (asOpen = false)} /><GameButton type="submit" gold label="Save" disabled={!asName.trim()} /></div>
+            </form>
+          </GamePanel>
         {/if}
       </div>
-      <button type="button" class="mu-btn gold" onclick={() => save()} title="Save (Ctrl+S)"><Icon name="log" size={15} />Save</button>
+      <GameButton gold onclick={() => save()} title="Save (Ctrl+S)">{#snippet icon()}<Icon name="log" size={15} />{/snippet}Save</GameButton>
       <button type="button" class="mu-icon-btn exit" onclick={() => sideBtn('ExitBtn')} title="Leave the deck editor" aria-label="Exit"><Icon name="exit" /></button>
     </nav>
   </header>
 
   {#if picker}
-    <div class="mu-plate pop picker" role="dialog" aria-label={PICK[picker.kind][1]} onkeydown={e => { if (e.key === 'Escape') { e.stopPropagation(); unpick(); } }}>
-      <h2>{PICK[picker.kind][1]}</h2>
-      {#if picker.names.length}
-        <div class="rows mu-scroll" bind:this={pickList}>
-          {#each picker.names as n, i (i)}<button type="button" class:cur={picker.kind === 'load' && n === name} onclick={() => pick(i)}>{n}</button>{/each}
-        </div>
-      {:else}<p class="none">{PICK[picker.kind][2]}</p>{/if}
-      <div class="row"><button type="button" class="mu-btn" onclick={unpick}>Cancel</button></div>
-    </div>
+    <GamePanel title={PICK[picker.kind][1]} class="pop picker" role="dialog" onclose={unpick}>
+      <div class="body">
+        {#if picker.names.length}
+          <div class="rows mu-list mu-scroll" bind:this={pickList}>
+            {#each picker.names as n, i (i)}<button type="button" class="mu-row" class:cur={picker.kind === 'load' && n === name} onclick={() => pick(i)}>{n}</button>{/each}
+          </div>
+        {:else}<p class="none">{PICK[picker.kind][2]}</p>{/if}
+        <div class="row"><GameButton label="Cancel" onclick={unpick} /></div>
+      </div>
+    </GamePanel>
   {/if}
 
   <!-- the card shown large -->
-  <aside class="mu-plate preview" aria-label="Card">
+  <GamePanel title="Card" class="preview" role="region"><div class="body">
     {#if shown}
       <div class="big">{@render face(shown.id)}</div>
-      <h2>{shown.name}</h2>
+      <h2 class="preview-name">{shown.name}</h2>
       <p class="kind">
         {#if group(shown) === 'monster'}<span>{attrName(shown)}</span><span class="stars" aria-label="Level {shown.level}">Level {shown.level}</span><span>{raceName(shown)}</span>{/if}
         <span>{typeLine(shown)}</span>
       </p>
       {#if group(shown) === 'monster'}<p class="pw"><span>ATK <b>{stat(shown.atk)}</b></span><span>DEF <b>{stat(shown.def)}</b></span></p>{/if}
-      <div class="text mu-scroll">{text}</div>
-      <p class="own">In deck <b>{inDeck.get(shown.id) || 0}</b> · in trunk <b>{left(shown.id)}</b>{#if limitTag(shown)} · <em>{limitTag(shown)} {shown.limit}</em>{/if}</p>
+      <div class="text mu-list mu-scroll">{text}</div>
+      <p class="owned">In deck <b>{inDeck.get(shown.id) || 0}</b> · in trunk <b>{left(shown.id)}</b>{#if limitTag(shown)} · <em>{limitTag(shown)} {shown.limit}</em>{/if}</p>
     {:else}
       <div class="big empty" aria-hidden="true">
         <svg viewBox="0 0 216 313"><circle cx="108" cy="156" r="78" /><circle cx="108" cy="156" r="58" /><circle cx="108" cy="156" r="20" /><path d="M108 66v30M108 216v30M18 156h30M168 156h30" /></svg>
@@ -251,15 +257,15 @@
         <li><kbd>/</kbd> search · <kbd>Ctrl S</kbd> save · <kbd>Ctrl O</kbd> load</li>
       </ul>
     {/if}
-  </aside>
+  </div></GamePanel>
 
   <!-- the deck -->
-  <section class="mu-plate deck" aria-label="Deck">
+  <GamePanel title="Deck" class="deck" role="region"><div class="body">
     {#each SECTIONS as [key, title, cap] (key)}
       {@const part = check?.parts.find(p => p.key === key)}
       <div class="sec {key}" class:over={over === key} {...dropZone(key)} role="group" aria-label={title}>
         <h3><span>{title}</span><b class:bad={part && !part.ok}>{counts[key]}</b>{#if part}<small>{part.rule}</small>{/if}</h3>
-        <div class="grid mu-scroll">
+        <div class="grid mu-list mu-scroll">
           {#each grids[key] as id, i (key + i + ':' + id)}
             {@const c = db.card(id)}
             <button type="button" class="tile" draggable="true" title={c?.name}
@@ -276,30 +282,28 @@
       </div>
     {/each}
     {#if counts.missing}<p class="missing">{counts.missing} card{counts.missing > 1 ? 's' : ''} in this deck aren't in your trunk.</p>{/if}
-  </section>
+  </div></GamePanel>
 
   <!-- the trunk -->
-  <section class="mu-plate pool" class:over={over === 'pool'} {...dropZone('pool')} aria-label="Trunk">
+  <GamePanel title="Trunk" class="pool{over === 'pool' ? ' over' : ''}" role="region"><div class="body" {...dropZone('pool')}>
     <div class="find">
       <div class="search">
         <Icon name="search" size={16} />
-        <input bind:this={search} bind:value={q} type="search" placeholder="Search names and card text" aria-label="Search the trunk" autocomplete="off" spellcheck="false" />
+        <input class="mu-field" bind:this={search} bind:value={q} type="search" placeholder="Search names and card text" aria-label="Search the trunk" autocomplete="off" spellcheck="false" />
         <kbd>/</kbd>
       </div>
-      <div class="seg" role="radiogroup" aria-label="Card type">
-        {#each TYPES as [k, l] (k)}<button type="button" role="radio" aria-checked={f.type === k} class:on={f.type === k} onclick={() => (f.type = k)}>{l}</button>{/each}
-      </div>
-      <div class="chips" role="group" aria-label="Attribute">
-        {#each attrs as [a, l] (a)}<button type="button" class:on={f.attr.includes(a)} aria-pressed={f.attr.includes(a)} onclick={() => toggleAttr(a)}>{l}</button>{/each}
+      <GameTabs label="Card type" tabs={TYPES.map(([key, label]) => ({ key, label }))} value={f.type} onselect={k => (f.type = k)} />
+      <div class="mu-tabs attrs" role="group" aria-label="Attribute">
+        {#each attrs as [a, l] (a)}<button type="button" class="mu-tab" class:on={f.attr.includes(a)} aria-pressed={f.attr.includes(a)} onclick={() => toggleAttr(a)}>{l}</button>{/each}
       </div>
       <div class="ranges">
-        <label>Level <select bind:value={f.level[0]} aria-label="Lowest level">{#each Array(13) as _, i}<option value={i}>{i || 'Any'}</option>{/each}</select>
-          – <select bind:value={f.level[1]} aria-label="Highest level">{#each Array(13) as _, i}<option value={12 - i}>{12 - i === 12 ? 'Any' : 12 - i}</option>{/each}</select></label>
-        <label class="sort">Sort <select bind:value={f.sort}>{#each SORTS as [k, l] (k)}<option value={k}>{l}</option>{/each}</select></label>
+        <label>Level <select class="mu-field" bind:value={f.level[0]} aria-label="Lowest level">{#each Array(13) as _, i}<option value={i}>{i || 'Any'}</option>{/each}</select>
+          – <select class="mu-field" bind:value={f.level[1]} aria-label="Highest level">{#each Array(13) as _, i}<option value={12 - i}>{12 - i === 12 ? 'Any' : 12 - i}</option>{/each}</select></label>
+        <label class="sort">Sort <select class="mu-field" bind:value={f.sort}>{#each SORTS as [k, l] (k)}<option value={k}>{l}</option>{/each}</select></label>
       </div>
       <div class="ranges">
-        <label>ATK <input inputmode="numeric" placeholder="min" bind:value={f.atk[0]} aria-label="Lowest ATK" />–<input inputmode="numeric" placeholder="max" bind:value={f.atk[1]} aria-label="Highest ATK" /></label>
-        <label>DEF <input inputmode="numeric" placeholder="min" bind:value={f.def[0]} aria-label="Lowest DEF" />–<input inputmode="numeric" placeholder="max" bind:value={f.def[1]} aria-label="Highest DEF" /></label>
+        <label>ATK <input class="mu-field" inputmode="numeric" placeholder="min" bind:value={f.atk[0]} aria-label="Lowest ATK" />–<input class="mu-field" inputmode="numeric" placeholder="max" bind:value={f.atk[1]} aria-label="Highest ATK" /></label>
+        <label>DEF <input class="mu-field" inputmode="numeric" placeholder="min" bind:value={f.def[0]} aria-label="Lowest DEF" />–<input class="mu-field" inputmode="numeric" placeholder="max" bind:value={f.def[1]} aria-label="Highest DEF" /></label>
       </div>
       <div class="foot">
         <label class="own"><input type="checkbox" checked={!f.owned} onchange={e => (f.owned = !e.currentTarget.checked)} /> Cards I don't have</label>
@@ -327,11 +331,11 @@
       {:else}
         <div class="empty-pool">
           <p>{filtered || q ? `No cards match${q ? ` “${q}”` : ''}.` : 'No cards in your trunk yet.'}</p>
-          {#if filtered || q}<button type="button" class="mu-btn" onclick={reset}>Clear filters</button>{/if}
+          {#if filtered || q}<GameButton label="Clear filters" onclick={reset} />{/if}
         </div>
       {/each}
     </div>
-  </section>
+  </div></GamePanel>
 </div>
 
 <style>
@@ -348,8 +352,6 @@
   /* the bar */
   /* the shared title band (theme.js .mu-head: its palette), the full width */
   .bar { position: absolute; left: 0; top: 0; right: 0; height: 52px; gap: 12px; padding: 0 12px 0 14px; border-radius: 0; z-index: 2; }
-  .word { margin: 0; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em; text-transform: uppercase; color: var(--n0); white-space: nowrap;
-    text-shadow: 0 2px 8px color-mix(in srgb, var(--p900) 60%, transparent); }
   .file { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 28px; padding: 0 12px; border-radius: 14px;
     background: color-mix(in srgb, var(--p900) 45%, transparent); box-shadow: inset 0 1px 2px color-mix(in srgb, var(--p900) 50%, transparent); color: var(--n0); font-weight: 700; }
   .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -361,29 +363,49 @@
   .status { flex: 1; min-width: 0; color: var(--n0); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .status .bad { padding: 3px 9px; border-radius: 10px; background: var(--bad); box-shadow: 0 0 0 1px color-mix(in srgb, var(--n0) 40%, transparent); }
   .acts { display: flex; align-items: center; gap: 6px; }
-  .acts .mu-btn { height: 30px; padding: 0 11px; font-size: 12px; }
   .sep { width: 1px; height: 22px; background: color-mix(in srgb, var(--n0) 35%, transparent); margin: 0 2px; }
   .exit { color: var(--n0); }
   .exit:hover { background: color-mix(in srgb, var(--n0) 22%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--n0) 60%, transparent); color: var(--n0); }
   .as { position: relative; }
-  .pop { position: absolute; right: 0; top: 40px; width: 250px; padding: 14px; display: grid; gap: 8px; z-index: 5; }
-  .pop label { font-size: 12px; font-weight: 700; color: var(--ink-2); }
-  .pop input, .search input, .ranges input, select { font: inherit; color: var(--ink-strong); border: 0; border-radius: var(--r-row); background: var(--well); box-shadow: var(--well-shadow); }
-  .pop input { height: 32px; padding: 0 10px; font-size: 14px; }
-  .picker { right: 12px; left: auto; top: 56px; width: 300px; position: absolute; }
-  .picker h2 { margin: 0; font-size: 14px; font-weight: 800; color: var(--ink-strong); }
-  .picker .rows { display: grid; gap: 2px; max-height: 320px; padding: 4px; border-radius: var(--r-row); background: var(--well); box-shadow: var(--well-shadow); }
-  .picker .rows button { height: 30px; padding: 0 10px; border-radius: 6px; font-weight: 700; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .picker .rows button:hover, .picker .rows button:focus-visible { color: var(--n0); background: var(--sel); outline: none; }
-  .picker .rows button.cur::after { content: ' · open now'; font-weight: 600; opacity: .7; }
-  .picker .none { margin: 0; font-size: 12px; color: var(--ink-3); }
-  .pop small { font-size: 11px; color: var(--ink-3); }
-  .pop .row { display: flex; justify-content: flex-end; gap: 8px; }
 
-  /* the three plates */
-  .preview { left: 8px; top: 60px; width: 236px; height: 644px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-  .deck { left: 252px; top: 60px; width: 392px; height: 644px; padding: 8px 6px 8px; display: flex; flex-direction: column; gap: 6px; }
-  .pool { left: 652px; top: 60px; width: 364px; height: 644px; padding: 10px 6px 0 10px; display: flex; flex-direction: column; }
+
+  /* the shared pieces (theme.js Game UI), sized for the editor */
+  .acts :global(.mu-btn) { height: 32px; padding: 0 12px; font-size: 12px; }
+  .word { margin: 0; font-family: var(--display); font-size: 21px; font-weight: 400; letter-spacing: .07em; text-transform: uppercase; color: var(--n0); white-space: nowrap;
+    text-shadow: 0 2px 8px color-mix(in srgb, var(--p900) 60%, transparent); }
+  /* the panels (GamePanel): their places on the stage, a body under the plaque */
+  .ed :global(.mu-plate) { position: absolute; display: flex; flex-direction: column; }
+  .ed :global(.preview) { left: 8px; top: 58px; width: 236px; height: 648px; }
+  .ed :global(.deck) { left: 250px; top: 58px; width: 398px; height: 648px; }
+  .ed :global(.pool) { left: 654px; top: 58px; width: 362px; height: 648px; }
+  .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; }
+    .ed :global(.pool .body) { padding: 8px 8px 0 12px; gap: 0; }
+  .ed :global(.pool.over .cards) { background: color-mix(in srgb, var(--p500) 10%, transparent); }
+  .ed :global(.pop) { right: 0; top: 44px; width: 280px; z-index: 5; }
+  .ed :global(.picker) { right: 12px; top: 56px; width: 310px; }
+  .ed :global(.pop .body) { gap: 8px; }
+  .body > label { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+  .body > small { font-size: 11px; color: var(--ink-3); }
+  .row { display: flex; justify-content: flex-end; gap: 8px; }
+  .rows { display: grid; max-height: 320px; padding: 4px 0; }
+  .rows .mu-row { width: 100%; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rows .mu-row.cur::after { content: ' · open now'; font-weight: 600; opacity: .7; }
+  .body > .none { margin: 0; font-size: 12px; color: var(--ink-3); }
+  .preview-name { margin: 4px 0 0; font-size: 15px; font-weight: 800; line-height: 1.2; color: var(--ink-strong); }
+  .text { flex: 1; min-height: 0; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: var(--ink); white-space: pre-wrap; overflow-wrap: break-word; }
+  .sec h3 { margin: 0 0 5px; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 400; }
+  .sec h3 span { font-family: var(--display); letter-spacing: .07em; text-transform: uppercase; }
+  .sec h3 b, .sec h3 small { font-family: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(10, 33px); grid-auto-rows: 48px; gap: 3px; align-content: start; min-height: 101px; flex: 1; padding: 5px; }
+  .search { position: relative; }
+  .search :global(.mu-ico) { position: absolute; left: 10px; top: 8px; color: var(--ink-3); pointer-events: none; }
+  .search .mu-field { padding: 0 34px; }
+  .search kbd { position: absolute; right: 8px; top: 7px; }
+  .find :global(.mu-tab) { flex: 1 1 auto; min-width: 0; height: 26px; padding: 0 5px; font-size: 11.5px; letter-spacing: 0; text-align: center; }
+  .attrs { flex-wrap: wrap; }
+  .attrs .mu-tab { flex: 1 0 22%; height: 24px; font-size: 11px; }
+  .ranges .mu-field { width: 54px; height: 26px; padding: 0 6px; font-size: 12px; }
+  .ranges select.mu-field { width: auto; padding: 0 4px; }
 
   /* the card shown large */
   .big { width: 216px; height: 313px; flex: none; border-radius: 6px; overflow: hidden; background: var(--p900);
@@ -391,31 +413,25 @@
   .big .face { width: 100%; height: 100%; }
   .big.empty { background: var(--stage); box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--n0) 18%, transparent), 0 0 0 1px color-mix(in srgb, var(--ink-strong) 35%, transparent); }
   .big.empty svg { width: 100%; height: 100%; fill: none; stroke: color-mix(in srgb, var(--n0) 28%, transparent); stroke-width: 3; }
-  .preview h2 { margin: 4px 0 0; font-size: 15px; font-weight: 800; line-height: 1.2; color: var(--ink-strong); }
   .kind { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
   .pw { margin: 0; display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }
   .pw b { font-size: 14px; color: var(--ink-strong); }
-  .text { flex: 1; min-height: 0; padding: 7px 9px; border-radius: var(--r-row); background: var(--well); box-shadow: var(--well-shadow);
-    font-size: 12px; line-height: 1.45; color: var(--ink); white-space: pre-wrap; overflow-wrap: break-word; }
-  .preview .own { margin: 0; font-size: 11.5px; color: var(--ink-3); }
-  .preview .own b { color: var(--ink-strong); }
-  .preview .own em { font-style: normal; font-weight: 800; color: var(--bad); }
+  .owned { margin: 0; font-size: 11.5px; color: var(--ink-3); }
+  .owned b { color: var(--ink-strong); }
+  .owned em { font-style: normal; font-weight: 800; color: var(--bad); }
   .hint { margin: 6px 0 0; font-weight: 700; color: var(--ink-2); }
   .keys { margin: 0; padding: 0 0 0 16px; display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
   kbd { font: inherit; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 4px; color: var(--ink-strong); background: var(--n0);
     box-shadow: inset 0 -1px 0 var(--n300), 0 0 0 1px var(--n300); white-space: nowrap; }
 
-  /* the deck's sections: the 2008 headers' colours (Deck green, Fusion violet, Side green) */
+  /* the deck's sections, their labels in the display face */
   .sec { display: flex; flex-direction: column; min-height: 0; border-radius: 10px; padding: 4px 4px 4px; transition: background .14s, box-shadow .14s; }
   .sec.main { flex: 1; }
   .sec.over { background: color-mix(in srgb, var(--p500) 14%, transparent); box-shadow: inset 0 0 0 2px var(--p500); }
-  .sec h3 { margin: 0 0 4px; display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 800; letter-spacing: .01em; }
   .sec h3 span { color: var(--ink-strong); }
   .sec h3 b { font-size: 14px; color: var(--p700); }
   .sec h3 b.bad { color: var(--bad); }
   .sec h3 small { font-size: 11px; font-weight: 700; color: var(--ink-3); }
-  .grid { display: grid; grid-template-columns: repeat(10, 33px); grid-auto-rows: 48px; gap: 3px; align-content: start; min-height: 101px; flex: 1;
-    padding: 4px; border-radius: 8px; background: var(--n100); box-shadow: inset 0 0 0 1px var(--n200), inset 0 1px 3px var(--n200); }
   .sec.extra .grid, .sec.side .grid { flex: none; height: 107px; }
   .tile { position: relative; width: 33px; height: 48px; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform .14s var(--ease), box-shadow .14s; }
@@ -426,32 +442,16 @@
 
   /* the trunk: search and filters always in view, then the grid of cards */
   .find { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 0 4px 8px 0; border-bottom: 1px solid var(--n200); }
-  .search { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 10px; border-radius: var(--r-ctl); background: var(--well); box-shadow: var(--well-shadow); color: var(--ink-3); }
-  .search:focus-within { box-shadow: var(--well-shadow), 0 0 0 2px var(--focus); }
-  .search input { flex: 1; min-width: 0; height: 100%; padding: 0; background: none; box-shadow: none; font-size: 13.5px; }
-  .search input:focus-visible { outline: none; }
-  .search input::placeholder, .ranges input::placeholder { color: var(--ink-3); }
-  .seg { display: flex; padding: 2px; gap: 2px; border-radius: 9px; background: var(--n100); box-shadow: inset 0 0 0 1px var(--n200); }
-  .seg button { flex: 1; height: 24px; border-radius: 7px; font-size: 11.5px; font-weight: 700; color: var(--ink-2); text-align: center; transition: background .14s, color .14s; }
-  .seg button:hover { background: var(--n0); color: var(--ink-strong); }
-  .seg button.on { color: var(--n0); background: var(--sel); box-shadow: 0 1px 3px color-mix(in srgb, var(--p900) 40%, transparent); }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chips button { height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11px; font-weight: 700; color: var(--ink-2); background: var(--n0);
-    box-shadow: inset 0 0 0 1px var(--n300); transition: background .14s, color .14s; }
-  .chips button:hover { background: var(--p50); color: var(--ink-strong); }
-  .chips button.on { color: var(--p900); background: var(--p50); box-shadow: inset 0 0 0 1.5px var(--p500); }
   .ranges { display: flex; gap: 14px; font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
   .ranges label { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
-  .ranges input { width: 52px; height: 24px; padding: 0 5px; font-size: 12px; }
-  select { height: 24px; padding: 0 4px; font-size: 12px; }
   .ranges .sort { margin-left: auto; }
   .foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--ink-2); font-weight: 700; }
   .foot .own { display: flex; align-items: center; gap: 4px; font-weight: 600; }
   .foot .own input { accent-color: var(--p700); margin: 0; }
   .foot .n { margin-left: auto; color: var(--ink-3); }
   .clear { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
-  .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 80px); grid-auto-rows: 116px; gap: 8px 7px; align-content: start; padding: 10px 4px 12px 1px; }
-  .card { position: relative; width: 80px; height: 116px; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
+  .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 110px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
+  .card { position: relative; width: 76px; height: 110px; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 4px 8px -4px color-mix(in srgb, var(--p900) 50%, transparent); transition: transform .14s var(--ease), box-shadow .14s, filter .14s; }
   .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
@@ -464,7 +464,6 @@
   .counts .have.zero { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 90%, transparent); }
   .lim { position: absolute; left: 3px; top: 3px; color: var(--n0); background: var(--bad); box-shadow: 0 0 0 1px var(--n0); }
   .lim.l2 { background: var(--warm); }
-  .pool.over .cards { background: color-mix(in srgb, var(--p500) 10%, transparent); }
   .empty-pool { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 40px 0; color: var(--ink-2); font-weight: 700; }
   .empty-pool p { margin: 0; }
 </style>

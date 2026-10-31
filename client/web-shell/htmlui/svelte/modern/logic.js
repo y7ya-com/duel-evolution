@@ -352,6 +352,12 @@ export function generic(win) {
   for (const { e, r } of extras) { holes.push(r); keep.push(e.id); }
   return { plate, band, items, holes, backdrop: backdrop.map(b => b.e.id), keep };
 }
+// a generic window's keys (DESIGN.md UX spec 1): Esc its way out (Close, Cancel, No, Back, OK), Enter its primary (OK,
+// Yes, Send): { leave, primary } controls or null, from what generic() drew as buttons (enabled ones only)
+export function genericKeys(g) {
+  const bs = g.items.filter(i => i.kind === 'button' && i.c.enabled !== false && i.c.state !== 'disabled').map(i => ({ ...i.c, label: i.label }));
+  return { leave: leaveButton(bs) || null, primary: bs.find(primary) || null };
+}
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out
 export const shownText = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
 // a list's shown rows: [{ i, text, selected, marked }] from its top, as many as fit

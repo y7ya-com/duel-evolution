@@ -100,7 +100,11 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     // each frame: the title layer shows on the title scene (4) once it is up, with no window over it (OPTIONS opens one)
     frame(snap, scene, wait) {
       const title = !killed && scene === 4 && !wait && !snap.windows.some(w => w.shown && w.drawn);
-      if (layer.hidden === title) layer.hidden = !title;
+      if (layer.hidden === title) {
+        layer.hidden = !title;
+        // the modern menu up: ONLINE has the focus, so Enter starts and the arrows move (DESIGN.md UX spec 5)
+        if (title && on && !layer.contains(document.activeElement)) menu.querySelector('button')?.focus({ preventScroll: true });
+      }
       layer.classList.toggle('mu-on', on);
     },
   };

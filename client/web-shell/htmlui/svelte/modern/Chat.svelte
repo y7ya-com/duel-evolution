@@ -68,7 +68,7 @@
     <header>
       <div class="tabs" role="tablist" aria-label="Chat channels">
         {#each p.tabs as t (t.id)}
-          <button type="button" role="tab" class="tab" aria-selected={!!t.active} disabled={!t.enabled} onclick={() => api.click(t.id)}>{label(t)}{#if unread[t.id]}<span class="badge" aria-label="{unread[t.id]} new">{unread[t.id] > 99 ? '99+' : unread[t.id]}</span>{/if}</button>
+          <button type="button" role="tab" class="mu-tab tab" aria-selected={!!t.active} disabled={!t.enabled} onclick={() => api.click(t.id)}>{label(t)}{#if unread[t.id]}<span class="badge" aria-label="{unread[t.id]} new">{unread[t.id] > 99 ? '99+' : unread[t.id]}</span>{/if}</button>
         {/each}
       </div>
       <div class="size">
@@ -86,7 +86,7 @@
     {#if fresh}<button type="button" class="jump" onclick={latest}>{fresh} new {fresh === 1 ? 'message' : 'messages'} <svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 8l5 5 5-5" /></svg></button>{/if}
     {#if p.input}
       <div class="composer">
-        <input bind:this={inputEl} bind:value type="text" maxlength={p.input.maxLen || 128} spellcheck="false" autocomplete="off"
+        <input class="mu-field" bind:this={inputEl} bind:value type="text" maxlength={p.input.maxLen || 128} spellcheck="false" autocomplete="off"
           placeholder="Message" aria-label="Message" oninput={e => { entered = null; if (!e.isComposing) commit(); }}
           oncompositionend={commit} onfocus={() => { value = p.input.value; api.click(p.input.id); }} onkeydown={keys} />
         <button type="button" class="mu-btn gold send" aria-label="Send" disabled={!value.trim()} onclick={send}><Icon name="send" size={15} /></button>
@@ -99,15 +99,11 @@
   .chat { left: 0; top: 0; display: flex; flex-direction: column; border-radius: 16px 16px 6px 16px; animation: none; }
   header { display: flex; align-items: flex-end; gap: 8px; height: 30px; padding: 4px 6px 0 10px; flex: none; }
   .tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow: hidden; }
-  .tab { position: relative; height: 24px; padding: 0 12px; border-radius: 8px 8px 0 0; font-size: 12px; font-weight: 600; white-space: nowrap;
-    color: var(--ink-2); transition: color .14s, background .14s; }
-  .tab:hover { color: var(--ink-strong); background: rgba(255, 255, 255, .5); }
-  .tab[aria-selected='true'] { color: var(--ink-strong); background: #fff; box-shadow: 0 0 0 1px var(--btn-edge); }
-  .tab[aria-selected='true']::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px;
-    background: linear-gradient(90deg, var(--gold-300), var(--gold-400)); box-shadow: 0 0 6px rgba(247, 228, 108, .6); }
+  /* the channel tabs: game tabs (theme.js .mu-tab), not stretched */
+  .tab { flex: none; position: relative; height: 22px; padding: 0 10px; font-size: 11.5px; white-space: nowrap; }
   .badge { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; font-size: 10px; font-weight: 800;
     line-height: 16px; text-align: center; color: #fff; background: var(--bad); box-shadow: 0 1px 2px rgba(120, 0, 10, .3); vertical-align: 1px; }
-  .jump { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; height: 24px;
+  .jump { position: absolute; left: 50%; bottom: 44px; translate: -50% 0; display: inline-flex; align-items: center; gap: 4px; height: 24px;
     padding: 0 8px 0 12px; border-radius: 12px; font-size: 12px; font-weight: 700; color: #fff; background: var(--sel);
     box-shadow: 0 0 0 1px var(--p900), 0 4px 10px -2px rgba(10, 35, 80, .45); animation: mu-rise .2s var(--ease) both; }
   .jump .mu-ico { width: 14px; height: 14px; }
@@ -115,16 +111,12 @@
   .size .mu-icon-btn { width: 28px; height: 24px; }
   .size .mu-icon-btn:disabled { opacity: .35; }
   .log { flex: 1; min-height: 0; margin: 0 6px; padding: 6px 8px 4px; border-radius: 8px; user-select: text;
-    background: var(--well); box-shadow: var(--well-shadow); }
+    background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
   .log p { margin: 0; padding: 1.5px 0; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--ink); }
   .log b { font-weight: 750; color: var(--link); margin-right: 6px; }
   .log .notice { color: var(--warm); font-style: italic; }
   .log .empty { color: var(--ink-3); }
   .composer { display: flex; gap: 6px; padding: 5px 6px 6px; flex: none; }
-  input { flex: 1; min-width: 0; height: 26px; padding: 0 12px; border: 0; border-radius: 13px; font: inherit; font-size: 12.5px; color: var(--navy-900);
-    background: #fff; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .12), 0 0 0 1px var(--btn-edge);
-    user-select: text; }
-  input::placeholder { color: #5b6f8c; }
-  input:focus { outline: none; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px var(--p500), 0 0 0 3px var(--p200); }
-  .send { width: 34px; height: 26px; padding: 0; border-radius: 13px; }
+  input { flex: 1; min-width: 0; height: 26px; font-size: 12.5px; }
+  .send { width: 36px; height: 26px; padding: 0; }
 </style>

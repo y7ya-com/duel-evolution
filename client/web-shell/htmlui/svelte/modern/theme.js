@@ -21,7 +21,10 @@ const CSS = `
   --gold: linear-gradient(180deg, #fff4c4 0%, #ffe58a 35%, #f3c64f 70%, #e2a72e 100%);
   --ink: #142a4c; --ink-2: #33496d; --ink-3: #536886; --ink-strong: #0c1e3a; --link: #1d5bc0; --icon: #2462c2; --icon-warm: #b7791a;
   --ok: #19803a; --warm: #9a5a00; --bad: #b8121c; --focus: #2f7cf0;
-  --r-plate: 14px; --r-ctl: 9px; --r-row: 7px; --ease: cubic-bezier(.16, 1, .3, 1); }
+  --r-plate: 14px; --r-ctl: 9px; --r-row: 7px; --ease: cubic-bezier(.16, 1, .3, 1);
+  /* the game's frame: brushed silver-blue metal, light from above, and the display face for titles */
+  --frame: linear-gradient(180deg, #f4f8fc 0%, #cfdbea 16%, #a7b9d2 58%, #8195b6 100%); --frame-rim: #5f7699;
+  --lip: #6a81a6; --lip-gold: #a5650d; --display: Audiowide, "Arial Black", Arial, sans-serif; }
 :root[data-mu-palette='b'] { --p900: #1d5bb0; --p700: #2f74cc; --p600: #3a82d8; --p500: #4b95e6; --p200: #d3e8fb; --p50: #f0f7fe;
   --stage: radial-gradient(120% 90% at 30% 0%, #79b6ee 0%, #4f93dc 50%, #3473c4 100%);
   --plate: linear-gradient(180deg, #fbfdff 0%, #eef6fe 55%, #e2eefb 100%); --plate-edge: #a9c6e6;
@@ -46,41 +49,95 @@ const CSS = `
 :where(.mu) button { font: inherit; color: inherit; margin: 0; border: 0; background: none; padding: 0; text-align: inherit; }
 .mu button:focus-visible, .mu input:focus-visible, .mu textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* the plate: a white-to-silver panel with real depth (an inner top light, a crisp edge, a soft shadow) */
-.mu-plate { position: absolute; border-radius: var(--r-plate) var(--r-plate) var(--r-plate) 6px; isolation: isolate; background: var(--plate);
-  box-shadow: 0 0 0 1px var(--plate-edge), inset 0 1px 0 var(--plate-hi), inset 0 -1px 0 rgba(20, 50, 100, .05),
-    0 16px 32px -14px rgba(10, 35, 80, .45), 0 3px 8px rgba(10, 35, 80, .16);
-  animation: mu-rise .26s var(--ease) both; }
-/* the title band: the 2008 title bar's blue, calmer */
-.mu-head { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px 0 14px; position: relative;
-  border-radius: var(--r-plate) var(--r-plate) 0 0; background: var(--band);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -1px 0 var(--band-edge); }
-.mu-head h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: .01em; color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .35);
+/* GAME UI LANGUAGE (DESIGN.md "Game UI"): game windows, not web cards. */
+/* the panel (GamePanel): a bevelled metal frame (::before) round an inner field (::after), the top-left and bottom-right
+   corners cut with a gold line along each cut, the shadow following the cut shape (drop-shadow, not box-shadow).
+   It paints opaque, in place, from its first frame (html-ui-pixel): the game draws a new window its own way for that one
+   frame (the hide table takes effect at the next Present), so a plate fading, scaling or rising in showed it through.
+   Its arrival is a light passing over the frame instead (mu-arrive: brightness only, nothing uncovered) */
+.mu-plate { position: absolute; isolation: isolate; border-radius: 0; background: none;
+  filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35));
+  animation: mu-arrive .32s ease-out; }
+.mu-plate::before, .mu-plate::after { content: ''; position: absolute; pointer-events: none; }
+.mu-plate::before { inset: 0; z-index: -2; border: 1px solid #3d5579; clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  background: linear-gradient(135deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 0 0 / 24px 24px no-repeat,
+    linear-gradient(-45deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 100% 100% / 24px 24px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0) 3px), var(--frame); }
+.mu-plate::after { inset: 6px; z-index: -1; border: 1px solid var(--frame-rim);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: linear-gradient(180deg, rgba(10, 40, 90, .12), rgba(10, 40, 90, 0) 7px),
+    repeating-linear-gradient(135deg, rgba(36, 98, 194, .028) 0 2px, rgba(36, 98, 194, 0) 2px 7px), var(--plate); }
+/* the title plaque (GamePanel's title): the band in the frame, its cut corner, a gold base line, the display face */
+.mu-head, .mu-plaque { display: flex; align-items: center; gap: 10px; height: 36px; margin: 6px 6px 0; padding: 0 8px 0 16px; position: relative;
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 52%), var(--band);
+  box-shadow: inset 0 -2px 0 var(--gold-400), inset 0 1px 0 rgba(255, 255, 255, .35); }
+.mu-head h2, .mu-plaque > :is(h2, span) { margin: 0; font-family: var(--display); font-size: 14px; font-weight: 400; letter-spacing: .07em; text-transform: uppercase;
+  color: #fff; text-shadow: 0 2px 0 rgba(0, 20, 60, .45), 0 0 10px rgba(120, 190, 255, .45);
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mu-head .mu-icon-btn { color: rgba(255, 255, 255, .9); }
-.mu-head .mu-icon-btn:hover { color: #fff; background: rgba(255, 255, 255, .18); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); }
+.mu-head .mu-icon-btn, .mu-plaque .mu-icon-btn { color: rgba(255, 255, 255, .92); }
+.mu-head .mu-icon-btn:hover, .mu-plaque .mu-icon-btn:hover { color: #fff; background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .4); }
 .mu-emblem { width: 20px; height: 20px; flex: none; color: var(--gold-300); }
 
-/* buttons: gold for the one primary action, silver for the rest */
-.mu-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 16px;
-  border-radius: var(--r-ctl); font-weight: 650; font-size: 13px; letter-spacing: .01em; white-space: nowrap; color: var(--ink-strong);
-  background: var(--btn); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 2px rgba(10, 35, 80, .12);
-  transition: transform .14s var(--ease), box-shadow .14s, background .14s, opacity .14s, filter .14s; }
-.mu-btn:hover, .mu-btn[data-state='hover'] { transform: translateY(-1px); background: var(--btn-hover);
-  box-shadow: 0 0 0 1px var(--p500), inset 0 1px 0 #fff, 0 6px 14px -6px rgba(20, 70, 160, .45); }
-.mu-btn:active, .mu-btn[data-state='pressed'] { transform: translateY(0); filter: brightness(.97); box-shadow: 0 0 0 1px var(--p500), inset 0 1px 2px rgba(10, 35, 80, .15); }
-.mu-btn:disabled, .mu-btn[data-state='disabled'] { opacity: .5; transform: none; }
-.mu-btn.gold { color: var(--gold-ink); background: var(--gold);
-  box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 rgba(255, 255, 255, .8), 0 2px 4px rgba(120, 70, 0, .22); }
-.mu-btn.gold:hover, .mu-btn.gold[data-state='hover'] { filter: brightness(1.04) saturate(1.05);
-  box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 #fff, 0 6px 14px -6px rgba(140, 80, 0, .45); }
+/* the button (GameButton): a physical key. A glossy bevel (the split highlight), a rim, a solid lip under it that the
+   press pushes in, a shine that sweeps across on hover with a glow; gold for the one primary action */
+.mu-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 18px;
+  overflow: hidden; border-radius: 7px; font-weight: 800; font-size: 13px; letter-spacing: .02em; white-space: nowrap; color: var(--ink-strong);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .8);
+  background: linear-gradient(180deg, #ffffff 0%, #eef3f9 46%, #d6e0ee 54%, #c6d3e5 100%);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 rgba(60, 85, 125, .18), 0 0 0 1px #7088ab, 0 3px 0 var(--lip), 0 5px 7px -2px rgba(8, 30, 70, .4);
+  transition: transform .07s ease-out, box-shadow .07s ease-out, filter .14s, opacity .14s; }
+.mu-btn::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .65) 50%, transparent 65%) -160% 0 / 55% 100% no-repeat;
+  transition: background-position .45s var(--ease); }
+.mu-btn:hover, .mu-btn[data-state='hover'] { filter: brightness(1.04) saturate(1.08);
+  box-shadow: inset 0 1px 0 #fff, inset 0 -2px 0 rgba(60, 85, 125, .18), 0 0 0 1px var(--p500), 0 3px 0 var(--lip), 0 0 14px rgba(59, 130, 224, .5); }
+.mu-btn:hover::after, .mu-btn[data-state='hover']::after { background-position: 260% 0; }
+.mu-btn:active, .mu-btn[data-state='pressed'] { transform: translateY(3px) scale(.985); filter: brightness(.96);
+  box-shadow: inset 0 2px 3px rgba(10, 35, 80, .3), 0 0 0 1px #7088ab, 0 0 0 var(--lip); }
+.mu-btn:disabled, .mu-btn[data-state='disabled'] { opacity: .5; filter: saturate(.4); transform: none; }
+.mu-btn:disabled::after, .mu-btn[data-state='disabled']::after { display: none; }
+.mu-btn.gold { color: var(--gold-ink); text-shadow: 0 1px 0 rgba(255, 250, 220, .9);
+  background: linear-gradient(180deg, #fff8d8 0%, #ffe68a 44%, #f6c443 54%, #e49e22 100%);
+  box-shadow: inset 0 1px 0 #fffbe8, inset 0 -2px 0 rgba(140, 80, 0, .22), 0 0 0 1px var(--gold-edge), 0 3px 0 var(--lip-gold), 0 5px 7px -2px rgba(90, 50, 0, .4); }
+.mu-btn.gold:hover, .mu-btn.gold[data-state='hover'] { filter: brightness(1.05) saturate(1.1);
+  box-shadow: inset 0 1px 0 #fffbe8, inset 0 -2px 0 rgba(140, 80, 0, .22), 0 0 0 1px var(--gold-edge), 0 3px 0 var(--lip-gold), 0 0 16px rgba(255, 196, 60, .65); }
+.mu-btn.gold:active, .mu-btn.gold[data-state='pressed'] { box-shadow: inset 0 2px 3px rgba(110, 60, 0, .35), 0 0 0 1px var(--gold-edge), 0 0 0 var(--lip-gold); }
 .mu-btn.gold:disabled, .mu-btn.gold[data-state='disabled'] { opacity: .55; filter: saturate(.3); }
-.mu-icon-btn { display: inline-grid; place-items: center; width: 30px; height: 30px; min-width: 28px; min-height: 26px; border-radius: 8px; color: var(--ink-2);
-  transition: background .14s, color .14s, box-shadow .14s; }
+.mu-icon-btn { display: inline-grid; place-items: center; width: 30px; height: 30px; min-width: 28px; min-height: 26px; border-radius: 7px; color: var(--ink-2);
+  transition: background .14s, color .14s, box-shadow .14s, transform .07s; }
 .mu-icon-btn:hover { color: var(--ink-strong); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
+.mu-icon-btn:active { transform: translateY(1px) scale(.94); }
 .mu-icon-btn:disabled { opacity: .35; background: none; box-shadow: none; }
 .mu-icon-btn.danger:hover { color: #fff; background: var(--bad); box-shadow: inset 0 0 0 1px #8a0c14; }
 .mu-ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* the field (GameField): an inset slot cut into the panel (a dark top edge, a light bottom edge); focus lights it gold */
+.mu-field { display: block; width: 100%; height: 32px; padding: 0 12px; border: 0; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink-strong);
+  background: linear-gradient(180deg, #e9eff7 0%, #ffffff 30%); user-select: text;
+  box-shadow: inset 0 2px 3px rgba(10, 35, 80, .22), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .9); }
+textarea.mu-field { height: auto; padding: 8px 12px; resize: none; line-height: 1.45; }
+.mu-field::placeholder { color: #5b6f8c; }
+.mu-field:focus { outline: none; box-shadow: inset 0 2px 3px rgba(10, 35, 80, .22), inset 0 0 0 1px var(--gold-edge), 0 0 0 2px rgba(255, 200, 70, .55), 0 0 12px rgba(255, 200, 70, .4); }
+
+/* tabs (GameTabs): raised plates on a rail; the chosen one blue and lifted, a gold top line */
+.mu-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: linear-gradient(180deg, #b7c6da, #cfdae8);
+  box-shadow: inset 0 2px 3px rgba(10, 35, 80, .25), 0 1px 0 #fff; }
+.mu-tab { flex: 1; height: 28px; padding: 0 12px; border-radius: 5px; font-weight: 800; font-size: 12px; letter-spacing: .03em; color: var(--ink-2);
+  background: linear-gradient(180deg, #f6f9fc, #dde5f0); box-shadow: 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px #8ea2bf; transition: transform .07s, filter .14s; }
+.mu-tab:hover { filter: brightness(1.05); }
+.mu-tab:active { transform: translateY(1px); }
+.mu-tab[aria-selected='true'], .mu-tab.on { color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .45); background: var(--sel);
+  box-shadow: inset 0 2px 0 var(--gold-300), 0 0 0 1px var(--p900), 0 2px 6px rgba(20, 60, 140, .45); }
+
+/* list rows (GameList): rows in a well; hover lights the row, the chosen one is a blue bar with a gold notch */
+.mu-list { border-radius: 6px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf; }
+.mu-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 12px; color: var(--ink); }
+.mu-row:nth-child(even) { background: rgba(20, 60, 120, .035); }
+.mu-row:hover { background: linear-gradient(90deg, rgba(59, 130, 224, .16), rgba(59, 130, 224, .04)); }
+.mu-row[aria-selected='true'], .mu-row.on { color: #fff; background: var(--sel); text-shadow: 0 1px 0 rgba(0, 20, 60, .35); }
+.mu-row[aria-selected='true']::before, .mu-row.on::before { content: ''; position: absolute; left: 0; top: 3px; bottom: 3px; width: 4px;
+  background: var(--gold-300); clip-path: polygon(0 0, 100% 3px, 100% calc(100% - 3px), 0 100%); }
 
 /* the level / count chip: the primary blue, white figures, a hairline gold edge */
 .mu-chip { display: inline-flex; align-items: baseline; gap: 4px; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px;
@@ -90,6 +147,7 @@ const CSS = `
 .mu-scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n300) transparent; overscroll-behavior: contain; }
 
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
+@keyframes mu-arrive { from { filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35)) brightness(1.18) drop-shadow(0 0 10px rgba(120, 190, 255, .7)); } }
 @media (prefers-reduced-motion: reduce) { .mu *, .mu-plate { animation: none !important; transition: none !important; } }
 `;
 
@@ -102,6 +160,8 @@ export function theme() {
   if (document.getElementById('mu-theme')) return;
   const st = document.createElement('style');
   st.id = 'mu-theme';
-  st.textContent = CSS;
+  // the display face, self-hosted with the art (ui/fonts/: the repo takes no binaries, players' browsers no Google; OFL).
+  // ui/ as the bridge's art base (makeLayer's default): ui.js's SHEET urls aren't rebased yet when Modern UI loads first
+  st.textContent = `@font-face { font-family: Audiowide; font-display: swap; src: url(ui/fonts/Audiowide-Regular.woff2) format('woff2'); }` + CSS;
   document.head.append(st);
 }
