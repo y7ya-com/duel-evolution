@@ -13,27 +13,70 @@ restraint. Every window keeps its job and its names; the layout and the flow are
   legacy one for a window class while it is on; a window whose screen changes is remounted.
 
 ## World
-- **Field:** deep navy to azure (`#061733` → `#0e3275` → `#1b51b6`), with the 2008 art's scan lines at 3 % white.
-- **Plate** (every window): deep-blue glass in a 1.5 px silver rim (`#f3f7fc` → `#8fa3bd` → `#dfe8f3`).
-  - The body runs sky-azure to navy (`#2a6fd8` → `#154ba8` → `#0e3275`): the 2008 brightness, not night mode. Deep navy is
-    kept for wells (logs, lists).
-  - The upper third carries the old gloss as a 13 % sheen.
-  - Corners are 18/18/18/6: the duel disk's blade, one corner kept tight.
-  - Shadow: offset and soft (0 24 48 −18). No glow halos.
-- **Gold** (`#fff7c2` → `#f7e46c` → `#f1c330` → `#e7a51b`, edge `#a8640f`): the 2008 menu buttons. It marks the menu
-  (the Main Menu's tiles, as its bars were), each window's one primary action, and the active tab's underline.
-- **Glass buttons:** sky-to-azure translucent with a cyan rim. On hover they lift 1 px and the rim brightens.
-- **Text:**
-  - Hierarchy: white for titles and names; `#eaf6ff`, `#b7d3f2` and `#86a7cf` for the rest.
-  - Accents: sky `#7deffc` for names in chat and counts; gold for notices.
-  - Font: the platform's UI sans (Segoe UI / SF Pro / system-ui), tabular numerals. No display face: the game's own art
-    carries the display voice.
-- **Icons:** one authored set (Icon.svelte), 20 × 20, 1.8 px round strokes.
+The 2008 palette, sampled from the legacy skin (controls/skin.js), with modern depth and light. The owner's verdict on a
+first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the original's brightness and saturation.
+- **Plate** (every window): the 2008 window's light cyan glass (`#e8fbff` → `#b9f1ff` → `#8fe6fc`).
+  - Its cyan bevel: `#a7ffff` inside, a `#2f8fd6` line, `#41abef` below.
+  - A white sheen over the top half; the art's scan lines at 22 % white.
+  - A soft offset shadow (0 18 36 −14, blue).
+- **Title band:** the 2008 title bar, `#f2fbff` → `#a3d7f3` → `#4e93f5` → `#336deb` with its `#234cdb` line. White title text
+  with a blue edge.
+- **Gold** (`#ffffc8` → `#fff97f` → `#f4d558` → `#eca430`, edge `#e36f08`): the 2008 menu buttons. It marks the menu (the Main
+  Menu's tiles, as its bars were), each window's primary action, chosen states and the title's ONLINE.
+- **Sky glass** (`#fff` → `#d9f5ff` → `#a8e6ff` → `#7fd3fb`, a `#3a9de6` edge): every other button.
+- **Wells** (logs, lists, figures, fields): white with a blue inset edge.
+- **Ink:**
+  - Dark navy text: `#0b2a5c`, `#26508a`, `#4a6c96`; strong `#06204a`.
+  - Chat names in `#0050c8`, notices in amber `#b34d00`.
+- **The 2008 word art lives on as type:**
+  - Heavy italic white with a blue outline: the title buttons, EDIT DECK, the deck's side bars.
+  - The deck headers in their colours: Deck / Number of Cards green, Trunk orange.
+- **Elsewhere:** the dock is the 2008 cyan bar with its white field; the deck editor sits on brushed silver.
+- **Font:** the platform's UI sans, tabular numerals.
+- **Icons:** one authored set (Icon.svelte), 20 × 20, 1.8 px round strokes, mostly orange `#e36f08` (the gold's edge)
+  or azure.
 - **Motion:**
-  - A plate rises in 260 ms (opacity, 8 px, a 3 px blur clearing).
-  - Hovers take 140 ms, exponential ease-out.
+  - A plate rises in 260 ms; hovers take 140 ms, exponential ease-out.
   - The title buttons' sheen sweeps on hover.
   - With prefers-reduced-motion, none of it.
+
+## UX changes (what was clumsy → what it is now)
+- **Getting anywhere:** open the Main Menu, read a list of twelve identical bars, click → the command dock along the bottom.
+  - One click (or a key) for Deck D, Profile P, Friends F, Mail M, Duel Log L, Options O, Audio A.
+  - Each chains the engine's own clicks (menu, then its button) with the menu out of sight (macro.js).
+  - Enter jumps to the chat line.
+  - The Main Menu itself is grouped: Play, You, Social, System.
+- **Chat:**
+  - Before: no sign of new lines on another tab, and losing your place when reading back.
+  - Now: a red unread count on each tab, and a "n new messages" pill that jumps to the latest while you read older lines.
+  - Names stand out from messages; system lines are amber.
+- **Deck editor:**
+  - Before: no idea whether the deck is legal until the game complains, and only mouse trips to the side bars.
+  - Now: a live check strip ("Ready to duel" or "Not legal yet", with Main 40–60, Fusion and Side up to 15, missing cards
+    flagged).
+  - Keys: / for the trunk search, Ctrl+S for Save Deck, Ctrl+O for Load Deck.
+  - Search-as-you-type and the filter chips stay (the legacy HTML trunk), restyled.
+- **Select Player:**
+  - Before: four identical bars and a Delete beside each.
+  - Now: cards with an initial disc, the level chip and "Slot n is free" on the empty ones.
+  - Delete sits apart as a trash icon. Arrows and Esc work; focus is on the first card.
+- **D-Mail:**
+  - Before: separate windows for reading and writing, and a To field you can't type in.
+  - Now: the inbox is a mail client (actions on top, Write Mail first, the mails, the open mail below).
+  - Write Mail is a form: To shows the chosen friend next to Friend List; Subject and Message are fields; Send D-mail is
+    gold.
+- **My Profile:** ten label/value rows become a profile card (name, title, level) and a grid of figures.
+- **Friend / Ignore / Team List:** a grid of name chips, the selected one lit; the buttons as the game has them; Esc
+  closes.
+- **Dialogs and prompts:**
+  - Before: grey boxes over the game.
+  - Now: the message centred, the primary in gold, Enter on the primary, Esc on the way out, a light scrim behind.
+  - The name prompt (Create Player) has a real field.
+- **Proposed, not built:** these need engine or server state the snapshot doesn't carry, or flows not mapped yet.
+  - Friends' online status, with inline Mail / Duel / Visit on each friend.
+  - Character cards with deck and last-played info.
+  - Toasts in place of modal OK boxes.
+  - EDOPro-style full-art card grid with sort, and add / remove on double-click.
 
 ## Screens and what changed
 - **Title:** the engine's slanted buttons become a glass plate of slanted plates (the 2008 parallelogram), ONLINE in
@@ -65,7 +108,7 @@ restraint. Every window keeps its job and its names; the layout and the flow are
   Wins, Losses, Score, Win%, % of Cards Collected, Miles).
 - **Yes / No dialog:** the message centred, Yes in gold. Enter is on the primary, Esc is No; a scrim dims the game
   behind it.
-- **Deck editor (also Card Swap / Trade, which reuse its windows):**
+- **Deck editor (also Card Swap / Trade, which reuse its windows; see also UX changes):**
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
   - The legacy deck's plan says where everything is. Card faces, attribute, type, limit and star icons, copy counts
     and the count chips stay as they are.
