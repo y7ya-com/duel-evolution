@@ -163,6 +163,11 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   beside its search button (the game opened it over the list's own top), its entries grouped as Show (single / match
   duels, friends, nearby, everyone) and Order (by level, by name) with icons. Focus on the first entry; Up / Down,
   Enter, Esc closes (a click on the player list's title bar, as the game closes it on a click elsewhere).
+- **Duel disk case** (My Room's shelf case, CDuelDiskList; DiskCase.svelte, pass): a plate framing the game's own
+  grid of disks (its sprites stay the engine's, as does dragging one onto a lit shelf slot to put it on show), a
+  "Duel Disks" tab, the page arrows as chevrons, the hovered disk's name in bold before its text, Close in gold. With
+  nothing pointed at yet, the well says what to do: drag a disk onto a lit slot. Close takes the focus (Esc, Enter);
+  the left / right arrow keys turn the page.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.

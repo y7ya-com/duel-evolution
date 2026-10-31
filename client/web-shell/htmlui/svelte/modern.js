@@ -26,6 +26,7 @@ import NpcCard from './modern/NpcCard.svelte';
 import Balloon from './modern/Balloon.svelte';
 import PickList from './modern/PickList.svelte';
 import FindMenu from './modern/FindMenu.svelte';
+import DiskCase from './modern/DiskCase.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -125,6 +126,8 @@ const screens = [
   // a duelist's card and an NPC's speech bubble: pass (the game keeps the mouse: a click anywhere goes on or closes);
   // the bubble's own button and a card's buttons take the pointer
   screen({ CNpcListMenu: NpcCard, CPlayerListMenu: NpcCard, CWindowModelBalloon: Balloon }, { mode: 'pass', clip: false }),
+  // My Room's duel disk case: the engine keeps its grid of disks (sprite extras) and their drag onto the shelf
+  screen({ CDuelDiskList: DiskCase }, { mode: 'pass', clip: false, passthrough: x => /^CSpriteElm/.test(x.cls) }),
   // an unlock / item announcement: the engine keeps drawing its portrait card (sprite extras, plain elements)
   screen({ CWindowModelItemGet: ItemGet }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CSpriteElmOlder' || x.cls === 'CElement' }),
   genericScreen,

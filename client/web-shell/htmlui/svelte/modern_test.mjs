@@ -309,6 +309,16 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(f.groups.map(([n, es]) => [n, es.map(e => e.i)]), [['Show', [0, 1, 4, 5, 6]], ['Order', [2, 3]]]);
 }
 
+// the duel disk case: arrows by side (the grid between them), the hovered disk's name and text, Close
+{
+  const w = win('CDuelDiskList', [ctl('PictureSwitch', { x: 472, y: 8, w: 32, h: 144 }), ctl('PictureSwitch', { x: 8, y: 8, w: 32, h: 144 }),
+    ctl('Text', { x: 9, y: 173, w: 479, h: 47, text: '@9 [Duel Academy Model]  The Official Duel Disk.\nCan switch modes.' }),
+    ctl('TextSwitch', { x: 156, y: 224, w: 200, h: 24, label: 'Close' })], { w: 512, h: 256 });
+  const d = L.diskCase(w);
+  assert.deepEqual([d.prev.x, d.next.x, d.grid], [8, 472, { x: 8, y: 8, w: 496, h: 144 }]);
+  assert.deepEqual([d.name, d.text, d.close.label], ['Duel Academy Model', 'The Official Duel Disk. Can switch modes.', 'Close']);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

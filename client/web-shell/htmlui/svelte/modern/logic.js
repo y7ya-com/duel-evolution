@@ -217,7 +217,7 @@ export function presence(rows) {
 export const GENERIC = [
   // htmlui-select's, until theirs land
   'CWindowModelDuelFind', 'CFixedsentenceList',
-  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg',
+  'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
@@ -473,4 +473,20 @@ export function findMenu(win) {
   const sort = all.filter(e => /^Display by/i.test(e.label));
   return { list, groups: [['Show', all.filter(e => !sort.includes(e))], ['Order', sort]].filter(g => g[1].length),
     bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown) };
+}
+
+// ---- My Room's duel disk case (CDuelDiskList, the shelf's case: a 6 x 2 grid of the disks you own, its pages, the
+// hovered disk's text, Close): the page arrows by side, the text split into its name ('[Duel Academy Model]') and
+// the rest, Close; the grid and the disks are the window's sprite extras, which the engine keeps drawing
+export function diskCase(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const arrows = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.h >= 64).sort((a, b) => a.x - b.x);
+  const t = untag(cs.find(c => c.cls === 'CWindowTaskText' && !c.label && c.w >= 200)?.text || '').trim();
+  const m = /^\[([^\]]+)\]\s*([\s\S]*)$/.exec(t);
+  return {
+    prev: arrows.length > 1 ? arrows[0] : null, next: arrows.length > 1 ? arrows[arrows.length - 1] : null,
+    grid: arrows.length > 1 ? { x: arrows[0].x, y: arrows[0].y, w: arrows.at(-1).x + arrows.at(-1).w - arrows[0].x, h: arrows[0].h } : null,
+    name: m ? m[1].trim() : '', text: m ? m[2].replace(/\s*\n\s*/g, ' ').trim() : t,
+    close: cs.find(c => /TextSwitch$|ButtonDuel$/.test(c.cls) && c.label),
+  };
 }
