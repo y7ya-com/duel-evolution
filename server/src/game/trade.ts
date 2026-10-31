@@ -134,6 +134,7 @@ export class Trades {
     if (why) { this.g.log(`${why === "trade sanction" ? "[AVISO] " : ""}[intercambio] REQTRADE -> ${pid}: -493 (${why})`); c.send(M.REQTRADERESULT, s32(REQ_FAIL), SEND_PAUSE); return; }
     const t = new Trade(s!, c, o!);
     this.trades.set(s!.pid!, t); this.trades.set(o!.pid!, t);
+    this.g.lp?.inviteBusy(s!); this.g.lp?.inviteBusy(o!);   // trading: their direct duel invites go
     c.send(M.REQTRADERESULT, s32(0), SEND_PAUSE);
     this.to(t, o!.pid!, M.TRADEOFFER, Buffer.concat([new W().u32(s!.pid!).bytes(), name16(s!.name)]));
   }

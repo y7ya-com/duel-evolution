@@ -179,8 +179,8 @@ export class Lobby {
     const r: Room = { id: rid, p1: me, p2: 0, mstat: data.length > 2 ? data[2] : 0, mstat0: data.length > 2 ? data[2] : 0,
       dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: data.length > 3 ? !!data[3] : false,
       pwd: pad(data.subarray(4, 20), 16), x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null };
-    const old = [...this.mem.rooms.values()].filter((v) => v.p1 === me);
-    for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me) this.mem.rooms.delete(k);
+    const old = [...this.mem.rooms.values()].filter((v) => v.p1 === me && !v.only);
+    for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me && !v.only) this.mem.rooms.delete(k);
     this.mem.rooms.set(rid, r);
     c.send(0x428a, new W().u32(0).bytes());
     c.send(0x3113, this.roomEntry(r));
@@ -225,7 +225,7 @@ export class Lobby {
   hDeleteroom(c: Conn): boolean {
     const me = this.pid();
     const gone: Room[] = [];
-    for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me) { gone.push(v); this.mem.rooms.delete(k); }
+    for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me && !v.only) { gone.push(v); this.mem.rooms.delete(k); }
     if (gone.length) this.roomState(this.sess(c), 0);
     this.mem.offer = null;
     const chs = gone.map((r) => { const ch = this.mem.challenges.get(r.id) ?? null; this.mem.challenges.delete(r.id); return ch; });
@@ -310,7 +310,7 @@ export class Lobby {
   // ---- direct duel invites (POST /api/de/duel/challenge: the player card's Duel). The 2008 game only challenges a
   // player who owns a duel room, and its own "Send Duel Request" (0x4300) is the only way a client enters the duel
   // as the challenger. So an allowed invite shows the target as a room owner to the challenger alone (a private room
-  // and a 0x3112 in ROOM_STATE: the target's own state, client and card for everyone else unchanged); the challenger's
+  // and a 0x3112 in ROOM_STATE (hub.stateMsgAs): the target's own state, client and card for everyone else unchanged); the challenger's
   // page reopens the card and presses that button, and challenge() / challengeReply() run as for any room. The room
   // goes when the challenge ends (or after INVITE_TTL with none).
   private static readonly SAY = {
@@ -356,10 +356,16 @@ export class Lobby {
     const inv: Invite = { room: r, a, b };
     this.mem.invites.set(a.pid, inv);
     this.post(aConn, 0x3113, this.roomEntry(r));
-    this.post(aConn, 0x3112, this.g.hub.stateAs(b, ROOM_STATE));
+    this.post(aConn, 0x3112, this.g.hub.stateMsgAs(b, ROOM_STATE));
     this.log(`[lobby] duel invite: ${a.acct} -> ${b.acct} (private room ${r.id})`);
     this.later(INVITE_TTL, () => { if (this.mem.invites.get(a.pid!) === inv && !this.mem.challenges.has(r.id)) this.dropInvite(inv); });
     return [200, { ok: true, room: r.id }];
+  }
+  /** s went busy (a state, a trade, left its block, gone): every direct invite to or from it that no challenge uses
+   *  yet goes now (one a challenge uses ends with that challenge) */
+  inviteBusy(s: Session) {
+    for (const inv of [...this.mem.invites.values()])
+      if ((inv.a === s || inv.b === s) && !this.mem.challenges.has(inv.room.id)) this.dropInvite(inv);
   }
   /** the invite's room gone for its challenger: the room's removal and the target as it really is */
   private dropInvite(inv: Invite) {
@@ -863,6 +869,8 @@ export class Lobby {
   // ---- connection closed
   onClose(c: Conn): boolean {
     c.ext.lpClosed = true;
+    const cs = this.sess(c);
+    if (cs) this.inviteBusy(cs);
     const gone: Room[] = [];
     for (const [k, v] of [...this.mem.rooms]) if (v.conn === c) { gone.push(v); this.mem.rooms.delete(k); }
     const goneIds = new Set(gone.map((r) => r.id));
