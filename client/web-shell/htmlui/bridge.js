@@ -100,7 +100,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
         left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
-        clipPath: holes(w, snap.windows, owned),
+        clipPath: holes(w, snap.windows, owned, mod?.clip === false),
       });
       // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
       // extension's fields change with no control changing
@@ -150,17 +150,22 @@ const ahead = (o, j, w, i) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !==
 export function drawOrder(wins) {
   return wins.map((w, i) => [w, i]).sort(([a, i], [b, j]) => ahead(a, i, b, j) ? 1 : ahead(b, j, a, i) ? -1 : 0).map(([w]) => w);
 }
-function holes(w, wins, owned) {
-  const i = wins.indexOf(w);
+// A window whose screen draws outside its rect (clip: false: the deck's file list, its rows and buttons below its
+// nominal 144) is cut over the whole screen, not its rect: a path round its rect alone clipped away everything outside
+// it while an engine dialog stood in front (htmlui-deck: the overwrite confirm took the list's lower half).
+const SCREEN = { x: 0, y: 0, w: 1024, h: 768 };
+function holes(w, wins, owned, unclipped = false) {
+  const i = wins.indexOf(w), box = unclipped ? SCREEN : w;
   const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j, w, i))
     .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
-      o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
-  return clip(front, w);
+      o.x < box.x + box.w && o.x + o.w > box.x && o.y < box.y + box.h && o.y + o.h > box.y);
+  return clip(front, box, w);
 }
 
-// A clip-path for box (its own coordinates from box.x, box.y) with holes where rects lie (game px). Overlapping rects
-// are merged first (into their bounding box, until none overlap): under evenodd two overlapping holes cancel.
-function clip(rects, box) {
+// A clip-path for box with holes where rects lie (game px), in the coordinates of origin (the element's corner: box by
+// default). Overlapping rects are merged first (into their bounding box, until none overlap): under evenodd two
+// overlapping holes cancel.
+export function clip(rects, box, origin = box) {
   const rs = rects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
   const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   for (let merged = true; merged;) {
@@ -174,8 +179,8 @@ function clip(rects, box) {
   }
   const inside = rs.filter(o => hit(o, box));
   if (!inside.length) return '';
-  const r = o => `M${o.x - box.x} ${o.y - box.y}h${o.w}v${o.h}h${-o.w}z`;
-  return `path(evenodd, "M0 0h${box.w}v${box.h}h${-box.w}z${inside.map(r).join('')}")`;
+  const r = o => `M${o.x - origin.x} ${o.y - origin.y}h${o.w}v${o.h}h${-o.w}z`;
+  return `path(evenodd, "${r(box)}${inside.map(r).join('')}")`;
 }
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
