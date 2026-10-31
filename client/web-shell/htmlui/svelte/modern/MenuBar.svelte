@@ -77,20 +77,27 @@
 </div>
 
 <style>
+  /* the game's HUD bar: dark brushed blue under a gold hairline, the switches and quick actions as keycaps on it */
   .dock { position: absolute; left: 0; top: 0; width: 1024px; height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 6px;
-    background: var(--dock); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 -1px 0 var(--band-edge), 0 -6px 16px -10px rgba(10, 35, 80, .5); }
-  .menu { height: 24px; padding: 0 12px 0 9px; font-size: 12.5px; border-radius: 8px; gap: 6px; }
-  .menu:not(.gold) { background: rgba(255, 255, 255, .14); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
-  .menu:not(.gold):hover { background: rgba(255, 255, 255, .24); }
-  .sep { width: 1px; height: 18px; margin: 0 2px; background: rgba(255, 255, 255, .3); }
-  .quick { display: flex; gap: 2px; }
-  .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 7px; font-size: 12px; font-weight: 600;
-    color: #fff; transition: background .12s, box-shadow .12s, transform .12s; }
-  .q :global(.mu-ico) { color: rgba(255, 255, 255, .85); }
-  .q:hover, .q:focus-visible { background: rgba(255, 255, 255, .16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); transform: translateY(-1px); }
-  .q.busy { background: rgba(255, 229, 138, .3); box-shadow: inset 0 0 0 1px var(--gold-300); }
-  kbd { min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; font-family: inherit; font-weight: 700; font-size: 9.5px; line-height: 15px;
-    text-align: center; color: #fff; background: rgba(255, 255, 255, .18); box-shadow: inset 0 -1px 0 rgba(0, 20, 60, .25); }
-  .status { flex: 1; min-width: 0; height: 22px; line-height: 22px; padding: 0 12px; border-radius: 7px; font-size: 12.5px; color: var(--ink-strong);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--dock-field); box-shadow: inset 0 1px 2px rgba(10, 35, 80, .2); }
+    background: linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, 0) 40%), linear-gradient(180deg, #2a66c2 0%, #1b4d9e 60%, #163f85 100%);
+    box-shadow: inset 0 2px 0 var(--gold-400), inset 0 3px 0 rgba(255, 255, 255, .25), 0 -6px 16px -10px rgba(4, 18, 50, .6); }
+  .menu { height: 24px; padding: 0 12px 0 9px; font-size: 12.5px; border-radius: 6px; gap: 6px; }
+  .menu:not(.gold) { color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .5); background: linear-gradient(180deg, #4f8ee0, #2a62b8);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 0 0 1px #10306a, 0 2px 0 #0d2a5c; }
+  .menu.gold { box-shadow: inset 0 1px 0 #fffbe8, 0 0 0 1px var(--gold-edge), 0 2px 0 var(--lip-gold); }
+  .sep { width: 2px; height: 18px; margin: 0 2px; background: linear-gradient(90deg, rgba(0, 10, 40, .4) 50%, rgba(255, 255, 255, .25) 50%); }
+  .quick { display: flex; gap: 3px; }
+  .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .5); background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .03));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 0 0 1px rgba(5, 25, 70, .55), 0 2px 0 rgba(5, 25, 70, .55);
+    transition: transform .07s ease-out, box-shadow .07s, background .14s; }
+  .q :global(.mu-ico) { color: rgba(255, 255, 255, .88); }
+  .q:hover, .q:focus-visible { background: linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, .08));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 0 0 1px rgba(255, 220, 120, .6), 0 2px 0 rgba(5, 25, 70, .55), 0 0 10px rgba(120, 190, 255, .55); }
+  .q:active { transform: translateY(2px); box-shadow: inset 0 1px 2px rgba(0, 10, 40, .4), 0 0 0 1px rgba(5, 25, 70, .55); }
+  .q.busy { background: rgba(255, 229, 138, .3); box-shadow: inset 0 0 0 1px var(--gold-300), 0 2px 0 rgba(5, 25, 70, .55); }
+  kbd { min-width: 15px; height: 15px; padding: 0 3px; border-radius: 3px; font-family: inherit; font-weight: 800; font-size: 9.5px; line-height: 15px;
+    text-align: center; color: var(--gold-ink); text-shadow: none; background: linear-gradient(180deg, #fff3c0, #f0c24a); box-shadow: 0 1px 0 #8a5a0a; }
+  .status { flex: 1; min-width: 0; height: 22px; line-height: 22px; padding: 0 12px; border-radius: 5px; font-size: 12.5px; color: #e9f3ff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(4, 18, 50, .45); box-shadow: inset 0 2px 3px rgba(0, 0, 0, .35), 0 1px 0 rgba(255, 255, 255, .15); }
 </style>

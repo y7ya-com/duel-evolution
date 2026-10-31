@@ -39,14 +39,14 @@
           <h3>{name}</h3>
           <div class="grid">
             {#each items as b (b.id)}
-              <button type="button" class="tile" class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
+              <button type="button" class="mu-btn tile" class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
                 onclick={() => click(b)}>
                 <Icon name={ICONS[b.label] || 'sparkle'} />
                 <span>{nice(b.label)}</span>
               </button>
             {/each}
             {#if name === 'System'}
-              <label class="tile switch" title="Turn Legacy UI on: the original 2008 interface comes back at once">
+              <label class="mu-btn tile switch" title="Turn Legacy UI on: the original 2008 interface comes back at once">
                 <Icon name="sparkle" />
                 <span>Legacy UI</span>
                 <input type="checkbox" role="switch" onchange={modern} />
@@ -65,21 +65,16 @@
   /* a quick action passing through the menu (macro.js): out of sight */
   :global(html.mu-macro) .panel { visibility: hidden; }
   .groups { padding: 6px 12px 0; display: flex; flex-direction: column; gap: 8px; }
-  h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  h3 { margin: 6px 4px 6px; font-family: var(--display); font-size: 10.5px; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; color: var(--p700); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: var(--r-ctl);
-    font-weight: 650; color: var(--ink-strong); background: var(--btn); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 2px rgba(10, 35, 80, .1);
-    transition: transform .14s var(--ease), background .14s, box-shadow .14s; }
+  /* each tile a game key (theme.js .mu-btn), its icon and label from the left */
+  .tile { justify-content: flex-start; gap: 9px; height: 32px; padding: 0 10px; font-weight: 700; }
   .tile :global(.mu-ico) { color: var(--icon); transition: transform .14s var(--ease); }
   .quit :global(.mu-ico) { color: var(--ink-3); }
   .tile span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .tile:hover, .tile[data-state='hover'] { transform: translateY(-1px); background: var(--btn-hover);
-    box-shadow: 0 0 0 1px var(--p500), inset 0 1px 0 #fff, 0 6px 12px -6px rgba(20, 70, 160, .45); }
-  .tile:hover :global(.mu-ico) { transform: scale(1.08); }
-  .tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  .tile:active { transform: translateY(0); filter: brightness(.97); }
-  .tile:disabled { opacity: .45; transform: none; }
+  .tile:hover :global(.mu-ico) { transform: scale(1.12); }
+  .grid { row-gap: 9px; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
   .switch span:not(.track):not(.knob) { flex: 1; }
   /* off (the Modern UI): a grey track, the knob left; on (only for the moment before the legacy menu takes over): blue, right */

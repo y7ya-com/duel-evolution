@@ -62,7 +62,7 @@
 <div class="mu" aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
   {#if g.plate}
     <div class="mu-plate plate" style={at(g.plate)}>
-      {#if g.band}<div class="band" style:height="{g.band.h}px"><span>{g.band.title}</span></div>{/if}
+      {#if g.band}<div class="mu-plaque band" style:height="{g.band.h - 5}px"><span>{g.band.title}</span></div>{/if}
     </div>
   {/if}
   {#each g.items as it (it.kind + it.c.id)}
@@ -78,13 +78,13 @@
     {:else if it.kind === 'check'}
       <span class="check" class:on={c.checked} style={at(c)}><span class="box">{#if c.checked}<Icon name="chevron" size={12} />{/if}</span></span>
     {:else if it.kind === 'tab'}
-      <span class="tab" class:on={c.active} style={at(c)}>{c.label || ''}</span>
+      <span class="mu-tab tab" class:on={c.active} style={at(c)}>{c.label || ''}</span>
     {:else if it.kind === 'input'}
-      <span class="field" class:focus={c.focused} class:multi={c.multiLine} style={at(c)}>{c.password ? '•'.repeat((c.value || '').length) : c.value || ''}{#if c.focused && c.caretOn !== false}<i class="caret"></i>{/if}</span>
+      <span class="mu-field field" class:focus={c.focused} class:multi={c.multiLine} style={at(c)}>{c.password ? '•'.repeat((c.value || '').length) : c.value || ''}{#if c.focused && c.caretOn !== false}<i class="caret"></i>{/if}</span>
     {:else if it.kind === 'list'}
-      <div class="list" style={at(c)}>
+      <div class="mu-list list" style={at(c)}>
         {#each it.rows as r (r.i)}
-          <div class="row" class:sel={r.selected} class:marked={r.marked} style:height="{c.h / Math.max(1, c.rows || it.rows.length)}px">{r.text}</div>
+          <div class="mu-row row" class:on={r.selected} class:marked={r.marked} style:height="{c.h / Math.max(1, c.rows || it.rows.length)}px">{r.text}</div>
         {/each}
       </div>
     {:else if it.kind === 'scroll'}
@@ -106,11 +106,8 @@
   .mu > * { position: absolute; }
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .22); pointer-events: none; }
   .plate { overflow: hidden; }
-  .band { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; padding: 0 14px; background: var(--band);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 1px 0 var(--band-edge); }
-  .band span { font-size: 14px; font-weight: 700; letter-spacing: .01em; color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .35);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .well { border-radius: var(--r-ctl); background: var(--well); box-shadow: var(--well-shadow); }
+  .band { position: absolute; left: 0; right: 0; top: 0; }
+  .well { border-radius: 6px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
   .text { color: var(--ink); white-space: pre-wrap; word-break: break-word; overflow: hidden; }
   .text.heading { font-weight: 700; color: var(--ink-strong); }
   .text.inwell { padding: 8px 12px; }
@@ -122,19 +119,14 @@
     box-shadow: inset 0 1px 2px rgba(11, 42, 92, .15), 0 0 0 1px var(--btn-edge); color: #fff; }
   .check.on .box { background: var(--sel); box-shadow: 0 0 0 1px var(--p700); }
   .box :global(.mu-ico) { transform: rotate(90deg); }
-  .tab { display: grid; place-items: center; border-radius: 8px 8px 0 0; font-size: 12px; font-weight: 650; color: var(--ink-2);
-    background: var(--n100); box-shadow: inset 0 0 0 1px var(--n200); white-space: nowrap; overflow: hidden; }
-  .tab.on { color: #fff; background: var(--sel); box-shadow: none; }
-  .field { display: flex; align-items: center; padding: 0 8px; border-radius: 8px; font-size: 13px; color: var(--ink-strong); background: #fff;
-    box-shadow: inset 0 1px 2px rgba(11, 42, 92, .12), 0 0 0 1px var(--btn-edge); white-space: pre; overflow: hidden; }
+  .tab { display: grid; place-items: center; height: auto; white-space: nowrap; overflow: hidden; }
+  .field { display: flex; align-items: center; height: auto; padding: 0 8px; white-space: pre; overflow: hidden; }
   .field.multi { align-items: flex-start; padding-top: 4px; white-space: pre-wrap; }
-  .field.focus { box-shadow: inset 0 1px 2px rgba(11, 42, 92, .12), 0 0 0 2px var(--focus); }
+  .field.focus { box-shadow: inset 0 2px 3px rgba(10, 35, 80, .22), inset 0 0 0 1px var(--gold-edge), 0 0 0 2px rgba(255, 200, 70, .55); }
   .caret { display: inline-block; width: 1.5px; height: 15px; margin-left: 1px; background: var(--ink-strong); }
-  .list { border-radius: var(--r-ctl); background: var(--well); box-shadow: var(--well-shadow); overflow: hidden; }
-  .row { display: flex; align-items: center; padding: 0 10px; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row:nth-child(even) { background: rgba(20, 60, 120, .035); }
-  .row.marked { font-weight: 650; }
-  .row.sel { color: #fff; background: var(--sel); }
+  .list { overflow: hidden; }
+  .row { min-height: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.marked { font-weight: 700; }
   .scroll { display: flex; justify-content: center; }
   .scroll::before { content: ''; position: absolute; inset: 2px calc(50% - 2px); border-radius: 2px; background: rgba(20, 60, 120, .1); }
   .scroll.h::before { inset: calc(50% - 2px) 2px; }

@@ -43,6 +43,31 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - The title buttons' sheen sweeps on hover.
   - With prefers-reduced-motion, none of it.
 
+## Game UI (2026-10-31, owner: "doesn't give me game vibes, it feels like a website")
+The shared language every modern screen and the generic window are built from (theme.js; components in game/). Game
+windows, not web cards; the YO2 palette (A) and identity kept.
+- **GamePanel** (`.mu-plate`, `.mu-head`): a bevelled brushed-metal frame (7 px, a dark outer rim, light from above) round
+  an inner field (a faint diagonal weave, an inner shade under the top edge); the top-left and bottom-right corners cut,
+  a gold line along each cut; the shadow follows the cut shape (drop-shadow). The title plaque: the blue band inside the
+  frame, its own cut corner, a gold base line, the title in the display face.
+- **GameButton** (`.mu-btn`): a physical key. A glossy split bevel, a rim, a solid 3 px lip under it; the press pushes it
+  in (3 px down, the lip gone); hover glows and a shine sweeps across. Gold is the one primary action. With `ctl` + `api`
+  it stands for a game control: hover is the game's (api.hover: the engine's own hover, its sound and help text), the
+  press the game's click (and its sound).
+- **GameField** (`.mu-field`): an inset slot cut into the panel; focus lights it gold.
+- **GameTabs** (`.mu-tabs`, `.mu-tab`): raised plates on a sunken rail; the chosen one blue with a gold top line.
+- **GameList** (`.mu-list`, `.mu-row`): rows in a sunken well; hover lights a row; the chosen one a blue bar with a gold
+  notch.
+- **GameDialog**: a GamePanel over a dimmed screen, the message, the game's buttons (primary gold); Enter the primary, Esc
+  the way out.
+- **Type:** Audiowide (OFL, self-hosted with the art: ui/fonts/) for titles, plaques and section labels, uppercase and
+  tracked; Arial / system sans for everything read (the owner's text rule).
+- **Motion:** a window opens with a quick scale and fade where it stands (.18 s), never sliding in; keys press in at
+  70 ms. prefers-reduced-motion turns it off.
+- **The HUD bar** (the dock): dark brushed blue under a gold hairline, its actions as keycaps with gold key labels.
+- **Audio:** every modern button presses the game's own control, so the engine's own click (and hover, where it has one)
+  sounds play; nothing new is played from the page.
+
 ## UX changes (what was clumsy → what it is now)
 - **Getting anywhere:** open the Main Menu, read a list of twelve identical bars, click → the command dock along the bottom.
   - One click (or a key) for Deck D, Profile P, Friends F, Mail M, Duel Log L, Options O, Audio A.
