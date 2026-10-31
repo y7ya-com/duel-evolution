@@ -8,7 +8,8 @@
 //   Cut: CApp::dispatchSocket sets CApp +0xc54, +0xc58 = 2 (duel), which CCheckDisconnectTask (ovr/lobbyretry.c's
 //   f_0069c460, which calls rc_duel_cut first) turns into the "disconnected" box. During a duel it is a re-attach
 //   instead: the CNetDuel (CApp +0xc70) reconnects to its host / port (+0x04, +0x14, kept from the first connect),
-//   then sends the 0x6001 with the count, retrying 1, 2, 4, 8 s apart for up to 40 s. Past that, the box.
+//   then sends the 0x6001 with the count, retrying 1, 2, 4, 8 s apart for up to 40 s. Past that, a refused re-attach
+//   (the 0x6007 answer's booked bit clear: a duel the server no longer has), or a 4th cut in one duel, the box.
 #include "rt.h"
 
 #define APP 0x12711acu   // CApp*
@@ -18,21 +19,24 @@ void o_0068cf60(CPU *c);
 
 static uint32_t duel_pid, duel_commands;   // the duel's pid; 0x6202s received this duel
 static int in_duel;                         // a booked check went out and the duel connection is up
-static struct { int on, tries; uint64_t next, deadline; } re;
+static struct { int on, tries, waiting, count; uint64_t next, deadline; } re;   // count: re-attaches this duel
 
 // From ovr/duelmove.c's f_00692580 (CNetDuel::onSetCommand): one more 0x6202
 void rc_duel_command(void) { duel_commands++; }
 
 // 0x006917b0 CNetDuel::sendBookedCheck(pid) (thiscall, ret 4): a new duel
 void f_006917b0(CPU *c) {
-    duel_pid = RD32m(c->esp + 4), duel_commands = 0, in_duel = 1;
+    duel_pid = RD32m(c->esp + 4), duel_commands = 0, in_duel = 1, re.count = 0, re.waiting = 0;
+    rc_log("duel: booked check as pid %u", duel_pid);
     o_006917b0(c);
 }
 
-// 0x0068cf60 CMessageIOBase::sendBye (fastcall, this): the client closing its duel connection ends the duel for us
+// 0x0068cf60 CMessageIOBase::sendBye (fastcall, this): the client closing its duel connection ends the duel for us. Not
+// the bye that follows a server cut (CApp::dispatchSocket sets +0xc54 / +0xc58 2 first, then disconnects, which sends
+// one): that duel is the re-attach's.
 void f_0068cf60(CPU *c) {
     uint32_t app = RD32m(APP);
-    if (app && c->ecx == RD32m(app + 0xc70)) in_duel = 0;
+    if (app && c->ecx == RD32m(app + 0xc70) && !(rc_mem[app + 0xc54] && RD32m(app + 0xc58) == 2)) in_duel = 0;
     o_0068cf60(c);
 }
 
@@ -64,10 +68,20 @@ int rc_duel_cut(CPU *c) {
     uint32_t app = RD32m(APP), duel = app ? RD32m(app + 0xc70) : 0;
     if (!duel) return 0;
     uint64_t now = rc_now_us();
+    if (re.waiting && rc_mem[duel + 0x1c] == 2) {   // the server's 0x6007 to our re-attach: CNetDuel +0x670 bit 0 booked
+        re.waiting = 0;
+        if (!(RD32m(duel + 0x670) & 1)) {
+            rc_log("duel: the server refused the re-attach: the disconnected box");
+            in_duel = 0;
+            rc_mem[app + 0xc54] = 1, WR32m(app + 0xc58, 2);
+            return 0;
+        }
+    }
     if (app && rc_mem[app + 0xc54] && RD32m(app + 0xc58) == 2) {
-        if (!in_duel || !duel_pid) return 0;   // not ours to take: the box
+        if (!in_duel || !duel_pid || re.count >= 3) return 0;   // not ours to take, or a 4th cut this duel: the box
         rc_mem[app + 0xc54] = 0, WR32m(app + 0xc58, 0);
         if (!re.on) {
+            re.count++;
             re.on = 1, re.tries = 0, re.next = now, re.deadline = now + 40000000ull;
             rc_log("duel: the server cut the duel: re-attaching (%u commands so far)", duel_commands);
         }
@@ -87,7 +101,7 @@ int rc_duel_cut(CPU *c) {
         rc_call(&t, 0x0068ce90, 1, z);   // select(this->notify)
         send_reattach(c, duel);
         rc_log("duel: re-attached as pid %u from command %u", duel_pid, duel_commands);
-        re.on = 0;
+        re.on = 0, re.waiting = 1;
         return 1;
     }
     if (st == 1) return 1;   // YGC_CONNECTING
