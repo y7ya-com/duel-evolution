@@ -49,8 +49,10 @@ const CSS = `
 /* the plate: a white-to-silver panel with real depth (an inner top light, a crisp edge, a soft shadow) */
 .mu-plate { position: absolute; border-radius: var(--r-plate) var(--r-plate) var(--r-plate) 6px; isolation: isolate; background: var(--plate);
   box-shadow: 0 0 0 1px var(--plate-edge), inset 0 1px 0 var(--plate-hi), inset 0 -1px 0 rgba(20, 50, 100, .05),
-    0 16px 32px -14px rgba(10, 35, 80, .45), 0 3px 8px rgba(10, 35, 80, .16);
-  animation: mu-rise .26s var(--ease) both; }
+    0 16px 32px -14px rgba(10, 35, 80, .45), 0 3px 8px rgba(10, 35, 80, .16); }
+/* no entrance animation on a window's plate: it paints opaque, in place, from its first frame. The game draws a new
+   window its own way for that one frame (the hide table takes effect at the next Present); a plate fading or rising in
+   showed it through, and a plate re-entering whenever its root was shown again flickered */
 /* the title band: the 2008 title bar's blue, calmer */
 .mu-head { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px 0 14px; position: relative;
   border-radius: var(--r-plate) var(--r-plate) 0 0; background: var(--band);

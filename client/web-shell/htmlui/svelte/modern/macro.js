@@ -36,8 +36,9 @@ export async function menu(api, label) {
     await api.click(b.id);
     return true;
   } finally {
-    // the menu closes as the window opens: keep it hidden through that frame
-    await frame(); await frame();
+    // the menu closes as the window opens: hidden until the game says it is closed (its frames, not the browser's: at
+    // 120 Hz two browser frames are less than one of the game's, and the menu flashed at the bottom left)
+    await waitFor(s => !s.windows.some(w => w.cls === 'CMainMenu' && w.shown), 1500);
     document.documentElement.classList.remove('mu-macro');
     busy = false;
   }

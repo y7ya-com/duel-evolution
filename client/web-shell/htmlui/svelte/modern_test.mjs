@@ -203,4 +203,30 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   mu.set(true);
   assert.equal(seen, true, 'listeners hear the switch');
 }
+// A dock quick action (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
+// however many browser frames that takes (at 120 Hz, or a slow frame, two browser frames were not enough: the menu
+// flashed at the bottom left). The game here closes it 6 frames after its button is pressed.
+{
+  const { menu } = await import('./modern/macro.js');
+  const cl = new Set();
+  let shown = false, closeAt = -1, f = 0;
+  const sw = { id: 1, cls: 'CWindowTaskPictureSwitch', shown: true, name: 'MENUBAR_MENU' };
+  const btn = { id: 2, cls: 'CWindowTaskButtonMain', shown: true, label: 'Friend List' };
+  const snapshot = () => ({ windows: [{ cls: 'CWindowModelMenu', shown: true, controls: [sw] }, { cls: 'CMainMenu', shown, controls: [btn] }] });
+  const leaks = [];
+  globalThis.yo2Html = { snapshot };
+  globalThis.document = { documentElement: { classList: { add: c => cl.add(c), remove: c => cl.delete(c) } } };
+  globalThis.requestAnimationFrame = r => setTimeout(() => {
+    f++;
+    if (closeAt >= 0 && f >= closeAt) shown = false;
+    if (shown && !cl.has('mu-macro')) leaks.push(f);
+    r();
+  }, 0);
+  const api = { click: async id => { if (id === 1) shown = true; if (id === 2) closeAt = f + 6; } };
+  assert.equal(await menu(api, 'Friend List'), true);
+  for (let i = 0; i < 10; i++) await new Promise(r => requestAnimationFrame(r));
+  assert.deepEqual(leaks, [], 'the Main Menu never shows during a quick action');
+  assert.equal(cl.has('mu-macro'), false, 'shown again once the game closed it');
+  delete globalThis.yo2Html;
+}
 console.log('modern_test: ok');
