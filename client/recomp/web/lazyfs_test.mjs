@@ -67,6 +67,7 @@ function makeEnv(store, ls, opts = {}) {
         }
     }
     async function fetch(url, o = {}) {
+        if (pathOf(url) === "api/de/prefetch/duel" && opts.duel === null) return { status: 204, headers: { get: () => null } };   // PvP
         if (pathOf(url) === "api/de/prefetch/duel")   // the server's NPC deck for the duel being set up
             return { status: 200, headers: { get: () => null }, json: async () => opts.duel ?? { npc: 35, cards: [2, 3], fields: [3] } };
         const p = pathOf(url), headers = new Map(Object.entries({ etag: '"e1"', "cache-control": opts.cc || "no-cache" }));
@@ -263,6 +264,25 @@ assert.equal(Lfx.pinned.get(fxKey)?.tag, "duelfx", "the scene lets it go, the du
 g.Module.onYo2Scene("begin", 0x20, 10), g.Module.onYo2Scene("end", 0x20, 10);
 assert.ok(!tags().some((t) => ["duelfx", "duelui", "npc", "deck", "field"].includes(t)), "released back in My Room");
 console.log("duel: ok");
+
+// ---- Field Spell backgrounds: a PvP opponent's deck is not known, so all of them (not over a metered link); the
+// player's own deck's in any duel (card 3: Field Spell 4336, duel_filed_01)
+for (const [opts, all, what] of [[{ duel: null }, true, "PvP: every Field Spell"], [{ duel: null, phone: true }, false, "PvP over a metered link"],
+    [{ duel: { npc: 35, cards: [2], fields: [] } }, false, "an NPC without one"]]) {
+    const e = makeEnv(new Map(), new Map(), opts), L = e.Module.yo2Lazy;
+    await e.ready();
+    const filed = () => [...L.pinned.entries()].some(([k, p]) => p.tag === "field" &&
+        Number(k.split("#").pop()) === Math.floor(L.files2.get("data/y2/duel/field/duel_filed_01.png")[0] / MB));
+    e.read("/game/merge.dat", 0, toc);
+    await settle(L);
+    e.Module.onYo2Scene("begin", 12, 0x1e);
+    await settle(L);
+    assert.equal(filed(), all, what);
+    await L.prefetchCards([3]);   // rt/decktap.c: the player's deck
+    await settle(L);
+    assert.ok(filed(), what + ": the player's own Field Spell");
+}
+console.log("Field Spell backgrounds: ok");
 
 fetched.length = 0;
 // ---- trickle: only when the server lets the HTTP cache keep game files; never kept in memory
