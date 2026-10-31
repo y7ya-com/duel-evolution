@@ -39,7 +39,9 @@ for (const w of wins) {
   assert.ok(first, w.cls + ' mounted');
   assert.deepEqual(first.root, [w.x, w.y, w.w, w.h], w.cls + ': its root is the game rect from its first frame');
   // a backdrop scrim may fade; the window's own plate never moves or fades in
-  assert.deepEqual(first.anim.filter(a => !/(^|-)(mu-)?fade$/.test(a)), [], w.cls + ': nothing in it animates as it opens');
+  // (mu-arrive, the game-UI plate's arrival, is a brightness pass over the frame: no opacity, no transform, nothing
+  // uncovered, so it may run from the first frame; the plate's rect and opacity are checked below)
+  assert.deepEqual(first.anim.filter(a => !/(^|-)(mu-)?fade$/.test(a) && a !== 'mu-arrive'), [], w.cls + ': nothing in it animates as it opens');
   assert.equal(first.opacity, 1, w.cls + ': its plate is opaque from its first frame');
   await new Promise(r => setTimeout(r, 600));
   const later = (await b.ev(state)).find(s => s.cls === w.cls);
