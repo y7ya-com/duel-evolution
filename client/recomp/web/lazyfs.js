@@ -503,6 +503,14 @@ Module.preRun.push(() => {
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
+    // the page's own reads (the modern deck editor's card pictures), in the background through the chunk cache, never
+    // on the game's frame: a merge.dat entry by name, or a card's big art by its YO2 id (card.dat's when it is there)
+    L.entry = (name) => fileBytes(name);
+    L.cardArt = async (id) => {
+        await loadCardNames();
+        const e = artEntry((cardNames || [])[id] || "");
+        return e[1] ? entryBytes(e[0], e[1]) : null;
+    };
     L.cardIds = async (names) => { await loadCardNames(); return names.map((n) => (cardNames || []).indexOf(n)).filter((i) => i > 0); };
     function mapAt(pos) {
         for (const m of MAPS) { const s = spans.get("data/map/map_" + m); if (s && pos >= s[0] && pos < s[1]) return m; }

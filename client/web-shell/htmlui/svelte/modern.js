@@ -18,6 +18,7 @@ import Avatar from './modern/Avatar.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
+import Editor from './modern/deck/Editor.svelte';
 import { deck } from './deck/state.svelte.js';
 import { isArt, isSwf, inEditor } from './deck/art.js';
 import { quickInstall } from './deck/quick.js';
@@ -57,6 +58,36 @@ const deckScreen = {
   },
 };
 
+// Edit Deck (scene 0x24) is the modern deck editor, owned (deck/Editor.svelte, on the deck window: the whole scene); the
+// trunk and the card detail draw nothing there (the editor shows both). Card Swap and Trade keep deckScreen's skin.
+// The file list stays deckScreen's (the engine's dialogs of the editor's Load / Save / Structure Deck).
+const deckEditor = {
+  ...deckScreen,
+  classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'],
+  get mode() { return inEditor() ? 'owned' : 'pass'; },
+  passthrough: x => !inEditor() && deckScreen.passthrough(x),
+  mount(win, root, api) {
+    if (!inEditor()) return { legacy: deckScreen.mount(win, root, api) };
+    if (win.cls !== 'CWindowModelDeck') { root.style.display = 'none'; return { none: true }; }
+    const view = new View(win, api), app = mount(Editor, { target: root, props: { view } });
+    flushSync();
+    // the bridge clips a window's root around the engine's windows in front (its rect only) and makes it take the
+    // pointer: the editor covers the whole scene and cuts its own holes (Editor.svelte), so the root neither clips nor
+    // takes the pointer itself (the editor does, outside its holes)
+    const fix = () => { if (root.style.clipPath) root.style.clipPath = ''; if (root.style.pointerEvents !== 'none') root.style.pointerEvents = 'none'; };
+    const mo = new MutationObserver(fix);
+    mo.observe(root, { attributes: true, attributeFilter: ['style'] });
+    fix();
+    return { view, app, mo };
+  },
+  update(win, prev, root, api, st) {
+    if (st.legacy) return deckScreen.update(win, prev, root, api, st.legacy);
+    if (st.view && st.view.win !== win) { st.view.win = win; st.view.api = api; flushSync(); }
+  },
+  unmount(root, st) { if (st.legacy) deckScreen.unmount(root, st.legacy); else if (st.app) { st.mo.disconnect(); unmount(st.app); } },
+  backdrop: (win, el, api, state) => deckScreen.backdrop(win, el, api, state, { scene: -1 }),   // no scene: the editor covers it
+};
+
 const screens = [
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
@@ -66,6 +97,7 @@ const screens = [
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
-  deckScreen,
+  deckEditor,
+  { ...deckScreen, classes: ['CWindowModelFileList'], backdrop: undefined },
 ];
 export default { screens, classes: screens.flatMap(s => s.classes) };

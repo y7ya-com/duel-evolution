@@ -67,7 +67,7 @@ def main():
     wr = subprocess.Popen(["nice", "npx", "wrangler", "dev", "--local", "--port", str(PORT), "--persist-to", os.path.join(D, "wr"),
                            "--var", f"PUBLIC_ORIGIN:{ORIGIN}", "--var", f"TEST_SIGNIN_SECRET:{SECRET}",
                            "--var", f"BETTER_AUTH_SECRET:{secrets.token_urlsafe(48)}", "--var", "DEPLOY_ENV:staging",
-                           "--var", "PROGRESSION:1", "--var", "LOG:1",
+                           "--var", "PROGRESSION:" + os.environ.get("STACK_PROGRESSION", "1"), "--var", "LOG:1",
                            # STACK_VARS=K:V,K:V: more server vars (e.g. DEV:1,NPC_CHALLENGE:2 for a dev NPC duel)
                            *[x for kv in os.environ.get("STACK_VARS", "").split(",") if kv for x in ("--var", kv)]],
                           cwd=snap, stdout=open(os.path.join(D, "server.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)

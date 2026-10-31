@@ -132,6 +132,12 @@ export const ROUTES = {
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
+  // the modern deck editor (svelte/modern/deck/Editor.svelte): the deck route, then Modern UI on. DECK_ID=0 with
+  // STACK_PROGRESSION=0 (stack.py): a character with every card and no starter, for a full trunk
+  'modern-deck': { player: 'Modern Tester', deck: process.env.DECK_ID != null ? +process.env.DECK_ID : undefined, steps: [['scene', 4, 90000],
+    ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000],
+    ['click', 43, 747], ['wait', 1500], ['click', 140, 422], ['window', 'CWindowModelKaban', 90000], ['wait', 4000],
+    ['js', 'yo2Html.modern(true)'], ['wait', 3000]], flip: [] },
   // the deck editor's file list: the deck route, then SAVE DECK (the side button at 0, 67)
   'deck-files': { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
