@@ -90,6 +90,27 @@ export class WorldDO extends DurableObject<Env> {
         if (st === 200) console.warn(`[economia] admin: deck "${(body as any).name}" for ${String((body as any).acct).slice(0, 8)} set as current`);
         return Response.json(r, { status: st });
       }
+      if (url.pathname === "/__admin/reset-account") {
+        // backup first (the account's state + its deck store, to a private R2 object), then admin.resetAccount, then
+        // the deck store rows (user_decks / user_deck_current, keyed "<acct>/<slot>"); a failed backup changes nothing
+        const acct = String((body as any).acct ?? ""), db = this.env.DB, bucket = this.env.BUCKET;
+        const account = g.store.peek().accounts?.[acct];
+        if (!account) return Response.json({ error: "no_account" }, { status: 404 });
+        if (!db || !bucket) return Response.json({ error: "no D1/R2" }, { status: 503 });
+        const keys = [0, 1, 2, 3].map((slot) => `${acct}/${slot}`);   // every slot: a deleted character's decks too
+        const rows = async (t: string) =>
+          (await db.prepare(`SELECT * FROM ${t} WHERE char_key IN (${keys.map(() => "?").join(",")})`).bind(...keys).all()).results;
+        const decks = await rows("user_decks"), current = await rows("user_deck_current");
+        const tag = String((body as any).tag ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || acct.slice(0, 8).replace(/[^A-Za-z0-9]/g, "");
+        const at = new Date().toISOString();
+        const backup = `private/backups/account-${tag}-${at}.json`;
+        await bucket.put(backup, JSON.stringify({ acct, at, account, user_decks: decks, user_deck_current: current }));
+        const r = await new Promise<ReturnType<typeof g.admin.resetAccount>>((res) => this.srv.world.run(() => res(g.admin.resetAccount(acct))));
+        if ("error" in r) return Response.json({ ...r, backup }, { status: 409 });
+        await db.batch(["user_decks", "user_deck_current"].map((t) =>
+          db.prepare(`DELETE FROM ${t} WHERE char_key IN (${keys.map(() => "?").join(",")})`).bind(...keys)));
+        return Response.json({ ...r, backup, user_decks: decks.length, user_deck_current: current.length });
+      }
       const out = await new Promise<{ ok: unknown } | { error: string }>((res) => this.srv.world.run(() => {
         try { res({ ok: g.admin.run(url.pathname.slice(9), body as Record<string, unknown>) }); } catch (e) { res({ error: String(e) }); }
       }));
@@ -101,6 +122,15 @@ export class WorldDO extends DurableObject<Env> {
       const out = user ? await new Promise<ReturnType<NonNullable<typeof this.srv.game.duel>["prefetchFor"]>>((res) =>
         this.srv.world.run(() => res(this.srv.game.duel?.prefetchFor(user) ?? null))) : null;
       return out ? Response.json(out, { headers: { "Cache-Control": "no-store" } }) : new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/__de/friends") {
+      // the Worker forwards GET /api/de/friends here with x-de-user (a checked session); Lobby.friendsInfo
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(this.srv.game.lp.friendsInfo(user)); } catch (e) { console.error(`[friends] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
       // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts

@@ -166,6 +166,22 @@ export class Admin {
     return "ok";
   }
 
+  /** The owner's "fresh account" (2026-10-31): the account's whole game state is dropped (the D1 projector deletes
+   *  its rows: characters, trunk, claims, friends…), its sign-in identity (user, Discord link) stays, so its next
+   *  sign-in registers it as a new player. Refused while it is online: kick first, so no close handler saves into it.
+   *  do.ts backs it up to R2 and drops its deck store (outside the state) around this. */
+  resetAccount(acct: string): { ok: true; characters: number } | { error: "no_account" | "online" } {
+    const a = this.g.store.peek().accounts?.[acct];
+    if (!a) return { error: "no_account" };
+    const s = this.g.hub.sessions.get(acct);
+    if (s && [...s.conns.values(), s.lobby].some((c) => c && !c.closed)) return { error: "online" };
+    this.g.hub.sessions.delete(acct);
+    this.g.store.commit({}, { [acct]: null });
+    const characters = Object.keys(a.profiles ?? {}).length;
+    this.g.log(`[economia] admin: account ${acct.slice(0, 8)} reset to new (${characters} characters dropped)`);
+    return { ok: true, characters };
+  }
+
   status() {
     const players = [...this.g.hub.sessions.values()].map((s: Session) => ({ acct: s.acct, pid: s.pid, name: s.name, block: s.block,
       online: [...s.conns.values(), s.lobby].some((c) => c && !c.closed) }));
