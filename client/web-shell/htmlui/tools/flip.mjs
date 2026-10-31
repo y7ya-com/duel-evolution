@@ -63,7 +63,7 @@ export const ROUTES = {
   // the lobby's chat: Chat Tester's My Room, the red door held with the right button (its room menu), Lobby, the NPC
   // popup's OK
   chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
-    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ["leave", 504, 214, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
     ['say', 636, 720, 'hello lobby'], ['say', 636, 720, 'a longer line to see how the log wraps a message that runs past the width of the chat window, then keeps going for a while'],
     ['wait', 2000]], flip: ['CChatWindow'],
