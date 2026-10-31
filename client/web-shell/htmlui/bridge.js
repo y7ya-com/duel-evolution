@@ -75,6 +75,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
   back.className = 'layer';
   layer.id = 'htmlui';
   host.append(back, layer);
+  // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on window in the
+  // bubbling phase. Stopped here, on the roots' parent, not on each root: Svelte 5 delegates a screen's onkeydown to its
+  // root (the mount target) and gives up once the event is stopped, so a stop on the root starved every handler above
+  // the focused element (htmlui-select: Esc on a plate <section> never ran)
+  for (const t of ['keydown', 'keyup', 'keypress']) layer.addEventListener(t, ev => ev.stopPropagation());
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set();
@@ -91,9 +96,6 @@ export async function makeLayer(host, screens, art = 'ui/') {
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
-        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
-        // window in the bubbling phase
-        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
