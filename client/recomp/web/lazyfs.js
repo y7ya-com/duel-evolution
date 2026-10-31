@@ -677,10 +677,11 @@ Module.preRun.push(() => {
 
     // ---- Sound.dat's sound effects: ovr/sedefer.c loads them (5.7 MB in /SE/) at the first Present at which this
     // says they're in memory, not before the first frame. Its first call fetches them, ahead of everything but the
-    // scenes' sets; they stay pinned until the load. Anything in the way (no Sound.dat, no prefetch, 30 s without a
-    // chunk coming in) answers 1: the game then reads them as it always did. A slow link that's still bringing them
-    // keeps the wait (a phone at ~1 MB/s, its link shared with the merge.dat misses, read 5 of them in a 6.5 s stall).
-    let sound = null, seChunks = null, seAsked = 0, seHave = 0;   // Sound.dat; its directory's chunk, then the folder's chunks
+    // scenes' sets; they stay pinned until the load. No Sound.dat or no prefetch answers 1: the game then reads them as
+    // it always did. Otherwise it waits however long the link takes, asking again every 5 s for a chunk whose fetch
+    // failed; until then an effect played is skipped. It never gives up into the game's own reads: on a slow link those
+    // are synchronous misses of the whole folder at once (stall c31755e9: 7 chunks, one 28.5 s frame at login).
+    let sound = null, seChunks = null, seAsked = 0;   // Sound.dat; its directory's chunk, then the folder's chunks
     L.sounds = () => {
         if (!sound || !prefetchOn || !files.get(sound).etag) return 1;
         if (!seChunks) seChunks = [0], seAsked = performance.now(), want(sound, 0, 1, "se");
@@ -693,9 +694,10 @@ Module.preRun.push(() => {
             if (!hi) return 1;
             for (let i = Math.floor(lo / CHUNK); i * CHUNK < hi; i++) seChunks.push(i), want(sound, i, 1, "se");
         }
-        const have = seChunks.filter((i) => memChunk(sound, i)).length;
-        if (have > seHave) seHave = have, (seAsked = performance.now());   // the 30 s run from the last chunk in
-        return (seChunks.length > 1 && have === seChunks.length) || performance.now() - seAsked > 30000 ? 1 : 0;
+        const missing = seChunks.filter((i) => !memChunk(sound, i));
+        if (seChunks.length > 1 && !missing.length) return 1;
+        if (performance.now() - seAsked > 5000) seAsked = performance.now(), missing.forEach((i) => want(sound, i, 1, "se"));   // a dropped fetch
+        return 0;
     };
     L.soundsLoaded = () => unpin((t) => t === "se");
 

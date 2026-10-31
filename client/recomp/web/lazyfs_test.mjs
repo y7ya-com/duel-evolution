@@ -485,7 +485,7 @@ console.log("prefetch=0: ok");
         assert.equal(syncXhr, before, "the load reads them without a synchronous request");
         L.soundsLoaded();
         assert.ok(![...L.pinned.values()].some((p) => p.tag === "se"), "unpinned after the load");
-        // a slow link: the wait lasts while chunks come in, and gives up 30 s after the last one (here 5's fetch fails)
+        // a slow link: no giving up into synchronous reads; a chunk whose fetch failed (here 5) is asked again after 5 s
         let t = 0;
         const w = makeEnv(new Map(), new Map(), { now: () => t }), W = w.Module.yo2Lazy;
         await w.ready();
@@ -493,9 +493,10 @@ console.log("prefetch=0: ok");
         fetchFaults.push((r) => r.startsWith(`bytes=${5 * MB}-`));
         assert.equal(W.sounds(), 0);
         await settle(W);
-        t = 29000, assert.equal(W.sounds(), 0, "3 and 4 came in");
-        t = 50000, assert.equal(W.sounds(), 0, "50 s since the ask, 21 since the last chunk: still waiting");
-        t = 60000, assert.equal(W.sounds(), 1, "31 s without a chunk: the game reads them");
+        t = 4000, assert.equal(W.sounds(), 0, "3 and 4 came in, 5's fetch failed");
+        t = 600000, assert.equal(W.sounds(), 0, "10 minutes on: still waiting, never the game's own reads");
+        await settle(W);
+        assert.equal(W.sounds(), 1, "5 asked again: all in memory");
         const off = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
         await off.ready();
         assert.equal(off.Module.yo2Lazy.sounds(), 1, "prefetch=0: the game reads them as it asks");
