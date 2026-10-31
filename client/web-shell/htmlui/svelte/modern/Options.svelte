@@ -1,7 +1,7 @@
 <script>
   // The title's Options, modern (COptionDlg; logic.js options): the game's own layout, painted. Pass mode: the game keeps
   // every click and the volume drag; the flag and screen pictures stay its own. Before: a cream card of flags with no
-  // names and two monitor pictures with no words. Now the sections are named on the plate, the chosen flag and screen
+  // names; now in the game frame with an OPTIONS plaque above the game's layout and two monitor pictures with no words. Now the sections are named on the plate, the chosen flag and screen
   // are ringed in gold, a flag or screen under the pointer says what it is on its section's line (the language's own
   // name, "Full screen" / "Window"); the plate has a hole over each picture, the volume is a modern track with - / + at its ends, OK is gold. OK and Cancel take the pointer and the
   // focus: Enter is OK, Esc Cancel.
@@ -23,14 +23,18 @@
   }
   // keys on the panel itself (the bridge stops a key at the window root, where Svelte's delegated onkeydown would be)
   const keyed = el => { el.addEventListener('keydown', keys); return () => el.removeEventListener('keydown', keys); };
-  // the plate with a hole over each picture the game keeps drawing (the DOM is over the canvas)
-  const holes = $derived(`path(evenodd, "M0 0H${win.w}V${win.h}H0Z${[...o.flags, ...o.screens].map(({ c }) => `M${c.x} ${c.y}h${c.w}v${c.h}h${-c.w}Z`).join('')}")`);
+  // the game frame (theme.js .mu-plate) grown by its plaque above the game's own layout (PLAQUE px), with a hole over
+  // each picture the game keeps drawing (the DOM is over the canvas). The clip's outer edge is 40 px out, so the
+  // plate's drop shadow stays; its holes cut the frame's field (its ::after) too
+  const PLAQUE = 44, FOOT = 10;   // and a foot under the game's OK / Cancel (they end 5 px from its window's edge)
+  const holes = $derived(`path(evenodd, "M-40 -40H${win.w + 40}V${win.h + PLAQUE + FOOT + 40}H-40Z${[...o.flags, ...o.screens].map(({ c }) => `M${c.x} ${c.y + PLAQUE}h${c.w}v${c.h}h${-c.w}Z`).join('')}")`);
   const ring = c => `left:${c.x - 4}px;top:${c.y - 4}px;width:${c.w + 8}px;height:${c.h + 8}px`;
 </script>
 
 <div class="mu" bind:this={panel} {@attach keyed}>
-  <div class="shade" style:width="{win.w}px" style:height="{win.h}px"></div>
-  <div class="plate" style:width="{win.w}px" style:height="{win.h}px" style:clip-path={holes}></div>
+  <div class="mu-plate" style:left="0" style:top="{-PLAQUE}px" style:width="{win.w}px" style:height="{win.h + PLAQUE + FOOT}px" style:clip-path={holes}>
+    <header class="mu-head"><h2>Options</h2></header>
+  </div>
   {#each o.heads as h, i (h.c.id)}
     <p class="head" style:top="{h.c.y - 2}px" style:width="{win.w}px">{h.text}{#if i < 2 && value[i]()}<span class="val">{value[i]()}</span>{/if}</p>
   {/each}
@@ -55,12 +59,9 @@
 </div>
 
 <style>
-  .shade, .plate { position: absolute; left: 0; top: 0; border-radius: var(--r-plate); }
-  .shade { box-shadow: 0 0 0 1px var(--plate-edge), 0 16px 32px -14px rgba(10, 35, 80, .45), 0 3px 8px rgba(10, 35, 80, .16); }
-  .plate { background: var(--plate); box-shadow: inset 0 1px 0 var(--plate-hi); animation: mu-rise .26s var(--ease) both; }
-  .head { position: absolute; left: 0; margin: 0; display: flex; justify-content: center; align-items: baseline; gap: 8px; font-size: 11px; font-weight: 800;
-    letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
-  .val { font-size: 13px; font-weight: 750; letter-spacing: 0; text-transform: none; color: var(--ink-strong); }
+  .head { position: absolute; left: 0; margin: 0; display: flex; justify-content: center; align-items: baseline; gap: 8px; font-family: var(--display); font-size: 11px; font-weight: 400;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .val { font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; font-size: 13px; font-weight: 750; letter-spacing: 0; text-transform: none; color: var(--ink-strong); }
   .ring { position: absolute; border-radius: 8px; box-shadow: 0 0 0 1px var(--n200); transition: box-shadow .14s; }
   .ring.hover { box-shadow: 0 0 0 2px var(--p500); }
   .ring.on { box-shadow: 0 0 0 3px var(--gold-400), 0 0 0 4px var(--gold-edge), 0 4px 10px -4px rgba(140, 80, 0, .5); }

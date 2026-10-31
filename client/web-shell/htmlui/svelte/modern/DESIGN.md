@@ -233,7 +233,9 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   nothing pointed at yet, the well says what to do: drag a disk onto a lit slot. Close takes the focus (Esc, Enter);
   the left / right arrow keys turn the page.
 - **Options** (the title's, COptionDlg; Options.svelte, pass: painted over the game's own layout, so every click and
-  the volume drag stay the game's): the plate has a hole over each flag and screen picture (the engine's); the section
+  the volume drag stay the game's): the game frame (.mu-plate) grown by an OPTIONS plaque above the game's layout and a
+  foot under its buttons, with a hole over each flag and screen picture (the engine's; the clip's outer edge 40 px out so
+  the frame's drop shadow stays); section labels in the display face; the section
   names are small caps with the current choice beside them; the chosen flag and screen are ringed in gold, a hovered one
   in blue, and its name (the language's own: Deutsch, Français ...; Full screen / Window) takes the section's line while
   it is pointed at; the volume is a modern track and knob (from the slider's sprites) with - / +; OK gold. OK has the
