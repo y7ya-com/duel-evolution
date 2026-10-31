@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 let now = 0;
 const posts = [], listeners = {}, Module = { yo2Lazy: { missLog: [], duel: "npc" } };
-const PThread = { runningWorkers: [], unusedWorkers: [] };
+const PThread = { pthreads: {}, unusedWorkers: [] };   // Emscripten's, as yo2rc.js has it
 const ctx = { Module, PThread, URLSearchParams, JSON, Math, Blob,
     location: { search: "" }, performance: { now: () => now }, navigator: { userAgent: "test" },
     document: { hidden: false, querySelector: () => ({ content: "b1" }) },
@@ -38,7 +38,7 @@ Module.onYo2Scene("end", 0x1e, 0x1c);
 Module.yo2NetIO(1), (now += 1000), Module.yo2NetIO(1), (now += 2500), Module.yo2NetIO(0);
 assert.equal(Module.yo2Stalls[1].kind, "wait"), assert.equal(Module.yo2Stalls[1].ms, 3500, "from the first unanswered send");
 
-PThread.runningWorkers.length = 9, PThread.unusedWorkers.length = 0;   // the pool of 8 grew by one
+for (let i = 1; i <= 9; i++) PThread.pthreads[i * 16] = {};   // 9 threads running: the pool of 8 grew by one
 now += 100, Module.onYo2Scene("begin", 0x1c, 0x20), (now += 300), Module.yo2Frame(120.4, 30, 0, 280, 1, 0x59b6f9);
 assert.equal(Module.yo2Stalls[2].sw, true, "a scene switch inside it"), assert.equal(Module.yo2Stalls[2].decode, 120);
 assert.equal(Module.yo2Stalls[2].waitAt, "59b6f9", "where its longest WaitFor* returns to");
@@ -60,3 +60,15 @@ for (let i = 0; i < 300; i++) frame(25);
 Module.onYo2Scene("begin", 0x1c, 0x1d);
 assert.equal(Module.yo2Stalls.filter((x) => x.kind === "fps").length, 1, "not a duel the tab was hidden during");
 console.log("stall_test ok");
+
+// telemetry never throws into the game's frame loop: an Emscripten without these PThread fields, and a throwing source
+{
+    const c2 = { ...ctx, Module: { yo2Lazy: { missLog: [] } }, PThread: {} };
+    vm.runInNewContext(readFileSync(new URL("stall.js", import.meta.url), "utf8"), c2);
+    const M = c2.Module;
+    now += 1000, M.yo2Frame(), (now += 400), M.yo2Frame(0, 0, 0, 300, 1, 0x59b6f9);
+    assert.equal(JSON.stringify(M.yo2Stalls.at(-1).thr), "[]", "PThread without those fields: thr unknown");
+    M.yo2Sfx = { underruns: () => { throw new Error("boom"); } };
+    assert.doesNotThrow(() => M.yo2Frame(), "a throw inside stays inside");
+}
+console.log("stall_test never throws: ok");
