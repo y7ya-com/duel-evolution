@@ -23,7 +23,7 @@ static int reconnecting;
 static void net_state(int on, int attempt) {
     reconnecting = on;
 #ifdef __EMSCRIPTEN__
-    MAIN_THREAD_ASYNC_EM_ASM({ globalThis.yo2Net = {reconnecting: !!$0, attempt: $1}; }, on, attempt);
+    MAIN_THREAD_ASYNC_EM_ASM({ globalThis.yo2Net = ({reconnecting: !!$0, attempt: $1}); }, on, attempt);
 #else
     (void)attempt;
 #endif
