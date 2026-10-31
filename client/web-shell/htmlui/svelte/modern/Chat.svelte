@@ -76,15 +76,15 @@
         {#if p.shorter}<button type="button" class="mu-icon-btn" aria-label="Shorter" title="Shorter" disabled={!p.shorter.enabled} onclick={() => api.click(p.shorter.id)}><svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 7.5 10 12.5l5-5" /></svg></button>{/if}
       </div>
     </header>
-    <div class="log mu-scroll" role="log" aria-live="polite" bind:this={logEl} {onscroll}>
+    {#if p.open}<div class="log mu-scroll" role="log" aria-live="polite" bind:this={logEl} {onscroll}>
       {#each lines as l, i (i)}
         <p class:notice={l.notice}>{#if l.name}<b>{l.name}</b>{/if}<span>{l.text}</span></p>
       {:else}
         <p class="empty">No messages yet. Say hello.</p>
       {/each}
-    </div>
+    </div>{/if}
     {#if fresh}<button type="button" class="jump" onclick={latest}>{fresh} new {fresh === 1 ? 'message' : 'messages'} <svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 8l5 5 5-5" /></svg></button>{/if}
-    {#if p.input}
+    {#if p.input && p.typing}
       <div class="composer">
         <input class="mu-field" bind:this={inputEl} bind:value type="text" maxlength={p.input.maxLen || 128} spellcheck="false" autocomplete="off"
           placeholder="Message" aria-label="Message" oninput={e => { entered = null; if (!e.isComposing) commit(); }}
