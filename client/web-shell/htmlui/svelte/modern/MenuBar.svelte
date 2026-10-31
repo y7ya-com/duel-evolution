@@ -8,6 +8,7 @@
   // The window is 384 wide at the bottom left; the dock spans the screen (clip: false).
   import Icon from './Icon.svelte';
   import { menu, QUICK, quickKey, menuSwitch } from './macro.js';
+  import { openGeneric } from './Generic.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const icons = $derived(win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.shown).sort((a, b) => a.x - b.x));
@@ -33,6 +34,8 @@
       const snap = globalThis.yo2Html?.snapshot?.(), f = snap?.focus;
       const owner = f && snap.windows.find(w => w.controls.some(c => c.id === f));
       if (f && globalThis.yo2Html?.modernScreens?.get(owner?.cls)?.mode !== 'owned') return;
+      // Enter is a generic window's while one is up (its primary: UX spec 1)
+      if (e.key === 'Enter' && openGeneric.size) return;
       if (e.key === 'Enter' && !/^(INPUT|TEXTAREA|BUTTON)$/.test(e.target?.tagName || '')) {
         const line = document.querySelector('.mu .composer input');
         if (line) { e.preventDefault(); e.stopPropagation(); line.focus(); }

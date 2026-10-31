@@ -220,6 +220,11 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   const dc2 = L.generic(win('CWindowModelDuelConfig', [ctl('ShadowText', { x: 38, y: 141, w: 256, h: 256, text: 'Auto Tracking' }),
     ctl('PictureSwitch', { x: 22, y: 157, w: 224, h: 32, label: '' }), ctl('ShadowText', { x: 22, y: 165, w: 224, h: 16, align: 1, text: 'Auto Cancel' })], { w: 492, h: 452 }));
   assert.deepEqual(dc2.items.map(i => [i.kind, i.label ?? i.text]), [['text', 'Auto Tracking'], ['button', 'Auto Cancel']]);
+  // its keys: Esc the way out, Enter the primary
+  const k = L.genericKeys(L.generic(win('CWindowModelDuelConfig', [ctl('ButtonDuel', { x: 299, y: 420, w: 140, h: 24, label: 'Cancel' }),
+    ctl('ButtonDuel', { x: 53, y: 420, w: 140, h: 24, label: 'OK' })], { w: 492, h: 452 })));
+  assert.deepEqual([k.leave.label, k.primary.label], ['Cancel', 'OK']);
+  assert.deepEqual(L.genericKeys(L.generic(win('CWindowModelHelp', []))), { leave: null, primary: null });
   // a well and its text share a control: the screen keys items by kind and id
   const keys = o.items.map(i => i.kind + i.c.id);
   assert.equal(new Set(keys).size, keys.length);

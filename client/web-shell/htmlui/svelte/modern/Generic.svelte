@@ -1,9 +1,14 @@
+<script module>
+  // the generic windows up now (their ids): the dock leaves Enter to them while one is
+  export const openGeneric = new Set();
+</script>
+
 <script>
   // Any window with no bespoke modern screen (logic.js generic, GENERIC): its controls in the modern look at the engine's
   // own places. Pass mode: the engine keeps every input and its own focus, so this is paint only (no <button>s of its
   // own: the game's are what the pointer and keys reach). Pictures, Flash and unknown controls stay the engine's, cut
   // out of the plate.
-  import { generic } from './logic.js';
+  import { generic, genericKeys, family } from './logic.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
@@ -23,9 +28,37 @@
   const lh = c => (c.fontSize || 16) + (c.lineGap || 0);
   // a caption's size: the button's height allows, shrunk until it fits its width (about .58 em a character), 9.5 px at least
   const fit = (s, c) => Math.max(9.5, Math.min(13, c.h * .42, (c.w - 20) / Math.max(1, s.length * .58)));
+  // Esc its way out, Enter its primary (DESIGN.md UX spec 1): the game's own buttons pressed, from the topmost window
+  // only, never while a field (the DOM's or the game's) has the focus
+  const keys = $derived(genericKeys(g));
+  const wid = $derived(win.id);   // a number: the listener isn't redone each frame the snapshot changes
+  $effect(() => {
+    const id = wid;
+    openGeneric.add(id);
+    const key = e => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key !== 'Escape' && e.key !== 'Enter')) return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || e.target?.isContentEditable) return;
+      const snap = globalThis.yo2Html?.snapshot?.();
+      const top = snap?.windows.filter(w => w.shown).reduce((a, w) => !a || w.z > a.z ? w : a, null);
+      if (!top || top.id !== id) return;
+      const f = snap.focus && top.controls.find(c => c.id === snap.focus);
+      if (f && family(f) === 'input') return;
+      const b = e.key === 'Escape' ? keys.leave : keys.primary;
+      if (!b) return;
+      e.preventDefault();
+      e.stopPropagation();   // not the game's too
+      view.api.click(b.id);
+    };
+    addEventListener('keydown', key, true);
+    return () => { removeEventListener('keydown', key, true); openGeneric.delete(id); };
+  });
+  // a modal window's scrim (UX spec 2): the screen dimmed behind it, its own pictures' holes kept clear
+  const scrimCut = $derived(g.holes.length
+    ? `path(evenodd, 'M0 0h1024v768h-1024z${g.holes.map(h => `M${h.x + win.x} ${h.y + win.y}h${h.w}v${h.h}h${-h.w}z`).join('')}')` : null);
   const ICON = { Hide: 'close', Show: 'chevron', Expand: 'plus', Shrink: 'back' };
 </script>
 
+{#if win.modal}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
 <div class="mu" aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
   {#if g.plate}
     <div class="mu-plate plate" style={at(g.plate)}>
@@ -71,6 +104,7 @@
 
 <style>
   .mu > * { position: absolute; }
+  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .22); pointer-events: none; }
   .plate { overflow: hidden; }
   .band { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; padding: 0 14px; background: var(--band);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 1px 0 var(--band-edge); }

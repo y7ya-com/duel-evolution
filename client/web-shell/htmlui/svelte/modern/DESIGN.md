@@ -100,6 +100,45 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   - Character cards with deck and last-played info.
   - Toasts in place of modal OK boxes.
 
+## UX spec (2026-10-31, owner: "leaning towards a skin as opposed to genuine UX improvements")
+Each main flow: what is clumsy in the 2008 behaviour, the concrete behaviour change (not a look), who owns it and where it
+stands. Owners: modern-ui (this file's screens and the generic window), htmlui-chat, htmlui-select (lobby, NPC and the
+remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
+
+1. **Every window: no keyboard.** 2008: every window needs the mouse; nothing says which button is the safe way out.
+   Change: Esc presses the window's way out (Close, Cancel, No, Back, OK) and Enter its primary (OK, Yes, Send) on every
+   window, bespoke or generic, when no field has the focus. The topmost window takes the key. Owner modern-ui: bespoke
+   done; generic **done in this pass** (Generic.svelte, logic.js genericKeys).
+2. **Blocking windows look like any other.** 2008: a modal box and a passing panel look the same; clicks on the room
+   silently do nothing. Change: a modal window (snapshot `modal`) has a light scrim behind it, so the game reads as
+   waiting on it. Owner modern-ui: bespoke dialogs done; generic **done in this pass**.
+3. **Getting anywhere takes the Main Menu.** Change: the command dock (one click or a key: D P F M L O A; Enter to chat).
+   Owner modern-ui: done.
+4. **News interrupts play.** 2008: "saved", "sent" are modal OK boxes. Change: news is a toast; only errors and questions
+   stay modal. Owner modern-ui: done (toasts unit-tested, not yet seen live).
+5. **Title: mouse only.** Change: the modern title menu has the focus on ONLINE when it shows; arrows move, Enter
+   starts. Owner modern-ui: arrows done; focus **done in this pass**.
+6. **Select Player: four identical bars.** Change: character cards, Delete apart as a trash icon, arrows and Esc, Enter on
+   a card plays it. Owner modern-ui: done.
+7. **Friends: a list of names.** Change: presence (online, where) and Mail on each friend; Duel / Visit inline next.
+   Owner modern-ui: presence and Mail done (presence waits on yo2-server-ts's /api/de/friends); Duel / Visit proposed
+   (their lobby flows belong with htmlui-select's NPC / player menus).
+8. **Mail: two separate windows, a To field you can't type in.** Change: one mail client (inbox, reading pane, Write
+   Mail form). Owner modern-ui: done.
+9. **Deck building: eleven text rows, legality unknown until the game refuses.** Change: the EDOPro-style editor (search,
+   filters, card grids, live legality, keys). Owner htmlui-deck: done.
+10. **Chat: minimize / expand is unintuitive** (owner). 2008: two tiny icons that grow and shrink the log in steps, the
+    log covering the room. Change: owner htmlui-chat (a real redesign: one collapse control, the log's height dragged,
+    unread counts kept when collapsed).
+11. **Lobby: NPC talk and duel invites are 2008 boxes; NPC / player click menus are tiny lists.** Change: owner
+    htmlui-select (bespoke NPC dialogs, invites as cards with Accept / Decline, the click menus as context menus at the
+    pointer). Until then the generic window gives them the modern look and items 1 and 2.
+12. **Flicker and misbehaving windows** (owner: "SUPER BUGGY", "flickering"). Owner html-ui-pixel (bridge and Svelte
+    audit). The generic window can't add input bugs (pass mode).
+13. **Options (title and Duel Options): pictures and tiny ON / OFF boxes.** Change: segmented choices with the chosen one
+    lit, the help text in a well, OK in gold; Esc cancels, Enter confirms (item 1). Owner modern-ui: done via the generic
+    window.
+
 ## Screens and what changed
 - **Title:** four slanted bars (the 2008 parallelogram) standing on the title art as the 2008 ones do, with no plate
   behind them. Each has its own depth: a white rim, the bar's fill and a soft drop shadow. ONLINE is taller and gold.
