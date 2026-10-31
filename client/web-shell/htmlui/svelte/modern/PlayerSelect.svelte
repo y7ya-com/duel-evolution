@@ -70,23 +70,22 @@
   .spacer { width: 30px; flex: none; }
   /* a slot: a white card in the window, the 2008 row's blue edge */
   .slot-main { flex: 1; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 12px 0 10px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px;
-    background: linear-gradient(180deg, #ffffff, #eefaff); box-shadow: 0 0 0 1px #3a9de6, inset 0 -2px 0 rgba(65, 171, 239, .25), 0 2px 4px rgba(10, 60, 130, .18);
+    background: var(--card); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 3px rgba(10, 35, 80, .12);
     transition: transform .16s var(--ease), background .16s, box-shadow .16s; }
-  .slot-main:hover, .slot[data-state='hover'] .slot-main { transform: translateX(3px); background: linear-gradient(180deg, #ffffff, #d9f5ff);
-    box-shadow: 0 0 0 1px #0985ff, 0 0 0 3px rgba(0, 180, 255, .3), 0 8px 18px -8px rgba(0, 120, 230, .55); }
+  .slot-main:hover, .slot[data-state='hover'] .slot-main { transform: translateX(3px); background: var(--btn-hover);
+    box-shadow: 0 0 0 1px var(--p500), 0 8px 18px -8px rgba(20, 70, 160, .5); }
   .slot-main:focus-visible { outline: 2px solid var(--azure-500); outline-offset: 2px; }
   .slot-main:active { transform: translateX(1px) scale(.995); }
   .badge { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; font-weight: 800; font-size: 16px;
-    color: var(--gold-ink); background: radial-gradient(circle at 35% 30%, #ffffc8, #f9e45f 55%, #eca430);
-    box-shadow: 0 0 0 1.5px var(--gold-edge), 0 2px 4px rgba(160, 80, 0, .3); }
+    color: #fff; background: var(--sel); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .9), 0 0 0 2.5px var(--p700), 0 2px 4px rgba(10, 35, 80, .25); }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
   .name { font-size: 15px; font-weight: 750; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { font-size: 11.5px; color: var(--ink-3); }
   .slot-main :global(.go) { color: var(--azure-500); transition: transform .16s var(--ease); }
   .slot-main:hover :global(.go) { transform: translateX(2px); }
-  .empty .slot-main { background: rgba(255, 255, 255, .45); box-shadow: none; outline: 1.5px dashed #3a9de6; outline-offset: -1.5px; }
+  .empty .slot-main { background: rgba(255, 255, 255, .5); box-shadow: none; outline: 1.5px dashed var(--n300); outline-offset: -1.5px; }
   .empty .slot-main:hover { outline-color: transparent; }
-  .empty .badge { color: var(--azure-500); background: #fff; box-shadow: inset 0 0 0 1.5px #3a9de6; }
+  .empty .badge { color: var(--p700); background: #fff; box-shadow: inset 0 0 0 1.5px var(--n300); }
   .empty .name { font-weight: 650; color: var(--ink-2); }
   .del { flex: none; }
   footer { display: flex; justify-content: flex-end; padding: 8px 14px 0; }

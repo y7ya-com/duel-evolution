@@ -51,16 +51,16 @@
 
 <style>
   .panel { left: 0; top: -8px; display: flex; flex-direction: column; padding-bottom: 12px; }
-  .panel :global(.lead) { color: #fff97f; }
-  .count { font-size: 12px; font-weight: 800; color: #fff; margin-right: 6px; text-shadow: 0 1px 0 #1f4fc4; }
+  .panel :global(.lead) { color: var(--gold-300); }
+  .count { font-size: 12px; font-weight: 800; color: #fff; margin-right: 6px; text-shadow: 0 1px 0 rgba(0, 20, 60, .35); }
   .list { list-style: none; margin: 10px 14px 0; padding: 4px; height: 128px; border-radius: 10px; display: grid; grid-template-columns: repeat(3, 1fr);
     align-content: start; gap: 4px; background: var(--well); box-shadow: var(--well-shadow); }
   .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 8px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, box-shadow .12s; }
-  .list button:hover { background: #e2f7ff; }
-  .list button.on { color: #fff; background: var(--sel); box-shadow: inset 0 0 0 1px #0a5fd0; }
-  .badge { display: grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 750; color: var(--gold-ink);
-    background: radial-gradient(circle at 35% 30%, var(--gold-200), var(--gold-400) 60%, var(--gold-500)); }
+  .list button:hover { background: var(--p50); }
+  .list button.on { color: #fff; background: var(--sel); box-shadow: inset 0 0 0 1px var(--p900); }
+  .badge { display: grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 750; color: #fff;
+    background: var(--sel); }
   .empty { grid-column: 1 / -1; padding: 10px; color: var(--ink-3); }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px 0; }
 </style>

@@ -60,23 +60,20 @@
 </div>
 
 <style>
-  .field { position: absolute; left: 0; top: 0; width: 1024px; height: 712px; overflow: hidden;
-    background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .28) 0 1px, transparent 1px 3px),
-      linear-gradient(180deg, #f6f9fc 0%, #dfe7f0 45%, #c7d3e1 100%); }
-  .ring { position: absolute; right: -90px; bottom: -120px; width: 560px; height: 560px; fill: none; stroke: rgba(9, 133, 255, .12); stroke-width: 3; }
-  .title { position: absolute; display: flex; align-items: center; gap: 10px; margin: 0; font-size: 24px; font-weight: 900; font-style: italic; letter-spacing: .02em;
-    color: #fff; white-space: nowrap; text-transform: uppercase;
-    text-shadow: -1.5px 0 #1059ff, 1.5px 0 #1059ff, 0 -1.5px #1059ff, 0 1.5px #1059ff, 0 2px 6px rgba(16, 89, 255, .5); }
-  .title :global(.mu-emblem) { color: #fff97f; }
-  .side { position: absolute; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 4px 10px 10px 4px;
-    font-size: 12px; font-weight: 900; font-style: italic; letter-spacing: 0; color: #fff; text-transform: uppercase; white-space: nowrap;
-    text-shadow: -1px 0 #1059ff, 1px 0 #1059ff, 0 -1px #1059ff, 0 1px #1059ff;
-    background: linear-gradient(180deg, #7cc4ff 0%, #2f86f5 16%, #1d6ce8 50%, #0a50d8 84%, #0840b8 100%);
-    box-shadow: 0 0 0 1px #fff, 0 2px 4px rgba(0, 0, 60, .35); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
-    transition: transform .14s var(--ease), filter .14s; }
-  .side :global(.mu-ico) { color: #fff97f; filter: drop-shadow(0 0 1px #1059ff); }
-  .side.hover { transform: translateX(4px); color: #fdff45; filter: brightness(1.12);
-    text-shadow: -1px 0 #ff9d10, 1px 0 #ff9d10, 0 -1px #ff9d10, 0 1px #ff9d10; }
-  .side.exit { margin-top: 2px; }
+  .field { position: absolute; left: 0; top: 0; width: 1024px; height: 712px; overflow: hidden; background: var(--stage); }
+  .field::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 3px); }
+  .ring { position: absolute; right: -90px; bottom: -120px; width: 560px; height: 560px; fill: none; stroke: rgba(255, 255, 255, .07); stroke-width: 3; }
+  /* the editor's name: the one logo-like header, in the 2008 word art's heavy italic */
+  .title { position: absolute; display: flex; align-items: center; gap: 10px; margin: 0; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em;
+    color: #fff; white-space: nowrap; text-transform: uppercase; text-shadow: 0 2px 8px rgba(0, 15, 45, .45); }
+  .title :global(.mu-emblem) { color: var(--gold-300); }
+  .side { position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px;
+    font-size: 12.5px; font-weight: 650; letter-spacing: .02em; color: #fff; white-space: nowrap;
+    background: rgba(255, 255, 255, .1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22), inset 0 1px 0 rgba(255, 255, 255, .18);
+    transition: transform .14s var(--ease), background .14s, box-shadow .14s; }
   .side span { overflow: hidden; text-overflow: ellipsis; }
+  .side :global(.mu-ico) { color: rgba(255, 255, 255, .85); }
+  .side.hover { transform: translateX(3px); background: rgba(255, 255, 255, .2); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45), 0 6px 14px -8px rgba(0, 15, 45, .6); }
+  .side.exit { margin-top: 2px; }
 </style>
