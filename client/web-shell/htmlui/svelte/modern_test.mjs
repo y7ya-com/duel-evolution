@@ -143,6 +143,16 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.deckCheck(null), null);
 }
 
+// toasts: an OK box with a message and only its OK
+{
+  const ok = L.toastable(win('CWindowModelDialogOk', [ctl('FrameThin'), ctl('TextField', { text: 'The deck was saved.' }), ctl('TextSwitch', { x: 200, label: 'OK' })]));
+  assert.equal(ok.text, 'The deck was saved.');
+  assert.equal(ok.ok.label, 'OK');
+  assert.equal(L.toastable(win('CWindowModelDialogOk', [ctl('TextField', { text: 'Sure?' }), ctl('TextSwitch', { label: 'OK' }), ctl('TextSwitch', { label: 'Cancel' })])), null);
+  assert.equal(L.toastable(win('CWindowModelDialogError', [ctl('TextField', { text: 'Failed.' }), ctl('TextSwitch', { label: 'OK' })])), null, 'errors stay dialogs');
+  assert.equal(L.toastable(win('CWindowModelDialogOk', [ctl('TextField', { text: '' }), ctl('TextSwitch', { label: 'OK' })])), null);
+}
+
 // the switch (../modern.js) on a stub page: default off, ?MODERN_UI= wins, remembered, killed by htmlui.json
 {
   const store = new Map();

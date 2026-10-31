@@ -188,3 +188,11 @@ export function avatarParts(win) {
   const used = new Set(all.flatMap(s => texts.filter(t => inside(t, s.c)).map(t => t.id)));
   return { switches: all.filter(s => s.kind !== 'other'), loose: texts.filter(t => !used.has(t.id)) };
 }
+
+// ---- an OK box that is only news (CWindowModelDialogOk: a message and its one OK): a toast, its OK pressed at once.
+// null: not one (no message, or more than the OK button: then it stays a dialog)
+export function toastable(win) {
+  const d = dialog(win);
+  return win.cls === 'CWindowModelDialogOk' && d.text.trim() && d.buttons.length === 1 && /^OK$/i.test(d.buttons[0].label.trim())
+    ? { text: d.text.trim(), ok: d.buttons[0] } : null;
+}
