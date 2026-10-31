@@ -104,6 +104,8 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     }
     expect(m.done).toBe(true);
     expect(srv.game.pvp!.byPid(A.s.pid!)).toBeNull();
+    // the surrender says, where Workers Logs keeps it, whom the duel was waiting on (a "frozen" duel's answer)
+    expect(logs.find((l) => l.includes("se rinde el jugador 0"))).toMatch(/^\[AVISO\] \[pvp\] .*el duelo esperaba a player 0 \(SELECT_IDLECMD, mode \w+\) for \d+ s$/);
     // the match was recorded (duels, result) and nothing about duel points was
     const st = srv.game.store.loadRaw();
     for (const acct of ["aaaa", "bbbb"]) {

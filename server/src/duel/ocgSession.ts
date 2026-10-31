@@ -468,6 +468,8 @@ export class PvpSession {
   pub: YO2Duel | null = null;
   onPublic: ((msgs: Msg[]) => void) | null = null;
   decider: number | null = null;
+  /** When the pending decision became the decider's (Date.now()): how long a duel has waited on whom. */
+  decideT0 = 0;
   over = false;
   started = false;
   ended = false;
@@ -609,6 +611,7 @@ export class PvpSession {
           try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
           if (v.needs_auto()) return this.cmd(p, v.auto_response());
           this.decider = p;
+          this.decideT0 = Date.now();
           if (this.clk) this.clkBegin(p);
           return;
         }
@@ -648,11 +651,19 @@ export class PvpSession {
     }
     this.out[i].put(back);
     if (cmd) {
-      if (this.decider !== i) { this.log(`[pvp] ${this.id}: respuesta de ${i} sin ser su decisión (decide ${this.decider}): ignorada`); return; }
+      if (this.decider !== i) { this.log(`[AVISO] [pvp] ${this.id}: respuesta de ${i} sin ser su decisión (decide ${this.decider}): ignorada`); return; }
       let op: Op;
       try { op = this.cmd(i, cmd); } catch (e) { this.fatal(e); return; }
       return this.runPump(op);
     }
+  }
+
+  /** Who the duel waits on, for what and since when: for the logs of a duel's end (a "frozen" duel). */
+  pending(): string {
+    const p = this.decider;
+    if (p === null) return "no one (the engine is working)";
+    const v = this.views[p];
+    return `player ${p} (${v?.waiting?.type ?? "?"}, mode ${(v?.state as { mode?: string } | null)?.mode ?? "?"}) for ${Math.round((Date.now() - this.decideT0) / 1000)} s`;
   }
 
   resend(i: number): void {

@@ -577,7 +577,7 @@ export class PvpMatch {
 
   private surrender(i: number): void {
     const o = 1 - i;
-    this.log(`[pvp] ${this.name}: se rinde el jugador ${i}`);
+    this.log(`[AVISO] [pvp] ${this.name}: se rinde el jugador ${i} (turno ${this.ps?.turn}); el duelo esperaba a ${this.ps?.pending()}`);
     this.ps!.end();
     this.surr = i;
     this.gameEnd(o, DFM.WHY_SURRENDER, 0, { [o]: SVR_SURRENDER }, SURRENDER_ENDS_MATCH);
@@ -716,7 +716,7 @@ export class PvpMatch {
   private timeout(i: number): void {
     const o = 1 - i;
     const turns = this.ps?.turn || 0;
-    this.log(`[pvp] ${this.name}: se acaba el tiempo del jugador ${i}: gana ${o}`);
+    this.log(`[AVISO] [pvp] ${this.name}: se acaba el tiempo del jugador ${i}: gana ${o}; el duelo esperaba a ${this.ps?.pending()}`);
     this.ps!.end();
     for (const [k, who] of [[i, 0], [o, 1]]) {
       if (PVP_SVRINFO && this.c[k] && !this.closed[k]) this.put(k, [[0x649b, duelsvrinfomsg(SVR_TIMEUP, who)], { sleep: SVRINFO_WAIT }]);
@@ -737,7 +737,7 @@ export class PvpMatch {
       return this.closeMatch();
     }
     if (this.ps && this.ps.started && !this.ps.over) {
-      this.log(`[pvp] ${this.name}: el jugador ${i} se desconecta en mitad del duelo: gana ${o}`);
+      this.log(`[AVISO] [pvp] ${this.name}: el jugador ${i} se desconecta en mitad del duelo (turno ${this.ps.turn}): gana ${o}; el duelo esperaba a ${this.ps.pending()}`);
       this.ps.end();
       this.gameEnd(o, DFM.WHY_DISCONNECT, 0, { [o]: SVR_DISCONNECT }, true);
     } else {
