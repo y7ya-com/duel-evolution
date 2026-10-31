@@ -13,6 +13,8 @@
 
 static uint32_t last_yield;
 double rc_slept_ms, rc_waitobj_ms;   // the main thread's time yielded / in WaitFor* since the last frame (web/stall.js)
+double rc_waitobj_max;               // its longest WaitFor*, and that call's guest return address (rt/k32io.c)
+uint32_t rc_waitobj_at;
 static int rc_yields;                // and how many yields
 
 // web/yieldguard.js: 0 when the ASYNCIFY build could not unwind this stack (a frame it did not instrument)
@@ -39,9 +41,9 @@ void rc_card_art_frame(void);   // ovr/decode.c: card art that arrived since, in
 void rc_web_frame(void) {
     if (!emscripten_is_main_runtime_thread()) return;
     rc_card_art_frame();
-    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3, $4); },
-           rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms, rc_yields);
-    rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = 0, rc_yields = 0;
+    EM_ASM({ Module.yo2Presents = (Module.yo2Presents | 0) + 1; if (Module.yo2Frame) Module.yo2Frame($0, $1, $2, $3, $4, $5); },
+           rc_decode_ms, rc_upload_ms, rc_slept_ms, rc_waitobj_ms, rc_yields, rc_waitobj_at);
+    rc_decode_ms = rc_upload_ms = rc_slept_ms = rc_waitobj_ms = rc_waitobj_max = 0, rc_yields = 0, rc_waitobj_at = 0;
     rc_web_sleep(0);
 }
 

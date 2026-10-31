@@ -81,11 +81,18 @@ export function plan(win, editor = true) {
       const shadowText = ctl?.name === 'CWindowTaskShadowTextのテキスト' && ctl.color;
       const ink = shadowText ? ctl.color.slice(0, 3).reduce((v, x) => v << 8 | Math.round(x * 255), 0) : ctl?.name === 'Title' ? 0xffffff : null;
       const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink } : { align: 0 };
-      // a paged text field (the card detail's text: pageLines 9): the whole text, wrapped by words, in a native scroll
-      // box (the owner's rules: words, not the engine's character wrap; native scrollers)
-      if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 1 && ctl.pageLines < 50 && box.w) {
-        const h = box.px * ctl.pageLines;
-        add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w, h }, el => drawFlow(el, t, t.wx - ox, t.wy - oy, box.w, h, t.a ?? 1, box.px));
+      // a paged text field (the card detail's text): the whole text, wrapped by words, in a native scroll box (the
+      // owner's rules: words, not the engine's character wrap; native scrollers), in the engine's own text rect: the
+      // control's place and size, never pageLines x the font (it differs card to card and lags a mode change: a duel's
+      // text mode kept full mode's 12 lines and ran 192 px from y 632, over the stats strip and off the screen), and
+      // never into the stats strip (its row at the strip's text, read/deck.js: the engine draws it at y 712)
+      // In the card detail any text of its text field (the field itself less its scroll bar, or its text) goes there
+      const field = ctl?.cls === 'CWindowTaskTextField' && win.cls === 'CCardDetailViewDlg';
+      if ((ctl?.cls === 'CWindowTaskText' || field) && (ctl.pageLines > 1 && ctl.pageLines < 50 || win.cls === 'CCardDetailViewDlg') && box.w) {
+        const x = ctl.wx ?? t.wx, y = ctl.wy ?? t.wy, w = field ? box.w - 16 : box.w;
+        const strip = Math.min(...(win.labels || []).filter(l => l.shown && l.text && l.wy > y).map(l => l.wy));
+        const h = Math.max(0, Math.min(y + (ctl.h || box.px * ctl.pageLines), strip) - y);
+        if (h && x < 9999) add(t.id, t.wz ?? 0, { x, y, w, h }, el => drawFlow(el, t, x - ox, y - oy, w, h, t.a ?? 1, box.px));
         continue;
       }
       add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * t.text.split('\n').length },
@@ -852,6 +859,9 @@ export default {
     if (key === st.key && live.has(win.id)) return;
     st.key = key;
     live.set(win.id, { win, root: st.inner, plan: plan(win, st.editor), api });
+    // the card detail draws nothing past its own drawn rect (its text can't run over the bottom bar or off the screen)
+    const r = win.cls === 'CCardDetailViewDlg' && (win.drawn || win), at = (x, y) => `${x - win.x}px ${y - win.y}px`;
+    st.inner.style.clipPath = r ? `polygon(${at(r.x, r.y)}, ${at(r.x + r.w, r.y)}, ${at(r.x + r.w, r.y + r.h)}, ${at(r.x, r.y + r.h)})` : '';
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
     if (list) { st.list = list.id; st.search.setCount(list.hits); st.scroll.sync(list); }
     draw(win.id, api);

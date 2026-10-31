@@ -69,4 +69,14 @@ assert.deepEqual(items(detail(' 4 ATK2300/DEF   0', mon)), [73, 71]);
 assert.equal(plan(detail('', mon)).items.length, 1);   // one text item: the whole field, not one per wrapped line
 assert.deepEqual(flowLines(mon).map(l => l.map(r => r.s).join('')),
   ['Mystic Tomato', '[Plant/Effect/DARK]', 'When this card is destroyed by battle and sent to the Graveyard, you can Special Summon 1 DARK monster.']);
+// the duel's text mode (live: CCardDetailViewDlg at y 608, its text field 216 x 80 at y 632, the stats strip at 712):
+// the box is the control's rect even when pageLines is stale (full mode's 12: 192 px, past the strip and the screen),
+// and stops at the strip when the control reaches past it
+const duel = (h, pageLines) => ({ id: 80, cls: 'CCardDetailViewDlg', x: 0, y: 608, w: 248, h: 126, extras: [],
+  labels: [{ id: 81, text: ' 4 ATK1600/DEF1000', wx: 60, wy: 712, wz: 51613, shown: true }], controls: [
+    ctl(82, 'CWindowTaskText', { labels: [{ id: 83, text: mon, wx: 8, wy: 632, wz: 51205, shown: true }] },
+      { text: mon, w: 216, h, wx: 8, wy: 632, fontSize: 16, pageLines, firstLine: 0, align: 0 })] });
+const box = w => plan(w).items.find(i => i.id === 83).rect;
+assert.deepEqual(box(duel(80, 12)), { x: 8, y: 632, w: 216, h: 80 });
+assert.deepEqual(box(duel(120, 4)), { x: 8, y: 632, w: 216, h: 80 });   // never into the strip
 console.log('deck_test ok');

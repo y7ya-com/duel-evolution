@@ -47,3 +47,4 @@
 00761970  # the duel field's card move (duelmove.c: a move out of a list kind 0xb with an index past its end is skipped)
 00692580  # YG_MSG_DUEL_SETCOMMAND, one duel entry (duelmove.c: the last 20 kept for the skip report)
 00922010  # miniFile, the card mini-picture name (minifile.c: an id outside the table gets entry 0)
+00a01740  # the area map's wait for the lobby task after an exit (lobbyretry.c: a failure goes back to My Room)

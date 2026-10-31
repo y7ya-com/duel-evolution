@@ -534,6 +534,7 @@ Module.preRun.push(() => {
         await loadCardNames();
         const names = [...new Set(ids.map((id) => (cardNames || [])[id]).filter(Boolean))];
         stats[tag + "Cards"] = ids.length, stats[tag + "Chunks"] = pinFiles(await duelEntries(names), tag, 2);
+        if (tag === "deck") ownFields = ids.map(cardNumber).filter((n) => FIELD_SPELLS[n]), fieldsByNumber(theirFields);
     }
     L.prefetchCards = prefetchCards;
     L.files2 = files2;
@@ -632,15 +633,21 @@ Module.preRun.push(() => {
         4936: 12, 4937: 13, 5276: 14, 5329: 15, 5387: 16, 5533: 17, 5791: 18, 5982: 19, 6207: 20, 6271: 21, 6399: 22, 6642: 23,
         6668: 24, 6758: 27, 6759: 26, 6775: 25, 6823: 28, 7003: 29, 7004: 30, 7079: 31, 7129: 32, 7164: 33, 7307: 34, 7457: 35,
         7624: 37, 7626: 38, 7627: 36 };
+    // Both decks' Field Spells (Konami card numbers): the player's (rt/decktap.c) and the opponent's. A PvP opponent's
+    // deck is not known (the server tells only an NPC's), so a PvP duel pins all 38 (~11 MB, merge.dat 562-572; a field
+    // PvP froze 4.3 s on chunk 567), except over a metered link (thumbsOk)
+    let ownFields = [], theirFields = [];
+    const cardNumber = (id) => parseInt((cardNumbers || [])[id] || "", 10);
     async function fieldBackgrounds(fieldIds) {   // fieldIds: the NPC deck's Field Spells (YO2 ids, from the server)
         await loadCardNames();
-        fieldsByNumber(fieldIds.map((id) => parseInt((cardNumbers || [])[id] || "", 10)));
+        fieldsByNumber(fieldIds.map(cardNumber));
     }
-    function fieldsByNumber(numbers) {   // Konami card numbers (internal ids) of the Field Spells
+    function fieldsByNumber(numbers) {   // the opponent's Field Spells; every call pins both decks' (one "field" pin)
+        theirFields = numbers;
         const names = [];
         const area = /^([ad])0(\d)/.exec(curMap || "");
         if (area) names.push(`data/y2/duel/field/duelbg_${area[1]}_0${area[2]}.png`);
-        for (const n of numbers) {
+        for (const n of new Set([...ownFields, ...theirFields])) {
             const nn = FIELD_SPELLS[n];
             if (nn) names.push(`data/y2/duel/field/duel_filed_${String(nn).padStart(2, "0")}.png`);
         }
@@ -673,6 +680,7 @@ Module.preRun.push(() => {
         fetch(http + "/api/de/prefetch/duel", { credentials: "same-origin" })
             .then((r) => ((L.duel = r.status === 200 ? "npc" : r.status === 204 ? "pvp" : ""), r.status === 200 ? r.json() : null))   // web/stall.js
             .then((j) => {
+                if (L.duel === "pvp" && thumbsOk()) return loadCardNames().then(() => fieldsByNumber(Object.keys(FIELD_SPELLS).map(Number)));
                 if (!j) return;
                 if (j.ids === "passcode") return prefetchPasscodes((j.cards || []).map(Number), (j.fields || []).map(Number), "npc");
                 if (Array.isArray(j.cards)) prefetchCards(j.cards.map(Number), "npc");

@@ -156,18 +156,19 @@ void forget(const void* h) {
         }
 }
 
-M(any, Release) {
-    uint32_t g = ARG(0), vt = RD32m(g);
-    const void *self = objs[idx(g)], *also = nullptr;   // the other shell's object that dies with this one
-    if (vt == vt_tex) also = &THIS(IDirect3DTexture8)->level0;
-    else if (vt == vt_surf) also = THIS(IDirect3DSurface8)->owner;   // a texture level: the texture dies with it
-    uint32_t r = host<ComObject>(g)->Release();
-    if (!r) {
-        forget(self);
-        if (also) forget(also);
-    }
-    RET(1, r);
+// Every host object's death forgets its shells, not only the game's last Release: the device holds its own reference
+// to the bound texture, so a card texture the game released while bound died on the next SetTexture and kept its
+// shell, and ovr/decode.c's late card art filled the freed texture (crash #17).
+static void deleted(ComObject* o) {
+    auto* t = dynamic_cast<IDirect3DTexture8*>(o);
+    if (!t && !dynamic_cast<IDirect3DSurface8*>(o) && !dynamic_cast<IDirect3DDevice8*>(o)) return;   // DirectSound's
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    forget(dynamic_cast<void*>(o));
+    if (t) forget(&t->level0);   // its level 0 surface dies with it
 }
+static const bool hooked = (com_deleted = deleted, true);
+
+M(any, Release) { RET(1, host<ComObject>(ARG(0))->Release()); }
 
 // ---------------------------------------------------------------- IDirect3D8
 M(d3d, GetAdapterCount) { RET(1, 1); }
