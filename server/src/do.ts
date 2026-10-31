@@ -102,6 +102,15 @@ export class WorldDO extends DurableObject<Env> {
         this.srv.world.run(() => res(this.srv.game.duel?.prefetchFor(user) ?? null))) : null;
       return out ? Response.json(out, { headers: { "Cache-Control": "no-store" } }) : new Response(null, { status: 204 });
     }
+    if (url.pathname === "/__de/friends") {
+      // the Worker forwards GET /api/de/friends here with x-de-user (a checked session); Lobby.friendsInfo
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(this.srv.game.lp.friendsInfo(user)); } catch (e) { console.error(`[friends] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
     if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
       // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts
       const user = request.headers.get("x-de-user");

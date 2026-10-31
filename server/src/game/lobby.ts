@@ -7,7 +7,7 @@ import LD from "../../gamedata/lobby.json";
 import { myName, myPid, mySlot } from "./accounts.ts";
 import type { Game } from "./game.ts";
 import { connBlockKey, roomOfPort } from "./gate.ts";
-import { baseKey, keyPort, type BlockKey, type Session } from "./hub.ts";
+import { baseKey, keyPort, PID_BASE, type BlockKey, type Session } from "./hub.ts";
 import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
@@ -563,6 +563,28 @@ export class Lobby {
     if (s.block) { const [p, l] = baseKey(s.block).split("|").map(Number); return this.roomWhere(p, l, s); }
     if (lobby.port === this.g.ports.lobby) return MYROOM_WHERE;
     return this.connWhere(lobby.port, (lobby.ext.lang as number) ?? s.lang ?? 0, s);
+  }
+  /** GET /api/de/friends (the Modern UI): the active character's friends (p.friends, the players it befriended), each
+   *  {name, online, place?}; online as 0x3604 reports it, place only the world part (no room or block). */
+  friendsInfo(userId: string): [number, Record<string, unknown>] {
+    const acct = this.g.store.accountOfUser(userId);
+    const s = acct ? this.g.hub.sessions.get(acct) : undefined;
+    if (!s) return [409, { error: "not-in-game" }];
+    if (s.slot === null) return [409, { error: "no-character" }];
+    const pids: number[] = this.g.withCtx(s, () => PP.profile(this.g.loadState(), s.slot!, false)?.friends ?? []);
+    const accts = Object.values(this.g.store.peek().accounts ?? {}) as any[];
+    const out = [];
+    for (const pid of pids) {
+      const o = this.g.hub.byPid(pid), slot = String((pid - PID_BASE) & 3);
+      const a = o ? null : accts.find((a) => a && PP.int(a.idx ?? 0) === (pid - PID_BASE) >> 2);
+      const name = o?.name || a?.profiles?.[slot]?.name || a?.players?.[slot];
+      if (!name) continue;
+      const where = o ? this.friendWhere(o) : null;
+      const online = !!where && FRIEND_OK_KINDS.has(where[1]);
+      out.push(!online ? { name, online } : { name, online, place: this.g.pvp?.byPid(pid) ? "Duel" : where![1] === 12 ? "My Room"
+        : this.g.acadKinds.has(where![1]) ? "Duel Academy" : "Domino City" });
+    }
+    return [200, { friends: out }];
   }
   private npcWhere(c: Conn): number[] {
     let w = this.connWhere(c.port, (c.ext.lang as number) ?? 0);
