@@ -422,6 +422,9 @@ console.log("prefetch=0: ok");
         for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("card.dat#0")));   // its pin lost
         r.read("/game/merge/data/card.dat", 0, 12 + 5 * 268 + list.length);   // the directory and list_card.txt, at a card scene
         assert.equal(syncXhr, 0, "card.dat's chunk 0 stays for the session");
+        for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("mini.dat#0")));   // mini.dat's too
+        r.read("/game/merge/data/mini.dat", 0, 12 + 2 * 268 + list.length);
+        assert.equal(syncXhr, 0, "mini.dat's chunk 0 stays for the session");
         syncXhr = 0;
         await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
         await settle(L);

@@ -337,8 +337,8 @@ Module.preRun.push(() => {
         .then((h) => { cardHead = h; })   // the game reads the directory and list_card.txt again at card scenes
         .catch((e) => { cardTocLoad = null; throw e; }));
     const miniFiles = new Map();   // mini.dat entry name -> [from, to): the same names as card.dat's
-    let miniTocLoad = null;
-    const miniToc = () => (miniTocLoad = miniTocLoad || archToc(miniArc, miniFiles).catch((e) => { miniTocLoad = null; throw e; }));
+    let miniTocLoad = null, miniHead = null;   // miniHead: mini.dat's chunk 0, kept like cardHead (stall 0d7afc4e: a 119 ms miss on it at the deck editor)
+    const miniToc = () => (miniTocLoad = miniTocLoad || archToc(miniArc, miniFiles).then((h) => { miniHead = h; }).catch((e) => { miniTocLoad = null; throw e; }));
     // ---- card art without waiting (card.dat). A read inside a JPEG entry that isn't all in memory gets a placeholder
     // JPEG of the same 400x580 instead (padded with zeros to the entry's length), with the entry's offset in its comment
     // ("yo2-placeholder:<10 digits>"); its chunks go first in the background queue. ovr/decode.c makes the texture from
@@ -738,7 +738,7 @@ Module.preRun.push(() => {
     // ---- boot: each lazy file's ETag (request version), then last session's pinned chunks from the store
     const lazy = [];
     function readReal(url, buffer, offset, pos, end) {   // [pos, end) of a lazy file into buffer[offset..]
-        const head = url === archive ? dirBuf : url === cardArc ? cardHead : null;   // merge.dat's directory (the sidecar), card.dat's
+        const head = url === archive ? dirBuf : url === cardArc ? cardHead : url === miniArc ? miniHead : null;   // merge.dat's directory (the sidecar), card.dat's, mini.dat's
         if (head && pos < head.length) {
             const e = Math.min(end, head.length);
             buffer.set(head.subarray(pos, e), offset), (offset += e - pos), (pos = e);
