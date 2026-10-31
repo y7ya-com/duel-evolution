@@ -6,17 +6,14 @@
   // that takes the focus: Space or Enter goes on too.
   import { balloon } from './logic.js';
   import Icon from './Icon.svelte';
+  import { focusSoon } from './macro.js';
   let { view } = $props();
   const win = $derived(view.win);
   const b = $derived(balloon(win));
   const api = $derived(view.api);
   const shown = $derived(win.shown);
   let el = $state();
-  $effect(() => {
-    if (!shown || !el) return;
-    const t = setTimeout(() => el?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown && el ? focusSoon(el.parentElement, 'button') : undefined);
   const next = () => b.frame && api.click(b.frame.id);
 </script>
 

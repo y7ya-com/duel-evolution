@@ -5,6 +5,7 @@
   // six at a time and its scroll bar: the wheel, or the arrows past either end, scroll it. Keys: focus opens on the
   // first place, Up / Down move, Enter goes, Esc closes.
   import { moveWindow } from './logic.js';
+  import { focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
@@ -12,11 +13,7 @@
   const api = $derived(view.api);
   const shown = $derived(win.shown);
   let panel;
-  $effect(() => {
-    if (!shown) return;
-    const t = setTimeout(() => panel?.querySelector('.place')?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown ? focusSoon(panel, '.place') : undefined);
   const fill = p => p.cap ? Math.min(1, +p.here / +p.cap) : 0;
   const scrollBy = k => { const b = m.bar; if (!b) return false; const v = Math.max(0, Math.min(b.max || 0, (b.value || 0) + k)); if (v === (b.value || 0)) return false; api.setValue(b.id, v); return true; };
   function keys(e) {
@@ -58,10 +55,10 @@
 </div>
 
 <style>
-  .panel { left: 0; top: 0; width: 320px; padding-bottom: 12px; }
+  .panel { left: 0; bottom: 0; width: 372px; padding-bottom: 12px; }   /* rising from the window's foot: the bar's door opens it over the dock */
   .panel :global(.lead) { color: var(--gold-300); }
-  .list { list-style: none; margin: 0; padding: 12px 12px 0; display: flex; flex-direction: column; gap: 6px; }
-  .place { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 10px 0 14px; border-radius: var(--r-ctl);
+  .list { list-style: none; margin: 0; padding: 10px 12px 0; display: flex; flex-direction: column; gap: 5px; }
+  .place { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 10px 0 14px; border-radius: var(--r-ctl);
     font-weight: 700; color: var(--ink-strong); background: var(--btn); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 2px rgba(10, 35, 80, .12);
     transition: transform .14s var(--ease), box-shadow .14s, background .14s; }
   .place:hover, .place:focus-visible, .place[data-state='hover'] { transform: translateY(-1px); background: var(--btn-hover);

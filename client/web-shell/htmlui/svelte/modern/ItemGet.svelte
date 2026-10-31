@@ -4,17 +4,14 @@
   // first line large, and its OK picture a gold button at its place. Pass mode (the game keeps the mouse over the
   // card); the OK alone takes the pointer and the focus, so Enter, Space or Esc dismisses it at once.
   import { itemGet } from './logic.js';
+  import { focusSoon } from './macro.js';
   let { view } = $props();
   const win = $derived(view.win);
   const g = $derived(itemGet(win));
   const api = $derived(view.api);
   const shown = $derived(win.shown);
   let btn = $state();
-  $effect(() => {
-    if (!shown || !btn) return;
-    const t = setTimeout(() => btn?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown && btn ? focusSoon(btn.parentElement, 'button') : undefined);
   const ok = () => g.ok && api.click(g.ok.id);
   // keys on the button itself (the bridge stops a key at the window root, where Svelte's delegated onkeydown would be)
   const keyed = el => { const f = e => { if (e.key === 'Escape') { e.preventDefault(); ok(); } }; el.addEventListener('keydown', f); return () => el.removeEventListener('keydown', f); };

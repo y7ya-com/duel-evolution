@@ -11,7 +11,7 @@
   // list it filters. An entry clicks the game's row. Focus opens on the first entry; Up / Down, Enter, Esc closes (a
   // click on the player list's title bar: the game closes the menu on a click elsewhere and has no key for it).
   import { findMenu } from './logic.js';
-  import { pickRow } from './macro.js';
+  import { pickRow, focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
@@ -19,11 +19,7 @@
   const api = $derived(view.api);
   const shown = $derived(win.shown);
   let panel;
-  $effect(() => {
-    if (!shown) return;
-    const t = setTimeout(() => panel?.querySelector('.item')?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown ? focusSoon(panel, '.item') : undefined);
   const n = $derived(f.groups.reduce((k, g) => k + g[1].length, 0));
   const pick = i => pickRow(api, win, f.list, f.bar, i, n);
   function close() {

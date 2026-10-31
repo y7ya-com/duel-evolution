@@ -78,3 +78,14 @@ export async function pickRow(api, win, list, bar, i, n) {
   if ((i < top || i >= top + rows) && bar) { top = Math.min(i, Math.max(0, n - rows)); api.setValue(bar.id, top); await frames(3); }
   return api.click(list.id, rowPoint(win, list, i, top));
 }
+
+// focus the first `sel` in `panel` once it can take it (a window's root turns visible a few frames after the game says
+// the window is shown): tried every 50 ms for 1.5 s; returns the stop, for an $effect
+export function focusSoon(panel, sel) {
+  let n = 0;
+  const t = setInterval(() => {
+    panel?.querySelector(sel)?.focus({ preventScroll: true });
+    if (panel?.contains(document.activeElement) || ++n > 30) clearInterval(t);
+  }, 50);
+  return () => clearInterval(t);
+}

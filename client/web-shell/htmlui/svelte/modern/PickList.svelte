@@ -4,7 +4,7 @@
   // clicks the game's row (scrolled into view first); focus opens on the first row, so Enter picks it at once.
   // Keys: Up / Down, Enter, Esc closes.
   import { pickList } from './logic.js';
-  import { pickRow } from './macro.js';
+  import { pickRow, focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
@@ -12,11 +12,7 @@
   const api = $derived(view.api);
   const shown = $derived(win.shown);
   let panel;
-  $effect(() => {
-    if (!shown) return;
-    const t = setTimeout(() => panel?.querySelector('.row')?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown ? focusSoon(panel, '.row') : undefined);
   const pick = i => pickRow(api, win, p.list, p.bar, i, p.names.length);
   function keys(e) {
     if (e.key === 'Escape' && p.close) { e.preventDefault(); api.click(p.close.id); return; }

@@ -37,10 +37,11 @@ export function menuGroups(win) {
     ...(name === 'System' ? bs.filter(b => !known.has(b.label)) : [])]]).filter(g => g[1].length || g[0] === 'System');
 }
 
-// ---- the place banner (CWindowModelPlace): a row is its ShadowTexts left to right ('Duelist Academy' + '(1/1000)')
+// ---- the place banner (CWindowModelPlace): a row is its ShadowTexts left to right ('Duelist Academy' + '(1/1000)');
+// a count is '(n/cap)' or, on the lobby's Move rows, a bare 'n/cap' after the name
 export const place = s => {
-  const m = /^(.*?)\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*$/.exec(s);
-  return m ? { name: m[1], here: m[2], cap: m[3] } : { name: s, here: '', cap: '' };
+  const m = /^(.*?)\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|\s(\d+)\s*\/\s*(\d+))\s*$/.exec(s);
+  return m ? { name: m[1], here: m[2] ?? m[4], cap: m[3] ?? m[5] } : { name: s, here: '', cap: '' };
 };
 export function placeRows(win) {
   const ts = win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && top(c) && c.shown && c.text);
