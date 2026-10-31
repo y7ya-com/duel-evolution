@@ -4,7 +4,7 @@
   // label rows on a green frame ("Win%" over "Wins0/Losses0"). Pass mode: the game keeps the mouse (a click outside
   // closes it, as before); a player's buttons, when the menu has them, take the pointer and play the game's own.
   import { duelistCard } from './logic.js';
-  import { inviteDuel, cardName } from '../invite.js';
+  import { inviteDuel, cardName } from '../../invite.js';
   import { toast } from './toasts.svelte.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
@@ -16,7 +16,7 @@
   // a challenge is the card's one primary action (gold, first)
   const DUEL = /Duel\s*Request/i;
   const buttons = $derived([...d.buttons].sort((a, b) => DUEL.test(b.label) - DUEL.test(a.label)));
-  // a player's card with no duel of theirs open: a Duel of its own (../invite.js: the server makes the game's request
+  // a player's card with no duel of theirs open: a Duel of its own (../../invite.js: the server makes the game's request
   // possible, then the card is reopened and its "Send Duel Request" pressed); a refusal's reason as a toast
   const invitable = $derived(win.cls === 'CPlayerListMenu' && !d.buttons.some(b => DUEL.test(b.label)) && d.buttons.length > 0);
   let sending = $state(false);

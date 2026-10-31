@@ -9,7 +9,7 @@
 import { SHEET, sprite } from '../../ui.js';
 import { textBox } from '../controls/basic.js';
 import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
-import { inviteDuel, cardName, nativeDuel } from '../svelte/invite.js';
+import { inviteDuel, cardName, nativeDuel } from '../invite.js';
 
 // CWindowTaskFramePlace, lobbyname_win_01_c01.png (256 x 52; the body stretched after its first 224 px): a 1 px brown
 // edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
@@ -152,7 +152,7 @@ function menuBar(win, root, st) {
 }
 
 // A player's card (CPlayerListMenu): the game draws all of it (its ids pass through, `kept`); the page adds one
-// 2008 button on a tab above its top right, Duel (../svelte/invite.js), when the game offers no duel request of its
+// 2008 button on a tab above its top right, Duel (../invite.js), when the game offers no duel request of its
 // own, and a refusal's reason in a box under the tab for a few seconds
 const kept = new Map();   // window id -> its control and sprite ids
 function playerCard(win, root, st) {
