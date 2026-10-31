@@ -402,7 +402,7 @@ console.log("prefetch=0: ok");
         await settle(L);
         const hot = [...L.pinned.entries()].filter(([, p]) => p.tag === "hot").map(([k]) => k);
         const miniChunks = Math.ceil(files["cards/merge/data/mini.dat"].length / MB);
-        assert.equal(hot.filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole");
+        assert.equal([...L.pinned.keys()].filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole (its directory's chunk as toc)");
         const mini = ent("data/mini");
         assert.ok(!hot.some((k) => k.endsWith("merge.dat#" + Math.floor((mini.off + MB) / MB))), "merge.dat's data/mini is not");
         // card art not in memory: a placeholder at once (its entry's offset in the comment), the entry fetched behind it
@@ -458,6 +458,18 @@ console.log("prefetch=0: ok");
         r3.read("/game/merge.dat", 0, toc);
         await settle(L3);
         assert.ok(![...L3.pinned.entries()].some(([k, p]) => p.tag === "hot" && k.includes("mini.dat")), "phone: mini.dat not preloaded");
+        // the trunk or the deck editor shows a thumbnail not in memory: a placeholder at once, the thumbnail behind it
+        const mOff = 12 + 2 * 268 + list.length, miniDat = files["cards/merge/data/mini.dat"];   // 89631139.jpg
+        syncXhr = 0;
+        const mph = Buffer.from(r3.read("/game/merge/data/mini.dat", mOff, 4096));
+        assert.equal(syncXhr, 0, "phone: no synchronous read for a thumbnail");
+        assert.equal(mph[0], 0xff), assert.equal(mph[1], 0xd8);
+        assert.ok(mph.includes("yo2-placeholder:" + (mOff + 2 ** 31)), "its mini.dat offset, tagged, in the comment");
+        assert.equal(mph.readUInt16BE(mph.indexOf(Buffer.from([0xff, 0xc0])) + 5), 144, "100x144, the 2x thumbnail size");
+        await settle(L3);
+        const filled = L3.artBytes((mOff + 2 ** 31) | 0);   // decode.c's u32 arrives signed
+        assert.deepEqual(Buffer.from(filled), miniDat.subarray(mOff, mOff + 5 * MB), "then the thumbnail's real bytes");
+        assert.equal(L3.artBytes(mOff).length, 0, "the same offset untagged is no card.dat entry");
         await L3.prefetchCards([1]);
         await settle(L3);
         const thumbs = [...L3.pinned.entries()].filter(([k, p]) => p.tag === "deck" && k.includes("mini.dat")).map(([k]) => k);

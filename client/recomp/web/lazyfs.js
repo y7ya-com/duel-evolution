@@ -348,42 +348,59 @@ Module.preRun.push(() => {
     const artAsync = prefetchOn && !q.has("cardsync");
     const PLACEHOLDER = Uint8Array.from(atob("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SpqKLBch2N6U2rFV6BhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//V46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9fjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//Q46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0eOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Ljqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//T46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1OOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Xjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//W46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//1+Oqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Djqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvVihAwooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACq9WKr0mNBRRRQBs2n/Huv4/zqxVe0/491/H+dWK0WxDP//R46q93/x7t+H86sVXu/8Aj3b8P511vYwRjUUUVmWFWKr1YoQMKKKKYgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAqvViq9JjQUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//0uOqvd/8e7fh/OrFV7v/AI92/D+ddb2MEY1FFFZlhViq9WKEDCiiimIKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKr1YqvSY0FFFFAGzaf8e6/j/OrFV7T/j3X8f51YrRbEM//9Pjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYVYqvTt7etAE1FQ729aN7etFxWJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqKh3t60b29aLhYmoqHe3rRvb1ouFiaiod7etG9vWi4WJqr07e3rTaBhRRRQBs2n/AB7r+P8AOrFV7T/j3X8f51YrRbEM/9Tjqr3f/Hu34fzqxVe7/wCPdvw/nXW9jBGNRRRWZYUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAbNp/x7r+P86sVXtP+Pdfx/nVitFsQz//V46q93/x7t+H8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"), (c) => c.charCodeAt(0));
     const PH_DIGITS = PLACEHOLDER.indexOf(58) + 1;   // after "yo2-placeholder:" (its first ':')
-    let artSorted = null;   // card.dat's .jpg entries as sorted [from, to)
+    // mini.dat's thumbnails the same way (stalls 3bc028a3/fe594f03: ~0.4 s per thumbnail on a phone off Wi-Fi, where mini.dat
+    // isn't preloaded): the 100x144 placeholder (MINI_PH, the same layout to its ':'), its offset tagged with MINI_TAG.
+    // ponytail: decode.c keeps one u32 offset per pending texture and passes it to artBytes signed; card.dat stays below 2 GB
+    const MINI_PH = Uint8Array.from(atob("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"), (c) => c.charCodeAt(0));
+    const MINI_TAG = 2 ** 31;
+    const arts = new Map();   // card.dat / mini.dat -> { sorted: its .jpg/.png entries as sorted [from, to), ph, tag }
+    function artOf(url) {
+        let a = arts.get(url);
+        if (a) return a;
+        const card = url === cardArc, m = card ? cardFiles : miniFiles;
+        if (!m.size) return (card ? cardToc : miniToc)().catch(() => {}), null;   // not here yet (or its load failed): again
+        a = { sorted: [...m].filter(([n]) => /\.(jpg|png)$/.test(n)).map(([, e]) => e).sort((x, y) => x[0] - y[0]),   // png: the 2008 faces
+            ph: card ? PLACEHOLDER : MINI_PH, tag: card ? 0 : MINI_TAG };
+        arts.set(url, a);
+        return a;
+    }
     const resident = (url, e) => { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) if (!memChunk(url, i)) return false; return true; };
-    function artWant(e) { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) want(cardArc, i, 0, wanted.get(keyOf(cardArc, i))); }
-    function artRead(buffer, offset, pos, end) {   // the read with placeholders, or false (nothing missing: as usual)
-        if (!artSorted) {
-            if (!cardFiles.size) return cardToc().catch(() => {}), false;   // not here yet (or its load failed): again
-            artSorted = [...cardFiles].filter(([n]) => /\.(jpg|png)$/.test(n)).map(([, e]) => e).sort((a, b) => a[0] - b[0]);   // png: the 2008 faces
-        }
-        let lo = 0, hi = artSorted.length;
-        while (lo < hi) { const m = (lo + hi) >> 1; if (artSorted[m][1] <= pos) lo = m + 1; else hi = m; }
+    function artWant(url, e) { for (let i = Math.floor(e[0] / CHUNK); i * CHUNK < e[1]; i++) want(url, i, 0, wanted.get(keyOf(url, i))); }
+    function artRead(url, buffer, offset, pos, end) {   // the read with placeholders, or false (nothing missing: as usual)
+        const art = artOf(url);
+        if (!art) return false;
+        const { sorted, ph, tag } = art;
+        let lo = 0, hi = sorted.length;
+        while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m][1] <= pos) lo = m + 1; else hi = m; }
         const missing = [];
-        for (let k = lo; k < artSorted.length && artSorted[k][0] < end; k++) if (!resident(cardArc, artSorted[k])) missing.push(artSorted[k]);
+        for (let k = lo; k < sorted.length && sorted[k][0] < end; k++) if (!resident(url, sorted[k])) missing.push(sorted[k]);
         if (!missing.length) return false;
         let p = pos;
         for (const e of missing) {
-            const a = Math.max(pos, e[0]), b = Math.min(end, e[1]), digits = String(e[0]).padStart(10, "0");
-            if (p < a) readReal(cardArc, buffer, offset + p - pos, p, a);
+            const a = Math.max(pos, e[0]), b = Math.min(end, e[1]), digits = String(e[0] + tag).padStart(10, "0");
+            if (p < a) readReal(url, buffer, offset + p - pos, p, a);
             for (let x = a; x < b; x++) {
                 const k = x - e[0];
-                buffer[offset + x - pos] = k >= PLACEHOLDER.length ? 0 : k >= PH_DIGITS && k < PH_DIGITS + 10 ? digits.charCodeAt(k - PH_DIGITS) : PLACEHOLDER[k];
+                buffer[offset + x - pos] = k >= ph.length ? 0 : k >= PH_DIGITS && k < PH_DIGITS + 10 ? digits.charCodeAt(k - PH_DIGITS) : ph[k];
             }
             if (a === e[0]) stats.artPlaceholder++;
-            artWant(e);
+            artWant(url, e);
             p = b;
         }
-        if (p < end) readReal(cardArc, buffer, offset + p - pos, p, end);
+        if (p < end) readReal(url, buffer, offset + p - pos, p, end);
         return true;
     }
     L.artBytes = (off) => {   // ovr/decode.c: the entry at `off`, once all its chunks are in memory (else asked for again)
-        let lo = 0, hi = artSorted ? artSorted.length - 1 : -1;
-        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (artSorted[m][0] <= off) lo = m; else hi = m - 1; }
-        const e = hi >= 0 && artSorted[lo][0] === off ? artSorted[lo] : null;
+        off >>>= 0;
+        const url = off >= MINI_TAG ? miniArc : cardArc, art = arts.get(url), sorted = art ? art.sorted : [];
+        if (art) off -= art.tag;
+        let lo = 0, hi = sorted.length - 1;
+        while (lo < hi) { const m = (lo + hi + 1) >> 1; if (sorted[m][0] <= off) lo = m; else hi = m - 1; }
+        const e = hi >= 0 && sorted[lo][0] === off ? sorted[lo] : null;
         if (!e) return new Uint8Array(0);   // not card art: nothing to wait for (decode.c drops it)
-        if (!resident(cardArc, e)) return artWant(e), null;
+        if (!resident(url, e)) return artWant(url, e), null;
         const buf = new Uint8Array(e[1] - e[0]);
-        readReal(cardArc, buf, 0, e[0], e[1]);
+        readReal(url, buf, 0, e[0], e[1]);
         stats.artFilled++;
         return buf;
     };
@@ -758,7 +775,7 @@ Module.preRun.push(() => {
             node.stream_ops = Object.assign({}, node.stream_ops, {
                 read(stream, buffer, offset, length, pos) {
                     const end = Math.min(pos + length, size);
-                    if (!(url === cardArc && artAsync && artRead(buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
+                    if (!((url === cardArc || url === miniArc) && artAsync && artRead(url, buffer, offset, pos, end))) readReal(url, buffer, offset, pos, end);
                     if (prefetchOn) onRead(url, pos);
                     return Math.max(0, end - pos);
                 },
@@ -836,6 +853,7 @@ Module.preRun.push(() => {
         jobs.length = 0, (holding = false);   // past the cap: what's left goes through the queue (prefetchAfter, the policies)
         pump();
         if (cardArc) cardToc().catch(() => {});   // card art's directory (placeholders), after the title's reads
+        if (miniArc) miniToc().catch(() => {});   // and the thumbnails'
         parseToc();
         if (archive) prefetchAfter(BOOT);   // the title, login, ...
         stats.pinned = pinned.size;
