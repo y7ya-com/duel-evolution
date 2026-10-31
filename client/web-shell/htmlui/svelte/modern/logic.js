@@ -216,7 +216,7 @@ export function presence(rows) {
 export const GENERIC = [
   // htmlui-select's, until theirs land
   'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelMove', 'CWindowModelList', 'CFixedsentenceList',
-  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelDuelConfig', 'CWindowModelBalloon',
+  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelBalloon',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
@@ -370,4 +370,30 @@ export function thumb(c) {
   if (max <= 0) return null;
   const len = Math.max(.08, Math.min(1, page / (max + page)));
   return { at: Math.min(1, Math.max(0, (c.value || 0) / max)) * (1 - len), len };
+}
+
+// ---- Duel Options (CWindowModelDuelConfig): its settings top to bottom, each a heading ShadowText and the option
+// PictureSwitches under it (the one the game has checked is the setting), each option's caption the ShadowText on it;
+// the description the ShadowText '説明' (else the widest one: a heading reads 256 x 256; the engine writes the hovered
+// option's help there); OK and Cancel its ButtonDuels
+export function duelConfig(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const inside = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => c.cls === 'CWindowTaskShadowText' && c.y > 16);
+  const opts = cs.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.w >= 64).sort((a, b) => a.y - b.y || a.x - b.x)
+    .map(c => ({ c, label: texts.find(t => t.text && inside(t, c))?.text || '' }));
+  const desc = texts.find(t => t.name === '説明') || texts.filter(t => t.h >= 64).sort((a, b) => b.w - a.w)[0];
+  const heads = texts.filter(t => t.text && t !== desc && !opts.some(o => inside(t, o.c))).sort((a, b) => a.y - b.y);
+  const sections = heads.map(h => ({ id: h.id, title: h.text, options: [] }));
+  for (const o of opts) {
+    const i = heads.findLastIndex(h => h.y < o.c.y);
+    if (i >= 0) sections[i].options.push(o);
+  }
+  const buttons = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.x - b.x);
+  return {
+    title: cs.find(c => c.cls === 'CWindowTaskShadowText' && c.y <= 16)?.text || 'Duel Options',
+    sections: sections.filter(s => s.options.length),
+    help: untag(desc?.text || ''),
+    ok: buttons.find(primary), cancel: leaveButton(buttons),
+  };
 }
