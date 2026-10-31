@@ -15,7 +15,7 @@ it("friendsInfo: a befriended player, online in a room then offline; not in game
   const n = A.room!.mark();
   B.room!.send(0x4513, cat(be32(A.pid!), be32(1)));
   await A.room!.wait(0x4515, n);
-  expect(h.game.lp.friendsInfo("user-a")).toEqual([200, { friends: [{ name: "Bob", online: true, place: "Domino City" }] }]);
+  expect(h.game.lp.friendsInfo("user-a")).toEqual([200, { friends: [{ pid: B.pid, name: "Bob", online: true, place: "Domino City" }] }]);
   B.room!.close(); await h.tick(100);
-  expect(h.game.lp.friendsInfo("user-a")).toEqual([200, { friends: [{ name: "Bob", online: false }] }]);
+  expect(h.game.lp.friendsInfo("user-a")).toEqual([200, { friends: [{ pid: B.pid, name: "Bob", online: false }] }]);
 });

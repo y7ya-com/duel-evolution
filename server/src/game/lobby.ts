@@ -565,7 +565,7 @@ export class Lobby {
     return this.connWhere(lobby.port, (lobby.ext.lang as number) ?? s.lang ?? 0, s);
   }
   /** GET /api/de/friends (the Modern UI): the active character's friends (p.friends, the players it befriended), each
-   *  {name, online, place?}; online as 0x3604 reports it, place only the world part (no room or block). */
+   *  {pid, name, online, place?}; online as 0x3604 reports it, place only the world part (no room or block). */
   friendsInfo(userId: string): [number, Record<string, unknown>] {
     const acct = this.g.store.accountOfUser(userId);
     const s = acct ? this.g.hub.sessions.get(acct) : undefined;
@@ -581,7 +581,7 @@ export class Lobby {
       if (!name) continue;
       const where = o ? this.friendWhere(o) : null;
       const online = !!where && FRIEND_OK_KINDS.has(where[1]);
-      out.push(!online ? { name, online } : { name, online, place: this.g.pvp?.byPid(pid) ? "Duel" : where![1] === 12 ? "My Room"
+      out.push(!online ? { pid, name, online } : { pid, name, online, place: this.g.pvp?.byPid(pid) ? "Duel" : where![1] === 12 ? "My Room"
         : this.g.acadKinds.has(where![1]) ? "Duel Academy" : "Domino City" });
     }
     return [200, { friends: out }];
