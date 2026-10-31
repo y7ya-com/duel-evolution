@@ -39,7 +39,7 @@ export function menuGroups(win) {
 
 // ---- the place banner (CWindowModelPlace): a row is its ShadowTexts left to right ('Duelist Academy' + '(1/1000)')
 export const place = s => {
-  const m = /^(.*?)\s*\((\d+)\s*\/\s*(\d+)\)\s*$/.exec(s);
+  const m = /^(.*?)\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*$/.exec(s);
   return m ? { name: m[1], here: m[2], cap: m[3] } : { name: s, here: '', cap: '' };
 };
 export function placeRows(win) {
@@ -215,14 +215,14 @@ export function presence(rows) {
 // engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
-  'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelMove', 'CWindowModelList', 'CFixedsentenceList',
+  'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelList', 'CFixedsentenceList',
   'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelBalloon',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
   'CWindowModelDuellogOperation', 'CWindowModelDuellogSearch', 'CWindowModelDuellogTop', 'CWindowModelDuellogTour',
   'CWindowModelDuelpass150', 'CWindowModelDuelpassInputCode', 'CWindowModelDuelpassUSB', 'CWindowModelFriendEnum', 'CWindowModelHelp',
-  'CWindowModelInput2', 'CWindowModelInputValue', 'CWindowModelItemGet', 'CWindowModelJoinGunsling', 'CWindowModelListCard',
+  'CWindowModelInput2', 'CWindowModelInputValue', 'CWindowModelJoinGunsling', 'CWindowModelListCard',
   'CWindowModelListCardAttr', 'CWindowModelListCardForbi', 'CWindowModelListCardIcon', 'CWindowModelListCardPack',
   'CWindowModelListCardStar', 'CWindowModelListCardType', 'CWindowModelPictureButton', 'CWindowModelPresent', 'CWindowModelProgress',
   'CWindowModelReturnButton', 'CWindowModelThin', 'CWindowModelThinImg', 'CWindowModelTp', 'CWindowModelTrade', 'ParamWindow',
@@ -389,5 +389,29 @@ export function duelConfig(win) {
     sections: sections.filter(s => s.options.length),
     help: untag(desc?.text || ''),
     ok: buttons.find(primary), cancel: leaveButton(buttons),
+  };
+}
+
+// ---- the Move window (CWindowModelMove, the bar's door: where to go): its place buttons top to bottom, each its name
+// and head count; the x; the scroll bar the game shows past six places (then only six buttons are shown at a time)
+export function moveWindow(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  return {
+    places: cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) })),
+    close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
+    bar: cs.find(c => /Scroll$/.test(c.cls)),
+  };
+}
+
+// ---- an item / unlock announcement (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"): its kind
+// line, its item line, the Structure Deck hint when shown, its OK (a picture switch with the OK text on it). The
+// portrait card behind them is the window's sprite extras, which the engine keeps drawing
+export function itemGet(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const texts = cs.filter(c => /ShadowText$/.test(c.cls)).sort((a, b) => a.y - b.y);
+  const ok = cs.find(c => /PictureSwitch$/.test(c.cls) && c.w >= 64);
+  return {
+    lines: texts.map(t => ({ id: t.id, text: untag(t.text).trim(), c: t })).filter(l => l.text),
+    ok, okLabel: (ok && cs.find(c => c.cls === 'CWindowTaskText' && c.text?.trim() && Math.abs(c.x - ok.x) < 4 && Math.abs(c.y - ok.y) < 16)?.text.trim()) || 'OK',
   };
 }

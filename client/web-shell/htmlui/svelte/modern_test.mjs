@@ -254,6 +254,31 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.ok.label, d.cancel.label], ['OK', 'Cancel']);
 }
 
+// the Move window: places top to bottom with their counts (the game pads the count: "(   0/1000)"), the x, the bar
+{
+  const b = (y, label, shown = true) => ctl('ButtonDuel', { x: 11, y, w: 258, h: 24, label, shown, state: 'normal' });
+  const w = win('CWindowModelMove', [ctl('FrameMove'), ctl('IconHide', { x: 272, w: 16, h: 24 }), b(50, 'Pier ( 12/32)'), b(24, 'Duelist Academy (   0/1000)'),
+    b(76, 'Gone (1/2)', false), ctl('ResultScroll', { x: 14, y: 22, w: 16, h: 158, shown: false })], { w: 296, h: 188 });
+  const m = L.moveWindow(w);
+  assert.deepEqual(m.places.map(p => [p.name, p.here, p.cap]), [['Duelist Academy', '0', '1000'], ['Pier', '12', '32']]);
+  assert.ok(m.close && !m.bar);
+}
+
+// an unlock announcement: its shown lines top to bottom (the empty kind line dropped), its OK picture and caption
+{
+  const w = win('CWindowModelItemGet', [
+    ctl('ShadowText', { x: 288, y: 528, w: 448, h: 16, text: ' Now, you can challenge Yami Marik to a Duel!' }),
+    ctl('ShadowText', { x: 288, y: 512, w: 448, h: 16, text: '' }),
+    ctl('ShadowText', { x: 288, y: 544, w: 448, h: 16, text: 'Go to "STRUCTURE DECK" in Edit Deck.', shown: false }),
+    ctl('PictureSwitch', { x: 431, y: 650, w: 162, h: 42, state: 'normal' }),
+    ctl('Text', { x: 431, y: 658, w: 162, h: 42, text: 'OK' }),
+  ], { w: 736, h: 700 });
+  const g = L.itemGet(w);
+  assert.deepEqual(g.lines.map(l => l.text), ['Now, you can challenge Yami Marik to a Duel!']);
+  assert.equal(g.okLabel, 'OK');
+  assert.equal(g.ok.w, 162);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

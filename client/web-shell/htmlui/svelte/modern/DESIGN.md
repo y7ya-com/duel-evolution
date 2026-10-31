@@ -140,6 +140,14 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
     changes; Cancel or Esc drops them.
   - Keys: focus opens on the first setting's choice; the arrows choose within a setting, Tab moves between settings,
     Enter is OK, Esc Cancel.
+- **Move** (the bar's door, CWindowModelMove; Move.svelte, owned; before, plain buttons on a green frame with the
+  count squeezed into the caption): "Where to?", a row per place with its name and a fill meter for its head count
+  (red when full), the ×. Past six places the game shows six at a time: the wheel or the arrows past either end
+  scroll its list. Keys: focus on the first place, Up / Down, Enter goes, Esc closes.
+- **Unlocks and items** (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"; ItemGet.svelte, pass):
+  the engine keeps drawing the portrait card (the window's sprite extras pass through); its lines become one blue
+  ribbon across the card's foot and its OK a large gold button that takes the focus, so Enter, Space or Esc dismisses
+  it. (The generic window had dropped the portrait: its extras have no rect.)
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
