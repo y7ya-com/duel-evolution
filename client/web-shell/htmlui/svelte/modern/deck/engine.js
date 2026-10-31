@@ -120,8 +120,11 @@ const btn = (w, label) => w?.controls.find(c => c.shown && (c.label || c.text ||
 const centre = c => [(c.wx ?? c.x) + c.w / 2, (c.wy ?? c.y) + c.h / 2];
 // a dialog's switch, pressed until `until(snapshot)` holds: the engine drops a press on a window that has only just
 // opened (it takes input once it is active), so it is pressed again until the next step shows
+// (never once `until` already holds: the modern toasts press a plain OK box's OK themselves)
 async function press(c, until, tries = 4) {
   for (let i = 0; c && i < tries; i++) {
+    const now = snap() && until(snap());
+    if (now) return now;
     if (globalThis.yo2DeckDebug) console.log('modern deck press', c.name || c.label, centre(c), snap()?.frame);
     await click(centre(c));
     const v = await waitFor(until, 900);
