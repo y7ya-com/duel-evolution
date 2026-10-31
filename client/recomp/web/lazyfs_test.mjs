@@ -97,7 +97,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, DOMException, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: !!opts.phone }), AbortController, atob, Blob, DecompressionStream };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -451,6 +451,21 @@ console.log("prefetch=0: ok");
         assert.ok(npc.length >= 3 && npc.every((k) => k.includes("card.dat")), "passcodes: the NPC's art from card.dat by name: " + npc);
         assert.equal(L2.stats.fieldFiles, 1, "passcodes: the Field Spell through card_passcode.bin");
         console.log("2x card art, passcode prefetch: ok");
+        // a phone not known to be on Wi-Fi: mini.dat is not preloaded, so the duel's cards bring their thumbnails
+        const r3 = makeEnv(new Map(), new Map(), { phone: true });
+        await r3.ready();
+        const L3 = r3.Module.yo2Lazy;
+        r3.read("/game/merge.dat", 0, toc);
+        await settle(L3);
+        assert.ok(![...L3.pinned.entries()].some(([k, p]) => p.tag === "hot" && k.includes("mini.dat")), "phone: mini.dat not preloaded");
+        await L3.prefetchCards([1]);
+        await settle(L3);
+        const thumbs = [...L3.pinned.entries()].filter(([k, p]) => p.tag === "deck" && k.includes("mini.dat")).map(([k]) => k);
+        assert.ok(thumbs.length >= 5, "phone: the deck's thumbnails pinned from mini.dat: " + thumbs);
+        syncXhr = 0;
+        r3.read("/game/merge/data/mini.dat", 12 + 2 * 268 + list.length, 4096);
+        assert.equal(syncXhr, 0, "phone: the thumbnail is in memory");
+        console.log("2x card art, phone thumbnails: ok");
     } finally {
         delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"], delete files["cards/merge/data/card_passcode.bin"];
     }
