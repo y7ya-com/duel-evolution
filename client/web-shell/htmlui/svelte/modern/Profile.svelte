@@ -46,8 +46,7 @@
   .card { left: 0; top: 0; padding-bottom: 14px; }
   .who { display: flex; align-items: center; gap: 14px; padding: 16px 18px 8px; }
   .badge { display: grid; place-items: center; width: 52px; height: 52px; flex: none; border-radius: 50%; font-weight: 800; font-size: 22px;
-    color: var(--gold-ink); background: radial-gradient(circle at 35% 30%, var(--gold-200), var(--gold-400) 60%, var(--gold-500));
-    box-shadow: 0 0 0 2px var(--gold-edge), 0 4px 10px rgba(160, 80, 0, .3); }
+    color: #fff; background: var(--sel); box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--p700), 0 4px 10px rgba(10, 35, 80, .3); }
   .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .name { font-size: 20px; font-weight: 800; color: var(--ink-strong); }
   .title { font-size: 13px; font-weight: 650; color: var(--azure-500); }

@@ -33,10 +33,10 @@
 
 <style>
   input, textarea { display: block; width: 100%; border: 0; border-radius: 10px; font: inherit; font-size: 13px; color: var(--navy-900);
-    background: #fff; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px #3a9de6;
+    background: #fff; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .12), 0 0 0 1px var(--btn-edge);
     user-select: text; }
   input { height: 30px; padding: 0 12px; }
   textarea { padding: 8px 12px; resize: none; line-height: 1.45; }
   input::placeholder, textarea::placeholder { color: #5b6f8c; }
-  input:focus, textarea:focus { outline: none; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px #0985ff, 0 0 0 3px rgba(0, 150, 255, .35); }
+  input:focus, textarea:focus { outline: none; box-shadow: inset 0 1px 2px rgba(11, 42, 92, .2), 0 0 0 1px var(--p500), 0 0 0 3px var(--p200); }
 </style>

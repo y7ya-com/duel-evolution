@@ -39,7 +39,7 @@
           <h3>{name}</h3>
           <div class="grid">
             {#each items as b (b.id)}
-              <button type="button" class="tile" class:gold={name !== 'System'} class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
+              <button type="button" class="tile" class:quit={b.label === 'Return to Title'} data-state={b.state} disabled={b.state === 'disabled'}
                 onclick={() => click(b)}>
                 <Icon name={ICONS[b.label] || 'sparkle'} />
                 <span>{nice(b.label)}</span>
@@ -65,34 +65,24 @@
   /* a quick action passing through the menu (macro.js): out of sight */
   :global(html.mu-macro) .panel { visibility: hidden; }
   .groups { padding: 6px 12px 0; display: flex; flex-direction: column; gap: 8px; }
-  h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+  h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-  /* a tile: the 2008 menu's gold bar (System: sky glass) */
-  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px;
-    font-weight: 700; color: var(--ink-strong); background: var(--sky-glass);
-    box-shadow: 0 0 0 1px #3a9de6, inset 0 1px 0 #fff, 0 2px 3px rgba(10, 60, 130, .2);
+  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: var(--r-ctl);
+    font-weight: 650; color: var(--ink-strong); background: var(--btn); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 2px rgba(10, 35, 80, .1);
     transition: transform .14s var(--ease), background .14s, box-shadow .14s; }
-  .tile.gold { color: var(--gold-ink);
-    background: linear-gradient(180deg, #ffffc8 0%, #fff97f 30%, #f9e45f 50%, #f4d558 62%, #f0be45 85%, #eca430 100%);
-    box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 #fff, inset 0 -2px 0 rgba(200, 100, 0, .22), 0 2px 3px rgba(160, 80, 0, .25); }
-  .tile :global(.mu-ico) { color: #c25a00; transition: transform .14s var(--ease); }
-  .tile:not(.gold) :global(.mu-ico) { color: var(--azure-500); }
+  .tile :global(.mu-ico) { color: var(--icon); transition: transform .14s var(--ease); }
+  .quit :global(.mu-ico) { color: var(--ink-3); }
   .tile span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .tile:hover, .tile[data-state='hover'] { transform: translateY(-1px); background: var(--sky-glass-hover);
-    box-shadow: 0 0 0 1px #2a8fe0, 0 0 0 3px rgba(0, 180, 255, .25), inset 0 1px 0 #fff, 0 6px 12px -5px rgba(0, 120, 230, .45); }
-  .tile.gold:hover, .tile.gold[data-state='hover'] {
-    background: linear-gradient(180deg, #ffffff 0%, #ffffe2 30%, #fcf4b8 50%, #faeaac 62%, #f6d086 85%, #f2b55e 100%);
-    box-shadow: 0 0 0 1px var(--gold-edge), 0 0 0 3px rgba(255, 200, 40, .35), inset 0 1px 0 #fff, 0 6px 12px -5px rgba(180, 90, 0, .4); }
+  .tile:hover, .tile[data-state='hover'] { transform: translateY(-1px); background: var(--btn-hover);
+    box-shadow: 0 0 0 1px var(--p500), inset 0 1px 0 #fff, 0 6px 12px -6px rgba(20, 70, 160, .45); }
   .tile:hover :global(.mu-ico) { transform: scale(1.08); }
-  .tile:focus-visible { outline: 2px solid var(--azure-500); outline-offset: 2px; }
-  .tile:active { transform: translateY(0); filter: brightness(.96); }
+  .tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .tile:active { transform: translateY(0); filter: brightness(.97); }
   .tile:disabled { opacity: .45; transform: none; }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
   .switch span:not(.track):not(.knob) { flex: 1; }
-  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: linear-gradient(180deg, var(--gold-500), var(--gold-300));
-    box-shadow: inset 0 1px 2px rgba(120, 60, 0, .35), 0 0 0 1px var(--gold-edge); }
-  .knob { position: absolute; left: 14px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #fff, #e8eef5 55%, #b6c4d6); box-shadow: 0 1px 2px rgba(0, 0, 0, .35); transition: left .2s var(--ease); }
-  .switch:has(input:focus-visible) { outline: 2px solid var(--azure-500); outline-offset: 2px; }
+  .track { position: relative; width: 30px; height: 18px; flex: none; border-radius: 9px; background: var(--sel); box-shadow: inset 0 1px 2px rgba(0, 20, 60, .3); }
+  .knob { position: absolute; left: 14px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: left .2s var(--ease); }
+  .switch:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 </style>

@@ -107,17 +107,16 @@ const CSS = `
   -webkit-font-smoothing: antialiased; }
 #mu-title .mu-tmenu { position: absolute; left: 306px; top: 424px; width: 412px; padding: 14px 22px 16px;
   display: none; flex-direction: column; gap: 8px; pointer-events: auto; box-sizing: border-box; border-radius: 22px 22px 22px 8px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .75), rgba(255, 255, 255, .2) 48%, rgba(255, 255, 255, 0) 52%),
-    linear-gradient(180deg, rgba(232, 251, 255, .92), rgba(143, 230, 252, .9));
-  box-shadow: 0 0 0 1px #2f8fd6, inset 0 0 0 2px rgba(167, 255, 255, .9), 0 20px 40px -16px rgba(10, 60, 130, .6), 0 4px 10px rgba(10, 60, 130, .25);
+  background: rgba(255, 255, 255, .78); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  box-shadow: 0 0 0 1px var(--plate-edge, #b6c4d6), inset 0 1px 0 #fff, 0 20px 40px -16px rgba(10, 35, 80, .55), 0 4px 10px rgba(10, 35, 80, .2);
   animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
 #mu-title.mu-on .mu-tmenu { display: flex; }
 /* the 2008 title buttons: slanted blue bars, white heavy italic with the blue outline; ONLINE in the menu's gold */
 #mu-title .mu-tbtn { position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 28px; margin: 0;
-  border: 0; font-family: inherit; font-weight: 900; font-size: 21px; line-height: 1; letter-spacing: .04em; font-style: italic; color: #fff;
-  text-shadow: -1.5px 0 #0a3fc8, 1.5px 0 #0a3fc8, 0 -1.5px #0a3fc8, 0 1.5px #0a3fc8, 0 2px 4px rgba(0, 40, 160, .5);
+  border: 0; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic; color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 20, 60, .45);
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
-  background: linear-gradient(180deg, #8fd0ff 0%, #3a8ff5 14%, #1d6ce8 50%, #0a50d8 86%, #0b46c0 100%);
+  background: var(--bar, linear-gradient(180deg, #4b8ee3, #2462c2));
   transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s; }
 #mu-title .mu-tbtn::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
@@ -127,10 +126,10 @@ const CSS = `
 #mu-title .mu-tbtn:hover::after, #mu-title .mu-tbtn:focus-visible::after { background-position: 260% 0; }
 #mu-title .mu-tbtn:focus-visible { outline: 2px solid #0a3fc8; outline-offset: 3px; }
 #mu-title .mu-tbtn:active { transform: translateX(2px); filter: brightness(.95); }
-#mu-title .mu-tbtn-primary { height: 54px; font-size: 26px; color: #4a2600;
+#mu-title .mu-tbtn-primary { height: 54px; font-size: 25px; color: #3a2400;
   text-shadow: 0 1px 0 rgba(255, 255, 220, .9);
   clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
-  background: linear-gradient(180deg, #ffffc8 0%, #fff97f 28%, #f9e45f 48%, #f4d558 60%, #f0be45 82%, #eca430 100%); }
+  background: var(--gold, linear-gradient(180deg, #fff4c4, #f3c64f)); }
 #mu-title .mu-tbtn-primary:hover, #mu-title .mu-tbtn-primary:focus-visible { filter: brightness(1.06) saturate(1.15); }
 #mu-title .mu-switch { position: absolute; right: 20px; bottom: 20px; display: flex; align-items: center; gap: 10px; height: 34px;
   padding: 0 14px 0 8px; border-radius: 17px; pointer-events: auto; color: #0b2a5c; font-family: inherit; font-weight: 700; font-size: 13px; line-height: 1; letter-spacing: .02em;

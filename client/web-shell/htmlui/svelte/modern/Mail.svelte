@@ -79,7 +79,7 @@
 <style>
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); }
   .box { left: 0; top: 0; display: flex; flex-direction: column; }
-  .box :global(.lead) { color: #fff97f; }
+  .box :global(.lead) { color: var(--gold-300); }
   .actions { display: flex; gap: 8px; padding: 12px 16px 0; }
   .actions :global(.mu-btn:last-child:not(:first-child)) { margin-left: auto; }
   .to { display: flex; flex-direction: column; gap: 5px; }
@@ -91,7 +91,7 @@
     background: var(--well); box-shadow: var(--well-shadow); }
   .rows button { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--ink-2);
     transition: background .12s; }
-  .rows button:hover { background: #e2f7ff; color: var(--ink-strong); }
+  .rows button:hover { background: var(--p50); color: var(--ink-strong); }
   .rows button :global(.mu-ico) { color: var(--icon); }
   .rows span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .rows .main { flex: 1; font-weight: 750; color: var(--ink-strong); }

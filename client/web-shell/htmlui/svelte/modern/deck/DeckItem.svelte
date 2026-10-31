@@ -17,7 +17,7 @@
     return 'content';
   };
   // the trunk row plates by variant (c01 monsters' grey-green, c02 spells', c04 traps', c00 the list's foot)
-  export const ROW = { c00: 'rgba(255, 255, 255, 0)', c01: 'rgba(255, 255, 255, .75)', c02: 'rgba(200, 255, 225, .8)', c04: 'rgba(255, 215, 245, .8)' };
+  export const ROW = { c00: 'rgba(255, 255, 255, 0)', c01: 'rgba(255, 255, 255, .85)', c02: 'rgba(236, 246, 240, .9)', c04: 'rgba(246, 238, 245, .9)' };
 </script>
 
 <script>
@@ -45,7 +45,7 @@
     {:else if word}
       <span class="word" class:tab={/^(Main|Fusion)$/.test(word[0])} class:warm={/^(Trunk|Rearrange|Card Search)$/.test(word[0])} class:front style:left="{it.x + word[2]}px" style:top="{it.y}px" style:height="{H}px" style:opacity={it.s.a ?? 1}>{word[0]}</span>
     {:else if it.kind === 'sprite'}
-      <Sprite s={it.s} x={it.x} y={it.y} />
+      <div class:muted={/^deck_cardcount_01/.test(artName(it.s.tex))} style="display: contents"><Sprite s={it.s} x={it.x} y={it.y} /></div>
     {:else if it.kind === 'label'}
       <Label text={it.text} x={it.x} y={it.y} alpha={it.alpha} box={{ ...it.box, ink: it.box.ink ?? 0x0b2a5c }} />
     {:else if it.kind === 'flow'}
@@ -62,11 +62,12 @@
 <style>
   .row { position: absolute; }
   .chev { position: absolute; width: 16px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  /* the word art's words in its colours (Deck / Number of Cards green, Trunk / Rearrange orange): heavy italic, as the art */
-  .word { position: absolute; display: flex; align-items: center; white-space: nowrap; font-size: 16px; font-weight: 900; font-style: italic; letter-spacing: .01em;
-    color: var(--ok); text-shadow: 0 1px 0 #fff; }
-  .word.warm { color: var(--warm); }
-  .word.tab { font-size: 13px; font-weight: 800; color: var(--ink-3); }
-  .word.tab.front { color: var(--bad); }
+  /* the word art's words as headings: one ink, upright (italic is the editor's name only) */
+  .word { position: absolute; display: flex; align-items: center; white-space: nowrap; font-size: 14px; font-weight: 750; letter-spacing: .01em; color: var(--ink-strong); }
+  .word.warm { color: var(--ink-strong); }
+  .word.tab { font-size: 13px; font-weight: 650; color: var(--ink-3); }
+  .word.tab.front { color: var(--p700); }
+  /* the count chips (the engine's coloured cells): quieter */
+  .muted :global(*) { filter: saturate(.5) brightness(1.04); }
   /* the card text as the engine colours it (dark on the light plate) */
 </style>

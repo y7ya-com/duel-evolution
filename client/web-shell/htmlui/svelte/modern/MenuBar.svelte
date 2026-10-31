@@ -70,21 +70,19 @@
 
 <style>
   .dock { position: absolute; left: 0; top: 0; width: 1024px; height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 6px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 55%),
-      linear-gradient(90deg, #6ee4ff 0%, #9ef2ff 18%, #4fc6ff 45%, #1e8dff 75%, #0a5fe0 100%);
-    box-shadow: 0 -1px 0 #1f6fd0, inset 0 1px 0 rgba(255, 255, 255, .8), 0 -6px 16px -10px rgba(10, 60, 130, .5); }
-  .menu { height: 24px; padding: 0 12px 0 9px; font-size: 12.5px; border-radius: 8px 8px 8px 3px; gap: 6px; }
-  .menu:not(.gold) { background: linear-gradient(180deg, #1d6fe0, #0a3fa8); color: #fff; box-shadow: 0 0 0 1px rgba(4, 17, 43, .6), inset 0 1px 0 rgba(255, 255, 255, .35); }
-  .sep { width: 1px; height: 20px; margin: 0 2px; background: rgba(255, 255, 255, .7); box-shadow: 1px 0 0 rgba(10, 60, 140, .3); }
+    background: var(--dock); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 -1px 0 var(--band-edge), 0 -6px 16px -10px rgba(10, 35, 80, .5); }
+  .menu { height: 24px; padding: 0 12px 0 9px; font-size: 12.5px; border-radius: 8px; gap: 6px; }
+  .menu:not(.gold) { background: rgba(255, 255, 255, .14); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
+  .menu:not(.gold):hover { background: rgba(255, 255, 255, .24); }
+  .sep { width: 1px; height: 18px; margin: 0 2px; background: rgba(255, 255, 255, .3); }
   .quick { display: flex; gap: 2px; }
-  .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 7px; font-size: 12px; font-weight: 700;
-    color: var(--ink-strong); transition: background .12s, box-shadow .12s, transform .12s; }
-  .q :global(.mu-ico) { color: #0a4fc8; }
-  .q:hover, .q:focus-visible { background: rgba(255, 255, 255, .75); box-shadow: inset 0 0 0 1px #2f8fd6, 0 2px 6px -2px rgba(10, 60, 130, .5); transform: translateY(-1px); }
-  .q.busy { background: linear-gradient(180deg, #ffffc8, #f4d558); box-shadow: inset 0 0 0 1px var(--gold-edge); }
+  .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 7px; font-size: 12px; font-weight: 600;
+    color: #fff; transition: background .12s, box-shadow .12s, transform .12s; }
+  .q :global(.mu-ico) { color: rgba(255, 255, 255, .85); }
+  .q:hover, .q:focus-visible { background: rgba(255, 255, 255, .16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); transform: translateY(-1px); }
+  .q.busy { background: rgba(255, 229, 138, .3); box-shadow: inset 0 0 0 1px var(--gold-300); }
   kbd { min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; font-family: inherit; font-weight: 700; font-size: 9.5px; line-height: 15px;
-    text-align: center; color: #0a4fc8; background: rgba(255, 255, 255, .7); box-shadow: inset 0 -1px 0 rgba(10, 60, 140, .3); }
+    text-align: center; color: #fff; background: rgba(255, 255, 255, .18); box-shadow: inset 0 -1px 0 rgba(0, 20, 60, .25); }
   .status { flex: 1; min-width: 0; height: 22px; line-height: 22px; padding: 0 12px; border-radius: 7px; font-size: 12.5px; color: var(--ink-strong);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    background: rgba(255, 255, 255, .75); box-shadow: inset 0 1px 2px rgba(11, 42, 92, .25), inset 0 0 0 1px rgba(255, 255, 255, .8); }
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--dock-field); box-shadow: inset 0 1px 2px rgba(10, 35, 80, .2); }
 </style>
