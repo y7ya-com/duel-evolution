@@ -131,6 +131,15 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   Wins, Losses, Score, Win%, % of Cards Collected, Miles).
 - **Yes / No dialog:** the message centred, Yes in gold. Enter is on the primary, Esc is No; a scrim dims the game
   behind it.
+- **Duel Options** (DuelConfig.svelte, owned; before, a pink-and-grey picture grid whose help text only changed
+  on hover):
+  - Each setting is one segmented choice (Auto Tracking, Auto Card Placing, Activation Message), the current one gold.
+  - The help panel names the option it explains ("Activation Message: Manual") and follows hover and keyboard focus
+    (the engine writes it when its switch is hovered: api.hover).
+  - The game keeps a choice only on OK (no instant apply without closing the window), so the plate counts the unsaved
+    changes; Cancel or Esc drops them.
+  - Keys: focus opens on the first setting's choice; the arrows choose within a setting, Tab moves between settings,
+    Enter is OK, Esc Cancel.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
@@ -158,7 +167,7 @@ modern-ui-coverage.md in the coordinator's notes.
     it (the Duel Log's tabs), is a button. A text field with a back plane, or a large text area, sits in a well.
   - What it can't draw stays the engine's, cut out of everything drawn here (evenodd clip-path): pictures (flags, card
     art, screen modes), Flash, unknown controls (their sprites place the hole when they have no size), sprite extras.
-  - Seen live: Options (title), Duel Log, Duel Options.
+  - Seen live: Options (title), Duel Log. (Duel Options has its own screen now.)
 - **Never drawn:** CWindowLogin (the 2008 ID / password form must never show), base classes, CDeckCardLoader (no
   controls), CWindowTaskCardArea (trade's drag stays the engine's), CWindowModelTitleConfig.
 - **Still legacy:** the shop (CShop* tasks, not windows: the generic renderer takes windows only), the duel field itself

@@ -229,6 +229,31 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(new Set(L.GENERIC).size, L.GENERIC.length);
 }
 
+// Duel Options: headings (256 x 256 rects) own the switches under them; captions by the switch they sit on; the help
+// is '説明' (not a heading); the checked switch is the setting
+{
+  const head = (y, text) => ctl('ShadowText', { name: '『オートフォーカス』', x: 38, y, w: 256, h: 256, text });
+  const sw = (x, y, checked) => ctl('PictureSwitch', { x, y, w: 224, h: 32, checked, state: 'normal' });
+  const cap = (x, y, text) => ctl('ShadowText', { x, y: y + 8, w: 224, h: 16, text });
+  const w = win('CWindowModelDuelConfig', [
+    ctl('ShadowText', { x: 0, y: 4, w: 492, h: 16, text: 'DUEL OPTIONS' }),
+    head(141, 'Activation Message'), head(37, 'Auto Tracking'),
+    sw(22, 53, true), sw(246, 53, false), cap(22, 53, 'ON'), cap(246, 53, 'OFF'),
+    sw(22, 157, false), sw(246, 157, true), sw(134, 198, false), cap(22, 157, 'Auto Cancel'), cap(246, 157, 'Semi Auto Cancel'), cap(134, 198, 'Manual'),
+    ctl('PictureSwitch', { x: 234, y: 248, w: 24, h: 16, shown: true }),   // the help's arrow: not an option
+    ctl('ShadowText', { name: '『説明』', x: 38, y: 236, w: 224, h: 16, text: '' }),
+    ctl('ShadowText', { name: '説明', x: 30, y: 264, w: 424, h: 128, text: 'Hold the Right Mouse button.' }),
+    ctl('ButtonDuel', { x: 299, y: 420, w: 140, h: 24, label: 'Cancel', state: 'normal' }),
+    ctl('ButtonDuel', { x: 53, y: 420, w: 140, h: 24, label: 'OK', state: 'normal' }),
+  ], { w: 492, h: 452 });
+  const d = L.duelConfig(w);
+  assert.equal(d.title, 'DUEL OPTIONS');
+  assert.deepEqual(d.sections.map(s => [s.title, s.options.map(o => o.label + (o.c.checked ? '*' : ''))]),
+    [['Auto Tracking', ['ON*', 'OFF']], ['Activation Message', ['Auto Cancel', 'Semi Auto Cancel*', 'Manual']]]);
+  assert.equal(d.help, 'Hold the Right Mouse button.');
+  assert.deepEqual([d.ok.label, d.cancel.label], ['OK', 'Cancel']);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
