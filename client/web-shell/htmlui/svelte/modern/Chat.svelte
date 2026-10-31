@@ -5,7 +5,7 @@
   // while the player is there; the line is a real <input> that commits through the control's setText, Enter being the
   // game's own WM_CHAR 13 (it sends). Taller / Shorter are its IconExpand / IconHide. The panel fills the window's
   // rect, which is the engine's (taller moves it up).
-  import { chatLine, chatParts } from './logic.js';
+  import { chatLine, chatParts, chatLogs, newLines } from './logic.js';
 </script>
 
 <script>
@@ -16,10 +16,30 @@
   const lines = $derived((p.log?.items || []).map(chatLine));
   const api = $derived(view.api);
 
-  // the log: at the bottom while the player is there (checked before the new lines land)
-  let logEl = $state(), atBottom = true;
+  // the log: at the bottom while the player is there (checked before the new lines land); scrolled up, new lines show
+  // a pill that jumps to them
+  let logEl = $state(), atBottom = true, fresh = $state(0);
   $effect.pre(() => { lines; if (logEl) atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 4; });
   $effect(() => { lines; if (logEl && atBottom) logEl.scrollTop = logEl.scrollHeight; });
+  const latest = () => { logEl.scrollTo({ top: logEl.scrollHeight, behavior: 'smooth' }); fresh = 0; };
+  const onscroll = () => { if (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 4) fresh = 0; };
+
+  // unread lines per tab (its log is the tab's by order): counted while the tab is not the one shown
+  const seen = new Map();   // log id -> its items last snapshot
+  let unread = $state({}), primed = false;   // the first snapshot's lines are history, not news
+  $effect(() => {
+    const logs = chatLogs(win), next = { ...unread };
+    logs.forEach((l, i) => {
+      const t = p.tabs[i], n = newLines(seen.get(l.id), l.items || []);
+      seen.set(l.id, l.items || []);
+      if (!t) return;
+      if (t.active) next[t.id] = 0;
+      else if (n && primed) next[t.id] = (next[t.id] || 0) + n;
+      if (t.active && l === p.log && n && primed && !atBottom) fresh += n;
+    });
+    primed = true;
+    if (JSON.stringify(next) !== JSON.stringify(unread)) unread = next;
+  });
 
   // the line: the game's text until the player edits it here; every edit goes to the game (setText)
   let inputEl = $state(), value = $state(''), entered = null;
@@ -48,7 +68,7 @@
     <header>
       <div class="tabs" role="tablist" aria-label="Chat channels">
         {#each p.tabs as t (t.id)}
-          <button type="button" role="tab" class="tab" aria-selected={!!t.active} disabled={!t.enabled} onclick={() => api.click(t.id)}>{label(t)}</button>
+          <button type="button" role="tab" class="tab" aria-selected={!!t.active} disabled={!t.enabled} onclick={() => api.click(t.id)}>{label(t)}{#if unread[t.id]}<span class="badge" aria-label="{unread[t.id]} new">{unread[t.id] > 99 ? '99+' : unread[t.id]}</span>{/if}</button>
         {/each}
       </div>
       <div class="size">
@@ -56,13 +76,14 @@
         {#if p.shorter}<button type="button" class="mu-icon-btn" aria-label="Shorter" title="Shorter" disabled={!p.shorter.enabled} onclick={() => api.click(p.shorter.id)}><svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 7.5 10 12.5l5-5" /></svg></button>{/if}
       </div>
     </header>
-    <div class="log mu-scroll" role="log" aria-live="polite" bind:this={logEl}>
+    <div class="log mu-scroll" role="log" aria-live="polite" bind:this={logEl} {onscroll}>
       {#each lines as l, i (i)}
         <p class:notice={l.notice}>{#if l.name}<b>{l.name}</b>{/if}<span>{l.text}</span></p>
       {:else}
         <p class="empty">No messages yet. Say hello.</p>
       {/each}
     </div>
+    {#if fresh}<button type="button" class="jump" onclick={latest}>{fresh} new {fresh === 1 ? 'message' : 'messages'} <svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 8l5 5 5-5" /></svg></button>{/if}
     {#if p.input}
       <div class="composer">
         <input bind:this={inputEl} bind:value type="text" maxlength={p.input.maxLen || 128} spellcheck="false" autocomplete="off"
@@ -84,6 +105,12 @@
   .tab[aria-selected='true'] { color: var(--ink-strong); background: linear-gradient(180deg, #ffffff, #e2f7ff); box-shadow: inset 0 1px 0 #fff, 0 0 0 1px #3a9de6; }
   .tab[aria-selected='true']::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px;
     background: linear-gradient(90deg, var(--gold-300), var(--gold-400)); box-shadow: 0 0 6px rgba(247, 228, 108, .6); }
+  .badge { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; font-size: 10px; font-weight: 800;
+    line-height: 16px; text-align: center; color: #fff; background: #e0303f; box-shadow: 0 1px 2px rgba(120, 0, 10, .4); vertical-align: 1px; }
+  .jump { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; height: 24px;
+    padding: 0 8px 0 12px; border-radius: 12px; font-size: 12px; font-weight: 750; color: #fff; background: linear-gradient(180deg, #3aa2ff, #0a5fe0);
+    box-shadow: 0 0 0 1px #0a4fc8, 0 4px 10px -2px rgba(10, 60, 130, .55); animation: mu-rise .2s var(--ease) both; }
+  .jump .mu-ico { width: 14px; height: 14px; }
   .size { display: flex; gap: 2px; align-self: center; }
   .size .mu-icon-btn { width: 28px; height: 24px; }
   .size .mu-icon-btn:disabled { opacity: .35; }

@@ -13,6 +13,30 @@
   const title = $derived((TITLES[n - 1] || TITLES[0]).toLowerCase().replace(/\b\w/g, m => m.toUpperCase()));
   const SIDES = { LoadBtn: ['Load Deck', 'deck'], SaveBtn: ['Save Deck', 'log'], RecipeBtn: ['Structure Deck', 'team'], ClearBtn: ['Clear Deck', 'trash'], ExitBtn: ['Exit', 'exit'] };
   const buttons = $derived(sc.menu.filter(b => b.shown && SIDES[b.name]).map(b => ({ b, t: SIDES[b.name], hover: inSide(b, sc.mouse) })));
+  // the editor's keys: / the trunk's search; Ctrl (Cmd) + S Save Deck, + O Load Deck: the engine's click on that side button
+  const KEYS = { s: 'SaveBtn', o: 'LoadBtn' };
+  const press = b => {
+    const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+    const p = { clientX: r.left + (b.wx + 80) * k, clientY: r.top + (b.wy + 13) * k, bubbles: true, cancelable: true, button: 0 };
+    cv.dispatchEvent(new MouseEvent('mousemove', { ...p, buttons: 0 }));
+    setTimeout(() => cv.dispatchEvent(new MouseEvent('mousedown', { ...p, buttons: 1 })), 70);
+    setTimeout(() => cv.dispatchEvent(new MouseEvent('mouseup', { ...p, buttons: 0 })), 140);
+  };
+  $effect(() => {
+    const key = e => {
+      const typing = /^(INPUT|TEXTAREA)$/.test(e.target?.tagName || '');
+      if (e.key === '/' && !typing) { const f = document.querySelector('.dk-field'); if (f) { e.preventDefault(); e.stopPropagation(); f.focus(); } return; }
+      const name = (e.ctrlKey || e.metaKey) && !e.altKey && KEYS[e.key.toLowerCase()];
+      const b = name && sc.menu.find(m => m.name === name && m.shown);
+      if (!b) return;
+      e.preventDefault();
+      e.stopPropagation();
+      press(b);
+    };
+    addEventListener('keydown', key, true);
+    return () => removeEventListener('keydown', key, true);
+  });
+
 </script>
 
 <div class="mu">
@@ -28,7 +52,7 @@
       </h1>
     {/if}
     {#each buttons as { b, t, hover } (b.id)}
-      <div class="side" class:hover class:exit={b.name === 'ExitBtn'} style:left="{b.wx + 8}px" style:top="{b.wy + 1}px" style:width="{SIDE.w - 20}px" style:height="{SIDE.h - 3}px">
+      <div class="side" class:hover class:exit={b.name === 'ExitBtn'} style:left="{b.wx + 8}px" style:top="{b.wy + 1}px" style:width="{SIDE.w - 10}px" style:height="{SIDE.h - 3}px">
         <Icon name={t[1]} size={15} /><span>{t[0]}</span>
       </div>
     {/each}
@@ -44,8 +68,8 @@
     color: #fff; white-space: nowrap; text-transform: uppercase;
     text-shadow: -1.5px 0 #1059ff, 1.5px 0 #1059ff, 0 -1.5px #1059ff, 0 1.5px #1059ff, 0 2px 6px rgba(16, 89, 255, .5); }
   .title :global(.mu-emblem) { color: #fff97f; }
-  .side { position: absolute; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 4px 10px 10px 4px;
-    font-size: 14px; font-weight: 900; font-style: italic; letter-spacing: .03em; color: #fff; text-transform: uppercase;
+  .side { position: absolute; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 4px 10px 10px 4px;
+    font-size: 12px; font-weight: 900; font-style: italic; letter-spacing: 0; color: #fff; text-transform: uppercase; white-space: nowrap;
     text-shadow: -1px 0 #1059ff, 1px 0 #1059ff, 0 -1px #1059ff, 0 1px #1059ff;
     background: linear-gradient(180deg, #69ffff 0%, #50e4ff 18%, #3eb2ff 32%, #2578fe 72%, #065efe 82%, #0000fe 100%);
     box-shadow: 0 0 0 1px #fff, 0 2px 4px rgba(0, 0, 60, .35); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
@@ -54,4 +78,5 @@
   .side.hover { transform: translateX(4px); color: #fdff45; filter: brightness(1.12);
     text-shadow: -1px 0 #ff9d10, 1px 0 #ff9d10, 0 -1px #ff9d10, 0 1px #ff9d10; }
   .side.exit { margin-top: 2px; }
+  .side span { overflow: hidden; text-overflow: ellipsis; }
 </style>

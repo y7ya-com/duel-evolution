@@ -62,6 +62,8 @@
 
 <style>
   .panel { left: 6px; bottom: 8px; width: 372px; padding: 0 0 12px; }
+  /* a quick action passing through the menu (macro.js): out of sight */
+  :global(html.mu-macro) .panel { visibility: hidden; }
   .groups { padding: 6px 12px 0; display: flex; flex-direction: column; gap: 8px; }
   h3 { margin: 6px 4px 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

@@ -71,6 +71,31 @@ export function chatParts(win) {
   };
 }
 
+// the chat's logs by tab: the Textlists in the order the window made them, a tab each, left to right
+export const chatLogs = win => win.controls.filter(c => c.cls === 'CWindowTaskTextlist');
+// new lines in a log since its last snapshot (old, now: its items): the items past the last line it had; a log that
+// dropped its oldest lines still counts only what was added
+export function newLines(old = [], now = []) {
+  if (!old.length) return now.length;
+  const last = old[old.length - 1];
+  for (let i = now.length - 1; i >= 0; i--) if (now[i] === last) return now.length - 1 - i;
+  return now.length;
+}
+
+// ---- the deck editor's check (the deck panel's CWindowTaskDeck counts, read/deck.js): Main 40-60, Fusion and Side up
+// to 15 each, no card the trunk doesn't hold (missing). ok: a legal deck
+export function deckCheck(counts) {
+  if (!counts) return null;
+  const { main = 0, side = 0, extra = 0, missing = 0 } = counts;
+  const parts = [
+    { key: 'main', label: 'Main', n: main, rule: '40–60', ok: main >= 40 && main <= 60 },
+    { key: 'extra', label: 'Fusion', n: extra, rule: '0–15', ok: extra <= 15 },
+    { key: 'side', label: 'Side', n: side, rule: '0–15', ok: side <= 15 },
+  ];
+  if (missing) parts.push({ key: 'missing', label: 'Missing', n: missing, rule: 'none', ok: false });
+  return { parts, ok: parts.every(p => p.ok) };
+}
+
 // ---- lists: the game point of row i of a list control (window win), the list showing rows from top
 export const rowPoint = (win, list, i, top = list.top || 0) => {
   const rows = Math.max(1, list.rows || 6), h = list.h / rows;

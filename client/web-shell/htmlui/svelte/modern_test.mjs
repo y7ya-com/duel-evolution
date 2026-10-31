@@ -131,6 +131,18 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(a.loose.map(x => x.text), ['Choose your look']);
 }
 
+// the chat's new lines; the deck check
+{
+  assert.equal(L.newLines(undefined, ['a', 'b']), 2);
+  assert.equal(L.newLines(['a', 'b'], ['a', 'b', 'c']), 1);
+  assert.equal(L.newLines(['a', 'b', 'c'], ['b', 'c', 'd', 'e']), 2, 'a log that dropped its oldest line');
+  assert.equal(L.newLines(['a'], ['a']), 0);
+  const d = L.deckCheck({ main: 40, side: 0, extra: 3, missing: 0 });
+  assert.ok(d.ok);
+  assert.deepEqual(L.deckCheck({ main: 38, side: 16, extra: 0, missing: 2 }).parts.filter(p => !p.ok).map(p => p.key), ['main', 'side', 'missing']);
+  assert.equal(L.deckCheck(null), null);
+}
+
 // the switch (../modern.js) on a stub page: default off, ?MODERN_UI= wins, remembered, killed by htmlui.json
 {
   const store = new Map();
