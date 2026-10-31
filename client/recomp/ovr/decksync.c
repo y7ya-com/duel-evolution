@@ -127,11 +127,22 @@ static void emit(const char *handler, Buf *b) {   // Module[handler](JSON value)
 
 // ---------------------------------------------------------------- the reports
 
+// Edit Deck's STRUCTURE DECK points the deck manager at the recipe folder (data\cardpack): a recipe is not the
+// player's deck, so nothing about it goes to the server and it is not a character load
+static int in_recipes(void) {
+    uint32_t dm = RD32m(DECK_MGR);
+    char dir[256];
+    if (!dm) return 0;
+    get_str(dm + DM_DIR, dir, sizeof dir);
+    const char *base = strrchr(dir, '\\');
+    return !strcasecmp(base ? base + 1 : dir, "cardpack");
+}
+
 // 0x00906dd0 CDeckManager::save (thiscall): deck A's lists -> <dir>\<name>
 void f_00906dd0(CPU *c) {
     uint32_t self = c->ecx;
     o_00906dd0(c);
-    if (rc_deck_quiet || self != RD32m(DECK_MGR) || !(c->eax & 0xff)) return;
+    if (rc_deck_quiet || self != RD32m(DECK_MGR) || !(c->eax & 0xff) || in_recipes()) return;
     char name[128];
     get_str(self + DM_NAME, name, sizeof name);
     strip_ydc(name);
@@ -162,7 +173,7 @@ static const char *mode(void) { return rc_free_mode > 0 ? "free" : "world"; }
 static void report_current(void) {
     uint32_t pd = RD32m(PLAYER_DATA);
     char name[128];
-    if (!pd) return;
+    if (!pd || in_recipes()) return;
     get_str(pd + 0x38, name, sizeof name);
     strip_ydc(name);
     if (!*name) return;
@@ -261,7 +272,7 @@ void rc_deck_sync_frame(CPU *c) {   // starterdeck.c, at every Present
     if (!dm || !RD32m(PLAYER_DATA) || !RD32m(CARD_CASE)) return;
     char dir[256];
     get_str(dm + DM_DIR, dir, sizeof dir);
-    if (!*dir || !strcmp(dir, last)) return;   // a character loaded (player select)
+    if (!*dir || !strcmp(dir, last) || in_recipes()) return;   // a character loaded (player select)
     strcpy(last, dir);
     report_local(dir);
 }
