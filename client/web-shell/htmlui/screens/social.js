@@ -33,14 +33,18 @@ const DRAW = {
   Scroll: () => {},   // a native box, chat.js's ownScroll
 };
 
-function draw(c, el, api, win) {
+export function draw(c, el, api, win) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/(^|[^i])Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
   return DRAW[fam] ? DRAW[fam](el, c, api, win) : api.renderControl(c, el);
 }
 
-export default owned(['CWindowModelProfile', 'CWindowModelFriendlist', 'CWindowModelBlacklist', 'CWindowModelTeamlist',
+// D-Mail's windows draw their frame and boxes themselves (one 512 x 512 picture each): those as CSS
+export function background(win, el) {
+  if (/DMail(Send)?$/.test(win.cls)) skin.mailWindow(el, { w: win.w, h: win.h, compose: win.cls.endsWith('Send') });
+}
+
+export const CLASSES = ['CWindowModelProfile', 'CWindowModelFriendlist', 'CWindowModelBlacklist', 'CWindowModelTeamlist',
   'CWindowModelFriendEnum', 'CWindowModelDMail', 'CWindowModelDMailSend', 'CWindowModelBlacklistInput',
-  'CWindowModelSetComment'], draw,
-  // D-Mail's windows draw their frame and boxes themselves (one 512 x 512 picture each): those as CSS
-  (win, el) => { if (/DMail(Send)?$/.test(win.cls)) skin.mailWindow(el, { w: win.w, h: win.h, compose: win.cls.endsWith('Send') }); });
+  'CWindowModelSetComment'];
+export default owned(CLASSES, draw, background);

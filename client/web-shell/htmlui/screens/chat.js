@@ -30,14 +30,36 @@ const DRAW = {
     b.addEventListener('click', () => api.click(c.id));
   },
 };
-function drawControl(c, el, api) {
+export function drawControl(c, el, api) {
   const fam = c.cls.replace(/^CWindowTask/, '');
-  if (/(^|[^i])Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  if (INPUT.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
   if (ICON[fam]) return DRAW.Icon(el, c, api, ICON[fam]);
   return DRAW[fam] ? DRAW[fam](el, c, api) : api.renderControl(c, el);
 }
 
 const key = c => JSON.stringify(c);
+const INPUT = /(^|[^i])Input(Duel)?$/;   // Input, InputDuel (a MultiInput holds one)
+
+// A window's controls as an owned screen shows them, back to front: { n (draw order), c (the control as placed), k (its
+// drawing's key: redrawn when it changes), own ('log' | 'list' | 'scroll' | 'input' | null: what the DOM owns) }.
+// A part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's) is left out, but a
+// MultiInput's Input is the field itself, at the MultiInput's place. The Svelte screens (svelte/chat/) use it too.
+export function parts(win) {
+  const byId = new Map(win.controls.map(k => [k.id, k])), out = [];
+  for (let [n, c] of win.controls.entries()) {
+    const up = byId.get(c.parent);
+    if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y, inMulti: true };
+    else if (c.parent) continue;
+    const input = INPUT.test(c.cls);
+    // an input reported wider than its window (the mail form's Subject: 496 from x 73) ends inside the frame, as drawn
+    if (input && c.x + c.w > win.w) c = { ...c, w: win.w - 16 - c.x };
+    // the drawing: the input's text is ownInput's, so it doesn't redraw the field
+    const k = key(input ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
+    const own = c.cls.endsWith('Textlist') ? 'log' : /Listbox$/.test(c.cls) ? 'list' : c.cls.endsWith('Scroll') ? 'scroll' : input ? 'input' : null;
+    out.push({ n, c, k, own });
+  }
+  return out;
+}
 
 // A lone scroll bar (one no list owns: the profile's rows) as a native box over its rect (owner: native scroll bars
 // everywhere; bridge.js's scrollbars.js does the same for windows no screen owns): the box's content stands for the
@@ -155,6 +177,14 @@ const CSS = () => `
 .htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; background: none; outline: none; resize: none; overflow: hidden; }
 `;
 
+export function injectCss() {   // the owned windows' rules (the Svelte screens' too), once
+  if (document.getElementById('htmlui-own-css')) return;
+  const s = document.createElement('style');
+  s.id = 'htmlui-own-css';
+  s.textContent = CSS();
+  document.head.append(s);
+}
+
 // An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
 // changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
 // background(win, el), if given, draws what the window itself draws under its controls (its own picture)
@@ -164,12 +194,7 @@ export function owned(classes, draw, background) {
     mode: 'owned',
 
     mount(win, root, api) {
-      if (!document.getElementById('htmlui-own-css')) {
-        const s = document.createElement('style');
-        s.id = 'htmlui-own-css';
-        s.textContent = CSS();
-        document.head.append(s);
-      }
+      injectCss();
       root.classList.add('htmlui-own');
       const vis = document.createElement('div'), own = document.createElement('div');
       if (background) { const bg = document.createElement('div'); background(win, bg); root.append(bg); }
@@ -181,19 +206,8 @@ export function owned(classes, draw, background) {
 
     update(win, prev, root, api, st) {
       const seen = new Set(), order = [];
-      const byId = new Map(win.controls.map(k => [k.id, k]));
-      for (let [n, c] of win.controls.entries()) {
-        // a part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's); but a
-        // MultiInput's Input is the field itself, at the MultiInput's place
-        const up = byId.get(c.parent);
-        if (up?.cls.endsWith('MultiInput') && c.cls.endsWith('Input')) c = { ...c, x: c.x + up.x, y: c.y + up.y, inMulti: true };
-        else if (c.parent) continue;
+      for (const { n, c, k, own } of parts(win)) {
         seen.add(c.id);
-        const isInput = /(^|[^i])Input(Duel)?$/.test(c.cls);   // Input, InputDuel (a MultiInput holds one)
-        // an input reported wider than its window (the mail form's Subject: 496 from x 73) ends inside the frame, as drawn
-        if (isInput && c.x + c.w > win.w) c = { ...c, w: win.w - 16 - c.x };
-        // the drawing: the input's text is ownInput's, so it doesn't redraw the field
-        const k = key(isInput ? { ...c, value: '', caret: null, caretOn: false, focused: false } : c);
         let d = st.drawn.get(c.id);
         if (!d) {
           d = { el: document.createElement('div'), k: null };
@@ -211,8 +225,8 @@ export function owned(classes, draw, background) {
         // the input layer: the scroll bar, the input line
         let o = st.owned.get(c.id);
         if (!o) {
-          o = c.cls.endsWith('Textlist') ? ownList(c, st.own, { stick: true }) : /Listbox$/.test(c.cls) ? ownList(c, st.own, { stripes: true })
-            : c.cls.endsWith('Scroll') ? ownScroll(c, st.own, api) : isInput ? ownInput(c, st.own, api) : null;
+          o = own === 'log' ? ownList(c, st.own, { stick: true }) : own === 'list' ? ownList(c, st.own, { stripes: true })
+            : own === 'scroll' ? ownScroll(c, st.own, api) : own === 'input' ? ownInput(c, st.own, api) : null;
           if (!o) continue;
           st.owned.set(c.id, o);
         }
