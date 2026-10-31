@@ -7,7 +7,12 @@ const urls = new Map(), loads = new Map(), queue = [];
 let active = 0;
 const MAX = 6;
 
+let warned = false;
 function pump() {
+  if (!warned && globalThis.Module?.yo2Lazy && !Module.yo2Lazy.cardArt) {
+    warned = true;   // a runtime linked before lazyfs.js had cardArt: the faces stay blank (relink yo2rc.js)
+    console.warn('htmlui modern deck: no card pictures, this runtime has no Module.yo2Lazy.cardArt (relink with lazyfs.js from modern-ui)');
+  }
   while (active < MAX && queue.length) {
     const [id, done] = queue.shift();
     active++;
