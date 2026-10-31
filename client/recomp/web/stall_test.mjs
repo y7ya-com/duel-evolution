@@ -5,8 +5,7 @@ import vm from "node:vm";
 
 let now = 0;
 const posts = [], listeners = {}, Module = { yo2Lazy: { missLog: [], duel: "npc" } };
-const PThread = { runningWorkers: [], unusedWorkers: [] };
-const ctx = { Module, PThread, URLSearchParams, JSON, Math, Blob,
+const ctx = { Module, URLSearchParams, JSON, Math, Blob,
     location: { search: "" }, performance: { now: () => now }, navigator: { userAgent: "test" },
     document: { hidden: false, querySelector: () => ({ content: "b1" }) },
     addEventListener: (k, f) => (listeners[k] = f), setTimeout: () => 1, clearTimeout() {},
@@ -38,11 +37,9 @@ Module.onYo2Scene("end", 0x1e, 0x1c);
 Module.yo2NetIO(1), (now += 1000), Module.yo2NetIO(1), (now += 2500), Module.yo2NetIO(0);
 assert.equal(Module.yo2Stalls[1].kind, "wait"), assert.equal(Module.yo2Stalls[1].ms, 3500, "from the first unanswered send");
 
-PThread.runningWorkers.length = 9, PThread.unusedWorkers.length = 0;   // the pool of 8 grew by one
 now += 100, Module.onYo2Scene("begin", 0x1c, 0x20), (now += 300), Module.yo2Frame(120.4, 30, 0, 280, 1, 0x59b6f9);
 assert.equal(Module.yo2Stalls[2].sw, true, "a scene switch inside it"), assert.equal(Module.yo2Stalls[2].decode, 120);
 assert.equal(Module.yo2Stalls[2].waitAt, "59b6f9", "where its longest WaitFor* returns to");
-assert.equal(JSON.stringify(Module.yo2Stalls[2].thr), "[9,0]", "pthread Workers running, idle");
 for (let i = 0; i < 8; i++) frame(300);
 assert.equal(posts.length, 2, "10 queued: a batch"), assert.equal(posts[1].stalls.length, 10);
 // a duel's frame rate, when the duel scene ends: steps per second and the Duel speed it ran at

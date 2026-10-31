@@ -13,7 +13,7 @@
 //   decode    image decoding on the main thread (ovr/decode.c), ms; upload: texture uploads (rt d3d8), ms
 //   slept     ms the game yielded (Sleep, idle, WaitFor* polling: it was waiting, not working); waitObj: of that,
 //             in WaitFor* (a guest thread or event it waited on), waitAt: the exe address its longest wait returns to
-//             (hex); thr: pthread Workers [running, idle], above 8 in all = the pool grew (a Worker started cold); yields: how many. xhr includes guest threads'
+//             (hex); yields: how many. xhr includes guest threads'
 //             ("thread <path>"). focus: the page had focus at the start / the end ("10": lost it)
 //   laf       Long Animation Frames overlapping it (Chrome 123+), up to 3: {d duration, b blocking, r/l render and
 //             style+layout start after the frame's, s: the 2 longest scripts [ms, invoker type, invoker, file,
@@ -63,9 +63,6 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
         s: [...(e.scripts || [])].sort((a, b) => b.duration - a.duration).slice(0, 2).map((x) => [Math.round(x.duration), x.invokerType,
             String(x.invoker || "").slice(0, 60), String(x.sourceURL || "").replace(/^.*\//, "").slice(0, 40), String(x.sourceFunctionName || "").slice(0, 40)]),
     }));
-    // pthread Workers [running, idle]: more than the pool (PTHREAD_POOL_SIZE 8) means a guest CreateThread had to start
-    // a new Worker (it loads yo2rc.js and the wasm first, silently) while the game may be waiting on that thread
-    const workers = () => (typeof PThread == "object" ? [PThread.runningWorkers.length, PThread.unusedWorkers.length] : []);
     Module.yo2Frame = (decode, upload, slept, waitObj, yields, waitAt) => {
         const now = performance.now(), u = Module.yo2Sfx?.underruns?.() | 0, r = Module.yo2NetRx | 0;
         const js = performance.memory?.usedJSHeapSize | 0;
@@ -76,7 +73,7 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
             const miss = since(Module.yo2Lazy?.missLog, last), xhr = since(Module.yo2Xhr, last);
             const s = { t: Math.round(last), ms: Math.round(now - last), f: frame, scene, sw: swAt >= last, duel: Module.yo2Lazy?.duel || "",
                 decode: Math.round(decode || 0), upload: Math.round(upload || 0), slept: Math.round(slept || 0),
-                waitObj: Math.round(waitObj || 0), waitAt: waitAt ? (waitAt >>> 0).toString(16) : "", thr: workers(), yields: yields | 0, focus: `${focusAt}${focus}`, laf: lafs(last, now), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
+                waitObj: Math.round(waitObj || 0), waitAt: waitAt ? (waitAt >>> 0).toString(16) : "", yields: yields | 0, focus: `${focusAt}${focus}`, laf: lafs(last, now), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
                 net: { rx: r - rx, backlog: (Module.yo2NetRx | 0) - (Module.yo2NetRead | 0) }, under: u - under,
                 js: js - (Module.yo2Js | 0) };
             push(s);
