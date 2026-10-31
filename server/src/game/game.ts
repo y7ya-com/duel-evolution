@@ -30,6 +30,8 @@ export class Game {
   readonly acadKinds = ACAD_KINDS_SET;
   /** py CTX.sess: the session of the message being handled. */
   ctx: Ctx = null;
+  /** /__admin/shutdown ran (a deploy): duels that lose their sockets now end with no result, not a loss. */
+  stopping = false;
   readonly NO_SESSION: typeof NO_SESSION = NO_SESSION;
   readonly clock = new Clock();
   /** py PH (persistence handlers) and the id tables PH_GAME / PH_LOBBY that route to them. */

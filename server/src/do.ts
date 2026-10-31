@@ -79,6 +79,7 @@ export class WorldDO extends DurableObject<Env> {
       if (url.pathname === "/__admin/shutdown") {
         // a planned deploy: 4012 "server-update" tells the web client to reconnect at once (not a network loss)
         const n = this.sockets.size;
+        this.srv.game.stopping = true;
         for (const ws of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } }
         return Response.json({ closed: n });
       }

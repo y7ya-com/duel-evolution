@@ -131,6 +131,7 @@ export class DuelPort {
     if (s && s.over) return;
     this.log(`[duelo] el socket de duelo se cierra con el duelo ${s ? s.id : "-"} sin acabar`);
     s?.abandon();
+    if (this.g.stopping) return this.log(`[AVISO] [duelo] server update: the NPC duel ends with no result`);
     const df = this.dfFor(c);
     if (df && df.sess.end === (x.dfEnd ?? null)) {
       const old = this.g.ctx;
