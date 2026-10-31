@@ -62,6 +62,12 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(p.tabs.map(t => t.label), ['All Chat', 'TRADE']);
   assert.deepEqual(p.log.items, ['@0A:hi'], 'the shown log, not the first');
   assert.ok(p.input && p.taller && p.shorter);
+  assert.ok(p.open && p.typing, 'the lobby chat: its log and line drawn');
+  // the deck editor's chat, folded to its bar: its log parked, its line hidden: neither drawn (they hung below the
+  // editor, cut by the screen's edge)
+  const parked = L.chatParts(win('CChatWindow', [ctl('Iconbar', { w: 776, h: 24 }), ctl('Textlist', { y: 99999, h: -16, items: [] }),
+    ctl('Input', { shown: false, w: 776, h: 32 })], { y: 712, w: 776, h: 32 }));
+  assert.ok(!parked.open && !parked.typing, 'a folded chat draws its bar only');
 }
 
 // lists: a row's game point, rows from the list's top

@@ -67,6 +67,10 @@ export function chatParts(win) {
     // one log per tab, the active tab's shown
     log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
+    // the window folded to its bar (the deck editor's chat: 32 high, its log parked at 99999, no line): the log and the
+    // line are drawn only as the game shows them, never past the window's rect
+    open: cs.some(c => c.cls === 'CWindowTaskTextlist' && c.shown && c.h >= 0 && c.y < 9999),
+    typing: cs.some(c => /CWindowTaskInput$/.test(c.cls) && top(c) && c.shown),
     taller: cs.find(c => c.cls === 'CWindowTaskIconExpand' && c.shown),
     shorter: cs.find(c => c.cls === 'CWindowTaskIconHide' && c.shown),
   };
