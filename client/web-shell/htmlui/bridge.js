@@ -16,7 +16,10 @@ import { engineBars } from './scrollbars.js';
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
-export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+// svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
+// screens/<group>.js (htmlui.json "svelte" / ?HTML_SVELTE=, switches() syntax by group name: deck, chat ...; none by
+// default until the group's flip pairs match). No build there: the plain module stays.
+export async function loadScreens(base = new URL('./screens/', import.meta.url), svelte = () => false) {
   for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
     const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
     if (m?.default) extend(m.default);
@@ -25,6 +28,8 @@ export async function loadScreens(base = new URL('./screens/', import.meta.url))
   for (const n of SCREENS) {
     const m = await import(new URL(n + '.js', base)).catch(() => null);
     for (const c of m?.default?.classes || []) by.set(c, m.default);
+    const s = svelte(n) && await import(new URL(`../gen/${n}.js`, base)).catch(e => console.warn('htmlui svelte', n, e));
+    for (const c of s?.default?.classes || []) by.set(c, s.default);
   }
   return by;
 }
@@ -187,7 +192,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
   let screens = new Map(), host = null, render = null, loading = null;
   const init = () => loading ||= (async () => {
-    screens = await loadScreens();
+    screens = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);

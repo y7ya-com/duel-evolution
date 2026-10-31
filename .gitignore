@@ -35,3 +35,5 @@ ghidra-proj/
 *.gpr
 *.rep/
 functions*.jsonl
+# the Svelte screens build (client/web-shell/htmlui: npm run build)
+client/web-shell/htmlui/gen/
