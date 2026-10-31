@@ -60,6 +60,9 @@ def main():
             sys.exit(f"stack.py: 127.0.0.1:{PORT} is taken (a stale wrangler dev?)")
     shutil.rmtree(D, ignore_errors=True)
     os.makedirs(D)
+    # the server copy in this stack's own directory: run.py's one _out/snap is wiped by every start, and a stack already
+    # running on it (its wrangler dev watches it) reloaded and died (getcwd: No such file) when a second one started
+    R.OUT = D
     snap = R.snapshot()
     R.seed_r2(snap, os.path.join(D, "wr"))
     subprocess.run(["nice", "npx", "wrangler", "d1", "migrations", "apply", "duel-evolution", "--local", "--persist-to", os.path.join(D, "wr")],
