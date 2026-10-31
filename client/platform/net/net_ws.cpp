@@ -220,7 +220,13 @@ static EM_BOOL onMessage(int, const EmscriptenWebSocketMessageEvent* e, void*) {
     return EM_TRUE;
 }
 
-static EM_BOOL onClose(int, const EmscriptenWebSocketCloseEvent*, void*) { lostWs(); return EM_TRUE; }
+// 4012: the server is updating, and the new instance can't resume (its sockets are in the old one's memory): close
+// at once and let the game rejoin its own way (its retries outlast the old instance's 503 "server-update").
+static EM_BOOL onClose(int, const EmscriptenWebSocketCloseEvent* e, void*) {
+    if (e->code == 4012 && !gResuming) closeAll();
+    else lostWs();
+    return EM_TRUE;
+}
 static EM_BOOL onError(int, const EmscriptenWebSocketErrorEvent*, void*) { lostWs(); return EM_TRUE; }
 
 static bool ensureWsUrl(bool resume) {
