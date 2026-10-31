@@ -217,7 +217,7 @@ export function presence(rows) {
 export const GENERIC = [
   // htmlui-select's, until theirs land
   'CWindowModelDuelFind', 'CFixedsentenceList',
-  'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg',
+  'CWindowModelDueldiskRearrenge', 'CWindowOptionDlg',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
@@ -488,5 +488,28 @@ export function diskCase(win) {
     grid: arrows.length > 1 ? { x: arrows[0].x, y: arrows[0].y, w: arrows.at(-1).x + arrows.at(-1).w - arrows[0].x, h: arrows[0].h } : null,
     name: m ? m[1].trim() : '', text: m ? m[2].replace(/\s*\n\s*/g, ' ').trim() : t,
     close: cs.find(c => /TextSwitch$|ButtonDuel$/.test(c.cls) && c.label),
+  };
+}
+
+// ---- the title's Options (COptionDlg): language flags (the art's order: Japanese, English, German, French / Italian,
+// Spanish, Korean; the checked one is the language), the two screen modes (full screen, then window), the volume
+// slider (its track and knob from its sprites, as generic draws it) with its - / + buttons, OK and Cancel; the game's own
+// texts for the section names and the chosen language / screen
+export const LANGS = ['日本語', 'English', 'Deutsch', 'Français', 'Italiano', 'Español', '한국어'];
+export function options(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const byName = n => cs.filter(c => c.name === 'COptionDlg::' + n);
+  const text = n => untag(byName(n)[0]?.text || '').trim();
+  const flags = byName('m_flags[i]').sort((a, b) => a.y - b.y || a.x - b.x).map((c, i) => ({ c, name: LANGS[i] || '' }));
+  const screens = byName('m_screenBtn[i]').sort((a, b) => a.x - b.x).map((c, i) => ({ c, name: ['Full screen', 'Window'][i] || '' }));
+  const vol = byName('m_volumeBtn[i]').sort((a, b) => a.x - b.x);
+  const slider = generic(win).items.find(i => i.kind === 'slider') || null;
+  const set = byName('m_setBtn[i]').sort((a, b) => a.x - b.x);
+  return {
+    heads: ['m_textLang', 'm_textScreen', 'm_textVolume'].map(n => byName(n)[0]).filter(Boolean).map(c => ({ c, text: untag(c.text).replace(/^\[|\]$/g, '').trim() })),
+    lang: text('m_textSelectedLang'), screen: text('m_textSelectedScreen'),
+    flags, screens, down: vol[0] || null, up: vol[1] || null, slider,
+    ok: set.find(c => primary(c)) || null, cancel: leaveButton(set) || null,
+    keep: [...flags, ...screens].map(f => f.c.id),
   };
 }

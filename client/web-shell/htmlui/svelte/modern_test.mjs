@@ -319,6 +319,24 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.name, d.text, d.close.label], ['Duel Academy Model', 'The Official Duel Disk. Can switch modes.', 'Close']);
 }
 
+// the title's Options: flags in the art's order (the checked one English), the screens left to right, the - / +, OK / Cancel
+{
+  const n = (name, o) => ctl(o.cls || 'PictureSwitch', { name: 'COptionDlg::' + name, ...o });
+  const flag = (x, y, checked = false) => n('m_flags[i]', { x, y, w: 48, h: 32, checked });
+  const w = win('COptionDlg', [
+    n('m_textLang', { cls: 'Text', x: 8, y: 16, text: '[Language]' }), n('m_textSelectedLang', { cls: 'Text', x: 8, y: 32, text: 'English' }),
+    flag(232, 92), flag(152, 92), flag(72, 92), flag(272, 52), flag(192, 52), flag(112, 52, true), flag(32, 52),
+    n('m_screenBtn[i]', { x: 213, y: 175, w: 80, h: 68, checked: true }), n('m_screenBtn[i]', { x: 67, y: 175, w: 80, h: 68 }),
+    n('m_volumeBtn[i]', { x: 316, y: 298, w: 24, h: 24 }), n('m_volumeBtn[i]', { x: 20, y: 298, w: 24, h: 24 }),
+    n('m_setBtn[i]', { x: 187, y: 339, w: 158, h: 24, label: 'Cancel' }), n('m_setBtn[i]', { x: 15, y: 339, w: 158, h: 24, label: 'OK' }),
+  ], { w: 360, h: 372 });
+  const o = L.options(w);
+  assert.deepEqual(o.flags.map(f => f.name + (f.c.checked ? '*' : '')), ['日本語', 'English*', 'Deutsch', 'Français', 'Italiano', 'Español', '한국어']);
+  assert.deepEqual(o.screens.map(f => f.name + (f.c.checked ? '*' : '')), ['Full screen', 'Window*']);
+  assert.deepEqual([o.down.x, o.up.x, o.ok.label, o.cancel.label, o.lang, o.heads[0].text], [20, 316, 'OK', 'Cancel', 'English', 'Language']);
+  assert.equal(o.keep.length, 9);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
