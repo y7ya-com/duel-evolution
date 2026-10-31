@@ -232,6 +232,23 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   "Duel Disks" tab, the page arrows as chevrons, the hovered disk's name in bold before its text, Close in gold. With
   nothing pointed at yet, the well says what to do: drag a disk onto a lit slot. Close takes the focus (Esc, Enter);
   the left / right arrow keys turn the page.
+- **Options** (the title's, COptionDlg; Options.svelte, pass: painted over the game's own layout, so every click and
+  the volume drag stay the game's): the plate has a hole over each flag and screen picture (the engine's); the section
+  names are small caps with the current choice beside them; the chosen flag and screen are ringed in gold, a hovered one
+  in blue, and its name (the language's own: Deutsch, Français ...; Full screen / Window) takes the section's line while
+  it is pointed at; the volume is a modern track and knob (from the slider's sprites) with - / +; OK gold. OK has the
+  focus: Enter, Esc = Cancel.
+- **Duel** (the dock's Duel; CWindowModelDuel, DuelMenu.svelte on GamePanel / GameButton, owned): how busy the lobby is as three figures
+  (Searching, Waiting, Duelling: the game's labels repeated its buttons' names), then the two ways in as large cards that
+  say what they do (Auto Duel in gold: the game finds you an opponent; Create Duel: wait for a challenger), Cancel.
+  Focus on Auto Duel; Left / Right, Enter, Esc.
+- **Auto Duel's settings** (CWindowModelDuelFind; DuelConfig.svelte with logic.js duelFind): Duel type (Single / Match /
+  Both) and Level as segmented choices, "OK starts looking for an opponent". The level captions are the game's own:
+  note its "Level Limit ON" sits on the switch named 制限なし ("no limit"), so the 2008 English may be inverted
+  (unverified: kept as the game has it).
+- **Searching:** while an Auto Duel search runs the game shows only a small icon on its bar (CNoticeIconDuelroom); in the
+  dock the Duel key becomes a gold "Searching… ×" chip (a pulsing dot) which plays that same switch (the game asks
+  "Cancel the Duel you created?", the modern Yes / No). An empty status field gives up its room.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
@@ -259,7 +276,7 @@ modern-ui-coverage.md in the coordinator's notes.
     it (the Duel Log's tabs), is a button. A text field with a back plane, or a large text area, sits in a well.
   - What it can't draw stays the engine's, cut out of everything drawn here (evenodd clip-path): pictures (flags, card
     art, screen modes), Flash, unknown controls (their sprites place the hole when they have no size), sprite extras.
-  - Seen live: Options (title), Duel Log. (Duel Options has its own screen now.)
+  - Seen live: Duel Log. (Options and Duel Options have their own screens now.)
 - **Never drawn:** CWindowLogin (the 2008 ID / password form must never show), base classes, CDeckCardLoader (no
   controls), CWindowTaskCardArea (trade's drag stays the engine's), CWindowModelTitleConfig.
 - **Still legacy:** the shop (CShop* tasks, not windows: the generic renderer takes windows only), the duel field itself
