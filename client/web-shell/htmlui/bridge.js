@@ -71,7 +71,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   host.append(back, layer);
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
-    const seen = new Set();
+    const seen = new Set(), under = [];   // under: where owned-mode roots behind the current window take the pointer
     // windows back to front as the engine draws them (drawOrder), then claimed non-window tasks (the shop). Each root is
     // one stacking context (.win isolation): nothing a screen stacks inside its window (chat.js's z-indexed layers)
     // reaches above another window
@@ -97,6 +97,17 @@ export async function makeLayer(host, screens, art = 'ui/') {
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
+      // A pass window takes no pointer, so over an owned HTML window a click on it went to that window's DOM, not the
+      // game (htmlui-select: "Display by name" in the find menu over the chat did nothing). Over one, a catcher under
+      // its own content, where it draws, hands what its content doesn't take (its inputs and native scrollers do) to
+      // the canvas as the same mouse events.
+      const at = w.drawn || w, over = mod?.mode !== 'owned' && under.some(r => meet(r, at));
+      if (over) {
+        const c = e.catcher ||= catcher();
+        if (e.root.firstChild !== c) e.root.prepend(c);
+        Object.assign(c.style, { left: at.x - w.x + 'px', top: at.y - w.y + 'px', width: at.w + 'px', height: at.h + 'px' });
+      } else if (e.catcher) { e.catcher.remove(); e.catcher = null; }
+      if (mod?.mode === 'owned') under.push(w, ...w.drawn ? [w.drawn] : []);
       // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
       // extension's fields change with no control changing
       const json = JSON.stringify(w);
@@ -109,6 +120,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
       } else syncWindow(e.root, w, e.st ||= new Map(), a);
+      if (e.catcher && e.root.firstChild !== e.catcher) e.root.prepend(e.catcher);   // a screen that rebuilds its root took it
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -131,6 +143,24 @@ export async function makeLayer(host, screens, art = 'ui/') {
     live.delete(id);
   }
   return { layer, render };
+}
+
+const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// a transparent box that takes the pointer and hands it to the canvas as the game's mouse (the trunk scroller's way:
+// pointer capture keeps a press going outside it); the wheel too
+function catcher() {
+  const c = document.createElement('div'), canvas = () => document.getElementById('canvas');
+  c.className = 'htmlui-catch';
+  Object.assign(c.style, { position: 'absolute', pointerEvents: 'auto' });
+  const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons }));
+  c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); fwd('mousedown', e); });
+  c.addEventListener('pointermove', e => fwd('mousemove', e));
+  c.addEventListener('pointerup', e => { fwd('mouseup', e); if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId); });
+  for (const t of ['contextmenu', 'dblclick']) c.addEventListener(t, e => { e.preventDefault(); fwd(t, e); });
+  c.addEventListener('wheel', e => { e.preventDefault(); canvas()?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode })); }, { passive: false });
+  return c;
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
