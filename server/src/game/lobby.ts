@@ -347,7 +347,7 @@ export class Lobby {
     if (busy) return this.refuse(busy);
     if (this.challengeTo(bConn) || [...this.mem.invites.values()].some((v) => v.b === b)) return this.refuse("answering");
     if (this.challengeFrom(bConn) || this.mem.invites.has(b.pid)) return this.refuse("busy");   // waiting on a challenge of their own
-    if (this.mem.black.includes(a.pid)) return this.refuse("refused");   // ponytail: the ignore list is one server-wide list (see hBlack)
+    if (this.ignores(b.pid, a.pid)) return this.refuse("refused");
     const key = `${a.pid}>${b.pid}`, until = this.mem.inviteCooldown.get(key) ?? 0, now = Date.now();
     if (until > now) return this.refuse("cooldown", { seconds: Math.ceil((until - now) / 1000) });
     const r: Room = { id: this.mem.next_room++, p1: b.pid, p2: 0, mstat: 0, mstat0: 0, dstyle: 3, wmode: 0, pw: false, pwd: new Uint8Array(16),
@@ -525,7 +525,7 @@ export class Lobby {
     const s = this.sess(c), hub = this.g.hub;
     if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) { this.log(`[AVISO] [admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`); return true; }
     if (s && s.pid !== null) {
-      const tell = (o: Session) => { const lc = o.lobby; if (lc && !lc.closed) lc.post(0x4402, msg); };
+      const tell = (o: Session) => { const lc = o.lobby; if (lc && !lc.closed && !this.ignores(o.pid, s.pid)) lc.post(0x4402, msg); };
       if (kind === 0 && s.block !== null) for (const o of hub.others(s)) tell(o);
       else if (kind === 1 || kind === 2) for (const o of [...hub.sessions.values()].filter((o) => o !== s)) tell(o);
       else if (kind === 3) { const o = hub.byPid(target); if (o && o !== s) tell(o); }
@@ -614,13 +614,33 @@ export class Lobby {
     } catch (e) { this.log(`[lobby] friend ${pid}: ${e}`); }
   }
 
+  /** The in-game Ignore List (0x4530 add, 0x4540 remove): the character's own (its profile's `black`, persisted with
+   *  it). A blocking B affects A <-> B only: B's chat, whispers, D-Mail and duel invites don't reach A. (mem.black,
+   *  py's one server-wide list, is no longer written.) */
   private hBlack(c: Conn, msgId: number, data: Uint8Array): boolean {
-    const pid = data.length >= 4 ? u32(data) : 0;
-    if (msgId === 0x4530 && !this.mem.black.includes(pid)) pushCapped(this.mem.black, pid);
-    if (msgId === 0x4540 && this.mem.black.includes(pid)) this.mem.black.splice(this.mem.black.indexOf(pid), 1);
-    this.save();
+    const pid = data.length >= 4 ? u32(data) : 0, s = this.sess(c);
+    if (s && pid) {
+      try {
+        this.g.withCtx(s, () => {
+          const st = this.g.loadState();
+          const p = PP.profile(st, s.slot !== null ? s.slot : mySlot(this.g, st))!;
+          const l: number[] = (p.black ??= []);
+          if (msgId === 0x4530 && !l.includes(pid)) pushCapped(l, pid);
+          if (msgId === 0x4540 && l.includes(pid)) l.splice(l.indexOf(pid), 1);
+          this.g.saveState(st);
+        });
+      } catch (e) { this.log(`[lobby] ignore list ${pid}: ${e}`); }
+    }
     c.send(msgId + 1, new W().u32(0).bytes());
     return true;
+  }
+  /** Whether the character with pid `by` has `pid` on its Ignore List (hBlack). */
+  private ignores(by: number | null, pid: number | null): boolean {
+    if (by === null || pid === null || by < PID_BASE) return false;
+    const st = this.g.store.peek(), idx = (by - PID_BASE) >> 2, slot = String((by - PID_BASE) & 3);
+    const a: any = idx === 0 ? st : Object.values(st.accounts ?? {}).find((x: any) => x && PP.int(x.idx ?? 0) === idx);
+    const l = a?.profiles?.[slot]?.black;
+    return Array.isArray(l) && l.includes(pid);
   }
 
   private roomWhere(port: number | null, lang: number, s: Session | null = null): number[] | null {
@@ -703,6 +723,7 @@ export class Lobby {
     const to = data.length >= 4 ? u32(data) : 0;
     const subject = cstr(data.subarray(4, 36)), body = cstr(data.subarray(36, 548));
     const me = this.pid(), myN = this.me(), toName = this.nameOf(to), n = this.npcByPid(to);
+    if (this.ignores(to, me)) { c.send(0x4601, new W().u32(0).bytes()); return true; }   // ignored: dropped, the sender none the wiser
     this.mem.mail.push({ id: this.mem.next_mail, from: me, from_name: myN, to, to_name: toName, subject, body, t: this.mailTime() });
     this.mem.next_mail++;
     if (n) {
