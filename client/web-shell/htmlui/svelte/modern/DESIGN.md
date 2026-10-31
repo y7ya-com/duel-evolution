@@ -30,7 +30,7 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
 - **Wells** (logs, lists, figures, fields): white with a blue inset edge.
 - **Ink:**
   - Dark navy text: `#0b2a5c`, `#26508a`, `#4a6c96`; strong `#06204a`.
-  - Chat names in `#0050c8`, notices in amber `#b34d00`.
+  - Chat senders in one of eight steady inks (logic.js `senderInk`, each 4.5:1 or better on the log), notices in amber.
 - **The 2008 word art lives on as type:**
   - Heavy italic white with a blue outline: the title buttons, EDIT DECK, the deck's side bars.
   - The deck headers in their colours: Deck / Number of Cards green, Trunk orange.
@@ -74,10 +74,25 @@ windows, not web cards; the YO2 palette (A) and identity kept.
   - Each chains the engine's own clicks (menu, then its button) with the menu out of sight (macro.js).
   - Enter jumps to the chat line.
   - The Main Menu itself is grouped: Play, You, Social, System.
-- **Chat:**
-  - Before: no sign of new lines on another tab, and losing your place when reading back.
-  - Now: a red unread count on each tab, and a "n new messages" pill that jumps to the latest while you read older lines.
-  - Names stand out from messages; system lines are amber.
+- **Chat (Chat.svelte, a redesign: owner "the chat minimize expand logic is so unintuitive"):**
+  - Before: two chevrons for the engine's three heights, which cycle short → tall → collapsed → short (▽ from tall skips
+    short): no one could predict what a press did, and the tall chat covered most of the room. Channel tabs gave no sign
+    of new lines, reading back lost your place, and every line was a flat "Name:text".
+  - Now, size: one toggle, **Hide chat / Show chat**, in the same corner in both states, remembered in this browser
+    (localStorage `yo2.chatOpen`). Open is the engine's short chat; hidden is a strip flush on the dock showing the
+    channel, the latest line and the unread count (click it, or press Enter). The toggle plays the engine's own △ / ▽
+    presses that reach the chosen state (logic.js `sizeSteps`), from wherever the engine is (a legacy player's tall chat
+    comes up open). The tall chat isn't offered: it covers the game, and the open log scrolls back through everything.
+  - Channels: a segmented control (All, Proximity, TRADE, Team, …: the game's names, " Chat" dropped) beside the line it
+    sends to, each with a red unread count; the line says where it goes ("Message TRADE").
+  - Duel Log: read only (nothing is sent there), so it is shown without pressing the engine's tab: the line keeps
+    going to the channel chosen before. It is the view by default when it appears on the duel screen.
+  - The log: about five lines (as many as 2008's). A sender's run of lines grouped under one name, each sender in a
+    steady ink of their own (eight, each 4.5:1 or better on the log); notices amber; the time a line arrived on hover.
+    Stuck to the bottom while you're there; read back and new lines leave you in place, with a "n new" / "Latest" pill.
+    Keyed rows: a new line adds one row and a dropped one removes one, nothing else re-renders (no flicker, no jump).
+  - Keys: Enter with nothing focused opens the chat (if hidden) and goes to the line; Enter sends; Esc leaves the line;
+    arrows move between channels.
 - **Deck editor (Edit Deck), rebuilt EDOPro-style (deck/Editor.svelte, owned):**
   - Before: a trunk of eleven text rows to scroll and drag from, cards seen only one at a time in the detail panel,
     no idea whether the deck is legal until the game complains, files only through the side bars.
@@ -153,8 +168,9 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
 9. **Deck building: eleven text rows, legality unknown until the game refuses.** Change: the EDOPro-style editor (search,
    filters, card grids, live legality, keys). Owner htmlui-deck: done.
 10. **Chat: minimize / expand is unintuitive** (owner). 2008: two tiny icons that grow and shrink the log in steps, the
-    log covering the room. Change: owner htmlui-chat (a real redesign: one collapse control, the log's height dragged,
-    unread counts kept when collapsed).
+    log covering the room. Change: one Hide / Show toggle, remembered, never covering the room; unread counts kept
+    while hidden (UX changes, Chat). Owner htmlui-chat: done. Not done, by decision: a dragged height (the engine has
+    three fixed heights; a height of the DOM's own would leave the engine's rect catching clicks it doesn't draw).
 11. **Lobby: NPC talk and duel invites are 2008 boxes; NPC / player click menus are tiny lists.** Change: owner
     htmlui-select (bespoke NPC dialogs, invites as cards with Accept / Decline, the click menus as context menus at the
     pointer). Until then the generic window gives them the modern look and items 1 and 2.
@@ -184,11 +200,14 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
 - **Place banner:** a location chip, the place and the map, each with its head count.
 - **Player list:** "Players n", rows with a status dot, find, taller / shorter. A row clicks the engine's row, scrolling
   the engine's list to it first.
-- **Chat:**
-  - The game's tabs as tabs with a gold underline, and a native scroller that stays at the bottom.
-  - Names in sky, notices in gold.
-  - The line is a real input with a send button: Enter sends, Esc leaves it.
-  - The Duel Log tab appears on the duel screen, as the game adds it.
+- **Chat:** a GamePanel standing on the short chat's foot: the log well on top, the foot row below (the channels as a
+  segmented GameTabs rail, the line as a GameField, Send in gold, Hide). Hidden: a HUD strip (the dock's material, its
+  gold edge) with the channel in the display face, the latest line and the unread count. The engine's rects: short
+  776 × 128; collapsed 32 high and 8 px lower (over the dock's edge), so both states are drawn from the short chat's foot
+  and the strip is its top 24 px. Read with read/chat.js (mode_, and each tab's log: the Duel Log is made last but laid
+  out second, so order alone can't pair them). Tests: modern_test.mjs (pairs, sizeSteps, logRows, grouping),
+  modern_chat_dom_test.mjs (headless, mock.html?modern=1), flip route `modern-chat` (live: tall → open, two lines said,
+  Hide, Enter).
 - **Friend / Ignore / Team List:** the name list as a grid of chips (gold initials), the selected one lit. Buttons as the
   game has them, the primary in gold; Esc = Close.
 - **My Profile:** a profile card. Name, title and a level chip up top, then the record as figures (Tournament Points,

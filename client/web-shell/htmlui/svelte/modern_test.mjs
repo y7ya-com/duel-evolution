@@ -53,15 +53,49 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(L.chatLine("[System] Welcome to the Beginner's Lobby A."), { notice: true, text: "[System] Welcome to the Beginner's Lobby A." });
   assert.deepEqual(L.chatLine('a line with no name'), { text: 'a line with no name' });
   assert.deepEqual(L.chatLine('Kaiba Fan: sure, room 3: now'), { name: 'Kaiba Fan', text: 'sure, room 3: now' });
-  const w = win('CChatWindow', [
-    ctl('Tab', { x: 207, label: 'TRADE' }), ctl('Tab', { x: 8, label: 'All Chat', active: true }),
-    ctl('Textlist', { items: ['old'], shown: false }), ctl('Textlist', { items: ['@0A:hi'] }),
-    ctl('Input', { value: '', maxLen: 128 }), ctl('IconExpand', {}), ctl('IconHide', { enabled: false }),
-  ]);
+  // tabs left to right with their logs: the reader's pairs (the Duel Log is made last, laid out second), else by order
+  const tabs = [ctl('Tab', { x: 207, label: 'TRADE' }), ctl('Tab', { x: 8, label: 'All Chat', active: true }), ctl('Tab', { x: 80, label: 'Duel Log' })];
+  const logs = [ctl('Textlist', { items: ['@0A:hi'] }), ctl('Textlist', { items: ['t'], shown: false }), ctl('Textlist', { items: ['d'], shown: false })];
+  const w = win('CChatWindow', [...tabs, ...logs, ctl('Input', { value: '', maxLen: 128 }), ctl('IconExpand', {}), ctl('IconHide', {})]);
+  w.mode = 1;
+  w.pairs = [[1, 0], [0, 1], [2, 2]].map(([t, l]) => ({ tab: tabs[t].id, log: logs[l].id, visible: true }));
   const p = L.chatParts(w);
-  assert.deepEqual(p.tabs.map(t => t.label), ['All Chat', 'TRADE']);
-  assert.deepEqual(p.log.items, ['@0A:hi'], 'the shown log, not the first');
-  assert.ok(p.input && p.taller && p.shorter);
+  assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active, t.readOnly]), [['All', '@0A:hi', true, false], ['Duel Log', 'd', false, true], ['TRADE', 't', false, false]]);
+  assert.ok(p.input && p.expand && p.shrink);
+  assert.equal(p.mode, 1);
+  delete w.mode; delete w.pairs; w.h = 32;
+  assert.equal(L.chatParts(w).mode, 2, 'no reader: the height says collapsed');
+  assert.deepEqual(L.chatParts(w).tabs.map(t => t.log.items[0]), ['@0A:hi', 't', 'd'], 'no reader: logs in tab order');
+}
+
+// the engine's heights cycle 1 -> 0 -> 2 -> 1 (short, tall, collapsed): the presses from one to another
+{
+  const step = { expand: { 1: 0, 2: 1 }, shrink: { 0: 2 } };
+  for (const a of [0, 1, 2]) for (const b of [0, 1, 2]) {
+    const ks = L.sizeSteps(a, b);
+    assert.equal(ks.reduce((m, k) => step[k][m], a), b, `${a} -> ${b}`);
+    assert.ok(ks.length <= 2);
+  }
+}
+
+// the log as keyed rows: a new line adds a row, a dropped one removes one, a repeated line is still new; history has
+// no time; grouping by sender; a sender's ink is stable
+{
+  const a = L.logRows(null, ['@0A:hi', 'A:again'], 1);
+  assert.deepEqual([a.added, a.rows.map(r => r.t)], [0, [null, null]], 'the first read is history');
+  const b = L.logRows(a, ['A:again', 'B:gg', 'B:gg'], 5);
+  assert.equal(b.added, 2);
+  assert.equal(b.rows[0], a.rows[1], 'a kept line keeps its row');
+  assert.deepEqual(b.rows.map(r => [r.name, r.text, r.t]), [['A', 'again', null], ['B', 'gg', 5], ['B', 'gg', 5]]);
+  assert.equal(new Set(b.rows.map(r => r.key)).size, 3);
+  const c = L.logRows(b, ['A:again', 'B:gg', 'B:gg', 'B:gg'], 6);
+  assert.equal(c.added, 1, 'the same line again is a new line');
+  assert.equal(L.logRows(c, c.items.slice()).added, 0);
+  assert.equal(L.logRows(c, []).added, 0, 'a log emptied (a new duel): nothing new');
+  assert.deepEqual(L.grouped(c.rows).map(r => r.cont), [false, false, true, true]);
+  assert.deepEqual(L.grouped(L.logRows(null, ['[System] hi', 'A:x', '[System] y', 'A:z']).rows).map(r => r.cont), [false, false, false, false]);
+  assert.equal(L.senderInk('Duelist B'), L.senderInk('Duelist B'));
+  assert.notEqual(L.senderInk('Duelist B'), L.senderInk('raMon'));
 }
 
 // lists: a row's game point, rows from the list's top
@@ -131,12 +165,8 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(a.loose.map(x => x.text), ['Choose your look']);
 }
 
-// the chat's new lines; the deck check
+// the deck check
 {
-  assert.equal(L.newLines(undefined, ['a', 'b']), 2);
-  assert.equal(L.newLines(['a', 'b'], ['a', 'b', 'c']), 1);
-  assert.equal(L.newLines(['a', 'b', 'c'], ['b', 'c', 'd', 'e']), 2, 'a log that dropped its oldest line');
-  assert.equal(L.newLines(['a'], ['a']), 0);
   const d = L.deckCheck({ main: 40, side: 0, extra: 3, missing: 0 });
   assert.ok(d.ok);
   assert.deepEqual(L.deckCheck({ main: 38, side: 16, extra: 0, missing: 2 }).parts.filter(p => !p.ok).map(p => p.key), ['main', 'side', 'missing']);
