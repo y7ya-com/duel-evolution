@@ -1,26 +1,14 @@
 <script module>
-  // The place banner, modern (CWindowModelPlace, src/Game/yo2MenuPlace.cpp): each of its ShadowTexts as one line of a
-  // location chip: the place's name, its "(here/capacity)" as a count. "Lobby (1/1000)" -> Lobby, 1 / 1000.
-  export const parse = s => {
-    const m = /^(.*?)\s*\((\d+)\s*\/\s*(\d+)\)\s*$/.exec(s);
-    return m ? { name: m[1], here: m[2], cap: m[3] } : { name: s, here: '', cap: '' };
-  };
+  // The place banner, modern (CWindowModelPlace, src/Game/yo2MenuPlace.cpp): a location chip, a line per row of its
+  // ShadowTexts (logic.js placeRows): the place's name and its "(here/capacity)" as a count.
+  import { placeRows } from './logic.js';
 </script>
 
 <script>
   import Icon from './Icon.svelte';
   let { view } = $props();
   const f = $derived(view.win.controls.find(c => c.cls === 'CWindowTaskFramePlace'));
-  // a row: its ShadowTexts left to right ('Duelist Academy' then '(1/1000)': the name and the count are two texts)
-  const lines = $derived.by(() => {
-    const ts = view.win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && !c.parent && c.shown && c.text);
-    const rows = [];
-    for (const t of ts.sort((a, b) => a.y - b.y || a.x - b.x)) {
-      const r = rows.find(r => Math.abs(r.y - t.y) < 6);
-      r ? r.parts.push(t) : rows.push({ y: t.y, id: t.id, parts: [t] });
-    }
-    return rows.map(r => ({ id: r.id, ...parse(r.parts.sort((a, b) => a.x - b.x).map(t => t.text).join(' ')) }));
-  });
+  const lines = $derived(placeRows(view.win));
 </script>
 
 {#if f?.shown && lines.length}

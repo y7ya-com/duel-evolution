@@ -1,25 +1,9 @@
 <script module>
   // The Main Menu, modern (CMainMenu, src/Game/yo2MenuMain.cpp). The engine's one long list of twelve yellow buttons
-  // becomes four groups of tiles, each with its icon; every tile clicks the engine's own ButtonMain (same label, so a
-  // button the game adds or hides follows: one it doesn't know goes under System). The × and Esc click its IconHide.
-  // System also carries the Modern UI switch (yo2Html.modern: off puts the legacy menu back in the same frame).
-  export const GROUPS = [
-    ['Play', ['Edit Deck', 'DUEL OPTIONS', 'Duel Log']],
-    ['You', ['My Profile', 'Change Title', 'Create Comment']],
-    ['Social', ['D-Mail', 'Friend List', 'Team List', 'Ignore List']],
-    ['System', ['Audio', 'Return to Title']],
-  ];
-  export const ICONS = { 'Edit Deck': 'deck', 'DUEL OPTIONS': 'duel', 'Duel Log': 'log', 'My Profile': 'profile', 'Change Title': 'title',
-    'Create Comment': 'comment', 'D-Mail': 'mail', 'Friend List': 'friends', 'Team List': 'team', 'Ignore List': 'ignore',
-    'Audio': 'audio', 'Return to Title': 'exit' };
-  // an all-capitals engine label in the menu's title case ('DUEL OPTIONS' -> 'Duel Options'); the rest as the game has them
-  export const nice = s => s === s.toUpperCase() && /[A-Z]{3}/.test(s) ? s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase()) : s;
-  export function groups(win) {
-    const bs = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown);
-    const known = new Set(GROUPS.flatMap(g => g[1]));
-    return GROUPS.map(([name, labels]) => [name, [...labels.map(l => bs.find(b => b.label === l)).filter(Boolean),
-      ...(name === 'System' ? bs.filter(b => !known.has(b.label)) : [])]]).filter(g => g[1].length || g[0] === 'System');
-  }
+  // becomes four groups of tiles, each with its icon; every tile clicks the engine's own ButtonMain (logic.js
+  // menuGroups: by label, so a button the game adds or hides follows). The × and Esc click its IconHide. System also
+  // carries the Modern UI switch (yo2Html.modern: off puts the legacy menu back in the same frame).
+  import { menuGroups, ICONS, nice } from './logic.js';
 </script>
 
 <script>
@@ -28,7 +12,7 @@
   const win = $derived(view.win);
   const close = $derived(win.controls.find(c => c.cls === 'CWindowTaskIconHide'));
   const title = $derived(win.controls.find(c => c.cls === 'CWindowTaskShadowText' && !c.parent)?.text || 'Main Menu');
-  const list = $derived(groups(win));
+  const list = $derived(menuGroups(win));
   const click = c => c && c.state !== 'disabled' && view.api.click(c.id);
   const modern = () => window.yo2Html?.modern(false);
   let panel;

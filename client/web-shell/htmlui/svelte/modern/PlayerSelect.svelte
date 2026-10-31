@@ -1,20 +1,8 @@
 <script module>
   // Select Player, modern (CWindowPlayerSelect, src/Game: the four player slots). Owned: each slot is a real button that
   // clicks the slot's own TextSwitch; hovering one hovers it in the game too, so the engine draws that character's
-  // waist-up bust beside the panel, as it always has. Delete and Back are the window's own switches.
-  // Slots: the shown 'プレイヤ選択ボタン' switches top to bottom; a slot's level is the LV text on its row, its Delete the
-  // '削除ボタン' on its row (an empty slot has neither).
-  const ROW = 'プレイヤ選択ボタン', LV = 'プレイヤ選択ボタンのLV表示文字', DEL = '削除ボタン', BACK = '選択スイッチ', TITLE = '説明の文字列';
-  export function slots(win) {
-    const cs = win.controls, sameRow = (a, b) => Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) < 12;
-    return cs.filter(c => c.name === ROW && c.shown).sort((a, b) => a.y - b.y).map(row => {
-      const lv = cs.find(c => c.name === LV && c.shown && sameRow(c, row))?.text || '';
-      const del = cs.find(c => c.name === DEL && c.shown && sameRow(c, row));
-      return { row, name: row.label, level: /\d+/.exec(lv)?.[0] || '', del, empty: !del && !lv };
-    });
-  }
-  export const back = win => win.controls.find(c => c.name === BACK && c.shown);
-  export const heading = win => win.controls.find(c => c.name === TITLE)?.text || 'Select Player';
+  // waist-up bust beside the panel, as it always has. Delete and Back are the window's own switches (logic.js slots).
+  import { slots, backButton, heading } from './logic.js';
 </script>
 
 <script>
@@ -22,7 +10,7 @@
   let { view } = $props();
   const win = $derived(view.win);
   const list = $derived(slots(win));
-  const backBtn = $derived(back(win));
+  const backBtn = $derived(backButton(win));
   const title = $derived(heading(win));
   const click = c => c && c.state !== 'disabled' && view.api.click(c.id);
   const hover = c => view.api.hover?.(c.id);

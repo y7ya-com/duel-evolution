@@ -13,20 +13,15 @@
       title: cs.find(c => c.cls === 'CWindowTaskIconbar')?.label || '',
     };
   }
-  // the game point of row i of list (in window win), with the list showing rows from top
-  export const rowPoint = (win, list, i, top = list.top || 0) => {
-    const rows = Math.max(1, list.rows || 6), h = list.h / rows;
-    return [win.x + list.x + Math.min(40, list.w / 2), win.y + list.y + h * (i - top) + h / 2];
-  };
 </script>
 
 <script>
   import Icon from './Icon.svelte';
-  import { untag } from '../../controls/basic.js';
+  import { rowPoint, listItems } from './logic.js';
   let { view } = $props();
   const win = $derived(view.win);
   const p = $derived(parts(win));
-  const names = $derived((p.list?.items || []).map(untag));
+  const names = $derived(listItems(p.list));
   const api = $derived(view.api);
   const frames = n => new Promise(r => { let k = 0; const f = () => ++k >= n ? r() : requestAnimationFrame(f); requestAnimationFrame(f); });
   async function pick(i) {

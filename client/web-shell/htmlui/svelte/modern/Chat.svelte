@@ -1,37 +1,19 @@
 <script module>
   // The chat, modern (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp). Its tabs come from the
   // game (All Chat | Duel Log | Proximity Chat | TRADE | Team: ovr/duellog.c adds Duel Log on the duel screen), so
-  // nothing here knows tab names. The log is the Textlist's items in a native scroller that stays at the bottom while
-  // the player is there; the line is a real <input> that commits through the control's setText, Enter being the game's
-  // own WM_CHAR '\r' (it sends). Taller / Shorter are its IconExpand / IconHide. The window's rect is the engine's
-  // (taller moves it up), and the panel fills it.
-  import { untag } from '../../controls/basic.js';
-  // 'Name: text' -> a name and its message; '[System] ...' and other bracketed lines are notices
-  export function line(s) {
-    const t = untag(s);
-    if (/^\s*\[[^\]]+\]/.test(t)) return { notice: true, text: t };
-    const m = /^([^:：]{1,24})[:：]\s?(.*)$/s.exec(t);
-    return m ? { name: m[1], text: m[2] } : { text: t };
-  }
-  export function parts(win) {
-    const cs = win.controls;
-    return {
-      tabs: cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x),
-      // one log per tab, the active tab's shown
-      log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
-      input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && !c.parent),
-      taller: cs.find(c => c.cls === 'CWindowTaskIconExpand' && c.shown),
-      shorter: cs.find(c => c.cls === 'CWindowTaskIconHide' && c.shown),
-    };
-  }
+  // nothing here knows tab names. The log is the shown Textlist's items in a native scroller that stays at the bottom
+  // while the player is there; the line is a real <input> that commits through the control's setText, Enter being the
+  // game's own WM_CHAR 13 (it sends). Taller / Shorter are its IconExpand / IconHide. The panel fills the window's
+  // rect, which is the engine's (taller moves it up).
+  import { chatLine, chatParts } from './logic.js';
 </script>
 
 <script>
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
-  const p = $derived(parts(win));
-  const lines = $derived((p.log?.items || []).map(line));
+  const p = $derived(chatParts(win));
+  const lines = $derived((p.log?.items || []).map(chatLine));
   const api = $derived(view.api);
 
   // the log: at the bottom while the player is there (checked before the new lines land)

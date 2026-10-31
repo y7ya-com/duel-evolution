@@ -10,6 +10,9 @@ import MenuBar from './modern/MenuBar.svelte';
 import Place from './modern/Place.svelte';
 import Chat from './modern/Chat.svelte';
 import PlayerList from './modern/PlayerList.svelte';
+import ListWindow from './modern/ListWindow.svelte';
+import Profile from './modern/Profile.svelte';
+import Dialog from './modern/Dialog.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -55,7 +58,9 @@ const deckScreen = {
 const screens = [
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
-  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList }, { mode: 'owned', clip: false }),
+  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
+    CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog }, { mode: 'owned', clip: false }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
   deckScreen,
 ];
