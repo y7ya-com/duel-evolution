@@ -265,8 +265,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
     { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
   const api = {
-    async click(id) {
-      const p = at(id);
+    // gp: a game point [x, y] inside the control to click instead of its centre (a list's row)
+    async click(id, gp) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
       if (!p) return false;
       fire('mousemove', p); await frames(2);
       fire('mousedown', p); await frames(2);
@@ -393,5 +394,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     cursorCss: () => cursorNow,
     scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
     modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered), as the title page's switch
+    modernScreens: mu.mods,   // (development: a rebuilt gen/modern.js swapped in, see svelte/modern/DESIGN.md)
   };
 }

@@ -11,13 +11,21 @@
   import Icon from './Icon.svelte';
   let { view } = $props();
   const f = $derived(view.win.controls.find(c => c.cls === 'CWindowTaskFramePlace'));
-  const lines = $derived(view.win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && !c.parent && c.shown && c.text).sort((a, b) => a.y - b.y)
-    .map(c => ({ id: c.id, ...parse(c.text) })));
+  // a row: its ShadowTexts left to right ('Duelist Academy' then '(1/1000)': the name and the count are two texts)
+  const lines = $derived.by(() => {
+    const ts = view.win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && !c.parent && c.shown && c.text);
+    const rows = [];
+    for (const t of ts.sort((a, b) => a.y - b.y || a.x - b.x)) {
+      const r = rows.find(r => Math.abs(r.y - t.y) < 6);
+      r ? r.parts.push(t) : rows.push({ y: t.y, id: t.id, parts: [t] });
+    }
+    return rows.map(r => ({ id: r.id, ...parse(r.parts.sort((a, b) => a.x - b.x).map(t => t.text).join(' ')) }));
+  });
 </script>
 
 {#if f?.shown && lines.length}
   <div class="mu">
-    <div class="mu-plate chip" style:left="{f.x}px" style:top="{f.y}px">
+    <div class="mu-plate chip" style:left="{f.x + 8}px" style:top="{f.y + 8}px">
       <Icon name="pin" size={20} class="pin" />
       <div class="lines">
         {#each lines as l, i (l.id)}

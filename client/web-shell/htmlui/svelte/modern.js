@@ -7,12 +7,14 @@ import PlayerSelect from './modern/PlayerSelect.svelte';
 import MainMenu from './modern/MainMenu.svelte';
 import MenuBar from './modern/MenuBar.svelte';
 import Place from './modern/Place.svelte';
+import Chat from './modern/Chat.svelte';
+import PlayerList from './modern/PlayerList.svelte';
 
 theme();
 const screens = [
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
-  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar }, { mode: 'owned', clip: false }),
+  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList }, { mode: 'owned', clip: false }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
 ];
 export default { screens, classes: screens.flatMap(s => s.classes) };

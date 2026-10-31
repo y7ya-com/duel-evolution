@@ -8,15 +8,16 @@
   const icons = $derived(win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.shown).sort((a, b) => a.x - b.x));
   const msg = $derived(win.controls.find(c => c.cls === 'CWindowTaskText' && !c.parent && c.shown)?.text
     || win.controls.find(c => c.cls === 'CWindowTaskMenubar')?.message || '');
-  const NAMES = { MENUBAR_MENU: ['Menu', 'menu'] };
-  const named = c => Object.entries(NAMES).find(([k]) => c.name?.includes(k))?.[1] || ['Menu', 'menu'];
+  // the switches by instance name (CWindowModelMenu's MENUBAR_MENU_* buttons: My Room has the first only)
+  const NAMES = [['MENU_DUEL', 'Duel', 'duel'], ['MENU_MOVE', 'Move', 'pin'], ['MENU', 'Menu', 'menu']];
+  const named = c => (NAMES.find(([k]) => c.name?.includes(k)) || NAMES[2]).slice(1);
 </script>
 
 <div class="mu">
   <nav class="dock" aria-label="Menu bar">
     {#each icons as c (c.id)}
       {@const [label, icon] = named(c)}
-      <button type="button" class="mu-btn gold menu" data-state={c.state} onclick={() => view.api.click(c.id)} aria-label={label}>
+      <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} data-state={c.state} onclick={() => view.api.click(c.id)} aria-label={label}>
         <Icon name={icon} size={16} /><span>{label}</span>
       </button>
     {/each}
