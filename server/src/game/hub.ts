@@ -397,6 +397,13 @@ export class Hub {
     for (const o of rest) this.post(o, 0x3112, msg);
   }
 
+  /** o's join entry as if its state were `state` (o itself unchanged): what one viewer is told about o (lobby.ts duelInvite) */
+  stateAs(o: Session, state: number): Uint8Array {
+    const old = o.state;
+    o.state = state;
+    try { return this.joinMsg(o); } finally { o.state = old; }
+  }
+
   stateMsg(s: Session, known = true): Uint8Array {
     if (known && s.state >= 0x67 && s.state <= 0x6a) return cat(new W().u32(s.pid!).u8(s.state).u8(this.ablockOf(s)).bytes(), s.stateExtra);
     return this.joinMsg(s);

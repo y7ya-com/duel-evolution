@@ -132,6 +132,16 @@ export class WorldDO extends DurableObject<Env> {
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__de/duel/challenge") {
+      // the Worker forwards POST /api/de/duel/challenge {pid} here with x-de-user (a checked session); Lobby.duelInvite
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as { pid?: unknown; name?: unknown };
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(this.srv.game.lp.duelInvite(user, Number(body.pid) || 0, typeof body.name === "string" ? body.name.slice(0, 32) : "")); } catch (e) { console.error(`[duel invite] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
     if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
       // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts
       const user = request.headers.get("x-de-user");

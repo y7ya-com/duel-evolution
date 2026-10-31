@@ -170,6 +170,16 @@ routes.get("/api/de/friends", async (c) => {
   return toWorld(c.env, c.req.raw, "/__de/friends", fwd);
 });
 
+// a direct duel invite from the player card's Duel {pid} or {name} (Lobby.duelInvite): same origin, a signed-in session
+routes.post("/api/de/duel/challenge", async (c) => {
+  if (!originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/duel/challenge", fwd);
+});
+
 // the player's own decks (game/decks.ts): GET the list; PUT a deck, PUT /current {name}, DELETE /<name> (same origin)
 const decks = async (c: Context<E>) => {
   if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
