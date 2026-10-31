@@ -37,10 +37,11 @@ export function menuGroups(win) {
     ...(name === 'System' ? bs.filter(b => !known.has(b.label)) : [])]]).filter(g => g[1].length || g[0] === 'System');
 }
 
-// ---- the place banner (CWindowModelPlace): a row is its ShadowTexts left to right ('Duelist Academy' + '(1/1000)')
+// ---- the place banner (CWindowModelPlace): a row is its ShadowTexts left to right ('Duelist Academy' + '(1/1000)');
+// a count is '(n/cap)' or, on the lobby's Move rows, a bare 'n/cap' after the name
 export const place = s => {
-  const m = /^(.*?)\s*\((\d+)\s*\/\s*(\d+)\)\s*$/.exec(s);
-  return m ? { name: m[1], here: m[2], cap: m[3] } : { name: s, here: '', cap: '' };
+  const m = /^(.*?)\s*(?:\(\s*(\d+)\s*\/\s*(\d+)\s*\)|\s(\d+)\s*\/\s*(\d+))\s*$/.exec(s);
+  return m ? { name: m[1], here: m[2] ?? m[4], cap: m[3] ?? m[5] } : { name: s, here: '', cap: '' };
 };
 export function placeRows(win) {
   const ts = win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && top(c) && c.shown && c.text);
@@ -72,6 +73,8 @@ export function chatParts(win) {
   return {
     tabs,
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
+    // the line, drawn only as the game shows it (the deck editor's chat, folded to its bar, has none)
+    typing: cs.some(c => /CWindowTaskInput$/.test(c.cls) && top(c) && c.shown),
     expand: cs.find(c => c.cls === 'CWindowTaskIconExpand'),
     shrink: cs.find(c => c.cls === 'CWindowTaskIconHide'),
     mode: win.mode ?? (win.h > 200 ? 0 : win.h < 48 ? 2 : 1),
@@ -243,14 +246,14 @@ export function presence(rows) {
 // engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
-  'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelMove', 'CWindowModelList', 'CFixedsentenceList',
-  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelBalloon',
-  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
+ 'CFixedsentenceList',
+  'CWindowModelDueldiskRearrenge', 'CWindowOptionDlg',
+  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
   'CWindowModelDuellogOperation', 'CWindowModelDuellogSearch', 'CWindowModelDuellogTop', 'CWindowModelDuellogTour',
   'CWindowModelDuelpass150', 'CWindowModelDuelpassInputCode', 'CWindowModelDuelpassUSB', 'CWindowModelFriendEnum', 'CWindowModelHelp',
-  'CWindowModelInput2', 'CWindowModelInputValue', 'CWindowModelItemGet', 'CWindowModelJoinGunsling', 'CWindowModelListCard',
+  'CWindowModelInput2', 'CWindowModelInputValue', 'CWindowModelJoinGunsling', 'CWindowModelListCard',
   'CWindowModelListCardAttr', 'CWindowModelListCardForbi', 'CWindowModelListCardIcon', 'CWindowModelListCardPack',
   'CWindowModelListCardStar', 'CWindowModelListCardType', 'CWindowModelPictureButton', 'CWindowModelPresent', 'CWindowModelProgress',
   'CWindowModelReturnButton', 'CWindowModelThin', 'CWindowModelThinImg', 'CWindowModelTp', 'CWindowModelTrade', 'ParamWindow',
@@ -423,5 +426,170 @@ export function duelConfig(win) {
     sections: sections.filter(s => s.options.length),
     help: untag(desc?.text || ''),
     ok: buttons.find(primary), cancel: leaveButton(buttons),
+  };
+}
+
+// ---- the Move window (CWindowModelMove, the bar's door: where to go): its place buttons top to bottom, each its name
+// and head count; the x; the scroll bar the game shows past six places (then only six buttons are shown at a time)
+export function moveWindow(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  return {
+    places: cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) })),
+    close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
+    bar: cs.find(c => /Scroll$/.test(c.cls)),
+  };
+}
+
+// ---- an item / unlock announcement (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"): its kind
+// line, its item line, the Structure Deck hint when shown, its OK (a picture switch with the OK text on it). The
+// portrait card behind them is the window's sprite extras, which the engine keeps drawing
+export function itemGet(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const texts = cs.filter(c => /ShadowText$/.test(c.cls)).sort((a, b) => a.y - b.y);
+  const ok = cs.find(c => /PictureSwitch$/.test(c.cls) && c.w >= 64);
+  return {
+    lines: texts.map(t => ({ id: t.id, text: untag(t.text).trim(), c: t })).filter(l => l.text),
+    ok, okLabel: (ok && cs.find(c => c.cls === 'CWindowTaskText' && c.text?.trim() && Math.abs(c.x - ok.x) < 4 && Math.abs(c.y - ok.y) < 16)?.text.trim()) || 'OK',
+  };
+}
+
+// ---- a duelist's card (CNpcListMenu, CPlayerListMenu: the lobby's character click): its CWindowTaskHelps top to
+// bottom, each showing its child text; the first is the name, a 『』 one is the label of the help under it (Win% over
+// "Wins0/Losses0"), one left over is the about text; the buttons the menu shows (a player's)
+const helpText = (win, h) => win.controls.find(c => c.parent === h.id && c.cls === 'CWindowTaskText')?.text ?? '';
+export function duelistCard(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const helps = cs.filter(c => c.cls === 'CWindowTaskHelp').sort((a, b) => a.y - b.y).map(h => ({ h, text: untag(helpText(win, h)).trim() }));
+  const name = helps.find(x => /名前/.test(x.h.name)) || helps[0];
+  const rows = [], about = [];
+  for (let i = 0; i < helps.length; i++) {
+    const x = helps[i];
+    if (x === name) continue;
+    if (/『/.test(x.h.name) && helps[i + 1] && !/『/.test(helps[i + 1].h.name) && helps[i + 1] !== name) { rows.push({ label: x.text, value: helps[++i].text }); continue; }
+    if (x.text) about.push(x.text.split('\n').map(l => l.trim()).join('\n'));
+  }
+  // "Wins0/Losses0" as figures
+  const rec = rows.map(r => /^Wins\s*(\d+)\s*\/\s*Losses\s*(\d+)$/i.exec(r.value)).find(Boolean);
+  return {
+    name: name?.text || '', rows, about: about.join('\n\n'),
+    record: rec ? { wins: +rec[1], losses: +rec[2] } : null,
+    buttons: cs.filter(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y || a.x - b.x),
+  };
+}
+
+// ---- an NPC's speech bubble (CWindowModelBalloon): the speaker and the line (its '・' marks are pauses, a glyph the
+// 2008 font lacks: '…'; trailing blank lines dropped); the frame is what a click advances
+export function balloon(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const body = cs.find(c => c.name === 'ふきだしウィンドウの本文') || cs.filter(c => c.cls === 'CWindowTaskText' && c.text).sort((a, b) => b.h - a.h)[0];
+  const who = cs.find(c => c.name === 'ふきだしウィンドウの名前') || cs.find(c => c.cls === 'CWindowTaskText' && c !== body && c.text);
+  const text = untag(body?.text || '').replace(/・/g, '…').split('\n').map(l => l.trimEnd()).join('\n').replace(/\s+$/, '');
+  return { name: untag(who?.text || '').trim(), text, frame: cs.find(c => /BalloonFrame$/.test(c.cls)) };
+}
+
+// ---- the pick list (CWindowModelList: who is under the click): its title (the Iconbar's, often none), its names,
+// the selected one, the list and its scroll bar, the x
+export function pickList(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const list = cs.find(c => /Listbox$/.test(c.cls));
+  return {
+    title: untag(cs.find(c => /Iconbar$/.test(c.cls))?.text || '').trim(),
+    list, names: listItems(list).map(s => s.trim()),
+    bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown),
+    close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
+  };
+}
+
+// ---- the player list's search menu (CFindMenu: one ActiveListbox of filters and orders): its entries in two groups,
+// what to show (Single / Match Duels, Friends, Proximity, Show all) and how to order ('Display by ...'), each with its
+// index in the game's list
+export function findMenu(win) {
+  const list = win.controls.find(c => c.shown && top(c) && /Listbox$/.test(c.cls));
+  const all = listItems(list).map((label, i) => ({ i, label: label.trim() }));
+  const sort = all.filter(e => /^Display by/i.test(e.label));
+  return { list, groups: [['Show', all.filter(e => !sort.includes(e))], ['Order', sort]].filter(g => g[1].length),
+    bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown) };
+}
+
+// ---- My Room's duel disk case (CDuelDiskList, the shelf's case: a 6 x 2 grid of the disks you own, its pages, the
+// hovered disk's text, Close): the page arrows by side, the text split into its name ('[Duel Academy Model]') and
+// the rest, Close; the grid and the disks are the window's sprite extras, which the engine keeps drawing
+export function diskCase(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const arrows = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.h >= 64).sort((a, b) => a.x - b.x);
+  const t = untag(cs.find(c => c.cls === 'CWindowTaskText' && !c.label && c.w >= 200)?.text || '').trim();
+  const m = /^\[([^\]]+)\]\s*([\s\S]*)$/.exec(t);
+  return {
+    prev: arrows.length > 1 ? arrows[0] : null, next: arrows.length > 1 ? arrows[arrows.length - 1] : null,
+    grid: arrows.length > 1 ? { x: arrows[0].x, y: arrows[0].y, w: arrows.at(-1).x + arrows.at(-1).w - arrows[0].x, h: arrows[0].h } : null,
+    name: m ? m[1].trim() : '', text: m ? m[2].replace(/\s*\n\s*/g, ' ').trim() : t,
+    close: cs.find(c => /TextSwitch$|ButtonDuel$/.test(c.cls) && c.label),
+  };
+}
+
+// ---- the title's Options (COptionDlg): language flags (the art's order: Japanese, English, German, French / Italian,
+// Spanish, Korean; the checked one is the language), the two screen modes (full screen, then window), the volume
+// slider (its track and knob from its sprites, as generic draws it) with its - / + buttons, OK and Cancel; the game's own
+// texts for the section names and the chosen language / screen
+export const LANGS = ['日本語', 'English', 'Deutsch', 'Français', 'Italiano', 'Español', '한국어'];
+export function options(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const byName = n => cs.filter(c => c.name === 'COptionDlg::' + n);
+  const text = n => untag(byName(n)[0]?.text || '').trim();
+  const flags = byName('m_flags[i]').sort((a, b) => a.y - b.y || a.x - b.x).map((c, i) => ({ c, name: LANGS[i] || '' }));
+  const screens = byName('m_screenBtn[i]').sort((a, b) => a.x - b.x).map((c, i) => ({ c, name: ['Full screen', 'Window'][i] || '' }));
+  const vol = byName('m_volumeBtn[i]').sort((a, b) => a.x - b.x);
+  const slider = generic(win).items.find(i => i.kind === 'slider') || null;
+  const set = byName('m_setBtn[i]').sort((a, b) => a.x - b.x);
+  return {
+    heads: ['m_textLang', 'm_textScreen', 'm_textVolume'].map(n => byName(n)[0]).filter(Boolean).map(c => ({ c, text: untag(c.text).replace(/^\[|\]$/g, '').trim() })),
+    lang: text('m_textSelectedLang'), screen: text('m_textSelectedScreen'),
+    flags, screens, down: vol[0] || null, up: vol[1] || null, slider,
+    ok: set.find(c => primary(c)) || null, cancel: leaveButton(set) || null,
+    keep: [...flags, ...screens].map(f => f.c.id),
+  };
+}
+
+// ---- the lobby's Duel menu (CWindowModelDuel, the dock's Duel): its counts (a name and a figure on one row: Auto
+// Duel, Create Duel, Duel (n.)), its two ways in (picture switches with their captions; 自動で待つ = Auto Duel, the game
+// finds you an opponent; 申し込みを待つ = Create Duel, you wait for a challenger), Cancel; the title strip's text
+export function duelMenu(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const sw = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a, b) => a.x - b.x);
+  const on = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => /ShadowText$/.test(c.cls) && c.text?.trim() && !sw.some(s => on(c, s)));
+  const title = texts.find(t => t.y < 16);
+  const rows = new Map();
+  // a count says what it counts (by its row's name: 自動で相手を探す, 申し込みを待つ, デュエル中), else the game's label
+  const SAYS = [[/自動/, 'Searching'], [/申し込み/, 'Waiting'], [/デュエル中/, 'Duelling']];
+  for (const t of texts) if (t !== title) {
+    const r = rows.get(t.y) || {};
+    if (/^\d+$/.test(t.text.trim())) r.n = +t.text.trim(); else { r.label = SAYS.find(([re]) => re.test(t.name))?.[1] || untag(t.text).trim(); r.game = untag(t.text).trim(); }
+    rows.set(t.y, r);
+  }
+  return {
+    title: untag(title?.text || 'Duel').trim(),
+    counts: [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r).filter(r => r.label),
+    ways: sw.map(c => ({ c, label: untag(cs.find(t => /ShadowText$/.test(t.cls) && on(t, c))?.text || '').trim(),
+      kind: /自動/.test(c.name) ? 'auto' : /申し込み/.test(c.name) ? 'create' : '' })),
+    cancel: leaveButton(cs.filter(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label)),
+  };
+}
+
+// ---- Auto Duel's settings (CWindowModelDuelFind, the Duel menu's Auto Duel): two choices, as duelConfig reads them:
+// the duel type (シングル Single, マッチ Match, どちらでも Both) and the level range (制限なし / レベルの近い: their
+// captions are the game's own, "Level Limit ON" / "OFF"), OK (start looking) and Cancel. No help text
+export function duelFind(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const inside = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => c.cls === 'CWindowTaskShadowText' && c.text);
+  const opt = c => ({ c, label: untag(texts.find(t => inside(t, c))?.text || '').trim() });
+  const sw = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a, b) => a.y - b.y || a.x - b.x);
+  const buttons = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label);
+  return {
+    title: 'Auto Duel',
+    sections: [['type', 'Duel type', /シングル|マッチ|どちらでも/], ['level', 'Level', /制限なし|レベルの近い/]]
+      .map(([id, title, re]) => ({ id, title, options: sw.filter(c => re.test(c.name)).map(opt) })).filter(s => s.options.length),
+    ok: buttons.find(primary), cancel: leaveButton(buttons), note: 'OK starts looking for an opponent',
   };
 }

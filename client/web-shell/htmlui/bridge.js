@@ -47,6 +47,9 @@ export function switches(spec, defaults = []) {
 
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
   pointer-events: none; z-index: 5; }
+/* hidden through a scene load by visibility, not display: none, which restarted every CSS animation in it (each window
+   played its entrance again after every load) */
+#htmlui-host[hidden] { display: block; visibility: hidden; }
 #htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }

@@ -18,8 +18,17 @@ import Form from './modern/Form.svelte';
 import Mail from './modern/Mail.svelte';
 import Avatar from './modern/Avatar.svelte';
 import Generic from './modern/Generic.svelte';
-import { GENERIC, generic } from './modern/logic.js';
+import { GENERIC, generic, options } from './modern/logic.js';
 import DuelConfig from './modern/DuelConfig.svelte';
+import Move from './modern/Move.svelte';
+import ItemGet from './modern/ItemGet.svelte';
+import NpcCard from './modern/NpcCard.svelte';
+import Balloon from './modern/Balloon.svelte';
+import PickList from './modern/PickList.svelte';
+import FindMenu from './modern/FindMenu.svelte';
+import DiskCase from './modern/DiskCase.svelte';
+import Options from './modern/Options.svelte';
+import DuelMenu from './modern/DuelMenu.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -107,15 +116,34 @@ const genericScreen = {
   passthrough: x => [...kept.values()].some(k => k.has(x.id)),
 };
 
+// the title's Options (Options.svelte): the flags and screen modes it keeps drawing, by id (logic.js options keep)
+function optionsScreen() {
+  const keep = new Map(), base = screen({ COptionDlg: Options });
+  return { ...base, mode: 'pass', clip: false, parts: true,
+    mount(win, root, api) { keep.set(win.id, new Set(options(win).keep)); return { ...base.mount(win, root, api), id: win.id }; },
+    update(win, prev, root, api, st) { keep.set(win.id, new Set(options(win).keep)); base.update(win, prev, root, api, st); },
+    unmount(root, st) { keep.delete(st.id); base.unmount(root, st); },
+    passthrough: x => [...keep.values()].some(k => k.has(x.id)) };
+}
+
 const screens = [
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
   screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
-    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig }, { mode: 'owned', clip: false }),
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList, CFindMenu: FindMenu, CWindowModelDuel: DuelMenu, CWindowModelDuelFind: DuelConfig }, { mode: 'owned', clip: false }),
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
+  // a duelist's card and an NPC's speech bubble: pass (the game keeps the mouse: a click anywhere goes on or closes);
+  // the bubble's own button and a card's buttons take the pointer
+  screen({ CNpcListMenu: NpcCard, CPlayerListMenu: NpcCard, CWindowModelBalloon: Balloon }, { mode: 'pass', clip: false }),
+  // My Room's duel disk case: the engine keeps its grid of disks (sprite extras) and their drag onto the shelf
+  screen({ CDuelDiskList: DiskCase }, { mode: 'pass', clip: false, passthrough: x => /^CSpriteElm/.test(x.cls) }),
+  // the title's Options: painted over the game's own layout (pass); its flag and screen pictures stay the engine's
+  optionsScreen(),
+  // an unlock / item announcement: the engine keeps drawing its portrait card (sprite extras, plain elements)
+  screen({ CWindowModelItemGet: ItemGet }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CSpriteElmOlder' || x.cls === 'CElement' }),
   genericScreen,
   deckEditor,
   { ...deckScreen, classes: ['CWindowModelFileList'], backdrop: undefined },

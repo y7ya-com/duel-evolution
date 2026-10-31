@@ -5,6 +5,8 @@
   //   Options, Audio): the engine's menu opened and its button pressed, the menu kept out of sight. Each has a key
   //   (D P F M L O A), and Enter goes to the chat line; never while typing, nor while a game field has the focus.
   // - The engine's message text as the dock's status line.
+  // - While an Auto Duel search runs (the game shows its CNoticeIconDuelroom then, a small icon with no words): a
+  //   the Duel switch becomes a "Searching… Cancel" chip; it plays that switch, which asks the game's own "Cancel the Duel you created?".
   // The window is 384 wide at the bottom left; the dock spans the screen (clip: false).
   import Icon from './Icon.svelte';
   import { menu, QUICK, quickKey, menuSwitch } from './macro.js';
@@ -17,6 +19,8 @@
   // the switches by instance name (CWindowModelMenu's MENUBAR_MENU_* buttons: My Room has the first only)
   const NAMES = [['MENU_DUEL', 'Duel', 'duel'], ['MENU_MOVE', 'Move', 'pin'], ['MENU', 'Menu', 'menu']];
   const named = c => (NAMES.find(([k]) => c.name?.includes(k)) || NAMES[2]).slice(1);
+  const searching = $derived(win.controls.some(c => c.cls === 'CNoticeIconDuelroom' && c.shown));
+  const duelSwitch = $derived(icons.find(c => c.name?.includes('MENU_DUEL')));
   // quick actions only where the scene has the Main Menu
   const quick = $derived(!!menuSwitch({ windows: [win] }));
   let pending = $state('');
@@ -57,9 +61,16 @@
   <nav class="dock" aria-label="Menu bar">
     {#each icons as c (c.id)}
       {@const [label, icon] = named(c)}
-      <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} data-state={c.state} onclick={() => view.api.click(c.id)}>
-        <Icon name={icon} size={16} /><span>{label}</span>
-      </button>
+      {#if searching && c === duelSwitch}
+        <!-- a search running: the Duel switch says so (it is the way to cancel it) -->
+        <button type="button" class="seek" title="Looking for a duel: cancel the search" data-state={c.state} onclick={() => view.api.click(c.id)}>
+          <i aria-hidden="true"></i>Searching…<span aria-label="Cancel"><Icon name="close" size={11} /></span>
+        </button>
+      {:else}
+        <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} data-state={c.state} onclick={() => view.api.click(c.id)}>
+          <Icon name={icon} size={16} /><span>{label}</span>
+        </button>
+      {/if}
     {/each}
     {#if quick}
       <span class="sep" aria-hidden="true"></span>
@@ -71,7 +82,8 @@
         {/each}
       </div>
     {/if}
-    <output class="status" aria-live="polite">{msg}</output>
+    <!-- the status line only with a message: an empty one took the room a search chip needs -->
+    <output class="status" class:empty={!msg} aria-live="polite">{msg}</output>
   </nav>
   {/if}
 </div>
@@ -85,6 +97,14 @@
   .menu:not(.gold) { color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .5); background: linear-gradient(180deg, #4f8ee0, #2a62b8);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 0 0 1px #10306a, 0 2px 0 #0d2a5c; }
   .menu.gold { box-shadow: inset 0 1px 0 #fffbe8, 0 0 0 1px var(--gold-edge), 0 2px 0 var(--lip-gold); }
+  .status.empty { padding: 0; visibility: hidden; }
+  .menu, .seek, .q { flex: none; white-space: nowrap; }   /* the status field gives way, never a key */
+  .seek { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 3px 0 9px; border-radius: 12px; font-size: 12px; font-weight: 700;
+    color: var(--gold-ink); background: var(--gold); box-shadow: 0 0 0 1px var(--gold-edge), 0 2px 0 var(--lip-gold); white-space: nowrap; }
+  .seek i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); animation: seek 1.2s ease-in-out infinite; }
+  .seek span { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff; background: rgba(60, 35, 0, .35); }
+  .seek:hover span { background: var(--bad); }
+  @keyframes seek { 50% { opacity: .25; transform: scale(.7); } }
   .sep { width: 2px; height: 18px; margin: 0 2px; background: linear-gradient(90deg, rgba(0, 10, 40, .4) 50%, rgba(255, 255, 255, .25) 50%); }
   .quick { display: flex; gap: 3px; }
   .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 6px; font-size: 12px; font-weight: 700;

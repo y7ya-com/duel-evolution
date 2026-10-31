@@ -223,6 +223,53 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
     changes; Cancel or Esc drops them.
   - Keys: focus opens on the first setting's choice; the arrows choose within a setting, Tab moves between settings,
     Enter is OK, Esc Cancel.
+- **Move** (the bar's door, CWindowModelMove; Move.svelte, owned; before, plain buttons on a green frame with the
+  count squeezed into the caption): "Where to?", a row per place with its name and a fill meter for its head count
+  (red when full), the ×. Past six places the game shows six at a time: the wheel or the arrows past either end
+  scroll its list. Keys: focus on the first place, Up / Down, Enter goes, Esc closes.
+- **Unlocks and items** (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"; ItemGet.svelte, pass):
+  the engine keeps drawing the portrait card (the window's sprite extras pass through); its lines become one blue
+  ribbon across the card's foot and its OK a large gold button that takes the focus, so Enter, Space or Esc dismisses
+  it. (The generic window had dropped the portrait: its extras have no rect.)
+- **Clicking a character** (the lobby's NPCs and players):
+  - **Pick list** (CWindowModelList, who is under the click; PickList.svelte, owned): a small "Choose" popover at
+    the game's place, a row per name with an initial badge. Focus opens on the first row, so Enter picks it at once;
+    Up / Down, Esc closes. (Picking makes your character walk over first: the card opens when you arrive.)
+  - **Duelist card** (CNpcListMenu, CPlayerListMenu; NpcCard.svelte, pass): the name on the title strip, the record
+    as three figures (wins, losses, win rate) instead of "Win%" over "Wins0/Losses0", the deck ("Unknown" for the
+    game's "?????"), the about text in a well that scrolls with the wheel. A click elsewhere closes it, as before.
+  - **Speech bubble** (CWindowModelBalloon; Balloon.svelte, pass): a white bubble with its tail toward the portrait
+    (the engine's), the speaker on a gold tag, the line in large type, a "Continue" cue. The game's '・' marks (a
+    glyph the 2008 font lacked: a box) read as '…'. The bubble takes the focus: Space or Enter goes on, as a click
+    anywhere does. The duel offer that ends a challenge is the modern Yes / No.
+- **Find players** (the player list's search, CFindMenu; FindMenu.svelte, owned): a menu rising from the player list
+  beside its search button (the game opened it over the list's own top), its entries grouped as Show (single / match
+  duels, friends, nearby, everyone) and Order (by level, by name) with icons. Focus on the first entry; Up / Down,
+  Enter, Esc closes (a click on the player list's title bar, as the game closes it on a click elsewhere).
+- **Duel disk case** (My Room's shelf case, CDuelDiskList; DiskCase.svelte, pass): a plate framing the game's own
+  grid of disks (its sprites stay the engine's, as does dragging one onto a lit shelf slot to put it on show), a
+  "Duel Disks" tab, the page arrows as chevrons, the hovered disk's name in bold before its text, Close in gold. With
+  nothing pointed at yet, the well says what to do: drag a disk onto a lit slot. Close takes the focus (Esc, Enter);
+  the left / right arrow keys turn the page.
+- **Options** (the title's, COptionDlg; Options.svelte, pass: painted over the game's own layout, so every click and
+  the volume drag stay the game's): the game frame (.mu-plate) grown by an OPTIONS plaque above the game's layout and a
+  foot under its buttons, with a hole over each flag and screen picture (the engine's; the clip's outer edge 40 px out so
+  the frame's drop shadow stays); section labels in the display face; the section
+  names are small caps with the current choice beside them; the chosen flag and screen are ringed in gold, a hovered one
+  in blue, and its name (the language's own: Deutsch, Français ...; Full screen / Window) takes the section's line while
+  it is pointed at; the volume is a modern track and knob (from the slider's sprites) with - / +; OK gold. OK has the
+  focus: Enter, Esc = Cancel.
+- **Duel** (the dock's Duel; CWindowModelDuel, DuelMenu.svelte on GamePanel / GameButton, owned): how busy the lobby is as three figures
+  (Searching, Waiting, Duelling: the game's labels repeated its buttons' names), then the two ways in as large cards that
+  say what they do (Auto Duel in gold: the game finds you an opponent; Create Duel: wait for a challenger), Cancel.
+  Focus on Auto Duel; Left / Right, Enter, Esc.
+- **Auto Duel's settings** (CWindowModelDuelFind; DuelConfig.svelte with logic.js duelFind): Duel type (Single / Match /
+  Both) and Level as segmented choices, "OK starts looking for an opponent". The level captions are the game's own:
+  note its "Level Limit ON" sits on the switch named 制限なし ("no limit"), so the 2008 English may be inverted
+  (unverified: kept as the game has it).
+- **Searching:** while an Auto Duel search runs the game shows only a small icon on its bar (CNoticeIconDuelroom); in the
+  dock the Duel key becomes a gold "Searching… ×" chip (a pulsing dot) which plays that same switch (the game asks
+  "Cancel the Duel you created?", the modern Yes / No). An empty status field gives up its room.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
@@ -250,7 +297,7 @@ modern-ui-coverage.md in the coordinator's notes.
     it (the Duel Log's tabs), is a button. A text field with a back plane, or a large text area, sits in a well.
   - What it can't draw stays the engine's, cut out of everything drawn here (evenodd clip-path): pictures (flags, card
     art, screen modes), Flash, unknown controls (their sprites place the hole when they have no size), sprite extras.
-  - Seen live: Options (title), Duel Log. (Duel Options has its own screen now.)
+  - Seen live: Duel Log. (Options and Duel Options have their own screens now.)
 - **Never drawn:** CWindowLogin (the 2008 ID / password form must never show), base classes, CDeckCardLoader (no
   controls), CWindowTaskCardArea (trade's drag stays the engine's), CWindowModelTitleConfig.
 - **Still legacy:** the shop (CShop* tasks, not windows: the generic renderer takes windows only), the duel field itself

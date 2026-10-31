@@ -34,8 +34,9 @@
   const p = $derived(chatParts(win));
 
   // ---- size: the player's choice, played into the engine one press at a time from wherever it is (a choice changed
-  // meanwhile is followed); a state it can't reach (a locked chat) is tried once
-  let open = $state(load()), busy = $state(false), failed = '';
+  // meanwhile is followed); a state it can't reach (a locked chat) is tried once. A chat its scene makes collapsed (the
+  // deck editor's) stays so until the player opens it: the choice never covers what they're doing
+  let open = $state(untrack(() => p.mode) === 2 ? false : load()), busy = $state(false), failed = '';
   $effect(() => {
     const from = p.mode, to = open ? 1 : 2;
     if (!busy && from !== to && failed !== `${from}>${to}`) drive();
@@ -44,8 +45,11 @@
     busy = true;
     try {
       for (let i = 0; i < 4; i++) {
-        const from = p.mode, k = sizeSteps(from, open ? 1 : 2)[0];
-        if (!k || !p[k]) break;
+        const from = p.mode;
+        let k = sizeSteps(from, open ? 1 : 2)[0];
+        // a chat without its tab row (the deck scene's) goes short -> collapsed by ▽ alone, its △ off
+        if (k && p[k]?.enabled === false) k = k === 'expand' ? 'shrink' : 'expand';
+        if (!k || !p[k] || p[k].enabled === false) break;
         // the pointer onto the icon from elsewhere (the bar): pressed where it already was, the engine ignores it
         const bar = win.controls.find(c => c.cls === 'CWindowTaskIconbar');
         if (bar) { api.hover(bar.id); await new Promise(r => setTimeout(r, 200)); }
@@ -199,7 +203,7 @@
             </button>
           {/each}
         </div>
-        {#if p.input}
+        {#if p.input && p.typing}
           <input class="mu-field" bind:this={inputEl} bind:value type="text" maxlength={p.input.maxLen || 128} spellcheck="false" autocomplete="off"
             placeholder={target ? `Message ${target.short}` : 'Message'} aria-label={target ? `Message ${target.label}` : 'Message'}
             oninput={e => { entered = null; if (!e.isComposing) commit(); }} oncompositionend={commit}

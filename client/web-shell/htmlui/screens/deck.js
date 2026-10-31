@@ -310,7 +310,8 @@ function drawTextArt(el, [text, outline, x0, y0, x1, y1, italic, glow, ow = OUTL
     fontReady = true;
     // self-hosted with the art (ui/fonts/, the private set: the repo takes no binaries, players' browsers no Google)
     const st = document.createElement('style');
-    st.textContent = `@font-face { font-family: Audiowide; src: url(${base()}fonts/Audiowide-Regular.woff2) format('woff2'); }`;
+    // ui/fonts/ as theme.js (not base(): ui.SHEET says assets/ until loadGlyphs moves it, and a title can come first)
+    st.textContent = `@font-face { font-family: Audiowide; font-display: swap; src: url(ui/fonts/Audiowide-Regular.woff2) format('woff2'); }`;
     document.head.append(st);
   }
   const foot = y + y1 - ow, h = y1 - y0 - 2 * ow, px = h / (/[bdfhklt]/.test(text) ? 0.751 : 0.70);

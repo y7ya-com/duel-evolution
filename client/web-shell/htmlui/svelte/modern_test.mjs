@@ -61,7 +61,11 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   w.pairs = [[1, 0], [0, 1], [2, 2]].map(([t, l]) => ({ tab: tabs[t].id, log: logs[l].id, visible: true }));
   const p = L.chatParts(w);
   assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active, t.readOnly]), [['All', '@0A:hi', true, false], ['Duel Log', 'd', false, true], ['TRADE', 't', false, false]]);
-  assert.ok(p.input && p.expand && p.shrink);
+  assert.ok(p.input && p.expand && p.shrink && p.typing);
+  // the deck editor's chat, folded to its bar (its log parked, its line hidden): collapsed, no line drawn
+  const parked = L.chatParts(win('CChatWindow', [ctl('Iconbar', { w: 776, h: 24 }), ctl('Textlist', { y: 99999, h: -16, items: [] }),
+    ctl('Input', { shown: false, w: 776, h: 32 })], { y: 712, w: 776, h: 32 }));
+  assert.ok(parked.mode === 2 && !parked.typing, 'a folded chat draws its bar only');
   assert.equal(p.mode, 1);
   delete w.mode; delete w.pairs; w.h = 32;
   assert.equal(L.chatParts(w).mode, 2, 'no reader: the height says collapsed');
@@ -289,6 +293,118 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.ok.label, d.cancel.label], ['OK', 'Cancel']);
 }
 
+// the Move window: places top to bottom with their counts (the game pads the count: "(   0/1000)"), the x, the bar
+{
+  const b = (y, label, shown = true) => ctl('ButtonDuel', { x: 11, y, w: 258, h: 24, label, shown, state: 'normal' });
+  const w = win('CWindowModelMove', [ctl('FrameMove'), ctl('IconHide', { x: 272, w: 16, h: 24 }), b(50, 'Pier ( 12/32)'), b(24, 'Duelist Academy (   0/1000)'),
+    b(76, 'Gone (1/2)', false), ctl('ResultScroll', { x: 14, y: 22, w: 16, h: 158, shown: false })], { w: 296, h: 188 });
+  const m = L.moveWindow(w);
+  assert.deepEqual(m.places.map(p => [p.name, p.here, p.cap]), [['Duelist Academy', '0', '1000'], ['Pier', '12', '32']]);
+  assert.ok(m.close && !m.bar);
+  assert.deepEqual(L.place('Duel Academy [15]  0/32'), { name: 'Duel Academy [15]', here: '0', cap: '32' });
+}
+
+// an unlock announcement: its shown lines top to bottom (the empty kind line dropped), its OK picture and caption
+{
+  const w = win('CWindowModelItemGet', [
+    ctl('ShadowText', { x: 288, y: 528, w: 448, h: 16, text: ' Now, you can challenge Yami Marik to a Duel!' }),
+    ctl('ShadowText', { x: 288, y: 512, w: 448, h: 16, text: '' }),
+    ctl('ShadowText', { x: 288, y: 544, w: 448, h: 16, text: 'Go to "STRUCTURE DECK" in Edit Deck.', shown: false }),
+    ctl('PictureSwitch', { x: 431, y: 650, w: 162, h: 42, state: 'normal' }),
+    ctl('Text', { x: 431, y: 658, w: 162, h: 42, text: 'OK' }),
+  ], { w: 736, h: 700 });
+  const g = L.itemGet(w);
+  assert.deepEqual(g.lines.map(l => l.text), ['Now, you can challenge Yami Marik to a Duel!']);
+  assert.equal(g.okLabel, 'OK');
+  assert.equal(g.ok.w, 162);
+}
+
+// a duelist's card: the name, label / value pairs, the record as figures, the about text; a speech bubble; the pick list
+{
+  const help = (name, y, text, h = 16) => { const hc = ctl('Help', { name, x: 8, y }); return [hc, ctl('Text', { parent: hc.id, w: 320, h, text })]; };
+  const w = win('CNpcListMenu', [
+    ...help('CPlayerListMenuの『勝率：』テキスト', 44, 'Win%'), ...help('CPlayerListMenuの勝率テキスト', 60, 'Wins3/Losses1'),
+    ...help('CPlayerListMenuのレベル＆名前表示', 8, 'Kain', 36), ...help('CNpcListMenuの『デッキ名:』テキスト', 76, 'Deck Name'),
+    ...help('CNpcListMenuのデッキ名テキスト', 92, '?????'), ...help('CPlayerListMenuの対戦相手テキスト', 108, ' A duelist.\n\n He wins.', 144),
+    ctl('FrameThin', { w: 336, h: 260 }),
+  ]);
+  const d = L.duelistCard(w);
+  assert.equal(d.name, 'Kain');
+  assert.deepEqual(d.record, { wins: 3, losses: 1 });
+  assert.deepEqual(d.rows.map(r => [r.label, r.value]), [['Win%', 'Wins3/Losses1'], ['Deck Name', '?????']]);
+  assert.equal(d.about, 'A duelist.\n\nHe wins.');
+  const b = L.balloon(win('CWindowModelBalloon', [ctl('BalloonFrame', { w: 454, h: 144 }), ctl('Text', { name: 'ふきだしウィンドウの名前', text: 'Kain' }),
+    ctl('Text', { name: 'ふきだしウィンドウの本文', h: 80, text: '・\nWise choice・very wise.\n\n' })]));
+  assert.deepEqual([b.name, b.text, !!b.frame], ['Kain', '…\nWise choice…very wise.', true]);
+  const l = ctl('ActiveListbox', { x: 8, y: 24, w: 232, h: 96, items: ['@0Alexis Rhodes', '@0Kain'], selected: 0, rows: 6 });
+  const p = L.pickList(win('CWindowModelList', [ctl('Iconbar', { w: 248, h: 24 }), l, ctl('IconHide', { x: 229 })]));
+  assert.deepEqual([p.title, p.names, !!p.close, p.bar], ['', ['Alexis Rhodes', 'Kain'], true, undefined]);
+}
+
+// the search menu: what to show, then how to order, each with its index in the game's list
+{
+  const items = ['Search for Single Duels', 'Search for Match Duels', 'Display by Level', 'Display by name', 'Search for Friends', 'Proximity Search', 'Show all'];
+  const f = L.findMenu(win('CFindMenu', [ctl('FrameThin', { w: 256, h: 128 }), ctl('ActiveListbox', { x: 8, y: 8, w: 240, h: 112, items, selected: -1 })]));
+  assert.deepEqual(f.groups.map(([n, es]) => [n, es.map(e => e.i)]), [['Show', [0, 1, 4, 5, 6]], ['Order', [2, 3]]]);
+}
+
+// the duel disk case: arrows by side (the grid between them), the hovered disk's name and text, Close
+{
+  const w = win('CDuelDiskList', [ctl('PictureSwitch', { x: 472, y: 8, w: 32, h: 144 }), ctl('PictureSwitch', { x: 8, y: 8, w: 32, h: 144 }),
+    ctl('Text', { x: 9, y: 173, w: 479, h: 47, text: '@9 [Duel Academy Model]  The Official Duel Disk.\nCan switch modes.' }),
+    ctl('TextSwitch', { x: 156, y: 224, w: 200, h: 24, label: 'Close' })], { w: 512, h: 256 });
+  const d = L.diskCase(w);
+  assert.deepEqual([d.prev.x, d.next.x, d.grid], [8, 472, { x: 8, y: 8, w: 496, h: 144 }]);
+  assert.deepEqual([d.name, d.text, d.close.label], ['Duel Academy Model', 'The Official Duel Disk. Can switch modes.', 'Close']);
+}
+
+// the title's Options: flags in the art's order (the checked one English), the screens left to right, the - / +, OK / Cancel
+{
+  const n = (name, o) => ctl(o.cls || 'PictureSwitch', { name: 'COptionDlg::' + name, ...o });
+  const flag = (x, y, checked = false) => n('m_flags[i]', { x, y, w: 48, h: 32, checked });
+  const w = win('COptionDlg', [
+    n('m_textLang', { cls: 'Text', x: 8, y: 16, text: '[Language]' }), n('m_textSelectedLang', { cls: 'Text', x: 8, y: 32, text: 'English' }),
+    flag(232, 92), flag(152, 92), flag(72, 92), flag(272, 52), flag(192, 52), flag(112, 52, true), flag(32, 52),
+    n('m_screenBtn[i]', { x: 213, y: 175, w: 80, h: 68, checked: true }), n('m_screenBtn[i]', { x: 67, y: 175, w: 80, h: 68 }),
+    n('m_volumeBtn[i]', { x: 316, y: 298, w: 24, h: 24 }), n('m_volumeBtn[i]', { x: 20, y: 298, w: 24, h: 24 }),
+    n('m_setBtn[i]', { x: 187, y: 339, w: 158, h: 24, label: 'Cancel' }), n('m_setBtn[i]', { x: 15, y: 339, w: 158, h: 24, label: 'OK' }),
+  ], { w: 360, h: 372 });
+  const o = L.options(w);
+  assert.deepEqual(o.flags.map(f => f.name + (f.c.checked ? '*' : '')), ['日本語', 'English*', 'Deutsch', 'Français', 'Italiano', 'Español', '한국어']);
+  assert.deepEqual(o.screens.map(f => f.name + (f.c.checked ? '*' : '')), ['Full screen', 'Window*']);
+  assert.deepEqual([o.down.x, o.up.x, o.ok.label, o.cancel.label, o.lang, o.heads[0].text], [20, 316, 'OK', 'Cancel', 'English', 'Language']);
+  assert.equal(o.keep.length, 9);
+}
+
+// the Duel menu: its counts by what they count, its two ways in by kind, Cancel
+{
+  const st = (name, x, y, text) => ctl('ShadowText', { name, x, y, w: 224, h: 32, text });
+  const w = win('CWindowModelDuel', [st('『デュエルメニュー』', 0, 4, 'Duel Menu'),
+    st('『自動で相手を探す』', 80, 36, 'Auto Duel'), st('『自動で相手を探す』', 0, 36, '2'), st('『申し込みを待つ』', 80, 60, 'Create Duel'), st('『申し込みを待つ』', 0, 60, '0'),
+    st('『デュエル中』', 80, 84, 'Duel (n.)'), st('『デュエル中』', 0, 84, '5'),
+    ctl('PictureSwitch', { name: '申し込みを待つボタン', x: 246, y: 128, w: 224, h: 32 }), ctl('PictureSwitch', { name: '自動で待つボタン', x: 22, y: 128, w: 224, h: 32 }),
+    st('noname', 246, 136, 'Create Duel'), st('『自動で相手を探す』', 22, 136, 'Auto Duel'), ctl('ButtonDuel', { x: 176, y: 184, w: 140, h: 24, label: 'Cancel' })], { w: 492, h: 216 });
+  const d = L.duelMenu(w);
+  assert.equal(d.title, 'Duel Menu');
+  assert.deepEqual(d.counts.map(r => [r.label, r.n]), [['Searching', 2], ['Waiting', 0], ['Duelling', 5]]);
+  assert.deepEqual(d.ways.map(x => [x.kind, x.label]), [['auto', 'Auto Duel'], ['create', 'Create Duel']]);
+  assert.equal(d.cancel.label, 'Cancel');
+}
+
+// Auto Duel's settings: the duel type and the level range, each with the game's checked switch; OK and Cancel
+{
+  const sw = (name, x, y, checked = false) => ctl('PictureSwitch', { name, x, y, w: 224, h: 32, checked });
+  const cap = (x, y, text) => ctl('ShadowText', { x, y: y + 8, w: 224, h: 32, text });
+  const w = win('CWindowModelDuelFind', [sw('レベルの近いボタン', 246, 138), sw('制限なしボタン', 22, 138, true), sw('どちらでもボタン', 134, 76),
+    sw('マッチボタン', 246, 36), sw('シングルボタン', 22, 36, true), cap(246, 138, 'Level Limit OFF'), cap(22, 138, 'Level Limit ON'), cap(134, 76, 'Both'),
+    cap(246, 36, 'Match Mode'), cap(22, 36, 'Single Mode'), ctl('ButtonDuel', { x: 299, y: 184, w: 140, h: 24, label: 'Cancel' }),
+    ctl('ButtonDuel', { x: 50, y: 184, w: 140, h: 24, label: 'OK' })], { w: 492, h: 216 });
+  const d = L.duelFind(w);
+  assert.deepEqual(d.sections.map(s => [s.title, s.options.map(o => o.label + (o.c.checked ? '*' : ''))]),
+    [['Duel type', ['Single Mode*', 'Match Mode', 'Both']], ['Level', ['Level Limit ON*', 'Level Limit OFF']]]);
+  assert.deepEqual([d.ok.label, d.cancel.label, d.help], ['OK', 'Cancel', undefined]);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
@@ -329,5 +445,31 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   mu.onChange(v => { seen = v; });
   mu.set(true);
   assert.equal(seen, true, 'listeners hear the switch');
+}
+// A dock quick action (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
+// however many browser frames that takes (at 120 Hz, or a slow frame, two browser frames were not enough: the menu
+// flashed at the bottom left). The game here closes it 6 frames after its button is pressed.
+{
+  const { menu } = await import('./modern/macro.js');
+  const cl = new Set();
+  let shown = false, closeAt = -1, f = 0;
+  const sw = { id: 1, cls: 'CWindowTaskPictureSwitch', shown: true, name: 'MENUBAR_MENU' };
+  const btn = { id: 2, cls: 'CWindowTaskButtonMain', shown: true, label: 'Friend List' };
+  const snapshot = () => ({ windows: [{ cls: 'CWindowModelMenu', shown: true, controls: [sw] }, { cls: 'CMainMenu', shown, controls: [btn] }] });
+  const leaks = [];
+  globalThis.yo2Html = { snapshot };
+  globalThis.document = { documentElement: { classList: { add: c => cl.add(c), remove: c => cl.delete(c) } } };
+  globalThis.requestAnimationFrame = r => setTimeout(() => {
+    f++;
+    if (closeAt >= 0 && f >= closeAt) shown = false;
+    if (shown && !cl.has('mu-macro')) leaks.push(f);
+    r();
+  }, 0);
+  const api = { click: async id => { if (id === 1) shown = true; if (id === 2) closeAt = f + 6; } };
+  assert.equal(await menu(api, 'Friend List'), true);
+  for (let i = 0; i < 10; i++) await new Promise(r => requestAnimationFrame(r));
+  assert.deepEqual(leaks, [], 'the Main Menu never shows during a quick action');
+  assert.equal(cl.has('mu-macro'), false, 'shown again once the game closed it');
+  delete globalThis.yo2Html;
 }
 console.log('modern_test: ok');

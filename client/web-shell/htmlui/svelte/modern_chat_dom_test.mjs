@@ -128,6 +128,13 @@ for (const dpr of out ? [1, 2] : [1]) {
   assert.ok(await q(`return document.activeElement !== c.querySelector('.composer input')`), 'Esc leaves it');
   assert.equal(await b.ev(`localStorage.getItem('yo2.chatOpen')`), '1');
 
+  // a chat its scene makes collapsed (the deck editor's) stays collapsed, though the player's choice is open
+  const n4 = clicks().length;
+  await render(chat({ id: 11, mode: 2, tabs: [], items: [] }));
+  await sleep(300);
+  assert.ok(await q(`return !!c.querySelector('.bar')`), 'the deck scene: the bar');
+  assert.deepEqual(clicks().slice(n4), [], 'nothing pressed');
+
   // the duel screen: the Duel Log appears (second) and is the view, its tab never pressed; the line still goes to All
   const n3 = clicks().length;
   const duel = extra => chat({ id: 9, tabs: ['All Chat', 'Duel Log', 'Proximity Chat', 'TRADE', 'Team'], items: [['Duelist B:new room', 'Jaden:good luck!'],

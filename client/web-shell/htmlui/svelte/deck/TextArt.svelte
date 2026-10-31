@@ -1,5 +1,4 @@
 <script module>
-  import * as ui from '../../../ui.js';
   import { FONT } from '../../controls/basic.js';
   // self-hosted with the art (ui/fonts/, the private set: the repo takes no binaries, players' browsers no Google)
   let fontReady = false;
@@ -7,7 +6,8 @@
     if (fontReady) return;
     fontReady = true;
     const st = document.createElement('style');
-    st.textContent = `@font-face { font-family: Audiowide; src: url(${ui.SHEET.window.url.replace(/[^/]*$/, '')}fonts/Audiowide-Regular.woff2) format('woff2'); }`;
+    // ui/fonts/ as theme.js: ui.SHEET's url says assets/ until loadGlyphs moves it, and a title can mount before that
+    st.textContent = `@font-face { font-family: Audiowide; font-display: swap; src: url(ui/fonts/Audiowide-Regular.woff2) format('woff2'); }`;
     document.head.append(st);
   };
 </script>

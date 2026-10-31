@@ -51,11 +51,13 @@ const CSS = `
 
 /* GAME UI LANGUAGE (DESIGN.md "Game UI"): game windows, not web cards. */
 /* the panel (GamePanel): a bevelled metal frame (::before) round an inner field (::after), the top-left and bottom-right
-   corners cut with a gold line along each cut, the shadow following the cut shape (drop-shadow, not box-shadow). It
-   opens with a quick scale and fade where it stands, never sliding in */
+   corners cut with a gold line along each cut, the shadow following the cut shape (drop-shadow, not box-shadow).
+   It paints opaque, in place, from its first frame (html-ui-pixel): the game draws a new window its own way for that one
+   frame (the hide table takes effect at the next Present), so a plate fading, scaling or rising in showed it through.
+   Its arrival is a light passing over the frame instead (mu-arrive: brightness only, nothing uncovered) */
 .mu-plate { position: absolute; isolation: isolate; border-radius: 0; background: none;
   filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35));
-  animation: mu-open .18s var(--ease) both; }
+  animation: mu-arrive .32s ease-out; }
 .mu-plate::before, .mu-plate::after { content: ''; position: absolute; pointer-events: none; }
 .mu-plate::before { inset: 0; z-index: -2; border: 1px solid #3d5579; clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
   background: linear-gradient(135deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 0 0 / 24px 24px no-repeat,
@@ -145,7 +147,7 @@ textarea.mu-field { height: auto; padding: 8px 12px; resize: none; line-height: 
 .mu-scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n300) transparent; overscroll-behavior: contain; }
 
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
-@keyframes mu-open { from { opacity: 0; transform: scale(.94); } 60% { opacity: 1; } }
+@keyframes mu-arrive { from { filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35)) brightness(1.18) drop-shadow(0 0 10px rgba(120, 190, 255, .7)); } }
 @media (prefers-reduced-motion: reduce) { .mu *, .mu-plate { animation: none !important; transition: none !important; } }
 `;
 

@@ -2,8 +2,8 @@
 session gate, the test sign-in, production's PROGRESSION), then one test user's session cookie printed as JSON.
 Runs until killed.
 
-  python3.12 -I client/web-shell/htmlui/tools/stack.py [port] [--player NAME [--deck ID]]   # default 8799
-  -> {"origin": "http://127.0.0.1:8799", "cookie": "__Secure-de.session_token=...", "player": NAME}
+  python3.12 -I client/web-shell/htmlui/tools/stack.py [port] [--player NAME [--deck ID]] [--player2 NAME2]   # default 8799
+  -> {"origin": "http://127.0.0.1:8799", "cookie": "__Secure-de.session_token=...", "player": NAME[, "cookie2": ..., "player2": NAME2]}
 --player: the test user also gets a character called NAME in slot 0 (created as parity/predeploy.py's player() does:
 fake_client through bridge.mjs with the session cookie), and claims structure deck ID (default 8001) as its starter
 deck, so routes can go straight from Select Player row 0 to My Room.
@@ -35,6 +35,7 @@ ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 OPT = {k: v for k, v in zip(sys.argv[1:], sys.argv[2:]) if k.startswith("--")}
 PORT = int(ARGS[0]) if ARGS else 8800 + 10 * SLOT if SLOT >= 0 else 8799
 PLAYER, DECK = OPT.get("--player"), int(OPT.get("--deck", 8001))
+PLAYER2 = OPT.get("--player2")   # a second test user with its own character (two-player flows: invites, trade)
 LOCAL_OFFSET = 4600 + 200 * SLOT if SLOT >= 0 else 4400   # bridge.mjs's local ports (5730 + offset ...): predeploy uses 4300
 ORIGIN = f"http://127.0.0.1:{PORT}"
 SECRET = secrets.token_urlsafe(36)
@@ -76,19 +77,28 @@ def main():
                           cwd=snap, stdout=open(os.path.join(D, "server.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
     try:
         R.wait_port(PORT, wr)
-        req = urllib.request.Request(ORIGIN + "/api/de/test-sign-in", data=json.dumps({"name": "TestStgHtml"}).encode(), method="POST",
-                                     headers={"Content-Type": "application/json", "Origin": ORIGIN, "x-test-signin": SECRET})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            cookie = "; ".join(c.split(";")[0] for c in r.headers.get_all("Set-Cookie") or [])
+        cookie = sign_in("TestStgHtml")
         if PLAYER:
-            make_player(cookie)
-        print(json.dumps({"origin": ORIGIN, "cookie": cookie, "player": PLAYER, "log": os.path.join(D, "server.out")}), flush=True)
+            make_player(cookie, PLAYER)
+        out = {"origin": ORIGIN, "cookie": cookie, "player": PLAYER, "log": os.path.join(D, "server.out")}
+        if PLAYER2:
+            out["cookie2"] = sign_in("TestStgHtml2")
+            make_player(out["cookie2"], PLAYER2)
+            out["player2"] = PLAYER2
+        print(json.dumps(out), flush=True)
         wr.wait()
     finally:
         R.stop(wr)
 
 
-def make_player(cookie):
+def sign_in(name):
+    req = urllib.request.Request(ORIGIN + "/api/de/test-sign-in", data=json.dumps({"name": name}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Origin": ORIGIN, "x-test-signin": SECRET})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return "; ".join(c.split(";")[0] for c in r.headers.get_all("Set-Cookie") or [])
+
+
+def make_player(cookie, player):
     cw = os.path.join(ROOT, "client", "recomp", "build", "cardwire.mjs")   # bridge.mjs's card-wire codec
     if not os.path.exists(cw):
         subprocess.run(["make", "-C", os.path.join(ROOT, "client", "recomp"), "cardwire_js"], check=True,
@@ -103,8 +113,8 @@ def make_player(cookie):
         X.wait_s = 15.0
         if not X.gate():
             sys.exit("stack.py: --player: the gate failed")
-        names = X.account(0, create_name=PLAYER)
-        if names.get(0) != PLAYER:
+        names = X.account(0, create_name=player)
+        if names.get(0) != player:
             sys.exit(f"stack.py: --player: no character made ({names})")
         if not DECK:   # --deck 0: no starter claimed (the starter picker opens for this character in My Room)
             return

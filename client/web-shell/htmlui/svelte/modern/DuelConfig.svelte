@@ -4,11 +4,13 @@
   // engine writes it when its switch is hovered: api.hover), OK in gold. The game keeps a choice only on OK, so the
   // plate says how many settings changed since it opened. Keys: the arrows move within a setting (and choose, as
   // radio buttons do), Tab between settings, Enter is OK, Esc Cancel.
-  import { duelConfig, nice } from './logic.js';
+  import { duelConfig, duelFind, nice } from './logic.js';
+  import { focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
-  const d = $derived(duelConfig(win));
+  // Auto Duel's settings (CWindowModelDuelFind) are the same kind of window: its choices, no help, no saved settings
+  const d = $derived(win.cls === 'CWindowModelDuelFind' ? duelFind(win) : duelConfig(win));
   const api = $derived(view.api);
   const pick = s => s.options.find(o => o.c.checked);
   // what each setting was when the window opened (first snapshot that has it)
@@ -20,11 +22,7 @@
   // open on the first setting's choice, once the game shows the window (it opens hidden for its first frames, and a
   // hidden root takes no focus); its help asked of the engine then too (onfocus)
   const shown = $derived(win.shown);
-  $effect(() => {
-    if (!shown) return;
-    const t = setTimeout(() => panel?.querySelector('[role=radio][aria-checked=true]')?.focus({ preventScroll: true }), 30);
-    return () => clearTimeout(t);
-  });
+  $effect(() => shown ? focusSoon(panel, '[role=radio][aria-checked=true]') : undefined);
   const choose = (o, focus) => { api.click(o.c.id); if (focus) panel?.querySelector(`[data-id="${o.c.id}"]`)?.focus(); };
   const show = (s, o) => { hover = `${s.title}: ${o.label}`; api.hover(o.c.id); };
   function arrows(e, s) {
@@ -63,13 +61,13 @@
           </div>
         </div>
       {/each}
-      <div class="help" aria-live="polite">
+      {#if d.help !== undefined}<div class="help" aria-live="polite">
         {#if hover}<b>{hover}</b>{/if}
         <p>{d.help}</p>
-      </div>
+      </div>{/if}
     </div>
     <footer>
-      <span class="note" class:dirty={changed}>{changed ? `${changed} unsaved change${changed > 1 ? 's' : ''}` : 'Saved when you press OK'}</span>
+      <span class="note" class:dirty={changed && !d.note}>{d.note || (changed ? `${changed} unsaved change${changed > 1 ? 's' : ''}` : 'Saved when you press OK')}</span>
       {#if d.cancel}<button type="button" class="mu-btn" data-state={d.cancel.state} onclick={() => api.click(d.cancel.id)}>{d.cancel.label}</button>{/if}
       {#if d.ok}<button type="button" class="mu-btn gold" data-state={d.ok.state} onclick={() => api.click(d.ok.id)}>{d.ok.label}</button>{/if}
     </footer>
