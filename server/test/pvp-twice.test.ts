@@ -76,6 +76,27 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     await duel(h, A, B, rid);
   }, 240_000);
 
+  it("a match whose duel hasn't started 90 s after the challenge (a frozen tab at rock-paper-scissors) is called off for both", async () => {
+    const { h, A, B, rid } = await pair();
+    const na = A.room!.mark(), nb = B.room!.mark();
+    A.room!.send(0x4300, cat(be32(rid), str("", 16)));
+    await B.room!.wait(0x4302, nb); B.room!.send(0x4303, be32(1));
+    await A.room!.wait(0x4301, na);
+    const ls: Link[] = [];
+    for (const [X, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
+      const l = X.link(5760), deck = NPC_DECKS[String(nid)];
+      ls.push(l);
+      l.send(0x6001, be32(X.pid!)); l.send(0x6600, be32(deck.main.length, 0, deck.extra.length));
+      l.send(0x6601, deckMsg(deck.main)); l.send(0x6603, deckMsg(deck.extra)); l.send(0x600b);
+    }
+    for (const l of ls) expect(await l.wait(0x6005, 0, undefined, 30_000)).not.toBeNull();
+    const ml = ls.map((l) => l.mark());
+    ls[0].send(0x6100); ls[0].send(0x6101, [0]);   // A plays; B's tab is frozen (heartbeats only)
+    for (let t = 0; t < 95 && ls.some((l, k) => !l.all(0x649b, ml[k]).length); t++) { ls[1].send(0x0005); await h.tick(1000); }
+    expect(ls.map((l, k) => l.all(0x649b, ml[k]).length), "the called-off notice").toEqual([1, 1]);
+    expect(h.game.pvp!.byPid(A.pid!), "the match is gone").toBeNull();
+  }, 240_000);
+
   it("the same pair duels twice on the duel connections kept from the first duel", async () => {
     const { h, A, B, rid } = await pair();
     const keep: Record<string, Link> = {};
