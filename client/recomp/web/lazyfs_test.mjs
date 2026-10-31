@@ -97,7 +97,7 @@ function makeEnv(store, ls, opts = {}) {
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, DOMException, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
-        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: false }), AbortController, atob, Blob, DecompressionStream };
+        IDBFS: {}, addRunDependency: () => deps++, removeRunDependency: () => deps--, requestIdleCallback: (f) => setTimeout(f, 1), matchMedia: () => ({ matches: !!opts.phone }), AbortController, atob, Blob, DecompressionStream };
     ctx.location.pathname = "/"; ctx.location.origin = "http://t";
     ctx.history = { replaceState() {} };
     ctx.window = ctx; ctx.window.top = ctx;   // the session check (rt/session.cpp's page side) looks at the top window
@@ -402,7 +402,7 @@ console.log("prefetch=0: ok");
         await settle(L);
         const hot = [...L.pinned.entries()].filter(([, p]) => p.tag === "hot").map(([k]) => k);
         const miniChunks = Math.ceil(files["cards/merge/data/mini.dat"].length / MB);
-        assert.equal(hot.filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole");
+        assert.equal([...L.pinned.keys()].filter((k) => k.includes("mini.dat")).length, miniChunks, "mini.dat pinned whole (its directory's chunk as toc)");
         const mini = ent("data/mini");
         assert.ok(!hot.some((k) => k.endsWith("merge.dat#" + Math.floor((mini.off + MB) / MB))), "merge.dat's data/mini is not");
         // card art not in memory: a placeholder at once (its entry's offset in the comment), the entry fetched behind it
@@ -422,6 +422,9 @@ console.log("prefetch=0: ok");
         for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("card.dat#0")));   // its pin lost
         r.read("/game/merge/data/card.dat", 0, 12 + 5 * 268 + list.length);   // the directory and list_card.txt, at a card scene
         assert.equal(syncXhr, 0, "card.dat's chunk 0 stays for the session");
+        for (const m of [L.pinned, L.lru]) m.delete([...m.keys()].find((k) => k.endsWith("mini.dat#0")));   // mini.dat's too
+        r.read("/game/merge/data/mini.dat", 0, 12 + 2 * 268 + list.length);
+        assert.equal(syncXhr, 0, "mini.dat's chunk 0 stays for the session");
         syncXhr = 0;
         await L.prefetchCards([1]);   // card 1: 89631139.jpg, the last 2 MB of card.dat
         await settle(L);
@@ -451,6 +454,33 @@ console.log("prefetch=0: ok");
         assert.ok(npc.length >= 3 && npc.every((k) => k.includes("card.dat")), "passcodes: the NPC's art from card.dat by name: " + npc);
         assert.equal(L2.stats.fieldFiles, 1, "passcodes: the Field Spell through card_passcode.bin");
         console.log("2x card art, passcode prefetch: ok");
+        // a phone not known to be on Wi-Fi: mini.dat is not preloaded, so the duel's cards bring their thumbnails
+        const r3 = makeEnv(new Map(), new Map(), { phone: true });
+        await r3.ready();
+        const L3 = r3.Module.yo2Lazy;
+        r3.read("/game/merge.dat", 0, toc);
+        await settle(L3);
+        assert.ok(![...L3.pinned.entries()].some(([k, p]) => p.tag === "hot" && k.includes("mini.dat")), "phone: mini.dat not preloaded");
+        // the trunk or the deck editor shows a thumbnail not in memory: a placeholder at once, the thumbnail behind it
+        const mOff = 12 + 2 * 268 + list.length, miniDat = files["cards/merge/data/mini.dat"];   // 89631139.jpg
+        syncXhr = 0;
+        const mph = Buffer.from(r3.read("/game/merge/data/mini.dat", mOff, 4096));
+        assert.equal(syncXhr, 0, "phone: no synchronous read for a thumbnail");
+        assert.equal(mph[0], 0xff), assert.equal(mph[1], 0xd8);
+        assert.ok(mph.includes("yo2-placeholder:" + (mOff + 2 ** 31)), "its mini.dat offset, tagged, in the comment");
+        assert.equal(mph.readUInt16BE(mph.indexOf(Buffer.from([0xff, 0xc0])) + 5), 144, "100x144, the 2x thumbnail size");
+        await settle(L3);
+        const filled = L3.artBytes((mOff + 2 ** 31) | 0);   // decode.c's u32 arrives signed
+        assert.deepEqual(Buffer.from(filled), miniDat.subarray(mOff, mOff + 5 * MB), "then the thumbnail's real bytes");
+        assert.equal(L3.artBytes(mOff).length, 0, "the same offset untagged is no card.dat entry");
+        await L3.prefetchCards([1]);
+        await settle(L3);
+        const thumbs = [...L3.pinned.entries()].filter(([k, p]) => p.tag === "deck" && k.includes("mini.dat")).map(([k]) => k);
+        assert.ok(thumbs.length >= 5, "phone: the deck's thumbnails pinned from mini.dat: " + thumbs);
+        syncXhr = 0;
+        r3.read("/game/merge/data/mini.dat", 12 + 2 * 268 + list.length, 4096);
+        assert.equal(syncXhr, 0, "phone: the thumbnail is in memory");
+        console.log("2x card art, phone thumbnails: ok");
     } finally {
         delete files["cards/merge/data/card.dat"], delete files["cards/merge/data/mini.dat"], delete files["cards/merge/data/card_passcode.bin"];
     }
@@ -485,7 +515,7 @@ console.log("prefetch=0: ok");
         assert.equal(syncXhr, before, "the load reads them without a synchronous request");
         L.soundsLoaded();
         assert.ok(![...L.pinned.values()].some((p) => p.tag === "se"), "unpinned after the load");
-        // a slow link: the wait lasts while chunks come in, and gives up 30 s after the last one (here 5's fetch fails)
+        // a slow link: no giving up into synchronous reads; a chunk whose fetch failed (here 5) is asked again after 5 s
         let t = 0;
         const w = makeEnv(new Map(), new Map(), { now: () => t }), W = w.Module.yo2Lazy;
         await w.ready();
@@ -493,9 +523,10 @@ console.log("prefetch=0: ok");
         fetchFaults.push((r) => r.startsWith(`bytes=${5 * MB}-`));
         assert.equal(W.sounds(), 0);
         await settle(W);
-        t = 29000, assert.equal(W.sounds(), 0, "3 and 4 came in");
-        t = 50000, assert.equal(W.sounds(), 0, "50 s since the ask, 21 since the last chunk: still waiting");
-        t = 60000, assert.equal(W.sounds(), 1, "31 s without a chunk: the game reads them");
+        t = 4000, assert.equal(W.sounds(), 0, "3 and 4 came in, 5's fetch failed");
+        t = 600000, assert.equal(W.sounds(), 0, "10 minutes on: still waiting, never the game's own reads");
+        await settle(W);
+        assert.equal(W.sounds(), 1, "5 asked again: all in memory");
         const off = makeEnv(new Map(), new Map(), { search: "?prefetch=0" });
         await off.ready();
         assert.equal(off.Module.yo2Lazy.sounds(), 1, "prefetch=0: the game reads them as it asks");

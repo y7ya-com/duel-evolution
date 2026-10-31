@@ -25,7 +25,7 @@ const { render } = await makeLayer(host, screens, q.get('art') || '../ui/');
 const log = name => (...a) => console.log('api.' + name, ...a);
 const api = Object.fromEntries(['click', 'hover', 'key', 'char', 'setText', 'scroll', 'wheel'].map(n => [n, log(n)]));
 render(snap, new Set(snap.windows.map(w => w.id)), api);
-// a test feeds more snapshots after it (svelte/deck_dom_test.mjs)
+// a test feeds more snapshots after it (svelte/deck_dom_test.mjs, bridge_dom_test.mjs)
 window.__render = s => render(s, new Set([...s.windows, ...s.tasks || []].map(w => w.id)), api);
 window.__ready = true;
 </script>
