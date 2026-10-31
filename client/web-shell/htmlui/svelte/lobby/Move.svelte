@@ -1,8 +1,8 @@
 <script>
   // CWindowModelMove (src/Game/yo2MenuMove.cpp, the bar's door: where to go): the frame (CWindowTaskFrameMove,
-  // move_win_01_c01.png), up to 6 choice buttons (CWindowTaskButtonDuel, 258 wide, 26 apart from y 24: white 16-pixel
+  // move_win_01_c01.png), up to 6 choice buttons (CWindowTaskButtonDuel, 258 wide or their caption's width, 26 apart from y 24: white 16-pixel
   // captions on a black shadow), the × (IconHide at frameW - 24), the scroll bar (ResultScroll at frameW - 24, 22; shown
-  // past 6 places) as a native box. The frame is widest + 38 by 188: 296 x 188 for 258-wide buttons.
+  // past 6 places) as a native box. The frame is the widest row + 38 by 188: 296 x 188 for 258-wide buttons, wider for a longer place name.
   // move_win_01_c01 (72 x 72, a 24-pixel nine-slice, point-sampled) as CSS, sampled from the art: a green bevel (6 px
   // at the sides and bottom, 19 at the top: a vertical gradient #dbfae2 to #7ff720 over the top 19 rows, on down to
   // #36ed56, then darker to the bottom row; its left 4 columns lighter, its right 4 darker), a 1 px #7e877e edge round
@@ -19,6 +19,9 @@
   const close = $derived(win.controls.find(c => c.cls === 'CWindowTaskIconHide' && c.shown));
   const bar = $derived(win.controls.find(c => c.cls === 'CWindowResultScroll' && c.shown));
   const frame = $derived(win.controls.find(c => c.cls === 'CWindowTaskFrameMove'));
+  // layout(): the frame is the widest row + 38 (a row is as wide as its caption, 258 at least), the × and the bar at its
+  // right edge - 24; the window's own w_ stays 296. The FrameMove reads 0 x 0, so its width is the ×'s place + 24.
+  const frameW = $derived(close ? close.x + 24 : Math.max(win.w, ...items.map(c => c.x + c.w + 27)));
   // a button (skin.js duelButton) with its caption in the game's colour and shadow
   const button = c => el => {
     const b = duelButton(el, { x: c.x, y: c.y, w: c.w, h: c.h, label: c.label, state: look(c) });
@@ -30,7 +33,7 @@
 </script>
 
 {#if frame?.shown}
-  <div class="frame" style:width="{win.w}px" style:height="{win.h}px" style:opacity={frame.alpha}></div>
+  <div class="frame" style:width="{frameW}px" style:height="{win.h}px" style:opacity={frame.alpha}></div>
 {/if}
 {#each items as c (c.id)}
   <div style="display: contents" {@attach button(c)}></div>

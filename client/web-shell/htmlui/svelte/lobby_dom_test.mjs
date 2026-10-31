@@ -61,6 +61,21 @@ const has = (i, s) => svelte[i].some(l => l.includes(s));
 assert.ok(has(0, 'Welcome') && has(0, 'Deck Edit') && has(0, 'hover') && !has(1, 'Deck Edit') && !has(1, 'Welcome') && has(1, 'Pier'));
 assert.ok(has(3, 'hover') && has(4, 'pressed') && !has(4, 'hover'));
 assert.equal(svelte[5].length, 0);
+// the Move list (Svelte only): a long place name's row (336 wide) widens the frame to the row + 38, the × and the
+// bar's gutter at its edge - 24, the row ending left of the gutter (live on phase3: it ran into the gutter)
+const move = snap([win(50, 'CWindowModelMove', { x: 364, y: 178, w: 296, h: 188 }, [ctl(51, 'CWindowTaskFrameMove', { alpha: 0.9 }),
+  ctl(52, 'CWindowTaskButtonDuel', { label: 'Domino City Clock Square[14]  0/32', x: 11, y: 24, w: 336, h: 24, color: [1, 1, 1, 1] }),
+  ctl(53, 'CWindowTaskButtonDuel', { label: 'Store[2]  0/32', x: 11, y: 50, w: 323, h: 24, color: [1, 1, 1, 1] }),
+  ctl(54, 'CWindowTaskIconHide', { x: 350, y: 0, w: 16, h: 24 })])]);
+const m = await b.ev(`(() => {
+  window.__render(${JSON.stringify(move)});
+  const r = s => document.querySelector(s)?.getBoundingClientRect();
+  const frame = [...document.querySelectorAll('#htmlui div')].find(d => getComputedStyle(d).opacity === '0.9')?.getBoundingClientRect();
+  return { frame: frame && [frame.x, frame.width], rows: [...document.querySelectorAll('.yo2-dbtn')].map(e => e.getBoundingClientRect().right), close: r('.yo2-close')?.x };
+})()`);
+assert.deepEqual(m.frame, [364, 374], 'the frame: the widest row + 38');
+assert.equal(m.close, 364 + 350);
+assert.ok(m.rows.length === 2 && m.rows.every(x => x <= 364 + 374 - 24), 'every row left of the gutter: ' + m.rows);
 if (b.logs.length) console.log(b.logs.join('\n'));
 assert.ok(!b.logs.some(l => /error|svelte/i.test(l)), 'no page errors');
 console.log('svelte lobby_dom_test ok', svelte.map(s => s.length).join());
