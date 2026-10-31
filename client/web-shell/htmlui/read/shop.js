@@ -12,7 +12,8 @@ export default h => {
   const base = (t, at) => { const e = ptr(t + at); return e ? { x: f32(e + 0xc8), y: f32(e + 0xcc) } : { x: 0, y: 0 }; };   // a base element's world position
   // shown: in the shop, and no lock bit on the task or above (the shop hides with lockFlags |= 2, §0.2); a CEasyTask
   // isn't a CElement, so the base reader's disp_ (+0xc4) is some other field of it
-  const gate = (t, r) => ({ ...r, shown: inShop() && !locked(t) });
+  // alpha 1: a CEasyTask has no CElement colour (read.js's alpha() reads garbage there: the root came out opacity 0)
+  const gate = (t, r) => ({ ...r, alpha: 1, shown: inShop() && !locked(t) });
   // the item windows: frame (280, 84) 512 x 512, title band (280, 3), prev arrow at x 264, MP plate (795, 390) to the edge
   const ITEMS = { x: 264, y: 0, w: 760, h: 600 };
   // CShopCardWindow: page 0x258 of the cards vector 0x248 (ShopItem 0x14), 10 a page; the card art is drawn each frame
