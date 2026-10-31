@@ -1,6 +1,7 @@
 // Modern UI's pure parts: what each modern window reads out of its snapshot (CONTRACT.md), with no DOM, so the state
 // tests (svelte/modern_test.mjs) run them in Node. A component derives everything from these and the snapshot.
-const untag = s => String(s ?? '').replace(/[@＠]\d/g, '');
+// the game's text tags: '@<digit>' a colour, '@>n/' a move to x n (the player list's 'Lv 1@>40/Name': a space here)
+const untag = s => String(s ?? '').replace(/[@＠]>\d+\/?/g, ' ').replace(/[@＠]\d/g, '');
 const top = c => !c.parent;
 const sameRow = (a, b, tol = 12) => Math.abs(a.y + a.h / 2 - (b.y + b.h / 2)) < tol;
 
@@ -222,7 +223,7 @@ export const GENERIC = [
   // htmlui-select's, until theirs land
  'CFixedsentenceList',
   'CWindowModelDueldiskRearrenge', 'CWindowOptionDlg',
-  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait',
+  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
   'CWindowModelDuellogOperation', 'CWindowModelDuellogSearch', 'CWindowModelDuellogTop', 'CWindowModelDuellogTour',
@@ -463,8 +464,11 @@ export function duelistCard(win) {
   }
   // "Wins0/Losses0" as figures
   const rec = rows.map(r => /^Wins\s*(\d+)\s*\/\s*Losses\s*(\d+)$/i.exec(r.value)).find(Boolean);
+  // a player whose duel is open: its settings are the about text, a line each ("Single Mode", "Surrender ON" ...)
+  const lines = about.join('\n').split('\n').map(l => l.trim()).filter(Boolean);
+  const duel = lines.length && lines.every(l => /Mode|Limit|Surrender|Watch/i.test(l) && l.length <= 24) ? lines : null;
   return {
-    name: name?.text || '', rows, about: about.join('\n\n'),
+    name: name?.text || '', rows, about: duel ? '' : about.join('\n\n'), duel,
     record: rec ? { wins: +rec[1], losses: +rec[2] } : null,
     buttons: cs.filter(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y || a.x - b.x),
   };
@@ -586,3 +590,37 @@ export function duelFind(win) {
     ok: buttons.find(primary), cancel: leaveButton(buttons), note: 'OK starts looking for an opponent',
   };
 }
+
+// ---- Create Duel's settings (CWindowModelDuelWait, the Duel menu's Create Duel): its rows of two switches, each a
+// choice (by the switches' names: シングル / マッチ the duel type, 制限あり / なし the time limit, 観戦 spectators,
+// サレンダー surrender; captions the game's own), its password field (InputDuel, 8 characters) with its caption, OK
+// (open the duel) and Cancel
+export function duelCreate(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const inside = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => c.cls === 'CWindowTaskShadowText' && c.text);
+  const sw = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a, b) => a.y - b.y || a.x - b.x);
+  const NAMES = [[/シングル|マッチ/, 'Duel type'], [/制限/, 'Time limit'], [/観戦/, 'Spectators'], [/サレンダー/, 'Surrender']];
+  const rows = [];
+  for (const c of sw) { const r = rows.find(r => Math.abs(r.y - c.y) < 8); r ? r.cs.push(c) : rows.push({ y: c.y, cs: [c] }); }
+  const field = cs.find(c => /CWindowTaskInput/.test(c.cls));
+  const buttons = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label);
+  return {
+    title: 'Create Duel',
+    sections: rows.map(r => ({ id: r.cs[0].id, title: NAMES.find(([re]) => re.test(r.cs[0].name))?.[1] || '',
+      options: r.cs.map(c => ({ c, label: untag(texts.find(t => inside(t, c))?.text || '').trim() })) })),
+    field: field ? { c: field, label: untag(texts.filter(t => t.y < field.y && field.y - t.y <= 32).sort((a, b) => b.y - a.y)[0]?.text || '').trim() || 'Password' } : null,
+    ok: buttons.find(primary), cancel: leaveButton(buttons), note: 'OK opens your duel for a challenger',
+  };
+}
+
+// ---- a duel request (the Yes / No the game shows the duel's owner: "\nLv1 Duelist F\n[Beginner Duelist]\n\nYou have
+// aDuel Request!\n Will you accept?"): the challenger's level, name and title; null for any other message. And the
+// challenger's own wait ("Requesting Duel", with its Cancel)
+export function duelRequest(text) {
+  if (!/Duel\s*Request/i.test(text || '')) return null;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const who = lines.map(l => /^Lv\s*(\d+)\s+(.+)$/.exec(l)).find(Boolean);
+  return { level: who?.[1] || '', name: who?.[2] || '', title: lines.map(l => /^\[(.+)\]$/.exec(l)?.[1]).find(Boolean) || '' };
+}
+export const requesting = text => /^\s*Requesting\s+Duel\s*$/i.test(text || '');

@@ -11,6 +11,9 @@
   const api = $derived(view.api);
   const rate = r => r.wins + r.losses ? Math.round(100 * r.wins / (r.wins + r.losses)) + '%' : '—';
   const other = $derived(d.rows.filter(r => !d.record || !/^Wins/i.test(r.value)));
+  // a challenge is the card's one primary action (gold, first)
+  const DUEL = /Duel\s*Request/i;
+  const buttons = $derived([...d.buttons].sort((a, b) => DUEL.test(b.label) - DUEL.test(a.label)));
   const shown = v => !v || /^[?\s]+$/.test(v) ? 'Unknown' : v;
 </script>
 
@@ -29,10 +32,13 @@
         <p class="row"><span>{r.label}</span><b class:unknown={shown(r.value) === 'Unknown'}>{shown(r.value)}</b></p>
       {/each}
       {#if d.about}<p class="about mu-scroll">{d.about}</p>{/if}
+      {#if d.duel}
+        <div class="duel"><b>Open duel</b>{#each d.duel as t (t)}<span>{t}</span>{/each}</div>
+      {/if}
       {#if d.buttons.length}
         <footer>
-          {#each d.buttons as b (b.id)}
-            <button type="button" class="mu-btn" data-state={b.state} disabled={b.state === 'disabled'} onclick={() => api.click(b.id)}>{b.label}</button>
+          {#each buttons as b (b.id)}
+            <button type="button" class="mu-btn" class:gold={DUEL.test(b.label)} data-state={b.state} disabled={b.state === 'disabled'} onclick={() => api.click(b.id)}>{b.label}</button>
           {/each}
         </footer>
       {/if}
@@ -53,6 +59,10 @@
   .row b.unknown { color: var(--ink-3); font-weight: 600; font-style: italic; }
   .about { flex: 1; min-height: 0; margin: 2px 0 0; padding: 8px 10px; border-radius: var(--r-ctl); font-size: 12px; line-height: 1.45; white-space: pre-wrap;
     color: var(--ink); background: var(--well); box-shadow: var(--well-shadow); pointer-events: auto; }   /* its own wheel */
+  .duel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .duel b { margin-right: 4px; font-size: 11px; font-weight: 800; color: var(--ok); }
+  .duel span { height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; line-height: 20px; color: var(--ink-2);
+    background: var(--well); box-shadow: var(--well-shadow); }
   footer { display: flex; flex-wrap: wrap; gap: 6px; pointer-events: auto; }
   footer .mu-btn { height: 28px; padding: 0 12px; }
 </style>
