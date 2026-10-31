@@ -216,9 +216,9 @@ export function presence(rows) {
 // engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
-  'CWindowModelDuelFind', 'CFixedsentenceList',
+ 'CFixedsentenceList',
   'CWindowModelDueldiskRearrenge', 'CWindowOptionDlg',
-  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
+  'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
   'CWindowModelDuellogOperation', 'CWindowModelDuellogSearch', 'CWindowModelDuellogTop', 'CWindowModelDuellogTour',
@@ -511,5 +511,49 @@ export function options(win) {
     flags, screens, down: vol[0] || null, up: vol[1] || null, slider,
     ok: set.find(c => primary(c)) || null, cancel: leaveButton(set) || null,
     keep: [...flags, ...screens].map(f => f.c.id),
+  };
+}
+
+// ---- the lobby's Duel menu (CWindowModelDuel, the dock's Duel): its counts (a name and a figure on one row: Auto
+// Duel, Create Duel, Duel (n.)), its two ways in (picture switches with their captions; 自動で待つ = Auto Duel, the game
+// finds you an opponent; 申し込みを待つ = Create Duel, you wait for a challenger), Cancel; the title strip's text
+export function duelMenu(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const sw = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a, b) => a.x - b.x);
+  const on = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => /ShadowText$/.test(c.cls) && c.text?.trim() && !sw.some(s => on(c, s)));
+  const title = texts.find(t => t.y < 16);
+  const rows = new Map();
+  // a count says what it counts (by its row's name: 自動で相手を探す, 申し込みを待つ, デュエル中), else the game's label
+  const SAYS = [[/自動/, 'Searching'], [/申し込み/, 'Waiting'], [/デュエル中/, 'Duelling']];
+  for (const t of texts) if (t !== title) {
+    const r = rows.get(t.y) || {};
+    if (/^\d+$/.test(t.text.trim())) r.n = +t.text.trim(); else { r.label = SAYS.find(([re]) => re.test(t.name))?.[1] || untag(t.text).trim(); r.game = untag(t.text).trim(); }
+    rows.set(t.y, r);
+  }
+  return {
+    title: untag(title?.text || 'Duel').trim(),
+    counts: [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r).filter(r => r.label),
+    ways: sw.map(c => ({ c, label: untag(cs.find(t => /ShadowText$/.test(t.cls) && on(t, c))?.text || '').trim(),
+      kind: /自動/.test(c.name) ? 'auto' : /申し込み/.test(c.name) ? 'create' : '' })),
+    cancel: leaveButton(cs.filter(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label)),
+  };
+}
+
+// ---- Auto Duel's settings (CWindowModelDuelFind, the Duel menu's Auto Duel): two choices, as duelConfig reads them:
+// the duel type (シングル Single, マッチ Match, どちらでも Both) and the level range (制限なし / レベルの近い: their
+// captions are the game's own, "Level Limit ON" / "OFF"), OK (start looking) and Cancel. No help text
+export function duelFind(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const inside = (t, c) => t.x >= c.x - 2 && t.x < c.x + c.w && t.y >= c.y && t.y < c.y + c.h;
+  const texts = cs.filter(c => c.cls === 'CWindowTaskShadowText' && c.text);
+  const opt = c => ({ c, label: untag(texts.find(t => inside(t, c))?.text || '').trim() });
+  const sw = cs.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a, b) => a.y - b.y || a.x - b.x);
+  const buttons = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label);
+  return {
+    title: 'Auto Duel',
+    sections: [['type', 'Duel type', /シングル|マッチ|どちらでも/], ['level', 'Level', /制限なし|レベルの近い/]]
+      .map(([id, title, re]) => ({ id, title, options: sw.filter(c => re.test(c.name)).map(opt) })).filter(s => s.options.length),
+    ok: buttons.find(primary), cancel: leaveButton(buttons), note: 'OK starts looking for an opponent',
   };
 }

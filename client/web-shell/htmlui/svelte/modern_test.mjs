@@ -337,6 +337,35 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(o.keep.length, 9);
 }
 
+// the Duel menu: its counts by what they count, its two ways in by kind, Cancel
+{
+  const st = (name, x, y, text) => ctl('ShadowText', { name, x, y, w: 224, h: 32, text });
+  const w = win('CWindowModelDuel', [st('『デュエルメニュー』', 0, 4, 'Duel Menu'),
+    st('『自動で相手を探す』', 80, 36, 'Auto Duel'), st('『自動で相手を探す』', 0, 36, '2'), st('『申し込みを待つ』', 80, 60, 'Create Duel'), st('『申し込みを待つ』', 0, 60, '0'),
+    st('『デュエル中』', 80, 84, 'Duel (n.)'), st('『デュエル中』', 0, 84, '5'),
+    ctl('PictureSwitch', { name: '申し込みを待つボタン', x: 246, y: 128, w: 224, h: 32 }), ctl('PictureSwitch', { name: '自動で待つボタン', x: 22, y: 128, w: 224, h: 32 }),
+    st('noname', 246, 136, 'Create Duel'), st('『自動で相手を探す』', 22, 136, 'Auto Duel'), ctl('ButtonDuel', { x: 176, y: 184, w: 140, h: 24, label: 'Cancel' })], { w: 492, h: 216 });
+  const d = L.duelMenu(w);
+  assert.equal(d.title, 'Duel Menu');
+  assert.deepEqual(d.counts.map(r => [r.label, r.n]), [['Searching', 2], ['Waiting', 0], ['Duelling', 5]]);
+  assert.deepEqual(d.ways.map(x => [x.kind, x.label]), [['auto', 'Auto Duel'], ['create', 'Create Duel']]);
+  assert.equal(d.cancel.label, 'Cancel');
+}
+
+// Auto Duel's settings: the duel type and the level range, each with the game's checked switch; OK and Cancel
+{
+  const sw = (name, x, y, checked = false) => ctl('PictureSwitch', { name, x, y, w: 224, h: 32, checked });
+  const cap = (x, y, text) => ctl('ShadowText', { x, y: y + 8, w: 224, h: 32, text });
+  const w = win('CWindowModelDuelFind', [sw('レベルの近いボタン', 246, 138), sw('制限なしボタン', 22, 138, true), sw('どちらでもボタン', 134, 76),
+    sw('マッチボタン', 246, 36), sw('シングルボタン', 22, 36, true), cap(246, 138, 'Level Limit OFF'), cap(22, 138, 'Level Limit ON'), cap(134, 76, 'Both'),
+    cap(246, 36, 'Match Mode'), cap(22, 36, 'Single Mode'), ctl('ButtonDuel', { x: 299, y: 184, w: 140, h: 24, label: 'Cancel' }),
+    ctl('ButtonDuel', { x: 50, y: 184, w: 140, h: 24, label: 'OK' })], { w: 492, h: 216 });
+  const d = L.duelFind(w);
+  assert.deepEqual(d.sections.map(s => [s.title, s.options.map(o => o.label + (o.c.checked ? '*' : ''))]),
+    [['Duel type', ['Single Mode*', 'Match Mode', 'Both']], ['Level', ['Level Limit ON*', 'Level Limit OFF']]]);
+  assert.deepEqual([d.ok.label, d.cancel.label, d.help], ['OK', 'Cancel', undefined]);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
