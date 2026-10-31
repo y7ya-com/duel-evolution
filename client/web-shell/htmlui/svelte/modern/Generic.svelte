@@ -8,11 +8,14 @@
   // own places. Pass mode: the engine keeps every input and its own focus, so this is paint only (no <button>s of its
   // own: the game's are what the pointer and keys reach). Pictures, Flash and unknown controls stay the engine's, cut
   // out of the plate.
-  import { generic, genericKeys, family } from './logic.js';
+  import { generic, genericKeys, family, duelPrompt } from './logic.js';
+  import DuelPrompt from './DuelPrompt.svelte';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const g = $derived(generic(win));
+  // an in-duel prompt waiting for a click on the field or hand: the banner and the ring instead (DuelPrompt)
+  const prompt = $derived(duelPrompt(win));
   // everything drawn here with the engine's pictures cut out (evenodd: the window's box and a margin for the plate's
   // shadow, then each hole): nothing of the DOM ever covers what the engine still draws
   const cut = $derived.by(() => {
@@ -58,6 +61,9 @@
   const ICON = { Hide: 'close', Show: 'chevron', Expand: 'plus', Shrink: 'back' };
 </script>
 
+{#if prompt}
+<div class="mu"><DuelPrompt p={prompt} {win} /></div>
+{:else}
 {#if win.modal}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
 <div class="mu" aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
   {#if g.plate}
@@ -101,6 +107,7 @@
     {/if}
   {/each}
 </div>
+{/if}
 
 <style>
   .mu > * { position: absolute; }

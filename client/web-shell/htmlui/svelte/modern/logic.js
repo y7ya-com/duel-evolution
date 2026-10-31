@@ -362,6 +362,25 @@ export function genericKeys(g) {
   const bs = g.items.filter(i => i.kind === 'button' && i.c.enabled !== false && i.c.state !== 'disabled').map(i => ({ ...i.c, label: i.label }));
   return { leave: leaveButton(bs) || null, primary: bs.find(primary) || null };
 }
+// ---- an in-duel prompt that only waits for a click on the field or the hand (owner: "my turn, couldn't end turn": the
+// End Phase discard, CUDiscardDialog "Discard from your hand.", was a small box easy to miss, and the generic window
+// drew it blank: its text is nested). A duel window (CU*) with words and no button of its own: { kind, title, say,
+// line, zone } or null. zone: where to click, in game px (the duel field's fixed layout: the hand along the bottom,
+// the two fields above it)
+export const DUEL_ZONES = { hand: { x: 264, y: 522, w: 522, h: 92 }, field: { x: 318, y: 60, w: 392, h: 466 } };
+export function duelPrompt(win) {
+  if (!/^CU/.test(win.cls)) return null;
+  const shown = win.controls.filter(c => c.shown !== false);
+  if (shown.some(c => family(c) === 'button' && c.enabled !== false)) return null;
+  const line = shown.filter(c => family(c) === 'text').map(c => untag(c.text || '').trim()).filter(Boolean)[0] || '';
+  if (!line) return null;
+  if (win.cls === 'CUDiscardDialog' || /discard/i.test(line))
+    return { kind: 'discard', title: 'Too many cards', say: 'Your hand is over the limit of 6. Click a card in your hand to discard it.', line, zone: DUEL_ZONES.hand };
+  if (win.cls === 'CULockOnDialog' || /target|select|choose/i.test(line))
+    return { kind: 'target', title: 'Choose a card', say: 'Click a card on the field.', line, zone: DUEL_ZONES.field };
+  return { kind: 'wait', title: 'Your move', say: line, line: '', zone: null };
+}
+
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out
 export const shownText = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
 // a list's shown rows: [{ i, text, selected, marked }] from its top, as many as fit

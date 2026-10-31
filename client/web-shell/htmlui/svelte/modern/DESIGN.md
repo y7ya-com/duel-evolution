@@ -262,6 +262,19 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
     on hover.
   - The trunk search is restyled. A modal dialog dims the editor and is cut only by its own card faces.
 
+## Duel prompts (2026-10-31, owner: "my turn, couldn't end turn")
+- **The freeze:** the End Phase discard (CUDiscardDialog, "Discard from your hand.") is a small box that only waits for a
+  click on a hand card; easy to miss, so the turn just waits. The generic window even drew it blank (its text is nested
+  under a Help control) with a scrim that dimmed the hand.
+- **Now:** any in-duel window (CU*) with words and no button of its own (logic.js duelPrompt) is a prompt
+  (DuelPrompt.svelte): a banner across the top of the field (a game panel, its plaque: "Too many cards", "Choose a
+  card"; the instruction in plain words, the game's own line under it) and a gold ring round where to click (the hand
+  for a discard, the field for a target), labelled. No scrim. After 5 s with no move the banner and the ring pulse.
+  Pass mode: the click is the engine's own, on its card; the engine draws nothing of the old box.
+- **Duel windows with their own buttons** (Yes / No, phase choices, coin, dice) stay the generic window (Esc / Enter).
+- **Seen live:** the discard, in a duel against the dev NPC (the prompt, the ring, a hand card clicked, the turn passed).
+  The target prompt (CULockOnDialog) is covered by the same rule, not yet seen live.
+
 ## Coverage: every window modern (2026-10-31)
 The game has 107 window classes (every CWindowTaskModel subclass in client/include/yo2). In Modern UI each is bespoke
 (svelte/modern.js), generic (logic.js GENERIC, Generic.svelte) or deliberately not drawn; the inventory is

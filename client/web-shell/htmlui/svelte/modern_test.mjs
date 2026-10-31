@@ -377,6 +377,18 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.ok.label, d.cancel.label, d.help], ['OK', 'Cancel', undefined]);
 }
 
+// an in-duel prompt that waits for a click: the discard (its text nested under a Help control), a target; a duel
+// dialog with its own buttons stays the generic window
+{
+  const help = ctl('Help', { x: 8, y: 8, w: 0, h: 0 });
+  const dd = win('CUDiscardDialog', [ctl('FrameThin', { x: 0, y: 0, w: 314, h: 112 }), help, ctl('Text', { parent: help.id, x: 0, y: 0, w: 298, h: 96, text: 'Discard from your @2hand@0.' })], { x: 355, y: 328, w: 314, h: 112 });
+  const p = L.duelPrompt(dd);
+  assert.deepEqual([p.kind, p.line, p.zone], ['discard', 'Discard from your hand.', L.DUEL_ZONES.hand]);
+  assert.equal(L.duelPrompt(win('CULockOnDialog', [ctl('Text', { text: 'Select a target.' })])).kind, 'target');
+  assert.equal(L.duelPrompt(win('CUYesNoDialog', [ctl('Text', { text: 'Activate?' }), ctl('TextSwitch', { label: 'Yes' })])), null, 'its own buttons: a dialog');
+  assert.equal(L.duelPrompt(win('CWindowModelHelp', [ctl('Text', { text: 'x' })])), null, 'not a duel window');
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

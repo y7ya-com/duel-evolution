@@ -18,7 +18,7 @@ import Form from './modern/Form.svelte';
 import Mail from './modern/Mail.svelte';
 import Avatar from './modern/Avatar.svelte';
 import Generic from './modern/Generic.svelte';
-import { GENERIC, generic, options } from './modern/logic.js';
+import { GENERIC, generic, options, duelPrompt } from './modern/logic.js';
 import DuelConfig from './modern/DuelConfig.svelte';
 import Move from './modern/Move.svelte';
 import ItemGet from './modern/ItemGet.svelte';
@@ -107,10 +107,12 @@ const deckEditor = {
 // the window's backdrop (the plate stands in for it). parts: an unknown control's sprites place its hole
 const genericBase = screen(Object.fromEntries(GENERIC.map(c => [c, Generic])));
 const kept = new Map();   // window id -> what the engine keeps drawing in it (logic.js generic keep)
+// an in-duel prompt (logic.js duelPrompt): the engine draws nothing of it, the banner stands in
+const keep = win => new Set(duelPrompt(win) ? [] : generic(win).keep);
 const genericScreen = {
   ...genericBase, mode: 'pass', clip: false, parts: true,
-  mount(win, root, api) { kept.set(win.id, new Set(generic(win).keep)); return { ...genericBase.mount(win, root, api), id: win.id }; },
-  update(win, prev, root, api, st) { kept.set(win.id, new Set(generic(win).keep)); genericBase.update(win, prev, root, api, st); },
+  mount(win, root, api) { kept.set(win.id, keep(win)); return { ...genericBase.mount(win, root, api), id: win.id }; },
+  update(win, prev, root, api, st) { kept.set(win.id, keep(win)); genericBase.update(win, prev, root, api, st); },
   unmount(root, st) { kept.delete(st.id); genericBase.unmount(root, st); },
   // a part of a kept control isn't listed: the nearest listed ancestor (the kept control) decides (htmlui.c)
   passthrough: x => [...kept.values()].some(k => k.has(x.id)),
