@@ -25,10 +25,13 @@
     tail.push(s); if (tail.length > 200) tail.shift();
     if (showLog) { logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
     console.log(s);
+    if (/^MessageBox \[/.test(s)) lastBox = s;
     if (/^(rc_trap at|MISSING IMPORT|guest fault|host fault)/.test(s)) crash(s);
+    // the game ending itself (its fatal MessageBox then ExitProcess, which a game thread's _exit leaves without onExit)
+    else if (/^(ExitProcess\([1-9]|TerminateProcess\(|FatalAppExit: )/.test(s)) crash(s + (lastBox ? " after " + lastBox : ""));
     else if (/^rc_report: /.test(s) && reported++ < 3) setTimeout(() => report(s, false), 500);   // a handled problem worth a look
   };
-  let reported = 0;
+  let reported = 0, lastBox = "";
   // A guest trap (it logs, then exits), an abort or an exit: report it once to /__crash, then tell the player instead of
   // leaving a frozen canvas. A "yo2crash" listener (the loader) may draw its own message.
   let crashed = false;
