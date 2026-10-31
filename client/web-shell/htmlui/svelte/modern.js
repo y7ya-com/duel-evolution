@@ -22,6 +22,9 @@ import { GENERIC, generic } from './modern/logic.js';
 import DuelConfig from './modern/DuelConfig.svelte';
 import Move from './modern/Move.svelte';
 import ItemGet from './modern/ItemGet.svelte';
+import NpcCard from './modern/NpcCard.svelte';
+import Balloon from './modern/Balloon.svelte';
+import PickList from './modern/PickList.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -114,10 +117,13 @@ const screens = [
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
   screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
-    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move }, { mode: 'owned', clip: false }),
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList }, { mode: 'owned', clip: false }),
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
+  // a duelist's card and an NPC's speech bubble: pass (the game keeps the mouse: a click anywhere goes on or closes);
+  // the bubble's own button and a card's buttons take the pointer
+  screen({ CNpcListMenu: NpcCard, CPlayerListMenu: NpcCard, CWindowModelBalloon: Balloon }, { mode: 'pass', clip: false }),
   // an unlock / item announcement: the engine keeps drawing its portrait card (sprite extras, plain elements)
   screen({ CWindowModelItemGet: ItemGet }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CSpriteElmOlder' || x.cls === 'CElement' }),
   genericScreen,

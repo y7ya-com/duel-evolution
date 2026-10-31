@@ -215,8 +215,8 @@ export function presence(rows) {
 // engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
-  'CNpcListMenu', 'CPlayerListMenu', 'CFindMenu', 'CWindowModelDuelFind', 'CWindowModelList', 'CFixedsentenceList',
-  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg', 'CWindowModelBalloon',
+  'CFindMenu', 'CWindowModelDuelFind', 'CFixedsentenceList',
+  'CDuelDiskList', 'CWindowModelDueldiskRearrenge', 'COptionDlg', 'CWindowOptionDlg',
   'CWindowModelInformation', 'CWindowModelGoEvent', 'CWindowModelAboutEvent', 'CWindowModelDuelWait', 'CWindowModelDuel',
   // the rest
   'CHelpDialog', 'CShopNpcProfile', 'CWindowModelBlacklistInput', 'CWindowModelCardDetail', 'CWindowModelDuellogList',
@@ -413,5 +413,52 @@ export function itemGet(win) {
   return {
     lines: texts.map(t => ({ id: t.id, text: untag(t.text).trim(), c: t })).filter(l => l.text),
     ok, okLabel: (ok && cs.find(c => c.cls === 'CWindowTaskText' && c.text?.trim() && Math.abs(c.x - ok.x) < 4 && Math.abs(c.y - ok.y) < 16)?.text.trim()) || 'OK',
+  };
+}
+
+// ---- a duelist's card (CNpcListMenu, CPlayerListMenu: the lobby's character click): its CWindowTaskHelps top to
+// bottom, each showing its child text; the first is the name, a 『』 one is the label of the help under it (Win% over
+// "Wins0/Losses0"), one left over is the about text; the buttons the menu shows (a player's)
+const helpText = (win, h) => win.controls.find(c => c.parent === h.id && c.cls === 'CWindowTaskText')?.text ?? '';
+export function duelistCard(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const helps = cs.filter(c => c.cls === 'CWindowTaskHelp').sort((a, b) => a.y - b.y).map(h => ({ h, text: untag(helpText(win, h)).trim() }));
+  const name = helps.find(x => /名前/.test(x.h.name)) || helps[0];
+  const rows = [], about = [];
+  for (let i = 0; i < helps.length; i++) {
+    const x = helps[i];
+    if (x === name) continue;
+    if (/『/.test(x.h.name) && helps[i + 1] && !/『/.test(helps[i + 1].h.name) && helps[i + 1] !== name) { rows.push({ label: x.text, value: helps[++i].text }); continue; }
+    if (x.text) about.push(x.text.split('\n').map(l => l.trim()).join('\n'));
+  }
+  // "Wins0/Losses0" as figures
+  const rec = rows.map(r => /^Wins\s*(\d+)\s*\/\s*Losses\s*(\d+)$/i.exec(r.value)).find(Boolean);
+  return {
+    name: name?.text || '', rows, about: about.join('\n\n'),
+    record: rec ? { wins: +rec[1], losses: +rec[2] } : null,
+    buttons: cs.filter(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y || a.x - b.x),
+  };
+}
+
+// ---- an NPC's speech bubble (CWindowModelBalloon): the speaker and the line (its '・' marks are pauses, a glyph the
+// 2008 font lacks: '…'; trailing blank lines dropped); the frame is what a click advances
+export function balloon(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const body = cs.find(c => c.name === 'ふきだしウィンドウの本文') || cs.filter(c => c.cls === 'CWindowTaskText' && c.text).sort((a, b) => b.h - a.h)[0];
+  const who = cs.find(c => c.name === 'ふきだしウィンドウの名前') || cs.find(c => c.cls === 'CWindowTaskText' && c !== body && c.text);
+  const text = untag(body?.text || '').replace(/・/g, '…').split('\n').map(l => l.trimEnd()).join('\n').replace(/\s+$/, '');
+  return { name: untag(who?.text || '').trim(), text, frame: cs.find(c => /BalloonFrame$/.test(c.cls)) };
+}
+
+// ---- the pick list (CWindowModelList: who is under the click): its title (the Iconbar's, often none), its names,
+// the selected one, the list and its scroll bar, the x
+export function pickList(win) {
+  const cs = win.controls.filter(c => c.shown && top(c));
+  const list = cs.find(c => /Listbox$/.test(c.cls));
+  return {
+    title: untag(cs.find(c => /Iconbar$/.test(c.cls))?.text || '').trim(),
+    list, names: listItems(list).map(s => s.trim()),
+    bar: list && win.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls) && c.shown),
+    close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
   };
 }

@@ -279,6 +279,28 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(g.ok.w, 162);
 }
 
+// a duelist's card: the name, label / value pairs, the record as figures, the about text; a speech bubble; the pick list
+{
+  const help = (name, y, text, h = 16) => { const hc = ctl('Help', { name, x: 8, y }); return [hc, ctl('Text', { parent: hc.id, w: 320, h, text })]; };
+  const w = win('CNpcListMenu', [
+    ...help('CPlayerListMenuの『勝率：』テキスト', 44, 'Win%'), ...help('CPlayerListMenuの勝率テキスト', 60, 'Wins3/Losses1'),
+    ...help('CPlayerListMenuのレベル＆名前表示', 8, 'Kain', 36), ...help('CNpcListMenuの『デッキ名:』テキスト', 76, 'Deck Name'),
+    ...help('CNpcListMenuのデッキ名テキスト', 92, '?????'), ...help('CPlayerListMenuの対戦相手テキスト', 108, ' A duelist.\n\n He wins.', 144),
+    ctl('FrameThin', { w: 336, h: 260 }),
+  ]);
+  const d = L.duelistCard(w);
+  assert.equal(d.name, 'Kain');
+  assert.deepEqual(d.record, { wins: 3, losses: 1 });
+  assert.deepEqual(d.rows.map(r => [r.label, r.value]), [['Win%', 'Wins3/Losses1'], ['Deck Name', '?????']]);
+  assert.equal(d.about, 'A duelist.\n\nHe wins.');
+  const b = L.balloon(win('CWindowModelBalloon', [ctl('BalloonFrame', { w: 454, h: 144 }), ctl('Text', { name: 'ふきだしウィンドウの名前', text: 'Kain' }),
+    ctl('Text', { name: 'ふきだしウィンドウの本文', h: 80, text: '・\nWise choice・very wise.\n\n' })]));
+  assert.deepEqual([b.name, b.text, !!b.frame], ['Kain', '…\nWise choice…very wise.', true]);
+  const l = ctl('ActiveListbox', { x: 8, y: 24, w: 232, h: 96, items: ['@0Alexis Rhodes', '@0Kain'], selected: 0, rows: 6 });
+  const p = L.pickList(win('CWindowModelList', [ctl('Iconbar', { w: 248, h: 24 }), l, ctl('IconHide', { x: 229 })]));
+  assert.deepEqual([p.title, p.names, !!p.close, p.bar], ['', ['Alexis Rhodes', 'Kain'], true, undefined]);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

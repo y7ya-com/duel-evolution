@@ -148,6 +148,17 @@ first, navy pass ("dark blue and serious ... loses the nostalgia") set this: the
   the engine keeps drawing the portrait card (the window's sprite extras pass through); its lines become one blue
   ribbon across the card's foot and its OK a large gold button that takes the focus, so Enter, Space or Esc dismisses
   it. (The generic window had dropped the portrait: its extras have no rect.)
+- **Clicking a character** (the lobby's NPCs and players):
+  - **Pick list** (CWindowModelList, who is under the click; PickList.svelte, owned): a small "Choose" popover at
+    the game's place, a row per name with an initial badge. Focus opens on the first row, so Enter picks it at once;
+    Up / Down, Esc closes. (Picking makes your character walk over first: the card opens when you arrive.)
+  - **Duelist card** (CNpcListMenu, CPlayerListMenu; NpcCard.svelte, pass): the name on the title strip, the record
+    as three figures (wins, losses, win rate) instead of "Win%" over "Wins0/Losses0", the deck ("Unknown" for the
+    game's "?????"), the about text in a well that scrolls with the wheel. A click elsewhere closes it, as before.
+  - **Speech bubble** (CWindowModelBalloon; Balloon.svelte, pass): a white bubble with its tail toward the portrait
+    (the engine's), the speaker on a gold tag, the line in large type, a "Continue" cue. The game's '・' marks (a
+    glyph the 2008 font lacked: a box) read as '…'. The bubble takes the focus: Space or Enter goes on, as a click
+    anywhere does. The duel offer that ends a challenge is the modern Yes / No.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
