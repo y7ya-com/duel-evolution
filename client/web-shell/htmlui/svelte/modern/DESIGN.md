@@ -267,6 +267,12 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   move-to-x tag, now a space); Toast pressed its OK before the game showed the box, which then stayed open behind the
   toast and blocked the screen (now pressed once shown, again until gone); GameDialog focused its button while the
   window was still hidden, so Enter went nowhere (now macro.js focusSoon once shown).
+- **Duel from a player's card** (owner: "the current way of dueling is so unintuitive"): a gold Duel, first on the card
+  of a player with no duel of their own open (NpcCard.svelte; legacy: a 2008 Duel tab above the engine's card,
+  screens/lobby.js). It asks the server (POST /api/de/duel/challenge, ../invite.js), which refuses with a reason (a toast;
+  legacy: a line above the tab) or shows the player as a duel room's owner to you alone; the card is reopened and the
+  game's own "Send Duel Request" pressed, so the rest is the game's: "Request sent: waiting…", the player's Accept /
+  Decline, its refusal and no-answer messages, the duel.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.
