@@ -26,7 +26,7 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   // a SIGTERM / SIGINT (a stopped run, buildslot, Ctrl-C) ends the process without 'exit' handlers: make it an exit
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) if (!process.listenerCount(sig)) process.on(sig, () => process.exit(1));
   let ws;
-  for (let i = 0; i < 50 && !ws; i++) {
+  for (let i = 0; i < 150 && !ws; i++) {   // 30 s: a busy machine (other sessions' builds) can take over 10 s to start Chrome
     await sleep(200);
     try { ws = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(x => x.type === 'page')?.webSocketDebuggerUrl; } catch {}
   }

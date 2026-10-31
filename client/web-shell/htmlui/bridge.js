@@ -12,11 +12,15 @@ import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
+import { modernUi } from './modern.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
-export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+// svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
+// screens/<group>.js (htmlui.json "svelte" / ?HTML_SVELTE=, switches() syntax by group name: deck, chat ...; none by
+// default until the group's flip pairs match). No build there: the plain module stays.
+export async function loadScreens(base = new URL('./screens/', import.meta.url), svelte = () => false) {
   for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
     const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
     if (m?.default) extend(m.default);
@@ -25,6 +29,8 @@ export async function loadScreens(base = new URL('./screens/', import.meta.url))
   for (const n of SCREENS) {
     const m = await import(new URL(n + '.js', base)).catch(() => null);
     for (const c of m?.default?.classes || []) by.set(c, m.default);
+    const s = svelte(n) && await import(new URL(`../gen/${n}.js`, base)).catch(e => console.warn('htmlui svelte', n, e));
+    for (const c of s?.default?.classes || []) by.set(c, s.default);
   }
   return by;
 }
@@ -41,7 +47,10 @@ export function switches(spec, defaults = []) {
 
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
   pointer-events: none; z-index: 5; }
-#htmlui-host .win { position: absolute; overflow: hidden; }
+/* hidden through a scene load by visibility, not display: none, which restarted every CSS animation in it (each window
+   played its entrance again after every load) */
+#htmlui-host[hidden] { display: block; visibility: hidden; }
+#htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }
 #htmlui-host .frame, #htmlui-host .layer { left: 0; top: 0; }
@@ -69,21 +78,27 @@ export async function makeLayer(host, screens, art = 'ui/') {
   back.className = 'layer';
   layer.id = 'htmlui';
   host.append(back, layer);
+  // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on window in the
+  // bubbling phase. Stopped here, on the roots' parent, not on each root: Svelte 5 delegates a screen's onkeydown to its
+  // root (the mount target) and gives up once the event is stopped, so a stop on the root starved every handler above
+  // the focused element (htmlui-select: Esc on a plate <section> never ran)
+  for (const t of ['keydown', 'keyup', 'keypress']) layer.addEventListener(t, ev => ev.stopPropagation());
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
-    const seen = new Set();
-    for (const w of [...snap.windows, ...snap.tasks || []]) {   // windows, then claimed non-window tasks (the shop)
+    const seen = new Set(), under = [];   // under: where owned-mode roots behind the current window take the pointer
+    // windows back to front as the engine draws them (drawOrder), then claimed non-window tasks (the shop). Each root is
+    // one stacking context (.win isolation): nothing a screen stacks inside its window (chat.js's z-indexed layers)
+    // reaches above another window
+    for (const w of [...drawOrder(snap.windows), ...snap.tasks || []]) {
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
       const mod = screens.get(w.cls);
-      if (e && e.cls !== w.cls) { unmount(w.id); e = null; }   // the address was reused
+      // the address was reused, or another screen took the class (Modern UI switched)
+      if (e && (e.cls !== w.cls || e.mod !== mod)) { unmount(w.id); e = null; }
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
-        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
-        // window in the bubbling phase
-        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
@@ -94,6 +109,17 @@ export async function makeLayer(host, screens, art = 'ui/') {
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
+      // A pass window takes no pointer, so over an owned HTML window a click on it went to that window's DOM, not the
+      // game (htmlui-select: "Display by name" in the find menu over the chat did nothing). Over one, a catcher under
+      // its own content, where it draws, hands what its content doesn't take (its inputs and native scrollers do) to
+      // the canvas as the same mouse events.
+      const at = w.drawn || w, over = mod?.mode !== 'owned' && under.some(r => meet(r, at));
+      if (over) {
+        const c = e.catcher ||= catcher();
+        if (e.root.firstChild !== c) e.root.prepend(c);
+        Object.assign(c.style, { left: at.x - w.x + 'px', top: at.y - w.y + 'px', width: at.w + 'px', height: at.h + 'px' });
+      } else if (e.catcher) { e.catcher.remove(); e.catcher = null; }
+      if (mod?.mode === 'owned') under.push(w, ...w.drawn ? [w.drawn] : []);
       // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
       // extension's fields change with no control changing
       const json = JSON.stringify(w);
@@ -106,6 +132,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
       } else syncWindow(e.root, w, e.st ||= new Map(), a);
+      if (e.catcher && e.root.firstChild !== e.catcher) e.root.prepend(e.catcher);   // a screen that rebuilds its root took it
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -130,16 +157,39 @@ export async function makeLayer(host, screens, art = 'ui/') {
   return { layer, render };
 }
 
+const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// a transparent box that takes the pointer and hands it to the canvas as the game's mouse (the trunk scroller's way:
+// pointer capture keeps a press going outside it); the wheel too
+function catcher() {
+  const c = document.createElement('div'), canvas = () => document.getElementById('canvas');
+  c.className = 'htmlui-catch';
+  Object.assign(c.style, { position: 'absolute', pointerEvents: 'auto' });
+  const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons }));
+  c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); fwd('mousedown', e); });
+  c.addEventListener('pointermove', e => fwd('mousemove', e));
+  c.addEventListener('pointerup', e => { fwd('mouseup', e); if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId); });
+  for (const t of ['contextmenu', 'dblclick']) c.addEventListener(t, e => { e.preventDefault(); fwd(t, e); });
+  c.addEventListener('wheel', e => { e.preventDefault(); canvas()?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode })); }, { passive: false });
+  return c;
+}
+
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
 // In front: the larger window z (CWindowTaskModel z_ +0x34c: each window 50 above the one opened before it: the deck
 // editor's Kaban 51153 < Deck 51203 < chat 51303 < its Save list 51353 < the "saved" box 51553), then the frontmost
 // drawn control's world z, then the list's order. Not the controls' depth alone: one deep control (a trunk row's
 // parts, a dragged card) made a window look in front of a dialog over it. The hole is where that window draws (its
 // drawn box), never its nominal rect; a window that draws nothing cuts none.
+// o (at j in the list) in front of w (at i)
+const ahead = (o, j, w, i) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !== w.wz ? o.wz > w.wz : j > i;
+// the windows back to front by that rule (the DOM order of their roots; the engine's own list order is only the tie)
+export function drawOrder(wins) {
+  return wins.map((w, i) => [w, i]).sort(([a, i], [b, j]) => ahead(a, i, b, j) ? 1 : ahead(b, j, a, i) ? -1 : 0).map(([w]) => w);
+}
 function holes(w, wins, owned) {
   const i = wins.indexOf(w);
-  const ahead = (o, j) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !== w.wz ? o.wz > w.wz : j > i;
-  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j))
+  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j, w, i))
     .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
       o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
   return clip(front, w);
@@ -177,9 +227,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   document.head.append(st);
   // The layer (screens, atlases, the host) loads only once the switches want a window or task the game shows: a page
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
-  let screens = new Map(), host = null, render = null, loading = null;
+  // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
+  const mu = modernUi({ defaults, canvas });
+  let legacy = new Map(), host = null, render = null, loading = null;
+  const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   const init = () => loading ||= (async () => {
-    screens = await loadScreens();
+    legacy = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);
@@ -217,7 +270,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    for (const el of [host, fx, bars.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx, bars.layer, mu.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -247,8 +300,9 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
     { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
   const api = {
-    async click(id) {
-      const p = at(id);
+    // gp: a game point [x, y] inside the control to click instead of its centre (a list's row)
+    async click(id, gp) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
       if (!p) return false;
       fire('mousemove', p); await frames(2);
       fire('mousedown', p); await frames(2);
@@ -308,7 +362,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
-    const want = c => forced.has(c) ? forced.get(c) : on(c);
+    const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
@@ -343,13 +397,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
     // through a scene load
     const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...barIds].slice(0, SLOTS);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
+    mu.frame(snap, scene, wait);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
@@ -373,5 +428,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,
     scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
+    modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered): the players' "Legacy UI" switch, inverted
+    modernScreens: mu.mods,   // (development: a rebuilt gen/modern.js swapped in, see svelte/modern/DESIGN.md)
   };
 }

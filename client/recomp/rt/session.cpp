@@ -138,13 +138,22 @@ std::string discord_invite() {
 // (window.open gave null), still 0 = no browser click seen. Not "noopener": with it
 // window.open always returns null, so a block would be invisible; the page's COOP same-origin cuts the new tab off
 // from the game anyway, and the opener is cleared too.
-void arm_open(const char* url) {
+// "Copy" works the same way: Safari allows navigator.clipboard.writeText only inside the browser's click (arm_copy,
+// copy_result: 1 copied, 2 refused, 0 or 3 no answer yet).
+void hook_click() {
 #ifdef __EMSCRIPTEN__
     EM_ASM({
         const c = Module.canvas;
         if (c && !Module.yo2OpenHooked) {
             Module.yo2OpenHooked = true;
             c.addEventListener("click", () => {
+                const k = Module.yo2CopyOnClick;
+                if (k) {
+                    Module.yo2CopyOnClick = null;
+                    Module.yo2CopyResult = 3;
+                    const r = (v) => () => { Module.yo2CopyResult = v; };
+                    try { navigator.clipboard.writeText(k).then(r(1), r(2)); } catch (e) { r(2)(); }
+                }
                 const u = Module.yo2OpenOnClick;
                 if (!u) return;
                 Module.yo2OpenOnClick = null;
@@ -153,6 +162,31 @@ void arm_open(const char* url) {
                 Module.yo2OpenResult = w ? 1 : 2;
             }, true);
         }
+    });
+#endif
+}
+void arm_copy(const char* text) {
+#ifdef __EMSCRIPTEN__
+    hook_click();
+    EM_ASM({
+        Module.yo2CopyOnClick = $0 ? UTF8ToString($0) : null;
+        if ($0) Module.yo2CopyResult = 0;
+    }, text);
+#else
+    (void)text;
+#endif
+}
+int copy_result() {
+#ifdef __EMSCRIPTEN__
+    return EM_ASM_INT({ return Module.yo2CopyResult | 0; });
+#else
+    return 1;
+#endif
+}
+void arm_open(const char* url) {
+#ifdef __EMSCRIPTEN__
+    hook_click();
+    EM_ASM({
         Module.yo2OpenOnClick = $0 ? UTF8ToString($0) : null;
         if ($0) Module.yo2OpenResult = 0;
     }, url);
@@ -241,8 +275,8 @@ struct Panel {
     float link1_w = 0, link2_w = 0;   // the links' hover boxes (labels have no hover of their own)
     int under = 0;   // the link underlined: 0 none, 1, 2
     uint32_t prev1 = 0, prev2 = 0, prevd = 0, prevc = 0, prevo = 0;   // pressed while over (ui_pressed)
-    bool armed = false;   // the Open Discord URL is armed for the browser's click (arm_open)
-    int open_wait = 0;    // frames left to read the browser click's outcome
+    bool armed = false, copy_armed = false;   // armed for the browser's click (arm_open, arm_copy)
+    int open_wait = 0, copy_wait = 0;          // frames left to read the browser click's outcome
     std::string user, pass, code, invite;
 } panel;
 
@@ -495,11 +529,16 @@ void login_scene(uint32_t scene) {
             panel.open_wait = 0;
         }
     }
-    if (ui_clicked(panel.copy, panel.prevc)) {
-#ifdef __EMSCRIPTEN__
-        EM_ASM({ try { navigator.clipboard.writeText(UTF8ToString($0)); } catch (e) {} }, panel.code.c_str());
-#endif
-        status(t, "Code copied.", OK);
+    bool copy_over = panel.mode == VERIFY && !panel.code.empty() && RD32m(panel.copy + 0x3e8) != 0;
+    if (copy_over != panel.copy_armed) arm_copy(copy_over ? panel.code.c_str() : nullptr), panel.copy_armed = copy_over;
+    if (ui_clicked(panel.copy, panel.prevc)) panel.copy_wait = 30;
+    if (panel.copy_wait > 0) {
+        int r = copy_result();
+        if (r == 1 || r == 2 || !--panel.copy_wait) {
+            status(t, r == 1 ? "Code copied." : "Couldn't copy. Type the code in Discord.", r == 1 ? OK : ERR);
+            rc_log("session: Copy -> %d", r);
+            panel.copy_wait = 0;
+        }
     }
 }
 }   // namespace

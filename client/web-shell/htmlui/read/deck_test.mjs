@@ -56,6 +56,11 @@ list(fac + 0x10, [detail, win]);
 const drag = alloc(0x18);
 w32(0x012b3230, drag); dv.setInt32(drag + 4, 2, true); dv.setInt32(drag + 0x10, 4007, true);
 
+// the card table (*(0x12a1140 + 0x18), 8 bytes a card): attribute (w1 >> 6) & 0xf, < 8 a monster
+const table = alloc(8 * 4100);
+w32(0x12a1140 + 0x18, table);
+const attr = (id, a) => w32(table + id * 8 + 4, a << 6);
+attr(221, 2); attr(15, 8); attr(282, 9); attr(248, 0); attr(4007, 5);
 const s = read(dv, 1, 0x24);
 const W = s.windows.find(w => w.cls === 'CWindowModelDeck');
 assert.deepEqual([W.x, W.y, W.w, W.h], [248, 0, 488, 712]);   // from the header bar to the side frame's bottom
@@ -69,4 +74,22 @@ assert.deepEqual(D.holes[1], { x: 8, y: 712 - 388, w: 16, h: 16 });
 assert.deepEqual(s.deckDrag, { state: 2, from: 0, grid: 0, card: 4007, index: 0 });
 w32(0x012b3230, 0);
 assert.equal(read(dv).deckDrag, null);
+
+// the power strip follows the card shown now, never the last monster's (owner, live: a spell under "1 ATK 100/DEF
+// 100"): the engine's text element keeps its text and shown flag through a spell or trap, the card table says which
+// card is a monster (attribute (w1 >> 6) & 0xf < 8). monster -> spell -> trap -> monster -> spell -> none
+const power = elem('CTextElm', 0x430), wtext = t => { const q = alloc(2 * t.length + 2); [...t].forEach((c, i) => dv.setUint16(q + 2 * i, c.charCodeAt(0), true)); w32(power + 0x410 + 4, q); w32(power + 0x410 + 8, t.length); };
+w32(detail + 0x494 + 4, power);
+const strip = (id, text) => {
+  dv.setInt32(detail + 0x43c, id, true);
+  if (text) wtext(text);   // the engine writes it for a monster only
+  const d = read(dv, 1, 0x24).windows.find(w => w.cls === 'CCardDetailViewDlg');
+  return [d.monster, d.labels.map(l => l.text), d.holes.length];
+};
+assert.deepEqual(strip(221, ' 4 ATK1400/DEF1100'), [true, [' 4 ATK1400/DEF1100'], 4]);
+assert.deepEqual(strip(15), [false, [], 1]);    // a spell: no stats, no icons, the big card only
+assert.deepEqual(strip(282), [false, [], 1]);   // a trap
+assert.deepEqual(strip(248, ' 3 ATK1000/DEF 600'), [true, [' 3 ATK1000/DEF 600'], 4]);
+assert.deepEqual(strip(15), [false, [], 1]);
+assert.deepEqual(strip(-1), [false, [], 0]);    // nothing shown
 console.log('read/deck_test: ok');

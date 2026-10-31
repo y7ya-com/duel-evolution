@@ -86,7 +86,7 @@ const TEXT = {
 // the bitmap's stretched slices were soft at 2x, the owner's Skin rule), a black 16-pixel caption
 // (h - 16) / 2 down, 4 in from the left (LEFT), centred (CENTRE) or 4 in from the right (RIGHT).
 const BUTTON = {
-  sig: c => JSON.stringify([c.w, c.h, c.label, c.align]),
+  sig: c => JSON.stringify([c.w, c.h, c.label, c.align, c.color, c.shadow]),
   draw(c, api) {
     const e = box('button', c);
     e.type = 'button';
@@ -95,7 +95,11 @@ const BUTTON = {
     if (api?.owned) e.addEventListener('click', () => api.click(c.id));
     plateLook(e, 0);
     const al = c.align ?? 1, side = al === 0 || al === 2;
-    if (c.label) textBox(e, c.label, { x: side ? 4 : 0, y: Math.floor((c.h - LH) / 2), w: side ? c.w - 8 : c.w, align: al });
+    // the caption's own colour (its glyphs are white: every caption's colour shows, black by default, D-Mail's Send red)
+    // and, where the game shows it, its shadow's, offset as the game's
+    const t = c.label && textBox(e, c.label, { x: side ? 4 : 0, y: Math.floor((c.h - LH) / 2), w: side ? c.w - 8 : c.w, align: al,
+      color: c.color, white: true });
+    if (t && c.shadow) t.style.textShadow = `${c.shadow.dx}px ${c.shadow.dy}px 0 ${textColor(c.shadow.color, true)}`;
     return e;
   },
   state(e, c) {

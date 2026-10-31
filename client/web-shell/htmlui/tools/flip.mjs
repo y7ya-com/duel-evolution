@@ -21,10 +21,30 @@ import { launch } from './cdp.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // A route with player: 'NAME' gets a test character in slot 0 with a starter deck (stack.py --player).
-// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
+// [action, ...] steps: on cls (HTML from here), shot name (a capture), wheel x y deltaY, type x y text (no Enter), click x y (game px), rhold x y ms (the right button held ms), say x y text (typed into the
 // chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
+// Sadie's shop from Beginner's Lobby A (Store[2]): walked by the runtime (rc walkto), Sadie, the category menu
+const SHOP_STEPS = [['scene', 4, 90000], ['wait', 3000],
+    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
+    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 8000], ['click', 511, 670], ['wait', 3000],
+    // off the stairs onto the hall floor first (the spawn varies; from some, the walker finds no path), then the
+    // runtime's walker (BFS over the map's collision colours): the mat under the stairs, the shop's exit
+    ['rwalk', [[300, 560, 3500]]], ['rc', 'walkto 1200 880 1500'], ['rc', 'walkto exit 2 1500'], ['scene', 14, 120000], ['wait', 4000],
+    // the shop's reader (read/shop.js) loads with its screens: on once, then back to the engine for the flip
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, true))"],
+    ['wait', 3000],
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
+    // the runtime's input from here on: once RC input has moved the mouse it holds it (rt/user32.cpp: "never real
+    // input"), so a page click would land where walkto left the cursor
+    ['rc', 'click 712 226'], ['task', 'CShopCategoryWindow', 20000], ['wait', 4000]];
+// Booster Packs; a switch takes a click only once the mouse has been over it (move, then click): pack 4's price tag
+// into the cart (200MP), Confirm: the confirm window
+const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 1000], ['rc', 'click 530 395'], ['task', 'CShopPackWindow', 20000],
+    ['wait', 2500]];
+const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 800], ['rc', 'click 630 300'], ['wait', 1500],
+    ['rc', 'move 900 504'], ['wait', 800], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
 export const ROUTES = {
   // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
   signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
@@ -49,8 +69,16 @@ export const ROUTES = {
     ['wait', 2000]], flip: ['CChatWindow'],
     // the pointer on a tab, on the log, on the input line, then a tab held
     cursor: [['tab-hover', 400, 619], ['log', 500, 660], ['input', 636, 720], ['tab-pressed', 400, 619, true]] },
-  // the chat route with enough lines that the log scrolls (--bars on the engine's chat: a plain list box's bar)
-  get 'chat-scroll'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ...Array.from({ length: 14 }, (_, i) => [['say', 636, 720, 'line ' + (i + 1)], ['wait', 4000]]).flat(), ['wait', 2000]] }; },   // the chat's flood limit: one line per few seconds
+  // the chat route, then the Main Menu (the menu bar's first button) open over the chat's left end (--pair: stacking)
+  get 'chat-menu'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ['click', 43, 747], ['wait', 2500]] }; },
+  // then Friend List: its window (the engine's, unless switched on) over the menu and the chat
+  get 'chat-menu-dialog'() { return { ...ROUTES.chat, steps: [...ROUTES['chat-menu'].steps, ['click', 141, 633], ['wait', 3000]] }; },
+  // Card Swap: Beginner's Lobby A (as chat), then the trade scene (0x26) once a second player's request is accepted
+  // (a partner on the same stack sends REQTRADE; Yes on the offer). The deck windows there are the trade's: no search
+  trade: { player: 'Trade Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['scene', 0x26, 900000], ['wait', 6000]],
+    flip: ['CWindowModelKaban', 'CWindowModelDeck'] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
   ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
@@ -73,25 +101,58 @@ export const ROUTES = {
     ['wheel', 500, 660, -160], ['wait', 800], ['shot', 'html-scrolled-up'],
     ['say', 636, 720, 'a new line while scrolled up'], ['wait', 1500], ['shot', 'html-new-while-up'],
     ['wheel', 500, 660, 4000], ['wait', 800], ['shot', 'html-back-bottom']], flip: [] },
+  // a duel's Duel Log tab (ovr/duellog.c; the lines from a server with duel/duelText.ts and phase2-duel's dev NPC
+  // challenge: PARITY_SRC=<its server> STACK_VARS=DEV:1,NPC_CHALLENGE:2): a room (the red door's first), Create Duel on
+  // the bar's duel disk, the NPC's request accepted, Rock; in the duel the Duel Log tab, the engine's then HTML's
+  duel: { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
+    ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000],
+    ['leave', 504, 214, 10], ['wait', 10000], ['click', 512, 671], ['wait', 6000], ['shot', 'room'],
+    ['click', 125, 750], ['wait', 2000], ['click', 624, 420], ['wait', 2000], ['shot', 'create'], ['click', 385, 543], ['wait', 5000],
+    ['shot', 'request'], ['click', 504, 404], ['wait', 15000], ['shot', 'rps'], ['leave', 250, 680, 30], ['leave', 250, 680, 30], ['wait', 3000], ['click', 512, 290], ['scene', 28, 120000],
+    ['wait', 20000], ['click', 375, 620], ['wait', 3000], ['shot', 'duellog-engine'], ['on', 'CChatWindow'], ['wait', 2000],
+    ['shot', 'duellog-html']], flip: [] },
+  // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
+  // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
+  // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)
+  ...Object.fromEntries([['profile', 448, 'CWindowModelProfile', [512, 562]], ['dmail', 552, 'CWindowModelDMail', [512, 621]],
+    ['ignore', 630, 'CWindowModelBlacklist', [512, 467]], ['friends', 656, 'CWindowModelFriendlist', [737, 467]],
+    ['teams', 682, 'CWindowModelTeamlist', [737, 467]], ['comment', 503, 'CWindowModelSetComment', [596, 462]],
+    // the Ignore list's Add to Ignore List: its name dialog over the list
+    ['ignoreadd', 630, 'CWindowModelBlacklistInput', [588, 413], ['CWindowModelBlacklist', 711, 467]],
+    ].map(([n, y, cls, close, via]) => ['sp-' + n, { player: 'Social Tester',
+    steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
+      ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['shot', 'menu'], ['click', 140, y],
+      ...(via ? [['window', via[0], 30000], ['wait', 2500], ['click', via[1], via[2]]] : []), ['window', cls, 30000], ['wait', 2500],
+      ['shot', 'open-engine'], ['snap', 'open'], ['on', cls], ['wait', 1500], ['shot', 'open-html'],
+      ...(n === 'dmail' ? [['click', 322, 180], ['window', 'CWindowModelDMailSend', 20000], ['wait', 2500], ['shot', 'write-engine'],
+        ['on', 'CWindowModelDMailSend'], ['wait', 1500], ['shot', 'write-html'], ['type', 420, 208, 'Duel later?'],
+        ['type', 500, 300, 'Hi! Want to duel later tonight? My deck is finally ready, and I would like to test it against yours.'],
+        ['wait', 1500], ['shot', 'typed-html']] : [['click', ...close], ['wait', 2500], ['shot', 'closed-html']])],
+    flip: [] }])),
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
+  // the modern deck editor (svelte/modern/deck/Editor.svelte): the deck route, then Modern UI on. DECK_ID=0 with
+  // STACK_PROGRESSION=0 (stack.py): a character with every card and no starter, for a full trunk
+  'modern-deck': { player: 'Modern Tester', deck: process.env.DECK_ID != null ? +process.env.DECK_ID : undefined, steps: [['scene', 4, 90000],
+    ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000],
+    ['click', 43, 747], ['wait', 1500], ['click', 140, 422], ['window', 'CWindowModelKaban', 90000], ['wait', 4000],
+    ['js', 'yo2Html.modern(true)'], ['wait', 3000]], flip: [] },
   // the deck editor's file list: the deck route, then SAVE DECK (the side button at 0, 67)
   'deck-files': { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
-  // Sadie's shop from Beginner's Lobby A (Store[2]): walked by the runtime (rc walkto), Sadie, the category menu
-  'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
-    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
-    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 8000], ['click', 511, 670], ['wait', 3000],
-    // the runtime's walker (BFS over the map's collision colours): the mat under the stairs, the shop's exit
-    ['rc', 'walkto 1200 880 1500'], ['rc', 'walkto exit 2 1200'], ['scene', 14, 120000], ['wait', 4000],
-    // the shop's reader (read/shop.js) loads with its screens: on once, then back to the engine for the flip
-    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, true))"],
-    ['wait', 3000],
-    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
-    ['click', 712, 226], ['task', 'CShopCategoryWindow', 20000], ['wait', 2500]], flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
+  'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_STEPS, flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
+  'shop-cards': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 200'], ['wait', 1000],
+    ['rc', 'click 530 200'], ['task', 'CShopCardWindow', 20000], ['wait', 2500]], flip: ['CShopCardWindow', 'CShopPricePlate'] },
+  'shop-avatar': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 490'], ['wait', 1000],
+    ['rc', 'click 530 490'], ['task', 'CShopAvatarWindow', 20000], ['wait', 2500]], flip: ['CShopAvatarWindow'] },
+  'shop-packs': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_PACKS, flip: ['CShopPackWindow', 'CShopPricePlate'] },
+  'shop-confirm': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_CONFIRM, flip: ['CShopConfirmWindow'] },
+  // Yes: bought (the local stack's test player), the pack opens: the reveal scene (24) and its card detail
+  'shop-open': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_CONFIRM, ['rc', 'move 393 562'],
+    ['wait', 800], ['rc', 'click 393 562'], ['scene', 24, 30000], ['wait', 4000]], flip: ['CCardDetailViewDlg'] },
   // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
   shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
@@ -131,7 +192,8 @@ const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 
   scrollbars: args.includes('--scrollbars') || args.includes('--bars') });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 // --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
-const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', route.query].filter(Boolean).join('&');
+// --svelte=deck,chat: those screen groups from their Svelte build (gen/, npm run build first)
+const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', opt('svelte') && `HTML_SVELTE=${opt('svelte')}`, route.query].filter(Boolean).join('&');
 // --ui=A,B: those classes in HTML from the first frame (?HTML_UI=), not only after the route as --on does
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=${opt('ui') || '0'}&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
@@ -170,6 +232,15 @@ for (const [a, x, y, z] of route.steps) {
     await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
     await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); await sleep(1500);
   }
+  if (a === 'type') {   // the field at x, y takes the text z, typed as key events (no Enter)
+    await click(x, y);
+    for (const ch of z) { await b.send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch }); await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch }); await sleep(40); }
+    await sleep(800);
+  }
+  if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
+  if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
+  if (a === 'snap') writeFileSync(path.join(out, x + '.json'), JSON.stringify(await snap(), null, 1));   // the snapshot here
+  if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   // rwalk [[x, y, ms], ...]: the avatar walks while the right button is held, toward the cursor (README "walkto"): held
   // from the first point, the cursor moved along the rest, each held ms
   if (a === 'rwalk') {
@@ -183,9 +254,6 @@ for (const [a, x, y, z] of route.steps) {
   // route's RC_INPUT_FILE (query RC_INPUT_FILE=/rcin.txt), which the game reads every 5 frames
   if (a === 'rc') await b.ev(`(() => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + ${JSON.stringify(x)} + '\\n'); })()`);
   if (a === 'task') await until('task ' + x, y, async () => (await snap())?.tasks?.some(t => t.cls === x && t.shown));
-  if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
-  if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
-  if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   if (a === 'rhold') { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p, 'right'); await sleep(z); await mouse('mouseReleased', p, 'right'); await sleep(500); }
   if (a === 'leave') for (let i = 0; i < 4; i++) {
     await click(x, y);
@@ -419,6 +487,24 @@ if (args.includes('--bars')) {
   }
   console.log('bars:', JSON.stringify(r));
   writeFileSync(path.join(out, `bars-${routeName}@${dpr}x.json`), JSON.stringify(r, null, 1));
+  b.close(); process.exit(0);
+}
+// --pair: the whole screen with the HTML UI (as --ui= or the page's switches set it) and with the engine drawing every
+// window, pair-<route>@<dpr>x-{html,engine,heat}.png: windows over windows (stacking) as the engine has them
+if (args.includes('--pair')) {
+  // --css=RULES: a style added first (e.g. the old stacking back, for a before shot)
+  if (opt('css')) await b.ev(`document.head.append(Object.assign(document.createElement('style'), { textContent: ${JSON.stringify(opt('css'))} }))`);
+  await sleep(1000);
+  const html = await b.shot();
+  await b.ev('window.yo2Html.set("0")'); await sleep(1200);
+  const engine = await b.shot();
+  const W = Math.round(1024 * dpr), H = Math.round(768 * dpr), base = path.join(out, `pair-${routeName}@${dpr}x`);
+  const r = await b.ev(`(${DIFF})('data:image/png;base64,${engine.toString('base64')}', 'data:image/png;base64,${html.toString('base64')}', ${W}, ${H})`);
+  writeFileSync(base + '-html.png', html); writeFileSync(base + '-engine.png', engine);
+  writeFileSync(base + '-heat.png', Buffer.from(r.heat, 'base64'));
+const s1 = await snap();   // and every button caption not plain black, or with its shadow shown
+  const tinted = s1.windows.flatMap(w => w.controls.filter(c => c.label && (c.color?.slice(0, 3).some(v => v > 0) || c.shadow)).map(c => [w.cls, c.cls, c.label, c.color, c.shadow]));
+  console.log('pair:', JSON.stringify({ identical: r.identical, within2: r.within2, windows: s1.windows.filter(w => w.shown).map(w => [w.cls, w.z]), tinted }));
   b.close(); process.exit(0);
 }
 if (args.includes('--uicheck')) {
