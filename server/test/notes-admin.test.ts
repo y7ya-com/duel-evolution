@@ -2,6 +2,7 @@
 // maintenance notice) -> src/game/admin.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, i32, u32 } from "./notes-harness.ts";
+import { diff, stateToRows } from "../src/db/project.ts";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -97,5 +98,30 @@ describe("admin grant (the owner's recovery)", () => {
     await h.tick(300);
     expect(trunk()).toEqual({ [GREPHER]: 1 });
     expect(A.room!.all(0x7127, n).length).toBe(1);
+  });
+});
+
+describe("admin reset-account (the owner's fresh account)", () => {
+  it("refused online; then only that account's rows go, and its next sign-in is a new player", async () => {
+    const h = harness();
+    const A = h.client("A"), B = h.client("B");
+    await A.account(0, "Alice"); await B.account(0, "Bob");
+    await A.enterRoom();
+    const accts = h.state().accounts, acct = Object.keys(accts).find((k) => accts[k].profiles?.["0"]?.name === "Alice")!;
+    const other = Object.keys(accts).find((k) => k !== acct)!;
+    expect(h.game.admin.resetAccount(acct)).toEqual({ error: "online" });
+    h.game.admin.kick(acct); await h.tick(300);
+    const before = h.state();
+    expect(h.game.admin.resetAccount(acct)).toEqual({ ok: true, characters: 1 });
+    const after = h.state();
+    expect(acct in after.accounts).toBe(false);
+    expect(after.accounts[other]).toEqual(before.accounts[other]);
+    const ops = diff(stateToRows(before), stateToRows(after));
+    expect(ops.length).toBeGreaterThan(1);
+    expect(ops.filter((o) => !o.del && !["state_shapes", "world"].includes(o.table))).toEqual([]);   // deletes only
+    expect(ops.some((o) => JSON.stringify(o.row).includes(other))).toBe(false);
+    expect(h.game.admin.resetAccount(acct)).toEqual({ error: "no_account" });
+    const A2 = h.client("A");
+    expect(await A2.account(0)).toEqual({});
   });
 });
