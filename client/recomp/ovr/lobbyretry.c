@@ -76,7 +76,8 @@ int rc_myroom_retry(uint32_t self) {
     static int fails;
     static uint64_t until;   // rc_now_us of the next try, 0 none pending
     uint32_t task = RD32m(self + 0x80), busy = task ? RD32m(task + 0x88) : 0;
-    if (fails >= MAX_FAILS) return 1;   // given up: the box is up
+    if (fails >= MAX_FAILS && busy != BUSY_DONE) return 1;   // given up: the box is up (until a join succeeds, after a
+                                                              // sign-in from the title)
     if (until) {
         if (rc_now_us() < until) return 1;
         until = 0;
@@ -84,7 +85,7 @@ int rc_myroom_retry(uint32_t self) {
         WR32m(self + 0x70, ENTER_MYROOM);
         return 1;
     }
-    if (busy == BUSY_DONE && reconnecting) fails = 0, net_state(0, 0);
+    if (busy == BUSY_DONE && (reconnecting || fails)) fails = 0, net_state(0, 0);
     if (busy != BUSY_FAILED) return 0;
     uint32_t s = fails < 4 ? 1u << fails : 15;
     fails++;
