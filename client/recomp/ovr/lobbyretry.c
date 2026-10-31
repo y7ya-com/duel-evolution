@@ -14,8 +14,9 @@
 //   that join's own failure path recovers, through the My Room retry): in an area the world joins the same
 //   room again (CConnectLobby, as a door does) and its block request is pointed at the area the player was in, so they
 //   land back there (at one of its arrival spots); in My Room it rejoins My Room. A reconnect that fails goes on
-//   through the My Room retry, and once My Room is back (a server restart), to the area again (3 tries). The box is the fallback: after 8 failed My Room tries in a row, or a 4th drop within
-//   2 minutes.
+//   through the My Room retry, and once My Room is back (a server restart), to the area again (3 tries). The box is
+//   the fallback: after 15 failed My Room tries in a row (about 3 minutes: a server update refuses new connections
+//   for up to 2), or a 4th drop within 2 minutes.
 // The web page sees the state as window.yo2Net = {reconnecting, attempt} (attempt: failures in a row).
 #include "rt.h"
 #ifdef __EMSCRIPTEN__
@@ -23,7 +24,7 @@
 #endif
 
 enum { ENTER_MYROOM = 1, WAIT_MYROOM = 2, WAIT_LOBBY = 6, ENTER_AREA = 8, IN_MYROOM = 3, IN_AREA = 9, BUSY_DONE = 2, BUSY_FAILED = 3,
-       BLOCK_FULL = -502, MAX_FAILS = 8, MAX_DROPS = 3, DROP_WINDOW_US = 120000000 };
+       BLOCK_FULL = -502, MAX_FAILS = 15, MAX_DROPS = 3, DROP_WINDOW_US = 120000000 };
 #define APP 0x12711acu     // CApp*
 #define WORLD 0x12bc8d0u   // CWorldMng*
 
