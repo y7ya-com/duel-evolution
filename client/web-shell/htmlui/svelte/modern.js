@@ -100,4 +100,6 @@ const screens = [
   deckEditor,
   { ...deckScreen, classes: ['CWindowModelFileList'], backdrop: undefined },
 ];
+// every modern window's root says its class (data-cls): the deck editor hides the scene's dialogs by it while it drives them
+for (const s of screens) { const m = s.mount; s.mount = function (win, root, api) { root.dataset.cls = win.cls; return m.call(this, win, root, api); }; }
 export default { screens, classes: screens.flatMap(s => s.classes) };

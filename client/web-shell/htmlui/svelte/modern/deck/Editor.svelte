@@ -79,7 +79,7 @@
   const dropZone = to => ({ ondragover: e => { e.preventDefault(); over = to; }, ondragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) over = ''; }, ondrop: e => drop(e, to) });
 
   // ---- files: Save (as the deck's own name), Save As, Load, Structure Deck, Clear, Exit (the engine's side buttons)
-  let asOpen = $state(false), asName = $state(''), asField = $state(null);
+  let saving = $state(false), asOpen = $state(false), asName = $state(''), asField = $state(null);
   const legalToSave = $derived(counts.main >= 40 && counts.main <= 80 && counts.side <= 15 && counts.extra <= 30);
   async function save(as) {
     if (!legalToSave) return say('A deck needs 40 to 80 Main Deck cards to be saved', true);
@@ -87,27 +87,56 @@
     if (!n) return openAs();
     asOpen = false;
     busy++;
+    saving = true;
     try {
       if (await E.saveAs(view.api, n)) { dirty = false; say(`Saved as “${n}”`); } else say('The deck was not saved', true);
-    } finally { busy--; }
+    } finally { busy--; saving = false; }
   }
   // the game's name prompt takes letters and numbers only (a space never reaches the file name)
   const cleanName = v => String(v).replace(/[^A-Za-z0-9]/g, '');
   function openAs() { asName = cleanName(name || ''); asOpen = true; queueMicrotask(() => asField?.select()); }
-  const sideBtn = n => { E.side(n); if (n === 'LoadBtn' || n === 'RecipeBtn') dirty = false; };
+  const sideBtn = n => E.side(n);
+  // Load and Structure Deck: the engine's list opened out of sight, its rows picked here
+  const PICK = { load: ['LoadBtn', 'Load a deck', 'No saved decks yet.'], recipe: ['RecipeBtn', 'Start from a Structure Deck', 'No Structure Decks here.'] };
+  let picker = $state(null), pickList = $state(null);
+  async function openPicker(kind) {
+    if (picker || busy) return;
+    asOpen = false;
+    busy++;
+    const names = await E.openList(PICK[kind][0]).finally(() => busy--);
+    if (!names) return say('The list could not be opened', true);
+    picker = { kind, names };
+    queueMicrotask(() => pickList?.querySelector('button')?.focus());
+  }
+  async function pick(i) {
+    const p = picker;
+    picker = null;
+    busy++;
+    try {
+      if (!(await E.pickRow(view.api, i))) return say('That could not be opened', true);
+      dirty = p.kind === 'recipe';
+      say(p.kind === 'load' ? `Loaded “${p.names[i]}”` : `“${p.names[i]}” is in the editor: save it under a name to keep it`);
+    } finally { busy--; }
+  }
+  const unpick = () => { picker = null; E.closeList(); };
+  // while the editor drives the engine's dialogs (an action, a picker), their windows stay out of sight
+  $effect(() => {
+    document.documentElement.classList.toggle('mu-deck-driving', busy > 0 || !!picker);
+    return () => document.documentElement.classList.remove('mu-deck-driving');
+  });
 
   // ---- keys: / search, Esc clears it, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+O load
   let search = $state(null);
   $effect(() => {
     const key = e => {
-      if (dialogs.length) return;
+      if (dialogs.length && !picker) return;
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '');
       const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
       let hit = true;
       if (e.key === '/' && !typing) search?.focus();
       else if (e.key === 'Escape' && e.target === search) { if (q) q = ''; else search.blur(); }
       else if (mod && e.key.toLowerCase() === 's') e.shiftKey ? openAs() : save();
-      else if (mod && e.key.toLowerCase() === 'o') sideBtn('LoadBtn');
+      else if (mod && e.key.toLowerCase() === 'o') openPicker('load');
       else hit = false;
       if (hit) { e.preventDefault(); e.stopPropagation(); }
     };
@@ -122,7 +151,9 @@
   };
   // the dialogs' rects (drawn: a file list's buttons sit below its nominal rect), overlapping ones merged (an even-odd
   // path would fill their overlap again), cut out of the editor: the engine's own dialogs show and take the mouse there
+  // (none while the editor's own action plays the dialogs: they flash by under "Saving…")
   const holes = $derived.by(() => {
+    if (busy || picker) return 'none';
     const rs = [];
     for (let r of dialogs.map(w => w.drawn || w)) {
       r = { x0: r.x, y0: r.y, x1: r.x + r.w, y1: r.y + r.h };
@@ -132,7 +163,7 @@
       }
       rs.push(r);
     }
-    return rs.length ? `path(evenodd, 'M0 0H1024V712H0Z ${rs.map(r => `M${r.x0} ${r.y0}H${r.x1}V${r.y1}H${r.x0}Z`).join(' ')}')` : 'none';
+    return rs.length ? `path(evenodd, 'M0 0H1024V736H0Z ${rs.map(r => `M${r.x0} ${r.y0}H${r.x1}V${r.y1}H${r.x0}Z`).join(' ')}')` : 'none';
   });
   const limitTag = c => (c.limit === 0 ? 'Forbidden' : c.limit === 1 ? 'Limited' : c.limit === 2 ? 'Semi-limited' : '');
 </script>
@@ -141,7 +172,8 @@
   <img class="face {extra}" use:picture={id} alt="" draggable="false" src={cached(id)} />
 {/snippet}
 
-<div class="mu ed" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length}>
+<div class="mu ed" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length} aria-busy={busy > 0}>
+  {#if busy && dialogs.length}<div class="veil" role="status"><span class="spin" aria-hidden="true"></span>{saving ? 'Saving…' : 'Working…'}</div>{/if}
   <!-- the bar: the screen's name, the deck's, its check, the file actions -->
   <header class="bar">
     <h1 class="word">Edit Deck</h1>
@@ -155,8 +187,8 @@
     </div>
     <span class="status" class:bad={noteBad} role="status" aria-live="polite">{note || (busy ? 'Working…' : '')}</span>
     <nav class="acts" aria-label="Deck files">
-      <button type="button" class="mu-btn" onclick={() => sideBtn('LoadBtn')} title="Load a saved deck (Ctrl+O)">Load</button>
-      <button type="button" class="mu-btn" onclick={() => sideBtn('RecipeBtn')} title="Start from a Structure Deck">Structure Deck</button>
+      <button type="button" class="mu-btn" onclick={() => openPicker('load')} aria-expanded={picker?.kind === 'load'} title="Load a saved deck (Ctrl+O)">Load</button>
+      <button type="button" class="mu-btn" onclick={() => openPicker('recipe')} aria-expanded={picker?.kind === 'recipe'} title="Start from a Structure Deck">Structure Deck</button>
       <button type="button" class="mu-btn" onclick={() => sideBtn('ClearBtn')} title="Empty the deck">Clear</button>
       <span class="sep"></span>
       <div class="as">
@@ -175,6 +207,18 @@
     </nav>
   </header>
 
+  {#if picker}
+    <div class="mu-plate pop picker" role="dialog" aria-label={PICK[picker.kind][1]} onkeydown={e => { if (e.key === 'Escape') { e.stopPropagation(); unpick(); } }}>
+      <h2>{PICK[picker.kind][1]}</h2>
+      {#if picker.names.length}
+        <div class="rows mu-scroll" bind:this={pickList}>
+          {#each picker.names as n, i (i)}<button type="button" class:cur={picker.kind === 'load' && n === name} onclick={() => pick(i)}>{n}</button>{/each}
+        </div>
+      {:else}<p class="none">{PICK[picker.kind][2]}</p>{/if}
+      <div class="row"><button type="button" class="mu-btn" onclick={unpick}>Cancel</button></div>
+    </div>
+  {/if}
+
   <!-- the card shown large -->
   <aside class="mu-plate preview" aria-label="Card">
     {#if shown}
@@ -188,7 +232,9 @@
       <div class="text mu-scroll">{text}</div>
       <p class="own">In deck <b>{inDeck.get(shown.id) || 0}</b> · in trunk <b>{left(shown.id)}</b>{#if limitTag(shown)} · <em>{limitTag(shown)} {shown.limit}</em>{/if}</p>
     {:else}
-      <div class="big empty"><Icon name="deck" size={34} /></div>
+      <div class="big empty" aria-hidden="true">
+        <svg viewBox="0 0 216 313"><circle cx="108" cy="156" r="78" /><circle cx="108" cy="156" r="58" /><circle cx="108" cy="156" r="20" /><path d="M108 66v30M108 216v30M18 156h30M168 156h30" /></svg>
+      </div>
       <p class="hint">Point at a card to see it here.</p>
       <ul class="keys">
         <li><kbd>Double-click</kbd> or <kbd>right-click</kbd> adds or takes out</li>
@@ -279,10 +325,16 @@
 </div>
 
 <style>
-  .ed { position: absolute; width: 1024px; height: 712px; overflow: hidden; pointer-events: auto;
+  :global(html.mu-deck-driving .win:is([data-cls=CWindowModelFileList], [data-cls=CWindowModelDialogYesNo])) { visibility: hidden !important; }
+  .ed { position: absolute; width: 1024px; height: 736px; overflow: hidden; pointer-events: auto;
     background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .28) 0 1px, transparent 1px 3px),
       linear-gradient(180deg, #f6f9fc 0%, #dfe7f0 45%, #c7d3e1 100%); }
   .ed.waiting::after { content: ''; position: absolute; inset: 0; background: rgba(4, 17, 43, .35); }
+  .veil { position: absolute; left: 50%; top: 50%; z-index: 3; display: flex; align-items: center; gap: 10px; transform: translate(-50%, -50%);
+    height: 44px; padding: 0 20px; border-radius: 22px; font-size: 14px; font-weight: 800; color: #fff; text-shadow: 0 1px 0 #0e3a9a;
+    background: var(--sel); box-shadow: 0 0 0 1px #fff, 0 12px 28px -8px rgba(0, 20, 80, .7); }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .35); border-top-color: #fff; animation: ed-spin .8s linear infinite; }
+  @keyframes ed-spin { to { transform: rotate(360deg); } }
 
   /* the bar */
   .bar { position: absolute; left: 0; top: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 14px;
@@ -310,6 +362,13 @@
   .pop label { font-size: 12px; font-weight: 700; color: var(--ink-2); }
   .pop input, .search input, .ranges input, select { font: inherit; color: var(--ink-strong); border: 0; border-radius: var(--r-row); background: var(--well); box-shadow: var(--well-shadow); }
   .pop input { height: 32px; padding: 0 10px; font-size: 14px; }
+  .picker { right: 12px; left: auto; top: 56px; width: 300px; position: absolute; }
+  .picker h2 { margin: 0; font-size: 14px; font-weight: 800; color: var(--ink-strong); }
+  .picker .rows { display: grid; gap: 2px; max-height: 320px; padding: 4px; border-radius: var(--r-row); background: var(--well); box-shadow: var(--well-shadow); }
+  .picker .rows button { height: 30px; padding: 0 10px; border-radius: 6px; font-weight: 700; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .picker .rows button:hover, .picker .rows button:focus-visible { color: #fff; background: var(--sel); outline: none; }
+  .picker .rows button.cur::after { content: ' · open now'; font-weight: 600; opacity: .7; }
+  .picker .none { margin: 0; font-size: 12px; color: var(--ink-3); }
   .pop small { font-size: 11px; color: var(--ink-3); }
   .pop .row { display: flex; justify-content: flex-end; gap: 8px; }
 
@@ -322,7 +381,8 @@
   .big { width: 216px; height: 313px; flex: none; border-radius: 6px; overflow: hidden; background: #2a3a58;
     box-shadow: 0 0 0 1px rgba(11, 42, 92, .35), 0 10px 22px -10px rgba(10, 40, 100, .7); }
   .big .face { width: 100%; height: 100%; }
-  .big.empty { display: grid; place-items: center; color: rgba(255, 255, 255, .5); background: linear-gradient(160deg, #4a96f0, #1650c8); }
+  .big.empty { background: radial-gradient(circle at 50% 42%, #4a96f0, #1650c8 70%, #0e3a9a); box-shadow: inset 0 0 0 4px rgba(255, 255, 255, .18), 0 0 0 1px rgba(11, 42, 92, .35); }
+  .big.empty svg { width: 100%; height: 100%; fill: none; stroke: rgba(255, 255, 255, .28); stroke-width: 3; }
   .preview h2 { margin: 4px 0 0; font-size: 15px; font-weight: 800; line-height: 1.2; color: var(--ink-strong); }
   .kind { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
   .pw { margin: 0; display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); }

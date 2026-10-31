@@ -151,8 +151,42 @@ export const saveAs = (api, name) => queue(async () => {
   return true;
 });
 
+// ---- Load and Structure Deck: their side button's file list (CWindowModelFileList: the saved decks, or the recipe
+// packs of data\cardpack), opened out of sight; its rows are shown by the editor, and a pick plays the row's click and
+// OK (DeckEntryMain.cpp pollLoadList / pollRecipeList), Cancel its Cancel
+const listbox = w => w?.controls.find(c => c.cls === 'CWindowTaskListbox' && c.shown);
+const untag = s => String(s ?? '').replace(/[@＠]\d/g, '');
+const sideAt = name => {
+  const b = win(snap(), 'CWindowModelDeck')?.scene?.menu.find(m => m.name === name && m.shown);
+  return b && { wx: b.wx, wy: b.wy, w: 160, h: 26 };
+};
+// open the list behind side button `name` ('LoadBtn' | 'RecipeBtn'): its rows' names, or null
+export const openList = name => queue(async () => {
+  if (busy(snap())) return null;
+  const fl = await press(sideAt(name), s => win(s, 'CWindowModelFileList'));
+  const lb = fl && (await waitFor(s => listbox(win(s, 'CWindowModelFileList')), 1000));
+  return lb ? lb.items.map(untag) : null;
+});
+// pick row i of the open list (scrolled to it by the wheel first; api: the bridge's) and press OK
+export const pickRow = (api, i) => queue(async () => {
+  let lb = listbox(win(snap(), 'CWindowModelFileList'));
+  for (let k = 0; lb && k < 40 && !(i >= lb.top && i < lb.top + lb.rows); k++) {
+    api.wheel(lb.id, i < lb.top ? -120 : 120, centre(lb));
+    await frames(2);
+    lb = listbox(win(snap(), 'CWindowModelFileList'));
+  }
+  if (!lb) return false;
+  const rh = lb.h / (lb.rows || 8), row = { wx: lb.wx, wy: lb.wy + rh * (i - lb.top), w: Math.min(80, lb.w), h: rh };
+  if (!(await press(row, s => listbox(win(s, 'CWindowModelFileList'))?.selected === i))) return false;
+  return !!(await press(btn(win(snap(), 'CWindowModelFileList'), 'ok'), s => !win(s, 'CWindowModelFileList')));
+});
+export const closeList = () => queue(async () => {
+  const fl = win(snap(), 'CWindowModelFileList');
+  return !fl || !!(await press(btn(fl, 'cancel'), s => !win(s, 'CWindowModelFileList')));
+});
+
 // the deck's file name (CDeckManager at DAT_012b28c4: fileName_ +0x5ac, "deck.ydc"; read/deck.js deckName)
 export const deckName = s => (s?.deckName || '').replace(/\.ydc$/i, '');
 
 // for the flip routes and the console: the same actions
-globalThis.yo2DeckActions = { add, move, side, saveAs, idle };
+globalThis.yo2DeckActions = { add, move, side, saveAs, openList, pickRow, closeList, idle };
