@@ -325,8 +325,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
-    const owned = new Set(render ? all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id) : []);
-    wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
+    // a window whose screen draws from its parts is owned once a snapshot was read with them (parts are asked for the
+    // next frame): the engine draws it the first frame. Owned at once, it was drawn without them for a frame, and for
+    // good when the game froze on that frame (Structure Deck: no frame, no text field)
+    const cand = render ? all.filter(w => want(w.cls)).slice(-SLOTS) : [], hadParts = wantParts;
+    wantParts = new Set(cand.filter(w => screens.get(w.cls)?.parts).map(w => w.id));
+    const owned = new Set(cand.filter(w => !screens.get(w.cls)?.parts || hadParts.has(w.id)).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.

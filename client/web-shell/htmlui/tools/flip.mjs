@@ -157,6 +157,8 @@ const args = process.argv.slice(2), opt = k => args.find(a => a.startsWith(`--${
 const [out, routeName] = args.filter(a => !a.startsWith('--'));
 const route = ROUTES[routeName];
 if (route && opt('flip')) route.flip = opt('flip').split(',');   // --flip=A,B: flip these windows instead of the route's
+// --steps='[["click",60,80],["snap","after"]]': more steps after the route's (a JSON list of them)
+if (route && opt('steps')) route.steps = [...route.steps, ...JSON.parse(opt('steps'))];
 if (!out || !route) { console.error('flip.mjs <outdir> <route>; routes:', Object.keys(ROUTES).join(' ')); process.exit(2); }
 const phone = args.includes('--phone'), boot = args.includes('--boot');
 // --slot=N / FLIP_SLOT=N (0-3): one of several flips side by side, each with its own ports: stack.py 8800+10N (and its
@@ -234,6 +236,7 @@ for (const [a, x, y, z] of route.steps) {
   if (a === 'on') { await b.ev(`window.yo2Html.toggle(${JSON.stringify(x)}, true)`); await sleep(1000); }   // a class in HTML from here on
   if (a === 'shot') writeFileSync(path.join(out, x + '.png'), await b.shot());   // a named full-page capture
   if (a === 'snap') writeFileSync(path.join(out, x + '.json'), JSON.stringify(await snap(), null, 1));   // the snapshot here
+  if (a === 'dom') writeFileSync(path.join(out, x + '.html'), await b.ev(`document.getElementById('htmlui-host')?.outerHTML || ''`));   // the HTML layer here
   if (a === 'wheel') { const p = await toClient(x, y); await b.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: p[0], y: p[1], deltaX: 0, deltaY: z }); await sleep(600); }
   // rwalk [[x, y, ms], ...]: the avatar walks while the right button is held, toward the cursor (README "walkto"): held
   // from the first point, the cursor moved along the rest, each held ms
@@ -529,6 +532,8 @@ for (const cls of route.flip) {
   await sleep(600);   // a few frames: the hide table applies from the next Present
   const engine = await b.shot(clip);
   await b.ev(`window.yo2Html.toggle(${JSON.stringify(cls)}, true)`);
+  // the first class on loads the layer (screens, atlases) lazily: wait for it, then a few frames
+  for (let t = 0; t < 100 && !(await b.ev(`!!document.getElementById('htmlui-host')`)); t++) await sleep(100);
   await sleep(600);
   const html = await b.shot(clip);
   const hostStyle = await b.ev(`document.getElementById('htmlui-host')?.getAttribute('style')`);

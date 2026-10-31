@@ -38,6 +38,17 @@ const walk = async q => {
   return out;
 };
 const plain = await walk(''), svelte = await walk('&svelte=deck');
+// the file list (live Save Deck): its two items on striped rows, the rows take no clicks (they go on to the game's
+// list: pass mode); the coordinator's preview was stuck because a scroll box over the rows took them
+await b.go(`http://127.0.0.1:${PORT}/htmlui/mock.html?s=filelist-save&svelte=deck`);
+const files = await b.ev(`(() => {
+  const h = document.getElementById('htmlui'), rows = [...h.querySelectorAll('div')].filter(d => d.className.includes('row'));
+  const hit = [[400, 360], [400, 376], [700, 470]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return h.contains(e) ? e.outerHTML.slice(0, 80) : null; });
+  return { text: h.innerText.replace(/\s+/g, ' ').trim(), rows: rows.length, hit };
+})()`);
+assert.ok(files.text.includes('deck') && files.text.includes('EQUIP TO BEAT DOWN') && files.text.includes('SAVE DECK'), files.text);
+assert.equal(files.rows, 8);
+assert.deepEqual(files.hit, [null, null, null]);
 assert.ok(await b.ev(`performance.getEntriesByType('resource').some(r => r.name.includes('/gen/deck.js'))`), 'the Svelte build loaded');
 assert.deepEqual(svelte.map(s => s.text), plain.map(s => s.text));
 assert.ok(svelte[0].text.includes('ATK1400') && !svelte[1].text.includes('ATK') && svelte[3].text.includes('ATK2300') && !svelte[3].text.includes('ATK1400'));

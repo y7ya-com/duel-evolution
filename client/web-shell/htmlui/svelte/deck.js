@@ -18,7 +18,8 @@ export default {
   parts: true,    // the controls' raw sprites / texts / swfs: most of the editor's art
   clip: false,    // the deck models lay out in screen pixels outside their nominal 336 x 144
   // what the engine keeps drawing under the DOM: card faces, swfs, and what this draws under them (last frame's plan)
-  passthrough: x => isArt(x) || isSwf(x) || deck.co.has(x.id),
+  // (Structure Deck's recipe icons: a control the reader can't read, drawn through holes in the list)
+  passthrough: x => isArt(x) || isSwf(x) || x.cls === 'CWindowTaskStructureIcon' || deck.co.has(x.id),
   mount(win, root, api) {
     quickInstall();
     const editor = inEditor();

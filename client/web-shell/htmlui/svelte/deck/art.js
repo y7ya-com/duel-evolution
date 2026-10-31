@@ -48,12 +48,35 @@ export function plan(win, editor = true) {
     }
     return rs;
   };
-  tree({ sprites: (win.extras || []).filter(e => e.tex), labels: win.labels }, null);
+  // the window's own frame pieces (the file list's header): their colour reads 0.8, but the engine draws them opaque
+  // (measured on its 1x render: the header within 2 levels 0.1 % at 0.8, 94.9 % at 1)
+  // ponytail: by measurement; read the alpha the engine draws with if another window's extras disagree
+  const own = e => ({ ...e, a: 1, rgba: e.rgba && [...e.rgba.slice(0, 3), 1], col: e.col && [...e.col.slice(0, 3), 1] });
+  tree({ sprites: (win.extras || []).filter(e => e.tex).map(own), labels: win.labels }, null);
   if (win.parts) tree(win.parts, null);   // a task (the shop's) has its own raw children
-  for (const r of win.holes || []) hole(1e9, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
+  // the window's own holes (the card detail's big card): in front of everything in it, not of a window over it (the
+  // file list, opened over the detail: deck.js's 1e9 cut the list there)
+  for (const r of win.holes || []) hole((win.wz ?? 1e9) + 0.5, { x: ox + r.x, y: oy + r.y, w: r.w, h: r.h });
+  // a list (the file list's Save / Load / Structure Deck lists): its stripes, selection and items are drawn by no
+  // sprite or label (the engine fills quads); its own texts are the engine's row counter (always hidden, its name says;
+  // a paged text the flow box would put over the rows, taking their clicks) and an empty one. One 'list' item instead,
+  // laid out as the row counter is (its align and width: centred in Save, '@>64/' after the icon in Structure Deck)
+  const lists = new Set(win.controls.filter(c => c.cls === 'CWindowTaskListbox').map(c => c.id));
+  for (const c of win.controls) {
+    if (!c.shown || c.cls !== 'CWindowTaskListbox') continue;
+    const t = win.controls.find(o => o.parent === c.id && o.cls === 'CWindowTaskText' && o.name?.includes('行数カウント'));   // the row counter
+    const top = c.top || 0, n = Math.min(c.rows || 0, Math.max(0, c.items.length - top));
+    add(c.id, (c.wz ?? 0) + 0.25, { x: c.wx, y: c.wy, w: c.w, h: c.h }, { kind: 'list', x: c.wx - ox, y: c.wy - oy, w: c.w, rows: c.rows || 0,
+      items: c.items.slice(top, top + n), selected: c.selected - top, box: { align: t?.align ?? 0, w: t?.w ?? c.w - 16, px: t?.fontSize || 16 } });
+    // Structure Deck's recipe icon on each row (CWindowTaskStructureIcon: the engine's, passed through; no size to
+    // read: its ink is x 21..47 of a row) shows through a hole, over the engine's own stripe there
+    if (win.controls.some(o => o.cls === 'CWindowTaskStructureIcon' && o.shown))
+      for (let i = 0; i < n; i++) hole((c.wz ?? 0) + 0.5, { x: c.wx + 20, y: c.wy + 16 * i, w: 28, h: 16 });
+  }
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
     if (editor && c.cls === 'CWindowTaskKabanScroll') continue;
+    if (lists.has(c.parent) && c.cls === 'CWindowTaskText') continue;   // a list's own texts (above)
     const rs = c.parts ? tree(c.parts, c) : [];
     if (BUTTON.test(c.cls) && rs.length) {
       const x0 = Math.min(...rs.map(o => o.r.x)), y0 = Math.min(...rs.map(o => o.r.y));
