@@ -61,32 +61,58 @@ export function chatLine(s) {
   const m = /^([^:：]{1,24})[:：]\s?(.*)$/s.exec(t);
   return m ? { name: m[1], text: m[2] } : { text: t };
 }
+// the chat's parts. tabs: left to right, each with its log (the reader's pairs, read/chat.js; without them, the logs in
+// tab order) and a short name ('All Chat' -> 'All'); the Duel Log is only read (ovr/duellog.c: nothing is sent there).
+// mode: the engine's height (0 tall, 1 short, 2 collapsed), from the reader or else the window's height
 export function chatParts(win) {
-  const cs = win.controls;
+  const cs = win.controls, byId = new Map(cs.map(c => [c.id, c])), logs = cs.filter(c => c.cls === 'CWindowTaskTextlist');
+  const tabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x).map((t, i) => {
+    const pair = win.pairs?.find(p => p.tab === t.id), label = untag(t.label).trim();
+    return { id: t.id, label, short: label.replace(/\s+chat$/i, ''), active: !!t.active, enabled: t.enabled !== false,
+      log: (pair ? byId.get(pair.log) : logs[i]) || null, readOnly: /^duel log$/i.test(label) };
+  });
   return {
-    tabs: cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x),
-    // one log per tab, the active tab's shown
-    log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
+    tabs,
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
-    // the window folded to its bar (the deck editor's chat: 32 high, its log parked at 99999, no line): the log and the
-    // line are drawn only as the game shows them, never past the window's rect
-    open: cs.some(c => c.cls === 'CWindowTaskTextlist' && c.shown && c.h >= 0 && c.y < 9999),
+    // the line, drawn only as the game shows it (the deck editor's chat, folded to its bar, has none)
     typing: cs.some(c => /CWindowTaskInput$/.test(c.cls) && top(c) && c.shown),
-    taller: cs.find(c => c.cls === 'CWindowTaskIconExpand' && c.shown),
-    shorter: cs.find(c => c.cls === 'CWindowTaskIconHide' && c.shown),
+    expand: cs.find(c => c.cls === 'CWindowTaskIconExpand'),
+    shrink: cs.find(c => c.cls === 'CWindowTaskIconHide'),
+    mode: win.mode ?? (win.h > 200 ? 0 : win.h < 48 ? 2 : 1),
   };
 }
 
-// the chat's logs by tab: the Textlists in the order the window made them, a tab each, left to right
-export const chatLogs = win => win.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-// new lines in a log since its last snapshot (old, now: its items): the items past the last line it had; a log that
-// dropped its oldest lines still counts only what was added
-export function newLines(old = [], now = []) {
-  if (!old.length) return now.length;
-  const last = old[old.length - 1];
-  for (let i = now.length - 1; i >= 0; i--) if (now[i] === last) return now.length - 1 - i;
-  return now.length;
+// the engine's △ / ▽ step its height 1 -> 0 -> 2 -> 1 (short, tall, collapsed; ▽ from tall skips short): the presses
+// that take it from one mode to another, two at most
+const STEPS = { '1>2': ['expand', 'shrink'], '1>0': ['expand'], '0>1': ['shrink', 'expand'], '0>2': ['shrink'], '2>1': ['expand'],
+  '2>0': ['expand', 'expand'] };
+export const sizeSteps = (from, to) => STEPS[`${from}>${to}`] || [];
+
+// a log's change since the last read: [rows dropped at the top, items appended], or null when the two don't overlap.
+// The whole overlap is compared, so a repeated line ("gg", "gg") is still a new one
+export function logDelta(old, now) {
+  for (let d = 0; d <= old.length; d++) {
+    const keep = old.length - d;
+    if (keep <= now.length && old.slice(d).every((s, i) => s === now[i])) return [d, now.slice(keep)];
+  }
+  return null;
 }
+// a log as rows with stable keys and the time each line arrived (null: it was there when first read, history), so a
+// new line only adds a row and a dropped one only removes one. prev: the last result (or null); added: new lines
+export function logRows(prev, items = [], t = Date.now()) {
+  const old = prev?.items;
+  if (old && old.length === items.length && old.every((s, i) => s === items[i])) return prev.added ? { ...prev, added: 0 } : prev;
+  let next = prev?.next || 0;
+  const row = (s, time) => ({ key: next++, ...chatLine(s), t: time });
+  const d = old && logDelta(old, items);
+  const rows = !old ? items.map(s => row(s, null)) : d ? [...prev.rows.slice(d[0]), ...d[1].map(s => row(s, t))] : items.map(s => row(s, t));
+  return { items, rows, next, added: !old ? 0 : d ? d[1].length : items.length };
+}
+// a sender's colour: one of eight inks (each 4.5:1 or better on the white log), the same for a name every time
+const INKS = ['#1d5bc0', '#0f7568', '#8238b0', '#b0401f', '#2d7319', '#ad2c66', '#5248c4', '#856000'];
+export const senderInk = name => INKS[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % INKS.length];
+// grouped rows: a line from the sender of the line above shows no name again
+export const grouped = rows => rows.map((r, i) => ({ ...r, cont: !!r.name && !rows[i - 1]?.notice && rows[i - 1]?.name === r.name }));
 
 // ---- the deck editor's check (the deck panel's CWindowTaskDeck counts, read/deck.js): Main 40-60, Fusion and Side up
 // to 15 each, no card the trunk doesn't hold (missing). ok: a legal deck
