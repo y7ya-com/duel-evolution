@@ -103,7 +103,7 @@
   .tab { flex: none; position: relative; height: 22px; padding: 0 10px; font-size: 11.5px; white-space: nowrap; }
   .badge { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; font-size: 10px; font-weight: 800;
     line-height: 16px; text-align: center; color: #fff; background: var(--bad); box-shadow: 0 1px 2px rgba(120, 0, 10, .3); vertical-align: 1px; }
-  .jump { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; height: 24px;
+  .jump { position: absolute; left: 50%; bottom: 44px; translate: -50% 0; display: inline-flex; align-items: center; gap: 4px; height: 24px;
     padding: 0 8px 0 12px; border-radius: 12px; font-size: 12px; font-weight: 700; color: #fff; background: var(--sel);
     box-shadow: 0 0 0 1px var(--p900), 0 4px 10px -2px rgba(10, 35, 80, .45); animation: mu-rise .2s var(--ease) both; }
   .jump .mu-ico { width: 14px; height: 14px; }
