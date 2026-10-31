@@ -26,6 +26,7 @@ const type6202 = (d: Uint8Array) => u32(d, 0) & 0xff;
 const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u16(x); return w.bytes(); };
 
 describe.skipIf(!have)("PvP through the duel port", () => {
+  const logs: string[] = [];
   let srv: Server;
   const state = {
     accounts: {
@@ -36,7 +37,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
   beforeAll(async () => {
     setDuelCore(await createNodeDuelCore());
-    srv = buildServer(configFrom({ PARITY_SEED: "1", PVP_TEST: "1", DUEL_PAUSE: "0.0005" }), structuredClone(state), () => {});
+    srv = buildServer(configFrom({ PARITY_SEED: "1", PVP_TEST: "1", DUEL_PAUSE: "0.0005" }), structuredClone(state), (x) => logs.push(x));
   }, 60_000);
   afterAll(() => setDuelCore(null));
 
@@ -144,6 +145,10 @@ describe.skipIf(!have)("PvP through the duel port", () => {
       expect(B.got.duel.find(([x]) => x === 0x649b)?.[1][0]).toBe(3);                    // SVR_TIMEUP
       const st = srv.game.store.loadRaw();
       expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(2);
+      // the duel's kept [pvp] lines, once, as one [AVISO] line (production drops info lines)
+      const tr = logs.filter((x) => x.startsWith("[AVISO] [pvp]") && x.includes(" trace ("));
+      expect(tr.length).toBe(1);
+      expect(tr[0]).toMatch(/aaaa vs bbbb, timeout, \d+ s\): .*arranca.* \| .*se acaba el tiempo/);
     } finally { AFK.s = 600; }
   }, 120_000);
 

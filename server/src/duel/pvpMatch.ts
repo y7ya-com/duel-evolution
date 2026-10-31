@@ -25,6 +25,9 @@ type Json = Record<string, any>;
 
 const M_TEST_AUTO = 0x7ffe, M_TEST_LOSE = 0x7ffd;
 const ATTACH_TIMEOUT = 90;
+/** The [pvp] lines kept per duel; production drops info lines, so an ending by time-out, or by surrender or
+ *  disconnection after TRACE_AFTER s, writes them once at warn level (what stalled it, owner 2026-10-31). */
+const TRACE_LINES = 50, TRACE_AFTER = 180;
 const PVP_SVRINFO = true, PVP_DUELLOG_FINISH = true, PVP_DUELLOG_RECORD = true;
 const SVRINFO_WAIT = 1.5, SVR_DISCONNECT = 1, SVR_SURRENDER = 2, SVR_TIMEUP = 3;
 const DLG_SURRENDER_TURN = 82;
@@ -292,7 +295,15 @@ export class PvpMatch {
     setTimeout(() => this.q(["timeout"]), ATTACH_TIMEOUT * 1000);
   }
 
-  private log(s: string) { this.hub.log(s); }
+  private ring: string[] = [];
+  private log(s: string) { this.note(s); this.hub.log(s); }
+  private note(s: string) { this.ring.push(`${new Date().toISOString().slice(11, 19)} ${s}`); if (this.ring.length > TRACE_LINES) this.ring.shift(); }
+  /** The kept lines as one [AVISO] line (production keeps it), for a duel that ended in a way worth looking at. */
+  private traceDump(why: string): void {
+    const long = now() - this.t0 > TRACE_AFTER;
+    if (!(why === DFM.WHY_TIMEOUT || (long && (why === DFM.WHY_SURRENDER || why === DFM.WHY_DISCONNECT)))) return;
+    this.hub.log(`[AVISO] [pvp] ${this.name} trace (${this.sess.map((x) => x.acct).join(" vs ")}, ${why}, ${Math.round(now() - this.t0)} s): ${this.ring.join(" | ")}`);
+  }
   private asSess<T>(s: Session, fn: () => T): T { return this.g.withCtx(s, fn); }
   bo3(): boolean { return PVP_MATCH === "1" && this.matchStyle === MATCH_STYLE; }
   rec(): DL.Recorder { return (this.recorder ??= new DL.Recorder()); }
@@ -514,6 +525,7 @@ export class PvpMatch {
     this.firsts.push(first);
     this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);
+    this.ps.trace = (x) => this.note(x);
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
@@ -588,6 +600,7 @@ export class PvpMatch {
 
   gameEnd(winner: number | null, why: string, turns = 0, svr: Record<number, number> = {}, close = false): void {
     const wv = (k: number) => (winner === null ? null : winner === k ? 0 : 1);
+    this.traceDump(why);
     this.xpLevels();
     if (!this.bo3()) {
       for (const k of [0, 1]) this.finish(k, wv(k), why, turns, { svr: svr[k] ?? null });

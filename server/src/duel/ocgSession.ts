@@ -483,7 +483,9 @@ export class PvpSession {
     this.clk = clock ? { ...clock, tp: null, left: [clock.turn, clock.turn], rleft: [clock.resp, clock.resp], run: null, gen: 0 } : null;
   }
 
-  private log(s: string) { this.g.log(s); }
+  /** PvpMatch's per-duel trace (its last lines are kept for an ending worth diagnosing). */
+  trace: ((s: string) => void) | null = null;
+  private log(s: string) { this.trace?.(s); this.g.log(s); }
   private core(): CoreQ { return (this.dc ??= core()); }
 
   private fatal(e: unknown): void {
