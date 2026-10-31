@@ -264,5 +264,12 @@ void rc_ovr_init(void) {
             break;
         }
     }
+    // flags the scan misses (their push is further from the call than 17 bytes): CTextureManager's load (0x59de80)
+    // asserts at 0x59e078 on a texture missing from the game files (line 784); with the report the game ended (fatal
+    // MessageBox, ExitProcess(1)) on the structure-deck list's empty "data/MINI/" name (live, 2026-10-31). Past the
+    // check it goes on with an empty texture entry.
+    static const uint32_t more[] = { 0x126f9b2 };
+    for (unsigned k = 0; k < sizeof more / sizeof *more; k++)
+        if (!rc_mem[more[k]]) rc_mem[more[k]] = 1, n++;
     rc_log("speed: %u debug checks off (RC_ASSERTS=1 keeps them)", n);
 }
