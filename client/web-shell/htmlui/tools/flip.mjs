@@ -25,6 +25,26 @@ const here = path.dirname(fileURLToPath(import.meta.url)), sleep = ms => new Pro
 // chat line at x, y, then Enter), leave x y scene (click until the scene is no longer that one, up to 4
 // tries), wait ms,
 // scene id ms (until that scene), window cls ms (until shown)
+// Sadie's shop from Beginner's Lobby A (Store[2]): walked by the runtime (rc walkto), Sadie, the category menu
+const SHOP_STEPS = [['scene', 4, 90000], ['wait', 3000],
+    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
+    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 8000], ['click', 511, 670], ['wait', 3000],
+    // off the stairs onto the hall floor first (the spawn varies; from some, the walker finds no path), then the
+    // runtime's walker (BFS over the map's collision colours): the mat under the stairs, the shop's exit
+    ['rwalk', [[300, 560, 3500]]], ['rc', 'walkto 1200 880 1500'], ['rc', 'walkto exit 2 1500'], ['scene', 14, 120000], ['wait', 4000],
+    // the shop's reader (read/shop.js) loads with its screens: on once, then back to the engine for the flip
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, true))"],
+    ['wait', 3000],
+    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
+    // the runtime's input from here on: once RC input has moved the mouse it holds it (rt/user32.cpp: "never real
+    // input"), so a page click would land where walkto left the cursor
+    ['rc', 'click 712 226'], ['task', 'CShopCategoryWindow', 20000], ['wait', 4000]];
+// Booster Packs; a switch takes a click only once the mouse has been over it (move, then click): pack 4's price tag
+// into the cart (200MP), Confirm: the confirm window
+const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 1000], ['rc', 'click 530 395'], ['task', 'CShopPackWindow', 20000],
+    ['wait', 2500]];
+const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 800], ['rc', 'click 630 300'], ['wait', 1500],
+    ['rc', 'move 900 504'], ['wait', 800], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
 export const ROUTES = {
   // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
   signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
@@ -53,6 +73,12 @@ export const ROUTES = {
   get 'chat-menu'() { return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ['click', 43, 747], ['wait', 2500]] }; },
   // then Friend List: its window (the engine's, unless switched on) over the menu and the chat
   get 'chat-menu-dialog'() { return { ...ROUTES.chat, steps: [...ROUTES['chat-menu'].steps, ['click', 141, 633], ['wait', 3000]] }; },
+  // Card Swap: Beginner's Lobby A (as chat), then the trade scene (0x26) once a second player's request is accepted
+  // (a partner on the same stack sends REQTRADE; Yes on the offer). The deck windows there are the trade's: no search
+  trade: { player: 'Trade Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['scene', 0x26, 900000], ['wait', 6000]],
+    flip: ['CWindowModelKaban', 'CWindowModelDeck'] },
   // a player with a character: row 0 -> My Room (scene 10), the menu, Edit Deck (yo2-speed's recomp-menus.md coordinates)
   // the social windows from My Room's Main Menu (43,747; entries every 26 px from Edit Deck at 140,422)
   ...Object.fromEntries([['profile', 448, 'CWindowModelProfile'], ['dmail', 552, 'CWindowModelDMail'], ['ignore', 630, 'CWindowModelBlacklist'],
@@ -111,17 +137,16 @@ export const ROUTES = {
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
-  // Sadie's shop from Beginner's Lobby A (Store[2]): walked by the runtime (rc walkto), Sadie, the category menu
-  'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [['scene', 4, 90000], ['wait', 3000],
-    ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000],
-    ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 8000], ['click', 511, 670], ['wait', 3000],
-    // the runtime's walker (BFS over the map's collision colours): the mat under the stairs, the shop's exit
-    ['rc', 'walkto 1200 880 1500'], ['rc', 'walkto exit 2 1200'], ['scene', 14, 120000], ['wait', 4000],
-    // the shop's reader (read/shop.js) loads with its screens: on once, then back to the engine for the flip
-    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, true))"],
-    ['wait', 3000],
-    ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
-    ['click', 712, 226], ['task', 'CShopCategoryWindow', 20000], ['wait', 2500]], flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
+  'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_STEPS, flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
+  'shop-cards': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 200'], ['wait', 1000],
+    ['rc', 'click 530 200'], ['task', 'CShopCardWindow', 20000], ['wait', 2500]], flip: ['CShopCardWindow', 'CShopPricePlate'] },
+  'shop-avatar': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 490'], ['wait', 1000],
+    ['rc', 'click 530 490'], ['task', 'CShopAvatarWindow', 20000], ['wait', 2500]], flip: ['CShopAvatarWindow'] },
+  'shop-packs': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_PACKS, flip: ['CShopPackWindow', 'CShopPricePlate'] },
+  'shop-confirm': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_CONFIRM, flip: ['CShopConfirmWindow'] },
+  // Yes: bought (the local stack's test player), the pack opens: the reveal scene (24) and its card detail
+  'shop-open': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_CONFIRM, ['rc', 'move 393 562'],
+    ['wait', 800], ['rc', 'click 393 562'], ['scene', 24, 30000], ['wait', 4000]], flip: ['CCardDetailViewDlg'] },
   // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
   shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
