@@ -4,6 +4,7 @@
 // goes back to the top for a new one.   npm run build && node svelte/deck_dom_test.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { launch } from '../tools/cdp.mjs';
@@ -49,6 +50,24 @@ const files = await b.ev(`(() => {
 assert.ok(files.text.includes('deck') && files.text.includes('EQUIP TO BEAT DOWN') && files.text.includes('SAVE DECK'), files.text);
 assert.equal(files.rows, 8);
 assert.deepEqual(files.hit, [null, null, null]);
+// past 8 rows: a native scroll box over the bar's column sets the game's bar (api.setValue); a row still takes no click
+const many = JSON.parse(readFileSync(new URL('../mock/filelist-save.json', import.meta.url)));
+{
+  const w = many.windows[0], lb = w.controls.find(c => c.cls === 'CWindowTaskListbox');
+  lb.items = Array.from({ length: 12 }, (_, i) => `Deck ${i}`);
+  Object.assign(w.controls.find(c => c.parent === lb.id && c.cls === 'CWindowTaskScroll'), { shown: true, value: 0, max: 4, page: 8, length: 128 });
+}
+const scrolled = await b.ev(`(async () => {
+  window.__render(${JSON.stringify(many)});
+  const box = document.querySelector('#htmlui .yo2-scroll-list'), r = box.getBoundingClientRect();
+  box.scrollTop = box.scrollHeight;
+  await new Promise(ok => setTimeout(ok, 100));
+  const e = document.elementFromPoint(400, 376);
+  return { box: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], row: document.getElementById('htmlui').contains(e) };
+})()`);
+assert.deepEqual(scrolled.box, [836, 352, 16, 128]);   // the bar's column: 172 + 664, the list's top
+assert.equal(scrolled.row, false);
+assert.ok(b.logs.some(l => /api\.setValue/.test(l) && / 4\b/.test(l)), 'scrolled to the end: setValue(bar, 4) ' + b.logs.slice(-3).join(' | '));
 assert.ok(await b.ev(`performance.getEntriesByType('resource').some(r => r.name.includes('/gen/deck.js'))`), 'the Svelte build loaded');
 assert.deepEqual(svelte.map(s => s.text), plain.map(s => s.text));
 assert.ok(svelte[0].text.includes('ATK1400') && !svelte[1].text.includes('ATK') && svelte[3].text.includes('ATK2300') && !svelte[3].text.includes('ATK1400'));

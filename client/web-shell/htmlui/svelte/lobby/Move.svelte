@@ -12,7 +12,7 @@
   import { duelButton } from '../../controls/skin.js';
   import { textColor } from '../../controls/basic.js';
   import { look } from './util.js';
-  import NativeScroll from './NativeScroll.svelte';
+  import NativeScroll from '../NativeScroll.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const items = $derived(win.controls.filter(c => c.cls === 'CWindowTaskButtonDuel' && c.shown));

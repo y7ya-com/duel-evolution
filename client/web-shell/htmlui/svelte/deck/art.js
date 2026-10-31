@@ -66,8 +66,13 @@ export function plan(win, editor = true) {
     if (!c.shown || c.cls !== 'CWindowTaskListbox') continue;
     const t = win.controls.find(o => o.parent === c.id && o.cls === 'CWindowTaskText' && o.name?.includes('行数カウント'));   // the row counter
     const top = c.top || 0, n = Math.min(c.rows || 0, Math.max(0, c.items.length - top));
+    // its scroll bar (past 8 rows) as a native one (owner: native scrollers): NativeScroll over the bar's column,
+    // list-local (its own x, y: a world position is only kept while the engine draws it); the engine's bar is not
+    // drawn (a list's own controls are skipped below)
+    const sc = win.controls.find(o => o.parent === c.id && o.cls === 'CWindowTaskScroll' && o.shown);
+    const bar = sc && { id: sc.id, x: sc.x, y: sc.y, w: sc.w, length: sc.length || sc.h, value: sc.value, max: sc.max, page: sc.page };
     add(c.id, (c.wz ?? 0) + 0.25, { x: c.wx, y: c.wy, w: c.w, h: c.h }, { kind: 'list', x: c.wx - ox, y: c.wy - oy, w: c.w, rows: c.rows || 0,
-      items: c.items.slice(top, top + n), selected: c.selected - top, box: { align: t?.align ?? 0, w: t?.w ?? c.w - 16, px: t?.fontSize || 16 } });
+      items: c.items.slice(top, top + n), selected: c.selected - top, bar, box: { align: t?.align ?? 0, w: t?.w ?? c.w - 16, px: t?.fontSize || 16 } });
     // Structure Deck's recipe icon on each row (CWindowTaskStructureIcon: the engine's, passed through; no size to
     // read: its ink is x 21..47 of a row) shows through a hole, over the engine's own stripe there
     if (win.controls.some(o => o.cls === 'CWindowTaskStructureIcon' && o.shown))
@@ -76,7 +81,7 @@ export function plan(win, editor = true) {
   for (const c of win.controls) {
     if (!c.shown || c.x >= 9999) continue;   // the detail panel parks hidden children at x 9999 / 99999
     if (editor && c.cls === 'CWindowTaskKabanScroll') continue;
-    if (lists.has(c.parent) && c.cls === 'CWindowTaskText') continue;   // a list's own texts (above)
+    if (lists.has(c.parent)) continue;   // a list's own texts and scroll bar (above)
     const rs = c.parts ? tree(c.parts, c) : [];
     if (BUTTON.test(c.cls) && rs.length) {
       const x0 = Math.min(...rs.map(o => o.r.x)), y0 = Math.min(...rs.map(o => o.r.y));

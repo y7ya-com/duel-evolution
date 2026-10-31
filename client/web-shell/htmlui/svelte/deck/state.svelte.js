@@ -10,6 +10,7 @@ class Deck {
   wins = new SvelteMap();   // window id -> { win, plan, key }
   holes = $derived([...this.wins.values()].flatMap(L => L.plan.holes));
   co = $derived(new Set([...this.wins.values()].flatMap(L => L.plan.co)));
+  api = null;               // the bridge's api (a list's native scroll bar sets the game's value through it)
   sheets = new SvelteMap(); // atlas name -> { url, w, h, alpha }, once loaded
   #asked = new Set();       // not state: a template asking for an atlas must not write state
 

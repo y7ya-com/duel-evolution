@@ -4,8 +4,12 @@
   // over ~42 px), the odd ones white; the selected one #0084ff under a #3bc1ff line, its left end from #2ba4ff, its
   // right end to #7a87c7. The items are black Arial (Label: tags, the pen, the row counter's alignment). It takes no
   // input: a click goes on to the game's list (pass mode), which selects.
+  // Its scroll bar (past 8 rows): a native one over the bar's column (NativeScroll: the browser's bar sets the game's
+  // value, the game's moves it).
   import Label from './Label.svelte';
-  let { x, y, w, rows, items, selected, box } = $props();
+  import NativeScroll from '../NativeScroll.svelte';
+  import { deck } from './state.svelte.js';
+  let { x, y, w, rows, items, selected, bar, box } = $props();
 </script>
 
 <div style:position="absolute" style:left="{x}px" style:top="{y}px" style:width="{w}px" style:height="{rows * 16}px" style:overflow="hidden">
@@ -15,6 +19,9 @@
   {#each items as text, i}
     <Label {text} x={0} y={i * 16} {box} />
   {/each}
+  {#if bar && deck.api}
+    <NativeScroll {bar} api={deck.api} />
+  {/if}
 </div>
 
 <style>

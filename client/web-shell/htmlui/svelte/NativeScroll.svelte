@@ -3,8 +3,8 @@
   // everywhere; scrollbars.js does this for windows no screen owns, chat.js's ownScroll for owned ones): the box's
   // content stands for the bar's range (page lines in view of max + page), scrolling it sets the bar's value through the
   // game's setValue (the window relays its rows, as from a thumb drag), and the game moving its value moves the box.
-  // A new control here first (CONTRACT.md); for controls/ once promoted.
-  import { inject } from '../../controls/scroll.js';
+  // Shared by the Svelte groups (the lobby's Move list, the deck's file list).
+  import { inject } from '../controls/scroll.js';
   let { bar, api } = $props();
   inject();
   let el, at = -1;

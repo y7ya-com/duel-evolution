@@ -18,7 +18,7 @@
   {:else if it.kind === 'flow'}
     <Flow text={it.text} x={it.x} y={it.y} w={it.w} h={it.h} alpha={it.alpha} px={it.px} />
   {:else if it.kind === 'list'}
-    <List x={it.x} y={it.y} w={it.w} rows={it.rows} items={it.items} selected={it.selected} box={it.box} />
+    <List x={it.x} y={it.y} w={it.w} rows={it.rows} items={it.items} selected={it.selected} bar={it.bar} box={it.box} />
   {:else if it.kind === 'button'}
     <!-- a real <button> over the button's art (its look is the art; the label is its accessible name) -->
     <button type="button" class="btn" disabled={!it.enabled} data-state={it.state} aria-label={it.label}

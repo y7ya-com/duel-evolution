@@ -13,7 +13,7 @@
   // Pass mode: a click goes on to the game's list (it selects, the ActiveListbox on hover), whose state comes back here.
   import { iconbar, chop } from '../../controls/skin.js';
   import Label from '../deck/Label.svelte';
-  import NativeScroll from './NativeScroll.svelte';
+  import NativeScroll from '../NativeScroll.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const top = c => !c.parent;

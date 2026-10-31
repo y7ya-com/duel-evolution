@@ -31,6 +31,15 @@ assert.deepEqual(fp.items.filter(i => i.kind === 'list').map(i => [i.items, i.ro
   [[['deck', 'EQUIP TO BEAT DOWN'], 8, -1, 1, 664]]);
 const keep = i => !(i.kind === 'list' || i.id === counter.parts.labels[0].id);
 assert.deepEqual(fp.items.filter(keep).map(i => i.id), fo.items.filter(keep).map(i => i.id));
+// past 8 rows: the list carries its scroll bar (list-local), and the engine's bar is not drawn
+const sbar = files.controls.find(c => c.parent === lb.id && c.cls === 'CWindowTaskScroll');
+const many = { ...files, controls: files.controls.map(c => c.id === lb.id ? { ...c, items: Array.from({ length: 12 }, (_, i) => `Deck ${i}`), top: 2 }
+  : c.id === sbar.id ? { ...c, shown: true, value: 2, max: 4, page: 8, length: 128 } : c) };
+const mp = port.plan(many), ml = mp.items.find(i => i.kind === 'list');
+assert.deepEqual(ml.items, ['Deck 2', 'Deck 3', 'Deck 4', 'Deck 5', 'Deck 6', 'Deck 7', 'Deck 8', 'Deck 9']);
+assert.deepEqual(ml.bar, { id: sbar.id, x: 664, y: 0, w: 16, length: 128, value: 2, max: 4, page: 8 });
+const barSprites = new Set((sbar.parts?.sprites || []).map(q => q.id));
+assert.ok(!mp.items.some(i => barSprites.has(i.id)), "the engine's bar is not drawn");
 // the detail's big card (a window hole) cuts the detail, never the file list opened over it
 const det = { id: 70, cls: 'CCardDetailViewDlg', x: 0, y: 175, w: 248, h: 559, wz: 51105, extras: [], controls: [], holes: [{ x: 8, y: 24, w: 232, h: 290 }] };
 const dh = port.plan(det).holes[0];

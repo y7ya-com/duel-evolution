@@ -23,6 +23,7 @@ export default {
   mount(win, root, api) {
     quickInstall();
     const editor = inEditor();
+    deck.api = api;
     deck.set(win, editor);
     return { ...base.mount(win, root, api), editor, id: win.id };
   },
