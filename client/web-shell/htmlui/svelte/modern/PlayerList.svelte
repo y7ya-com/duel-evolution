@@ -36,7 +36,7 @@
   <section class="mu-plate players" style:width="{win.w}px" style:height="{win.h}px" aria-label="Players here">
     <header>
       <Icon name="people" size={16} class="lead" />
-      <h2>Here <span class="n">{names.length}</span></h2>
+      <h2>Players <span class="n">{names.length}</span></h2>
       {#if p.search}<button type="button" class="mu-icon-btn" aria-label="Find a player" title="Find a player" onclick={() => api.click(p.search.id)}><Icon name="search" size={16} /></button>{/if}
       {#if p.taller}<button type="button" class="mu-icon-btn" aria-label="Taller" title="Taller" disabled={!p.taller.enabled} onclick={() => api.click(p.taller.id)}><svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 12.5 10 7.5l5 5" /></svg></button>{/if}
       {#if p.shorter}<button type="button" class="mu-icon-btn" aria-label="Shorter" title="Shorter" disabled={!p.shorter.enabled} onclick={() => api.click(p.shorter.id)}><svg class="mu-ico" viewBox="0 0 20 20"><path d="M5 7.5 10 12.5l5-5" /></svg></button>{/if}

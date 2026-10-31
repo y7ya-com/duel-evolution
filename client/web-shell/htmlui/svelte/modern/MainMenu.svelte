@@ -78,6 +78,8 @@
   .tile:hover :global(.mu-ico), .tile:focus-visible :global(.mu-ico) { transform: scale(1.08); }
   .tile:active { transform: translateY(0); }
   .tile:disabled { opacity: .4; transform: none; }
+  /* a group's odd last tile takes the whole row */
+  .grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   .quit :global(.mu-ico) { color: var(--ink-2); }
   .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
   .switch span:not(.track):not(.knob) { flex: 1; }
