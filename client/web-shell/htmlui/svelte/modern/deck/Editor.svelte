@@ -10,15 +10,22 @@
   import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion } from './editor.js';
   let { view } = $props();
 
-  const db = globalThis.yo2Deck;
+  // the card data (read/deck.js yo2Deck) can arrive after the editor opens, and the trunk's counts change with no deck
+  // window change (its own snapshot): a tick follows the reader's version until the cards are in
+  let tick = $state(0), seenV = -1;
+  $effect(() => {
+    const t = setInterval(() => { const d = globalThis.yo2Deck; if (d && (d.v !== seenV || !d.cards())) { seenV = d.v; tick++; } }, 250);
+    return () => clearInterval(t);
+  });
+  const db = $derived((tick, globalThis.yo2Deck));
   const win = $derived(view.win);
-  const all = $derived((win, db?.cards?.() || []));
+  const all = $derived((win, tick, db?.cards?.() || []));
   const deck = $derived(win.controls.find(c => c.cls === 'CWindowTaskDeck'));
   const grids = $derived(deck?.grids || { main: [], side: [], extra: [] });
   const counts = $derived(deck?.counts || { main: 0, side: 0, extra: 0, missing: 0 });
   const check = $derived(deckCheck(counts));
   const inDeck = $derived(copies(grids));
-  const trunk = $derived((win, new Map(db?.trunk || [])));
+  const trunk = $derived((win, tick, new Map(db?.trunk || [])));
   const left = id => trunk.get(id) || 0;
   const s = $derived((win, globalThis.yo2Html?.snapshot?.()));
   const name = $derived(E.deckName(s));
@@ -176,7 +183,7 @@
 <div class="mu ed" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length} aria-busy={busy > 0}>
   {#if busy && dialogs.length}<div class="veil" role="status"><span class="spin" aria-hidden="true"></span>{saving ? 'Saving…' : 'Working…'}</div>{/if}
   <!-- the bar: the screen's name, the deck's, its check, the file actions -->
-  <header class="bar">
+  <header class="mu-head bar">
     <h1 class="word">Edit Deck</h1>
     <div class="file">
       <span class="fname" title="The deck file being edited">{name || 'Untitled deck'}</span>
@@ -302,16 +309,18 @@
     </div>
     <div class="cards mu-scroll" role="list">
       {#each pool as c (c.id)}
-        {@const why = blocked(c, home(c), { inDeck: inDeck.get(c.id) || 0, left: left(c.id), counts })}
+        {@const used = inDeck.get(c.id) || 0}
+        {@const n = left(c.id)}
+        {@const why = blocked(c, home(c), { inDeck: used, left: n, counts })}
         <div role="listitem">
-          <button type="button" class="card" class:dim={!!why} draggable={!why} title="{c.name}{why ? ' — ' + why : ''}"
+          <button type="button" class="card" class:notown={!n && !used} class:spent={!n && used > 0} draggable={!why}
+            title="{c.name}: {used ? `${used} in deck, ` : ''}{n ? `${n} left to add` : used ? 'every copy is in the deck' : 'not in your trunk'}{why && n ? ' — ' + why : ''}"
             onmouseenter={() => (hover = c.id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = c.id)} onclick={() => (pinned = c.id)}
             ondblclick={e => put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c))}
             oncontextmenu={e => { e.preventDefault(); put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c)); }}
             ondragstart={e => dragStart(e, c.id, 'pool')} onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
-            <span class="have" title="Copies in your trunk">×{left(c.id)}</span>
-            {#if inDeck.get(c.id)}<span class="used" title="Copies in the deck">{inDeck.get(c.id)}</span>{/if}
+            <span class="counts">{#if used}<b class="used">{used} in deck</b>{/if}<b class="have" class:zero={!n}>{n || used ? `${n} left` : 'not owned'}</b></span>
             {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
           </button>
         </div>
@@ -338,9 +347,8 @@
   @keyframes ed-spin { to { transform: rotate(360deg); } }
 
   /* the bar */
-  .bar { position: absolute; left: 0; top: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 14px;
-    background: linear-gradient(180deg, #4a96f0 0%, #2b7ee8 22%, #1f6fe0 50%, #1a5fd6 62%, #1650c8 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), inset 0 -1px 0 #1240a8, 0 2px 8px rgba(10, 60, 130, .3); z-index: 2; }
+  /* the shared title band (theme.js .mu-head: its palette), the full width */
+  .bar { position: absolute; left: 0; top: 0; right: 0; height: 52px; gap: 12px; padding: 0 12px 0 14px; border-radius: 0; z-index: 2; }
   .word { margin: 0; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em; text-transform: uppercase; color: #fff; white-space: nowrap;
     text-shadow: -1.5px 0 #0a3fc8, 1.5px 0 #0a3fc8, 0 -1.5px #0a3fc8, 0 1.5px #0a3fc8, 0 2px 6px rgba(0, 30, 120, .5); }
   .file { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 28px; padding: 0 12px; border-radius: 14px;
@@ -350,7 +358,7 @@
   .check { display: flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px 0 6px; border-radius: 12px; font-size: 12px; font-weight: 800; white-space: nowrap;
     color: var(--gold-ink); background: linear-gradient(180deg, #ffffc8, #f4d558); box-shadow: 0 0 0 1px var(--gold-edge); }
   .check svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-  .check.ok { color: #fff; background: linear-gradient(180deg, #2fb45a, #0b7a2a); box-shadow: 0 0 0 1px #08561d; text-shadow: 0 1px 0 #064a18; }
+  .check.ok { color: #fff; background: var(--ok); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .3); text-shadow: 0 1px 0 #064a18; }
   .status { flex: 1; min-width: 0; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 0 #0e3a9a; }
   .status.bad { color: #ffe08a; }
   .acts { display: flex; align-items: center; gap: 6px; }
@@ -448,12 +456,15 @@
   .card { position: relative; width: 80px; height: 116px; border-radius: 5px; overflow: hidden; background: #2a3a58; cursor: grab;
     box-shadow: 0 1px 2px rgba(0, 0, 40, .35), 0 4px 8px -4px rgba(0, 30, 90, .5); transition: transform .14s var(--ease), box-shadow .14s, filter .14s; }
   .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--azure-400), 0 10px 18px -6px rgba(0, 40, 120, .6); z-index: 1; }
-  .card.dim { cursor: default; }
-  .card.dim .face { filter: grayscale(.85) brightness(.75); }
-  .have, .used, .lim { position: absolute; font-size: 10.5px; font-weight: 800; line-height: 16px; height: 16px; padding: 0 5px; border-radius: 8px; }
-  .have { right: 3px; bottom: 3px; color: #fff; background: rgba(4, 17, 43, .78); }
-  .used { left: 3px; bottom: 3px; color: #fff; background: var(--sel); box-shadow: 0 0 0 1px #fff; }
-  .lim { left: 3px; top: 3px; color: #fff; background: var(--bad); box-shadow: 0 0 0 1px #fff; }
+  /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
+  .card.notown .face { filter: grayscale(.9) brightness(.8); }
+  .card.notown, .card.spent { cursor: default; }
+  .counts { position: absolute; right: 3px; bottom: 3px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; pointer-events: none; }
+  .counts b, .lim { font-size: 9px; font-weight: 800; line-height: 15px; height: 15px; padding: 0 4px; letter-spacing: -.01em; border-radius: 8px; white-space: nowrap; }
+  .counts .used { color: #fff; background: var(--sel); box-shadow: 0 0 0 1px #fff; }
+  .counts .have { color: #fff; background: rgba(4, 17, 43, .8); }
+  .counts .have.zero { color: var(--ink-strong); background: rgba(255, 255, 255, .88); }
+  .lim { position: absolute; left: 3px; top: 3px; color: #fff; background: var(--bad); box-shadow: 0 0 0 1px #fff; }
   .lim.l2 { color: var(--gold-ink); background: var(--gold-400); box-shadow: 0 0 0 1px var(--gold-edge); }
   .pool.over .cards { background: rgba(0, 180, 255, .1); }
   .empty-pool { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 40px 0; color: var(--ink-2); font-weight: 700; }
