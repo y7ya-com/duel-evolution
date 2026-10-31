@@ -262,6 +262,10 @@ void rc_starter_frame(CPU *c) {   // ovr/sedefer.c's rc_ovr_frame, at every Pres
     parse_list(extra, d.extra, &d.nextra, 30, d.need, &d.bad);
     if (side) parse_list(side, d.side, &d.nside, 15, d.need, &d.bad);
     int mode = atoi(flag);
+    // decksync's server decks (written, made current, deleted) wait while Edit Deck is open: an install reloads deck A,
+    // and the player's unsaved edits with it (htmlui-deck: the grid went to 40 card backs). A starter claim still shows
+    // in the open editor.
+    if ((mode == M_WRITE || mode == M_CURRENT || mode == M_DELETE) && deck_scene()) return;
     int owned = 1;
     for (int id = 1; id <= TRUNK_N; id++) owned &= *(uint8_t *)G(t + id - 1) >= d.need[id];
     if (mode == M_DELETE || mode == M_TEST_DELETE) {   // the file only: a current deck that is gone loads as empty
