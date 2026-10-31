@@ -238,7 +238,7 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   in blue, and its name (the language's own: Deutsch, Français ...; Full screen / Window) takes the section's line while
   it is pointed at; the volume is a modern track and knob (from the slider's sprites) with - / +; OK gold. OK has the
   focus: Enter, Esc = Cancel.
-- **Duel** (the dock's Duel; CWindowModelDuel, DuelMenu.svelte, owned): how busy the lobby is as three figures
+- **Duel** (the dock's Duel; CWindowModelDuel, DuelMenu.svelte on GamePanel / GameButton, owned): how busy the lobby is as three figures
   (Searching, Waiting, Duelling: the game's labels repeated its buttons' names), then the two ways in as large cards that
   say what they do (Auto Duel in gold: the game finds you an opponent; Create Duel: wait for a challenger), Cancel.
   Focus on Auto Duel; Left / Right, Enter, Esc.
@@ -246,9 +246,9 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   Both) and Level as segmented choices, "OK starts looking for an opponent". The level captions are the game's own:
   note its "Level Limit ON" sits on the switch named 制限なし ("no limit"), so the 2008 English may be inverted
   (unverified: kept as the game has it).
-- **Searching:** while an Auto Duel search runs the game shows only a small icon on its bar (CNoticeIconDuelroom); the
-  dock shows a gold "Looking for a duel… Cancel" chip, which plays the Duel switch (the game asks "Cancel the Duel you
-  created?", the modern Yes / No).
+- **Searching:** while an Auto Duel search runs the game shows only a small icon on its bar (CNoticeIconDuelroom); in the
+  dock the Duel key becomes a gold "Searching… ×" chip (a pulsing dot) which plays that same switch (the game asks
+  "Cancel the Duel you created?", the modern Yes / No). An empty status field gives up its room.
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.

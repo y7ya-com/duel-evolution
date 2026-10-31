@@ -7,6 +7,7 @@
   // focus: Enter is OK, Esc Cancel.
   import { options } from './logic.js';
   import { focusSoon } from './macro.js';
+  import GameButton from './game/GameButton.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const o = $derived(options(win));
@@ -47,8 +48,8 @@
   {/each}
   {#each [o.ok, o.cancel] as b (b?.id)}
     {#if b}
-      <button type="button" class="mu-btn" class:gold={b === o.ok} class:ok={b === o.ok} data-state={b.state} onclick={() => api.click(b.id)}
-        style:left="{b.x}px" style:top="{b.y - 2}px" style:width="{b.w}px">{b.label}</button>
+      <GameButton ctl={b} {api} gold={b === o.ok} class={b === o.ok ? 'ok' : ''} label={b.label}
+        style="position: absolute; left: {b.x}px; top: {b.y - 2}px; width: {b.w}px; height: 28px; pointer-events: auto" />
     {/if}
   {/each}
 </div>
@@ -71,5 +72,4 @@
     box-shadow: 0 0 0 1px var(--btn-edge); }
   .step[data-state='hover'] { box-shadow: 0 0 0 1px var(--gold-edge); color: var(--icon-warm); }
   .step[data-state='pressed'] { background: var(--gold); }
-  .mu-btn { position: absolute; height: 28px; pointer-events: auto; }
 </style>
