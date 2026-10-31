@@ -117,8 +117,8 @@
   .log { flex: 1; min-height: 0; margin: 0 6px; padding: 6px 8px 4px; border-radius: 8px; user-select: text;
     background: var(--well); box-shadow: var(--well-shadow); }
   .log p { margin: 0; padding: 1.5px 0; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--ink); }
-  .log b { font-weight: 750; color: #0050c8; margin-right: 6px; }
-  .log .notice { color: #b34d00; font-style: italic; }
+  .log b { font-weight: 750; color: var(--link); margin-right: 6px; }
+  .log .notice { color: var(--warm); font-style: italic; }
   .log .empty { color: var(--ink-3); }
   .composer { display: flex; gap: 6px; padding: 5px 6px 6px; flex: none; }
   input { flex: 1; min-width: 0; height: 26px; padding: 0 12px; border: 0; border-radius: 13px; font: inherit; font-size: 12.5px; color: var(--navy-900);

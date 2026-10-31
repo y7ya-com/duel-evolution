@@ -64,7 +64,7 @@
   .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12.5px;
     font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s; }
   .list button:hover { background: #e2f7ff; }
-  .list button.on { background: linear-gradient(180deg, #7deffc, #0985ff); color: #fff; }
+  .list button.on { background: var(--sel); color: #fff; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: #4ce38a; box-shadow: 0 0 6px rgba(76, 227, 138, .8); }
   .empty { padding: 6px 8px; font-size: 12px; color: var(--ink-3); }
 </style>

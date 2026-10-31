@@ -56,23 +56,23 @@
 <style>
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); animation: mu-fade .2s var(--ease) both; }
   @keyframes mu-fade { from { opacity: 0; } }
-  .dplate { left: 0; top: 0; border-radius: 14px 14px 14px 5px; animation: none; }
+  .dplate { left: 0; top: 0; border-radius: var(--r-plate) var(--r-plate) var(--r-plate) 6px; animation: none; }
   .detail { border-radius: 14px 14px 5px 14px; }
   .band { position: absolute; left: 0; right: 0; top: 0; border-radius: 14px 14px 0 0;
     background: linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(230, 255, 235, .6)); box-shadow: inset 0 -2px 0 #2fbf55; }
   .band.trunk { background: linear-gradient(180deg, rgba(255, 255, 255, .9), rgba(255, 240, 220, .6)); box-shadow: inset 0 -2px 0 #e08a1e; }
-  .band.detail { background: linear-gradient(180deg, #f2fbff 0%, #a3d7f3 40%, #4e93f5 82%, #336deb 100%); box-shadow: 0 1px 0 #234cdb; }
+  .band.detail { background: linear-gradient(180deg, #4a96f0 0%, #1f6fe0 50%, #1650c8 100%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 1px 0 #234cdb; }
   .sw { position: absolute; padding: 0; z-index: 2; }
   /* the deck's check: a strip along the panel's foot */
   .check { position: absolute; left: 10px; right: 10px; bottom: 8px; height: 26px; display: flex; align-items: center; gap: 10px; padding: 0 10px;
     border-radius: 13px; font-size: 12px; color: var(--ink-2); background: linear-gradient(180deg, #fff6f6, #ffe1e1); box-shadow: 0 0 0 1px #e0303f; z-index: 3; }
   .check.ok { background: linear-gradient(180deg, #f1fff4, #d6f8de); box-shadow: 0 0 0 1px #2fbf55; }
-  .verdict { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; color: #b3101e; white-space: nowrap; }
-  .ok .verdict { color: #0e7a26; }
+  .verdict { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; color: var(--bad); white-space: nowrap; }
+  .ok .verdict { color: var(--ok); }
   .verdict .mu-ico { width: 16px; height: 16px; stroke-width: 2.6; }
   .part { white-space: nowrap; }
   .part b { font-weight: 800; color: var(--ink-strong); }
-  .part.bad b { color: #c4161c; }
+  .part.bad b { color: var(--bad); }
   .keys { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
   .keys kbd { display: inline-block; min-width: 14px; padding: 0 3px; margin-right: 1px; border-radius: 3px; font: inherit; font-weight: 800; font-size: 10px;
     line-height: 14px; text-align: center; color: var(--ink-2); background: #fff; box-shadow: inset 0 -1px 0 rgba(10, 60, 140, .3), 0 0 0 1px rgba(10, 60, 140, .2); }

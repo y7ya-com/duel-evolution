@@ -69,7 +69,7 @@
   .slot { position: relative; display: flex; align-items: center; gap: 10px; }
   .spacer { width: 30px; flex: none; }
   /* a slot: a white card in the window, the 2008 row's blue edge */
-  .slot-main { flex: 1; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 12px 0 10px; border-radius: 12px 12px 12px 4px;
+  .slot-main { flex: 1; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 12px 0 10px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px;
     background: linear-gradient(180deg, #ffffff, #eefaff); box-shadow: 0 0 0 1px #3a9de6, inset 0 -2px 0 rgba(65, 171, 239, .25), 0 2px 4px rgba(10, 60, 130, .18);
     transition: transform .16s var(--ease), background .16s, box-shadow .16s; }
   .slot-main:hover, .slot[data-state='hover'] .slot-main { transform: translateX(3px); background: linear-gradient(180deg, #ffffff, #d9f5ff);

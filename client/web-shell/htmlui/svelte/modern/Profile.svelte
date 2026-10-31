@@ -54,7 +54,7 @@
   .lv { height: 24px; line-height: 24px; font-size: 12px; padding: 0 10px; border-radius: 12px; }
   .lv b { font-size: 14px; }
   .stats { margin: 8px 18px 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .stat { padding: 10px 12px; border-radius: 10px 10px 10px 4px; background: var(--well); box-shadow: var(--well-shadow); }
+  .stat { padding: 10px 12px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px; background: var(--well); box-shadow: var(--well-shadow); }
   .stat:last-child:nth-child(4n + 3) { grid-column: span 2; }
   dt { font-size: 11px; font-weight: 600; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   dd { margin: 4px 0 0; font-size: 18px; font-weight: 800; color: var(--ink-strong); }

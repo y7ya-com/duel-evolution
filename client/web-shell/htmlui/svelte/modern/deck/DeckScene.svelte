@@ -71,7 +71,7 @@
   .side { position: absolute; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 4px 10px 10px 4px;
     font-size: 12px; font-weight: 900; font-style: italic; letter-spacing: 0; color: #fff; text-transform: uppercase; white-space: nowrap;
     text-shadow: -1px 0 #1059ff, 1px 0 #1059ff, 0 -1px #1059ff, 0 1px #1059ff;
-    background: linear-gradient(180deg, #69ffff 0%, #50e4ff 18%, #3eb2ff 32%, #2578fe 72%, #065efe 82%, #0000fe 100%);
+    background: linear-gradient(180deg, #7cc4ff 0%, #2f86f5 16%, #1d6ce8 50%, #0a50d8 84%, #0840b8 100%);
     box-shadow: 0 0 0 1px #fff, 0 2px 4px rgba(0, 0, 60, .35); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
     transition: transform .14s var(--ease), filter .14s; }
   .side :global(.mu-ico) { color: #fff97f; filter: drop-shadow(0 0 1px #1059ff); }

@@ -39,7 +39,7 @@
   .panel { left: 703px; top: 60px; width: 292px; height: 612px; border-radius: 18px 18px 6px 18px; }
   .link { position: absolute; left: 652px; width: 52px; height: 3px; border-radius: 2px;
     background: linear-gradient(90deg, #f4d558, #0985ff); transition: top .2s var(--ease); }
-  .sw { position: absolute; display: flex; align-items: center; padding: 0 18px; border-radius: 12px 12px 12px 4px; font-weight: 700; color: var(--ink-strong);
+  .sw { position: absolute; display: flex; align-items: center; padding: 0 18px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px; font-weight: 700; color: var(--ink-strong);
     white-space: nowrap; overflow: hidden; background: var(--sky-glass);
     box-shadow: 0 0 0 1px #3a9de6, inset 0 1px 0 #fff, inset 0 -2px 0 rgba(41, 120, 210, .2), 0 3px 6px rgba(10, 60, 130, .25);
     transition: transform .14s var(--ease), box-shadow .14s, background .14s; }

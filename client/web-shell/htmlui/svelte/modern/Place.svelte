@@ -28,7 +28,7 @@
 {/if}
 
 <style>
-  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 14px 7px 10px; border-radius: 14px 14px 14px 5px; min-width: 190px; }
+  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 14px 7px 10px; border-radius: var(--r-plate) var(--r-plate) var(--r-plate) 6px; min-width: 190px; }
   .chip :global(.pin) { color: var(--icon); }
   .lines { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 1px; align-items: baseline; }
   .line { display: contents; }

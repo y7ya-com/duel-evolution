@@ -64,9 +64,9 @@
   .chev { position: absolute; width: 16px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   /* the word art's words in its colours (Deck / Number of Cards green, Trunk / Rearrange orange): heavy italic, as the art */
   .word { position: absolute; display: flex; align-items: center; white-space: nowrap; font-size: 16px; font-weight: 900; font-style: italic; letter-spacing: .01em;
-    color: #0e8a2a; text-shadow: 0 1px 0 #fff; }
-  .word.warm { color: #b35a00; }
+    color: var(--ok); text-shadow: 0 1px 0 #fff; }
+  .word.warm { color: var(--warm); }
   .word.tab { font-size: 13px; font-weight: 800; color: var(--ink-3); }
-  .word.tab.front { color: #c4161c; }
+  .word.tab.front { color: var(--bad); }
   /* the card text as the engine colours it (dark on the light plate) */
 </style>

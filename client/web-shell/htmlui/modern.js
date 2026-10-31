@@ -117,7 +117,7 @@ const CSS = `
   border: 0; font-family: inherit; font-weight: 900; font-size: 21px; line-height: 1; letter-spacing: .04em; font-style: italic; color: #fff;
   text-shadow: -1.5px 0 #0a3fc8, 1.5px 0 #0a3fc8, 0 -1.5px #0a3fc8, 0 1.5px #0a3fc8, 0 2px 4px rgba(0, 40, 160, .5);
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
-  background: linear-gradient(180deg, #a8f8ff 0%, #5fd6ff 22%, #2a9cff 48%, #0a6af0 52%, #0050e0 78%, #1a7cff 100%);
+  background: linear-gradient(180deg, #8fd0ff 0%, #3a8ff5 14%, #1d6ce8 50%, #0a50d8 86%, #0b46c0 100%);
   transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s; }
 #mu-title .mu-tbtn::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
@@ -127,8 +127,8 @@ const CSS = `
 #mu-title .mu-tbtn:hover::after, #mu-title .mu-tbtn:focus-visible::after { background-position: 260% 0; }
 #mu-title .mu-tbtn:focus-visible { outline: 2px solid #0a3fc8; outline-offset: 3px; }
 #mu-title .mu-tbtn:active { transform: translateX(2px); filter: brightness(.95); }
-#mu-title .mu-tbtn-primary { height: 54px; font-size: 26px; color: #fff;
-  text-shadow: -1.5px 0 #c25a00, 1.5px 0 #c25a00, 0 -1.5px #c25a00, 0 1.5px #c25a00, 0 2px 4px rgba(160, 70, 0, .45);
+#mu-title .mu-tbtn-primary { height: 54px; font-size: 26px; color: #4a2600;
+  text-shadow: 0 1px 0 rgba(255, 255, 220, .9);
   clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
   background: linear-gradient(180deg, #ffffc8 0%, #fff97f 28%, #f9e45f 48%, #f4d558 60%, #f0be45 82%, #eca430 100%); }
 #mu-title .mu-tbtn-primary:hover, #mu-title .mu-tbtn-primary:focus-visible { filter: brightness(1.06) saturate(1.15); }

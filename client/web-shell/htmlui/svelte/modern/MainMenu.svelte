@@ -69,7 +69,7 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   /* a tile: the 2008 menu's gold bar (System: sky glass) */
-  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: 10px 10px 10px 4px;
+  .tile { position: relative; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 10px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px;
     font-weight: 700; color: var(--ink-strong); background: var(--sky-glass);
     box-shadow: 0 0 0 1px #3a9de6, inset 0 1px 0 #fff, 0 2px 3px rgba(10, 60, 130, .2);
     transition: transform .14s var(--ease), background .14s, box-shadow .14s; }

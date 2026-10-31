@@ -58,7 +58,7 @@
   .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 8px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, box-shadow .12s; }
   .list button:hover { background: #e2f7ff; }
-  .list button.on { color: #fff; background: linear-gradient(180deg, #7deffc, #0985ff); box-shadow: inset 0 0 0 1px #0a5fd0; }
+  .list button.on { color: #fff; background: var(--sel); box-shadow: inset 0 0 0 1px #0a5fd0; }
   .badge { display: grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 750; color: var(--gold-ink);
     background: radial-gradient(circle at 35% 30%, var(--gold-200), var(--gold-400) 60%, var(--gold-500)); }
   .empty { grid-column: 1 / -1; padding: 10px; color: var(--ink-3); }
