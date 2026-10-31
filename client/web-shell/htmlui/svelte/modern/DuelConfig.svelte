@@ -4,13 +4,15 @@
   // engine writes it when its switch is hovered: api.hover), OK in gold. The game keeps a choice only on OK, so the
   // plate says how many settings changed since it opened. Keys: the arrows move within a setting (and choose, as
   // radio buttons do), Tab between settings, Enter is OK, Esc Cancel.
-  import { duelConfig, duelFind, nice } from './logic.js';
+  import { duelConfig, duelFind, duelCreate, nice } from './logic.js';
+  import GameField from './game/GameField.svelte';
   import { focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   // Auto Duel's settings (CWindowModelDuelFind) are the same kind of window: its choices, no help, no saved settings
-  const d = $derived(win.cls === 'CWindowModelDuelFind' ? duelFind(win) : duelConfig(win));
+  // and Create Duel's (CWindowModelDuelWait): its choices and a password field
+  const d = $derived(win.cls === 'CWindowModelDuelFind' ? duelFind(win) : win.cls === 'CWindowModelDuelWait' ? duelCreate(win) : duelConfig(win));
   const api = $derived(view.api);
   const pick = s => s.options.find(o => o.c.checked);
   // what each setting was when the window opened (first snapshot that has it)
@@ -37,7 +39,7 @@
   const keyed = el => { el.addEventListener('keydown', keys); return () => el.removeEventListener('keydown', keys); };
   function keys(e) {
     if (e.key === 'Escape' && d.cancel) { e.preventDefault(); api.click(d.cancel.id); }
-    else if (e.key === 'Enter' && d.ok && !e.target.closest('footer')) { e.preventDefault(); api.click(d.ok.id); }
+    else if (e.key === 'Enter' && d.ok && !e.defaultPrevented && !e.target.closest('footer')) { e.preventDefault(); api.click(d.ok.id); }
   }
 </script>
 
@@ -61,6 +63,12 @@
           </div>
         </div>
       {/each}
+      {#if d.field}
+        <div class="setting">
+          <span class="name">{d.field.label}</span>
+          <GameField c={d.field.c} {api} label={d.field.label} placeholder="None: anyone can join" onenter={() => d.ok && api.click(d.ok.id)} />
+        </div>
+      {/if}
       {#if d.help !== undefined}<div class="help" aria-live="polite">
         {#if hover}<b>{hover}</b>{/if}
         <p>{d.help}</p>

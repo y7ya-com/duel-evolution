@@ -131,7 +131,7 @@ const screens = [
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
   screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
-    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList, CFindMenu: FindMenu, CWindowModelDuel: DuelMenu, CWindowModelDuelFind: DuelConfig }, { mode: 'owned', clip: false }),
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList, CFindMenu: FindMenu, CWindowModelDuel: DuelMenu, CWindowModelDuelFind: DuelConfig, CWindowModelDuelWait: DuelConfig }, { mode: 'owned', clip: false }),
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),

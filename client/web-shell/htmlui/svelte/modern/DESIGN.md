@@ -249,8 +249,24 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   note its "Level Limit ON" sits on the switch named 制限なし ("no limit"), so the 2008 English may be inverted
   (unverified: kept as the game has it).
 - **Searching:** while an Auto Duel search runs the game shows only a small icon on its bar (CNoticeIconDuelroom); in the
-  dock the Duel key becomes a gold "Searching… ×" chip (a pulsing dot) which plays that same switch (the game asks
+  dock the Duel key becomes a gold "Awaiting duel ×" chip (a pulsing dot) which plays that same switch (the game asks
   "Cancel the Duel you created?", the modern Yes / No). An empty status field gives up its room.
+- **Duel invites** (walked with two players: stack.py --player2):
+  - **Create Duel** (CWindowModelDuelWait; DuelConfig.svelte with logic.js duelCreate): Duel type, Time limit,
+    Spectators, Surrender as segmented choices, the password as a game field ("None: anyone can join"), "OK opens your
+    duel for a challenger". (The generic window drew it as a blank white box.)
+  - **A player's card** with an open duel: its settings as tags under "Open duel" (they were loose lines), and Send
+    Duel Request first and gold.
+  - **The request** (the duel's owner, the shared Yes / No: "Lv1 Duelist F [Beginner Duelist] You have aDuel
+    Request! Will you accept?"): a "Duel Request" dialog with the challenger's level, name and title, "wants to duel
+    you. Accept?", Accept (gold, the focus: Enter) / Decline (Esc).
+  - **The challenger's wait** ("Requesting Duel" and Cancel): "Request sent: waiting for an answer…" with a pulse.
+    A refusal is a toast.
+  - The dock's chip reads "Awaiting duel" (the same icon shows for an open duel and an Auto Duel search).
+- **Fixes in shared pieces found on the way:** the player list's "Lv 1@>40/Name" (logic.js untag: '@>n/' is the game's
+  move-to-x tag, now a space); Toast pressed its OK before the game showed the box, which then stayed open behind the
+  toast and blocked the screen (now pressed once shown, again until gone); GameDialog focused its button while the
+  window was still hidden, so Enter went nowhere (now macro.js focusSoon once shown).
 - **Deck editor:** Edit Deck is the rebuilt editor (UX changes above). The rest below is Card Swap and Trade, which
   reuse its windows:
   - Pass mode, as the legacy HTML deck: the game keeps the mouse, so drag and drop is untouched.

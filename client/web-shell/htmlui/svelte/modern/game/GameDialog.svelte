@@ -4,9 +4,13 @@
   // focus. buttons: [{ label, gold, onclick, disabled }]; win: the window (the scrim covers the screen around it).
   import GamePanel from './GamePanel.svelte';
   import GameButton from './GameButton.svelte';
+  import { focusSoon } from '../macro.js';
   let { win, title = '', text = '', buttons = [], onleave = null, onprimary = null, width = null, children } = $props();
   let panel = $state();
-  $effect(() => { panel?.querySelector('input, textarea, .gold, button')?.focus({ preventScroll: true }); });
+  // the first control takes the focus once the game shows the window (it opens hidden for a few frames, and a hidden
+  // root takes none: a duel request's Enter went nowhere and the request timed out)
+  const shown = $derived(!!win?.shown);
+  $effect(() => shown ? focusSoon(panel, 'input, textarea, .gold, button') : undefined);
   function keys(e) {
     if (e.key === 'Escape' && onleave) { e.preventDefault(); onleave(); }
     else if (e.key === 'Enter' && onprimary && !/^(TEXTAREA|BUTTON)$/.test(e.target?.tagName || '')) { e.preventDefault(); onprimary(); }

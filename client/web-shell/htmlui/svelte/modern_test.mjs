@@ -377,6 +377,38 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.ok.label, d.cancel.label, d.help], ['OK', 'Cancel', undefined]);
 }
 
+// a duel request and its wait
+{
+  assert.deepEqual(L.duelRequest('\nLv1 Duelist F\n[Beginner Duelist]\n\nYou have aDuel Request!\n Will you accept?'), { level: '1', name: 'Duelist F', title: 'Beginner Duelist' });
+  assert.equal(L.duelRequest('Start Duel?'), null);
+  assert.ok(L.requesting('Requesting Duel') && !L.requesting('Cancel the Duel you created?'));
+}
+
+// Create Duel's settings: a choice per row of switches, the password field with its caption
+{
+  const sw = (name, x, y, checked = false) => ctl('PictureSwitch', { name, x, y, w: 224, h: 32, checked });
+  const cap = (x, y, text) => ctl('ShadowText', { x, y: y + 8, w: 224, h: 32, text });
+  const w = win('CWindowModelDuelWait', [sw('サレンダーなしボタン', 246, 192), sw('サレンダーありボタン', 22, 192, true), sw('制限なしボタン', 246, 96), sw('制限ありボタン', 22, 96, true),
+    sw('マッチボタン', 246, 48), sw('シングルボタン', 22, 48, true), cap(246, 192, 'Surrender OFF'), cap(22, 192, 'Surrender ON'), cap(246, 96, 'Time Limit OFF'),
+    cap(22, 96, 'Time Limit ON'), cap(246, 48, 'Match Mode'), cap(22, 48, 'Single Mode'), ctl('InputDuel', { x: 22, y: 269, w: 448, h: 32, maxLen: 8, value: '' }),
+    ctl('ShadowText', { x: 38, y: 248, w: 256, h: 256, text: 'Password' }), ctl('ButtonDuel', { x: 299, y: 328, w: 140, h: 24, label: 'Cancel' }),
+    ctl('ButtonDuel', { x: 50, y: 328, w: 140, h: 24, label: 'OK' })], { w: 492, h: 360 });
+  const d = L.duelCreate(w);
+  assert.deepEqual(d.sections.map(s => [s.title, s.options.map(o => o.label + (o.c.checked ? '*' : ''))]),
+    [['Duel type', ['Single Mode*', 'Match Mode']], ['Time limit', ['Time Limit ON*', 'Time Limit OFF']], ['Surrender', ['Surrender ON*', 'Surrender OFF']]]);
+  assert.deepEqual([d.field.label, d.field.c.maxLen, d.ok.label, d.cancel.label], ['Password', 8, 'OK', 'Cancel']);
+}
+
+// the player list's tab tag reads as a space; a player's open duel on their card as its settings
+{
+  assert.deepEqual(L.listItems({ items: ['@0Lv 1@>40/Duelist C'] }), ['Lv 1 Duelist C']);
+  const help = (name, y, text, h = 16) => { const hc = ctl('Help', { name, x: 8, y }); return [hc, ctl('Text', { parent: hc.id, w: 320, h, text })]; };
+  const d = L.duelistCard(win('CPlayerListMenu', [...help('CPlayerListMenuのレベル＆名前表示', 8, 'LV01 Duelist E', 36),
+    ...help('CPlayerListMenuの対戦相手テキスト', 108, 'Single Mode\nSurrender ON\nTime Limit ON\nWatch On\nLevel Limit ON', 144),
+    ctl('TextSwitch', { x: 8, y: 220, w: 120, h: 24, label: 'Chat Message' }), ctl('TextSwitch', { x: 8, y: 196, w: 120, h: 24, label: 'Send Duel Request' })]));
+  assert.deepEqual([d.about, d.duel], ['', ['Single Mode', 'Surrender ON', 'Time Limit ON', 'Watch On', 'Level Limit ON']]);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

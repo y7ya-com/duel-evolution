@@ -6,7 +6,7 @@
   //   (D P F M L O A), and Enter goes to the chat line; never while typing, nor while a game field has the focus.
   // - The engine's message text as the dock's status line.
   // - While an Auto Duel search runs (the game shows its CNoticeIconDuelroom then, a small icon with no words): a
-  //   the Duel switch becomes a "Searching… Cancel" chip; it plays that switch, which asks the game's own "Cancel the Duel you created?".
+  //   or a duel of yours is open (Create Duel: the same icon), the Duel switch becomes an "Awaiting duel ×" chip; it plays that switch, which asks the game's own "Cancel the Duel you created?".
   // The window is 384 wide at the bottom left; the dock spans the screen (clip: false).
   import Icon from './Icon.svelte';
   import { menu, QUICK, quickKey, menuSwitch } from './macro.js';
@@ -63,8 +63,8 @@
       {@const [label, icon] = named(c)}
       {#if searching && c === duelSwitch}
         <!-- a search running: the Duel switch says so (it is the way to cancel it) -->
-        <button type="button" class="seek" title="Looking for a duel: cancel the search" data-state={c.state} onclick={() => view.api.click(c.id)}>
-          <i aria-hidden="true"></i>Searching…<span aria-label="Cancel"><Icon name="close" size={11} /></span>
+        <button type="button" class="seek" title="Your duel is open (Auto Duel or Create Duel): cancel it" data-state={c.state} onclick={() => view.api.click(c.id)}>
+          <i aria-hidden="true"></i>Awaiting duel<span aria-label="Cancel"><Icon name="close" size={11} /></span>
         </button>
       {:else}
         <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} data-state={c.state} onclick={() => view.api.click(c.id)}>
