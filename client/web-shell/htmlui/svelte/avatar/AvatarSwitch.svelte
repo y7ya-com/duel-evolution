@@ -17,6 +17,7 @@
   import PLATES from './plates.js';
   import { text, top, shownArt } from '../lobby/util.js';
   let { view } = $props();
+  const uid = $props.id();   // the arrows' SVG ids, unique in the document
   const PLATE = /^abmake_btn_0[123]_/, ARROW = /^shop_arrow_(\d\d)_/;
   const OUTER = '3,4 31,32 3,60', INNER = '3,10 25,32 3,54';
   const switches = $derived(view.win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.shown).map(c => {
@@ -40,11 +41,12 @@
     style="left: {c.x}px; top: {c.y}px; width: {c.w}px; height: {c.h}px; {p.plate ?? ''}">
     {#if p.plate === undefined}
       {@const pr = p.look === 'pressed'}
+      {@const id = `av-${uid}-${c.id}`}
       <svg viewBox="0 0 32 64" aria-hidden="true">
-        {#if pr}<defs><linearGradient id="av-ap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff5d1" /><stop offset="1" stop-color="#fde060" /></linearGradient></defs>{/if}
-        <polygon points={OUTER} fill={pr ? 'url(#av-ap)' : '#fa9f00'} /><polygon points={INNER} fill={pr ? '#ffd575' : '#ffb532'} />
-        <clipPath id="av-c{p.look}"><polygon points={OUTER} /></clipPath>
-        <g clip-path="url(#av-c{p.look})">
+        {#if pr}<defs><linearGradient id="{id}-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff5d1" /><stop offset="1" stop-color="#fde060" /></linearGradient></defs>{/if}
+        <polygon points={OUTER} fill={pr ? `url(#${id}-g)` : '#fa9f00'} /><polygon points={INNER} fill={pr ? '#ffd575' : '#ffb532'} />
+        <clipPath id="{id}-c"><polygon points={OUTER} /></clipPath>
+        <g clip-path="url(#{id}-c)">
           <rect x="3" y="0" width="2" height="64" fill={pr ? '#facf00' : '#ffd282'} /><rect x="5" y="0" width="2" height="64" fill={pr ? '#facf00' : '#ffd996'} />
         </g>
       </svg>

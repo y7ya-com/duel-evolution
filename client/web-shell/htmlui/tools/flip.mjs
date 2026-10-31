@@ -45,6 +45,10 @@ const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 1000], ['rc'
     ['wait', 2500]];
 const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 800], ['rc', 'click 630 300'], ['wait', 1500],
     ['rc', 'move 900 504'], ['wait', 800], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
+// My Room to the lobby (as SHOP_STEPS): the red door held, the first place, the item popup's OK
+const LOBBY_STEPS = [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
+  ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10], ['wait', 12000], ['click', 511, 670],
+  ['wait', 3000]];
 export const ROUTES = {
   // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
   signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
@@ -137,6 +141,20 @@ export const ROUTES = {
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
+  // the lobby (htmlui-select): My Room's red door held, the first place (the academy), the item popup's OK (a click
+  // on the floor when there is none), then the Main Menu from the bar: the menu, the place banner and the bar
+  lobby: { player: 'Lobby Tester', steps: [...LOBBY_STEPS, ['click', 43, 747], ['window', 'CMainMenu', 30000], ['wait', 4000]],
+    flip: ['CMainMenu', 'CWindowModelPlace', 'CWindowModelMenu'] },
+  // the bar's door: the Move list (where to go; Svelte only: --svelte=lobby)
+  'lobby-move': { player: 'Lobby Tester', steps: [...LOBBY_STEPS, ['click', 200, 752], ['window', 'CWindowModelMove', 30000], ['wait', 3000]],
+    flip: ['CWindowModelMove'] },
+  // character creation (htmlui-select): Create Player on the empty row, a name (new per run), OK, Hair Colour open
+  get avatar() {
+    const name = 'Flip ' + [...(Date.now() % 26 ** 5).toString(26).padStart(5, '0')].map(d => String.fromCharCode(97 + parseInt(d, 26))).join('');
+    return { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384],
+      ['wait', 5000], ['type', 512, 383, name], ['click', 427, 436], ['scene', 9, 90000], ['wait', 6000], ['click', 512, 130], ['wait', 2500]],
+      flip: ['CWindowDialogAvatarSwitch'] };
+  },
   'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_STEPS, flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
   'shop-cards': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 200'], ['wait', 1000],
     ['rc', 'click 530 200'], ['task', 'CShopCardWindow', 20000], ['wait', 2500]], flip: ['CShopCardWindow', 'CShopPricePlate'] },
