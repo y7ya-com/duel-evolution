@@ -23,6 +23,8 @@ for f in yo2rc.html yo2rc.js yo2rc.wasm yo2rc-async.js yo2rc-async.wasm yo2rc-io
   [ -s $B/$f ] || { echo "no $B/$f (build it, or pass --build)"; exit 1; }
 done
 rm -rf $O; mkdir -p $O; cp $B/yo2rc.html $O/
+# the HTML UI's Svelte screens (htmlui/gen/, gitignored): built here, shipped with the rest of htmlui/ below
+(cd $C/web-shell/htmlui && npm ci --no-audit --no-fund --silent && npm run --silent build)
 BUILDID=$(git -C $R rev-parse --short HEAD) NOLOADER=${NOLOADER:-} python3 - $B $C/web-shell $O <<'PY' > $O/HASHED
 import hashlib, os, re, sys; b, shell, o = sys.argv[1:]
 rd = lambda p: open(p, 'rb').read()
@@ -46,7 +48,7 @@ js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['starter'] = f'starter-
 # Its kill switch is the unhashed htmlui.json beside the page (?HTML_UI= overrides it), never shipped from here.
 hu = os.path.join(shell, 'htmlui')
 mods = sorted(os.path.relpath(os.path.join(d, f), hu) for d, _, fs in os.walk(hu) for f in fs
-              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read'))
+              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read', 'gen'))
 hk = h(rd(f'{shell}/../html-ui/ui.js'), *(m.encode() + rd(os.path.join(hu, m)) for m in mods))
 put(f'h-{hk}/ui.js', rd(f'{shell}/../html-ui/ui.js'))
 for m in mods: put(f'h-{hk}/htmlui/{m}', rd(os.path.join(hu, m)))

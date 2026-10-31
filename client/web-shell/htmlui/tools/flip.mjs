@@ -186,7 +186,8 @@ const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 
   scrollbars: args.includes('--scrollbars') || args.includes('--bars') });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 // --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
-const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', route.query].filter(Boolean).join('&');
+// --svelte=deck,chat: those screen groups from their Svelte build (gen/, npm run build first)
+const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', opt('svelte') && `HTML_SVELTE=${opt('svelte')}`, route.query].filter(Boolean).join('&');
 // --ui=A,B: those classes in HTML from the first frame (?HTML_UI=), not only after the route as --on does
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=${opt('ui') || '0'}&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
 const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
