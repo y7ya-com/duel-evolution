@@ -36,3 +36,20 @@ it("duelInvite: a private room for the challenger only; decline then cooldown; t
   expect(A.room!.all(0x3113, na).some((d) => u32(d) === rid && u32(d, 4) === 0)).toBe(true);   // the room gone for her
   expect(lp.duelInvite("user-a", B.pid!)[1]).toMatchObject({ error: "cooldown" });
 });
+
+it("duelInvite: the private room goes the moment the target goes busy (a room of its own)", async () => {
+  const h = harness();
+  const A = h.client("A", "A", "pw", "user-a"), B = h.client("B", "B", "pw", "user-b");
+  await A.account(0, "Alice"); await B.account(0, "Bob");
+  await A.enterRoom(); await B.enterRoom();
+  const lp = h.game.lp;
+  const ma = A.room!.mark();
+  const [st, out] = lp.duelInvite("user-a", B.pid!);
+  expect(st).toBe(200);
+  const rid = out.room as number;
+  // Bob opens a duel room of his own (0x4288: style, watch, mode, no password, ...)
+  B.room!.send(0x4288, new Uint8Array(28).fill(0).map((_, i) => (i === 0 ? 3 : 0)));
+  const gone = await A.room!.wait(0x3113, ma, (d) => u32(d) === rid && u32(d, 4) === 0);
+  expect(gone).not.toBeNull();                                                      // Alice's private room for Bob, gone
+  expect(lp.duelInvite("user-a", B.pid!)[1]).toMatchObject({ error: "busy" });
+});
