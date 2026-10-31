@@ -76,7 +76,10 @@ restraint. Every window keeps its job and its names; the layout and the flow are
 ## Not covered (the legacy look stays, by design or for now)
 - **Drawn by the game itself, left as the engine draws them:** Duel Options, the Duel Log browser and D-Mail. They are
   windows of pictures and custom frames; a modern version needs their own readers first.
-- **Shop, trade and the duel HUD:** not started.
+- **Shop:** its windows are picture banners and the engine's animated parts (title, frame, MP plate), which the HTML
+  layer can only pass through, not restyle. A modern shop needs readers for those parts first.
+- **Trade:** the deck windows it reuses are modern; its own windows are not.
+- **Duel HUD:** no HTML duel screen exists yet (htmlui-duel-plan.md).
 - **Audio settings:** its own HTML page (web/audiopage.js); not touched.
 - **The title menu's places:** taken from the engine's layout (modern.js TITLE). If the title scene's buttons move, update
   them there.
