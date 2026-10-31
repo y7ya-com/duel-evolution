@@ -188,3 +188,19 @@ export function avatarParts(win) {
   const used = new Set(all.flatMap(s => texts.filter(t => inside(t, s.c)).map(t => t.id)));
   return { switches: all.filter(s => s.kind !== 'other'), loose: texts.filter(t => !used.has(t.id)) };
 }
+
+// ---- an OK box that is only news (CWindowModelDialogOk: a message and its one OK): a toast, its OK pressed at once.
+// null: not one (no message, or more than the OK button: then it stays a dialog)
+export function toastable(win) {
+  const d = dialog(win);
+  return win.cls === 'CWindowModelDialogOk' && d.text.trim() && d.buttons.length === 1 && /^OK$/i.test(d.buttons[0].label.trim())
+    ? { text: d.text.trim(), ok: d.buttons[0] } : null;
+}
+
+// ---- friends' presence (GET /api/de/friends, same origin: [{ pid, name, online, place }]) by name, lower case; a name
+// the list has and the answer lacks has no presence (shown as the list shows it)
+export function presence(rows) {
+  const m = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) if (r && typeof r.name === 'string') m.set(r.name.trim().toLowerCase(), { online: !!r.online, place: String(r.place || '') });
+  return m;
+}
