@@ -273,6 +273,17 @@ describe.skipIf(!have)("PvP through the duel port", () => {
       await until(() => m.done);
     }, 120_000);
 
+    it("a re-attach with no live duel (u32 pid + u32 n) is refused (0x6007 s32 0); a new duel's 4-byte 0x6001 is booked", async () => {
+      const A = client("Alfa9", "aaaa", 1);
+      await send(A, 0x6001, new W().u32(A.s.pid!).u32(130).bytes());
+      await until(() => has(A, 0x6007));
+      expect(A.got.duel.find(([x]) => x === 0x6007)![1]).toEqual(new W().u32(0).bytes());
+      const B = client("Beta9", "bbbb", 2);
+      await send(B, 0x6001, new W().u32(B.s.pid!).bytes());
+      await until(() => has(B, 0x6007));
+      expect(B.got.duel.find(([x]) => x === 0x6007)![1]).toEqual(new W().u32(1).bytes());
+    }, 30_000);
+
     it("a deploy's shutdown (g.stopping): the duel ends at once with no result", async () => {
       const { A, m } = await duelOn("7");
       const before = rec();

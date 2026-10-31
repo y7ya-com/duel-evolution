@@ -181,7 +181,10 @@ export class DuelPort {
       const n = (this.ls.npc_deck ?? []).length;
       return c.send(0x6005, new W().u16(n || 40).u16(0).bytes());
     }
-    if (msgId === 0x6001) return c.send(0x6007, new W().u32(1).bytes());
+    // a re-attach (u32 pid + u32 n, phase2-net's duel re-attach) that reaches here has no live duel (a PvP match takes
+    // its own in duelReply; an NPC duel is abandoned when its socket closes): refused (s32 0), so the client shows
+    // the game's own "disconnected" box instead of waiting in a dead duel. A new duel's 4-byte 0x6001: booked.
+    if (msgId === 0x6001) return c.send(0x6007, new W().u32(data.length >= 8 ? 0 : 1).bytes());
     if (!g.autoReply(c, msgId)) this.log(`[srv:${c.port}] sin respuesta para 0x${msgId.toString(16).padStart(4, "0")}`);
   }
 
