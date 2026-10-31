@@ -114,3 +114,42 @@ export function dialog(win) {
     buttons: cs.filter(c => /Switch$|ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.x - b.x),
   };
 }
+
+// ---- D-Mail (CWindowModelDMail: the inbox; CWindowModelDMailSend: Write Mail). Its switches by label; the inbox's
+// rows are its shown DMailItems, each read from its own texts; the open mail's body is 'メール本文'; a form's fields are
+// its Inputs (a MultiInput's Input child), each named by the label text on its row, left of it, or just above it.
+export function mail(win) {
+  const cs = win.controls, shown = cs.filter(c => c.shown);
+  const isInput = c => /CWindowTaskInput$/.test(c.cls);
+  const texts = shown.filter(c => c.cls === 'CWindowTaskText' && top(c) && c.text && c.name !== 'メール本文');
+  const fields = shown.filter(c => isInput(c) && (top(c) || cs.find(p => p.id === c.parent)?.cls.endsWith('MultiInput'))).map(c => {
+    const up = cs.find(p => p.id === c.parent);
+    const at = up?.cls.endsWith('MultiInput') ? { ...c, x: c.x + up.x, y: c.y + up.y } : c;
+    const lab = texts.filter(t => (sameRow(t, at, 10) && t.x < at.x) || (t.y < at.y && at.y - t.y <= 28 && Math.abs(t.x - at.x) < 40))
+      .sort((a, b) => b.y - a.y || b.x - a.x)[0];
+    return { c, y: at.y, label: untag(lab?.text || '').replace(/[:：]\s*$/, ''), area: !!c.multiLine || /MultiInput$/.test(up?.cls || '') };
+  }).sort((a, b) => a.y - b.y);
+  return {
+    compose: /Send$/.test(win.cls),
+    title: shown.find(c => c.cls === 'CWindowTaskShadowText' && top(c))?.text || 'D-Mail',
+    buttons: shown.filter(c => /TextSwitch$|ButtonDuel$/.test(c.cls) && top(c) && c.label),
+    rows: shown.filter(c => /DMailItem$/.test(c.cls)).sort((a, b) => a.y - b.y).map(r => ({
+      r, text: cs.filter(t => t.parent === r.id && t.shown && t.text).sort((a, b) => a.x - b.x).map(t => untag(t.text).trim()).filter(Boolean),
+    })),
+    body: untag(cs.find(c => c.name === 'メール本文' && c.shown)?.text || ''),
+    fields,
+  };
+}
+
+// ---- character creation (CWindowDialogAvatarSwitch): its picture switches by size (categories 324, items 254, Confirm /
+// Back 162, the page arrows 32 x 64), each with the text that sits on it; texts on no switch stay loose
+export function avatarParts(win) {
+  const sw = win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.shown);
+  const texts = win.controls.filter(c => c.cls === 'CWindowTaskText' && !c.parent && c.shown && c.text);
+  const inside = (t, c) => t.x + t.w / 2 >= c.x - 8 && t.x <= c.x + c.w && t.y >= c.y - 12 && t.y < c.y + c.h;
+  const label = c => texts.find(t => inside(t, c))?.text || '';
+  const kind = c => c.w === 324 ? 'category' : c.w === 254 ? 'item' : c.w === 162 ? 'action' : c.w <= 40 && c.h >= 56 ? 'arrow' : 'other';
+  const all = sw.map(c => ({ c, kind: kind(c), label: label(c) }));
+  const used = new Set(all.flatMap(s => texts.filter(t => inside(t, s.c)).map(t => t.id)));
+  return { switches: all.filter(s => s.kind !== 'other'), loose: texts.filter(t => !used.has(t.id)) };
+}

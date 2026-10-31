@@ -97,6 +97,34 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.leaveButton(d.buttons).label, 'No');
 }
 
+// D-Mail: the inbox's rows from their own texts, the body; Write Mail's fields named by their labels
+{
+  const item = (y, ...t) => { const r = ctl('DMailItem', { name: '件名', x: 16, y }); return [r, ...t.map((s, i) => ctl('Text', { parent: r.id, x: 20 + 200 * i, y: 4, text: s }))]; };
+  const inbox = L.mail(win('CWindowModelDMail', [ctl('ShadowText', { text: 'D-Mail' }), ...item(108, 'Second', 'Kain'), ...item(72, 'First', 'raMon'),
+    ctl('DMailItem', { name: '件名', y: 144, shown: false }), ctl('Text', { name: 'メール本文', text: 'hi there' }),
+    ctl('TextSwitch', { x: 16, y: 40, label: 'Write Mail' }), ctl('TextSwitch', { x: 206, y: 481, label: 'Close' })], { w: 512, h: 512 }));
+  assert.equal(inbox.compose, false);
+  assert.deepEqual(inbox.rows.map(r => r.text), [['First', 'raMon'], ['Second', 'Kain']]);
+  assert.equal(inbox.body, 'hi there');
+  assert.deepEqual(inbox.buttons.map(b => b.label), ['Write Mail', 'Close']);
+  const multi = ctl('MultiInput', { x: 16, y: 120, w: 480, h: 240 });
+  const send = L.mail(win('CWindowModelDMailSend', [ctl('Text', { x: 16, y: 48, w: 60, h: 16, text: 'To:' }), ctl('Input', { x: 80, y: 44, w: 300, h: 24, value: '' }),
+    ctl('Text', { x: 16, y: 80, w: 60, h: 16, text: 'Subject' }), ctl('Input', { x: 80, y: 76, w: 400, h: 24 }),
+    ctl('Text', { x: 16, y: 100, w: 60, h: 16, text: 'Message' }), multi, ctl('Input', { parent: multi.id, x: 0, y: 0, w: 480, h: 240, multiLine: true })], { w: 512, h: 512 }));
+  assert.equal(send.compose, true);
+  assert.deepEqual(send.fields.map(f => [f.label, f.area]), [['To', false], ['Subject', false], ['Message', true]]);
+}
+
+// character creation: switches by size with their labels; a text on no switch stays loose
+{
+  const sw = (x, y, w, h, o = {}) => ctl('PictureSwitch', { x, y, w, h, state: 'normal', ...o });
+  const t = (x, y, text) => ctl('Text', { x, y, w: 200, h: 32, text });
+  const a = L.avatarParts(win('CWindowDialogAvatarSwitch', [sw(340, 60, 324, 44, { checked: true }), t(360, 66, 'Hair'), sw(720, 80, 254, 34), t(730, 84, 'Spiky'),
+    sw(340, 680, 162, 42), t(360, 688, 'Confirm'), sw(960, 300, 32, 64), t(20, 20, 'Choose your look')], { w: 336, h: 550 }));
+  assert.deepEqual(a.switches.map(s => [s.kind, s.label]), [['category', 'Hair'], ['item', 'Spiky'], ['action', 'Confirm'], ['arrow', '']]);
+  assert.deepEqual(a.loose.map(x => x.text), ['Choose your look']);
+}
+
 // the switch (../modern.js) on a stub page: default off, ?MODERN_UI= wins, remembered, killed by htmlui.json
 {
   const store = new Map();

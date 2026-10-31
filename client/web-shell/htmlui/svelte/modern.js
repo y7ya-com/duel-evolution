@@ -13,6 +13,8 @@ import PlayerList from './modern/PlayerList.svelte';
 import ListWindow from './modern/ListWindow.svelte';
 import Profile from './modern/Profile.svelte';
 import Dialog from './modern/Dialog.svelte';
+import Mail from './modern/Mail.svelte';
+import Avatar from './modern/Avatar.svelte';
 import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
@@ -60,7 +62,9 @@ const screens = [
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
   screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
-    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog }, { mode: 'owned', clip: false }),
+    CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail }, { mode: 'owned', clip: false }),
+  // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
+  screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
   deckScreen,
 ];
