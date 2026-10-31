@@ -51,3 +51,5 @@
 0069c460  # CCheckDisconnectTask::onMain (lobbyretry.c: a lobby the server cut reconnects instead of the box)
 006d3d50  # CNetLobbyTask::enterBlock (lobbyretry.c: a reconnect asks for the area the player was in)
 00add7b0  # CWorldMng::enterArea (lobbyretry.c: a reconnect loads the map the player was on)
+006917b0  # CNetDuel::sendBookedCheck 0x6001 (duelreattach.c: a new duel: its pid, the count from 0)
+0068cf60  # CMessageIOBase::sendBye (duelreattach.c: the client closing its duel connection ends the duel)

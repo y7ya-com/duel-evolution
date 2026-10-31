@@ -18,9 +18,12 @@ void o_00761970(CPU *restrict c), o_00692580(CPU *restrict c);
 enum { RING = 20, WORDS = 7 };
 static uint32_t ring[RING][WORDS], ring_n;
 
+void rc_duel_command(void);   // ovr/duelreattach.c: the re-attach's count
+
 void f_00692580(CPU *restrict c) {
     uint32_t obj = c->ecx;
     o_00692580(c);
+    rc_duel_command();
     uint32_t e = obj + 0x68f8 + RD32m(obj + 0xb8f8) * 0x28, *r = ring[ring_n++ % RING];
     for (int i = 0; i < WORDS; i++) r[i] = RD32m(e + 4 * i);
 }

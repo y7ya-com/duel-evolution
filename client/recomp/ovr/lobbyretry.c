@@ -122,9 +122,12 @@ void f_00a01740(CPU *c) {
 
 // 0x0069c460 CCheckDisconnectTask::onMain (fastcall, this): a lobby the server cut, in an area or My Room, reconnects
 // instead of opening the box.
+int rc_duel_cut(CPU *c);   // ovr/duelreattach.c
+
 void f_0069c460(CPU *c) {
     static uint64_t drops[MAX_DROPS];
     static unsigned ndrops;
+    rc_duel_cut(c);   // a duel cut mid-duel re-attaches (and clears the flag) before the box can see it
     uint32_t app = RD32m(APP), world = RD32m(WORLD), state = world ? RD32m(world + 0x70) : 0;
     if (rejoining && state == IN_MYROOM && area_rejoin.block >= 0 && area_rejoin.tries < 3 && RD32m(world + 0x8c)) {
         join_area(c, world);   // the area's room didn't answer (a restart): My Room is back, so the area again
