@@ -128,3 +128,19 @@ console.log("shell.html: all checks pass");
     assert.equal(boot(new Map(), "Mozilla/5.0 Firefox/158.0", { Suspending: 1, Memory: full }).src, "yo2rc-async.js");   // no trial outside V8
 }
 console.log("shell.html picker: all checks pass");
+// the game's own fatal end (structure deck, 2026-10-31: CTextureManager's MessageBox, then ExitProcess(1) from a game
+// thread, which never reached onExit): one fatal report naming both; a clean ExitProcess(0) reports nothing
+{
+    const p = page();
+    p.ctx.Module.yo2Presents = 500;
+    p.ctx.Module.print("MessageBox [Error]: CTextureManager.cpp L784 data/MINI/x");
+    p.ctx.Module.print("ExitProcess(1)");
+    p.run(5);
+    assert.equal(p.posts.length, 1);
+    assert.equal(p.posts[0].fatal, true);
+    assert.match(p.posts[0].why, /^ExitProcess\(1\) after MessageBox \[Error\]: CTextureManager/);
+    const q = page();
+    q.ctx.Module.print("ExitProcess(0)");
+    q.run(5);
+    assert.equal(q.posts.length, 0);
+}
