@@ -121,17 +121,25 @@ export function dialog(win) {
 export function mail(win) {
   const cs = win.controls, shown = cs.filter(c => c.shown);
   const isInput = c => /CWindowTaskInput$/.test(c.cls);
-  const texts = shown.filter(c => c.cls === 'CWindowTaskText' && top(c) && c.text && c.name !== 'メール本文');
+  // labels: plain texts and the form's ShadowText captions ('『件名』' Subject:, '『宛先』' To:), not the title
+  const title = shown.find(c => c.cls === 'CWindowTaskShadowText' && top(c) && c.y < 16);
+  const texts = shown.filter(c => /CWindowTask(Shadow)?Text$/.test(c.cls) && top(c) && c.text && c !== title && c.name !== 'メール本文');
+  const used = new Set();   // a caption names one field (the message box sits under Subject's)
   const fields = shown.filter(c => isInput(c) && (top(c) || cs.find(p => p.id === c.parent)?.cls.endsWith('MultiInput'))).map(c => {
     const up = cs.find(p => p.id === c.parent);
-    const at = up?.cls.endsWith('MultiInput') ? { ...c, x: c.x + up.x, y: c.y + up.y } : c;
-    const lab = texts.filter(t => (sameRow(t, at, 10) && t.x < at.x) || (t.y < at.y && at.y - t.y <= 28 && Math.abs(t.x - at.x) < 40))
+    return { c, up, at: up?.cls.endsWith('MultiInput') ? { ...c, x: c.x + up.x, y: c.y + up.y } : c };
+  }).sort((a, b) => a.at.y - b.at.y).map(({ c, up, at }) => {
+    const lab = texts.filter(t => !used.has(t.id) && ((sameRow(t, at, 10) && t.x < at.x) || (t.y < at.y && at.y - t.y <= 28 && Math.abs(t.x - at.x) < 40)))
       .sort((a, b) => b.y - a.y || b.x - a.x)[0];
+    if (lab) used.add(lab.id);
     return { c, y: at.y, label: untag(lab?.text || '').replace(/[:：]\s*$/, ''), area: !!c.multiLine || /MultiInput$/.test(up?.cls || '') };
-  }).sort((a, b) => a.y - b.y);
+  });
   return {
     compose: /Send$/.test(win.cls),
-    title: shown.find(c => c.cls === 'CWindowTaskShadowText' && top(c))?.text || 'D-Mail',
+    title: title?.text || 'D-Mail',
+    // Write Mail's recipient: picked through Friend List, shown in the ShadowText '宛先' after the 'To:' caption
+    to: shown.some(c => c.name === '『宛先』') ? { label: untag(shown.find(c => c.name === '『宛先』').text).replace(/[:：]\s*$/, ''),
+      name: untag(shown.find(c => c.name === '宛先')?.text || '').trim() } : null,
     buttons: shown.filter(c => /TextSwitch$|ButtonDuel$/.test(c.cls) && top(c) && c.label),
     rows: shown.filter(c => /DMailItem$/.test(c.cls)).sort((a, b) => a.y - b.y).map(r => ({
       r, text: cs.filter(t => t.parent === r.id && t.shown && t.text).sort((a, b) => a.x - b.x).map(t => untag(t.text).trim()).filter(Boolean),

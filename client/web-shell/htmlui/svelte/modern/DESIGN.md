@@ -15,11 +15,13 @@ restraint. Every window keeps its job and its names; the layout and the flow are
 ## World
 - **Field:** deep navy to azure (`#061733` → `#0e3275` → `#1b51b6`), with the 2008 art's scan lines at 3 % white.
 - **Plate** (every window): deep-blue glass in a 1.5 px silver rim (`#f3f7fc` → `#8fa3bd` → `#dfe8f3`).
+  - The body runs sky-azure to navy (`#2a6fd8` → `#154ba8` → `#0e3275`): the 2008 brightness, not night mode. Deep navy is
+    kept for wells (logs, lists).
   - The upper third carries the old gloss as a 13 % sheen.
   - Corners are 18/18/18/6: the duel disk's blade, one corner kept tight.
   - Shadow: offset and soft (0 24 48 −18). No glow halos.
-- **Gold** (`#fff7c2` → `#f7e46c` → `#f1c330` → `#e7a51b`, edge `#a8640f`): the 2008 menu buttons. Only the one primary
-  action of a window uses it, and the active tab's underline.
+- **Gold** (`#fff7c2` → `#f7e46c` → `#f1c330` → `#e7a51b`, edge `#a8640f`): the 2008 menu buttons. It marks the menu
+  (the Main Menu's tiles, as its bars were), each window's one primary action, and the active tab's underline.
 - **Glass buttons:** sky-to-azure translucent with a cyan rim. On hover they lift 1 px and the rim brightens.
 - **Text:**
   - Hierarchy: white for titles and names; `#eaf6ff`, `#b7d3f2` and `#86a7cf` for the rest.
@@ -83,6 +85,33 @@ restraint. Every window keeps its job and its names; the layout and the flow are
 - **Audio settings:** its own HTML page (web/audiopage.js); not touched.
 - **The title menu's places:** taken from the engine's layout (modern.js TITLE). If the title scene's buttons move, update
   them there.
+
+## Critique (2026-10-31, impeccable: design review + detector evidence, against the legacy captures)
+The two assessments ran separately. The detector found nothing; the reviews found these, all fixed in one pass.
+- **Deck editor dimmed.** A deck window reporting itself modal drew its scrim over the scene and the card faces; the
+  scrim is now the file list's only.
+- **Identity.** The Main Menu's gold bars came back as gold tiles. The plate is lighter (2008 sky, not night). The dock
+  is the 2008 cyan bar again.
+- **Contrast.** Muted text was raised (`--ink-2` #c8ddf5, `--ink-3` #a9c3e4). Inactive tabs moved to `--ink-2`.
+  Placeholders are #5b6f8c. Focus rings are solid cyan.
+- **Keyboard.** Select Player, the lists and Profile focus their first control on open, so Esc and the arrows work at
+  once. The Main Menu's arrows reach the switch.
+- **Hit targets.** At least 24 px: icon buttons, player rows.
+- **Motion.** The title menu honours prefers-reduced-motion. Its focus is an outline, not a no-op filter.
+- **Deck.**
+  - The search chips show their colour as a dot, not a side stripe.
+  - Trunk row tints are stronger.
+  - The card name and type runs are lifted to gold / green to read on the plate.
+  - Exit no longer overlaps the detail window.
+- **Details.**
+  - Slots line up, with Delete set apart.
+  - Profile shows "—" for the engine's "---.--%", and its odd last figure is wider.
+  - The level chip reads "Lv 1" everywhere.
+  - The place chip's counts align.
+  - The dock is hidden where the scene has no buttons.
+- **Kept as decided.**
+  - The title menu keeps its plate: it has to cover the engine's own title buttons, which the HTML layer cannot hide.
+  - "Remove from Friend List" stays as the engine enables it.
 
 ## Development
 - `cd client/web-shell/htmlui && npm run build`: gen/modern.js is built with the other Svelte groups.

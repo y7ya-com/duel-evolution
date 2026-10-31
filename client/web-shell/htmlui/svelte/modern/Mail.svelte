@@ -4,7 +4,10 @@
   // each field named by the game's own label, the message a text area, Send in gold. Every button, row and field is the
   // engine's own; Esc is Close / Cancel.
   import { mail, leaveButton } from './logic.js';
-  const GOLD = /^(Write Mail|Send|Send Mail)$/;
+  const GOLD = /^(Write Mail|Send( D-?mail)?)$/i;
+  // the inbox's actions in this order (Write Mail first, Delete apart at the end); the rest after Write Mail
+  const ORDER = ['Write Mail', 'Send Mail', 'Delete'];
+  const rank = b => { const i = ORDER.indexOf(b.label.trim()); return i < 0 ? 1.5 : i; };
 </script>
 
 <script>
@@ -14,8 +17,10 @@
   const win = $derived(view.win);
   const m = $derived(mail(win));
   const api = $derived(view.api);
-  const head = $derived(m.buttons.filter(b => b.y < win.h / 2));
-  const foot = $derived(m.buttons.filter(b => b.y >= win.h / 2));
+  const head = $derived(m.buttons.filter(b => b.y < win.h / 2).sort((a, b) => rank(a) - rank(b)));
+  const friends = $derived(m.compose ? m.buttons.find(b => b.label.trim() === 'Friend List') : null);
+  // the footer: the rest, the primary last
+  const foot = $derived(m.buttons.filter(b => (m.compose ? b !== friends : b.y >= win.h / 2)).sort((a, b) => GOLD.test(a.label.trim()) - GOLD.test(b.label.trim())));
   // a row: a click at its place (a DMailItem reads 0 x 0)
   const openRow = r => api.click(r.id, [win.x + r.x + 200, win.y + r.y + 16]);
   function keys(e) { if (e.key === 'Escape' && !/INPUT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); const b = leaveButton(m.buttons); b && api.click(b.id); } }
@@ -37,6 +42,15 @@
     </header>
     {#if m.compose}
       <div class="form">
+        {#if m.to}
+          <div class="to">
+            <span>{m.to.label}</span>
+            <div class="row">
+              <output class:none={!m.to.name}>{m.to.name || 'Choose a friend'}</output>
+              {#if friends}{@render btn(friends)}{/if}
+            </div>
+          </div>
+        {/if}
         {#each m.fields as f (f.c.id)}
           <label class:grow={f.area}>
             <span>{f.label || (f.area ? 'Message' : 'Text')}</span>
@@ -58,7 +72,7 @@
       </ul>
       <article class="body mu-scroll" aria-label="Message">{m.body || 'Choose a mail to read it here.'}</article>
     {/if}
-    <footer>{#each (m.compose ? m.buttons : foot) as b (b.id)}{@render btn(b)}{/each}</footer>
+    <footer>{#each foot as b (b.id)}{@render btn(b)}{/each}</footer>
   </section>
 </div>
 
@@ -68,6 +82,11 @@
   .box :global(.lead) { color: var(--gold-300); }
   .actions { display: flex; gap: 8px; padding: 12px 16px 0; }
   .actions :global(.mu-btn:last-child:not(:first-child)) { margin-left: auto; }
+  .to { display: flex; flex-direction: column; gap: 5px; }
+  .to .row { display: flex; gap: 8px; }
+  .to output { flex: 1; height: 30px; line-height: 30px; padding: 0 12px; border-radius: 10px; font-weight: 650; color: #fff;
+    background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px rgba(150, 205, 255, .25); }
+  .to output.none { color: var(--ink-3); font-weight: 500; }
   .rows { list-style: none; margin: 10px 16px 0; padding: 4px; height: 178px; flex: none; border-radius: 10px;
     background: rgba(4, 17, 43, .42); box-shadow: inset 0 1px 3px rgba(0, 0, 0, .45), inset 0 0 0 1px rgba(150, 205, 255, .12); }
   .rows button { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--ink-2);
@@ -83,6 +102,6 @@
   .form label { display: flex; flex-direction: column; gap: 5px; }
   .form label.grow { flex: 1; min-height: 0; }
   .form label.grow :global(textarea) { flex: 1; min-height: 0; }
-  .form span { font-size: 11.5px; font-weight: 650; color: var(--sky-300); letter-spacing: .02em; }
+  .form span, .to > span { font-size: 11.5px; font-weight: 650; color: var(--sky-300); letter-spacing: .02em; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; }
 </style>

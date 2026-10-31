@@ -119,7 +119,7 @@ const CSS = `
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
 /* the 2008 title buttons' slant (a parallelogram plate, its right end raked), now glass with a sheen */
 #mu-title .mu-tbtn { position: relative; display: flex; align-items: center; justify-content: center; height: 40px; padding: 0 28px; margin: 0;
-  border: 0; font-family: inherit; font-weight: 750; font-size: 17px; line-height: 1; letter-spacing: .1em; font-style: italic;
+  border: 0; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic;
   color: #eaf6ff; text-shadow: 0 1px 2px rgba(4, 16, 44, .7);
   clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
   background: linear-gradient(180deg, rgba(160, 245, 255, .55) 0, rgba(125, 239, 252, .35) 2px, rgba(9, 133, 255, .42) 48%, rgba(0, 70, 220, .72) 52%, rgba(0, 40, 170, .8) 100%);
@@ -130,7 +130,7 @@ const CSS = `
 #mu-title .mu-tbtn svg { display: none; }
 #mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(4px); filter: brightness(1.12) saturate(1.1); }
 #mu-title .mu-tbtn:hover::after, #mu-title .mu-tbtn:focus-visible::after { background-position: 260% 0; }
-#mu-title .mu-tbtn:focus-visible { filter: brightness(1.12) drop-shadow(0 0 0 #75ffff); text-decoration: underline 2px #75ffff; text-underline-offset: 5px; }
+#mu-title .mu-tbtn:focus-visible { filter: brightness(1.12); outline: 2px solid #75ffff; outline-offset: 3px; text-decoration: underline 2px #75ffff; text-underline-offset: 5px; }
 #mu-title .mu-tbtn:active { transform: translateX(2px); filter: brightness(.95); }
 #mu-title .mu-tbtn-primary { height: 54px; font-size: 24px; color: #3a2200; text-shadow: 0 1px 0 rgba(255, 250, 210, .75);
   clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%);
@@ -143,7 +143,7 @@ const CSS = `
     0 8px 20px -8px rgba(2, 10, 30, .7); }
 #mu-title .mu-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
 #mu-title .mu-track { position: relative; width: 38px; height: 22px; border-radius: 11px; flex: none;
-  background: linear-gradient(180deg, #4b5d7e, #66789a); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), 0 0 0 1px rgba(6, 20, 52, .8);
+  background: linear-gradient(180deg, #6f82a6, #8698bb); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), 0 0 0 1px rgba(6, 20, 52, .8);
   transition: background .18s; }
 #mu-title .mu-knob { position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff, #dfe8f3 55%, #9fb3cc); box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
@@ -152,4 +152,5 @@ const CSS = `
 #mu-title input:checked + .mu-track .mu-knob { transform: translateX(16px); }
 #mu-title input:focus-visible + .mu-track { box-shadow: 0 0 0 2px #75ffff, inset 0 1px 2px rgba(0, 0, 0, .45); }
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
+@media (prefers-reduced-motion: reduce) { #mu-title *, #mu-title *::after { animation: none !important; transition: none !important; } }
 `;
