@@ -683,7 +683,12 @@ Module.preRun.push(() => {
     }
     function onScene(kind, from, to) {
         if (!prefetchOn || !archive || !files.get(archive).etag) return;
-        if (kind === "begin" && to === JANKEN) fieldBackgrounds([]), npcDeck();
+        if (kind === "begin" && to === JANKEN) {
+            fieldBackgrounds([]), npcDeck();
+            // the duel effects the lobby has not brought in yet go ahead of the queue (it wants them last, priority 5):
+            // a slow link reached the duel without them (merge.dat 561, 585: 3.4-4 s each)
+            for (const d of DUELFX) wantSpan(d, 2, "duelfx");
+        }
         if (kind === "end" && to === LOBBY) {
             for (const d of DUELFX) wantSpan(d, 5, "duelfx");
             // and the duel's own small pictures kept with the 48 MB of backgrounds: think icons, windows, gauges
