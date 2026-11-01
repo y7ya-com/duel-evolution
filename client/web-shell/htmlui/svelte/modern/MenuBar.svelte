@@ -9,7 +9,7 @@
   //   or a duel of yours is open (Create Duel: the same icon), the Duel switch becomes an "Awaiting duel ×" chip; it plays that switch, which asks the game's own "Cancel the Duel you created?".
   // The window is 384 wide at the bottom left; the dock spans the screen (clip: false).
   import Icon from './Icon.svelte';
-  import { menu, QUICK, quickKey, menuSwitch } from './macro.js';
+  import { menu, QUICK, quickKey, menuSwitch, waitFor } from './macro.js';
   import { openGeneric } from './Generic.svelte';
   let { view } = $props();
   const win = $derived(view.win);
@@ -21,6 +21,19 @@
   const named = c => (NAMES.find(([k]) => c.name?.includes(k)) || NAMES[2]).slice(1);
   const searching = $derived(win.controls.some(c => c.cls === 'CNoticeIconDuelroom' && c.shown));
   const duelSwitch = $derived(icons.find(c => c.name?.includes('MENU_DUEL')));
+  // Move: the game asks the server before it shows its window (1 to 4 s: "Connecting to server..."), so the key shows
+  // that it is working until the window is there (or 6 s); a press meanwhile is not sent again (a second press while
+  // the request is out was lost, and one just after closing the window too)
+  let moving = $state(false);
+  async function press(c, label) {
+    if (label !== 'Move') return view.api.click(c.id);
+    if (moving) return;
+    moving = true;
+    try {
+      await view.api.click(c.id);
+      await waitFor(s => s.windows.some(w => w.cls === 'CWindowModelMove' && w.shown), 6000);
+    } finally { moving = false; }
+  }
   // quick actions only where the scene has the Main Menu
   const quick = $derived(!!menuSwitch({ windows: [win] }));
   let pending = $state('');
@@ -67,7 +80,8 @@
           <i aria-hidden="true"></i>Awaiting duel<span aria-label="Cancel"><Icon name="close" size={11} /></span>
         </button>
       {:else}
-        <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} data-state={c.state} onclick={() => view.api.click(c.id)}>
+        <button type="button" class="mu-btn menu" class:gold={label === 'Menu'} class:busy={label === 'Move' && moving} aria-busy={label === 'Move' && moving}
+          data-state={c.state} onclick={() => press(c, label)}>
           <Icon name={icon} size={16} /><span>{label}</span>
         </button>
       {/if}
@@ -98,6 +112,11 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 0 0 1px #10306a, 0 2px 0 #0d2a5c; }
   .menu.gold { box-shadow: inset 0 1px 0 #fffbe8, 0 0 0 1px var(--gold-edge), 0 2px 0 var(--lip-gold); }
   .status.empty { padding: 0; visibility: hidden; }
+  /* a key whose action is on its way (Move: the server's answer): its icon pulses, the key stays pressed in */
+  .menu.busy { cursor: progress; box-shadow: inset 0 2px 3px rgba(0, 10, 40, .45), 0 0 0 1px #10306a; }
+  .menu.busy :global(.mu-ico) { animation: busy 0.9s ease-in-out infinite; }
+  @keyframes busy { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .menu.busy :global(.mu-ico) { animation: none; opacity: .6; } }
   .menu, .seek, .q { flex: none; white-space: nowrap; }   /* the status field gives way, never a key */
   .seek { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 3px 0 9px; border-radius: 12px; font-size: 12px; font-weight: 700;
     color: var(--gold-ink); background: var(--gold); box-shadow: 0 0 0 1px var(--gold-edge), 0 2px 0 var(--lip-gold); white-space: nowrap; }
