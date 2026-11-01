@@ -70,7 +70,7 @@
         </div>
       {/if}
       {#if d.help !== undefined}<div class="help" aria-live="polite">
-        {#if hover}<b>{hover}</b>{/if}
+        <b>{hover || '\u00a0'}</b>   <!-- always there: a line put in on hover pushed the help down (a layout shift) -->
         <p>{d.help}</p>
       </div>{/if}
     </div>
@@ -97,7 +97,7 @@
   .opt:hover { color: var(--ink-strong); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
   .opt:active { transform: translateY(1px); }
   .opt.on { color: var(--gold-ink); background: var(--gold); box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 rgba(255, 255, 255, .8), 0 2px 4px rgba(120, 70, 0, .22); }
-  .help { min-height: 108px; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
+  .help { height: 108px; overflow-y: auto; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
   .help b { display: block; margin-bottom: 4px; font-size: 12px; color: var(--link); }
   .help p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink); white-space: pre-wrap; }
   footer { display: flex; align-items: center; gap: 8px; padding: 14px 18px 0; }
