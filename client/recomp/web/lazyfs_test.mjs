@@ -300,6 +300,14 @@ for (const [opts, all, what] of [[{ duel: null }, true, "PvP: every Field Spell"
     assert.ok(filed(), what + ": the player's own Field Spell");
 }
 console.log("Field Spell backgrounds: ok");
+{   // janken straight away (the lobby's background prefetch never got to the duel effects): janken wants them itself
+    const e = makeEnv(new Map(), new Map()), L = e.Module.yo2Lazy;
+    await e.ready();
+    e.read("/game/merge.dat", 0, toc), await settle(L);
+    e.Module.onYo2Scene("begin", 12, 0x1e), await settle(L);
+    assert.ok([...L.pinned.values()].some((p) => p.tag === "duelfx"), "the duel effects pinned at janken");
+}
+console.log("duel effects at janken: ok");
 
 fetched.length = 0;
 // ---- trickle: only when the server lets the HTTP cache keep game files; never kept in memory
