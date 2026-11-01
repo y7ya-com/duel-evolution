@@ -224,13 +224,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       let e = fxEls[i];
       if (!e) {
         e = fxEls[i] = document.createElement('div');
-        Object.assign(e.style, { position: 'absolute', overflow: 'hidden' });
+        Object.assign(e.style, { position: 'absolute', left: 0, top: 0, overflow: 'hidden' });
         e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '' }));
         Object.assign(e.firstChild.style, { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', maxWidth: 'none' });
         fx.append(e);
       }
       const [sx, sy, sw, sh] = s.src, src = 'ui/' + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
-      Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
+      // placed by transform, not left / top: a sprite that moves is not a layout shift
+      Object.assign(e.style, { transform: `translate(${s.wx}px, ${s.wy}px)`, width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
       if (e.firstChild.getAttribute('src') !== src) e.firstChild.src = src;
       e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
     });
@@ -274,8 +275,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     async click(id, gp) {
       const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
       if (!p) return false;
-      fire('mousemove', p); await frames(2);
-      fire('mousedown', p); await frames(2);
+      // one game frame between each (the game drops a press in the same frame as its move, and a release in the same
+      // frame as its press); two each cost 4 frames, about 130 ms at 30 fps, on every modern button
+      fire('mousemove', p); await frames(1);
+      fire('mousedown', p); await frames(1);
       fire('mouseup', p); return true;
     },
     hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },

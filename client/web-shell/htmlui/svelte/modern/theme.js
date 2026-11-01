@@ -54,10 +54,10 @@ const CSS = `
    corners cut with a gold line along each cut, the shadow following the cut shape (drop-shadow, not box-shadow).
    It paints opaque, in place, from its first frame (html-ui-pixel): the game draws a new window its own way for that one
    frame (the hide table takes effect at the next Present), so a plate fading, scaling or rising in showed it through.
-   Its arrival is a light passing over the frame instead (mu-arrive: brightness only, nothing uncovered) */
+   No arrival pass either: a third of a second of glow after the window is already there read as lag (owner: "feels
+   super slow to open"). The panel is simply there, finished, in the frame the game shows the window */
 .mu-plate { position: absolute; isolation: isolate; border-radius: 0; background: none;
-  filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35));
-  animation: mu-arrive .32s ease-out; }
+  filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35)); }
 .mu-plate::before, .mu-plate::after { content: ''; position: absolute; pointer-events: none; }
 .mu-plate::before { inset: 0; z-index: -2; border: 1px solid #3d5579; clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
   background: linear-gradient(135deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 0 0 / 24px 24px no-repeat,
