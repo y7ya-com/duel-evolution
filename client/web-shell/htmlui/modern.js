@@ -22,6 +22,9 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     .then(m => { for (const s of m.default?.screens || [m.default]) for (const c of s?.classes || []) mods.set(c, s); })
     .catch(e => console.warn('htmlui modern', e));
   if (on) load();
+  // html.mu-modern while it is on: pages outside the window screens (the Audio page) take the modern look from it
+  const mark = () => document.documentElement?.classList.toggle('mu-modern', on && !killed);
+  mark();
 
   // the layer over the canvas (placed and scaled with the bridge's): the title's switch and, modern, its menu
   const layer = document.createElement('div');
@@ -40,8 +43,14 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
       ${TITLE.map(([l], i) => `<button type="button" class="mu-tbtn${i ? '' : ' mu-tbtn-primary'}" data-i="${i}"><span class="mu-tfill"></span><span class="mu-tlbl">${l}</span></button>`).join('')}
     </nav>
     <label class="mu-switch"><input type="checkbox" role="switch"><span class="mu-track"><span class="mu-knob"></span></span>
+      <span class="mu-switch-label">Legacy UI</span></label>
+    <label class="mu-switch mu-ingame" hidden><input type="checkbox" role="switch" checked><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
+  // in game with the original UI: the same switch beside the original Main Menu while it is open (owner: "no way to
+  // toggle Legacy UI off after turning it on"); off brings Modern UI back at once
+  const ingame = layer.querySelector('.mu-ingame'), ingameBox = ingame.querySelector('input');
+  ingameBox.addEventListener('change', () => { if (!ingameBox.checked) set(true); ingameBox.checked = true; });
   const listeners = new Set();
   const set = v => {
     v = !!v && !killed;
@@ -50,6 +59,7 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     try { localStorage.setItem(KEY, on ? '1' : '0'); } catch {}
     if (on) load();
     box.checked = !on;
+    mark();
     listeners.forEach(f => f(on));
     return on;
   };
@@ -100,8 +110,14 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     // each frame: the title layer shows on the title scene (4) once it is up, with no window over it (OPTIONS opens one)
     frame(snap, scene, wait) {
       const title = !killed && scene === 4 && !wait && !snap.windows.some(w => w.shown && w.drawn);
-      if (layer.hidden === title) {
-        layer.hidden = !title;
+      // the original Main Menu open in game, the original UI on: the switch above it, at its left edge
+      const mm = !killed && !on && !wait && scene !== 4 && snap.windows.find(w => w.cls === 'CMainMenu' && w.shown && w.drawn);
+      if (ingame.hidden === !!mm) ingame.hidden = !mm;
+      if (mm) { const d = mm.drawn || mm, l = `${d.x}px`, t = `${Math.max(4, d.y - 40)}px`; if (ingame.style.left !== l) ingame.style.left = l; if (ingame.style.top !== t) ingame.style.top = t; }
+      const show = title || !!mm;
+      if (layer.hidden === show) layer.hidden = !show;
+      if (layer.classList.contains('mu-title-on') !== title) {
+        layer.classList.toggle('mu-title-on', title);
         // the modern menu up: ONLINE has the focus, so Enter starts and the arrows move (DESIGN.md UX spec 5)
         if (title && on && !layer.contains(document.activeElement)) menu.querySelector('button')?.focus({ preventScroll: true });
       }
@@ -117,7 +133,10 @@ const CSS = `
    rim, the bar's fill, a soft drop shadow). The 2008 slant, the 2008 order; ONLINE taller and in the menu's gold */
 #mu-title .mu-tmenu { position: absolute; left: 318px; top: 424px; width: 392px; display: none; flex-direction: column; gap: 7px;
   pointer-events: auto; animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
-#mu-title.mu-on .mu-tmenu { display: flex; }
+#mu-title.mu-on.mu-title-on .mu-tmenu { display: flex; }
+#mu-title:not(.mu-title-on) > .mu-switch:not(.mu-ingame) { display: none; }
+#mu-title .mu-switch.mu-ingame { right: auto; bottom: auto; margin-left: 4px; }
+#mu-title .mu-switch.mu-ingame[hidden] { display: none; }
 #mu-title .mu-tbtn { --s: 24px; position: relative; display: flex; align-items: center; justify-content: center; height: 44px; padding: 0 30px; margin: 0;
   border: 0; background: none; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic; color: #fff;
   filter: drop-shadow(0 7px 10px rgba(8, 32, 84, .34)) drop-shadow(0 1px 2px rgba(8, 32, 84, .4));

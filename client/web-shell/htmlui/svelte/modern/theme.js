@@ -146,6 +146,71 @@ textarea.mu-field { height: auto; padding: 8px 12px; resize: none; line-height: 
 
 .mu-scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n300) transparent; overscroll-behavior: contain; }
 
+/* the Audio window (web/audiopage.js, its own page over the canvas) in Modern UI (html.mu-modern, modern.js): a game
+   panel with its plaque, dark ink on the light field, game keys, the toggles as tabs, the file lists as wells */
+html.mu-modern #rc-audio { font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", system-ui, -apple-system, Arial, sans-serif; color: var(--ink);
+  background: rgba(6, 30, 80, .32); }
+html.mu-modern #rc-audio .win { position: relative; isolation: isolate; border: 0; border-radius: 0; background: none; box-shadow: none;
+  filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35)); }
+html.mu-modern #rc-audio .win::before, html.mu-modern #rc-audio .win::after { content: ''; position: absolute; pointer-events: none; }
+html.mu-modern #rc-audio .win::before { inset: 0; z-index: -2; border: 1px solid #3d5579;
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  background: linear-gradient(135deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 0 0 / 24px 24px no-repeat,
+    linear-gradient(-45deg, transparent 10.5px, var(--gold-300) 10.5px 13px, transparent 13px) 100% 100% / 24px 24px no-repeat, var(--frame); }
+html.mu-modern #rc-audio .win::after { inset: 6px; z-index: -1; border: 1px solid var(--frame-rim);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); background: var(--plate); }
+html.mu-modern #rc-audio .bar { height: 36px; line-height: 34px; margin: 6px 6px 0; padding: 0 16px; text-align: left; border: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 52%), var(--band); box-shadow: inset 0 -2px 0 var(--gold-400);
+  font-family: var(--display); font-size: 14px; letter-spacing: .07em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 0 rgba(0, 20, 60, .45); }
+html.mu-modern #rc-audio .body { margin: 0 6px; padding: 14px 16px 12px; gap: 10px; scrollbar-width: thin; scrollbar-color: var(--n300) transparent; }
+html.mu-modern #rc-audio .note { padding: 10px 12px; border: 0; border-radius: 6px; color: var(--ink-2); text-shadow: none; background: var(--p50);
+  box-shadow: inset 0 0 0 1px var(--p200); }
+html.mu-modern #rc-audio .err { color: var(--bad); }
+html.mu-modern #rc-audio .group { padding-top: 10px; border-top: 1px solid var(--n200); box-shadow: none; }
+html.mu-modern #rc-audio .ghead { gap: 8px; min-height: 32px; }
+html.mu-modern #rc-audio .tog::before { color: var(--p700); text-shadow: none; }
+html.mu-modern #rc-audio .label { font-family: var(--display); font-weight: 400; font-size: 12.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--p700); text-shadow: none; }
+html.mu-modern #rc-audio .sub .label { font-size: 11.5px; }
+html.mu-modern #rc-audio :is(.count, .hint, .desc) { color: var(--ink-3); text-shadow: none; }
+html.mu-modern #rc-audio .gbody { gap: 8px; padding: 6px 0 4px 18px; }
+html.mu-modern #rc-audio .slot { gap: 8px; padding: 10px 12px; border: 0; border-radius: 6px; background: #fff;
+  box-shadow: inset 0 0 0 1px var(--n200), 0 1px 2px rgba(10, 35, 80, .08); }
+html.mu-modern #rc-audio .slot.now { box-shadow: inset 0 0 0 2px var(--gold-400), 0 0 12px rgba(255, 196, 60, .45); }
+html.mu-modern #rc-audio .name { color: var(--ink-strong); text-shadow: none; }
+html.mu-modern #rc-audio .live { color: #b25a00; text-shadow: none; }
+html.mu-modern #rc-audio .list { border: 0; border-radius: 6px; color: var(--ink); background: var(--well);
+  box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf; overflow: hidden; }
+html.mu-modern #rc-audio .list > div { height: 28px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--n100); }
+html.mu-modern #rc-audio .list .none { color: var(--ink-3); }
+html.mu-modern #rc-audio .rm { color: var(--ink-2); }
+html.mu-modern #rc-audio .ctl { gap: 8px; }
+html.mu-modern #rc-audio :is(.cbtn, .ok) { position: relative; height: 30px; padding: 0 14px; border: 0; border-radius: 7px; font-weight: 800; font-size: 12.5px;
+  letter-spacing: .02em; color: var(--ink-strong); text-shadow: 0 1px 0 rgba(255, 255, 255, .8);
+  background: linear-gradient(180deg, #ffffff 0%, #eef3f9 46%, #d6e0ee 54%, #c6d3e5 100%);
+  box-shadow: inset 0 1px 0 #fff, 0 0 0 1px #7088ab, 0 3px 0 var(--lip), 0 5px 7px -2px rgba(8, 30, 70, .4); transition: transform .07s, box-shadow .07s; }
+html.mu-modern #rc-audio :is(.cbtn, .ok):not(:disabled):hover { background: linear-gradient(180deg, #ffffff 0%, #eef3f9 46%, #d6e0ee 54%, #c6d3e5 100%);
+  filter: brightness(1.04); box-shadow: inset 0 1px 0 #fff, 0 0 0 1px var(--p500), 0 3px 0 var(--lip), 0 0 14px rgba(59, 130, 224, .5); }
+html.mu-modern #rc-audio :is(.cbtn, .ok):not(:disabled):active { transform: translateY(3px); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .3), 0 0 0 1px #7088ab; }
+html.mu-modern #rc-audio .opt { height: 28px; min-width: 76px; border-radius: 6px; font-weight: 800; font-size: 12px; color: var(--ink-2); text-shadow: none;
+  background: linear-gradient(180deg, #f6f9fc, #dde5f0); box-shadow: 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px #8ea2bf; }
+html.mu-modern #rc-audio .opt.on { color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .45); background: var(--sel);
+  box-shadow: inset 0 2px 0 var(--gold-300), 0 0 0 1px var(--p900); }
+html.mu-modern #rc-audio .vol { gap: 8px; color: var(--ink-2); text-shadow: none; font-weight: 600; }
+html.mu-modern #rc-audio input[type=range] { width: 120px; accent-color: var(--p700); }
+html.mu-modern #rc-audio input[type=range]::-webkit-slider-runnable-track { height: 6px; border: 0; border-radius: 3px; background: var(--n200);
+  box-shadow: inset 0 1px 1px rgba(11, 42, 92, .2); }
+html.mu-modern #rc-audio input[type=range]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6px; border: 0; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(11, 42, 92, .35), 0 0 0 1px var(--btn-edge); }
+html.mu-modern #rc-audio .foot { margin: 0 6px 6px; padding: 12px 16px 16px; border: 0; background: none; }
+html.mu-modern #rc-audio .ok { min-width: 132px; height: 32px; color: var(--gold-ink); text-shadow: 0 1px 0 rgba(255, 250, 220, .9);
+  background: linear-gradient(180deg, #fff8d8 0%, #ffe68a 44%, #f6c443 54%, #e49e22 100%);
+  box-shadow: inset 0 1px 0 #fffbe8, 0 0 0 1px var(--gold-edge), 0 3px 0 var(--lip-gold), 0 5px 7px -2px rgba(90, 50, 0, .4); }
+html.mu-modern #rc-audio .ok:hover { background: linear-gradient(180deg, #fff8d8 0%, #ffe68a 44%, #f6c443 54%, #e49e22 100%);
+  box-shadow: inset 0 1px 0 #fffbe8, 0 0 0 1px var(--gold-edge), 0 3px 0 var(--lip-gold), 0 0 16px rgba(255, 196, 60, .65); }
+html.mu-modern #rc-audio :is(button, input):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
 @keyframes mu-arrive { from { filter: drop-shadow(0 14px 18px rgba(6, 24, 64, .42)) drop-shadow(0 2px 2px rgba(6, 24, 64, .35)) brightness(1.18) drop-shadow(0 0 10px rgba(120, 190, 255, .7)); } }
 @media (prefers-reduced-motion: reduce) { .mu *, .mu-plate { animation: none !important; transition: none !important; } }
