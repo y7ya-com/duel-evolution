@@ -111,6 +111,16 @@ export const ROUTES = {
     ['shot', 'request'], ['click', 504, 404], ['wait', 15000], ['shot', 'rps'], ['leave', 250, 680, 30], ['leave', 250, 680, 30], ['wait', 3000], ['click', 512, 290], ['scene', 28, 120000],
     ['wait', 20000], ['click', 375, 620], ['wait', 3000], ['shot', 'duellog-engine'], ['on', 'CChatWindow'], ['wait', 2000],
     ['shot', 'duellog-html']], flip: [] },
+  // the chat's tabs (owner: unread counts, 'Trade'): the chat route, the HTML chat on, TRADE chosen, two lines said
+  get 'chat-unread'() {
+    return { ...ROUTES.chat, steps: [...ROUTES.chat.steps, ['on', 'CChatWindow'], ['wait', 2000], ['click', 497, 620], ['wait', 1500],
+      ['say', 636, 720, 'anyone selling Blue-Eyes?'], ['say', 636, 720, 'WTB Dark Magician'], ['wait', 3000], ['shot', 'unread']] };
+  },
+  // the chat on the duel screen (owner: no Duel Log tab): the duel route to the duel, the HTML chat on
+  get 'duel-chat'() {
+    const steps = ROUTES.duel.steps, i = steps.findIndex(s => s[0] === 'scene' && s[1] === 28);
+    return { ...ROUTES.duel, steps: [...steps.slice(0, i + 2), ['on', 'CChatWindow'], ['wait', 3000], ['shot', 'duel-chat']], flip: ['CChatWindow'] };
+  },
   // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
   // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
   // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)

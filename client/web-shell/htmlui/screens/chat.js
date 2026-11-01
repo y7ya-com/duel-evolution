@@ -40,11 +40,43 @@ export function drawControl(c, el, api) {
 const key = c => JSON.stringify(c);
 const INPUT = /(^|[^i])Input(Duel)?$/;   // Input, InputDuel (a MultiInput holds one)
 
+// The chat's tabs as the owner wants them (CChatWindow): the Duel Log tab left out (owner: of no use; ovr/duellog.c adds
+// it on the duel screen until the runtime drops it), the game's all-capitals names in plain case ('TRADE' -> 'Trade'),
+// and a tab whose log had lines while another was shown says how many until it is opened: 'Proximity Chat (2)'. A tab
+// grows by its new text (the game's metrics) and the tabs after it move along, 8 px over each other as the game lays
+// them (yo2WindowChat.cpp layout). Each tab's log is the reader's pair (read/chat.js), else the logs in tab order.
+const unread = new Map();   // window id -> { seen: log id -> its items, n: tab id -> lines unread }. ponytail: never
+                            // pruned (a chat window or two a scene)
+const plainCase = s => s === s.toUpperCase() && /[A-Z]{3}/.test(s) ? s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase()) : s;
+const textW = s => basic ? basic.textWidth(s) + basic.spacing(s) * ([...s].length - 1) : 7 * s.length;
+export function chatTabs(win) {
+  const byId = new Map(win.controls.map(c => [c.id, c])), logs = win.controls.filter(c => c.cls === 'CWindowTaskTextlist');
+  if (!unread.has(win.id)) unread.set(win.id, { seen: new Map(), n: new Map() });
+  const st = unread.get(win.id), out = new Map();
+  let shift = 0;
+  win.controls.filter(c => c.cls === 'CWindowTaskTab').sort((a, b) => a.x - b.x).forEach((t, i) => {
+    const pair = win.pairs?.find(p => p.tab === t.id), log = pair ? byId.get(pair.log) : logs[i];
+    if (log) {
+      const items = log.items || [], old = st.seen.get(log.id), d = old && itemsDelta(old, items);
+      st.seen.set(log.id, items);
+      st.n.set(t.id, t.active ? 0 : (st.n.get(t.id) || 0) + (d ? d[1].length : 0));
+    }
+    const name = (t.label || '').replace(/[@＠]\d/g, '').trim();
+    if (/^duel log$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
+    const n = st.n.get(t.id) || 0, label = plainCase(name) + (n ? ` (${n > 99 ? '99+' : n})` : '');
+    const grow = label === name ? 0 : Math.ceil(textW(label) - textW(name));
+    if (label !== t.label || shift || grow) out.set(t.id, { ...t, x: t.x + shift, w: t.w + grow, label });
+    if (t.shown) shift += grow;
+  });
+  return out.size ? { ...win, controls: win.controls.map(c => out.has(c.id) ? out.get(c.id) : c).filter(Boolean) } : win;
+}
+
 // A window's controls as an owned screen shows them, back to front: { n (draw order), c (the control as placed), k (its
 // drawing's key: redrawn when it changes), own ('log' | 'list' | 'scroll' | 'input' | null: what the DOM owns) }.
 // A part its parent draws (a caption, a list's text, stripes or scroll bar: the native scroller's) is left out, but a
 // MultiInput's Input is the field itself, at the MultiInput's place. The Svelte screens (svelte/chat/) use it too.
 export function parts(win) {
+  if (win.cls === 'CChatWindow') win = chatTabs(win);
   const byId = new Map(win.controls.map(k => [k.id, k])), out = [];
   for (let [n, c] of win.controls.entries()) {
     const up = byId.get(c.parent);
