@@ -245,7 +245,7 @@ export function presence(rows) {
 // The windows it takes (svelte/modern/DESIGN.md "Coverage"; the inventory: every CWindowTaskModel subclass in
 // client/include/yo2): the generic ones, and htmlui-select's until their bespoke screens land. Not here: the bespoke
 // ones (svelte/modern.js), base classes, CDeckCardLoader (no controls), CWindowTaskCardArea (trade's drag: the
-// engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
+// engine's), and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
  'CFixedsentenceList',
@@ -259,6 +259,7 @@ export const GENERIC = [
   'CWindowModelListCardAttr', 'CWindowModelListCardForbi', 'CWindowModelListCardIcon', 'CWindowModelListCardPack',
   'CWindowModelListCardStar', 'CWindowModelListCardType', 'CWindowModelPictureButton', 'CWindowModelPresent', 'CWindowModelProgress',
   'CWindowModelReturnButton', 'CWindowModelThin', 'CWindowModelThinImg', 'CWindowModelTp', 'CWindowModelTrade', 'ParamWindow',
+  'CWindowModelTitleConfig',   // the Main Menu's Change Title (html-ui-pixel: it showed the old look)
   // the duel's
   'CUDiceDialog', 'CUDiscardDialog', 'CUGHelpManager', 'CULockOnDialog', 'CUOkDialog', 'CUPhaseSelectDialog', 'CUPhaseYesNoDialog',
   'CURitualDialog', 'CUSelectAttributeDialog', 'CUSelectCoinDialog', 'CUSelectDialog', 'CUSelectNumDialog', 'CUSelectStandDialog',
