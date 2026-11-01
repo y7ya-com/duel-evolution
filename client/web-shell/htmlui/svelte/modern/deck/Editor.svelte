@@ -554,7 +554,9 @@
   .sec h3 small { font-size: 11px; font-weight: 700; color: var(--ink-3); }
   .sec.extra .grid, .sec.side .grid { height: 119px; }
   .tile { position: relative; width: 36px; height: 53px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform .14s var(--ease), box-shadow .14s; }
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform var(--release) var(--spring), box-shadow .14s; }
+  /* a card under the press goes in at once and springs back (theme.js --press / --release / --spring, as .mu-btn) */
+  .tile:active, .card:active { transition-duration: var(--press), .14s; transform: translateY(1px) scale(.96); }
   .tile:hover, .tile:focus-visible { transform: translateY(-2px) scale(1.06); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 6px 12px -4px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   .face { display: block; width: 100%; height: 100%; object-fit: cover; }
   .none { grid-column: 1 / -1; margin: 0; align-self: center; text-align: center; font-size: 12px; color: var(--ink-3); }
@@ -571,7 +573,7 @@
   .clear { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
   .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 110px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
   .card { position: relative; width: 76px; height: 110px; touch-action: none; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 4px 8px -4px color-mix(in srgb, var(--p900) 50%, transparent); transition: transform .14s var(--ease), box-shadow .14s, filter .14s; }
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 4px 8px -4px color-mix(in srgb, var(--p900) 50%, transparent); transition: transform var(--release) var(--spring), box-shadow .14s, filter .14s; }
   .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
   .card.notown .face { filter: grayscale(.9) brightness(.8); }
