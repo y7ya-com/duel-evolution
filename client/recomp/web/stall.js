@@ -13,7 +13,8 @@
 //   decode    image decoding on the main thread (ovr/decode.c), ms; upload: texture uploads (rt d3d8), ms
 //   slept     ms the game yielded (Sleep, idle, WaitFor* polling: it was waiting, not working); waitObj: of that,
 //             in WaitFor* (a guest thread or event it waited on), waitAt: the exe address its longest wait returns to
-//             (hex); thr: pthread Workers [running, idle], above 8 in all = the pool grew (a Worker started cold); yields: how many. xhr includes guest threads'
+//             (hex); thr: pthread Workers [running, idle] ([] if unknown), above 8 in all = the pool grew (a Worker started
+//             cold); yields: how many. xhr includes guest threads'
 //             ("thread <path>"). focus: the page had focus at the start / the end ("10": lost it)
 //   laf       Long Animation Frames overlapping it (Chrome 123+), up to 3: {d duration, b blocking, r/l render and
 //             style+layout start after the frame's, s: the 2 longest scripts [ms, invoker type, invoker, file,
@@ -65,8 +66,11 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
     }));
     // pthread Workers [running, idle]: more than the pool (PTHREAD_POOL_SIZE 8) means a guest CreateThread had to start
     // a new Worker (it loads yo2rc.js and the wasm first, silently) while the game may be waiting on that thread
-    const workers = () => (typeof PThread == "object" ? [PThread.runningWorkers.length, PThread.unusedWorkers.length] : []);
-    Module.yo2Frame = (decode, upload, slept, waitObj, yields, waitAt) => {
+    // (Emscripten's internals: PThread.pthreads by thread, unusedWorkers; [] when this Emscripten names them otherwise)
+    const workers = () => { try { return [Object.keys(PThread.pthreads).length, PThread.unusedWorkers.length]; } catch { return []; } };
+    // the game's frame loop calls this: telemetry must never throw into it (a throw here stopped the frames)
+    Module.yo2Frame = (...a) => { try { onFrame(...a); } catch {} };
+    const onFrame = (decode, upload, slept, waitObj, yields, waitAt) => {
         const now = performance.now(), u = Module.yo2Sfx?.underruns?.() | 0, r = Module.yo2NetRx | 0;
         const js = performance.memory?.usedJSHeapSize | 0;
         frame++;
