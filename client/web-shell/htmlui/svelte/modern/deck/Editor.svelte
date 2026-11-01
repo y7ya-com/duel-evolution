@@ -47,7 +47,16 @@
   // the cards the player has: copies left in the trunk or in the deck (the legacy trunk lists both)
   const pool = $derived(poolView(all, { ...f, attr: [...f.attr], level: [...f.level], atk: [...f.atk], def: [...f.def] }, id => left(id) + (inDeck.get(id) || 0), db?.desc));
   const filtered = $derived(f.type !== 'all' || f.attr.length || f.level[0] > 0 || f.level[1] < 12 || f.atk.some(v => v !== '') || f.def.some(v => v !== '') || !f.owned);
-  const reset = () => { const o = f.owned; f = structuredClone(NO_FILTER); f.owned = o; q = ''; };
+  // the filters (not the search) behind one button; its badge counts those set, so nothing is hidden
+  let filtersOpen = $state(false), filtersBtn = $state(null), filtersPanel = $state(null);
+  const active = $derived((f.type !== 'all') + f.attr.length + (f.level[0] > 0 || f.level[1] < 12) + f.atk.some(v => v !== '') + f.def.some(v => v !== '') + !f.owned);
+  $effect(() => {
+    if (!filtersOpen) return;
+    const off = e => { if (!filtersPanel?.contains(e.target) && !filtersBtn?.contains(e.target)) filtersOpen = false; };
+    addEventListener('pointerdown', off, true);
+    return () => removeEventListener('pointerdown', off, true);
+  });
+  const reset = () => { f = structuredClone(NO_FILTER); q = ''; };
   const toggleAttr = a => { f.attr = f.attr.includes(a) ? f.attr.filter(x => x !== a) : [...f.attr, a]; };
 
   // ---- the card shown large: what is hovered, else the last one picked
@@ -151,6 +160,13 @@
     await fly(ok ? landing(L.id, to) : L.src, ok ? 'settle' : 'back', 160);
     lift = null;
   }
+  // the deck's grids never scroll: ten tiles a row in a fixed height (Main 4 rows, Fusion and Side 2); past that the
+  // rows overlap, each showing the top of its cards (name and art), so 60 single cards still fit
+  const TW = 36, TH = 53, GAP = 3, ROWS = { main: 4, extra: 2, side: 2 };
+  const step = (key, n) => {
+    const rows = Math.max(1, Math.ceil(n / 10)), room = ROWS[key] * TH + (ROWS[key] - 1) * GAP;
+    return rows <= ROWS[key] ? TH + GAP : (room - TH) / (rows - 1);
+  };
   // a section's cards, one tile per card with its copies (the order the deck holds them)
   const groups = key => { const m = new Map(); for (const id of grids[key] || []) m.set(id, (m.get(id) || 0) + 1); return [...m].map(([id, n]) => ({ id, n })); };
 
@@ -210,6 +226,7 @@
       const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
       let hit = true;
       if (e.key === '/' && !typing) search?.focus();
+      else if (e.key === 'Escape' && filtersOpen) { filtersOpen = false; filtersBtn?.focus(); }
       else if (e.key === 'Escape' && e.target === search) { if (q) q = ''; else search.blur(); }
       else if (mod && e.key.toLowerCase() === 's') e.shiftKey ? openAs() : save();
       else if (mod && e.key.toLowerCase() === 'o') openPicker('load');
@@ -328,10 +345,11 @@
   <GamePanel title="Deck" class="deck" role="region"><div class="body">
     {#each SECTIONS as [key, title, cap] (key)}
       {@const part = check?.parts.find(p => p.key === key)}
+      {@const gs = groups(key)}
       <div class="sec {key}" class:over={lift && lift.zone === key && !lift.no} class:refuse={lift && lift.zone === key && lift.no && lift.no !== 'same'} data-zone={key} role="group" aria-label={title}>
         <h3><span>{title}</span><b class:bad={part && !part.ok}>{counts[key]}</b>{#if part}<small>{part.rule}</small>{/if}</h3>
-        <div class="grid mu-list mu-scroll">
-          {#each groups(key) as g (g.id)}
+        <div class="grid mu-list" class:tight={step(key, gs.length) < TH + GAP} style:grid-auto-rows="{step(key, gs.length)}px" style:--step="{step(key, gs.length)}px">
+          {#each gs as g (g.id)}
             {@const id = g.id}
             {@const c = db.card(id)}
             <button type="button" class="tile" class:lifted={lift?.id === id && lift.from === key && g.n === 1} data-card={id} title="{c?.name} ×{g.n}"
@@ -356,11 +374,24 @@
   <!-- the trunk -->
   <GamePanel title="Trunk" class="pool{lift && lift.zone === 'pool' && lift.from !== 'pool' ? ' over' : ''}" role="region"><div class="body" data-zone="pool">
     <div class="find">
-      <div class="search">
-        <Icon name="search" size={16} />
-        <input class="mu-field" bind:this={search} bind:value={q} type="search" placeholder="Search names and card text" aria-label="Search the trunk" autocomplete="off" spellcheck="false" />
-        <kbd>/</kbd>
+      <div class="search-row">
+        <div class="search">
+          <Icon name="search" size={16} />
+          <input class="mu-field" bind:this={search} bind:value={q} type="search" placeholder="Search cards" aria-label="Search the trunk" autocomplete="off" spellcheck="false" />
+          <kbd>/</kbd>
+        </div>
+        <button type="button" class="mu-btn filters-btn" class:on={filtersOpen} aria-expanded={filtersOpen} aria-controls="ed-filters" bind:this={filtersBtn}
+          onclick={() => (filtersOpen = !filtersOpen)} title="Type, attribute, level, ATK / DEF, sort">
+          Filters{#if active}<b class="badge" aria-label="{active} active">{active}</b>{/if}
+        </button>
       </div>
+      <div class="summary">
+        <span class="total">{pool.length.toLocaleString()} card{pool.length === 1 ? '' : 's'}</span>
+        {#if filtered || q}<button type="button" class="clear" onclick={reset}>Clear filters</button>{/if}
+      </div>
+      {#if filtersOpen}
+      <div class="mu-plate filters" id="ed-filters" role="dialog" aria-label="Filters" bind:this={filtersPanel} transition:scale={{ duration: ms(140), start: 0.96, easing: cubicOut }}
+        onkeydown={e => { if (e.key === 'Escape') { e.stopPropagation(); filtersOpen = false; filtersBtn?.focus(); } }}>
       <GameTabs label="Card type" tabs={TYPES.map(([key, label]) => ({ key, label }))} value={f.type} onselect={k => (f.type = k)} />
       <div class="mu-tabs attrs" role="group" aria-label="Attribute">
         {#each attrs as [a, l] (a)}<button type="button" class="mu-tab" class:on={f.attr.includes(a)} aria-pressed={f.attr.includes(a)} onclick={() => toggleAttr(a)}>{l}</button>{/each}
@@ -376,9 +407,11 @@
       </div>
       <div class="foot">
         <label class="own"><input type="checkbox" checked={!f.owned} onchange={e => (f.owned = !e.currentTarget.checked)} /> Cards I don't have</label>
-        {#if filtered || q}<button type="button" class="clear" onclick={reset}>Clear filters</button>{/if}
-        <span class="n">{pool.length.toLocaleString()} card{pool.length === 1 ? '' : 's'}</span>
+        {#if filtered}<button type="button" class="clear" onclick={() => { const v = q; reset(); q = v; }}>Clear filters</button>{/if}
+        <GameButton label="Done" onclick={() => { filtersOpen = false; filtersBtn?.focus(); }} />
       </div>
+      </div>
+      {/if}
     </div>
     <div class="cards mu-scroll" role="list">
       {#each pool as c (c.id)}
@@ -451,8 +484,8 @@
     text-shadow: 0 2px 8px color-mix(in srgb, var(--p900) 60%, transparent); }
   /* the panels (GamePanel): their places on the stage, a body under the plaque */
   .ed :global(.mu-plate) { position: absolute; display: flex; flex-direction: column; }
-  .ed :global(.preview) { left: 8px; top: 58px; width: 236px; height: 648px; }
-  .ed :global(.deck) { left: 250px; top: 58px; width: 398px; height: 648px; }
+  .ed :global(.preview) { left: 8px; top: 58px; width: 205px; height: 648px; }
+  .ed :global(.deck) { left: 219px; top: 58px; width: 429px; height: 648px; }
   .ed :global(.pool) { left: 654px; top: 58px; width: 362px; height: 648px; }
   .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; }
     .ed :global(.pool .body) { padding: 8px 8px 0 12px; gap: 0; }
@@ -472,8 +505,20 @@
   .sec h3 { margin: 0 0 5px; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 400; }
   .sec h3 span { font-family: var(--display); letter-spacing: .07em; text-transform: uppercase; }
   .sec h3 b, .sec h3 small { font-family: inherit; }
-  .grid { display: grid; grid-template-columns: repeat(8, 41px); grid-auto-rows: 60px; gap: 4px; align-content: start; min-height: 101px; flex: 1; padding: 5px; }
-  .search { position: relative; }
+  /* ten 36 x 53 tiles a row in a fixed height (step() sets the row step: overlapping rows past the room) */
+  .grid { display: grid; grid-template-columns: repeat(10, 36px); column-gap: 3px; row-gap: 0; align-content: start; flex: none; height: 231px; padding: 5px; overflow: visible; }
+  .find { position: relative; }
+  .search-row { display: flex; gap: 6px; }
+  .search { position: relative; flex: 1; min-width: 0; }
+  .filters-btn { height: 32px; padding: 0 12px; font-size: 12px; gap: 6px; }
+  .filters-btn.on { background: var(--btn-hover); box-shadow: 0 0 0 1px var(--p500), inset 0 1px 2px color-mix(in srgb, var(--ink-strong) 20%, transparent); }
+  .badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 800;
+    color: var(--n0); background: var(--sel); box-shadow: 0 0 0 1px var(--n0); }
+  .summary { display: flex; align-items: center; gap: 10px; min-height: 18px; font-size: 11.5px; font-weight: 700; color: var(--ink-3); }
+  .summary .clear { margin-left: auto; }
+  /* the filters: a panel over the trunk's cards (they never move), under the search row */
+  .find :global(.filters) { left: -4px; right: -2px; top: 40px; z-index: 6; display: grid; gap: 8px; padding: 14px 14px 12px; }
+  .foot :global(.mu-btn) { margin-left: auto; height: 28px; padding: 0 14px; font-size: 12px; }
   .search :global(.mu-ico) { position: absolute; left: 10px; top: 8px; color: var(--ink-3); pointer-events: none; }
   .search .mu-field { padding: 0 34px; }
   .search kbd { position: absolute; right: 8px; top: 7px; }
@@ -484,7 +529,7 @@
   .ranges select.mu-field { width: auto; padding: 0 4px; }
 
   /* the card shown large */
-  .big { width: 216px; height: 313px; flex: none; border-radius: 6px; overflow: hidden; background: var(--p900);
+  .big { width: 100%; aspect-ratio: 216 / 313; flex: none; border-radius: 6px; overflow: hidden; background: var(--p900);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 10px 22px -10px color-mix(in srgb, var(--p900) 80%, transparent); }
   .big .face { width: 100%; height: 100%; }
   .big.empty { background: var(--stage); box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--n0) 18%, transparent), 0 0 0 1px color-mix(in srgb, var(--ink-strong) 35%, transparent); }
@@ -502,14 +547,13 @@
 
   /* the deck's sections, their labels in the display face */
   .sec { display: flex; flex-direction: column; min-height: 0; border-radius: 10px; padding: 4px 4px 4px; transition: background .14s, box-shadow .14s; }
-  .sec.main { flex: 1; }
   .sec.over { background: color-mix(in srgb, var(--p500) 14%, transparent); box-shadow: inset 0 0 0 2px var(--p500); }
   .sec h3 span { color: var(--ink-strong); }
   .sec h3 b { font-size: 14px; color: var(--p700); }
   .sec h3 b.bad { color: var(--bad); }
   .sec h3 small { font-size: 11px; font-weight: 700; color: var(--ink-3); }
-  .sec.extra .grid, .sec.side .grid { flex: none; height: 134px; }
-  .tile { position: relative; width: 41px; height: 60px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
+  .sec.extra .grid, .sec.side .grid { height: 119px; }
+  .tile { position: relative; width: 36px; height: 53px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform .14s var(--ease), box-shadow .14s; }
   .tile:hover, .tile:focus-visible { transform: translateY(-2px) scale(1.06); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 6px 12px -4px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   .face { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -524,7 +568,6 @@
   .foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--ink-2); font-weight: 700; }
   .foot .own { display: flex; align-items: center; gap: 4px; font-weight: 600; }
   .foot .own input { accent-color: var(--p700); margin: 0; }
-  .foot .n { margin-left: auto; color: var(--ink-3); }
   .clear { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
   .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 110px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
   .card { position: relative; width: 76px; height: 110px; touch-action: none; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
@@ -552,6 +595,9 @@
     font-size: 10px; font-weight: 800; line-height: 15px; text-align: center; color: var(--n0); letter-spacing: 0;
     background: color-mix(in srgb, var(--ink-strong) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--n0) 55%, transparent); }
   .tile .n { right: 1px; bottom: 1px; min-width: 0; height: 13px; padding: 0 3px; font-size: 9px; line-height: 13px; }
+  /* overlapping rows: each tile's plate at the foot of its visible strip, above the row below */
+  .grid.tight .tile .n { top: calc(var(--step) - 15px); bottom: auto; }
+  .grid.tight .tile:last-child .n, .grid.tight .tile:nth-last-child(-n + 10) .n { top: auto; bottom: 1px; }
   .n.out { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 88%, transparent); box-shadow: 0 0 0 1px var(--n300); }
   .lim { position: absolute; left: 3px; top: 3px; color: var(--n0); background: var(--bad); box-shadow: 0 0 0 1px var(--n0); }
   .lim.l2 { background: var(--warm); }
