@@ -129,11 +129,11 @@
   .q { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 7px 0 6px; border-radius: 6px; font-size: 12px; font-weight: 700;
     color: #fff; text-shadow: 0 1px 0 rgba(0, 20, 60, .5); background: linear-gradient(180deg, rgba(255, 255, 255, .12), rgba(255, 255, 255, .03));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 0 0 1px rgba(5, 25, 70, .55), 0 2px 0 rgba(5, 25, 70, .55);
-    transition: transform .07s ease-out, box-shadow .07s, background .14s; }
+    transition: transform var(--release) var(--spring), box-shadow .16s ease-out, background .14s; }
   .q :global(.mu-ico) { color: rgba(255, 255, 255, .88); }
   .q:hover, .q:focus-visible { background: linear-gradient(180deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, .08));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 0 0 1px rgba(255, 220, 120, .6), 0 2px 0 rgba(5, 25, 70, .55), 0 0 10px rgba(120, 190, 255, .55); }
-  .q:active { transform: translateY(2px); box-shadow: inset 0 1px 2px rgba(0, 10, 40, .4), 0 0 0 1px rgba(5, 25, 70, .55); }
+  .q:active { transition-duration: var(--press), var(--press), .14s; transform: translateY(2px); box-shadow: inset 0 1px 2px rgba(0, 10, 40, .4), 0 0 0 1px rgba(5, 25, 70, .55); }
   .q.busy { background: rgba(255, 229, 138, .3); box-shadow: inset 0 0 0 1px var(--gold-300), 0 2px 0 rgba(5, 25, 70, .55); }
   kbd { min-width: 15px; height: 15px; padding: 0 3px; border-radius: 3px; font-family: inherit; font-weight: 800; font-size: 9.5px; line-height: 15px;
     text-align: center; color: var(--gold-ink); text-shadow: none; background: linear-gradient(180deg, #fff3c0, #f0c24a); box-shadow: 0 1px 0 #8a5a0a; }
