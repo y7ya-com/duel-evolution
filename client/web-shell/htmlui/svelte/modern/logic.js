@@ -267,6 +267,11 @@ export const GENERIC = [
   'CWindowResultNext', 'CWindowResultNpc',   // CWindowResult: its own screen (ResultCard)
 ];
 
+// the plaque's name for a generic window with no heading of its own
+export const GENERIC_TITLES = { CWindowModelDuellogTop: 'Duel Log', CWindowModelDuellogList: 'Duel Log', CWindowModelDuellogSearch: 'Find Duel Logs',
+  CWindowModelTitleConfig: 'Change Title', CWindowModelHelp: 'Help', CHelpDialog: 'Help', CWindowModelItemGet: 'New!', CWindowModelTrade: 'Trade',
+  CWindowModelPresent: 'Present', CWindowModelTp: 'Trade Points' };
+
 // a control's family (CONTRACT.md's), by class; 'engine': the engine keeps drawing it (pictures, Flash, unknown)
 const FAMILIES = [
   ['frame', /^(Frame|PictureFrame|BackPlane|BackStripe|ThinChop)|Frame$/], ['text', /^(Text|ShadowText|TextField|TextItem)$/],
@@ -337,7 +342,10 @@ export function generic(win) {
   const plate = frames[0] && area(frames[0]) >= win.w * win.h * .5 ? { x: frames[0].x, y: frames[0].y, w: frames[0].w, h: frames[0].h }
     : frames[0] || backdrop.length ? { x: 0, y: 0, w: win.w, h: win.h } : null;
   const title = plate && top.find(c => /ShadowText$/.test(c.cls) && c.text?.trim() && c.y - plate.y < 30 && c.y >= plate.y - 4);
-  const band = title ? { h: Math.max(30, Math.min(44, title.y - plate.y + title.h + 7)), title: untag(title.text).trim(), c: title } : null;
+  // no heading of its own but room for one above its controls: its name as the plaque (the Duel Log's top window)
+  const named = !title && plate && GENERIC_TITLES[win.cls] && !top.some(c => family(c) !== 'frame' && has(c) && c.y < plate.y + 42 && c.y + c.h > plate.y);
+  const band = title ? { h: Math.max(30, Math.min(44, title.y - plate.y + title.h + 7)), title: untag(title.text).trim(), c: title }
+    : named ? { h: 41, title: GENERIC_TITLES[win.cls], c: null } : null;
   const items = [], holes = [], keep = [];
   for (const c of top) {
     const f = fam.get(c.id);

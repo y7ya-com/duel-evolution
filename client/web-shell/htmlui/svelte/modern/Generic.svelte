@@ -29,7 +29,8 @@
     return `path(evenodd, '${r(-m, -m, win.w + 2 * m, win.h + 2 * m)}${g.holes.map(h => r(h.x, h.y, h.w, h.h)).join('')}')`;
   });
   // a button a little inside its rect: the engine's often touch (the Duel Log's tabs)
-  const inset = c => c.w > 40 ? { x: c.x + 2, y: c.y + 1, w: c.w - 4, h: c.h - 2 } : c;
+  // and a short one (the engine's 24 px) a little taller, about its centre: the game's own click spot stays inside it
+  const inset = c => c.w > 40 ? (c.h < 28 ? { x: c.x + 2, y: c.y - 2, w: c.w - 4, h: c.h + 4 } : { x: c.x + 2, y: c.y + 1, w: c.w - 4, h: c.h - 2 }) : c;
   const at = c => `left: ${c.x}px; top: ${c.y}px; width: ${c.w}px; height: ${c.h}px;`;
   // the engine lays text out on its own line pitch (fontSize + lineGap): kept, so pageLines fit where it put them
   const px = c => Math.min(13.5, (c.fontSize || 16) * .82);

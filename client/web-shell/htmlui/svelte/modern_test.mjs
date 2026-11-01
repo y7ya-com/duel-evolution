@@ -245,6 +245,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(dl.plate, { x: 0, y: 0, w: 492, h: 452 }, 'a class named ...Frame is a frame');
   assert.deepEqual(dl.items.map(i => [i.kind, i.label]), [['button', 'Latest Duel Logs'], ['scroll', undefined]], 'the caption on its picture switch, once');
   assert.equal(dl.keep.length, 1, 'the engine keeps only the small arrow picture');
+  assert.equal(dl.band.title, 'Duel Log', 'no heading of its own, room above its tabs: its name as the plaque');
   // Duel Options: its frame reads 80 x 24 (the plate is the window), labels in 256 x 256 default boxes (no wells)
   const dc = L.generic(win('CWindowModelDuelConfig', [ctl('DuelConfigFrame', { x: 0, y: 0, w: 80, h: 24 }),
     ctl('ShadowText', { x: 0, y: 4, w: 492, h: 16, text: 'DUEL OPTIONS' }), ctl('ShadowText', { x: 38, y: 37, w: 256, h: 256, text: 'Auto Tracking' })], { w: 492, h: 452 }));

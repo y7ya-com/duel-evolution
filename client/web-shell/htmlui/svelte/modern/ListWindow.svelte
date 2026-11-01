@@ -61,7 +61,7 @@
           <span class="who"><span class="nm">{n}</span>{#if st}<span class="where">{st.online ? st.place || 'Online' : 'Offline'}</span>{/if}</span></button>
           {#if friends}<button type="button" class="mu-icon-btn act" title="Mail {n}" aria-label="Mail {n}" onclick={mail}><Icon name="mail" size={15} /></button>{/if}</li>
       {:else}
-        <li class="empty">Nobody on this list yet.</li>
+        <li class="empty"><b>Nobody on this list yet.</b><span>{win.cls === 'CWindowModelFriendlist' ? 'Click a player in a lobby to add them as a friend.' : win.cls === 'CWindowModelBlacklist' ? 'Players you ignore show up here.' : 'Team members show up here.'}</span></li>
       {/each}
     </ul>
     <footer>
@@ -93,6 +93,9 @@
   .dot.live { background: #2fae55; }
   .badge { position: relative; display: grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 750; color: #fff;
     background: var(--sel); }
-  .empty { grid-column: 1 / -1; padding: 10px; color: var(--ink-3); }
+  /* the empty state: centred in the list, what it is and how to fill it */
+  .empty { grid-column: 1 / -1; display: grid; place-content: center; gap: 4px; min-height: 64px; padding: 12px; text-align: center; color: var(--ink-3); }
+  .empty b { font-size: 13.5px; color: var(--ink-2); }
+  .empty span { font-size: 12px; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px 0; }
 </style>
