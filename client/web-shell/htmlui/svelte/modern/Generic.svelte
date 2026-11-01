@@ -8,14 +8,19 @@
   // own places. Pass mode: the engine keeps every input and its own focus, so this is paint only (no <button>s of its
   // own: the game's are what the pointer and keys reach). Pictures, Flash and unknown controls stay the engine's, cut
   // out of the plate.
-  import { generic, genericKeys, family, duelPrompt } from './logic.js';
+  import { generic, genericKeys, family, duelPrompt, duelCmd } from './logic.js';
   import DuelPrompt from './DuelPrompt.svelte';
+  import DuelCmd from './DuelCmd.svelte';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const g = $derived(generic(win));
   // an in-duel prompt waiting for a click on the field or hand: the banner and the ring instead (DuelPrompt)
   const prompt = $derived(duelPrompt(win));
+  // a duel command menu (Summon / Set ...): its options as buttons (DuelCmd)
+  const cmd = $derived(duelCmd(win));
+  // a duel window: compact and translucent, no scrim (owner: "too opaque and loud, it blocks the duel field")
+  const duel = $derived(/^CU/.test(win.cls));
   // everything drawn here with the engine's pictures cut out (evenodd: the window's box and a margin for the plate's
   // shadow, then each hole): nothing of the DOM ever covers what the engine still draws
   const cut = $derived.by(() => {
@@ -63,9 +68,11 @@
 
 {#if prompt}
 <div class="mu"><DuelPrompt p={prompt} {win} /></div>
+{:else if cmd}
+<div class="mu"><DuelCmd m={cmd} {win} api={view.api} /></div>
 {:else}
-{#if win.modal}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
-<div class="mu" aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
+{#if win.modal && !duel}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
+<div class="mu" class:duel aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
   {#if g.plate}
     <div class="mu-plate plate" style={at(g.plate)}>
       {#if g.band}<div class="mu-plaque band" style:height="{g.band.h - 5}px"><span>{g.band.title}</span></div>{/if}
@@ -111,6 +118,8 @@
 
 <style>
   .mu > * { position: absolute; }
+  /* duel windows see-through, so the field stays in view */
+  .duel :global(.mu-plate::after) { background: rgba(244, 248, 253, .8); backdrop-filter: blur(6px); }
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .22); pointer-events: none; }
   .plate { overflow: hidden; }
   .band { position: absolute; left: 0; right: 0; top: 0; }

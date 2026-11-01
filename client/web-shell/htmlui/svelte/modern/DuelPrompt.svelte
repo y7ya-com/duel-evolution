@@ -22,8 +22,11 @@
 
 <style>
   .screen { position: absolute; width: 1024px; height: 768px; pointer-events: none; }
-  .banner { left: 302px; top: 70px; width: 420px; padding-bottom: 12px; animation: mu-arrive .32s ease-out, nudge 1.4s ease-in-out 5s infinite; }
-  .say { margin: 10px 18px 0; font-size: 15px; font-weight: 750; line-height: 1.4; text-align: center; color: var(--ink-strong); }
+  /* compact and see-through (owner: duel modals "too opaque and loud"): the field stays readable under it */
+  .banner { left: 332px; top: 72px; width: 360px; padding-bottom: 10px; animation: mu-arrive .32s ease-out, nudge 1.4s ease-in-out 5s infinite; }
+  .banner::after { background: rgba(244, 248, 253, .82) !important; backdrop-filter: blur(6px); }
+  .banner :global(.mu-head) { height: 30px; }
+  .say { margin: 8px 16px 0; font-size: 14px; font-weight: 750; line-height: 1.4; text-align: center; color: var(--ink-strong); }
   .line { margin: 4px 18px 0; font-size: 12px; text-align: center; color: var(--ink-3); }
   .ring { position: absolute; border-radius: 10px;
     box-shadow: 0 0 0 3px var(--gold-300), 0 0 0 5px rgba(140, 80, 0, .45), 0 0 22px 6px rgba(255, 200, 70, .55), inset 0 0 18px rgba(255, 210, 90, .35);

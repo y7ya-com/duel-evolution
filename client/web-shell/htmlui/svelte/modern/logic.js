@@ -396,7 +396,7 @@ export function genericKeys(g) {
 // the two fields above it)
 export const DUEL_ZONES = { hand: { x: 264, y: 522, w: 522, h: 92 }, field: { x: 318, y: 60, w: 392, h: 466 } };
 export function duelPrompt(win) {
-  if (!/^CU/.test(win.cls)) return null;
+  if (!/^CU/.test(win.cls) || duelCmd(win)) return null;
   const shown = win.controls.filter(c => c.shown !== false);
   if (shown.some(c => family(c) === 'button' && c.enabled !== false)) return null;
   const line = shown.filter(c => family(c) === 'text').map(c => untag(c.text || '').trim()).filter(Boolean)[0] || '';
@@ -406,6 +406,21 @@ export function duelPrompt(win) {
   if (win.cls === 'CULockOnDialog' || /target|select|choose/i.test(line))
     return { kind: 'target', title: 'Choose a card', say: 'Click a card on the field.', line, zone: DUEL_ZONES.field };
   return { kind: 'wait', title: 'Your move', say: line, line: '', zone: null };
+}
+
+// ---- a duel command menu (CWindowModelListDuelCmd and its kin, CUSummonDialogSp: "Summon" / "Set", "Activate",
+// "Attack" ...; owner: "I can pick between set and normal summon, it's so buggy and weird"): its ListboxDuelCmd's rows,
+// each a shown Text child in row order with a ViewItemDuelCmd at y = 16 i. { list, options: [{ label, gp }] } or null;
+// gp: the row's centre in game px, where the engine takes the choice
+export function duelCmd(win) {
+  const list = win.controls.find(c => /ListboxDuelCmd$/.test(c.cls) && c.shown !== false);
+  if (!list) return null;
+  const kids = win.controls.filter(c => c.parent === list.id && c.shown !== false);
+  const labels = kids.filter(c => /CWindowTaskText$/.test(c.cls) && c.x > 0).map(c => untag(c.text || '').trim()).filter(Boolean);
+  const rows = kids.filter(c => /ViewItemDuelCmd$/.test(c.cls)).sort((a, b) => a.y - b.y);
+  const h = rows.length > 1 ? rows[1].y - rows[0].y : 16;
+  const options = labels.map((label, i) => ({ label, gp: [win.x + list.x + list.w / 2, win.y + list.y + (rows[i]?.y ?? i * h) + h / 2] }));
+  return options.length ? { list, options } : null;
 }
 
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out

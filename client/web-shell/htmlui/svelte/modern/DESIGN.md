@@ -306,6 +306,14 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   card"; the instruction in plain words, the game's own line under it) and a gold ring round where to click (the hand
   for a discard, the field for a target), labelled. No scrim. After 5 s with no move the banner and the ring pulse.
   Pass mode: the click is the engine's own, on its card; the engine draws nothing of the old box.
+- **Command menus** (owner: "I can pick between set and normal summon, it's so buggy and weird"): the engine's choice
+  list (CWindowModelListDuelCmd, CUSummonDialogSp: Summon / Set, Activate, Attack ...) is a ListboxDuelCmd whose rows are
+  nested texts; the prompt rule had taken it for a banner ("Your move: Summon", no Set). Now (logic.js duelCmd,
+  DuelCmd.svelte) a compact translucent panel where the engine put its list, by the card: one real button per option
+  the engine offers, the first gold; a press is the engine's own row, clicked at its centre, once. Seen live: Summon /
+  Set offered, Set pressed, "Duel Tester Set a monster".
+- **Translucent:** duel windows (CU*) and the prompt banner are see-through (blurred glass), with no scrim, so the
+  field stays in view.
 - **Duel windows with their own buttons** (Yes / No, phase choices, coin, dice) stay the generic window (Esc / Enter).
 - **Seen live:** the discard, in a duel against the dev NPC (the prompt, the ring, a hand card clicked, the turn passed).
   The target prompt (CULockOnDialog) is covered by the same rule, not yet seen live.

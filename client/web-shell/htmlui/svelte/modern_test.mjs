@@ -449,6 +449,18 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.about, d.duel], ['', ['Single Mode', 'Surrender ON', 'Time Limit ON', 'Watch On', 'Level Limit ON']]);
 }
 
+// a duel command menu: Summon / Set from its listbox's rows, each at its row's centre; it is no click-to-continue prompt
+{
+  const list = ctl('ListboxDuelCmd', { x: 8, y: 8, w: 142, h: 32, items: [], rows: 2 });
+  const k = (cls, o) => ctl(cls, { parent: list.id, ...o });
+  const w = win('CUSummonDialogSp', [ctl('FrameThin', { x: 0, y: 0, w: 158, h: 48 }), list, k('Text', { x: 0, y: 0, w: 126, h: 32, text: '' }),
+    k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'See Details', shown: false }), k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'Summon' }),
+    k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'Set' }), k('ViewItemDuelCmd', { x: 0, y: 0 }), k('ViewItemDuelCmd', { x: 0, y: 16 })], { x: 569, y: 448, w: 158, h: 48 });
+  const m = L.duelCmd(w);
+  assert.deepEqual(m.options.map(o => [o.label, o.gp]), [['Summon', [648, 464]], ['Set', [648, 480]]]);
+  assert.equal(L.duelPrompt(w), null, 'a menu, not a banner');
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
