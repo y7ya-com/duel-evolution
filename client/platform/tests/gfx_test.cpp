@@ -326,6 +326,39 @@ int main() {
     dev->SetTextureStageState(0, D3DTSS_MINFILTER, D3DTEXF_LINEAR);
     cut->Release();
 
+    // transparentOut: the backdrop's draws are left out, the back buffer clears transparent, and a half-transparent
+    // quad keeps its coverage as alpha (colour premultiplied); off again, the clear is opaque as ever
+    {
+        D3DVIEWPORT8 full{0, 0, 64, 64, 0, 1};
+        dev->SetViewport(&full);
+        pixelSpace(64, 64);
+        mode0();
+        dev->SetRenderState(D3DRS_LIGHTING, 0);
+        dev->SetRenderState(D3DRS_ZENABLE, 0);
+        dev->SetRenderState(D3DRS_ALPHATESTENABLE, 0);
+        dev->transparentOut = true;
+        uint32_t red = 0xffff0000;
+        IDirect3DTexture8* bd = texture(1, 1, &red);
+        bd->backdrop = true;
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
+        dev->SetTexture(0, bd);
+        quad(0, 0, 64, 64);
+        dev->SetTexture(0, nullptr);
+        dev->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
+        quad(8, 8, 16, 16, 0x80ffffff);
+        dev->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
+        expect(2, 2, 0x00000000, "transparentOut: clear transparent, the backdrop left out");
+        expect(12, 12, 0x80808080, "transparentOut: half-transparent white keeps alpha 0.5, premultiplied", 3);
+        dev->transparentOut = false;
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
+        dev->SetTexture(0, bd);
+        quad(0, 0, 64, 64);
+        dev->SetTexture(0, nullptr);
+        expect(2, 2, 0xffff0000, "transparentOut off: the backdrop draws, opaque");
+        bd->Release();
+        dev->SetRenderState(D3DRS_ZENABLE, 1);
+    }
+
     rtSurf->Release();
     rtTex->Release();
     holed->Release();
