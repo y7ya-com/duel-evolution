@@ -48,6 +48,37 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     <label class="mu-switch mu-ingame" hidden><input type="checkbox" role="switch" checked><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
+  // the title's backdrop, behind the canvas (owner: recreate the falling squares, crisp): with Module.yo2TransparentTitle
+  // the runtime leaves the canvas clear where its backdrop (data/menu/abmake_bg_*) was, the characters, logo and buttons
+  // still the engine's (yo2-native-gfx 321c521). A fixed layer at the canvas's rect, under it: the 2008 azure (saturated
+  // at the edges, pale in the middle), its fine grid, a light down the centre and translucent squares falling on GPU
+  // transforms (still under prefers-reduced-motion). The canvas is lifted above it only while it shows
+  const backdrop = document.createElement('div');
+  backdrop.id = 'mu-titlebg';
+  backdrop.hidden = true;
+  backdrop.ariaHidden = 'true';
+  // the squares: [x, size, seconds, delay, opacity, outlined, drift, turn] (a fixed set, so every load looks the same)
+  const SQ = Array.from({ length: 26 }, (_, i) => {
+    const h = n => ((Math.sin(i * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
+    return [Math.round(h(1) * 1000), Math.round(10 + h(2) * 38), (10 + h(3) * 14).toFixed(1), (-h(4) * 24).toFixed(1), (.12 + h(5) * .26).toFixed(2), h(6) > .55, Math.round((h(7) - .5) * 60), Math.round((h(8) - .5) * 90)];
+  });
+  backdrop.innerHTML = `<div class="mu-stage"><i class="mu-light"></i>${SQ.map(([x, z, t, d, o, line, dx, rot]) =>
+    `<b class="${line ? 'line' : ''}" style="left:${x}px;width:${z}px;height:${z}px;--o:${o};--dx:${dx}px;--r:${rot}deg;animation-duration:${t}s;animation-delay:${d}s"></b>`).join('')}</div>`;
+  if (!killed && canvas?.parentElement) canvas.parentElement.insertBefore(backdrop, canvas);
+  let lifted = false;
+  const stage = backdrop.firstElementChild;
+  function placeBackdrop(show) {
+    if (globalThis.Module) Module.yo2TransparentTitle = show;
+    if (backdrop.hidden === show) backdrop.hidden = !show;
+    if (show !== lifted) {
+      lifted = show;
+      Object.assign(canvas.style, show ? { position: 'relative', zIndex: '1' } : { position: '', zIndex: '' });
+    }
+    if (!show) return;
+    const r = canvas.getBoundingClientRect(), k = r.width / 1024;
+    const st = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
+    if (backdrop.style.cssText !== st) { backdrop.style.cssText = st; stage.style.transform = `scale(${k})`; }
+  }
   // in game with the original UI: the same switch beside the original Main Menu while it is open (owner: "no way to
   // toggle Legacy UI off after turning it on"); off brings Modern UI back at once
   const ingame = layer.querySelector('.mu-ingame'), ingameBox = ingame.querySelector('input');
@@ -129,6 +160,7 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
         if (title && on && !layer.contains(document.activeElement)) menu.querySelector('button')?.focus({ preventScroll: true });
       }
       layer.classList.toggle('mu-on', on);
+      placeBackdrop(title && on);
     },
   };
 }
@@ -191,4 +223,20 @@ const CSS = `
 #mu-title input:focus-visible + .mu-track { box-shadow: 0 0 0 2px #0985ff, inset 0 1px 2px rgba(0, 0, 0, .35); }
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
 @media (prefers-reduced-motion: reduce) { #mu-title *, #mu-title *::after { animation: none !important; transition: none !important; } }
+#mu-titlebg { position: fixed; z-index: 0; overflow: hidden; pointer-events: none; }
+#mu-titlebg[hidden] { display: none; }
+#mu-titlebg .mu-stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .34) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .34) 0 1px, transparent 1px 14px),
+    linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, 0) 40%, rgba(255, 255, 255, .1)),
+    linear-gradient(90deg, #4aa8f5 0%, #86c8f9 24%, #c9e5fc 47%, #d2eafd 53%, #a9d7fa 76%, #63b9f7 100%); }
+#mu-titlebg .mu-light { position: absolute; left: 312px; top: -80px; width: 400px; height: 928px;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0)); }
+#mu-titlebg b { position: absolute; top: 0; display: block; opacity: var(--o); background: rgba(255, 255, 255, .85);
+  box-shadow: 0 0 10px rgba(255, 255, 255, .35); will-change: transform; animation: mu-fall linear infinite; }
+#mu-titlebg b.line { background: rgba(255, 255, 255, .12); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .9); }
+@keyframes mu-fall { from { transform: translate3d(0, -60px, 0) rotate(0deg); } to { transform: translate3d(var(--dx), 830px, 0) rotate(var(--r)); } }
+@media (prefers-reduced-motion: reduce) {
+  #mu-titlebg b { animation: none; transform: translate3d(0, calc(var(--o) * 1800px), 0); } }
 `;
