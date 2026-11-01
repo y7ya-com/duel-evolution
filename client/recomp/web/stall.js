@@ -13,6 +13,7 @@
 //   decode    image decoding on the main thread (ovr/decode.c), ms; upload: texture uploads (rt d3d8), ms
 //   slept     ms the game yielded (Sleep, idle, WaitFor* polling: it was waiting, not working); waitObj: of that,
 //             in WaitFor* (a guest thread or event it waited on), waitAt: the exe address its longest wait returns to
+//             (only when it waited 1 ms or more: a frame of sub-ms polls had "fffbfff0")
 //             (hex); thr: pthread Workers [running, idle] ([] if unknown), above 8 in all = the pool grew (a Worker started
 //             cold); yields: how many. xhr includes guest threads'
 //             ("thread <path>"). focus: the page had focus at the start / the end ("10": lost it)
@@ -80,7 +81,7 @@ if (typeof document !== "undefined" && !new URLSearchParams(location.search).has
             const miss = since(Module.yo2Lazy?.missLog, last), xhr = since(Module.yo2Xhr, last);
             const s = { t: Math.round(last), ms: Math.round(now - last), f: frame, scene, sw: swAt >= last, duel: Module.yo2Lazy?.duel || "",
                 decode: Math.round(decode || 0), upload: Math.round(upload || 0), slept: Math.round(slept || 0),
-                waitObj: Math.round(waitObj || 0), waitAt: waitAt ? (waitAt >>> 0).toString(16) : "", thr: workers(), yields: yields | 0, focus: `${focusAt}${focus}`, laf: lafs(last, now), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
+                waitObj: Math.round(waitObj || 0), waitAt: waitAt && waitObj >= 1 ? (waitAt >>> 0).toString(16) : "", thr: workers(), yields: yields | 0, focus: `${focusAt}${focus}`, laf: lafs(last, now), miss: miss.slice(-20), missMs: sum(miss), xhr: xhr.slice(-10), xhrMs: sum(xhr),
                 net: { rx: r - rx, backlog: (Module.yo2NetRx | 0) - (Module.yo2NetRead | 0) }, under: u - under,
                 js: js - (Module.yo2Js | 0) };
             push(s);
