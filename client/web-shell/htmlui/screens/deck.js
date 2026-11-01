@@ -95,6 +95,7 @@ export function plan(win, editor = true) {
         if (h && x < 9999) add(t.id, t.wz ?? 0, { x, y, w, h }, el => drawFlow(el, t, x - ox, y - oy, w, h, t.a ?? 1, box.px));
         continue;
       }
+      if (ctl?.name === 'CWindowTaskCardInfoItem::m_name') box.fit = true;   // a trunk row's card name: its 200 px
       add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * t.text.split('\n').length },
         el => drawLabel(el, t.text, t.wx - ox, t.wy - oy, t.a ?? 1, box));
     }
@@ -639,7 +640,9 @@ export function searchPanel(root, apply) {
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
 // 18-pixel style. box: { align (0 left, 1 centre, 2 right), w, px (the control's fontSize: 24 for a dialog's title) }
 // as the CTextElm lays its lines out.
-function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink = null } = {}) {
+// fit: a card name in its control's width (owner: names ran past their trunk row): the letters drawn up to 1 px closer,
+// then cut with an ellipsis at the width (the engine cuts it mid-letter there)
+function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink = null, fit = false } = {}) {
   text.split('\n').forEach((line, li) => {
     const rs = runs(line), px = r => r.rgb === TAG_RGB[1] ? 18 : size;
     // a run's width as textBox sets it: Arial plus its letter spacing (controls/basic.js spacing: the game's widths)
@@ -651,6 +654,11 @@ function drawLabel(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink
       const rgb = ink !== null && r.rgb === TAG_RGB[0] ? ink : r.rgb, c = [rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255);
       const d = textBox(el, r.s, { x: x + pen, y: y + size * li, px: px(r), color: [...c, alpha], white: true });
       if (px(r) === 18) d.style.fontWeight = 'bold';
+      const over = fit && w ? pen + rw(r) - w : 0, n = [...r.s].length;
+      if (over > 0) {
+        d.firstChild.style.letterSpacing = spacing(r.s, px(r)) - Math.min(over / n, 1) + 'px';
+        if (over / n > 1) Object.assign(d.style, { width: w - pen + 'px', overflow: 'hidden', textOverflow: 'ellipsis' });
+      }
       pen += rw(r);
     }
   });
