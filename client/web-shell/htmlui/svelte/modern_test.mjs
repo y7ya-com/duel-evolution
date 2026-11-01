@@ -302,6 +302,10 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(m.places.map(p => [p.name, p.here, p.cap]), [['Duelist Academy', '0', '1000'], ['Pier', '12', '32']]);
   assert.ok(m.close && !m.bar);
   assert.deepEqual(L.place('Duel Academy [15]  0/32'), { name: 'Duel Academy [15]', here: '0', cap: '32' });
+  // the game's placeholder while it asks the server: loading, no place
+  const c = L.moveWindow(win('CWindowModelMove', [b(24, 'Connecting to server...')]));
+  assert.deepEqual([c.loading, c.places.length], [true, 0]);
+  assert.equal(m.loading, false);
 }
 
 // an unlock announcement: its shown lines top to bottom (the empty kind line dropped), its OK picture and caption

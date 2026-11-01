@@ -451,10 +451,14 @@ export function duelConfig(win) {
 
 // ---- the Move window (CWindowModelMove, the bar's door: where to go): its place buttons top to bottom, each its name
 // and head count; the x; the scroll bar the game shows past six places (then only six buttons are shown at a time)
+// (loading: the game's own placeholder while it asks the server, one button "Connecting to server...": no place)
 export function moveWindow(win) {
   const cs = win.controls.filter(c => c.shown && top(c));
+  const places = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) }));
+  const loading = places.length === 1 && !places[0].cap && /^connecting/i.test(places[0].name);
   return {
-    places: cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) })),
+    loading,
+    places: loading ? [] : places,
     close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
     bar: cs.find(c => /Scroll$/.test(c.cls)),
   };

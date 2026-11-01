@@ -198,8 +198,13 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
   - Becomes a dock: Menu (gold), Duel, Move as labelled buttons.
   - The engine's message line becomes a status field.
 - **Place banner:** a location chip, the place and the map, each with its head count.
-- **Player list:** "Players n", rows with a status dot, find, taller / shorter. A row clicks the engine's row, scrolling
-  the engine's list to it first.
+- **Player list:** "Players n", rows with a status dot, find, and one size toggle. A row clicks the engine's row,
+  scrolling the engine's list to it first.
+  - Two sizes only (owner: the game's three-stage taller / shorter was weird): small (the game's 128) and minimised
+    (its 32 bar). The game's own buttons step a cycle 128 → 560 → 32; the toggle steps it to the size asked for
+    (through 560 when minimising), drawn at the target size and at the game's own place for it all along (small at
+    y 608, minimised at 712: the bar sits 8 px lower), so nothing jumps. A list left expanded (from Legacy UI) is
+    brought back to small within a second.
 - **Chat:** a GamePanel standing on the short chat's foot: the log well on top, the foot row below (the channels as a
   segmented GameTabs rail, the line as a GameField, Send in gold, Hide). Hidden: a HUD strip (the dock's material, its
   gold edge) with the channel in the display face, the latest line and the unread count. The engine's rects: short
@@ -223,10 +228,22 @@ remaining lobby windows), html-ui-pixel (flicker, bridge bugs, best practices).
     changes; Cancel or Esc drops them.
   - Keys: focus opens on the first setting's choice; the arrows choose within a setting, Tab moves between settings,
     Enter is OK, Esc Cancel.
+  - No layout shifts (owner): the help panel is a fixed 200 px box, tall enough for the longest help (Semi Auto
+    Cancel's nine lines), its title line always reserved; choices don't move when pressed; the footer note is one
+    line. Measured: hovering each of the seven options moves nothing but the help text inside its box.
 - **Move** (the bar's door, CWindowModelMove; Move.svelte, owned; before, plain buttons on a green frame with the
-  count squeezed into the caption): "Where to?", a row per place with its name and a fill meter for its head count
-  (red when full), the ×. Past six places the game shows six at a time: the wheel or the arrows past either end
-  scroll its list. Keys: focus on the first place, Up / Down, Enter goes, Esc closes.
+  count squeezed into the caption, then six rows and "scroll for 3 more"): "Where to?" with every place at once, a
+  tile each (its name, a fill meter and the head count, red when full), one column up to six places, two past that.
+  - The game shows six places at a time behind a scroll bar; the window reads the whole list first (stepping the
+    game's list, hidden behind it) and a click on a place beyond the six scrolls the game's list to it, then presses
+    the game's own button.
+  - Stable (owner: "super glitchy"): fixed-size tiles; hover and press change colour only, nothing moves. The plate
+    shows once, complete: never the game's 65 ms "Connecting to server..." placeholder as a one-row plate, never tiles
+    reading "…" while the list is read (at most 0.7 s on a first opening). A place opened before shows its last list
+    at once (counts dimmed and clicks held until the fresh list arrives), then updates in place.
+  - The game asks the server before showing its window (1 to 4 s): the dock's Move key shows that it is working
+    (pressed in, its icon pulsing) until the window is there, and ignores a second press meanwhile.
+  - Keys: focus on the first place; the arrows move through the grid, Enter goes, Esc closes.
 - **Unlocks and items** (CWindowModelItemGet: "Now, you can challenge Yami Marik to a Duel!"; ItemGet.svelte, pass):
   the engine keeps drawing the portrait card (the window's sprite extras pass through); its lines become one blue
   ribbon across the card's foot and its OK a large gold button that takes the focus, so Enter, Space or Esc dismisses
