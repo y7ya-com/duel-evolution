@@ -2,11 +2,11 @@
 // its planes in a new[] array of 12-byte entries at +0x1c (new[]'s count just before it, at [array - 4]; 0x7d9268) and
 // their names at +0x24 (8 bytes each). The duel field's plane set (0x763470, thiscall, 2 stack args, idx -1 = the field's
 // own at +8) and the loader (0x7d8840, thiscall, 1 stack arg: SecretLoad of resource 9000 + idx) index both with no bound,
-// so a Field Spell with no 2008 plane read past the array and __RTDynamicCast took garbage for an object (an
+// and 0x7d8e70 (thiscall, 1 stack arg) the same, so a Field Spell with no 2008 plane read past the array and __RTDynamicCast took garbage for an object (an
 // out-of-bounds trap). Here an index past the array becomes plane 0 (the plain field), and the first one is reported.
 #include "rt.h"
 
-void o_00763470(CPU *restrict c), o_007d8840(CPU *restrict c);
+void o_00763470(CPU *restrict c), o_007d8840(CPU *restrict c), o_007d8e70(CPU *restrict c);
 
 static uint32_t planes(void) {
     uint32_t m = RD32m(0x12a6b78), a = m ? RD32m(m + 0x1c) : 0;
@@ -34,4 +34,9 @@ void f_00763470(CPU *restrict c) {
 void f_007d8840(CPU *restrict c) {
     bound(c->esp + 4, ARG(0), "load");
     o_007d8840(c);
+}
+
+void f_007d8e70(CPU *restrict c) {
+    bound(c->esp + 4, ARG(0), "get");
+    o_007d8e70(c);
 }

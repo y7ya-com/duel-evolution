@@ -50,3 +50,4 @@
 00a01740  # the area map's wait for the lobby task after an exit (lobbyretry.c: a failure goes back to My Room)
 00763470  # the duel field's plane set (fieldplane.c: an index past the plane loader's array becomes plane 0; crash #19)
 007d8840  # the plane loader's SecretLoad by index (fieldplane.c: the same bound)
+007d8e70  # the plane loader's plane by index (fieldplane.c: the same bound)
