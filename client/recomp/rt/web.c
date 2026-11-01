@@ -32,6 +32,16 @@ void rc_web_sleep(uint32_t ms) {
     last_yield = rc_ticks_ms();
 }
 
+// One turn of a main-thread WaitFor*. The thread it waits on often needs this thread: its file reads are proxied here
+// (MEMFS, web/lazyfs.js). Served only when this thread yields (a setTimeout, 4 ms when nested), a loader thread's many
+// small reads took seconds while the game waited on CTextureManager's FileMutex at lobby entry (waitAt 59dfd0, 4-5 s
+// on 4 cores). So serve them on every turn, and give the browser a turn every 8 ms (input, async fetches).
+void rc_web_wait_step(void) {
+    static double last;
+    emscripten_main_thread_process_queued_calls();
+    if (emscripten_get_now() - last >= 8) rc_web_sleep(1), last = emscripten_get_now();
+}
+
 // after each Present: let the browser composite the frame and deliver input
 // Every Present: Module.yo2Presents counts frames for the page (the loader shows "Loading..." when it stops moving:
 // the game presents every frame unless a scene change or a load blocks it). Module.yo2Frame: web/stall.js's timer,
