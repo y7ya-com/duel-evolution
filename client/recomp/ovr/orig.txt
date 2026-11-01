@@ -53,3 +53,6 @@
 00add7b0  # CWorldMng::enterArea (lobbyretry.c: a reconnect loads the map the player was on)
 006917b0  # CNetDuel::sendBookedCheck 0x6001 (duelreattach.c: a new duel: its pid, the count from 0)
 0068cf60  # CMessageIOBase::sendBye (duelreattach.c: the client closing its duel connection ends the duel)
+00763470  # the duel field's plane set (fieldplane.c: an index past the plane loader's array becomes plane 0; crash #19)
+007d8840  # the plane loader's SecretLoad by index (fieldplane.c: the same bound)
+007d8e70  # the plane loader's plane by index (fieldplane.c: the same bound)
