@@ -194,6 +194,14 @@ export class DuelPort {
     if (g.nw && (g.nw as unknown as { onDuelMsg(c: Conn, m: number, d: Uint8Array): boolean }).onDuelMsg(c, msgId, data)) return;
     const pvp = g.pvp as { route(c: Conn, m: number): { on(c: Conn, m: number, p: number, d: Uint8Array): void } | null } | null;
     if (pvp) { const m = pvp.route(c, msgId); if (m) return m.on(c, msgId, param, data); }
+    // a new NPC duel on the duel connection the client kept from its last one (as PvP does, pvpMatch.ts route): that
+    // duel's state on the connection goes, else the new 0x61fe reads as a repeat and the duel never starts (live
+    // 2026-11-01, "we can't play 2 duels in a row"). Only once the last one is over: a 0x6001 mid-duel changes nothing
+    if (msgId === 0x6001 && (x.ocg ? x.ocg.over : x.duelStarted)) {
+      x.duelQ?.stop();
+      for (const k of ["duelStarted", "ocg", "duelQ", "duelSt", "dfEnd", "deckBlock"] as const) delete x[k];
+      this.log(`[duelo] a new duel on the duel connection kept from the last one: its state cleared`);
+    }
     const DF = this.dfFor(c);
     this.dfEndMark(c, DF, msgId);
     if (msgId === 0x61fe) {

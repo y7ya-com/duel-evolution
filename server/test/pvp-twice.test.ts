@@ -70,6 +70,31 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     return { h, A, B, rid: u32((await B.room!.wait(0x3113, n))!) };
   }
 
+  it("two NPC duels in a row on the duel connection kept from the first (live report 2026-11-01: the second never started)", async () => {
+    const h = harness({ players: {} }, { PVP_TEST: "1", DUEL_PAUSE: "0.0005" });
+    const A = h.client("A"); await A.account(0, "Alfa"); await A.enterRoom();
+    const npcRoom = (rival: number) => { const b = new Uint8Array(28); b[0] = 3; b.set([1, 1, 1], 20); new DataView(b.buffer).setUint32(24, rival); return b; };
+    const d = A.link(5760), deck = NPC_DECKS["51"];
+    for (const round of [1, 2]) {
+      const n = A.room!.mark();
+      A.room!.send(0x4288, npcRoom(84));
+      expect(await A.room!.wait(0x43a0, n, undefined, 15_000), `round ${round}: the NPC challenge`).not.toBeNull();
+      const f = d.mark();
+      d.send(0x6001, be32(A.pid!));
+      expect(await d.wait(0x6007, f)).not.toBeNull();
+      d.send(0x6600, be32(deck.main.length, 0, deck.extra.length)); d.send(0x6601, deckMsg(deck.main)); d.send(0x6603, deckMsg(deck.extra)); d.send(0x600b);
+      expect(await d.wait(0x6005, f, undefined, 30_000)).not.toBeNull();
+      for (const [mid, data] of [[0x6100, []], [0x6101, [0]], [0x6102, []], [0x6103, [0]]] as [number, number[]][]) { const k = d.mark(); d.send(mid, data); await d.wait(mid, k, undefined, 15_000); }
+      const k = d.mark();
+      d.send(0x61fe, [1]);
+      expect(await d.wait(0x6202, k, undefined, 30_000), `round ${round}: the duel starts`).not.toBeNull();
+      expect(await d.wait(0x6202, k, (x) => type6202(x) === 0x4d, 120_000), `round ${round}: the duel's end`).not.toBeNull();
+      await h.tick(3000);
+      const m = A.room!.mark(); A.room!.send(0x4210, be32(0xffffffff)); await A.room!.wait(0x4213, m);   // back to the map, the duel connection kept
+    }
+    expect(h.log.some((l) => l.includes("0x61fe repeated"))).toBe(false);
+  }, 240_000);
+
   it("the same pair duels twice, a new duel connection each time", async () => {
     const { h, A, B, rid } = await pair();
     await duel(h, A, B, rid);
