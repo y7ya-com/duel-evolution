@@ -68,6 +68,8 @@ console.log("stall_test ok");
     const M = c2.Module;
     now += 1000, M.yo2Frame(), (now += 400), M.yo2Frame(0, 0, 0, 300, 1, 0x59b6f9);
     assert.equal(JSON.stringify(M.yo2Stalls.at(-1).thr), "[]", "PThread without those fields: thr unknown");
+    now += 400, M.yo2Frame(0, 0, 0, 0.2, 1, 0xfffbfff0);
+    assert.equal(M.yo2Stalls.at(-1).waitAt, "", "no waitAt from sub-ms waits");
     M.yo2Sfx = { underruns: () => { throw new Error("boom"); } };
     assert.doesNotThrow(() => M.yo2Frame(), "a throw inside stays inside");
 }
