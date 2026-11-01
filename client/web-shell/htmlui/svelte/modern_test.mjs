@@ -466,6 +466,15 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(L.duelPrompt(w), null, 'a menu, not a banner');
 }
 
+// a duel's result card: the name, WIN / LOSE / SCORE with their figures (CTextElm extras, top to bottom), the banner
+{
+  const base = ctl('ResultBase', { parts: { sprites: [{ tex: 'data/result/result_dai_01_c01.png', shown: true }, { tex: 'data/result/result_loser_01_j.png', shown: true }] } });
+  const r = L.result(win('CWindowResult', [ctl('ShadowText', { x: 16, y: 99, w: 216, h: 576, text: 'Duel Tester\n\nWIN\n\nLOSE\n\nSCORE\n' }), base],
+    { extras: [{ cls: 'CTextElm', text: '@91', wy: 200, shown: true }, { cls: 'CTextElm', text: '@90', wy: 170, shown: true }, { cls: 'CTextElm', text: '@90', wy: 230, shown: true }] }));
+  assert.deepEqual(r, { name: 'Duel Tester', winner: false, stats: [{ label: 'WIN', value: '0' }, { label: 'LOSE', value: '1' }, { label: 'SCORE', value: '0' }] });
+  assert.ok(!L.GENERIC.includes('CWindowResult'), 'its own screen');
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();

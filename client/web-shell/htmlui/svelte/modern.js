@@ -18,6 +18,7 @@ import Form from './modern/Form.svelte';
 import Mail from './modern/Mail.svelte';
 import Avatar from './modern/Avatar.svelte';
 import Generic from './modern/Generic.svelte';
+import ResultCard from './modern/ResultCard.svelte';
 import { GENERIC, generic, options, duelPrompt } from './modern/logic.js';
 import DuelConfig from './modern/DuelConfig.svelte';
 import Move from './modern/Move.svelte';
@@ -137,6 +138,8 @@ const screens = [
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
+  // a duel's result, a card a player: the engine draws nothing of the window (its panel and banner are redrawn)
+  screen({ CWindowResult: ResultCard }, { mode: 'pass', clip: false, parts: true, passthrough: () => false }),
   // a duelist's card and an NPC's speech bubble: pass (the game keeps the mouse: a click anywhere goes on or closes);
   // the bubble's own button and a card's buttons take the pointer
   screen({ CNpcListMenu: NpcCard, CPlayerListMenu: NpcCard, CWindowModelBalloon: Balloon }, { mode: 'pass', clip: false }),

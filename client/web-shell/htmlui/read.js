@@ -265,7 +265,9 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     wz: Math.max(0, ...byWin.get(w).filter(c => c.shown && c.wz > 0).map(c => c.wz)),
     drawn: drawnBox(w),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
-    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
+    // a CTextElm extra carries its text (label: the result screen's win / lose / score figures are such texts)
+    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' }
+      : cls(t) === 'CTextElm' ? { ...label(t), cls: 'CTextElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
   })).reverse();                                // back to front
   // the non-window owners (the shop's CShop* tasks), shaped like windows so a screen can claim them; w/h from a read

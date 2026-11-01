@@ -264,7 +264,7 @@ export const GENERIC = [
   'CUDiceDialog', 'CUDiscardDialog', 'CUGHelpManager', 'CULockOnDialog', 'CUOkDialog', 'CUPhaseSelectDialog', 'CUPhaseYesNoDialog',
   'CURitualDialog', 'CUSelectAttributeDialog', 'CUSelectCoinDialog', 'CUSelectDialog', 'CUSelectNumDialog', 'CUSelectStandDialog',
   'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowDeckList', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
-  'CWindowResult', 'CWindowResultNext', 'CWindowResultNpc',
+  'CWindowResultNext', 'CWindowResultNpc',   // CWindowResult: its own screen (ResultCard)
 ];
 
 // a control's family (CONTRACT.md's), by class; 'engine': the engine keeps drawing it (pictures, Flash, unknown)
@@ -423,6 +423,19 @@ export function duelCmd(win) {
   const h = rows.length > 1 ? rows[1].y - rows[0].y : 16;
   const options = labels.map((label, i) => ({ label, gp: [win.x + list.x + list.w / 2, win.y + list.y + (rows[i]?.y ?? i * h) + h / 2] }));
   return options.length ? { list, options } : null;
+}
+
+// ---- a duel's result card (CWindowResult, one a player; owner: "the W-L record page thing at the end looks so bad"):
+// { name, winner, stats: [{ label, value }] }. The ShadowText's lines are the name, then the labels (WIN, LOSE, SCORE);
+// the figures are the window's CTextElm extras, top to bottom (a colour tag and the number: "@90"); winner from the
+// ResultBase's banner picture (result_winner_ / result_loser_), null when it isn't read
+export function result(win) {
+  const head = win.controls.find(c => /ShadowText$/.test(c.cls) && !c.parent && c.text) || win.controls.find(c => /Text$/.test(c.cls) && c.text);
+  const lines = untag(head?.text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const values = (win.extras || []).filter(e => e.cls === 'CTextElm' && e.shown !== false).sort((a, b) => (a.wy ?? 0) - (b.wy ?? 0)).map(e => untag(e.text || '').trim());
+  const banner = win.controls.flatMap(c => c.parts?.sprites || []).find(s => /result_(winner|loser)/.test(s.tex || ''));
+  return { name: lines[0] || '', winner: banner ? /winner/.test(banner.tex) : null,
+    stats: lines.slice(1).map((label, i) => ({ label, value: values[i] ?? '' })) };
 }
 
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out
