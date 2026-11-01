@@ -48,7 +48,7 @@
     m.hidden = false;
     // a blocked browser never reaches the game's crash reporter: one row per load (the reason and the browser, nothing personal)
     fetch("/__crash", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ why: "blocked: " + block, fatal: true, ua: navigator.userAgent, url: location.pathname, coi: !!window.crossOriginIsolated,
+      body: JSON.stringify({ why: "blocked: " + block, fatal: true, ua: navigator.userAgent, url: location.pathname, proto: location.protocol, secure: !!window.isSecureContext, coi: !!window.crossOriginIsolated,
         sab: typeof SharedArrayBuffer !== "undefined", gl2 }) }).catch(() => {});
   } else {
     fetch("__warm", { keepalive: true }).catch(() => {});   // wake the game server while the client boots (survives the redirect)
