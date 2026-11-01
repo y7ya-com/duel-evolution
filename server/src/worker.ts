@@ -94,7 +94,8 @@ for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stal
     if (n >= perHour) return c.body(null, 429);
     await bucket.put(rateKey, String(n + 1));
     // the client's IP family: one ISP's IPv6 route to the zone ran at ~76 KB/s against 0.8 MB/s over IPv4 (2026-10-28)
-    const account = path === "crash" ? ((await verifySession(c.req.raw, c.env as unknown as AuthEnv).catch(() => null))?.name ?? null) : undefined;
+    // the signed-in player's name on crash reports and stall batches alike, so either can be tied to a player (null signed out)
+    const account = (await verifySession(c.req.raw, c.env as unknown as AuthEnv).catch(() => null))?.name ?? null;
     const out = row && typeof row === "object" && !Array.isArray(row) ? JSON.stringify({ ...row, ip_family: ipFamily(c.req.raw), account }) : body;
     await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, out, { httpMetadata: { contentType: "application/json" } });
     return c.body(null, 204);
