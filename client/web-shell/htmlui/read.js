@@ -222,8 +222,24 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     const off = movie && children(movie).find(k => name(k) === 'Offset');
     return off ? children(off).filter(k => cls(k) === 'CSwfButton2' && /^btn_/.test(name(k))).map(k => ({ id: k, name: name(k) })) : [];
   })();
+  // the duel's guide (scene 28; phase2-duel: CSceneMng +0x74 the current scene, CDuelScene +0x144 m_pHelpManager, a
+  // CUGHelpManager the scene owns, not a factory window): its shown text, the duel waiting on a field / hand click and
+  // why ("Select a target ..."); '' when none shows
+  const duel = (() => {
+    const so = scene === 28 && sm ? u32(sm + 0x74) : 0;
+    if (!so || cls(so) !== 'CDuelScene') return null;
+    const hm = u32(so + 0x144), lines = [];
+    if (hm && vis(hm)) (function walk(t, d) {
+      for (const k of children(t)) {
+        if (!vis(k)) continue;
+        if (/^CWindowTask(Shadow)?Text$/.test(cls(k))) { const x = textCtl(k).text; if (x) lines.push(x); }
+        if (d < 5) walk(k, d + 1);
+      }
+    })(hm, 0);
+    return { help: [...new Set(lines)].join('\n') };
+  })();
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title, duel };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -275,5 +291,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, duel, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

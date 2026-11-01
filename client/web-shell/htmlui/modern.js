@@ -44,12 +44,16 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     </nav>
     <label class="mu-switch"><input type="checkbox" role="switch"><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>
+    <section class="mu-plate mu-guide" role="status" aria-live="polite" hidden><header class="mu-head"><h2>Your move</h2></header><p></p></section>
     <label class="mu-switch mu-ingame" hidden><input type="checkbox" role="switch" checked><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
   // in game with the original UI: the same switch beside the original Main Menu while it is open (owner: "no way to
   // toggle Legacy UI off after turning it on"); off brings Modern UI back at once
   const ingame = layer.querySelector('.mu-ingame'), ingameBox = ingame.querySelector('input');
+  // the duel's guide (read.js snapshot.duel.help: the duel waits on a field / hand click and says why, "Select a target";
+  // no window carries it): a compact see-through banner over the field, the game's own words
+  const guide = layer.querySelector('.mu-guide'), guideText = guide.querySelector('p');
   ingameBox.addEventListener('change', () => { if (!ingameBox.checked) set(true); ingameBox.checked = true; });
   const listeners = new Set();
   const set = v => {
@@ -114,7 +118,10 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
       const mm = !killed && !on && !wait && scene !== 4 && snap.windows.find(w => w.cls === 'CMainMenu' && w.shown && w.drawn);
       if (ingame.hidden === !!mm) ingame.hidden = !mm;
       if (mm) { const d = mm.drawn || mm, l = `${d.x}px`, t = `${Math.max(4, d.y - 40)}px`; if (ingame.style.left !== l) ingame.style.left = l; if (ingame.style.top !== t) ingame.style.top = t; }
-      const show = title || !!mm;
+      const help = on && !wait && scene === 28 ? (snap.duel?.help || '').replace(/[@＠]>\d+\/?/g, ' ').replace(/[@＠]\d/g, '').trim() : '';
+      if (guide.hidden === !!help) guide.hidden = !help;
+      if (help && guideText.textContent !== help) guideText.textContent = help;
+      const show = title || !!mm || !!help;
       if (layer.hidden === show) layer.hidden = !show;
       if (layer.classList.contains('mu-title-on') !== title) {
         layer.classList.toggle('mu-title-on', title);
@@ -138,6 +145,11 @@ const CSS = `
 #mu-title.mu-on.mu-title-on .mu-tmenu { display: flex; }
 #mu-title:not(.mu-title-on) > .mu-switch:not(.mu-ingame) { display: none; }
 #mu-title .mu-switch.mu-ingame { right: auto; bottom: auto; margin-left: 4px; }
+#mu-title .mu-guide { left: 332px; top: 72px; width: 360px; padding-bottom: 10px; pointer-events: none; font-size: 14px; }
+#mu-title .mu-guide[hidden] { display: none; }
+#mu-title .mu-guide::after { background: rgba(244, 248, 253, .82); backdrop-filter: blur(6px); }
+#mu-title .mu-guide .mu-head { height: 30px; }
+#mu-title .mu-guide p { margin: 8px 16px 0; font-weight: 750; line-height: 1.4; text-align: center; color: #0c1e3a; white-space: pre-wrap; }
 #mu-title .mu-switch.mu-ingame[hidden] { display: none; }
 #mu-title .mu-tbtn { --s: 22px; position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 30px; margin: 0;
   border: 0; background: none; font-family: var(--display, Audiowide), "Arial Black", Arial, sans-serif; font-weight: 400; font-style: italic; font-size: 20px;
