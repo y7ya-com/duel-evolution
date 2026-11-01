@@ -186,7 +186,7 @@ const CSS = `
 #mu-title .mu-tbtn { --s: 22px; position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 30px; margin: 0;
   border: 0; background: none; font-family: var(--display, Audiowide), "Arial Black", Arial, sans-serif; font-weight: 400; font-style: italic; font-size: 20px;
   line-height: 1; letter-spacing: .07em; text-transform: uppercase; color: #fff;
-  filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)); transition: transform .12s cubic-bezier(.16, 1, .3, 1), filter .14s; }
+  filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)); transition: transform .2s cubic-bezier(.34, 1.4, .64, 1), filter .16s; }
 #mu-title .mu-tbtn::before, #mu-title .mu-tbtn::after, #mu-title .mu-tfill { content: ''; position: absolute; clip-path: polygon(var(--s) 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%); }
 #mu-title .mu-tbtn::before { inset: 0; background: #0b2f73; }
 #mu-title .mu-tbtn::after { inset: 1.5px 2px; background: linear-gradient(180deg, #ffffff, #dff1ff); }
@@ -201,7 +201,7 @@ const CSS = `
   filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)) drop-shadow(0 0 10px rgba(150, 215, 255, .9)) brightness(1.06); }
 #mu-title .mu-tbtn:hover .mu-tfill::after, #mu-title .mu-tbtn:focus-visible .mu-tfill::after { background-position: 260% 0; }
 #mu-title .mu-tbtn:focus-visible::after { background: linear-gradient(180deg, #fff6c8, #ffd25a); }
-#mu-title .mu-tbtn:active { transform: translate(2px, 2px) scale(.99); filter: drop-shadow(0 1px 2px rgba(6, 30, 80, .4)) brightness(.95); }
+#mu-title .mu-tbtn:active { transition-duration: .03s, .03s; transform: translate(2px, 2px) scale(.99); filter: drop-shadow(0 1px 2px rgba(6, 30, 80, .4)) brightness(.95); }
 #mu-title .mu-tbtn-primary { --s: 25px; height: 50px; font-size: 25px; }
 #mu-title .mu-tbtn-primary::before { background: #6b3300; }
 #mu-title .mu-tbtn-primary .mu-tfill { background: linear-gradient(180deg, #fff6c4 0%, #ffd94e 47%, #f6a400 53%, #e38700 100%); box-shadow: inset 0 -3px 6px rgba(120, 50, 0, .3); }
