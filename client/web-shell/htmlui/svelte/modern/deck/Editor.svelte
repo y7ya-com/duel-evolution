@@ -10,6 +10,9 @@
   import GameTabs from '../game/GameTabs.svelte';
   import { picture, cached } from './pictures.js';
   import * as E from './engine.js';
+  import { flip } from 'svelte/animate';
+  import { scale } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion } from './editor.js';
   let { view } = $props();
 
@@ -60,34 +63,96 @@
   let nt = 0;
   const say = (m, bad = false) => { note = m; noteBad = bad; clearTimeout(nt); nt = setTimeout(() => { note = ''; }, 3200); };
   const run = async (p, fail) => { busy++; try { const ok = await p; if (ok) dirty = true; else if (fail) say(fail, true); return ok; } finally { busy--; } };
-  function put(c, to = home(c)) {
-    const why = blocked(c, to, { inDeck: inDeck.get(c.id) || 0, left: left(c.id), counts });
-    if (why) return say(`${c.name}: ${why}`, true);
-    run(E.add(c, to), `${c.name} could not be added`);
+  // why a card can't go from `from` to `to` ('pool' the trunk; '' when it can, 'same' for no move)
+  function why(id, from, to) {
+    if (!to || from === to) return 'same';
+    if (from === 'pool') return blocked(db.card(id), to, { inDeck: inDeck.get(id) || 0, left: left(id), counts });
+    if (to === 'pool') return '';
+    if (from === 'extra' || to === 'extra') return 'Fusion monsters stay in the Fusion Deck';
+    if (counts[to] >= (to === 'side' ? 15 : 80)) return `The ${to === 'side' ? 'Side' : 'Main'} Deck is full`;
+    return '';
   }
-  const take = (id, from) => run(E.move(id, from), 'The card could not be taken out');
-  function swap(id, from) {
-    if (from === 'extra') return say('Fusion monsters stay in the Fusion Deck', true);
-    const to = from === 'main' ? 'side' : 'main';
-    if (counts[to] >= (to === 'side' ? 15 : 80)) return say(`The ${to === 'side' ? 'Side' : 'Main'} Deck is full`, true);
-    run(E.move(id, from, to), 'The card could not be moved');
+  // the one move, the engine's own (deck/engine.js: added from the trunk, taken out, Main <-> Side); resolves true once done
+  function act(id, from, to) {
+    const no = why(id, from, to), c = db.card(id);
+    if (no) { if (no !== 'same') say(`${c?.name}: ${no}`, true); return Promise.resolve(false); }
+    if (from === 'pool') return run(E.add(c, to), `${c.name} could not be added`);
+    return run(E.move(id, from, to === 'pool' ? null : to), to === 'pool' ? 'The card could not be taken out' : 'The card could not be moved');
   }
+  const put = (c, to = home(c)) => act(c.id, 'pool', to);
+  const take = (id, from) => act(id, from, 'pool');
+  const swap = (id, from) => act(id, from, from === 'main' ? 'side' : 'main');
 
-  // ---- drag and drop between the trunk and the sections (the browser's own)
-  let over = $state('');
-  const dragStart = (e, id, from) => { e.dataTransfer.setData('text/plain', JSON.stringify({ id, from })); e.dataTransfer.effectAllowed = 'move'; };
-  const dragData = e => { try { return JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return null; } };
-  function drop(e, to) {
-    e.preventDefault();
-    over = '';
-    const d = dragData(e);
-    if (!d || d.from === to) return;
-    if (d.from === 'pool') return to !== 'pool' && put(db.card(d.id), to);
-    if (to === 'pool') return take(d.id, d.from);
-    if (d.from === 'extra' || to === 'extra') return say('Only Fusion monsters go in the Fusion Deck, and they stay there', true);
-    run(E.move(d.id, d.from, to), 'The card could not be moved');
+  // ---- drag and drop: the card itself lifts and follows the pointer, the section under it lights (red where it can't
+  // go); let go, it flies to its place in that grid while the engine moves it, or back where it came from. The grids
+  // reflow by FLIP (animate:flip), a new card scales in, a last copy out.
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ms = n => (still ? 0 : n);
+  let ed = $state(null), lift = $state(null), press = null;
+  const local = (cx, cy) => { const r = ed.getBoundingClientRect(), k = r.width / 1024; return [(cx - r.left) / k, (cy - r.top) / k]; };
+  const rectOf = el => { const r = el.getBoundingClientRect(), b = ed.getBoundingClientRect(), k = b.width / 1024;
+    return { x: (r.left - b.left) / k, y: (r.top - b.top) / k, w: r.width / k, h: r.height / k }; };
+  const zoneAt = (cx, cy) => document.elementFromPoint(cx, cy)?.closest('[data-zone]')?.dataset.zone || '';
+  const wait = n => new Promise(r => setTimeout(r, n));
+  function down(e, id, from) {
+    if (e.button !== 0 || lift) return;
+    press = { id, from, cx: e.clientX, cy: e.clientY, el: e.currentTarget };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up, { once: true });
+    addEventListener('pointercancel', up, { once: true });
   }
-  const dropZone = to => ({ ondragover: e => { e.preventDefault(); over = to; }, ondragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) over = ''; }, ondrop: e => drop(e, to) });
+  function move(e) {
+    if (!press) return;
+    if (!lift) {
+      if (Math.hypot(e.clientX - press.cx, e.clientY - press.cy) < 5) return;
+      const r = rectOf(press.el), [px, py] = local(press.cx, press.cy);
+      lift = { id: press.id, from: press.from, src: r, dx: px - r.x, dy: py - r.y, ...r, zone: '', no: '', state: 'drag' };
+    }
+    const [x, y] = local(e.clientX, e.clientY), z = zoneAt(e.clientX, e.clientY);
+    lift.x = x - lift.dx;
+    lift.y = y - lift.dy;
+    if (z !== lift.zone) { lift.zone = z; lift.no = why(lift.id, lift.from, z); }
+  }
+  // the card's place in section `to` ('pool' the trunk): its tile there, else the next cell after the last tile
+  function landing(id, to) {
+    const zone = ed.querySelector(`[data-zone="${to}"]`);
+    const el = zone?.querySelector(`[data-card="${id}"]`);
+    if (el) return rectOf(el);
+    if (to === 'pool' || !zone) { const r = rectOf(zone || ed); return { x: r.x + r.w / 2 - 20, y: r.y + r.h / 2 - 30, w: 41, h: 60 }; }
+    const g = rectOf(zone.querySelector('.grid')), tiles = zone.querySelectorAll('.tile');
+    if (!tiles.length) return { x: g.x + 6, y: g.y + 6, w: 41, h: 60 };
+    const t = rectOf(tiles[tiles.length - 1]);
+    return t.x + 2 * t.w + 4 > g.x + g.w ? { x: g.x + 6, y: t.y + t.h + 4, w: t.w, h: t.h } : { x: t.x + t.w + 4, y: t.y, w: t.w, h: t.h };
+  }
+  async function fly(r, state = 'fly', time = 220) {
+    if (!lift) return;
+    Object.assign(lift, { state, x: r.x, y: r.y, w: r.w, h: r.h });
+    await wait(ms(time) + 20);
+  }
+  async function up() {
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    removeEventListener('pointercancel', up);
+    press = null;
+    const L = lift;
+    if (!L || L.state !== 'drag') return;
+    const to = L.zone;
+    if (!to || to === L.from || L.no) {   // back where it came from (and why not, when it says)
+      if (L.no && L.no !== 'same') say(`${db.card(L.id)?.name}: ${L.no}`, true);
+      await fly(L.src, 'back');
+      lift = null;
+      return;
+    }
+    const done = act(L.id, L.from, to);
+    await fly(landing(L.id, to));
+    lift.state = 'wait';
+    const ok = await done;
+    // the engine's own result: onto the real tile (the grid may have sorted it elsewhere), or back
+    await fly(ok ? landing(L.id, to) : L.src, ok ? 'settle' : 'back', 160);
+    lift = null;
+  }
+  // a section's cards, one tile per card with its copies (the order the deck holds them)
+  const groups = key => { const m = new Map(); for (const id of grids[key] || []) m.set(id, (m.get(id) || 0) + 1); return [...m].map(([id, n]) => ({ id, n })); };
 
   // ---- files: Save (as the deck's own name), Save As, Load, Structure Deck, Clear, Exit (the engine's side buttons)
   let saving = $state(false), asOpen = $state(false), asName = $state(''), asField = $state(null);
@@ -183,7 +248,7 @@
   <img class="face {extra}" use:picture={id} alt="" draggable="false" src={cached(id)} />
 {/snippet}
 
-<div class="mu ed" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length} aria-busy={busy > 0}>
+<div class="mu ed" bind:this={ed} class:dragging={lift?.state === 'drag'} style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length} aria-busy={busy > 0}>
   {#if busy && dialogs.length}<div class="veil" role="status"><span class="spin" aria-hidden="true"></span>{saving ? 'Saving…' : 'Working…'}</div>{/if}
   <!-- the bar: the screen's name, the deck's, its check, the file actions -->
   <header class="mu-head bar">
@@ -263,17 +328,21 @@
   <GamePanel title="Deck" class="deck" role="region"><div class="body">
     {#each SECTIONS as [key, title, cap] (key)}
       {@const part = check?.parts.find(p => p.key === key)}
-      <div class="sec {key}" class:over={over === key} {...dropZone(key)} role="group" aria-label={title}>
+      <div class="sec {key}" class:over={lift && lift.zone === key && !lift.no} class:refuse={lift && lift.zone === key && lift.no && lift.no !== 'same'} data-zone={key} role="group" aria-label={title}>
         <h3><span>{title}</span><b class:bad={part && !part.ok}>{counts[key]}</b>{#if part}<small>{part.rule}</small>{/if}</h3>
         <div class="grid mu-list mu-scroll">
-          {#each grids[key] as id, i (key + i + ':' + id)}
+          {#each groups(key) as g (g.id)}
+            {@const id = g.id}
             {@const c = db.card(id)}
-            <button type="button" class="tile" draggable="true" title={c?.name}
+            <button type="button" class="tile" class:lifted={lift?.id === id && lift.from === key && g.n === 1} data-card={id} title="{c?.name} ×{g.n}"
+              animate:flip={{ duration: ms(240), easing: cubicOut }} in:scale={{ duration: ms(200), start: 0.6, easing: cubicOut }} out:scale={{ duration: ms(160), start: 0.6 }}
+              onpointerdown={e => down(e, id, key)}
               onmouseenter={() => (hover = id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = id)} onclick={() => (pinned = id)}
               ondblclick={e => (e.shiftKey ? swap(id, key) : take(id, key))}
               oncontextmenu={e => { e.preventDefault(); e.shiftKey ? swap(id, key) : take(id, key); }}
-              ondragstart={e => dragStart(e, id, key)} onkeydown={e => deckKey(e, id, key)}>
+              onkeydown={e => deckKey(e, id, key)}>
               {@render face(id)}
+              <span class="n">×{lift?.id === id && lift.from === key && lift.state === 'drag' && g.n > 1 ? g.n - 1 : g.n}</span>
             </button>
           {:else}
             <p class="none">{key === 'main' ? 'Add 40 to 60 cards from the trunk.' : key === 'extra' ? 'Fusion monsters go here.' : 'Up to 15 cards to switch in between duels.'}</p>
@@ -285,7 +354,7 @@
   </div></GamePanel>
 
   <!-- the trunk -->
-  <GamePanel title="Trunk" class="pool{over === 'pool' ? ' over' : ''}" role="region"><div class="body" {...dropZone('pool')}>
+  <GamePanel title="Trunk" class="pool{lift && lift.zone === 'pool' && lift.from !== 'pool' ? ' over' : ''}" role="region"><div class="body" data-zone="pool">
     <div class="find">
       <div class="search">
         <Icon name="search" size={16} />
@@ -315,16 +384,18 @@
       {#each pool as c (c.id)}
         {@const used = inDeck.get(c.id) || 0}
         {@const n = left(c.id)}
-        {@const why = blocked(c, home(c), { inDeck: used, left: n, counts })}
+        {@const no = blocked(c, home(c), { inDeck: used, left: n, counts })}
+        {@const owned = n + used}
         <div role="listitem">
-          <button type="button" class="card" class:notown={!n && !used} class:spent={!n && used > 0} draggable={!why}
-            title="{c.name}: {used ? `${used} in deck, ` : ''}{n ? `${n} left to add` : used ? 'every copy is in the deck' : 'not in your trunk'}{why && n ? ' — ' + why : ''}"
+          <button type="button" class="card" class:notown={!owned} class:spent={!n && used > 0} data-card={c.id}
+            title="{c.name}: {owned ? `${owned} owned, ${used} in the deck` : 'not in your trunk'}{no && n ? ' — ' + no : ''}"
+            onpointerdown={e => down(e, c.id, 'pool')}
             onmouseenter={() => (hover = c.id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = c.id)} onclick={() => (pinned = c.id)}
             ondblclick={e => put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c))}
             oncontextmenu={e => { e.preventDefault(); put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c)); }}
-            ondragstart={e => dragStart(e, c.id, 'pool')} onkeydown={e => poolKey(e, c)}>
+            onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
-            <span class="counts">{#if used}<b class="used">{used} in deck</b>{/if}<b class="have" class:zero={!n}>{n || used ? `${n} left` : 'not owned'}</b></span>
+            {#if owned}<span class="n" class:out={!n}>×{owned}</span>{/if}
             {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
           </button>
         </div>
@@ -336,6 +407,11 @@
       {/each}
     </div>
   </div></GamePanel>
+
+  {#if lift}
+    <div class="lift {lift.state}" class:no={lift.no && lift.no !== 'same' && lift.zone} style:left="{lift.x}px" style:top="{lift.y}px"
+      style:width="{lift.w}px" style:height="{lift.h}px" aria-hidden="true"><img class="face" src={cached(lift.id)} alt="" draggable="false" /></div>
+  {/if}
 </div>
 
 <style>
@@ -396,7 +472,7 @@
   .sec h3 { margin: 0 0 5px; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 400; }
   .sec h3 span { font-family: var(--display); letter-spacing: .07em; text-transform: uppercase; }
   .sec h3 b, .sec h3 small { font-family: inherit; }
-  .grid { display: grid; grid-template-columns: repeat(10, 33px); grid-auto-rows: 48px; gap: 3px; align-content: start; min-height: 101px; flex: 1; padding: 5px; }
+  .grid { display: grid; grid-template-columns: repeat(8, 41px); grid-auto-rows: 60px; gap: 4px; align-content: start; min-height: 101px; flex: 1; padding: 5px; }
   .search { position: relative; }
   .search :global(.mu-ico) { position: absolute; left: 10px; top: 8px; color: var(--ink-3); pointer-events: none; }
   .search .mu-field { padding: 0 34px; }
@@ -432,8 +508,8 @@
   .sec h3 b { font-size: 14px; color: var(--p700); }
   .sec h3 b.bad { color: var(--bad); }
   .sec h3 small { font-size: 11px; font-weight: 700; color: var(--ink-3); }
-  .sec.extra .grid, .sec.side .grid { flex: none; height: 107px; }
-  .tile { position: relative; width: 33px; height: 48px; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
+  .sec.extra .grid, .sec.side .grid { flex: none; height: 134px; }
+  .tile { position: relative; width: 41px; height: 60px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform .14s var(--ease), box-shadow .14s; }
   .tile:hover, .tile:focus-visible { transform: translateY(-2px) scale(1.06); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 6px 12px -4px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   .face { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -451,17 +527,32 @@
   .foot .n { margin-left: auto; color: var(--ink-3); }
   .clear { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
   .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 110px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
-  .card { position: relative; width: 76px; height: 110px; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
+  .card { position: relative; width: 76px; height: 110px; touch-action: none; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 4px 8px -4px color-mix(in srgb, var(--p900) 50%, transparent); transition: transform .14s var(--ease), box-shadow .14s, filter .14s; }
   .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
   .card.notown .face { filter: grayscale(.9) brightness(.8); }
   .card.notown, .card.spent { cursor: default; }
-  .counts { position: absolute; right: 3px; bottom: 3px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; pointer-events: none; }
-  .counts b, .lim { font-size: 9px; font-weight: 800; line-height: 15px; height: 15px; padding: 0 4px; letter-spacing: -.01em; border-radius: 8px; white-space: nowrap; }
-  .counts .used { color: var(--n0); background: var(--sel); box-shadow: 0 0 0 1px var(--n0); }
-  .counts .have { color: var(--n0); background: color-mix(in srgb, var(--ink-strong) 82%, transparent); }
-  .counts .have.zero { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 90%, transparent); }
+  /* drag and drop: the lifted card over everything, a little larger and tilted, its shadow deep; it flies (left / top /
+     size) to where it lands; the section under it lights blue, red where it can't go */
+  .lift { position: absolute; z-index: 20; pointer-events: none; border-radius: 5px; overflow: hidden; background: var(--p900);
+    transform: scale(1.08) rotate(-2.5deg); box-shadow: 0 0 0 2px var(--n0), 0 18px 32px -10px color-mix(in srgb, var(--p900) 85%, transparent);
+    transition: transform .14s var(--ease), box-shadow .14s; }
+  .lift.no { box-shadow: 0 0 0 2px var(--n0), 0 0 0 5px var(--bad), 0 18px 32px -10px color-mix(in srgb, var(--p900) 85%, transparent); }
+  .lift:is(.fly, .back, .settle, .wait) { transform: none; box-shadow: 0 0 0 1px var(--n0), 0 4px 10px -4px color-mix(in srgb, var(--p900) 70%, transparent);
+    transition: left .22s var(--ease), top .22s var(--ease), width .22s var(--ease), height .22s var(--ease), transform .22s var(--ease), box-shadow .22s; }
+  .lift.settle { transition-duration: .16s; }
+  .lift .face { width: 100%; height: 100%; object-fit: cover; }
+  .ed.dragging, .ed.dragging * { cursor: grabbing !important; }
+  .tile.lifted { opacity: .25; transition: opacity .12s; }
+  .sec.refuse { background: color-mix(in srgb, var(--bad) 10%, transparent); box-shadow: inset 0 0 0 2px var(--bad); }
+  @media (prefers-reduced-motion: reduce) { .lift, .lift:is(.fly, .back, .settle, .wait) { transition: none; } }
+  /* the copies: a small plate in the corner, ×N (the trunk: owned; the deck: in it). Every copy in the deck: hollow */
+  .n { position: absolute; right: 2px; bottom: 2px; min-width: 18px; height: 15px; padding: 0 4px; border-radius: 4px; pointer-events: none;
+    font-size: 10px; font-weight: 800; line-height: 15px; text-align: center; color: var(--n0); letter-spacing: 0;
+    background: color-mix(in srgb, var(--ink-strong) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--n0) 55%, transparent); }
+  .tile .n { right: 1px; bottom: 1px; min-width: 0; height: 13px; padding: 0 3px; font-size: 9px; line-height: 13px; }
+  .n.out { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 88%, transparent); box-shadow: 0 0 0 1px var(--n300); }
   .lim { position: absolute; left: 3px; top: 3px; color: var(--n0); background: var(--bad); box-shadow: 0 0 0 1px var(--n0); }
   .lim.l2 { background: var(--warm); }
   .empty-pool { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 40px 0; color: var(--ink-2); font-weight: 700; }
