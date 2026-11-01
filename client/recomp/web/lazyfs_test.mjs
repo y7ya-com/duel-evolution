@@ -11,7 +11,7 @@ const MB = 1 << 20;
 const layout = [["data/bin#/a.bin", 1], ["data/mini/0001.png", 3], ["data/deck/bg.png", 1], ["data/common/c.png", 1],
     ["data/menu/m.png", 1], ["data/map/map_r01/r.png", 2], ["data/map/map_a02/a.png", 3], ["data/map/map_a01/b.png", 4],
     ["data/map/map_a03/c.png", 2], ["data/avatar/x.png", 2], ["data/card/0001.png", 6], ["data/y/duel/effect/a.png", 2], ["data/card/0002.png", 2],
-    ["data/y2/duel/field/duelbg_a_02.png", 1], ["data/y2/duel/field/duel_filed_01.png", 1]];
+    ["data/y2/duel/field/duelbg_a_02.png", 1], ["data/y2/duel/field/duel_filed_01.png", 1], ["data/map/map_d01_01/d.png", 2]];
 const listCard = "0000.png\r\n0001.png\r\n0002.png\r\n4336.png\r\n";   // id 3: a Field Spell (card number 4336 -> 01)   // list_card.txt: line N = YO2 card id N's art
 const toc = 12 + (layout.length + 1) * 268;
 let off = 8 * MB;   // past the directory, so entries start on later chunks
@@ -168,6 +168,23 @@ readEntry(g, "data/mini"), readEntry(g, "data/map/map_a02");
 await settle(L2);
 assert.equal(syncXhr, 0, "a returning player's directory, hot set and lobby: no synchronous request");
 console.log(`session 2: ${syncXhr} sync, ${netFetch} network fetches, ${L2.stats.fromStore} from the store`);
+
+// ---- a lobby that is not an a0x: the map My Room's door led to is the one prefetched from My Room next time
+{
+    const l3 = new Map();
+    let e = makeEnv(new Map(), l3), L = e.Module.yo2Lazy;
+    await e.ready();
+    e.read("/game/merge.dat", 0, toc), await settle(L);
+    readEntry(e, "data/map/map_r01"), await settle(L);
+    readEntry(e, "data/map/map_d01_01"), await settle(L);
+    assert.equal(l3.get("yo2-lazy-lobby"), "d01_01", "My Room's door led to d01_01");
+    e = makeEnv(new Map(), l3), (L = e.Module.yo2Lazy);
+    await e.ready();
+    e.read("/game/merge.dat", 0, toc), await settle(L);
+    readEntry(e, "data/map/map_r01"), await settle(L);
+    assert.ok([...L.pinned.values()].some((p) => p.tag === "map:d01_01"), "from My Room: the lobby it led to last time");
+}
+console.log("lobby from My Room: ok");
 
 // ---- a truncated store entry (storage pressure, a browser bug) is dropped and fetched again, never handed to the game
 {

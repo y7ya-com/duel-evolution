@@ -544,8 +544,10 @@ Module.preRun.push(() => {
         return null;
     }
     function enterMap(m) {   // prefetch (and pin) the maps its doors lead to; drop the rest
+        // where My Room's door led: the lobby it prefetches next time (any area: a player in d01_01 missed its 13 MB
+        // at every lobby entry when only a0x lobbies were remembered)
+        if (curMap === "r01") try { localStorage.setItem("yo2-lazy-lobby", m); } catch {}
         curMap = m;
-        if (/^a0\d$/.test(m)) try { localStorage.setItem("yo2-lazy-lobby", m); } catch {}
         const next = m === "r01" ? [lastLobby() || "a02"] : [...(NEXT[m] || []), "r01"];
         const keep = new Set([m, ...next].map((x) => "map:" + x));
         unpin((t) => t && t.startsWith("map:") && !keep.has(t));
