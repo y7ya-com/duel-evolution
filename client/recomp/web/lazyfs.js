@@ -301,7 +301,7 @@ Module.preRun.push(() => {
     // 2x card art (tools/cardart.py): merge/data/card.dat and mini.dat, KCEJYUGI archives the exe opens before
     // merge.dat (entries named by passcode, list_card.txt inside). With them, merge.dat's data/card and data/mini are
     // never read: mini.dat (~22 MB) is the hot thumbnails, card.dat (~210 MB) the deck/NPC art and the trickle.
-    let cardArc = null, miniArc = null, mergeLog = null;
+    let cardArc = null, miniArc = null, mergeLog = null, pcArc = null;
     const cardFiles = new Map();   // card.dat entry name -> [from, to)
     function* tocEntries(toc, end) {   // [name (lower case, '/'), offset, stored size, size] per directory entry
         for (let e = 12; e < end; e += 268) {
@@ -657,8 +657,7 @@ Module.preRun.push(() => {
     // for a server that names cards by passcode (its prefetch reply says ids: "passcode")
     let pcTableLoad = null, pcInternal = null;
     const loadPcTable = () => (pcTableLoad = pcTableLoad || (async () => {
-        const url = [...files.keys()].find((u) => /merge\/data\/card_passcode\.bin$/i.test(u));
-        const b = url && (await entryBytes(url, [0, files.get(url).size]));
+        const b = pcArc && (await entryBytes(pcArc, [0, files.get(pcArc).size]));
         if (!b || b.length < 24) throw new Error("card_passcode.bin not read");
         const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint32(8, true);
         pcInternal = new Map();
@@ -785,6 +784,7 @@ Module.preRun.push(() => {
             if (/^merge\.log$/i.test(rel)) mergeLog = url;   // 1.5 KB, the patcher reads it every start
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
             if (/(^|\/)merge\/data\/mini\.dat$/i.test(rel)) miniArc = url;
+            if (/(^|\/)merge\/data\/card_passcode\.bin$/i.test(rel)) pcArc = url;
             if (/(^|\/)sound\.dat$/i.test(rel)) sound = url;
             const node = FS.createFile(parent, PATH.basename(path), {}, true, false);
             Object.defineProperty(node, "usedBytes", { get: () => size });
@@ -836,6 +836,9 @@ Module.preRun.push(() => {
         }
         // Sound.dat's directory (the BGM init checks its files before the first frame; chunk 0), alongside
         if (sound && files.get(sound).etag) loads.push(fetchChunk({ url: sound, i: 0, pri: 0, tag: "se", keep: true }));
+        // the card wire's table (~20 KB, rt/cardwire.cpp): the game reads it at the hello right after sign-in (a 2.7 s
+        // synchronous read at login, stall db38de62); kept for the session like card.dat's directory
+        if (pcArc) loads.push(fetchSure(pcArc, 0, "toc"));
         // The hold: what the exe reads before the title shows, fetched HOLD_PARALLEL at a time in the order it reads it
         // (merge.log, merge.dat's directory, then the learned chunks of the boot, the patcher and the title), until all
         // are in or HOLD_MAX passes. Those bytes come before the title's first frame either way: fetched ahead they

@@ -466,6 +466,9 @@ console.log("prefetch=0: ok");
         const r2 = makeEnv(new Map(), new Map(), { duel: { npc: 35, cards: [89631139, 24094653], fields: [24094653], ids: "passcode" } });
         await r2.ready();
         const L2 = r2.Module.yo2Lazy;
+        syncXhr = 0;
+        r2.read("/game/merge/data/card_passcode.bin", 0, tbl.length);   // the card wire's hello, right after sign-in
+        assert.equal(syncXhr, 0, "the card wire's table is in memory from boot");
         r2.read("/game/merge.dat", 0, toc);
         await settle(L2);
         r2.Module.onYo2Scene("begin", 12, 0x1e);
