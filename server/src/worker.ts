@@ -1,6 +1,7 @@
 // Front door (Hono): the updater's files, the game WebSocket handoff to the singleton WorldDO, admin and dev routes,
 // the account API (src/auth), and the recompiled client's files from R2.
 // The Durable Objects stay plain DurableObject classes speaking the YO2 binary protocol over WebSockets.
+import { toHttps, withHsts } from "./https.ts";
 import { Hono, type Context } from "hono";
 import rootTxt from "../static/yo2/root.txt";
 import mergeTxt from "../static/yo2/merge.txt";
@@ -328,10 +329,12 @@ routes.all("*", (c) => c.text("method not allowed", 405));
 // its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
 const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
 export default {
-  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(req.url);
     if (url.hostname === "www.ygoevolution.com") return Response.redirect(`https://ygoevolution.com${url.pathname}${url.search}`, 301);
+    const https = toHttps(req, GAME_HOSTS);   // https only (src/https.ts)
+    if (https) return https;
     if ((env as unknown as AuthEnv).DEPLOY_ENV === "production" && GAME_HOSTS.has(url.hostname)) env = { ...env, PUBLIC_ORIGIN: `https://${url.hostname}` } as Env;
-    return routes.fetch(req, env, ctx);
+    return withHsts(req, await routes.fetch(req, env, ctx), GAME_HOSTS);
   },
 };

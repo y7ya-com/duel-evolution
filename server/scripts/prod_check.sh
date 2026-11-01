@@ -27,6 +27,11 @@ h=$(curl -sIL -A "$UA" "$B/" | tr -d '\r' | grep -i '^content-security-policy:' 
 ok "$([ "$h" = "frame-ancestors 'self'" ] && echo 1)" "no other site can frame the game (CSP $h)"
 h=$(curl -sI -A "$UA" "$B/" | tr -d '\r' | grep -i '^x-robots-tag:' | cut -d' ' -f2-)   # only the apex's front page is indexed
 ok "$({ [ "$B" = https://ygoevolution.com ] && [ -z "$h" ]; } || { [ "$B" != https://ygoevolution.com ] && [ -n "$h" ]; } && echo 1)" "front page X-Robots-Tag (${h:-none})"
+# https only (worker.ts): plain http never loads the page (it can't be cross-origin isolated), and HSTS keeps it so
+r=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -A "$UA" "${B/https:/http:}/x?y=1")
+ok "$([ "$r" = "301 $B/x?y=1" ] && echo 1)" "http 301s to https ($r)"
+h=$(curl -sI -A "$UA" "$B/" | tr -d '\r' | grep -i '^strict-transport-security:' | cut -d' ' -f2-)
+ok "$([ -n "$h" ] && echo 1)" "HSTS on the page (${h:-none})"
 c=$(code "$B/game/files.txt"); ok "$([ "$c" = 200 ] && echo 1)" "game data /game/files.txt ($c)"
 e=$(curl -sI -A "$UA" "$B/game/files.txt" | tr -d '\r' | grep -i '^etag:' | cut -d' ' -f2 | tr -d '"')
 cc=$(curl -sI -A "$UA" "$B/game/files.txt?v=$e" | tr -d '\r' | grep -i '^cache-control:' | cut -d' ' -f2-)
