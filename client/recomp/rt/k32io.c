@@ -16,6 +16,7 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/threading.h>
 void rc_web_sleep(uint32_t ms);
+void rc_web_wait_step(void);
 #endif
 
 pthread_mutex_t rc_sync_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -470,7 +471,7 @@ static uint32_t wait_many(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms)
 #ifdef __EMSCRIPTEN__
         if (emscripten_is_main_runtime_thread()) {
             pthread_mutex_unlock(&rc_sync_mu);
-            rc_web_sleep(1);
+            rc_web_wait_step();
             pthread_mutex_lock(&rc_sync_mu);
             struct timespec now;
             clock_gettime(CLOCK_REALTIME, &now);
