@@ -129,34 +129,40 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
 const CSS = `
 #mu-title { font-family: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; }
-/* the menu: four bars standing on the title art as the 2008 ones do, no plate behind them; each its own depth (a white
-   rim, the bar's fill, a soft drop shadow). The 2008 slant, the 2008 order; ONLINE taller and in the menu's gold */
-#mu-title .mu-tmenu { position: absolute; left: 318px; top: 424px; width: 392px; display: none; flex-direction: column; gap: 7px;
+/* the menu, in the title art's own language (owner: "the modern buttons look out of place"): glossy azure bars (the
+   art's hard gloss split), a thick white rim inside a navy outline, the 2008 slant, the labels in the display face with
+   a navy outline as the art letters theirs; ONLINE in gold. Layers: ::before the navy outline, ::after the white rim,
+   .mu-tfill the gloss; a press pushes the bar in, hover lights it and sweeps a shine across */
+#mu-title .mu-tmenu { position: absolute; left: 318px; top: 426px; width: 392px; display: none; flex-direction: column; gap: 6px;
   pointer-events: auto; animation: mu-rise .28s cubic-bezier(.16, 1, .3, 1) both; }
 #mu-title.mu-on.mu-title-on .mu-tmenu { display: flex; }
 #mu-title:not(.mu-title-on) > .mu-switch:not(.mu-ingame) { display: none; }
 #mu-title .mu-switch.mu-ingame { right: auto; bottom: auto; margin-left: 4px; }
 #mu-title .mu-switch.mu-ingame[hidden] { display: none; }
-#mu-title .mu-tbtn { --s: 24px; position: relative; display: flex; align-items: center; justify-content: center; height: 44px; padding: 0 30px; margin: 0;
-  border: 0; background: none; font-family: inherit; font-weight: 800; font-size: 20px; line-height: 1; letter-spacing: .05em; font-style: italic; color: #fff;
-  filter: drop-shadow(0 7px 10px rgba(8, 32, 84, .34)) drop-shadow(0 1px 2px rgba(8, 32, 84, .4));
-  transition: transform .16s cubic-bezier(.16, 1, .3, 1), filter .16s; }
-#mu-title .mu-tbtn::before, #mu-title .mu-tfill { content: ''; position: absolute; clip-path: polygon(var(--s) 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%); }
-#mu-title .mu-tbtn::before { inset: 0; background: linear-gradient(180deg, #fff, #d3e4fb); }
-#mu-title .mu-tfill { inset: 2px 3px; overflow: hidden; background: var(--bar, linear-gradient(180deg, #4b8ee3, #2462c2));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }
+#mu-title .mu-tbtn { --s: 22px; position: relative; display: flex; align-items: center; justify-content: center; height: 42px; padding: 0 30px; margin: 0;
+  border: 0; background: none; font-family: var(--display, Audiowide), "Arial Black", Arial, sans-serif; font-weight: 400; font-style: italic; font-size: 20px;
+  line-height: 1; letter-spacing: .07em; text-transform: uppercase; color: #fff;
+  filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)); transition: transform .12s cubic-bezier(.16, 1, .3, 1), filter .14s; }
+#mu-title .mu-tbtn::before, #mu-title .mu-tbtn::after, #mu-title .mu-tfill { content: ''; position: absolute; clip-path: polygon(var(--s) 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%); }
+#mu-title .mu-tbtn::before { inset: 0; background: #0b2f73; }
+#mu-title .mu-tbtn::after { inset: 1.5px 2px; background: linear-gradient(180deg, #ffffff, #dff1ff); }
+#mu-title .mu-tfill { z-index: 1; inset: 4px 6px; overflow: hidden;
+  background: linear-gradient(180deg, #b5e7ff 0%, #66bbfb 47%, #2584ec 53%, #1a6bd8 100%); box-shadow: inset 0 -3px 6px rgba(4, 40, 120, .35); }
 #mu-title .mu-tfill::after { content: ''; position: absolute; inset: 0;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .45) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .55) 45%, transparent 60%) -160% 0 / 60% 100% no-repeat;
   transition: background-position .5s cubic-bezier(.16, 1, .3, 1); }
-#mu-title .mu-tlbl { position: relative; text-shadow: 0 1px 0 rgba(0, 25, 80, .55), 0 0 6px rgba(0, 25, 80, .35); }
-#mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(4px);
-  filter: drop-shadow(0 10px 14px rgba(8, 32, 84, .4)) drop-shadow(0 1px 2px rgba(8, 32, 84, .4)) brightness(1.08) saturate(1.08); }
+#mu-title .mu-tlbl { position: relative; z-index: 2; padding-right: .07em;
+  text-shadow: 1.5px 0 0 #0b3a8a, -1.5px 0 0 #0b3a8a, 0 1.5px 0 #0b3a8a, 0 -1.5px 0 #0b3a8a, 1px 1px 0 #0b3a8a, -1px -1px 0 #0b3a8a, 0 3px 4px rgba(0, 20, 70, .55); }
+#mu-title .mu-tbtn:hover, #mu-title .mu-tbtn:focus-visible { outline: none; transform: translateX(3px);
+  filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)) drop-shadow(0 0 10px rgba(150, 215, 255, .9)) brightness(1.06); }
 #mu-title .mu-tbtn:hover .mu-tfill::after, #mu-title .mu-tbtn:focus-visible .mu-tfill::after { background-position: 260% 0; }
-#mu-title .mu-tbtn:focus-visible::before { background: linear-gradient(180deg, #fff6c8, #ffc93d); }
-#mu-title .mu-tbtn:active { transform: translateX(2px); filter: drop-shadow(0 3px 5px rgba(8, 32, 84, .4)) brightness(.96); }
-#mu-title .mu-tbtn-primary { --s: 28px; height: 52px; font-size: 25px; color: #3a2400; }
-#mu-title .mu-tbtn-primary .mu-tfill { background: var(--gold, linear-gradient(180deg, #fff4c4, #f3c64f)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8); }
-#mu-title .mu-tbtn-primary .mu-tlbl { text-shadow: 0 1px 0 rgba(255, 255, 220, .9); }
+#mu-title .mu-tbtn:focus-visible::after { background: linear-gradient(180deg, #fff6c8, #ffd25a); }
+#mu-title .mu-tbtn:active { transform: translate(2px, 2px) scale(.99); filter: drop-shadow(0 1px 2px rgba(6, 30, 80, .4)) brightness(.95); }
+#mu-title .mu-tbtn-primary { --s: 25px; height: 50px; font-size: 25px; }
+#mu-title .mu-tbtn-primary::before { background: #6b3300; }
+#mu-title .mu-tbtn-primary .mu-tfill { background: linear-gradient(180deg, #fff6c4 0%, #ffd94e 47%, #f6a400 53%, #e38700 100%); box-shadow: inset 0 -3px 6px rgba(120, 50, 0, .3); }
+#mu-title .mu-tbtn-primary .mu-tlbl { text-shadow: 1.5px 0 0 #8a4300, -1.5px 0 0 #8a4300, 0 1.5px 0 #8a4300, 0 -1.5px 0 #8a4300, 1px 1px 0 #8a4300, -1px -1px 0 #8a4300, 0 3px 4px rgba(80, 30, 0, .5); }
+#mu-title .mu-tbtn-primary:hover, #mu-title .mu-tbtn-primary:focus-visible { filter: drop-shadow(0 4px 6px rgba(6, 30, 80, .35)) drop-shadow(0 0 12px rgba(255, 210, 90, .95)) brightness(1.04); }
 #mu-title .mu-switch { position: absolute; right: 20px; bottom: 20px; display: flex; align-items: center; gap: 10px; height: 34px;
   padding: 0 14px 0 8px; border-radius: 17px; pointer-events: auto; color: #0b2a5c; font-family: inherit; font-weight: 700; font-size: 13px; line-height: 1; letter-spacing: .02em;
   background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(205, 243, 255, .95));
