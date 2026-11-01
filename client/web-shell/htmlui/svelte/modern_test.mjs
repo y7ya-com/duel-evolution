@@ -53,14 +53,15 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(L.chatLine("[System] Welcome to the Beginner's Lobby A."), { notice: true, text: "[System] Welcome to the Beginner's Lobby A." });
   assert.deepEqual(L.chatLine('a line with no name'), { text: 'a line with no name' });
   assert.deepEqual(L.chatLine('Kaiba Fan: sure, room 3: now'), { name: 'Kaiba Fan', text: 'sure, room 3: now' });
-  // tabs left to right with their logs: the reader's pairs (the Duel Log is made last, laid out second), else by order
+  // tabs left to right with their logs: the reader's pairs (the Duel Log is made last, laid out second), else by order;
+  // the Duel Log left out, 'TRADE' as 'Trade'
   const tabs = [ctl('Tab', { x: 207, label: 'TRADE' }), ctl('Tab', { x: 8, label: 'All Chat', active: true }), ctl('Tab', { x: 80, label: 'Duel Log' })];
   const logs = [ctl('Textlist', { items: ['@0A:hi'] }), ctl('Textlist', { items: ['t'], shown: false }), ctl('Textlist', { items: ['d'], shown: false })];
   const w = win('CChatWindow', [...tabs, ...logs, ctl('Input', { value: '', maxLen: 128 }), ctl('IconExpand', {}), ctl('IconHide', {})]);
   w.mode = 1;
   w.pairs = [[1, 0], [0, 1], [2, 2]].map(([t, l]) => ({ tab: tabs[t].id, log: logs[l].id, visible: true }));
   const p = L.chatParts(w);
-  assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active, t.readOnly]), [['All', '@0A:hi', true, false], ['Duel Log', 'd', false, true], ['TRADE', 't', false, false]]);
+  assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active]), [['All', '@0A:hi', true], ['Trade', 't', false]]);
   assert.ok(p.input && p.expand && p.shrink && p.typing);
   // the deck editor's chat, folded to its bar (its log parked, its line hidden): collapsed, no line drawn
   const parked = L.chatParts(win('CChatWindow', [ctl('Iconbar', { w: 776, h: 24 }), ctl('Textlist', { y: 99999, h: -16, items: [] }),
@@ -69,7 +70,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(p.mode, 1);
   delete w.mode; delete w.pairs; w.h = 32;
   assert.equal(L.chatParts(w).mode, 2, 'no reader: the height says collapsed');
-  assert.deepEqual(L.chatParts(w).tabs.map(t => t.log.items[0]), ['@0A:hi', 't', 'd'], 'no reader: logs in tab order');
+  assert.deepEqual(L.chatParts(w).tabs.map(t => t.log.items[0]), ['@0A:hi', 'd'], 'no reader: logs in tab order');
 }
 
 // the engine's heights cycle 1 -> 0 -> 2 -> 1 (short, tall, collapsed): the presses from one to another
