@@ -18,7 +18,10 @@ static void bound(uint32_t slot, uint32_t idx, const char *what) {
     uint32_t n = planes();
     if (!n || idx < n) return;
     static int warned;
-    if (!warned++) rc_log("rc_report: field plane: %s index %d past the plane list (%u planes): plane 0 instead", what, (int)idx, n);
+    // each side's Field Spell slot (the engine's field table: 0x012c88b4 + side * 0xe0c, slot 10 of 0x14 bytes; the card
+    // word: internal id w & 0x3fff, 0 empty), phase2-duel: which card asked for this plane
+    if (!warned++) rc_log("rc_report: field plane: %s index %d past the plane list (%u planes): plane 0 instead; field spells %#x %#x",
+                          what, (int)idx, n, RD32m(0x012c88b4 + 10 * 0x14), RD32m(0x012c88b4 + 0xe0c + 10 * 0x14));
     WR32m(slot, 0);
 }
 
