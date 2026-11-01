@@ -48,3 +48,8 @@
 00692580  # YG_MSG_DUEL_SETCOMMAND, one duel entry (duelmove.c: the last 20 kept for the skip report)
 00922010  # miniFile, the card mini-picture name (minifile.c: an id outside the table gets entry 0)
 00a01740  # the area map's wait for the lobby task after an exit (lobbyretry.c: a failure goes back to My Room)
+0069c460  # CCheckDisconnectTask::onMain (lobbyretry.c: a lobby the server cut reconnects instead of the box)
+006d3d50  # CNetLobbyTask::enterBlock (lobbyretry.c: a reconnect asks for the area the player was in)
+00add7b0  # CWorldMng::enterArea (lobbyretry.c: a reconnect loads the map the player was on)
+006917b0  # CNetDuel::sendBookedCheck 0x6001 (duelreattach.c: a new duel: its pid, the count from 0)
+0068cf60  # CMessageIOBase::sendBye (duelreattach.c: the client closing its duel connection ends the duel)

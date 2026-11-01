@@ -123,6 +123,16 @@ export const ROUTES = {
     ['js', "['CShopCategoryWindow', 'CShopPackWindow', 'CShopPricePlate', 'CShopMileagePlate', 'CShopConfirmWindow'].forEach(c => yo2Html.toggle(c, false))"],
     ['click', 712, 226], ['task', 'CShopCategoryWindow', 20000], ['wait', 2500]], flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
   // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
+  // the in-place reconnect (client/recomp/ovr/lobbyretry.c, platform/net/net_ws.cpp): My Room, the blue door's first
+  // room, Clock Square's top exit to Domino Pier, then the page closes its /net WebSocket (__ws: every /net opened
+  // from the first step on). The game must come back on the pier with no reload (--boot: then boot-*.png).
+  reconnect: { player: 'Reconnect Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [
+    ['js', `(() => { window.__ws = []; const R = window.WebSocket; window.WebSocket = class extends R { constructor(...a) { super(...a); if (/\\/net(\\?|$)/.test(String(a[0]))) window.__ws.push(this); } }; })()`],
+    ['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7],
+    ['scene', 10, 90000], ['wait', 4000], ['rhold', 735, 230, 2500], ['wait', 4000], ['click', 510, 214], ['wait', 20000], ['click', 512, 671], ['wait', 2000], ['shot', 'square'],
+    ['rc', 'walkto 1750 160 1200'], ['rc', 'walkto 1750 40 400'], ['wait', 40000], ['shot', 'pier'],
+    ['js', 'window.__ws.forEach(w => w.close()), window.__ws.length'], ['wait', 3000], ['shot', 'dropped'], ['wait', 30000],
+    ['shot', 'back'], ['log', 'console']], flip: [] },
   shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000]], flip: [] },
@@ -217,7 +227,8 @@ for (const [a, x, y, z] of route.steps) {
     for (const [px, py, ms] of x.slice(1)) { p = await toClient(px, py); await mouse('mouseMoved', p, 'right'); await sleep(ms); }
     await mouse('mouseReleased', p, 'right'); await sleep(1000);
   }
-  if (a === 'js') await b.ev(x);   // an expression in the page (e.g. switch a screen's classes on to load its reader)
+  if (a === 'js') await b.ev(x);
+  if (a === 'log') writeFileSync(path.join(out, x + '.txt'), b.logs.join('\n'));   // the page's console so far   // an expression in the page (e.g. switch a screen's classes on to load its reader)
   // rc 'cmd': one line of the runtime's scripted input (recomp README: walkto, clicknpc, ...) appended to the
   // route's RC_INPUT_FILE (query RC_INPUT_FILE=/rcin.txt), which the game reads every 5 frames
   if (a === 'rc') await b.ev(`(() => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + ${JSON.stringify(x)} + '\\n'); })()`);
