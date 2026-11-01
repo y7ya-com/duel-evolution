@@ -83,10 +83,12 @@ windows, not web cards; the YO2 palette (A) and identity kept.
     channel, the latest line and the unread count (click it, or press Enter). The toggle plays the engine's own △ / ▽
     presses that reach the chosen state (logic.js `sizeSteps`), from wherever the engine is (a legacy player's tall chat
     comes up open). The tall chat isn't offered: it covers the game, and the open log scrolls back through everything.
-  - Channels: a segmented control (All, Proximity, TRADE, Team, …: the game's names, " Chat" dropped) beside the line it
-    sends to, each with a red unread count; the line says where it goes ("Message TRADE").
-  - Duel Log: read only (nothing is sent there), so it is shown without pressing the engine's tab: the line keeps
-    going to the channel chosen before. It is the view by default when it appears on the duel screen.
+  - Channels: a segmented control (All, Proximity, Trade, Team: the game's names, " Chat" dropped and all-capitals
+    names in plain case) beside the line it sends to, each with a red unread count, cleared when the tab is opened; the
+    line says where it goes ("Message Trade").
+  - No Duel Log tab (owner: of no use; ovr/duellog.c still adds it on the duel screen until the runtime drops it).
+  - Its shade rises only: the panel stands on the dock, and the plate's usual drop shadow (14 px down, unclipped)
+    darkened the dock under it (owner: "the menu under it goes dark").
   - The log: about five lines (as many as 2008's). A sender's run of lines grouped under one name, each sender in a
     steady ink of their own (eight, each 4.5:1 or better on the log); notices amber; the time a line arrived on hover.
     Stuck to the bottom while you're there; read back and new lines leave you in place, with a "n new" / "Latest" pill.

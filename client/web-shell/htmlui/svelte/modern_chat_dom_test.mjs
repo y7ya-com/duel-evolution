@@ -1,8 +1,8 @@
 // The Modern UI's chat (svelte/modern/Chat.svelte) through the layer in headless Chrome (mock.html?modern=1), fed
 // snapshots as the engine would: unread counts on other tabs, new lines adding rows (the rows on screen are the same
 // elements: nothing re-renders), the jump pill while reading back, Hide / Show playing the engine's △ / ▽ to its
-// collapsed and short heights (and remembered), Enter opening it at the line, Esc leaving the line, the Duel Log shown
-// without pressing its tab.   npm run build && node svelte/modern_chat_dom_test.mjs [captures dir]
+// collapsed and short heights (and remembered), Enter opening it at the line, Esc leaving the line, no Duel Log tab, the
+// game's names in plain case, and no shade on the dock below.   npm run build && node svelte/modern_chat_dom_test.mjs [captures dir]
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -52,7 +52,9 @@ for (const dpr of out ? [1, 2] : [1]) {
 
   // history, then new lines: All in view gets them, TRADE counts one unread; the rows already there stay the same elements
   await render(chat({ items: [LINES.slice(0, 5), [], ['Trader:WTS Blue-Eyes']] }));
-  assert.deepEqual(await q(`return [...c.querySelectorAll('[role=tab]')].map(t => t.textContent.trim())`), ['All', 'Proximity', 'TRADE', 'Team']);
+  assert.deepEqual(await q(`return [...c.querySelectorAll('[role=tab]')].map(t => t.textContent.trim())`), ['All', 'Proximity', 'Trade', 'Team']);
+  // its shade rises only: nothing of it falls on the dock under it
+  assert.match(await q(`return getComputedStyle(c.querySelector('.chat')).filter`), /drop-shadow\(rgba\(6, 24, 64, 0\.28\) 0px -6px 6px\)/);
   await q(`c.querySelectorAll('.log p').forEach(p => p.dataset.mark = 1)`);
   await render(chat({ items: [LINES, [], ['Trader:WTS Blue-Eyes', 'Trader:also Dark Magician']] }));
   assert.deepEqual(await q(`return [...c.querySelectorAll('.log p')].map(p => !!p.dataset.mark)`), [true, true, true, true, true, false, false], 'new lines only add rows');
@@ -85,7 +87,7 @@ for (const dpr of out ? [1, 2] : [1]) {
   assert.equal(clicks().at(-1), 102, 'TRADE pressed in the engine');
   assert.equal(await q(`return c.querySelector('[role=tab]:nth-child(3) .count')`), null);
   await render(chat({ active: 2, items: [[...LINES, 'raMon:ready', 'raMon:room 3'], [], ['Trader:WTS Blue-Eyes', 'Trader:also Dark Magician']] }));
-  assert.equal(await q(`return c.querySelector('.composer input').placeholder`), 'Message TRADE');
+  assert.equal(await q(`return c.querySelector('.composer input').placeholder`), 'Message Trade');
   await q(`c.querySelector('[role=tab]:nth-child(1)').click()`);
   await render(chat({ items: [[...LINES, 'raMon:ready', 'raMon:room 3'], [], ['Trader:WTS Blue-Eyes', 'Trader:also Dark Magician']] }));
 
@@ -135,18 +137,13 @@ for (const dpr of out ? [1, 2] : [1]) {
   assert.ok(await q(`return !!c.querySelector('.bar')`), 'the deck scene: the bar');
   assert.deepEqual(clicks().slice(n4), [], 'nothing pressed');
 
-  // the duel screen: the Duel Log appears (second) and is the view, its tab never pressed; the line still goes to All
-  const n3 = clicks().length;
-  const duel = extra => chat({ id: 9, tabs: ['All Chat', 'Duel Log', 'Proximity Chat', 'TRADE', 'Team'], items: [['Duelist B:new room', 'Jaden:good luck!'],
-    ['Turn 1: Duelist B draws.', 'Duelist B summons Elemental HERO Avian in attack position.', ...extra]] });
-  await render(duel([]));
+  // the duel screen: the game adds its Duel Log tab (second); it is not shown, the rest are
+  await render(chat({ id: 9, tabs: ['All Chat', 'Duel Log', 'Proximity Chat', 'TRADE', 'Team'], items: [['Duelist B:new room', 'Jaden:good luck!'],
+    ['Turn 1: Duelist B draws.']] }));
   await sleep(100);
-  await render(duel(['Jaden activates Polymerization.']));
-  assert.deepEqual(await q(`return [...c.querySelectorAll('[role=tab]')].map(t => t.getAttribute('aria-selected'))`), ['false', 'true', 'false', 'false', 'false']);
-  assert.equal(await q(`return c.querySelector('.log p:last-child span').textContent`), 'Jaden activates Polymerization.');
-  assert.deepEqual(clicks().slice(n3), [], 'the Duel Log tab is never pressed');
-  assert.equal(await q(`return c.querySelector('.composer input').placeholder`), 'Message All');
-  await shot('4-duel-log');
+  assert.deepEqual(await q(`return [...c.querySelectorAll('[role=tab]')].map(t => t.textContent.trim())`), ['All', 'Proximity', 'Trade', 'Team']);
+  assert.equal(await q(`return c.querySelector('.log p:last-child span').textContent`), 'good luck!');
+  await shot('4-duel');
 
   if (b.logs.some(l => /exception|error/i.test(l))) console.log(b.logs.filter(l => /exception|error/i.test(l)).join('\n'));
   assert.ok(!b.logs.some(l => /exception|svelte/i.test(l)), 'no page errors');

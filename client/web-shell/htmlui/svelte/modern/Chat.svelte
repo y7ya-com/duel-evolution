@@ -1,14 +1,13 @@
 <script module>
   // The chat, modern (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp). Everything it does is
-  // the engine's own: its tabs (named by the game: All Chat | Duel Log | Proximity Chat | TRADE | Team), its line (a real
+  // the engine's own: its tabs (named by the game: All Chat | Proximity Chat | TRADE | Team), its line (a real
   // <input> committing through setText, Enter the game's WM_CHAR 13) and its heights (△ / ▽).
   // - Size: open or hidden, one toggle, remembered. Open is the engine's short chat (6 rows), hidden its collapsed bar.
   //   The engine's △ / ▽ cycle short -> tall -> collapsed -> short (▽ from tall skips short), which no one could
   //   predict; the toggle plays the presses that reach the chosen state (logic.js sizeSteps). The tall chat (most of the
   //   screen) is not offered: it covers the game, and the open log scrolls back through everything anyway.
-  // - Tabs: a segmented control with unread counts. The Duel Log (ovr/duellog.c, on the duel screen) is only read: it is
-  //   shown here without pressing the engine's tab, so the line still goes to the channel chosen before, and it is the
-  //   view by default when it appears.
+  // - Tabs: a segmented control with unread counts, the game's names in plain case ('TRADE' -> 'Trade'). The Duel Log
+  //   tab is left out (owner: no use to anyone; logic.js chatParts).
   // - The log: keyed rows (logic.js logRows: a new line adds one row, a dropped one removes one; nothing re-renders or
   //   jumps), a sender's lines grouped under one name in its own ink, the time a line arrived on hover, stuck to the
   //   bottom while the player is there, else a pill that jumps to the latest.
@@ -71,18 +70,13 @@
     wantLine = open && line;
   }
 
-  // ---- tabs: the one viewed (picked here, else the engine's), the one the line goes to (the engine's, never the Duel Log)
-  let pick = $state(null), hadLog = false;
+  // ---- tabs: the one viewed (picked here, else the engine's); the line goes to the engine's
+  let pick = $state(null);
   const viewed = $derived(p.tabs.find(t => t.id === pick) || p.tabs.find(t => t.active) || p.tabs[0]);
-  const target = $derived(p.tabs.find(t => t.active && !t.readOnly));
-  $effect(() => {   // the Duel Log, when it appears, is the view
-    const dl = p.tabs.find(t => t.readOnly);
-    if (dl && !hadLog) pick = dl.id;
-    hadLog = !!dl;
-  });
+  const target = $derived(p.tabs.find(t => t.active));
   function choose(t) {
     pick = t.id;
-    if (!t.readOnly && !t.active) api.click(t.id);
+    if (!t.active) api.click(t.id);
   }
   function tabKeys(e) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -175,7 +169,7 @@
 <div class="mu">
   {#if shown}
     <section class="mu-plate chat" style:width="{win.w}px" style:height="{OPEN_H}px" style:bottom="{foot}px" aria-label="Chat">
-      <div class="log mu-scroll" class:plain={viewed?.readOnly} role="log" aria-live="polite" aria-label="{viewed?.label || 'Chat'} messages"
+      <div class="log mu-scroll" role="log" aria-live="polite" aria-label="{viewed?.label || 'Chat'} messages"
         bind:this={logEl} {onscroll}>
         {#each rows as r (r.key)}
           <p class:notice={r.notice} class:cont={r.cont}>
@@ -183,7 +177,7 @@
             {#if r.t}<time datetime={new Date(r.t).toISOString()}>{hhmm(r.t)}</time>{/if}
           </p>
         {:else}
-          <p class="empty">{viewed?.readOnly ? 'Each move of the duel shows here.' : 'No messages yet. Press Enter to say hello.'}</p>
+          <p class="empty">No messages yet. Press Enter to say hello.</p>
         {/each}
       </div>
       {#if !atBottom}
@@ -198,8 +192,8 @@
           {#each p.tabs as t (t.id)}
             {@const n = unread[t.id] || 0}
             <button type="button" role="tab" class="mu-tab" data-id={t.id} aria-selected={t === viewed} tabindex={t === viewed ? 0 : -1}
-              disabled={!t.enabled} title={t.readOnly ? `${t.label} (read only)` : t.label} onclick={() => choose(t)}>
-              {#if t.readOnly}<Icon name="log" size={13} />{/if}{t.short}{#if n && t !== viewed}<span class="count" aria-label="{n} unread">{n > 99 ? '99+' : n}</span>{/if}
+              disabled={!t.enabled} title={t.label} onclick={() => choose(t)}>
+              {t.short}{#if n && t !== viewed}<span class="count" aria-label="{n} unread">{n > 99 ? '99+' : n}</span>{/if}
             </button>
           {/each}
         </div>
@@ -229,12 +223,13 @@
 
 <style>
   /* open: a game panel at the window's foot (bottom-anchored, so a size change never slides it) */
-  .chat { left: 0; bottom: 0; display: flex; flex-direction: column; gap: 4px; padding: 9px 10px 9px; animation: none; }
+  /* its shade rises only: the panel stands on the dock, and the plate's drop shadow (14 px down: clip false) darkened it */
+  .chat { left: 0; bottom: 0; display: flex; flex-direction: column; gap: 4px; padding: 9px 10px 9px; animation: none;
+    filter: drop-shadow(0 -6px 6px rgba(6, 24, 64, .28)); }   /* the blur ends at the panel's foot */
   .foot { display: flex; align-items: center; gap: 6px; flex: none; height: 26px; }
   /* the channels: a segmented control on the rail, sized to their names */
   .seg { flex: 0 1 auto; min-width: 0; height: 26px; gap: 2px; padding: 2px; border-radius: 6px; overflow: hidden; }
   .seg .mu-tab { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 10px; border-radius: 4px; font-size: 11.5px; }
-  .seg .mu-tab :global(.mu-ico) { stroke-width: 2; margin-left: -2px; }
   .count { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; font-size: 10px; font-weight: 800; line-height: 15px; text-align: center;
     letter-spacing: 0; color: #fff; text-shadow: none; background: var(--bad); box-shadow: 0 1px 1px rgba(90, 0, 10, .35); font-variant-numeric: tabular-nums; }
   .hide { flex: none; width: 26px; height: 26px; min-height: 0; margin-left: 2px; }
@@ -246,9 +241,6 @@
   .log b { font-weight: 750; margin-right: 6px; }
   .log b.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log .notice { color: var(--warm); font-style: italic; }
-  .log.plain b { color: inherit !important; font-weight: inherit; margin: 0; }
-  .log.plain b::after { content: ':'; margin-right: 4px; }
-  .log.plain b.sr { position: static; width: auto; height: auto; clip-path: none; }
   .log .empty { color: var(--ink-3); }
   .log time { position: absolute; right: 0; top: 0; font-size: 10.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; opacity: 0;
     transition: opacity .12s; }

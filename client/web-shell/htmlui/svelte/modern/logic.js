@@ -62,15 +62,16 @@ export function chatLine(s) {
   return m ? { name: m[1], text: m[2] } : { text: t };
 }
 // the chat's parts. tabs: left to right, each with its log (the reader's pairs, read/chat.js; without them, the logs in
-// tab order) and a short name ('All Chat' -> 'All'); the Duel Log is only read (ovr/duellog.c: nothing is sent there).
+// tab order) and a short name ('All Chat' -> 'All', 'TRADE' -> 'Trade'). The Duel Log tab (ovr/duellog.c, the duel
+// screen) is left out (owner: no use to anyone).
 // mode: the engine's height (0 tall, 1 short, 2 collapsed), from the reader or else the window's height
 export function chatParts(win) {
   const cs = win.controls, byId = new Map(cs.map(c => [c.id, c])), logs = cs.filter(c => c.cls === 'CWindowTaskTextlist');
   const tabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x).map((t, i) => {
-    const pair = win.pairs?.find(p => p.tab === t.id), label = untag(t.label).trim();
+    const pair = win.pairs?.find(p => p.tab === t.id), label = nice(untag(t.label).trim());
     return { id: t.id, label, short: label.replace(/\s+chat$/i, ''), active: !!t.active, enabled: t.enabled !== false,
-      log: (pair ? byId.get(pair.log) : logs[i]) || null, readOnly: /^duel log$/i.test(label) };
-  });
+      log: (pair ? byId.get(pair.log) : logs[i]) || null };
+  }).filter(t => !/^duel log$/i.test(t.label));
   return {
     tabs,
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
