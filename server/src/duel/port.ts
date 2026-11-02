@@ -191,6 +191,12 @@ export class DuelPort {
   /** py duel_reply */
   duelReply(c: Conn, msgId: number, param: number, data: Uint8Array): void {
     const g = this.g, x = X(c);
+    // the client's bye after a duel's results (0x0003, research/duelfin: "the server closes it"): the real client keeps
+    // its end of the duel connection open and waits for that, and the next duel's new connection then ran beside the
+    // old one and never started (two real clients, 2026-11-02: "after one PvP we have to relog"). With no live duel
+    // on it (a PvP match over or none, an NPC duel over or none), the server closes it once what is queued is out.
+    if (msgId === 0x0003 && !(x.pvp && !x.pvp.done) && !(x.ocg && !x.ocg.over))
+      void c.flushed().then(() => { if (!c.closed) g.world.close(c, "the client's bye after the duel"); });
     if (g.nw && (g.nw as unknown as { onDuelMsg(c: Conn, m: number, d: Uint8Array): boolean }).onDuelMsg(c, msgId, data)) return;
     const pvp = g.pvp as { route(c: Conn, m: number): { on(c: Conn, m: number, p: number, d: Uint8Array): void } | null } | null;
     if (pvp) { const m = pvp.route(c, msgId); if (m) return m.on(c, msgId, param, data); }

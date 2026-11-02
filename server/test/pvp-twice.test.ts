@@ -134,6 +134,16 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     expect(h.log.some((l) => /\[lobby\] PvP over: room \d+ of \d+ closed/.test(l))).toBe(true);
   }, 300_000);
 
+  it("the real client's bye: it sends 0x0003 after the results but keeps its duel connection; the server closes it (two real clients, 2026-11-02: the next duel's new connection stalled beside the old one)", async () => {
+    const { h, A, B, rid } = await pair();
+    const kept: Record<string, Link> = {};
+    await duel(h, A, B, rid, kept, "lp");
+    for (const l of Object.values(kept)) l.send(0x0003);   // the bye, and no close of its own
+    await h.tick(2000);
+    expect(Object.values(kept).map((l) => l.closedByServer), "the server closes each duel connection after its bye").toEqual([true, true]);
+    await duel(h, A, B, await room(B));   // new duel connections
+  }, 240_000);
+
   it("two duels in a row through the player card's Duel invite (no room of the target's own)", async () => {
     const h = harness({ players: {} }, { PVP_TEST: "1", DUEL_PAUSE: "0.0005" });
     const A = h.client("A", "A", "pw", "user-a"), B = h.client("B", "B", "pw", "user-b");
