@@ -509,6 +509,7 @@ export class Lobby {
       this.mem.challenges.delete(k);
       const host = r.conn ? this.sess(r.conn) : null;
       this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), host);
+      if (host) host.ext.roomGone = true;   // its next 0x4210 gets a full room list (roomReopen)
       this.log(`[lobby] PvP over: room ${r.id} of ${r.p1} closed`);
     }
   }
@@ -516,6 +517,10 @@ export class Lobby {
   // ---- after the duel (ROOM_REOPEN)
   private roomReopen(c: Conn) {
     const s = this.sess(c);
+    // a host whose room pvpOver closed: the live client asks for no room list after the duel (only 0x4210, two real
+    // clients 2026-11-02), and only a full list (0x4282) clears its own-room mark ("Cancel the Duel you created?" for a
+    // room nobody sees): it gets one, once, unasked
+    if (s?.ext.roomGone && c.port !== this.g.ports.lobby) { delete s.ext.roomGone; this.postPvp(c, "full room list sent (its room closed)"); this.hRoomlist(c); }
     const me = s?.pid || this.pid();
     if (this.g.pvp?.byPid(me)) { this.postPvp(c, "room reopen skipped: still in a match"); return; }
     const rs = [...this.mem.rooms.values()].filter((r) => r.p1 === me && r.p2);
