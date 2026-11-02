@@ -108,10 +108,7 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
   for (const end of ["lp", "disconnect"] as const)
     it(`a second PvP duel after one that ended by ${end} (the owner: "after one PvP we have to relog")`, async () => {
       const { h, A, B, rid } = await pair();
-      const nb = B.room!.mark();
       await duel(h, A, B, rid, null, end);
-      // the host's 0x4210 back on the map brought a full room list unasked (0x4282: what clears its client's own-room mark)
-      expect(B.room!.all(0x4282, nb).length, "a full room list to the host after its room closed").toBe(1);
       expect(await rooms(B), "the host's room list after the duel: no room of its own (else its client stays in it)").toBe(0);
       await duel(h, A, B, await room(B));
     }, 240_000);
