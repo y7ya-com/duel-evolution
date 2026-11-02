@@ -326,8 +326,9 @@ int main() {
     dev->SetTextureStageState(0, D3DTSS_MINFILTER, D3DTEXF_LINEAR);
     cut->Release();
 
-    // transparentOut: the backdrop's draws are left out, the back buffer clears transparent, and a half-transparent
-    // quad keeps its coverage as alpha (colour premultiplied); off again, the clear is opaque as ever
+    // backdropByHost: a frame that draws a backdrop texture makes the next transparentOut, whatever the scene: there the
+    // backdrop is left out, the back buffer starts transparent, and a half-transparent quad keeps its coverage as alpha
+    // (colour premultiplied); a frame without one makes the next opaque again, as does the host turning it off
     {
         D3DVIEWPORT8 full{0, 0, 64, 64, 0, 1};
         dev->SetViewport(&full);
@@ -336,25 +337,37 @@ int main() {
         dev->SetRenderState(D3DRS_LIGHTING, 0);
         dev->SetRenderState(D3DRS_ZENABLE, 0);
         dev->SetRenderState(D3DRS_ALPHATESTENABLE, 0);
-        dev->transparentOut = true;
         uint32_t red = 0xffff0000;
         IDirect3DTexture8* bd = texture(1, 1, &red);
         bd->backdrop = true;
+        auto backdrop = [&] { dev->SetTexture(0, bd); quad(0, 0, 64, 64); dev->SetTexture(0, nullptr); };
+        dev->backdropByHost = true;
         dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
-        dev->SetTexture(0, bd);
-        quad(0, 0, 64, 64);
-        dev->SetTexture(0, nullptr);
+        backdrop();
+        expect(2, 2, 0xffff0000, "backdropByHost: the first frame with a backdrop still draws it");
+        dev->Present(nullptr, nullptr, nullptr, nullptr);
+        check(dev->transparentOut, "backdropByHost: after a frame with a backdrop, the next is transparentOut");
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
+        backdrop();
         dev->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
         quad(8, 8, 16, 16, 0x80ffffff);
         dev->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
         expect(2, 2, 0x00000000, "transparentOut: clear transparent, the backdrop left out");
         expect(12, 12, 0x80808080, "transparentOut: half-transparent white keeps alpha 0.5, premultiplied", 3);
-        dev->transparentOut = false;
+        dev->Present(nullptr, nullptr, nullptr, nullptr);
+        check(dev->transparentOut, "transparentOut: a left-out backdrop still counts, the next stays transparent");
         dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
-        dev->SetTexture(0, bd);
-        quad(0, 0, 64, 64);
-        dev->SetTexture(0, nullptr);
-        expect(2, 2, 0xffff0000, "transparentOut off: the backdrop draws, opaque");
+        quad(8, 8, 16, 16);
+        dev->Present(nullptr, nullptr, nullptr, nullptr);
+        check(!dev->transparentOut, "a frame without a backdrop (another scene): the next is opaque");
+        dev->backdropByHost = false;
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
+        backdrop();
+        dev->Present(nullptr, nullptr, nullptr, nullptr);
+        check(!dev->transparentOut, "backdropByHost off: never transparentOut");
+        dev->Clear(0, nullptr, D3DCLEAR_TARGET, 0xff102030, 1, 0);
+        backdrop();
+        expect(2, 2, 0xffff0000, "backdropByHost off: the backdrop draws, opaque");
         bd->Release();
         dev->SetRenderState(D3DRS_ZENABLE, 1);
     }

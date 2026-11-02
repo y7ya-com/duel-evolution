@@ -13,6 +13,7 @@ import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
+import { backdrop } from './backdrop.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -217,6 +218,8 @@ function clip(rects, box) {
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
+  // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle)
+  const bd = canvas ? backdrop(canvas) : null;
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, defaults.on || []);
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
@@ -405,6 +408,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
+    bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

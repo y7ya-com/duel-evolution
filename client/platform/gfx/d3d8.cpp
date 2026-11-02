@@ -514,6 +514,18 @@ HRESULT IDirect3DDevice8::Reset(D3DPRESENT_PARAMETERS* p) {
     return D3D_OK;
 }
 
+// A transparentOut frame's first draw or clear into the back buffer: it starts transparent (not at the Present, so
+// what reads the presented frame back, a screenshot or the scene luma, still sees it)
+void IDirect3DDevice8::startFrame() {
+    if (!freshFrame || target != backBuffer) return;
+    freshFrame = false;
+    glBindFramebuffer(GL_FRAMEBUFFER, backBuffer->glFbo);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(1, 1, 1, 1);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
 // Whether drawing into t keeps alpha: an A8 texture, or under transparentOut the back buffer (X8 to the game)
 static bool keepsAlpha(const IDirect3DDevice8* d, const IDirect3DSurface8* t) {
     return t->fmt != D3DFMT_X8R8G8B8 || (d->transparentOut && !t->owner);
@@ -536,11 +548,11 @@ HRESULT IDirect3DDevice8::Present(const RECT*, const RECT*, HWND, const void*) {
         glColorMask(1, 1, 1, 1);
     }
     platformPresent();
-    if (transparentOut) {   // the next frame starts transparent: the backdrop it no longer draws covered all of it
-        glBindFramebuffer(GL_FRAMEBUFFER, backBuffer->glFbo);
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-    }
+    // The next frame: transparent if the host draws the backdrop and this one had it (a scene with a backdrop, any of
+    // them); it starts transparent, the backdrop it won't draw having covered all of it
+    transparentOut = backdropByHost && backdropDrawn;
+    backdropDrawn = false;
+    freshFrame = transparentOut;   // cleared at its first draw (startFrame): until then the back buffer is this frame's
     if (!deadTextures.empty()) glDeleteTextures((GLsizei)deadTextures.size(), deadTextures.data());
     if (!deadFbos.empty()) glDeleteFramebuffers((GLsizei)deadFbos.size(), deadFbos.data());
     if (!deadRenderbuffers.empty()) {
@@ -737,6 +749,7 @@ HRESULT IDirect3DDevice8::Clear(DWORD count, const D3DRECT* rects, DWORD flags, 
         mask |= GL_STENCIL_BUFFER_BIT;
     }
     if (!mask) return D3D_OK;
+    startFrame();
     bindTarget();
     glEnable(GL_SCISSOR_TEST);   // D3D clears only the viewport (and the rects inside it)
     for (DWORD i = 0; i < (rects ? count : 1); i++) {
@@ -941,6 +954,7 @@ void IDirect3DDevice8::flush() {
         warned = true;
         return;
     }
+    startFrame();
     applyState();
     glBindVertexArray(glVao);
     glBindBuffer(GL_ARRAY_BUFFER, glVbo);
@@ -974,7 +988,10 @@ static void lit(const IDirect3DDevice8* d, D3DCOLOR vertexColor, bool hasColor, 
 HRESULT IDirect3DDevice8::DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, const void* v, UINT stride) {
     // ponytail: triangles only (the game draws strips); points and lines would need a batch of their own
     if (!v || !count || type < D3DPT_TRIANGLELIST || type > D3DPT_TRIANGLEFAN || !fvf) return D3DERR_INVALIDCALL;
-    if (transparentOut && texture && texture->backdrop && target == backBuffer) return D3D_OK;   // the page draws it
+    if (texture && texture->backdrop && target == backBuffer) {
+        backdropDrawn = true;
+        if (transparentOut) return D3D_OK;   // the page draws it
+    }
     bool hasColor = fvf & D3DFVF_DIFFUSE, hasUV = fvf & 0xf00;
     UINT need = 12 + (hasColor ? 4 : 0) + (hasUV ? 8 : 0);
     if (stride < need) return D3DERR_INVALIDCALL;
