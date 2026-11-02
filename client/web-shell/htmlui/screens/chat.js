@@ -1,6 +1,8 @@
 // The chat window (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp), owned by the DOM.
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
 // shown on the duel screen only); chatTabs shows them as the owner wants (no Duel Log, 'Trade', unread counts).
+// Online only (owner): out of the online world (the title, Free Duel, the title's Deck Editor: read/chat.js online)
+// nothing of the chat is drawn, and the engine's chat is folded to its collapsed bar (fold) so its rect stays small.
 // - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
 //   log (real DOM text, selectable here) and the input's field; controls/skin.js (CSS) for the rest.
 // - Input: tabs and the taller / shorter icons are real <button>s (CSS skin, the label text) that click the
@@ -189,6 +191,20 @@ export function chatTabs(win) {
   return out.size ? { ...win, controls: win.controls.map(c => out.has(c.id) ? out.get(c.id) : c).filter(Boolean) } : win;
 }
 
+// The engine's chat folded to its collapsed bar (mode 2), one press per snapshot: short -> tall by △, tall -> collapsed
+// by ▽ (a chat without its tab row: short -> collapsed by ▽, its △ off). The pointer goes to the icon bar first: a press
+// where the pointer already was is ignored by the engine.
+function fold(win, api, st) {
+  if (st.folding || win.mode == null || win.mode === 2) return;
+  const icon = cls => win.controls.find(c => c.cls === cls && c.enabled !== false);
+  const c = win.mode === 0 ? icon('CWindowTaskIconHide') : icon('CWindowTaskIconExpand') || icon('CWindowTaskIconHide');
+  const bar = win.controls.find(k => k.cls === 'CWindowTaskIconbar');
+  if (!c) return;
+  st.folding = true;
+  if (bar) api.hover(bar.id);
+  setTimeout(async () => { await api.click(c.id); setTimeout(() => { st.folding = false; }, 300); }, 200);
+}
+
 export function owned(classes, draw, background) {
   const screen = {
     classes,
@@ -211,7 +227,11 @@ export function owned(classes, draw, background) {
     },
 
     update(win, prev, root, api, st) {
-      if (win.cls === 'CChatWindow') win = chatTabs(win);
+      if (win.cls === 'CChatWindow') {
+        win = chatTabs(win);
+        st.vis.hidden = st.own.hidden = win.online === false;
+        if (win.online === false && win.world !== false) fold(win, api, st);   // never pressed during the sign-in
+      }
       const seen = new Set(), order = [];
       const byId = new Map(win.controls.map(k => [k.id, k]));
       for (let [n, c] of win.controls.entries()) {

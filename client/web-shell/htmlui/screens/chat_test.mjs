@@ -27,4 +27,17 @@ assert.deepEqual(itemsDelta(['a', 'b'], ['x']), [2, ['x']]);
   assert.equal(tabs(chat(11, [['a', 'b'], ['hi', 'hi', 'hi'], [], ['duel', 'more']]))[1][0], 'Proximity Chat (3)', 'the same line again counts');
   assert.equal(tabs(chat(13, [['a', 'b'], ['hi', 'hi', 'hi'], [], ['duel', 'more']]))[1][0], 'Proximity Chat', 'opened: cleared');
 }
+
+// the chat only in the online world (owner): every online sign-in goes through My Room (10); Free mode goes from Select
+// Player (7) to the deck scene (0x24) or the Free Duel lobby (11); the title (4) ends either; not known: online
+{
+  const { onlineAfter } = await import('../read/chat.js');
+  const walk = scenes => scenes.reduce((o, s) => onlineAfter(o, s), null);
+  assert.equal(walk([1, 4]), false, 'the title');
+  assert.equal(walk([1, 4, 6, 7, 10, 11, 0x24, 0x1c, 0x20, 11]), true, 'online: My Room, then the lobby, the deck editor, a duel');
+  assert.equal(walk([1, 4, 6, 7, 0x24]), false, "the title's Deck Editor");
+  assert.equal(walk([1, 4, 6, 7, 11, 0x1c, 0x20, 11]), false, 'Free Duel, its duels too');
+  assert.equal(walk([1, 4, 6, 7, 10, 11, 4, 6, 7, 11]), false, 'online, back to the title, then Free Duel');
+  assert.equal(walk([11]), null, 'a reader started mid-session knows nothing (taken as online)');
+}
 console.log('chat ok');
