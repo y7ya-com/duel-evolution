@@ -13,6 +13,7 @@ import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
+import { backdrop } from './backdrop.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -199,6 +200,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
   // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
   const mu = modernUi({ defaults, canvas });
+  const bd = backdrop(canvas);   // the start screens' backdrop, both UIs
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   const init = () => loading ||= (async () => {
@@ -378,6 +380,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
+    bd.frame(snap);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
