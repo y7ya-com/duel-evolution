@@ -86,7 +86,31 @@ describe("progression", () => {
     p = prof(h);
     expect([sum(p.trunk), p.rec.mp]).toEqual([45, 5000 + 650 - 100]);
     expect([p.econ.spent, p.econ.packs, p.econ.earned, p.econ.duels]).toEqual([100, 1, 650, 3]);
-    expect(h.log.filter((l) => l.startsWith("[economia]")).length).toBe(7); // + the cards of the claim and the pack
+    expect(h.log.filter((l) => l.startsWith("[economia]")).length).toBe(8); // + the cards of the claim and the pack, and the pack's soul-binding
+  });
+
+  it("soul-bound MP: the starting grant buys only soul-bound cards; earned MP doesn't; a mixed payment binds the whole purchase", async () => {
+    const h = harness({ players: {} }, { PROGRESSION: "1" });
+    const A = h.client("A", "A", "pw", "user-a"); await A.account(0, "Alice"); await A.enterRoom();
+    let p = prof(h);
+    expect([p.rec.mp, p.mp_bound]).toEqual([5000, 5000]);           // a new character's grant is all soul-bound
+    let n = A.room!.mark(); A.room!.send(0x5208); await A.room!.wait(0x5214, n);
+    const booster = A.room!.all(0x5209, n).flatMap((d) => Array.from({ length: d.length / 17 }, (_, i) => {
+      const e = d.subarray(17 * i); return { iid: u32(e), kind: e[4], prm: u32(e, 5), cost: u32(e, 9) };
+    })).find((i) => i.kind === 1 && i.prm === 1)!;
+    const buy = async () => { const k = A.room!.mark(); A.room!.send(0x5210, cat(be32(booster.iid), [1])); await A.room!.wait(0x5211, k); return prof(h); };
+    const bound = (q: any) => sum(q.bound ?? {});
+    p = await buy();
+    expect([p.rec.mp, p.mp_bound, sum(p.trunk), bound(p)]).toEqual([4800, 4800, 5, 5]);   // every pulled copy bound
+    // earned MP never enters the bound part; the shop spends the bound part first
+    PP.npcDuelResult(h.game, p, 1, "win");
+    expect([p.rec.mp, p.mp_bound]).toEqual([4800 + 450, 4800]);
+    p.mp_bound = 100;                                                 // 100 bound left: a 200 booster is a mixed payment
+    { const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["0"] = p; h.game.store.saveRaw(st); }
+    p = await buy();
+    expect([p.rec.mp, p.mp_bound, bound(p)]).toEqual([5250 - 200, 0, 10]);   // mixed: the whole pack bound
+    p = await buy();                                                  // earned MP only: tradable
+    expect([p.rec.mp, p.mp_bound, sum(p.trunk), bound(p)]).toEqual([5250 - 400, 0, 15, 10]);
   });
 
   it("every starter deck is 40 legal cards (copies over the 2008 list swapped for cards of the same deck)", () => {

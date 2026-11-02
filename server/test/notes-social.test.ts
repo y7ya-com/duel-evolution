@@ -159,7 +159,7 @@ describe("trade (research/intercambio)", () => {
     const A0 = { [pc(1)]: 3, [pc(3)]: 40 }, B0 = { [pc(2)]: 3, [pc(4)]: 40 };
     const r1 = await trade(A0, B0, [pc(1), pc(1)], [pc(2), pc(2)], { [pc(1)]: 2 });   // 1 unbound, 2 offered
     expect([r1.end, r1.a, r1.b]).toEqual([0, A0, B0]);
-    expect(r1.chat).toEqual(["Trade cancelled: starter cards can't be traded."]);
+    expect(r1.chat).toEqual(["Trade cancelled: soul-bound cards (your starter deck, or bought with your starting MP) can't be traded."]);
     const r2 = await trade(A0, B0, [pc(1)], [pc(2)], { [pc(1)]: 2 });                 // the unbound one moves
     expect([r2.end, r2.a[pc(1)], r2.a[pc(2)], r2.b[pc(1)]]).toEqual([1, 2, 1, 1]);
   });
