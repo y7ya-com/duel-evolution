@@ -103,9 +103,9 @@
     return { x: (r.left - b.left) / k, y: (r.top - b.top) / k, w: r.width / k, h: r.height / k }; };
   const zoneAt = (cx, cy) => document.elementFromPoint(cx, cy)?.closest('[data-zone]')?.dataset.zone || '';
   const wait = n => new Promise(r => setTimeout(r, n));
-  function down(e, id, from) {
+  function down(e, id, from, tile = '') {
     if (e.button !== 0 || lift) return;
-    press = { id, from, cx: e.clientX, cy: e.clientY, el: e.currentTarget };
+    press = { id, from, tile, cx: e.clientX, cy: e.clientY, el: e.currentTarget };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up, { once: true });
     addEventListener('pointercancel', up, { once: true });
@@ -115,7 +115,7 @@
     if (!lift) {
       if (Math.hypot(e.clientX - press.cx, e.clientY - press.cy) < 5) return;
       const r = rectOf(press.el), [px, py] = local(press.cx, press.cy);
-      lift = { id: press.id, from: press.from, src: r, dx: px - r.x, dy: py - r.y, ...r, zone: '', no: '', state: 'drag' };
+      lift = { id: press.id, from: press.from, tile: press.tile, src: r, dx: px - r.x, dy: py - r.y, ...r, zone: '', no: '', state: 'drag' };
     }
     const [x, y] = local(e.clientX, e.clientY), z = zoneAt(e.clientX, e.clientY);
     lift.x = x - lift.dx;
@@ -125,11 +125,11 @@
   // the card's place in section `to` ('pool' the trunk): its tile there, else the next cell after the last tile
   function landing(id, to) {
     const zone = ed.querySelector(`[data-zone="${to}"]`);
-    const el = zone?.querySelector(`[data-card="${id}"]`);
+    const el = [...(zone?.querySelectorAll(`[data-card="${id}"]`) || [])].at(-1);   // a new copy lands after the others
     if (el) return rectOf(el);
-    if (to === 'pool' || !zone) { const r = rectOf(zone || ed); return { x: r.x + r.w / 2 - 20, y: r.y + r.h / 2 - 30, w: 41, h: 60 }; }
+    if (to === 'pool' || !zone) { const r = rectOf(zone || ed); return { x: r.x + r.w / 2 - TW / 2, y: r.y + r.h / 2 - TH / 2, w: TW, h: TH }; }
     const g = rectOf(zone.querySelector('.grid')), tiles = zone.querySelectorAll('.tile');
-    if (!tiles.length) return { x: g.x + 6, y: g.y + 6, w: 41, h: 60 };
+    if (!tiles.length) return { x: g.x + 6, y: g.y + 6, w: TW, h: TH };
     const t = rectOf(tiles[tiles.length - 1]);
     return t.x + 2 * t.w + 4 > g.x + g.w ? { x: g.x + 6, y: t.y + t.h + 4, w: t.w, h: t.h } : { x: t.x + t.w + 4, y: t.y, w: t.w, h: t.h };
   }
@@ -161,14 +161,15 @@
     lift = null;
   }
   // the deck's grids never scroll: ten tiles a row in a fixed height (Main 4 rows, Fusion and Side 2); past that the
-  // rows overlap, each showing the top of its cards (name and art), so 60 single cards still fit
+  // rows overlap, each showing the top of its cards (name and art), so 60 cards still fit
   const TW = 36, TH = 53, GAP = 3, ROWS = { main: 4, extra: 2, side: 2 };
   const step = (key, n) => {
     const rows = Math.max(1, Math.ceil(n / 10)), room = ROWS[key] * TH + (ROWS[key] - 1) * GAP;
     return rows <= ROWS[key] ? TH + GAP : (room - TH) / (rows - 1);
   };
-  // a section's cards, one tile per card with its copies (the order the deck holds them)
-  const groups = key => { const m = new Map(); for (const id of grids[key] || []) m.set(id, (m.get(id) || 0) + 1); return [...m].map(([id, n]) => ({ id, n })); };
+  // a section's cards: every copy its own tile, in the order the deck holds them (owner: duplicates side by side, as
+  // the original and EDOPro); a copy's key is its card and which copy it is, so the grid's FLIP follows each one
+  const copiesOf = key => { const seen = new Map(); return (grids[key] || []).map(id => { const k = seen.get(id) || 0; seen.set(id, k + 1); return { id, key: id + '#' + k }; }); };
 
   // ---- files: Save (as the deck's own name), Save As, Load, Structure Deck, Clear, Exit (the engine's side buttons)
   let saving = $state(false), asOpen = $state(false), asName = $state(''), asField = $state(null);
@@ -345,22 +346,21 @@
   <GamePanel title="Deck" class="deck" role="region"><div class="body">
     {#each SECTIONS as [key, title, cap] (key)}
       {@const part = check?.parts.find(p => p.key === key)}
-      {@const gs = groups(key)}
+      {@const gs = copiesOf(key)}
       <div class="sec {key}" class:over={lift && lift.zone === key && !lift.no} class:refuse={lift && lift.zone === key && lift.no && lift.no !== 'same'} data-zone={key} role="group" aria-label={title}>
         <h3><span>{title}</span><b class:bad={part && !part.ok}>{counts[key]}</b>{#if part}<small>{part.rule}</small>{/if}</h3>
         <div class="grid mu-list" class:tight={step(key, gs.length) < TH + GAP} style:grid-auto-rows="{step(key, gs.length)}px" style:--step="{step(key, gs.length)}px">
-          {#each gs as g (g.id)}
+          {#each gs as g (g.key)}
             {@const id = g.id}
             {@const c = db.card(id)}
-            <button type="button" class="tile" class:lifted={lift?.id === id && lift.from === key && g.n === 1} data-card={id} title="{c?.name} ×{g.n}"
+            <button type="button" class="tile" class:lifted={lift?.tile === g.key && lift.from === key} data-card={id} title={c?.name}
               animate:flip={{ duration: ms(240), easing: cubicOut }} in:scale={{ duration: ms(200), start: 0.6, easing: cubicOut }} out:scale={{ duration: ms(160), start: 0.6 }}
-              onpointerdown={e => down(e, id, key)}
+              onpointerdown={e => down(e, id, key, g.key)}
               onmouseenter={() => (hover = id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = id)} onclick={() => (pinned = id)}
               ondblclick={e => (e.shiftKey ? swap(id, key) : take(id, key))}
               oncontextmenu={e => { e.preventDefault(); e.shiftKey ? swap(id, key) : take(id, key); }}
               onkeydown={e => deckKey(e, id, key)}>
               {@render face(id)}
-              <span class="n">×{lift?.id === id && lift.from === key && lift.state === 'drag' && g.n > 1 ? g.n - 1 : g.n}</span>
             </button>
           {:else}
             <p class="none">{key === 'main' ? 'Add 40 to 60 cards from the trunk.' : key === 'extra' ? 'Fusion monsters go here.' : 'Up to 15 cards to switch in between duels.'}</p>
@@ -592,14 +592,10 @@
   .tile.lifted { opacity: .25; transition: opacity .12s; }
   .sec.refuse { background: color-mix(in srgb, var(--bad) 10%, transparent); box-shadow: inset 0 0 0 2px var(--bad); }
   @media (prefers-reduced-motion: reduce) { .lift, .lift:is(.fly, .back, .settle, .wait) { transition: none; } }
-  /* the copies: a small plate in the corner, ×N (the trunk: owned; the deck: in it). Every copy in the deck: hollow */
+  /* the trunk's copies owned: a small plate in the corner, ×N; hollow when every copy is in the deck */
   .n { position: absolute; right: 2px; bottom: 2px; min-width: 18px; height: 15px; padding: 0 4px; border-radius: 4px; pointer-events: none;
     font-size: 10px; font-weight: 800; line-height: 15px; text-align: center; color: var(--n0); letter-spacing: 0;
     background: color-mix(in srgb, var(--ink-strong) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--n0) 55%, transparent); }
-  .tile .n { right: 1px; bottom: 1px; min-width: 0; height: 13px; padding: 0 3px; font-size: 9px; line-height: 13px; }
-  /* overlapping rows: each tile's plate at the foot of its visible strip, above the row below */
-  .grid.tight .tile .n { top: calc(var(--step) - 15px); bottom: auto; }
-  .grid.tight .tile:last-child .n, .grid.tight .tile:nth-last-child(-n + 10) .n { top: auto; bottom: 1px; }
   .n.out { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 88%, transparent); box-shadow: 0 0 0 1px var(--n300); }
   .lim { position: absolute; left: 3px; top: 3px; color: var(--n0); background: var(--bad); box-shadow: 0 0 0 1px var(--n0); }
   .lim.l2 { background: var(--warm); }
