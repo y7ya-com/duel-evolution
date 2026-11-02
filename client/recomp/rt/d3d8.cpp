@@ -11,6 +11,9 @@
 #include <vector>
 
 #include "d3d8.h"   // platform/win32 (the platform/gfx subset)
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "comobj.h"
 
@@ -270,6 +273,8 @@ static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
 extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
+extern "C" int rc_scene_now(void);         // ovr/scene.c: the scene shown (| 0x100 while switching)
+extern "C" int rc_loading_backdrop(void);  // ovr/imgfail.c
 extern "C" void rc_imgfail(const char* what, uint32_t hr, const char* detail, uint32_t data, uint32_t size);   // ovr/imgfail.c
 extern "C" void rc_web_frame(void);
 extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R bytes, -1 when unreadable (RC_SCENE_LOG)
@@ -311,6 +316,11 @@ extern "C" void dev_Present(CPU* c) {
                                             ARG(2) ? (const RECT*)G(ARG(2)) : nullptr, nullptr, nullptr) : 0;
         rc_present_hook();
         rc_scene_present();
+#ifdef __EMSCRIPTEN__
+        // Module.yo2TransparentTitle (the page's Modern UI, live): the title shows the page's own background through
+        // the canvas instead of the game's backdrop; the characters, logo and buttons still draw (platform/gfx)
+        DEV->transparentOut = rc_scene_now() == 4 && EM_ASM_INT({ return Module.yo2TransparentTitle ? 1 : 0; });
+#endif
     }
     rc_ovr_frame(c);   // outside the lock too: it may run game code (ovr/sedefer.c)
 #ifdef __EMSCRIPTEN__
@@ -334,6 +344,7 @@ M(dev, GetGammaRamp) {
 M(dev, CreateTexture) {
     IDirect3DTexture8* t = nullptr;
     HRESULT hr = DEV->CreateTexture(ARG(1), ARG(2), ARG(3), ARG(4), (D3DFORMAT)ARG(5), (D3DPOOL)ARG(6), &t);
+    if (t) t->backdrop = rc_loading_backdrop();
     WR32m(ARG(7), hr ? 0 : wrap(t, vt_tex));
     RET(8, hr);
 }
