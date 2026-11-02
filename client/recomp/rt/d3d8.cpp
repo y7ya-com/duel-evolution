@@ -273,7 +273,6 @@ static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
 extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
-extern "C" int rc_scene_now(void);         // ovr/scene.c: the scene shown (| 0x100 while switching)
 extern "C" int rc_loading_backdrop(void);  // ovr/imgfail.c
 extern "C" void rc_imgfail(const char* what, uint32_t hr, const char* detail, uint32_t data, uint32_t size);   // ovr/imgfail.c
 extern "C" void rc_web_frame(void);
@@ -317,9 +316,14 @@ extern "C" void dev_Present(CPU* c) {
         rc_present_hook();
         rc_scene_present();
 #ifdef __EMSCRIPTEN__
-        // Module.yo2TransparentTitle (the page's Modern UI, live): the title shows the page's own background through
-        // the canvas instead of the game's backdrop; the characters, logo and buttons still draw (platform/gfx)
-        DEV->transparentOut = rc_scene_now() == 4 && EM_ASM_INT({ return Module.yo2TransparentTitle ? 1 : 0; });
+        // Module.yo2TransparentTitle or .yo2CssBackdrop (the page, live): it draws the start screens' backdrop
+        // (data/menu/abmake_bg: CBgCommon kinds with bit 0x40, i.e. the title, Change Avatar, the patcher) behind the
+        // canvas, so the game leaves it out wherever it would draw it and the page shows through there; the rest still
+        // draws (platform/gfx backdropByHost). Any scene: a frame without the backdrop stays opaque either way.
+        DEV->backdropByHost = EM_ASM_INT({ return Module.yo2TransparentTitle || Module.yo2CssBackdrop ? 1 : 0; });
+#else
+        static const bool cssBackdrop = getenv("RC_CSS_BACKDROP") != nullptr;   // native tests: as if a page drew it
+        DEV->backdropByHost = cssBackdrop;   // (RC_SHOT's shots keep the alpha: composite them over a colour)
 #endif
     }
     rc_ovr_frame(c);   // outside the lock too: it may run game code (ovr/sedefer.c)

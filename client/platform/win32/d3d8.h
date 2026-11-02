@@ -230,10 +230,15 @@ public:
     // Sprites batch: world transform and lighting are applied on the CPU as vertices are queued, so consecutive
     // draws with the same texture and state go out as one glDrawArrays. Setters flush only on an actual change.
     struct Vertex { float x, y, z; uint8_t c[4]; float u, v; };   // c = lit R,G,B,A
-    // The window shows through where the game draws nothing (set by the host, live: Modern UI's title over a page-drawn
-    // background): backdrop textures are left out, the back buffer keeps alpha and starts each frame transparent,
-    // and the window is presented with that alpha. Off, the window is opaque as ever.
-    bool transparentOut = false;
+    // The host draws the backdrop itself (set live: the page's CSS backdrop behind the canvas). Then every frame after one
+    // that drew a backdrop texture, whatever the scene, is transparentOut: the backdrop textures are left out, the back
+    // buffer keeps alpha and starts the frame transparent, and the window is presented with that alpha, so the page
+    // shows through where the backdrop was. Off, or a frame with no backdrop, the window is opaque as ever.
+    bool backdropByHost = false;
+    bool transparentOut = false;   // this frame (Present decides it for the next)
+    bool backdropDrawn = false;    // this frame drew (or under transparentOut, left out) a backdrop texture
+    bool freshFrame = false;       // transparentOut and nothing drawn into the back buffer yet: clear it first
+    void startFrame();
     std::vector<Vertex> batch;
     void flush();
     void bindTarget();
