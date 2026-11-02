@@ -144,7 +144,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     // delete-and-remake isn't an MP mint: past the account's first FREE_STARTS characters (live + archived; the archive
     // keeps the last 10, so the count never drops back) a new one starts with no MP. It keeps its starter claim: a
     // character must always be able to get cards (owner, 2026-10-29: else it is stuck in Edit Deck)
-    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) p.rec.mp = 0;
+    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) { p.rec.mp = 0; p.mp_bound = 0; }
   }
   if (p !== null && !p.name) p.name = st.players?.[s] ?? "";
   if (p !== null) {
@@ -190,11 +190,17 @@ export function progressionReset(p: P): boolean {
   delete p.bound;
   p.pbin = (p.pbin ?? []).filter((b: number) => b < STARTUP_PRESENT_RANGE[0] || b > STARTUP_PRESENT_RANGE[1]);
   delete p.starter;
-  const r = (p.rec ??= {});
-  r.mp = ECON.START_MP;
+  grantStartMp(p);
   p.prog = PROGRESSION_EPOCH;
   return true;
 }
+/** Soul-bound MP (owner, 2026-11-02: "anything bought with these points cannot be traded"): the free starting grant
+ *  sits in p.mp_bound, a part of rec.mp. The shop spends it first, and every card of a purchase it paid for, wholly
+ *  or partly, is soul-bound (bindCards): an alt can't turn its grant into cards for a main. Earned MP never enters it.
+ *  Characters from before it have none (going forward only: their grant can't be told apart from what they earned). */
+export function grantStartMp(p: P): void { (p.rec ??= {}).mp = ECON.START_MP; p.mp_bound = ECON.START_MP; }
+/** The bound part of a character's MP (never more than its balance). */
+export const mpBound = (p: P): number => Math.max(0, Math.min(int(p.mp_bound ?? 0), int(p.rec?.mp ?? 0)));
 // ---- the MP economy (progression only; parity runs keep py's 0 per duel). The owner's MVP values (2026-10-28, set
 // by the coordinator as "healthy values"); shop prices are unchanged (shop.ts: booster 200, beginner packs 1001-1003
 // 100, structure decks 7000+ 1000, avatar items as they were).
@@ -262,7 +268,7 @@ export function mpSpent(g: Game | null, p: P, mp: number, packs: number): void {
 }
 
 export function seedTrunk(p: P, mode: string = startValues().baul ?? TRUNK_START): void {
-  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; (p.rec ??= {}).mp = ECON.START_MP; return; }
+  if (PROGRESSION) { p.prog = PROGRESSION_EPOCH; grantStartMp(p); return; }
   if (mode === "all3") p.trunk = Object.fromEntries([...VALID].sort((a, b) => a - b).map((i) => [String(i), 3]));
   // "deck" reads the local client's deck.ydc: not on a server
 }

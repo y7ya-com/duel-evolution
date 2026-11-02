@@ -18,7 +18,7 @@ const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
 /** A swap never leaves either side with fewer cards than a deck needs (the owner's rule, 2026-10-30: below 40 the
  *  client keeps the player in Edit Deck); the trunk is the whole collection, decks only point into it. */
 export const TRADE_MIN_CARDS = 40;
-const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: starter cards can't be traded." };
+const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: soul-bound cards (your starter deck, or bought with your starting MP) can't be traded." };
 const s32 = (v: number) => new W().u32(v).bytes();
 const EMPTY: Uint8Array = new Uint8Array(0);
 const name16 = (t: string) => { const raw = Buffer.from([...String(t || "Duelista")].map((ch) => (ch.charCodeAt(0) > 255 ? "?" : ch)).join(""), "latin1").subarray(0, 15); const o = new Uint8Array(16); o.set(raw); return o; };
