@@ -35,6 +35,8 @@ const OFFER_TIMEOUT = 30;
 // a direct invite: how long its private room waits for the challenger's 0x4300, and how long a challenger waits before
 // challenging the same player again after a decline or no answer
 const INVITE_TTL = 40, INVITE_COOLDOWN = 60;
+/** The post-PvP lobby trace (Lobby.postPvp): how long after a match, and which messages. */
+const POST_PVP_MS = 180_000, POST_PVP_IDS = new Set([0x4202, 0x4210, 0x4280, 0x4288, 0x4290, 0x4300, 0x4303, 0x4304, 0x4320]);
 const R_REJECTED = -618, R_NOANSWER = -616, R_GONE = -600, R_INDUEL = -608, R_NOROOM = -495, R_FULL = -492;
 export const DEFAULT_PARTS = hexb("0000203040608090b820000000000000");
 const ROOM_STATE = 100, DUEL_STATE = 0x67;
@@ -429,6 +431,7 @@ export class Lobby {
     const port = this.g.ports.duel + this.g.cfg.portOffset, ip = this.g.cfg.publicIp;
     this.post(aConn, 0x4306, new W().s(ip, 15).u16(port).bytes());
     c.send(0x4306, new W().s(ip, 15).u16(port).bytes());
+    this.postPvp(c, `-> 0x4306 to both: room ${r.id} accepted`); this.postPvp(aConn, `-> 0x4306 to both: room ${r.id} accepted`);
     return true;
   }
 
@@ -496,10 +499,11 @@ export class Lobby {
   private roomReopen(c: Conn) {
     const s = this.sess(c);
     const me = s?.pid || this.pid();
-    if (this.g.pvp?.byPid(me)) return;
+    if (this.g.pvp?.byPid(me)) { this.postPvp(c, "room reopen skipped: still in a match"); return; }
     const rs = [...this.mem.rooms.values()].filter((r) => r.p1 === me && r.p2);
     const npc = rs.filter((r) => r.p2 >= FAKE_BASE);
     for (const r of rs) { r.p2 = 0; r.mstat = r.mstat0 ?? 0; }
+    if (rs.length) this.postPvp(c, `room reopen: ${rs.map((r) => r.id).join(",")} free again`);
     for (const r of rs) { c.send(0x3113, this.roomEntry(r)); this.blockPost(r.block ?? null, 0x3113, this.roomEntry(r), s); }
     if (rs.length) {
       const auto = AUTODUEL && rs.some((r) => this.isAuto(r));
@@ -916,8 +920,18 @@ export class Lobby {
     return true;
   }
 
+  /** For POST_PVP_MS after a PvP match ends, its players' lobby messages that make or take the next duel log at [AVISO]
+   *  with their state, so production shows what the real client sends then ("after one PvP we have to relog", 2026-11-02) */
+  private postPvp(c: Conn, what: string): void {
+    const s = this.sess(c), t = s?.ext.pvpEndT as number | undefined;
+    if (!s || !t || Date.now() - t > POST_PVP_MS) return;
+    const rooms = [...this.mem.rooms.values()].filter((r) => r.p1 === s.pid).map((r) => `${r.id}${r.only ? "i" : ""}:p2=${r.p2},m=${r.mstat}`);
+    this.log(`[AVISO] [lobby] after PvP +${Math.round((Date.now() - t) / 1000)} s ${s.acct.slice(0, 8)}: ${what}; state ${s.state}, rooms [${rooms.join(" ")}], in a match ${s.pid !== null && !!this.g.pvp?.byPid(s.pid)}, conn ${c.port}${c.stale() ? " stale" : ""}`);
+  }
+
   /** py LP.handle: true = answered here. A handler that throws after sending counts as answered (B60). */
   handle(c: Conn, msgId: number, param: number, data: Uint8Array): boolean {
+    if (POST_PVP_IDS.has(msgId)) this.postPvp(c, `<- 0x${msgId.toString(16)} ${Buffer.from(data.subarray(0, 8)).toString("hex")}`);
     if (LIMIT_LIST && msgId === 0x4100) for (const [mid, d] of this.limitationMsgs()) c.send(mid, d);
     if (ROOM_REOPEN && msgId === 0x4210) { try { this.roomReopen(c); } catch (e) { this.log(`[lobby] room after the duel: ${e}`); } }
     const h = this.handlers.get(msgId);

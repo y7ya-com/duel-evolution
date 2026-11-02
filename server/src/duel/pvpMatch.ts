@@ -887,6 +887,7 @@ export class PvpMatch {
 
   closeMatch(): void {
     this.done = true;
+    for (const s of this.sess) s.ext.pvpEndT = Date.now();   // Lobby.handle's post-duel trace (POST_PVP_MS)
     this.hub.drop(this);
   }
 

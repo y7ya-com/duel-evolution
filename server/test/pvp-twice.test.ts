@@ -108,6 +108,27 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
       await duel(h, A, B, rid);
     }, 240_000);
 
+  it("the joiner's side: after a duel the joiner hosts and the old host challenges it; a third player gets both", async () => {
+    const { h, A, B, rid } = await pair();
+    await duel(h, A, B, rid, null, "lp");
+    // roles swapped: A (the joiner) opens a room, B (the old host) challenges it
+    let n = A.room!.mark();
+    A.room!.send(0x4288, roomReq());
+    const ridA = u32((await A.room!.wait(0x3113, n))!);
+    await duel(h, B, A, ridA);
+    // a third player challenges B's room again, and A challenges C's room
+    const C = h.client("C"); await C.account(0, "Gamma"); await C.enterRoom();
+    await duel(h, C, B, rid);
+    n = C.room!.mark();
+    C.room!.send(0x4288, roomReq());
+    const ridC = u32((await C.room!.wait(0x3113, n))!);
+    await duel(h, A, C, ridC, null, "lp");
+    // the post-PvP lobby trace (Lobby.postPvp): production sees what each client sent after a duel
+    const tr = h.log.filter((l) => l.startsWith("[AVISO] [lobby] after PvP"));
+    expect(tr.some((l) => / <- 0x4210 /.test(l))).toBe(true);
+    expect(tr.some((l) => /room reopen: \d+ free again/.test(l))).toBe(true);
+  }, 300_000);
+
   it("two duels in a row through the player card's Duel invite (no room of the target's own)", async () => {
     const h = harness({ players: {} }, { PVP_TEST: "1", DUEL_PAUSE: "0.0005" });
     const A = h.client("A", "A", "pw", "user-a"), B = h.client("B", "B", "pw", "user-b");
