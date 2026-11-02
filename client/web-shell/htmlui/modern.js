@@ -48,35 +48,7 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     <label class="mu-switch mu-ingame" hidden><input type="checkbox" role="switch" checked><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
-  // the title's backdrop, behind the canvas: the 2008 one, the same composition, colours and motion, drawn as vectors so
-  // it is crisp at any DPR (owner: "look at the original animation and imitate it but in a modern way. and make sure
-  // colours remain the same"). Measured from the game (CBgCommon's m_elmBack, data/menu/abmake_bg_01/02.png at 2x):
-  // - base (abmake_bg_01, still): the azure across (17 stops sampled off its grid lines), a little lighter high up and
-  //   darker low (+-3.5 %), a grid of lines 11 % lighter on a 12.8 x 16 px pitch;
-  // - veil (abmake_bg_02, two copies 768 apart): a checker of rgb(111,117,238) squares on those cells, 1 px apart,
-  //   192 / 255 at the left and right edges fading to none 236 px in, scrolling DOWN 60 px a second, seamless.
-  // With Module.yo2TransparentTitle the runtime leaves the canvas clear where those textures were (yo2-native-gfx), the
-  // characters, logo and buttons still the engine's. The canvas is lifted above this only while it shows
-  const backdrop = document.createElement('div');
-  backdrop.id = 'mu-titlebg';
-  backdrop.hidden = true;
-  backdrop.ariaHidden = 'true';
-  backdrop.innerHTML = '<div class="mu-stage"><i class="mu-base"></i><i class="mu-veil"></i></div>';
-  if (!killed && canvas?.parentElement) canvas.parentElement.insertBefore(backdrop, canvas);
-  let lifted = false;
-  const stage = backdrop.firstElementChild;
-  function placeBackdrop(show) {
-    if (globalThis.Module) Module.yo2TransparentTitle = show;
-    if (backdrop.hidden === show) backdrop.hidden = !show;
-    if (show !== lifted) {
-      lifted = show;
-      Object.assign(canvas.style, show ? { position: 'relative', zIndex: '1' } : { position: '', zIndex: '' });
-    }
-    if (!show) return;
-    const r = canvas.getBoundingClientRect(), k = r.width / 1024;
-    const st = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
-    if (backdrop.style.cssText !== st) { backdrop.style.cssText = st; stage.style.transform = `scale(${k})`; }
-  }
+
   // in game with the original UI: the same switch beside the original Main Menu while it is open (owner: "no way to
   // toggle Legacy UI off after turning it on"); off brings Modern UI back at once
   const ingame = layer.querySelector('.mu-ingame'), ingameBox = ingame.querySelector('input');
@@ -158,7 +130,6 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
         if (title && on && !layer.contains(document.activeElement)) menu.querySelector('button')?.focus({ preventScroll: true });
       }
       layer.classList.toggle('mu-on', on);
-      placeBackdrop(title && on);
     },
   };
 }
@@ -221,29 +192,4 @@ const CSS = `
 #mu-title input:focus-visible + .mu-track { box-shadow: 0 0 0 2px #0985ff, inset 0 1px 2px rgba(0, 0, 0, .35); }
 @keyframes mu-rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
 @media (prefers-reduced-motion: reduce) { #mu-title *, #mu-title *::after { animation: none !important; transition: none !important; } }
-#mu-titlebg { position: fixed; z-index: 0; overflow: hidden; pointer-events: none; }
-#mu-titlebg[hidden] { display: none; }
-#mu-titlebg .mu-stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; overflow: hidden; transform-origin: 0 0; }
-#mu-titlebg .mu-base { position: absolute; inset: 0;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 10px, rgba(255, 255, 255, .11) 10px 12px, transparent 12px 12.8px),
-    repeating-linear-gradient(180deg, transparent 0 14px, rgba(255, 255, 255, .11) 14px 16px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .05) 10%, rgba(255, 255, 255, .02) 35%,
-      rgba(0, 25, 80, .025) 70%, rgba(0, 25, 80, .03) 78%, rgba(255, 255, 255, 0) 100%),
-    linear-gradient(90deg, rgb(59, 164, 245) 0%, rgb(57, 164, 245) 6.25%, rgb(56, 163, 245) 12.5%, rgb(67, 168, 246) 18.75%,
-      rgb(93, 179, 247) 25%, rgb(123, 193, 248) 31.25%, rgb(152, 207, 250) 37.5%, rgb(179, 220, 251) 43.75%,
-      rgb(201, 230, 252) 50%, rgb(197, 228, 252) 56.25%, rgb(173, 216, 251) 62.5%, rgb(140, 201, 249) 68.75%,
-      rgb(108, 186, 248) 75%, rgb(81, 173, 246) 81.25%, rgb(60, 162, 245) 87.5%, rgb(55, 159, 245) 93.75%, rgb(57, 159, 245) 100%); }
-/* the veil: one pattern period (32 px) taller than the screen, translated down a period and back to 0, seamless */
-#mu-titlebg .mu-veil { position: absolute; left: 0; top: -32px; width: 1024px; height: 800px; will-change: transform;
-  background: repeating-conic-gradient(from -90deg, rgb(111, 117, 238) 0 25%, transparent 0 50%) 0 0 / 25.6px 32px;
-  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, .753) 0, transparent 236px, transparent calc(100% - 236px), rgba(0, 0, 0, .753) 100%),
-    repeating-linear-gradient(90deg, #000 0 11.8px, transparent 11.8px 12.8px), repeating-linear-gradient(180deg, #000 0 15px, transparent 15px 16px);
-  -webkit-mask-composite: source-in, source-in;
-  mask-image: linear-gradient(90deg, rgba(0, 0, 0, .753) 0, transparent 236px, transparent calc(100% - 236px), rgba(0, 0, 0, .753) 100%),
-    repeating-linear-gradient(90deg, #000 0 11.8px, transparent 11.8px 12.8px), repeating-linear-gradient(180deg, #000 0 15px, transparent 15px 16px);
-  mask-composite: intersect;
-  animation: mu-veil .5333s linear infinite; }
-@keyframes mu-veil { to { transform: translate3d(0, 32px, 0); } }
-@media (prefers-reduced-motion: reduce) { #mu-titlebg .mu-veil { animation: none; } }
 `;
