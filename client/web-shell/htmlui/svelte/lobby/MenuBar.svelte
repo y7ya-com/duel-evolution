@@ -11,12 +11,15 @@
   const icons = $derived(view.win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' && c.shown));
   const msg = $derived(view.win.controls.find(c => c.cls === 'CWindowTaskText' && top(c)));
   let sheet = $state.raw(null);
-  loadIcons().then(s => { sheet = s; });
+  loadIcons().then(s => { sheet = s; }, () => {});
 </script>
 
 <script module>
   // the bar's picture atlas (not in ui.js's SHEET), loaded as ui.js loads one: its clamp copy's alpha says where
-  // sprite() needs the .rgb copy under a mask
+  // sprite() needs the .rgb copy under a mask. Until it has loaded, and for good if it can't (an art set shipped
+  // without it: live's ui/ had no menuicon_02_c01, Free Duel's lobby showed an empty bar, no way out), the whole bar
+  // is the game's: atlas.ready false, the group passes its controls (lobby.js), the page draws nothing there
+  export const atlas = { ready: false };
   let loading;
   const loadIcons = () => loading ||= (async () => {
     const base = SHEET.window.url.slice(0, SHEET.window.url.lastIndexOf('/') + 1), m = new Image();
@@ -26,21 +29,22 @@
     g.drawImage(m, 0, 0);
     const d = g.getImageData(0, 0, m.width, m.height).data, a = new Uint8Array(m.width * m.height);
     for (let i = 0; i < a.length; i++) a[i] = d[4 * i + 3];
+    atlas.ready = true;
     return { url: base + 'menuicon_02_c01.png', w: 240, h: 192, alpha: a };
-  })();
+  })().catch(e => { console.warn('htmlui lobby: no menu bar icons (ui/menuicon_02_c01.png), the game draws its bar', e); throw e; });
 </script>
 
-<div class="bar"></div>
-<div class="field"></div>
 {#if sheet}
+  <div class="bar"></div>
+  <div class="field"></div>
   {#each icons as c (c.id)}
     {@const uv = shownArt(c)?.src.join() ?? '0,0'}
     <button type="button" class="btn icon" tabindex="-1" aria-hidden="true" data-state={look(c)} style:left="{c.x}px" style:top="{c.y}px"
       {@attach el => { const [u, v] = uv.split(',').map(Number), sp = sprite(el, sheet, u, v, 80, 32, 0, 0, 80, 32); return () => sp.remove(); }}></button>
   {/each}
-{/if}
-{#if msg?.shown && msg.text}
-  <div style="display: contents" {@attach text(msg.text, { x: msg.x, y: msg.y })}></div>
+  {#if msg?.shown && msg.text}
+    <div style="display: contents" {@attach text(msg.text, { x: msg.x, y: msg.y })}></div>
+  {/if}
 {/if}
 
 <style>

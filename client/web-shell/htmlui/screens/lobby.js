@@ -59,7 +59,11 @@ const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 
 
 // The bar's picture atlas (not in ui.js's SHEET yet), loaded as it loads one: its clamp copy's alpha says where
 // sprite() needs the .rgb copy under a mask
-let icons, loading;
+// Until it has loaded, and for good if it can't (an art set shipped without it: live's ui/ had no menuicon_02_c01, and
+// Free Duel's lobby showed an empty bar, no way out), the whole bar is the game's: its controls pass (bar), the page
+// draws nothing there (its strip would cover the game's buttons)
+let icons, loading, noIcons = false;
+const bar = new Set();
 const loadIcons = () => loading ||= (async () => {
   const base = SHEET.window.url.slice(0, SHEET.window.url.lastIndexOf('/') + 1), m = new Image();
   m.src = base + 'clamp/menuicon_02_c01.png';
@@ -156,9 +160,19 @@ export default {
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
   mount: () => { inject(); return {}; },
+  passthrough: (x, parent) => !icons && (bar.has(x.id) || !!parent && bar.has(parent.id)),   // the bar, while the page can't draw its buttons
   update(win, prev, root, api, st) {
     st.win = win;
-    if (win.cls === 'CWindowModelMenu' && !icons) { loadIcons().then(() => menuBar(st.win, root, st)); return; }
+    if (win.cls === 'CWindowModelMenu' && !icons) {
+      bar.clear();
+      for (const c of win.controls) bar.add(c.id);
+      if (st.bar) { root.replaceChildren(); st.bar = null; }
+      if (!noIcons) loadIcons().then(() => menuBar(st.win, root, st), e => {
+        if (!noIcons) console.warn('htmlui lobby: no menu bar icons (ui/menuicon_02_c01.png), the game draws its bar', e);
+        noIcons = true;
+      });
+      return;
+    }
     DRAW[win.cls](win, root, st);
   },
   unmount(root) { root.replaceChildren(); },
