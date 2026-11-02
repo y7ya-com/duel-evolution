@@ -213,8 +213,26 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // tells only listeners already added: on a loaded machine the title came before start() and scene stayed 0)
   const sm = u32(SCENE_MNG);
   if (sm) scene = i32(sm + 0x7c);
+  // the start screens' backdrop (CBgCommon with a kind having 0x40: data/menu/abmake_bg_01 / _02, CBgCommon::m_elmBack[]
+  // sprites; decomp FUN_00a0a100): the title, Change Avatar, the patcher. Found by name anywhere near the root, shown =
+  // drawn this frame; the page draws it instead (htmlui/backdrop.js, the runtime's Module.yo2TransparentTitle)
+  const backdrop = (() => {
+    const root = mgr ? u32(mgr + 8) : 0;
+    if (!root) return null;
+    let found = null;
+    (function walk(t, d) {
+      for (const k of children(t)) {
+        if (found) return;
+        if (cls(k) === 'CSpriteElm' && name(k).startsWith('CBgCommon::m_elmBack') && /abmake_bg_0[12]/.test(str(k + 0x358))) { found = t; return; }
+        if (d < 3) walk(k, d + 1);
+      }
+    })(root, 0);
+    if (!found) return null;
+    const back = children(found).filter(k => cls(k) === 'CSpriteElm' && name(k).startsWith('CBgCommon::m_elmBack'));
+    return { shown: back.some(k => shown(k)) && !locked(found), ids: back };
+  })();
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, backdrop };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -264,5 +282,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, backdrop, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }
