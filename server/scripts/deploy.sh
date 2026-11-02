@@ -25,7 +25,11 @@ fi
 # land on the old instance and drop a second time).
 echo "closed with 4012: $(api shutdown || echo 'n/a')"
 # DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN
-out=$(npx wrangler deploy --env production --durable-objects-code-update-mode immediate ${DEPLOY_SECRETS_FILE:+--secrets-file "$DEPLOY_SECRETS_FILE"} 2>&1) || { echo "$out"; exit 1; }
+# the upload retried: the sockets are already closed and refused (a network blip once failed it: "fetch failed")
+for try in 1 2 3; do
+  out=$(npx wrangler deploy --env production --durable-objects-code-update-mode immediate ${DEPLOY_SECRETS_FILE:+--secrets-file "$DEPLOY_SECRETS_FILE"} 2>&1) && break
+  echo "wrangler deploy failed (try $try of 3)"; [ $try = 3 ] && { echo "$out"; exit 1; }; sleep 10
+done
 echo "$out" | grep -E "Uploaded|Current Version ID"
 new=$(echo "$out" | sed -n 's/.*Current Version ID: *//p' | tr -d '[:space:]')   # not /__version: the edge may still answer the old one
 for i in $(seq 1 60); do
