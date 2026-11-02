@@ -136,6 +136,15 @@ for (const dpr of out ? [1, 2] : [1]) {
   await sleep(300);
   assert.ok(await q(`return !!c.querySelector('.bar')`), 'the deck scene: the bar');
   assert.deepEqual(clicks().slice(n4), [], 'nothing pressed');
+  // the deck editor's chat has its △ off (the engine keeps it shut): a status strip, no Show button, Enter does nothing
+  const shut = chat({ id: 11, mode: 2, tabs: [], items: [] });
+  shut.windows[0].controls.find(k => k.cls.endsWith('IconExpand')).enabled = false;
+  await render(shut);
+  await sleep(150);
+  assert.ok(await q(`return !!c.querySelector('.bar.still[role=status]') && !c.querySelector('button.bar')`), 'a strip, not a button');
+  await b.ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+  await sleep(200);
+  assert.deepEqual(clicks().slice(n4), [], 'Enter: nothing pressed');
 
   // the duel screen: the game adds its Duel Log tab (second); it is not shown, the rest are
   await render(chat({ id: 9, tabs: ['All Chat', 'Duel Log', 'Proximity Chat', 'TRADE', 'Team'], items: [['Duelist B:new room', 'Jaden:good luck!'],
@@ -144,6 +153,36 @@ for (const dpr of out ? [1, 2] : [1]) {
   assert.deepEqual(await q(`return [...c.querySelectorAll('[role=tab]')].map(t => t.textContent.trim())`), ['All', 'Proximity', 'Trade', 'Team']);
   assert.equal(await q(`return c.querySelector('.log p:last-child span').textContent`), 'good luck!');
   await shot('4-duel');
+
+  // out of the online world (the title, Free Duel, the title's Deck Editor): nothing of the chat shows, no bar, no tab, no
+  // count, and the engine's chat is folded (short -> collapsed: △ ▽), the player's open choice kept
+  // the title and the sign-in keep a chat window too: offline there, nothing shows and nothing is pressed (the pointer
+  // is the player's: Select Player)
+  const n6 = clicks().length, signIn = chat({ id: 14, mode: 1, items: [] });
+  Object.assign(signIn.windows[0], { online: false, world: false });
+  await render(signIn);
+  await sleep(300);
+  assert.equal(await q(`return c.children.length`), 0, 'sign-in: nothing');
+  assert.deepEqual(clicks().slice(n6), [], 'sign-in: nothing pressed');
+  const n5 = clicks().length, off = s => { s.windows[0].online = false; return s; };
+  await render(off(chat({ id: 12, mode: 1, items: [['Duelist B:offline?']] })));
+  await sleep(250);
+  assert.equal(await q(`return c.children.length`), 0, 'offline: nothing');
+  assert.deepEqual(clicks().slice(n5), [301], 'folded: △ first');
+  await render(off(chat({ id: 12, mode: 0, items: [['Duelist B:offline?']] })));
+  await sleep(250);
+  await render(off(chat({ id: 12, mode: 2, items: [['Duelist B:offline?', 'Duelist B:still?']] })));
+  await sleep(150);
+  assert.deepEqual(clicks().slice(n5), [301, 302], 'then ▽');
+  assert.equal(await q(`return c.children.length`), 0, 'collapsed offline: still nothing');
+  await b.ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+  await sleep(200);
+  assert.deepEqual(clicks().slice(n5), [301, 302], 'Enter offline: nothing');
+  assert.equal(await b.ev(`localStorage.getItem('yo2.chatOpen')`), '1', 'the choice kept');
+  // online again (signed in, My Room): open again as the player left it
+  await render(chat({ id: 13, mode: 1, items: [['Duelist B:back online']] }));
+  await sleep(150);
+  assert.ok(await q(`return !!c.querySelector('.chat')`), 'online: the chat');
 
   if (b.logs.some(l => /exception|error/i.test(l))) console.log(b.logs.filter(l => /exception|error/i.test(l)).join('\n'));
   assert.ok(!b.logs.some(l => /exception|svelte/i.test(l)), 'no page errors');

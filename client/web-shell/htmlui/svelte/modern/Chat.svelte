@@ -12,6 +12,8 @@
   //   jumps), a sender's lines grouped under one name in its own ink, the time a line arrived on hover, stuck to the
   //   bottom while the player is there, else a pill that jumps to the latest.
   // - Keys: Enter anywhere (no field focused) opens the chat and goes to the line; Enter sends; Esc leaves the line.
+  // - Online only (owner): out of the online world (the title, Free Duel, the title's Deck Editor: read/chat.js online)
+  //   nothing of it shows, and the engine's chat is folded to its collapsed bar so its rect stays small.
   import { chatParts, sizeSteps, logRows, grouped, senderInk } from './logic.js';
   import { waitFor } from './macro.js';
 
@@ -36,16 +38,17 @@
   // meanwhile is followed); a state it can't reach (a locked chat) is tried once. A chat its scene makes collapsed (the
   // deck editor's) stays so until the player opens it: the choice never covers what they're doing
   let open = $state(untrack(() => p.mode) === 2 ? false : load()), busy = $state(false), failed = '';
+  const want = () => p.online && open ? 1 : 2;   // offline: collapsed, the player's choice kept for the online world
   $effect(() => {
-    const from = p.mode, to = open ? 1 : 2;
-    if (!busy && from !== to && failed !== `${from}>${to}`) drive();
+    const from = p.mode, to = want();
+    if (!busy && p.world && from !== to && failed !== `${from}>${to}`) drive();   // never pressed during the sign-in
   });
   async function drive() {
     busy = true;
     try {
       for (let i = 0; i < 4; i++) {
         const from = p.mode;
-        let k = sizeSteps(from, open ? 1 : 2)[0];
+        let k = sizeSteps(from, want())[0];
         // a chat without its tab row (the deck scene's) goes short -> collapsed by ▽ alone, its △ off
         if (k && p[k]?.enabled === false) k = k === 'expand' ? 'shrink' : 'expand';
         if (!k || !p[k] || p[k].enabled === false) break;
@@ -56,13 +59,15 @@
         if (!(await waitFor(s => (s.windows.find(w => w.id === win.id)?.mode ?? from) !== from, 2000))) break;
       }
     } finally { busy = false; }
-    const to = open ? 1 : 2;
-    if (p.mode !== to) { failed = `${p.mode}>${to}`; open = p.mode !== 2; }
+    const to = want();
+    if (p.mode !== to) { failed = `${p.mode}>${to}`; if (p.online) open = p.mode !== 2; }
   }
   // both states stand on the short chat's foot, wherever the engine's rect is meanwhile (collapsed: 8 px lower)
   const foot = $derived(p.mode === 2 ? 8 : 0);
   // what shows: the choice while it is being played, else the engine's state
   const shown = $derived(busy ? open : p.mode !== 2);
+  // the collapsed chat opens only by its △: the deck editor's has it off (the engine keeps it shut there)
+  const canOpen = $derived(busy || p.mode !== 2 || p.expand?.enabled !== false);
   function toggle(line = false) {
     open = !shown;
     failed = '';
@@ -159,6 +164,7 @@
       if (f && !(owner && globalThis.yo2Html?.modernScreens?.has(owner.cls))) return;
       e.preventDefault();
       e.stopPropagation();
+      if (!p.online || !canOpen) return;
       if (!shown) toggle(true); else inputEl?.focus();
     };
     addEventListener('keydown', key, true);
@@ -167,7 +173,9 @@
 </script>
 
 <div class="mu">
-  {#if shown}
+  {#if !p.online}
+    <!-- out of the online world: no chat at all -->
+  {:else if shown}
     <section class="mu-plate chat" style:width="{win.w}px" style:height="{OPEN_H}px" style:bottom="{foot}px" aria-label="Chat">
       <div class="log mu-scroll" role="log" aria-live="polite" aria-label="{viewed?.label || 'Chat'} messages"
         bind:this={logEl} {onscroll}>
@@ -209,7 +217,7 @@
         </button>
       </div>
     </section>
-  {:else}
+  {:else if canOpen}
     <button type="button" class="bar" style:width="{win.w}px" style:height="{BAR_H}px" style:bottom="{foot}px" aria-expanded="false" aria-label="Show chat{total ? `, ${total} unread` : ''}"
       title="Show chat (Enter)" onclick={() => toggle()}>
       <Icon name="comment" size={16} />
@@ -218,6 +226,15 @@
       {#if total}<span class="count" aria-hidden="true">{total > 99 ? '99+' : total}</span>{/if}
       <svg class="mu-ico up" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 12l5-5 5 5" /></svg>
     </button>
+  {:else}
+    <!-- a chat the engine won't open here (the deck editor's: its △ off): the strip says what's new, offers nothing -->
+    <div class="bar still" role="status" style:width="{win.w}px" style:height="{BAR_H}px" style:bottom="{foot}px"
+      aria-label="Chat{total ? `, ${total} unread` : ''}">
+      <Icon name="comment" size={16} />
+      <span class="what">{viewed?.short || 'Chat'}</span>
+      <span class="peek">{#if last}{#if last.name}<b>{last.name}</b>{/if}{last.text}{/if}</span>
+      {#if total}<span class="count" aria-hidden="true">{total > 99 ? '99+' : total}</span>{/if}
+    </div>
   {/if}
 </div>
 
@@ -259,6 +276,7 @@
     background: linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, 0) 40%), linear-gradient(180deg, #2a66c2 0%, #1b4d9e 60%, #163f85 100%);
     box-shadow: inset 0 2px 0 var(--gold-400), inset 0 3px 0 rgba(255, 255, 255, .25), 0 -4px 12px -6px rgba(4, 18, 50, .5); transition: filter .14s; }
   .bar:hover { filter: brightness(1.08); }
+  .bar.still { cursor: default; filter: none; }
   .bar :global(.mu-ico) { color: var(--gold-300); }
   .bar .what { flex: none; font-family: var(--display); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-200); }
   .bar .peek { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: rgba(255, 255, 255, .85); }

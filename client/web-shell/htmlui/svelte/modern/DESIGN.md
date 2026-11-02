@@ -86,6 +86,11 @@ windows, not web cards; the YO2 palette (A) and identity kept.
   - Channels: a segmented control (All, Proximity, Trade, Team: the game's names, " Chat" dropped and all-capitals
     names in plain case) beside the line it sends to, each with a red unread count, cleared when the tab is opened; the
     line says where it goes ("Message Trade").
+  - Online only (owner): no chat at all on the title, in Free Duel or the title's Deck Editor (read/chat.js online: every
+    online sign-in goes through My Room, Free mode never does); the engine's chat is folded to its bar there, pressed
+    only in a game scene, never during the sign-in.
+  - In the deck editor it starts collapsed (the engine's own), and where the engine won't open it (the deck scene: its △
+    off) the strip only shows what's new, with no Show button.
   - No Duel Log tab (owner: of no use; ovr/duellog.c still adds it on the duel screen until the runtime drops it).
   - Its shade rises only: the panel stands on the dock, and the plate's usual drop shadow (14 px down, unclipped)
     darkened the dock under it (owner: "the menu under it goes dark").

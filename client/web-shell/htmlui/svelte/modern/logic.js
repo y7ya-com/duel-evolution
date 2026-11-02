@@ -80,6 +80,9 @@ export function chatParts(win) {
     expand: cs.find(c => c.cls === 'CWindowTaskIconExpand'),
     shrink: cs.find(c => c.cls === 'CWindowTaskIconHide'),
     mode: win.mode ?? (win.h > 200 ? 0 : win.h < 48 ? 2 : 1),
+    // in the online world (read/chat.js; not known: yes): out of it the chat shows nothing (owner)
+    online: win.online !== false,
+    world: win.world !== false,   // a game scene (not the title or the sign-in): only there is the engine's chat folded
   };
 }
 
