@@ -4,9 +4,14 @@
 import { screen } from './screen.svelte.js';
 import MainMenu from './lobby/MainMenu.svelte';
 import Place from './lobby/Place.svelte';
-import MenuBar from './lobby/MenuBar.svelte';
+import MenuBar, { atlas } from './lobby/MenuBar.svelte';
 
-export default screen({ CMainMenu: MainMenu, CWindowModelPlace: Place, CWindowModelMenu: MenuBar }, {
+// the menu bar's controls, passed to the game while the bar's atlas isn't there (MenuBar.svelte's atlas)
+const bar = new Set();
+const note = win => { if (win.cls === 'CWindowModelMenu') { bar.clear(); for (const c of win.controls) bar.add(c.id); } };
+const s = screen({ CMainMenu: MainMenu, CWindowModelPlace: Place, CWindowModelMenu: MenuBar }, {
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
+  passthrough: (x, parent) => !atlas.ready && (bar.has(x.id) || !!parent && bar.has(parent.id)),
 });
+export default { ...s, mount: (win, ...a) => (note(win), s.mount(win, ...a)), update: (win, ...a) => (note(win), s.update(win, ...a)) };
