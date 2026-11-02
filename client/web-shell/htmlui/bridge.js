@@ -12,12 +12,16 @@ import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
 import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
+import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
-export async function loadScreens(base = new URL('./screens/', import.meta.url)) {
+// svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
+// screens/<group>.js (htmlui.json "svelte" / ?HTML_SVELTE=, switches() syntax by group name: deck, chat ...; none by
+// default until the group's flip pairs match). No build there: the plain module stays.
+export async function loadScreens(base = new URL('./screens/', import.meta.url), svelte = () => false) {
   for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
     const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
     if (m?.default) extend(m.default);
@@ -26,6 +30,8 @@ export async function loadScreens(base = new URL('./screens/', import.meta.url))
   for (const n of SCREENS) {
     const m = await import(new URL(n + '.js', base)).catch(() => null);
     for (const c of m?.default?.classes || []) by.set(c, m.default);
+    const s = svelte(n) && await import(new URL(`../gen/${n}.js`, base)).catch(e => console.warn('htmlui svelte', n, e));
+    for (const c of s?.default?.classes || []) by.set(c, s.default);
   }
   return by;
 }
@@ -42,6 +48,9 @@ export function switches(spec, defaults = []) {
 
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
   pointer-events: none; z-index: 5; }
+/* hidden through a scene load by visibility, not display: none, which restarted every CSS animation in it (each window
+   played its entrance again after every load) */
+#htmlui-host[hidden] { display: block; visibility: hidden; }
 #htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }
@@ -70,6 +79,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
   back.className = 'layer';
   layer.id = 'htmlui';
   host.append(back, layer);
+  // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on window in the
+  // bubbling phase. Stopped here, on the roots' parent, not on each root: Svelte 5 delegates a screen's onkeydown to its
+  // root (the mount target) and gives up once the event is stopped, so a stop on the root starved every handler above
+  // the focused element (htmlui-select: Esc on a plate <section> never ran)
+  for (const t of ['keydown', 'keyup', 'keypress']) layer.addEventListener(t, ev => ev.stopPropagation());
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set(), under = [];   // under: where owned-mode roots behind the current window take the pointer
@@ -81,13 +95,11 @@ export async function makeLayer(host, screens, art = 'ui/') {
       seen.add(w.id);
       let e = live.get(w.id);
       const mod = screens.get(w.cls);
-      if (e && e.cls !== w.cls) { unmount(w.id); e = null; }   // the address was reused
+      // the address was reused, or another screen took the class (Modern UI switched)
+      if (e && (e.cls !== w.cls || e.mod !== mod)) { unmount(w.id); e = null; }
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
-        // keys typed into an owned window's DOM (its <input>, its buttons) are not the game's too: SDL listens on
-        // window in the bubbling phase
-        for (const t of ['keydown', 'keyup', 'keypress']) root.addEventListener(t, ev => ev.stopPropagation());
         e = { root, mod, cls: w.cls, json: '' };
         live.set(w.id, e);
       }
@@ -218,9 +230,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   document.head.append(st);
   // The layer (screens, atlases, the host) loads only once the switches want a window or task the game shows: a page
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
-  let screens = new Map(), host = null, render = null, loading = null;
+  // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
+  const mu = modernUi({ defaults, canvas });
+  let legacy = new Map(), host = null, render = null, loading = null;
+  const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   const init = () => loading ||= (async () => {
-    screens = await loadScreens();
+    legacy = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);
@@ -242,13 +257,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       let e = fxEls[i];
       if (!e) {
         e = fxEls[i] = document.createElement('div');
-        Object.assign(e.style, { position: 'absolute', overflow: 'hidden' });
+        Object.assign(e.style, { position: 'absolute', left: 0, top: 0, overflow: 'hidden' });
         e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '' }));
         Object.assign(e.firstChild.style, { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', maxWidth: 'none' });
         fx.append(e);
       }
       const [sx, sy, sw, sh] = s.src, src = 'ui/' + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
-      Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
+      // placed by transform, not left / top: a sprite that moves is not a layout shift
+      Object.assign(e.style, { transform: `translate(${s.wx}px, ${s.wy}px)`, width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
       if (e.firstChild.getAttribute('src') !== src) e.firstChild.src = src;
       e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
     });
@@ -258,7 +274,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    for (const el of [host, fx, bars.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx, bars.layer, mu.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -288,11 +304,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
     { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
   const api = {
-    async click(id) {
-      const p = at(id);
+    // gp: a game point [x, y] inside the control to click instead of its centre (a list's row)
+    async click(id, gp) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
       if (!p) return false;
-      fire('mousemove', p); await frames(2);
-      fire('mousedown', p); await frames(2);
+      // one game frame between each (the game drops a press in the same frame as its move, and a release in the same
+      // frame as its press); two each cost 4 frames, about 130 ms at 30 fps, on every modern button
+      fire('mousemove', p); await frames(1);
+      fire('mousedown', p); await frames(1);
       fire('mouseup', p); return true;
     },
     hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
@@ -349,7 +368,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
-    const want = c => forced.has(c) ? forced.get(c) : on(c);
+    const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
@@ -384,14 +403,15 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
     // through a scene load
     const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...barIds].slice(0, SLOTS);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
-    bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
+    mu.frame(snap, scene, wait);
+    bd?.frame(snap);   // the start screens' backdrop (backdrop.js), both UIs
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
@@ -415,5 +435,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,
     scrollbars(v) { barsOn = v ?? !barsOn; return barsOn; },   // native boxes for the engine's scroll bars, or the engine's
+    modern(v) { return mu.set(v ?? !mu.on()); },   // Modern UI on / off (remembered): the players' "Legacy UI" switch, inverted
+    modernScreens: mu.mods,   // (development: a rebuilt gen/modern.js swapped in, see svelte/modern/DESIGN.md)
   };
 }

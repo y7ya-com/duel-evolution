@@ -208,6 +208,23 @@ api.art(path)                   // URL of a UI atlas on R2 (ui/<file>): never a 
 those on. Defaults: R2 `htmlui.json`. Live: `yo2Html.toggle('CWindowPlayerSelect')`. Off means the engine draws it
 again in the same frame.
 
+## Svelte screens (coordinator, 2026-10-31: the screens move to Svelte 5)
+
+A screen group's Svelte version lives in `svelte/`: `svelte/<group>.js` (the screen module, as screens/<group>.js)
+and `svelte/<group>/*.svelte` (one component per window). `svelte/screen.svelte.js` `screen({ [cls]: Component },
+mod)` turns components into the module above: the window's snapshot is one `$state.raw` (`view.win`, replaced whole
+each changed frame; `view.api`), and a component derives everything from it (`$derived`), so nothing it shows outlives
+the snapshot it came from. No DOM patching by hand; an imperative helper that builds DOM (ui.js `sprite()`) goes in
+an `{@attach}` that returns its cleanup. Plain helpers (ui.js, controls/, a screen's pure exports) are imported, never
+copied: the build leaves them as relative imports.
+- Build: `cd client/web-shell/htmlui && npm ci && npm run build` (or `npm run watch`): Vite, svelte/<group>.js ->
+  gen/<group>.js (gitignored; ship-client.sh builds it into the h-<hash>/ folder). Component CSS is injected by the JS.
+- Switch, by group name: `?HTML_SVELTE=deck` (switches() syntax), htmlui.json `"svelte": [...]`, flip.mjs / mockshot.mjs
+  `--svelte=deck`, mock.html `&svelte=deck`. Default none.
+- A group's Svelte version supersedes the plain one (default on, then the plain module deleted) only when its flip
+  pairs match at 1x and 2x and its state tests pass (svelte/<group>_test.mjs, Node; svelte/<group>_dom_test.mjs,
+  headless through mock.html). One writer per group: claim it in the notes (htmlui-svelte.md) first.
+
 ## Rules
 
 - No Konami art or text dumps in git: atlases and glyphs come from R2 (`api.art`), mocks hold only short UI strings.

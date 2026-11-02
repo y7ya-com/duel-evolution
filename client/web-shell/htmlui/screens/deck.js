@@ -75,9 +75,12 @@ export function plan(win, editor = true) {
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
       // a CWindowTaskText's element: its align over its width (CTextElm 0x74c / 0x3c4: the control's align and w).
-      // ponytail: a dialog's "Title" text draws white in the engine (its glyph colour comes from the text texture's
-      // tag converter, CD3DTextTexture +0x64, not read yet): by name until the converter is
-      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink: ctl.name === 'Title' ? 0xffffff : null } : { align: 0 };
+      // the glyph colour: a CTextElm's glyphs are black (its colour only shows its alpha), except the text half of a
+      // CWindowTaskShadowText, whose glyphs are white and take the control's colour (the shop's "Exit Store" and
+      // "5000MP" white; the file list's "Save New" black); a dialog's "Title" text is white too
+      const shadowText = ctl?.name === 'CWindowTaskShadowTextのテキスト' && ctl.color;
+      const ink = shadowText ? ctl.color.slice(0, 3).reduce((v, x) => v << 8 | Math.round(x * 255), 0) : ctl?.name === 'Title' ? 0xffffff : null;
+      const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink } : { align: 0 };
       // a paged text field (the card detail's text): the whole text, wrapped by words, in a native scroll box (the
       // owner's rules: words, not the engine's character wrap; native scrollers), in the engine's own text rect: the
       // control's place and size, never pageLines x the font (it differs card to card and lags a mode change: a duel's
@@ -315,7 +318,8 @@ function drawTextArt(el, [text, outline, x0, y0, x1, y1, italic, glow, ow = OUTL
     fontReady = true;
     // self-hosted with the art (ui/fonts/, the private set: the repo takes no binaries, players' browsers no Google)
     const st = document.createElement('style');
-    st.textContent = `@font-face { font-family: Audiowide; src: url(${base()}fonts/Audiowide-Regular.woff2) format('woff2'); }`;
+    // ui/fonts/ as theme.js (not base(): ui.SHEET says assets/ until loadGlyphs moves it, and a title can come first)
+    st.textContent = `@font-face { font-family: Audiowide; font-display: swap; src: url(ui/fonts/Audiowide-Regular.woff2) format('woff2'); }`;
     document.head.append(st);
   }
   const foot = y + y1 - ow, h = y1 - y0 - 2 * ow, px = h / (/[bdfhklt]/.test(text) ? 0.751 : 0.70);

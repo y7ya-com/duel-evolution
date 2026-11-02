@@ -213,6 +213,15 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // tells only listeners already added: on a loaded machine the title came before start() and scene stayed 0)
   const sm = u32(SCENE_MNG);
   if (sm) scene = i32(sm + 0x7c);
+  // the title movie's four buttons (scene 4; src/title/titleEntry.cpp): CTitleScene::m_pBaseElm (under the root, beside
+  // the CMouseManager) > CTitleScene::m_title (CSwfEngine) > Offset > CSwfButton2 btn_start, btn_option, btn_web,
+  // btn_clear. Modern UI draws its own and hides these (their clicks still reach them)
+  const title = scene !== 4 || !mgr ? [] : (() => {
+    const base = children(u32(mgr + 8)).find(k => name(k) === 'CTitleScene::m_pBaseElm');
+    const movie = base && children(base).find(k => name(k) === 'CTitleScene::m_title');
+    const off = movie && children(movie).find(k => name(k) === 'Offset');
+    return off ? children(off).filter(k => cls(k) === 'CSwfButton2' && /^btn_/.test(name(k))).map(k => ({ id: k, name: name(k) })) : [];
+  })();
   // the start screens' backdrop (CBgCommon with a kind having 0x40: data/menu/abmake_bg_01 / _02, CBgCommon::m_elmBack[]
   // sprites; decomp FUN_00a0a100): the title, Change Avatar, the patcher. Found by name anywhere near the root, shown =
   // drawn this frame; the page draws it instead (htmlui/backdrop.js, the runtime's Module.yo2TransparentTitle)
@@ -231,8 +240,24 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     const back = children(found).filter(k => cls(k) === 'CSpriteElm' && name(k).startsWith('CBgCommon::m_elmBack'));
     return { shown: back.some(k => shown(k)) && !locked(found), ids: back };
   })();
+  // the duel's guide (scene 28; phase2-duel: CSceneMng +0x74 the current scene, CDuelScene +0x144 m_pHelpManager, a
+  // CUGHelpManager the scene owns, not a factory window): its shown text, the duel waiting on a field / hand click and
+  // why ("Select a target ..."); '' when none shows
+  const duel = (() => {
+    const so = scene === 28 && sm ? u32(sm + 0x74) : 0;
+    if (!so || cls(so) !== 'CDuelScene') return null;
+    const hm = u32(so + 0x144), lines = [];
+    if (hm && vis(hm)) (function walk(t, d) {
+      for (const k of children(t)) {
+        if (!vis(k)) continue;
+        if (/^CWindowTask(Shadow)?Text$/.test(cls(k))) { const x = textCtl(k).text; if (x) lines.push(x); }
+        if (d < 5) walk(k, d + 1);
+      }
+    })(hm, 0);
+    return { help: [...new Set(lines)].join('\n') };
+  })();
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, backdrop };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title, duel, backdrop };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -274,7 +299,9 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     wz: Math.max(0, ...byWin.get(w).filter(c => c.shown && c.wz > 0).map(c => c.wz)),
     drawn: drawnBox(w),
     // the window's own CTask children that are not controls (waist-up avatars, sprites): passthrough candidates
-    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' } : { id: t, cls: cls(t) }),
+    // a CTextElm extra carries its text (label: the result screen's win / lose / score figures are such texts)
+    extras: children(w).filter(t => !ctlSet.has(t)).map(t => cls(t) === 'CSpriteElm' ? { ...spr(t), cls: 'CSpriteElm' }
+      : cls(t) === 'CTextElm' ? { ...label(t), cls: 'CTextElm' } : { id: t, cls: cls(t) }),
     ...XW[cls(w)]?.(w),
   })).reverse();                                // back to front
   // the non-window owners (the shop's CShop* tasks), shaped like windows so a screen can claim them; w/h from a read
@@ -282,5 +309,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, backdrop, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, duel, backdrop, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }
