@@ -224,12 +224,16 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
     it("both drop at once and neither comes back: no result for either", async () => {
       const { A, B, m } = await duelOn("4");
+      const duels = () => (srv.game.admin.run("online", {}) as { duels: number }).duels;   // deploys wait for 0
+      expect(duels()).toBe(1);
       const before = rec();
       await drop(m, A); await drop(m, B);
       expect(m.done).toBe(false);                                   // the grace first
+      expect(duels(), "a duel in its reconnect grace still counts").toBe(1);
       await until(() => m.done, 10_000);
       expect(rec().map((r) => [r.duels, r.wins, r.losses])).toEqual(before.map((r) => [r.duels, r.wins, r.losses]));
       expect(logs.some((l) => l.includes(`${m.name}: neither player came back`))).toBe(true);
+      expect(duels()).toBe(0);
     }, 120_000);
 
     it("one drops and doesn't come back: the other is told to wait, then wins", async () => {

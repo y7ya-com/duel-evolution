@@ -182,6 +182,19 @@ export class Admin {
     return { ok: true, characters };
   }
 
+  /** Duels in progress, for deploys (owner, 2026-11-02: "deploy when no one is dueling"): PvP matches not over (waiting
+   *  for both players, at rock-paper-scissors, in the duel, or in a dropped socket's grace) and NPC duels whose session
+   *  isn't over (from the deck stage on). */
+  duels(): number {
+    const pvp = this.g.pvp?.live() ?? 0;
+    let npc = 0;
+    for (const s of this.g.hub.sessions.values()) {
+      const c = s.conns.get(this.g.ports.duel), o = c && !c.closed ? (c.ext as { ocg?: { over: boolean } | null }).ocg : null;
+      if (o && !o.over) npc++;
+    }
+    return pvp + npc;
+  }
+
   status() {
     const players = [...this.g.hub.sessions.values()].map((s: Session) => ({ acct: s.acct, pid: s.pid, name: s.name, block: s.block,
       online: [...s.conns.values(), s.lobby].some((c) => c && !c.closed) }));
@@ -203,7 +216,7 @@ export class Admin {
       case "reset-dormant": return { reset: this.resetDormant() };
       case "take": return this.take(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin take"));
       case "grant": return this.grant(String(body.acct), body.slot == null ? null : Number(body.slot), Array.isArray(body.cards) ? body.cards : [], String(body.src ?? "admin grant"));
-      case "online": return { online: this.status().players.filter((p) => p.online).length };
+      case "online": return { online: this.status().players.filter((p) => p.online).length, duels: this.duels() };
       case "tournament": { const t = this.g.to!.startTournament(body.serial ?? 1, body.day ?? 1, body.name ?? "CHAMPIONSHIP", body.max ?? 8); return { state: t.state }; }
       case "claim": return { result: this.claim(String(body.acct), String(body.userId)) };
       case "start": { this.data.start = body.start ?? {}; this.sink("start", "start", this.data.start); return { ok: true }; }

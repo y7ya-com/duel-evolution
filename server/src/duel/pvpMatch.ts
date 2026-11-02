@@ -204,6 +204,8 @@ export class Matches {
   byPid(pid: number | null | undefined): PvpMatch | null { return pid == null ? null : this.pids.get(pid) ?? null; }
 
   drop(m: PvpMatch): void { for (const p of m.pids) if (this.pids.get(p) === m) this.pids.delete(p); }
+  /** PvP matches not over: reserved, waiting for both, at rock-paper-scissors, dueling, or in a dropped socket's grace. */
+  live(): number { return new Set([...this.pids.values()].filter((m) => !m.done)).size; }
 
   watchRequest(peer: string, pid: number, who: Session | null = null): PvpMatch | null {
     if (!PVP_WATCH) return null;
