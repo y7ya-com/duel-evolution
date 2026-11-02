@@ -380,7 +380,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
-    bd.frame(snap, wait);
+    bd.frame(snap);
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

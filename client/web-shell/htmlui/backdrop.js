@@ -6,9 +6,11 @@
 //   darker low (+-3.5 %), a grid of lines 11 % lighter on a 12.8 x 16 px pitch;
 // - veil (abmake_bg_02, two copies 768 apart): a checker of rgb(111,117,238) squares on those cells, 1 px apart,
 //   192 / 255 at the left and right edges fading to none 236 px in, scrolling DOWN 60 px a second, seamless.
-// While read.js finds those sprites shown (snapshot.backdrop), Module.yo2TransparentTitle tells the runtime to leave the
-// canvas clear where they were (yo2-native-gfx: it skips the abmake_bg textures, everything else still the engine's), and
-// the canvas is lifted above this layer; otherwise nothing changes. A runtime without the flag keeps drawing its own.
+// The page always draws it under the canvas (lifted to z 1, under the HTML layers) and says so (Module.yo2CssBackdrop,
+// and yo2TransparentTitle for the runtimes that only know that): the runtime leaves the canvas clear only after a frame that
+// drew an abmake_bg texture (yo2-native-gfx, css-backdrop), a frame late on entering and leaving such a scene, so this
+// layer must already / still be there; elsewhere the canvas is opaque over it. The veil scrolls only while read.js finds
+// the engine's sprites shown (snapshot.backdrop): paused, it costs nothing behind an opaque canvas
 export function backdrop(canvas) {
   const el = document.createElement('div');
   el.id = 'mu-titlebg';
@@ -20,18 +22,14 @@ export function backdrop(canvas) {
   document.head.append(st);
   if (canvas?.parentElement) canvas.parentElement.insertBefore(el, canvas);
   const stage = el.firstElementChild;
-  let lifted = false;
+  el.hidden = false;
+  Object.assign(canvas.style, { position: 'relative', zIndex: '1' });
+  let moving = null;
   return {
-    // each frame: shown while the engine's backdrop sprites are (not through a scene load)
-    frame(snap, wait) {
-      const show = !wait && !!snap?.backdrop?.shown;
-      if (globalThis.Module) Module.yo2TransparentTitle = show;
-      if (el.hidden === show) el.hidden = !show;
-      if (show !== lifted) {
-        lifted = show;
-        Object.assign(canvas.style, show ? { position: 'relative', zIndex: '1' } : { position: '', zIndex: '' });
-      }
-      if (!show) return;
+    frame(snap) {
+      if (globalThis.Module) { Module.yo2CssBackdrop = true; Module.yo2TransparentTitle = true; }
+      const live = !!snap?.backdrop?.shown;
+      if (live !== moving) { moving = live; el.classList.toggle('still', !live); }
       const r = canvas.getBoundingClientRect(), k = r.width / 1024;
       const css = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
       if (el.style.cssText !== css) { el.style.cssText = css; stage.style.transform = `scale(${k})`; }
@@ -64,5 +62,6 @@ const CSS = `
   mask-composite: intersect;
   animation: mu-veil .5333s linear infinite; }
 @keyframes mu-veil { to { transform: translate3d(0, 32px, 0); } }
+#mu-titlebg.still .mu-veil { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { #mu-titlebg .mu-veil { animation: none; } }
 `;
