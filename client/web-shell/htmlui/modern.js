@@ -48,22 +48,20 @@ export function modernUi({ defaults = {}, canvas, query = new URLSearchParams(lo
     <label class="mu-switch mu-ingame" hidden><input type="checkbox" role="switch" checked><span class="mu-track"><span class="mu-knob"></span></span>
       <span class="mu-switch-label">Legacy UI</span></label>`;
   const box = layer.querySelector('input'), menu = layer.querySelector('.mu-tmenu');
-  // the title's backdrop, behind the canvas (owner: recreate the falling squares, crisp): with Module.yo2TransparentTitle
-  // the runtime leaves the canvas clear where its backdrop (data/menu/abmake_bg_*) was, the characters, logo and buttons
-  // still the engine's (yo2-native-gfx 321c521). A fixed layer at the canvas's rect, under it: the 2008 azure (saturated
-  // at the edges, pale in the middle), its fine grid, a light down the centre and translucent squares falling on GPU
-  // transforms (still under prefers-reduced-motion). The canvas is lifted above it only while it shows
+  // the title's backdrop, behind the canvas: the 2008 one, the same composition, colours and motion, drawn as vectors so
+  // it is crisp at any DPR (owner: "look at the original animation and imitate it but in a modern way. and make sure
+  // colours remain the same"). Measured from the game (CBgCommon's m_elmBack, data/menu/abmake_bg_01/02.png at 2x):
+  // - base (abmake_bg_01, still): the azure across (17 stops sampled off its grid lines), a little lighter high up and
+  //   darker low (+-3.5 %), a grid of lines 11 % lighter on a 12.8 x 16 px pitch;
+  // - veil (abmake_bg_02, two copies 768 apart): a checker of rgb(111,117,238) squares on those cells, 1 px apart,
+  //   192 / 255 at the left and right edges fading to none 236 px in, scrolling DOWN 60 px a second, seamless.
+  // With Module.yo2TransparentTitle the runtime leaves the canvas clear where those textures were (yo2-native-gfx), the
+  // characters, logo and buttons still the engine's. The canvas is lifted above this only while it shows
   const backdrop = document.createElement('div');
   backdrop.id = 'mu-titlebg';
   backdrop.hidden = true;
   backdrop.ariaHidden = 'true';
-  // the squares: [x, size, seconds, delay, opacity, outlined, drift, turn] (a fixed set, so every load looks the same)
-  const SQ = Array.from({ length: 26 }, (_, i) => {
-    const h = n => ((Math.sin(i * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1;
-    return [Math.round(h(1) * 1000), Math.round(10 + h(2) * 38), (10 + h(3) * 14).toFixed(1), (-h(4) * 24).toFixed(1), (.12 + h(5) * .26).toFixed(2), h(6) > .55, Math.round((h(7) - .5) * 60), Math.round((h(8) - .5) * 90)];
-  });
-  backdrop.innerHTML = `<div class="mu-stage"><i class="mu-light"></i>${SQ.map(([x, z, t, d, o, line, dx, rot]) =>
-    `<b class="${line ? 'line' : ''}" style="left:${x}px;width:${z}px;height:${z}px;--o:${o};--dx:${dx}px;--r:${rot}deg;animation-duration:${t}s;animation-delay:${d}s"></b>`).join('')}</div>`;
+  backdrop.innerHTML = '<div class="mu-stage"><i class="mu-base"></i><i class="mu-veil"></i></div>';
   if (!killed && canvas?.parentElement) canvas.parentElement.insertBefore(backdrop, canvas);
   let lifted = false;
   const stage = backdrop.firstElementChild;
@@ -225,18 +223,27 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { #mu-title *, #mu-title *::after { animation: none !important; transition: none !important; } }
 #mu-titlebg { position: fixed; z-index: 0; overflow: hidden; pointer-events: none; }
 #mu-titlebg[hidden] { display: none; }
-#mu-titlebg .mu-stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
+#mu-titlebg .mu-stage { position: absolute; left: 0; top: 0; width: 1024px; height: 768px; overflow: hidden; transform-origin: 0 0; }
+#mu-titlebg .mu-base { position: absolute; inset: 0;
   background:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, .34) 0 1px, transparent 1px 14px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .34) 0 1px, transparent 1px 14px),
-    linear-gradient(180deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, 0) 40%, rgba(255, 255, 255, .1)),
-    linear-gradient(90deg, #4aa8f5 0%, #86c8f9 24%, #c9e5fc 47%, #d2eafd 53%, #a9d7fa 76%, #63b9f7 100%); }
-#mu-titlebg .mu-light { position: absolute; left: 312px; top: -80px; width: 400px; height: 928px;
-  background: radial-gradient(closest-side, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0)); }
-#mu-titlebg b { position: absolute; top: 0; display: block; opacity: var(--o); background: rgba(255, 255, 255, .85);
-  box-shadow: 0 0 10px rgba(255, 255, 255, .35); will-change: transform; animation: mu-fall linear infinite; }
-#mu-titlebg b.line { background: rgba(255, 255, 255, .12); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .9); }
-@keyframes mu-fall { from { transform: translate3d(0, -60px, 0) rotate(0deg); } to { transform: translate3d(var(--dx), 830px, 0) rotate(var(--r)); } }
-@media (prefers-reduced-motion: reduce) {
-  #mu-titlebg b { animation: none; transform: translate3d(0, calc(var(--o) * 1800px), 0); } }
+    repeating-linear-gradient(90deg, transparent 0 10px, rgba(255, 255, 255, .11) 10px 12px, transparent 12px 12.8px),
+    repeating-linear-gradient(180deg, transparent 0 14px, rgba(255, 255, 255, .11) 14px 16px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, .05) 10%, rgba(255, 255, 255, .02) 35%,
+      rgba(0, 25, 80, .025) 70%, rgba(0, 25, 80, .03) 78%, rgba(255, 255, 255, 0) 100%),
+    linear-gradient(90deg, rgb(59, 164, 245) 0%, rgb(57, 164, 245) 6.25%, rgb(56, 163, 245) 12.5%, rgb(67, 168, 246) 18.75%,
+      rgb(93, 179, 247) 25%, rgb(123, 193, 248) 31.25%, rgb(152, 207, 250) 37.5%, rgb(179, 220, 251) 43.75%,
+      rgb(201, 230, 252) 50%, rgb(197, 228, 252) 56.25%, rgb(173, 216, 251) 62.5%, rgb(140, 201, 249) 68.75%,
+      rgb(108, 186, 248) 75%, rgb(81, 173, 246) 81.25%, rgb(60, 162, 245) 87.5%, rgb(55, 159, 245) 93.75%, rgb(57, 159, 245) 100%); }
+/* the veil: one pattern period (32 px) taller than the screen, translated down a period and back to 0, seamless */
+#mu-titlebg .mu-veil { position: absolute; left: 0; top: -32px; width: 1024px; height: 800px; will-change: transform;
+  background: repeating-conic-gradient(from -90deg, rgb(111, 117, 238) 0 25%, transparent 0 50%) 0 0 / 25.6px 32px;
+  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, .753) 0, transparent 236px, transparent calc(100% - 236px), rgba(0, 0, 0, .753) 100%),
+    repeating-linear-gradient(90deg, #000 0 11.8px, transparent 11.8px 12.8px), repeating-linear-gradient(180deg, #000 0 15px, transparent 15px 16px);
+  -webkit-mask-composite: source-in, source-in;
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, .753) 0, transparent 236px, transparent calc(100% - 236px), rgba(0, 0, 0, .753) 100%),
+    repeating-linear-gradient(90deg, #000 0 11.8px, transparent 11.8px 12.8px), repeating-linear-gradient(180deg, #000 0 15px, transparent 15px 16px);
+  mask-composite: intersect;
+  animation: mu-veil .5333s linear infinite; }
+@keyframes mu-veil { to { transform: translate3d(0, 32px, 0); } }
+@media (prefers-reduced-motion: reduce) { #mu-titlebg .mu-veil { animation: none; } }
 `;
