@@ -13,7 +13,7 @@
   import { flip } from 'svelte/animate';
   import { scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion } from './editor.js';
+  import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion, trunkCard } from './editor.js';
   let { view } = $props();
 
   // the card data (read/deck.js yo2Deck) can arrive after the editor opens, and the trunk's counts change with no deck
@@ -104,7 +104,7 @@
   const zoneAt = (cx, cy) => document.elementFromPoint(cx, cy)?.closest('[data-zone]')?.dataset.zone || '';
   const wait = n => new Promise(r => setTimeout(r, n));
   function down(e, id, from, tile = '') {
-    if (e.button !== 0 || lift) return;
+    if (e.button !== 0 || lift || (from === 'pool' && left(id) <= 0)) return;   // a used-up trunk card stays put
     press = { id, from, tile, cx: e.clientX, cy: e.clientY, el: e.currentTarget };
     addEventListener('pointermove', move);
     addEventListener('pointerup', up, { once: true });
@@ -418,17 +418,17 @@
         {@const used = inDeck.get(c.id) || 0}
         {@const n = left(c.id)}
         {@const no = blocked(c, home(c), { inDeck: used, left: n, counts })}
-        {@const owned = n + used}
+        {@const tc = trunkCard(n, used)}
         <div role="listitem">
-          <button type="button" class="card" class:notown={!owned} class:spent={!n && used > 0} data-card={c.id}
-            title="{c.name}: {owned ? `${owned} owned, ${used} in the deck` : 'not in your trunk'}{no && n ? ' — ' + no : ''}"
+          <button type="button" class="card" class:notown={tc.notown} class:spent={tc.out} data-card={c.id} aria-disabled={tc.out || tc.notown}
+            title="{c.name}: {tc.owned ? `${tc.n} of ${tc.owned} left to add${used ? `, ${used} in the deck` : ''}` : 'not in your trunk'}{no && n ? ' — ' + no : ''}"
             onpointerdown={e => down(e, c.id, 'pool')}
             onmouseenter={() => (hover = c.id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = c.id)} onclick={() => (pinned = c.id)}
             ondblclick={e => put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c))}
             oncontextmenu={e => { e.preventDefault(); put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c)); }}
             onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
-            {#if owned}<span class="n" class:out={!n}>×{owned}</span>{/if}
+            {#if tc.owned}<span class="n" class:out={tc.out}>×{tc.n}</span>{/if}
             {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
           </button>
         </div>
@@ -577,7 +577,9 @@
   .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
   .card.notown .face { filter: grayscale(.9) brightness(.8); }
+  .card.spent .face { filter: grayscale(.85) brightness(.72); }
   .card.notown, .card.spent { cursor: default; }
+  .card.spent:hover { transform: none; }
   /* drag and drop: the lifted card over everything, a little larger and tilted, its shadow deep; it flies (left / top /
      size) to where it lands; the section under it lights blue, red where it can't go */
   .lift { position: absolute; z-index: 20; pointer-events: none; border-radius: 5px; overflow: hidden; background: var(--p900);
@@ -592,7 +594,7 @@
   .tile.lifted { opacity: .25; transition: opacity .12s; }
   .sec.refuse { background: color-mix(in srgb, var(--bad) 10%, transparent); box-shadow: inset 0 0 0 2px var(--bad); }
   @media (prefers-reduced-motion: reduce) { .lift, .lift:is(.fly, .back, .settle, .wait) { transition: none; } }
-  /* the trunk's copies owned: a small plate in the corner, ×N; hollow when every copy is in the deck */
+  /* the trunk's copies left to add: a small plate in the corner, ×N; ×0 hollow on a greyed card when every copy is in the deck */
   .n { position: absolute; right: 2px; bottom: 2px; min-width: 18px; height: 15px; padding: 0 4px; border-radius: 4px; pointer-events: none;
     font-size: 10px; font-weight: 800; line-height: 15px; text-align: center; color: var(--n0); letter-spacing: 0;
     background: color-mix(in srgb, var(--ink-strong) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--n0) 55%, transparent); }
