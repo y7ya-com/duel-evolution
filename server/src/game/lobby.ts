@@ -242,7 +242,7 @@ export class Lobby {
     const rid = data.length >= 4 ? u32(data) : 0;
     const room = this.allRooms(this.sess(c)).find((r) => r.id === rid);
     if (room && this.humanRoom(room)) return this.challenge(c, room, data.subarray(4, 20));
-    if (!room || !room.npc) { c.send(0x4301, new W().u32(1).bytes()); return true; }
+    if (!room || !room.npc) { if (!room) this.log(`[AVISO] [lobby] challenge to room ${rid}: no such room (from ${this.sess(c)?.acct.slice(0, 8) ?? "?"})`); c.send(0x4301, new W().u32(1).bytes()); return true; }
     c.send(0x4301, new W().u32(0).bytes());
     this.duelNotice(c, room.npc);
     return true;
@@ -283,7 +283,13 @@ export class Lobby {
   private challengeFrom(c: Conn) { const s = this.sess(c); return [...this.mem.challenges.values()].find((ch) => ch.from === c || (s && ch.a === s)) ?? null; }
 
   private challenge(c: Conn, room: Room, pw: Uint8Array): boolean {
-    const fail = (code: number, why: string) => { this.log(`[lobby] challenge to room ${room.id} refused: ${why} (${code})`); c.send(0x4301, new W().u32(code).bytes()); return true; };
+    // [AVISO] (production keeps it): why a challenge is refused, with the room's and its owner connection's state
+    // ("after one PvP we have to relog", 2026-11-02: which refusal it is)
+    const fail = (code: number, why: string) => {
+      const o = room.conn, st = o ? (o.closed ? "closed" : o.stale() ? "stale" : (o.ext.lpClosed ? "lp-closed" : "open")) : "none";
+      this.log(`[AVISO] [lobby] challenge to room ${room.id} refused: ${why} (${code}); room p1 ${room.p1} p2 ${room.p2} mstat ${room.mstat}, owner conn ${st}, from ${this.sess(c)?.acct.slice(0, 8) ?? "?"}`);
+      c.send(0x4301, new W().u32(code).bytes()); return true;
+    };
     const a = this.sess(c), owner = room.conn!;
     const b = this.sess(owner);
     if (!a || a.pid === null || !b || b === a) return fail(R_NOROOM, "no session or own room");
@@ -321,6 +327,7 @@ export class Lobby {
     refused: "That player is not accepting duel requests.", cooldown: "Wait a moment before challenging that player again.",
   } as const;
   private refuse(why: keyof typeof Lobby.SAY, extra: Record<string, unknown> = {}): [number, Record<string, unknown>] {
+    this.log(`[AVISO] [lobby] duel invite refused: ${why}`);
     return [409, { error: why, message: Lobby.SAY[why], ...extra }];
   }
   private busyHere(s: Session): "in-duel" | "trading" | "busy" | null {

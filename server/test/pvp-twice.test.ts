@@ -21,7 +21,8 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   /** A challenges B's room, B accepts, the duel runs until A surrenders; both end back on the map (0x4210). */
-  async function duel(h: Harness, A: Client, B: Client, rid: number, keep: Record<string, Link> | null = null) {
+  async function duel(h: Harness, A: Client, B: Client, rid: number, keep: Record<string, Link> | null = null,
+    end: "surrender" | "lp" | "disconnect" = "surrender") {
     const na = A.room!.mark(), nb = B.room!.mark();
     A.room!.send(0x4300, cat(be32(rid), str("", 16)));
     expect(await B.room!.wait(0x4302, nb), "B gets the challenge").not.toBeNull();
@@ -50,12 +51,17 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     const n = dA.mark();
     for (const l of [dA, dB]) l.send(0x61fe, [1]);
     expect(await dA.wait(0x6202, n, (x) => type6202(x) === 0x1a, 30_000)).not.toBeNull();
-    dA.send(0x6350, be32(0, 0xd, 0, 10));
-    await dA.wait(0x6202, n, (x) => type6202(x) === 0x1b && u32(x, 4) === 0x32, 30_000);
-    dA.send(0x6423, be32(1));
-    for (const [l, f] of [[dA, fA], [dB, fB]] as [Link, number][]) expect(await l.wait(0x6202, f, (x) => type6202(x) === 0x4d, 30_000), "0x4d: the duel's end").not.toBeNull();
+    if (end === "surrender") {
+      dA.send(0x6350, be32(0, 0xd, 0, 10));
+      await dA.wait(0x6202, n, (x) => type6202(x) === 0x1b && u32(x, 4) === 0x32, 30_000);
+      dA.send(0x6423, be32(1));
+    } else if (end === "lp") dA.send(0x7ffd);   // M_TEST_LOSE: A loses on LP (the duel's normal end)
+    else { dA.close(); await h.tick(46_000); }   // A's duel socket drops for good: B wins after the 45 s grace
+    for (const [l, f] of (end === "disconnect" ? [[dB, fB]] : [[dA, fA], [dB, fB]]) as [Link, number][])
+      expect(await l.wait(0x6202, f, (x) => type6202(x) === 0x4d, 30_000), "0x4d: the duel's end").not.toBeNull();
+    if (end === "disconnect") delete d[A.name];
     await h.tick(5000);
-    if (!keep) for (const l of [dA, dB]) { l.send(0x0003); await h.tick(400); l.close(); }
+    if (!keep) for (const l of end === "disconnect" ? [dB] : [dA, dB]) { l.send(0x0003); await h.tick(400); l.close(); }
     for (const X of [A, B]) { const m = X.room!.mark(); X.room!.send(0x4210, be32(0xffffffff)); await X.room!.wait(0x4213, m); }
     await h.tick(1000);
   }
@@ -93,6 +99,25 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
       const m = A.room!.mark(); A.room!.send(0x4210, be32(0xffffffff)); await A.room!.wait(0x4213, m);   // back to the map, the duel connection kept
     }
     expect(h.log.some((l) => l.includes("0x61fe repeated"))).toBe(false);
+  }, 240_000);
+
+  for (const end of ["lp", "disconnect"] as const)
+    it(`a second PvP duel after one that ended by ${end} (the owner: "after one PvP we have to relog")`, async () => {
+      const { h, A, B, rid } = await pair();
+      await duel(h, A, B, rid, null, end);
+      await duel(h, A, B, rid);
+    }, 240_000);
+
+  it("two duels in a row through the player card's Duel invite (no room of the target's own)", async () => {
+    const h = harness({ players: {} }, { PVP_TEST: "1", DUEL_PAUSE: "0.0005" });
+    const A = h.client("A", "A", "pw", "user-a"), B = h.client("B", "B", "pw", "user-b");
+    await A.account(0, "Alfa"); await B.account(0, "Beta");
+    await A.enterRoom(); await B.enterRoom();
+    for (const round of [1, 2]) {
+      const [st, out] = h.game.lp.duelInvite("user-a", B.pid!);
+      expect([round, st, out]).toMatchObject([round, 200, { ok: true }]);
+      await duel(h, A, B, (out as { room: number }).room, null, round === 1 ? "lp" : "surrender");
+    }
   }, 240_000);
 
   it("the same pair duels twice, a new duel connection each time", async () => {
