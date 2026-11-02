@@ -23,6 +23,14 @@ fi
 # version), ends their duels with no result, flushes D1 and refuses new game sockets; the deploy then swaps the DO's
 # code at once (immediate code update, not Cloudflare's default 300 s deferral, during which reconnecting clients would
 # land on the old instance and drop a second time).
+# deploys wait for no duel, not for no player (owner, 2026-11-02): one that started during the countdown aborts it
+# (/__admin/online's duels; a server from before it reports none)
+d=$(api online | python3 -c 'import json, sys; print(json.load(sys.stdin).get("duels", 0))' 2>/dev/null || echo 0)
+if [ "${d:-0}" != 0 ]; then
+  echo "ABORTED: $d duels in progress after the countdown, nothing deployed"
+  api announce '{"text":"Server update postponed: carry on."}' >/dev/null || true
+  exit 3
+fi
 echo "closed with 4012: $(api shutdown || echo 'n/a')"
 # DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN
 # the upload retried: the sockets are already closed and refused (a network blip once failed it: "fetch failed")

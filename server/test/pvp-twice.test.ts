@@ -94,11 +94,15 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
       expect(await d.wait(0x6007, f)).not.toBeNull();
       d.send(0x6600, be32(deck.main.length, 0, deck.extra.length)); d.send(0x6601, deckMsg(deck.main)); d.send(0x6603, deckMsg(deck.extra)); d.send(0x600b);
       expect(await d.wait(0x6005, f, undefined, 30_000)).not.toBeNull();
+      const duels = () => (h.game.admin.run("online", {}) as { duels: number }).duels;   // deploys wait for 0
+      expect(duels(), `round ${round}: an NPC duel counts from its deck stage`).toBe(1);
       for (const [mid, data] of [[0x6100, []], [0x6101, [0]], [0x6102, []], [0x6103, [0]]] as [number, number[]][]) { const k = d.mark(); d.send(mid, data); await d.wait(mid, k, undefined, 15_000); }
       const k = d.mark();
       d.send(0x61fe, [1]);
       expect(await d.wait(0x6202, k, undefined, 30_000), `round ${round}: the duel starts`).not.toBeNull();
       expect(await d.wait(0x6202, k, (x) => type6202(x) === 0x4d, 120_000), `round ${round}: the duel's end`).not.toBeNull();
+      await h.tick(500);
+      expect(duels(), `round ${round}: over`).toBe(0);
       await h.tick(3000);
       const m = A.room!.mark(); A.room!.send(0x4210, be32(0xffffffff)); await A.room!.wait(0x4213, m);   // back to the map, the duel connection kept
     }
