@@ -75,6 +75,10 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     B.room!.send(0x4288, roomReq());
     return { h, A, B, rid: u32((await B.room!.wait(0x3113, n))!) };
   }
+  /** X opens a duel room; its id */
+  async function room(X: Client) { const n = X.room!.mark(); X.room!.send(0x4288, roomReq()); return u32((await X.room!.wait(0x3113, n))!); }
+  /** how many rooms X's own room list (0x4280 -> 0x4282) holds */
+  async function rooms(X: Client) { const n = X.room!.mark(); X.room!.send(0x4280); return u32((await X.room!.wait(0x4282, n))!); }
 
   it("two NPC duels in a row on the duel connection kept from the first (live report 2026-11-01: the second never started)", async () => {
     const h = harness({ players: {} }, { PVP_TEST: "1", DUEL_PAUSE: "0.0005" });
@@ -105,7 +109,8 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     it(`a second PvP duel after one that ended by ${end} (the owner: "after one PvP we have to relog")`, async () => {
       const { h, A, B, rid } = await pair();
       await duel(h, A, B, rid, null, end);
-      await duel(h, A, B, rid);
+      expect(await rooms(B), "the host's room list after the duel: no room of its own (else its client stays in it)").toBe(0);
+      await duel(h, A, B, await room(B));
     }, 240_000);
 
   it("the joiner's side: after a duel the joiner hosts and the old host challenges it; a third player gets both", async () => {
@@ -118,7 +123,7 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     await duel(h, B, A, ridA);
     // a third player challenges B's room again, and A challenges C's room
     const C = h.client("C"); await C.account(0, "Gamma"); await C.enterRoom();
-    await duel(h, C, B, rid);
+    await duel(h, C, B, await room(B));
     n = C.room!.mark();
     C.room!.send(0x4288, roomReq());
     const ridC = u32((await C.room!.wait(0x3113, n))!);
@@ -126,7 +131,7 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     // the post-PvP lobby trace (Lobby.postPvp): production sees what each client sent after a duel
     const tr = h.log.filter((l) => l.startsWith("[AVISO] [lobby] after PvP"));
     expect(tr.some((l) => / <- 0x4210 /.test(l))).toBe(true);
-    expect(tr.some((l) => /room reopen: \d+ free again/.test(l))).toBe(true);
+    expect(h.log.some((l) => /\[lobby\] PvP over: room \d+ of \d+ closed/.test(l))).toBe(true);
   }, 300_000);
 
   it("two duels in a row through the player card's Duel invite (no room of the target's own)", async () => {
@@ -144,7 +149,8 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
   it("the same pair duels twice, a new duel connection each time", async () => {
     const { h, A, B, rid } = await pair();
     await duel(h, A, B, rid);
-    await duel(h, A, B, rid);
+    expect(await rooms(B)).toBe(0);
+    await duel(h, A, B, await room(B));
   }, 240_000);
 
   it("a match whose duel hasn't started 90 s after the challenge (a frozen tab at rock-paper-scissors) is called off for both", async () => {
@@ -172,6 +178,6 @@ describe.skipIf(!have)("two PvP duels in a row", () => {
     const { h, A, B, rid } = await pair();
     const keep: Record<string, Link> = {};
     await duel(h, A, B, rid, keep);
-    await duel(h, A, B, rid, keep);
+    await duel(h, A, B, await room(B), keep);
   }, 240_000);
 });

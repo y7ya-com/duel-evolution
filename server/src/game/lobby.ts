@@ -495,6 +495,24 @@ export class Lobby {
     return true;
   }
 
+  /** A PvP match is over (PvpMatch.closeMatch, every way it ends): the host's room closes. The 2008 client keeps a
+   *  player whose room the server lists in that room (no map exits, no challenge entry: CNetLobby +0xd8b, phase2-net),
+   *  and clears it only with a full room list without it or its own delete. The original dropped the room after a duel
+   *  when the player's DP ran short; DP never runs short here (ovr/nodp.c), so with ROOM_REOPEN every PvP host stayed
+   *  stuck in its room until it relogged ("after one PvP we have to relog", 2026-11-02). Now its post-duel 0x4280 lists
+   *  no room of its own; the others in the block get the room's removal (not the host: a 0x3113 removal of its own room
+   *  leaves the client's mark set, pointing at nothing). NPC rooms keep ROOM_REOPEN. */
+  pvpOver(pids: readonly number[]) {
+    for (const [k, r] of [...this.mem.rooms]) {
+      if (r.npc || r.only || !pids.includes(r.p1) || !pids.includes(r.p2)) continue;
+      this.mem.rooms.delete(k);
+      this.mem.challenges.delete(k);
+      const host = r.conn ? this.sess(r.conn) : null;
+      this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), host);
+      this.log(`[lobby] PvP over: room ${r.id} of ${r.p1} closed`);
+    }
+  }
+
   // ---- after the duel (ROOM_REOPEN)
   private roomReopen(c: Conn) {
     const s = this.sess(c);
