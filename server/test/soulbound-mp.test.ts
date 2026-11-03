@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
-import { boundOf, legalDeck } from "../src/game/starter.ts";
+import { boundOf, legalDeck, walletInfo } from "../src/game/starter.ts";
 import { shopCatalog } from "../src/game/shop.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
 import { be32, cat, harness, i32, u32, type Harness } from "./notes-harness.ts";
@@ -121,14 +121,14 @@ describe("bound-funded shop output", () => {
 
   it("cosmetics consume bound MP without tainting subsequent purchases paid entirely with earned MP", async () => {
     const { h, items, buy } = await setup();
-    const cosmetic = items.find((item) => item.kind === 2 && item.cost === 300)!;
+    const cosmetic = items.find((item) => item.kind === 2 && item.cost === 200)!;
     const single = items.find((item) => item.kind === 0)!;
     mutate(h, (p) => { p.rec.mp = 500; p.mp_wallet.bound = 150; });
     expect(await buy([cosmetic.iid, 1], [single.iid, 1])).toBe(0);
     const p = prof(h);
     expect(PP.pbinTest(p, cosmetic.prm)).toBe(true);
     expect(count(boundOf(p))).toBe(0);
-    expect(PP.mpBalances(p)).toEqual({ total: 100, bound: 0, earned: 100 });
+    expect(PP.mpBalances(p)).toEqual({ total: 200, bound: 0, earned: 200 });
   });
 
   it("does not bind older earned copies when the inventory cap discards a bound-funded copy", async () => {
@@ -164,6 +164,15 @@ describe("bound-funded shop output", () => {
     expect(prof(h)).toEqual(before);
   });
 
+  it("walletInfo returns the active character's split and safely persists a lazy legacy migration", async () => {
+    const { h } = await setup();
+    expect(walletInfo(h.game, "user-a")).toEqual({ total: 5000, bound: 5000, earned: 0 });
+    mutate(h, (p) => { delete p.mp_wallet; p.rec.mp = 1234; });
+    expect(walletInfo(h.game, "user-a")).toEqual({ total: 1234, bound: 0, earned: 1234 });
+    expect(prof(h).mp_wallet).toEqual({ version: 1, bound: 0 });
+    expect(walletInfo(h.game, "unknown")).toEqual({ error: "not-in-game" });
+  });
+
   it("admin balance reductions clamp bound MP before a later credit, even without an intervening wallet read", async () => {
     const { h } = await setup();
     const session = h.game.hub.sessions.get(h.game.store.accountOfUser("user-a")!)!;
@@ -171,6 +180,6 @@ describe("bound-funded shop output", () => {
       (h.game.ph as any).set_wallet({ mp: 100 });
       (h.game.ph as any).set_wallet({ mp: 1500 });
     });
-    expect(PP.mpBalances(prof(h))).toEqual({ total: 1500, bound: 100, earned: 1400 });
+    expect(walletInfo(h.game, "user-a")).toEqual({ total: 1500, bound: 100, earned: 1400 });
   });
 });

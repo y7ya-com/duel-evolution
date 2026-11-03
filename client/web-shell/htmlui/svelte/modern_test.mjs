@@ -53,21 +53,75 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(L.chatLine("[System] Welcome to the Beginner's Lobby A."), { notice: true, text: "[System] Welcome to the Beginner's Lobby A." });
   assert.deepEqual(L.chatLine('a line with no name'), { text: 'a line with no name' });
   assert.deepEqual(L.chatLine('Kaiba Fan: sure, room 3: now'), { name: 'Kaiba Fan', text: 'sure, room 3: now' });
-  const w = win('CChatWindow', [
-    ctl('Tab', { x: 207, label: 'TRADE' }), ctl('Tab', { x: 8, label: 'All Chat', active: true }),
-    ctl('Textlist', { items: ['old'], shown: false }), ctl('Textlist', { items: ['@0A:hi'] }),
-    ctl('Input', { value: '', maxLen: 128 }), ctl('IconExpand', {}), ctl('IconHide', { enabled: false }),
-  ]);
+  // tabs left to right with their logs: the reader's pairs (the Duel Log is made last, laid out second), else by order;
+  // the Duel Log left out, 'TRADE' as 'Trade'
+  const tabs = [ctl('Tab', { x: 207, label: 'TRADE' }), ctl('Tab', { x: 8, label: 'All Chat', active: true }), ctl('Tab', { x: 80, label: 'Duel Log' })];
+  const logs = [ctl('Textlist', { items: ['@0A:hi'] }), ctl('Textlist', { items: ['t'], shown: false }), ctl('Textlist', { items: ['d'], shown: false })];
+  const w = win('CChatWindow', [...tabs, ...logs, ctl('Input', { value: '', maxLen: 128 }), ctl('IconExpand', {}), ctl('IconHide', {})]);
+  w.mode = 1;
+  w.pairs = [[1, 0], [0, 1], [2, 2]].map(([t, l]) => ({ tab: tabs[t].id, log: logs[l].id, visible: true }));
   const p = L.chatParts(w);
-  assert.deepEqual(p.tabs.map(t => t.label), ['All Chat', 'TRADE']);
-  assert.deepEqual(p.log.items, ['@0A:hi'], 'the shown log, not the first');
-  assert.ok(p.input && p.taller && p.shorter);
-  assert.ok(p.open && p.typing, 'the lobby chat: its log and line drawn');
-  // the deck editor's chat, folded to its bar: its log parked, its line hidden: neither drawn (they hung below the
-  // editor, cut by the screen's edge)
+  assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active]), [['All', '@0A:hi', true], ['Trade', 't', false]]);
+  assert.ok(p.input && p.expand && p.shrink && p.typing);
+  // the deck editor's chat, folded to its bar (its log parked, its line hidden): collapsed, no line drawn
   const parked = L.chatParts(win('CChatWindow', [ctl('Iconbar', { w: 776, h: 24 }), ctl('Textlist', { y: 99999, h: -16, items: [] }),
     ctl('Input', { shown: false, w: 776, h: 32 })], { y: 712, w: 776, h: 32 }));
-  assert.ok(!parked.open && !parked.typing, 'a folded chat draws its bar only');
+  assert.ok(parked.mode === 2 && !parked.typing, 'a folded chat draws its bar only');
+  assert.equal(p.mode, 1);
+  delete w.mode; delete w.pairs; w.h = 32;
+  assert.equal(L.chatParts(w).mode, 2, 'no reader: the height says collapsed');
+  assert.deepEqual(L.chatParts(w).tabs.map(t => t.log.items[0]), ['@0A:hi', 'd'], 'no reader: logs in tab order');
+}
+
+// the chat only in the online world (owner): every online sign-in goes through My Room (10); Free mode goes from Select
+// Player (7) to the deck scene (0x24) or the Free Duel lobby (11); the title (4) ends either; not known: online
+{
+  const { onlineAfter } = await import('../read/chat.js');
+  const walk = scenes => scenes.reduce((o, s) => onlineAfter(o, s), null);
+  assert.equal(walk([]), null, 'not known yet');
+  assert.equal(walk([1, 4]), false, 'the title');
+  assert.equal(walk([1, 4, 6, 7, 10, 11, 0x24, 0x1c, 0x20, 11]), true, 'online: My Room, then the lobby, the deck editor, a duel');
+  assert.equal(walk([1, 4, 6, 7, 0x24]), false, "the title's Deck Editor");
+  assert.equal(walk([1, 4, 6, 7, 11, 0x1c, 0x20, 11]), false, 'Free Duel, its duels too');
+  assert.equal(walk([1, 4, 6, 7, 10, 11, 4, 6, 7, 11]), false, 'online, back to the title, then Free Duel');
+  assert.equal(walk([11]), null, 'a reader started mid-session knows nothing');
+  const w = win('CChatWindow', [ctl('Input', {})]);
+  assert.equal(L.chatParts(w).online, true, 'no reader: online');
+  w.online = false;
+  assert.equal(L.chatParts(w).online, false);
+  assert.equal(L.chatParts(w).world, true, 'no reader: a game scene');
+  w.world = false;
+  assert.equal(L.chatParts(w).world, false, 'the title / the sign-in');
+}
+
+// the engine's heights cycle 1 -> 0 -> 2 -> 1 (short, tall, collapsed): the presses from one to another
+{
+  const step = { expand: { 1: 0, 2: 1 }, shrink: { 0: 2 } };
+  for (const a of [0, 1, 2]) for (const b of [0, 1, 2]) {
+    const ks = L.sizeSteps(a, b);
+    assert.equal(ks.reduce((m, k) => step[k][m], a), b, `${a} -> ${b}`);
+    assert.ok(ks.length <= 2);
+  }
+}
+
+// the log as keyed rows: a new line adds a row, a dropped one removes one, a repeated line is still new; history has
+// no time; grouping by sender; a sender's ink is stable
+{
+  const a = L.logRows(null, ['@0A:hi', 'A:again'], 1);
+  assert.deepEqual([a.added, a.rows.map(r => r.t)], [0, [null, null]], 'the first read is history');
+  const b = L.logRows(a, ['A:again', 'B:gg', 'B:gg'], 5);
+  assert.equal(b.added, 2);
+  assert.equal(b.rows[0], a.rows[1], 'a kept line keeps its row');
+  assert.deepEqual(b.rows.map(r => [r.name, r.text, r.t]), [['A', 'again', null], ['B', 'gg', 5], ['B', 'gg', 5]]);
+  assert.equal(new Set(b.rows.map(r => r.key)).size, 3);
+  const c = L.logRows(b, ['A:again', 'B:gg', 'B:gg', 'B:gg'], 6);
+  assert.equal(c.added, 1, 'the same line again is a new line');
+  assert.equal(L.logRows(c, c.items.slice()).added, 0);
+  assert.equal(L.logRows(c, []).added, 0, 'a log emptied (a new duel): nothing new');
+  assert.deepEqual(L.grouped(c.rows).map(r => r.cont), [false, false, true, true]);
+  assert.deepEqual(L.grouped(L.logRows(null, ['[System] hi', 'A:x', '[System] y', 'A:z']).rows).map(r => r.cont), [false, false, false, false]);
+  assert.equal(L.senderInk('Duelist B'), L.senderInk('Duelist B'));
+  assert.notEqual(L.senderInk('Duelist B'), L.senderInk('raMon'));
 }
 
 // lists: a row's game point, rows from the list's top
@@ -137,12 +191,8 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(a.loose.map(x => x.text), ['Choose your look']);
 }
 
-// the chat's new lines; the deck check
+// the deck check
 {
-  assert.equal(L.newLines(undefined, ['a', 'b']), 2);
-  assert.equal(L.newLines(['a', 'b'], ['a', 'b', 'c']), 1);
-  assert.equal(L.newLines(['a', 'b', 'c'], ['b', 'c', 'd', 'e']), 2, 'a log that dropped its oldest line');
-  assert.equal(L.newLines(['a'], ['a']), 0);
   const d = L.deckCheck({ main: 40, side: 0, extra: 3, missing: 0 });
   assert.ok(d.ok);
   assert.deepEqual(L.deckCheck({ main: 38, side: 16, extra: 0, missing: 2 }).parts.filter(p => !p.ok).map(p => p.key), ['main', 'side', 'missing']);
@@ -216,6 +266,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(dl.plate, { x: 0, y: 0, w: 492, h: 452 }, 'a class named ...Frame is a frame');
   assert.deepEqual(dl.items.map(i => [i.kind, i.label]), [['button', 'Latest Duel Logs'], ['scroll', undefined]], 'the caption on its picture switch, once');
   assert.equal(dl.keep.length, 1, 'the engine keeps only the small arrow picture');
+  assert.equal(dl.band.title, 'Duel Log', 'no heading of its own, room above its tabs: its name as the plaque');
   // Duel Options: its frame reads 80 x 24 (the plate is the window), labels in 256 x 256 default boxes (no wells)
   const dc = L.generic(win('CWindowModelDuelConfig', [ctl('DuelConfigFrame', { x: 0, y: 0, w: 80, h: 24 }),
     ctl('ShadowText', { x: 0, y: 4, w: 492, h: 16, text: 'DUEL OPTIONS' }), ctl('ShadowText', { x: 38, y: 37, w: 256, h: 256, text: 'Auto Tracking' })], { w: 492, h: 452 }));
@@ -274,6 +325,10 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual(m.places.map(p => [p.name, p.here, p.cap]), [['Duelist Academy', '0', '1000'], ['Pier', '12', '32']]);
   assert.ok(m.close && !m.bar);
   assert.deepEqual(L.place('Duel Academy [15]  0/32'), { name: 'Duel Academy [15]', here: '0', cap: '32' });
+  // the game's placeholder while it asks the server: loading, no place
+  const c = L.moveWindow(win('CWindowModelMove', [b(24, 'Connecting to server...')]));
+  assert.deepEqual([c.loading, c.places.length], [true, 0]);
+  assert.equal(m.loading, false);
 }
 
 // an unlock announcement: its shown lines top to bottom (the empty kind line dropped), its OK picture and caption
@@ -377,6 +432,18 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.ok.label, d.cancel.label, d.help], ['OK', 'Cancel', undefined]);
 }
 
+// an in-duel prompt that waits for a click: the discard (its text nested under a Help control), a target; a duel
+// dialog with its own buttons stays the generic window
+{
+  const help = ctl('Help', { x: 8, y: 8, w: 0, h: 0 });
+  const dd = win('CUDiscardDialog', [ctl('FrameThin', { x: 0, y: 0, w: 314, h: 112 }), help, ctl('Text', { parent: help.id, x: 0, y: 0, w: 298, h: 96, text: 'Discard from your @2hand@0.' })], { x: 355, y: 328, w: 314, h: 112 });
+  const p = L.duelPrompt(dd);
+  assert.deepEqual([p.kind, p.line, p.zone], ['discard', 'Discard from your hand.', L.DUEL_ZONES.hand]);
+  assert.equal(L.duelPrompt(win('CULockOnDialog', [ctl('Text', { text: 'Select a target.' })])).kind, 'target');
+  assert.equal(L.duelPrompt(win('CUYesNoDialog', [ctl('Text', { text: 'Activate?' }), ctl('TextSwitch', { label: 'Yes' })])), null, 'its own buttons: a dialog');
+  assert.equal(L.duelPrompt(win('CWindowModelHelp', [ctl('Text', { text: 'x' })])), null, 'not a duel window');
+}
+
 // a duel request and its wait
 {
   assert.deepEqual(L.duelRequest('\nLv1 Duelist F\n[Beginner Duelist]\n\nYou have aDuel Request!\n Will you accept?'), { level: '1', name: 'Duelist F', title: 'Beginner Duelist' });
@@ -409,6 +476,35 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.deepEqual([d.about, d.duel], ['', ['Single Mode', 'Surrender ON', 'Time Limit ON', 'Watch On', 'Level Limit ON']]);
 }
 
+// a duel command menu: Summon / Set from its listbox's rows, each at its row's centre; it is no click-to-continue prompt
+{
+  const list = ctl('ListboxDuelCmd', { x: 8, y: 8, w: 142, h: 32, items: [], rows: 2 });
+  const k = (cls, o) => ctl(cls, { parent: list.id, ...o });
+  const w = win('CUSummonDialogSp', [ctl('FrameThin', { x: 0, y: 0, w: 158, h: 48 }), list, k('Text', { x: 0, y: 0, w: 126, h: 32, text: '' }),
+    k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'See Details', shown: false }), k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'Summon' }),
+    k('Text', { x: 24, y: 0, w: 240, h: 16, text: 'Set' }), k('ViewItemDuelCmd', { x: 0, y: 0 }), k('ViewItemDuelCmd', { x: 0, y: 16 })], { x: 569, y: 448, w: 158, h: 48 });
+  const m = L.duelCmd(w);
+  assert.deepEqual(m.options.map(o => [o.label, o.gp]), [['Summon', [648, 464]], ['Set', [648, 480]]]);
+  assert.equal(L.duelPrompt(w), null, 'a menu, not a banner');
+}
+
+// a duel's result card: the name, WIN / LOSE / SCORE with their figures (CTextElm extras, top to bottom), the banner
+{
+  const base = ctl('ResultBase', { parts: { sprites: [{ tex: 'data/result/result_dai_01_c01.png', shown: true }, { tex: 'data/result/result_loser_01_j.png', shown: true }] } });
+  const r = L.result(win('CWindowResult', [ctl('ShadowText', { x: 16, y: 99, w: 216, h: 576, text: 'Duel Tester\n\nWIN\n\nLOSE\n\nSCORE\n' }), base],
+    { extras: [{ cls: 'CTextElm', text: '@91', wy: 200, shown: true }, { cls: 'CTextElm', text: '@90', wy: 170, shown: true }, { cls: 'CTextElm', text: '@90', wy: 230, shown: true }] }));
+  assert.deepEqual(r, { name: 'Duel Tester', winner: false, stats: [{ label: 'WIN', value: '0' }, { label: 'LOSE', value: '1' }, { label: 'SCORE', value: '0' }] });
+  assert.ok(!L.GENERIC.includes('CWindowResult'), 'its own screen');
+}
+
+// Result numbers use named engine fields, independent of extra-text draw order.
+{
+  const r = L.result({ cls: 'CWindowResultNpc', resultName: 'TestLocal', resultStats: { wins: 5, losses: 2, draws: 0 } });
+  assert.deepEqual(r.stats.map(s => s.value), ['5', '2', '0']);
+  const normal = L.result({ cls: 'CWindowResult', controls: [], resultStats: { wins: 3, losses: 0, score: 125 } });
+  assert.deepEqual(normal.stats.map(s => s.value), ['3', '0', '125']);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
@@ -430,7 +526,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(mu.set(true), true);
   assert.deepEqual(mu.hide(titleSnap, false), [11, 12], 'modern hides the title movie\'s buttons');
   assert.equal(box.checked, false, 'Legacy UI off while modern');
-  assert.deepEqual(mu.hide(titleSnap, true), [], 'not through a scene load');
+  assert.deepEqual(mu.hide(titleSnap, true), [11, 12], 'modern keeps the native title hidden through scene loads');
   assert.equal(store.get('yo2.modernUI'), '1', 'remembered');
   assert.equal(modernUi({ canvas, query: q('') }).on(), true, 'remembered across loads');
   assert.equal(modernUi({ canvas, query: q('MODERN_UI=0') }).on(), false, '?MODERN_UI=0 wins for the page');
@@ -450,7 +546,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   mu.set(true);
   assert.equal(seen, true, 'listeners hear the switch');
 }
-// A dock quick action (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
+// A shared menu macro (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
 // however many browser frames that takes (at 120 Hz, or a slow frame, two browser frames were not enough: the menu
 // flashed at the bottom left). The game here closes it 6 frames after its button is pressed.
 {

@@ -38,9 +38,11 @@ function avatarShopItems(firstIid: number): Uint8Array[] {
     if (!(kind === 1 || kind === 2) || !(slot >= 1 && slot <= 9)) continue;
     if (dflt) continue;
     if ((slot === 2 || slot === 9) && val === 0x20) continue;
+    // Preserve old IDs so a stale native cart can never buy a different item after the boxed categories retire.
+    const itemId = iid++;
+    if ([1, 6, 7, 8].includes(slot)) continue;
     const cost = (AVATAR_PRICES[slot] ?? 500) * (PRESENT_TEXT_IDS.has(text) ? 3 : 1);
-    items.push(new W().u32(iid).u8(SHOP_AVATAR_TYPE).u32(idx).u32(cost).u8(0).u8(0).u8(0).u8(0).bytes());
-    iid++;
+    items.push(new W().u32(itemId).u8(SHOP_AVATAR_TYPE).u32(idx).u32(cost).u8(0).u8(0).u8(0).u8(0).bytes());
   }
   return items;
 }
@@ -82,7 +84,7 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
     const iid = u32at(data, i);
     cart.set(iid, (cart.get(iid) ?? 0) + data[i + 4]);
   }
-  const cat = shopCatalog(g);
+  const cat = new Map(shopCatalog(g).map((row) => [u32at(row, 0), row]));
   const st = g.loadState();
   const p = PP.profile(st, PP.activeSlot(st))!;
   const owned = new Set<number>(p.pbin ?? []);
@@ -90,8 +92,9 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
   const plan: Purchase[] = [];
   let total = 0, packs = 0;
   for (const [iid, num] of cart) {
-    if (!(iid > 0 && iid <= cat.length) || num === 0) { g.log(`[tienda] item ${iid} x${num} not valid: skipped`); continue; }
-    const it = cat[iid - 1], kind = it[4];
+    const it = cat.get(iid);
+    if (!it || num === 0) { g.log(`[tienda] item ${iid} x${num} not valid: skipped`); continue; }
+    const kind = it[4];
     const prm = u32at(it, 5), cost = u32at(it, 9);
     if (kind === 2) {
       if (!(String(prm) in AV_PBIN) || owned.has(prm)) continue;

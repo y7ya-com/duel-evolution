@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { cosmeticArtPath } from './cosmetic-preview.js';
+const suit = { kind: 'outfit', variants: [{ gender: 'male', number: 119 }, { gender: 'female', number: 116 }] };
+assert.equal(cosmeticArtPath(suit, 'male'), 'data/avatar/wu/wm_dc_03_c01_l.png');
+assert.equal(cosmeticArtPath(suit, 'female'), 'data/avatar/wu/ww_dc_03_c01_l.png');
+const marik = { kind: 'outfit', variants: [{ gender: 'male', number: 124 }, { gender: 'female', number: 119 }] };
+assert.equal(cosmeticArtPath(marik, 'male'), 'data/avatar/wu/wm_dc_98_c01_l.png');
+assert.equal(cosmeticArtPath(marik, 'female'), 'data/avatar/wu/ww_dc_98_c01_l.png');
+assert.equal(cosmeticArtPath({ kind: 'outfit', variants: [{ gender: 'male', number: 135 }] }, 'male'), 'data/avatar/wu/wm_ac_08_c01_l.png');
+assert.equal(cosmeticArtPath({ kind: 'outfit', variants: [{ gender: 'male', number: 135 }] }, 'female'), null, 'never invent art for a missing body variant');
+const afro = { kind: 'hair', variants: [{ gender: 'male', number: 12 }, { gender: 'female', number: 7 }] };
+assert.equal(cosmeticArtPath(afro, 'male'), 'data/avatar/wu/wm_h1_13_c01.png');
+assert.equal(cosmeticArtPath(afro, 'female'), 'data/avatar/wu/ww_h1_08_c01.png');
+console.log('cosmetic previews: actual native art mappings honor equivalent gender variants and missing art');

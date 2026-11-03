@@ -18,7 +18,8 @@ import Form from './modern/Form.svelte';
 import Mail from './modern/Mail.svelte';
 import Avatar from './modern/Avatar.svelte';
 import Generic from './modern/Generic.svelte';
-import { GENERIC, generic, options } from './modern/logic.js';
+import ResultCard from './modern/ResultCard.svelte';
+import { GENERIC, generic, options, duelPrompt } from './modern/logic.js';
 import DuelConfig from './modern/DuelConfig.svelte';
 import Move from './modern/Move.svelte';
 import ItemGet from './modern/ItemGet.svelte';
@@ -33,9 +34,12 @@ import DeckWindow from './modern/deck/DeckWindow.svelte';
 import DeckKaban from './modern/deck/DeckKaban.svelte';
 import DeckScene from './modern/deck/DeckScene.svelte';
 import Editor from './modern/deck/Editor.svelte';
+import CardInspector from './modern/CardInspector.svelte';
+import Pile from './modern/Pile.svelte';
 import { deck } from './deck/state.svelte.js';
 import { isArt, isSwf, inEditor } from './deck/art.js';
 import { quickInstall } from './deck/quick.js';
+import shopScreen from './modern/shop/screen.js';
 
 theme();
 
@@ -78,6 +82,7 @@ const deckScreen = {
 const deckEditor = {
   ...deckScreen,
   classes: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'],
+  viewKey: (win, snap) => snap.scene,
   get mode() { return inEditor() ? 'owned' : 'pass'; },
   passthrough: x => !inEditor() && deckScreen.passthrough(x),
   mount(win, root, api) {
@@ -107,10 +112,12 @@ const deckEditor = {
 // the window's backdrop (the plate stands in for it). parts: an unknown control's sprites place its hole
 const genericBase = screen(Object.fromEntries(GENERIC.map(c => [c, Generic])));
 const kept = new Map();   // window id -> what the engine keeps drawing in it (logic.js generic keep)
+// an in-duel prompt (logic.js duelPrompt): the engine draws nothing of it, the banner stands in
+const keep = win => new Set(duelPrompt(win) ? [] : generic(win).keep);
 const genericScreen = {
   ...genericBase, mode: 'pass', clip: false, parts: true,
-  mount(win, root, api) { kept.set(win.id, new Set(generic(win).keep)); return { ...genericBase.mount(win, root, api), id: win.id }; },
-  update(win, prev, root, api, st) { kept.set(win.id, new Set(generic(win).keep)); genericBase.update(win, prev, root, api, st); },
+  mount(win, root, api) { kept.set(win.id, keep(win)); return { ...genericBase.mount(win, root, api), id: win.id }; },
+  update(win, prev, root, api, st) { kept.set(win.id, keep(win)); genericBase.update(win, prev, root, api, st); },
   unmount(root, st) { kept.delete(st.id); genericBase.unmount(root, st); },
   // a part of a kept control isn't listed: the nearest listed ancestor (the kept control) decides (htmlui.c)
   passthrough: x => [...kept.values()].some(k => k.has(x.id)),
@@ -126,15 +133,40 @@ function optionsScreen() {
     passthrough: x => [...keep.values()].some(k => k.has(x.id)) };
 }
 
-const screens = [
+const chatScreen = screen({ CChatWindow: Chat }, { mode: 'owned', clip: false });
+const chatMount = chatScreen.mount;
+chatScreen.mount = (win, root, api) => {
+  const st = chatMount(win, root, api);
+  const fix = () => { if (root.style.pointerEvents !== 'none') root.style.pointerEvents = 'none'; };
+  st.mo = new MutationObserver(fix); st.mo.observe(root, { attributes: true, attributeFilter: ['style'] }); fix();
+  return st;
+};
+const chatUnmount = chatScreen.unmount;
+chatScreen.unmount = (root, st) => { st.mo?.disconnect(); chatUnmount(root, st); };
+const informationRoster = {
+  ...genericScreen, classes: ['CWindowModelInformation'],
+  viewKey: win => win.controls.some(c => c.name === '検索ボタン') && win.controls.some(c => /ActiveListbox$/.test(c.cls)),
+  mount(win, root, api) {
+    return this.viewKey(win) ? { roster: screen({ CWindowModelInformation: PlayerList }).mount(win, root, api) } : { other: genericScreen.mount(win, root, api) };
+  },
+  update(win, prev, root, api, st) {
+    if (st.other) return genericScreen.update(win, prev, root, api, st.other);
+    st.roster.view.win = win; st.roster.view.api = api; flushSync();
+  },
+  unmount(root, st) { if (st.other) genericScreen.unmount(root, st.other); else unmount(st.roster.app); },
+};
+const screens = [chatScreen, shopScreen,
+  screen({ CWindowDeckList: Pile }, { mode: 'owned', clip: false, parts: true, passthrough: () => false }),
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),
-  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CChatWindow: Chat, CPlayerListDlg: PlayerList,
+  screen({ CMainMenu: MainMenu, CWindowModelMenu: MenuBar, CPlayerListDlg: PlayerList,
     CWindowModelFriendlist: ListWindow, CWindowModelBlacklist: ListWindow, CWindowModelTeamlist: ListWindow,
     CWindowModelProfile: Profile, CWindowModelDialogYesNo: Dialog, CWindowModelInput1: Dialog, CWindowModelDialogError: Dialog, CWindowModelDialogOk: Toast, CWindowModelSetComment: Form, CWindowModelDMail: Mail, CWindowModelDMailSend: Mail, CWindowModelDuelConfig: DuelConfig, CWindowModelMove: Move, CWindowModelList: PickList, CFindMenu: FindMenu, CWindowModelDuel: DuelMenu, CWindowModelDuelFind: DuelConfig, CWindowModelDuelWait: DuelConfig }, { mode: 'owned', clip: false }),
   // character creation: pass mode, as svelte/avatar.js (the game takes the input; its character, a plain CElement, passes)
   screen({ CWindowDialogAvatarSwitch: Avatar }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CElement' }),
   screen({ CWindowModelPlace: Place }, { mode: 'pass', clip: false }),
+  // a duel's result, a card a player: the engine draws nothing of the window (its panel and banner are redrawn)
+  screen({ CWindowResult: ResultCard, CWindowResultNpc: ResultCard }, { mode: 'pass', clip: false, parts: true, passthrough: () => false }),
   // a duelist's card and an NPC's speech bubble: pass (the game keeps the mouse: a click anywhere goes on or closes);
   // the bubble's own button and a card's buttons take the pointer
   screen({ CNpcListMenu: NpcCard, CPlayerListMenu: NpcCard, CWindowModelBalloon: Balloon }, { mode: 'pass', clip: false }),
@@ -145,9 +177,24 @@ const screens = [
   // an unlock / item announcement: the engine keeps drawing its portrait card (sprite extras, plain elements)
   screen({ CWindowModelItemGet: ItemGet }, { mode: 'pass', clip: false, passthrough: x => x.cls === 'CSpriteElmOlder' || x.cls === 'CElement' }),
   genericScreen,
+  informationRoster,
   deckEditor,
+  {
+    ...deckEditor, classes: ['CCardDetailViewDlg'],
+    get mode() { return globalThis.yo2Html?.snapshot?.()?.scene === 28 ? 'owned' : deckEditor.mode; },
+    passthrough: x => globalThis.yo2Html?.snapshot?.()?.scene !== 28 && deckEditor.passthrough(x),
+    mount(win, root, api) {
+      if (globalThis.yo2Html?.snapshot?.()?.scene !== 28) return { original: deckEditor.mount(win, root, api) };
+      const view = new View(win, api), app = mount(CardInspector, { target: root, props: { view } }); flushSync();
+      const fix = () => { if (root.style.pointerEvents !== 'none') root.style.pointerEvents = 'none'; if (root.style.clipPath) root.style.clipPath = ''; };
+      const mo = new MutationObserver(fix); mo.observe(root, { attributes: true, attributeFilter: ['style'] }); fix();
+      return { view, app, mo };
+    },
+    update(win, prev, root, api, st) { if (st.original) return deckEditor.update(win, prev, root, api, st.original); st.view.win = win; st.view.api = api; flushSync(); },
+    unmount(root, st) { if (st.original) return deckEditor.unmount(root, st.original); st.mo.disconnect(); unmount(st.app); },
+  },
   { ...deckScreen, classes: ['CWindowModelFileList'], backdrop: undefined },
 ];
 // every modern window's root says its class (data-cls): the deck editor hides the scene's dialogs by it while it drives them
-for (const s of screens) { const m = s.mount; s.mount = function (win, root, api) { root.dataset.cls = win.cls; return m.call(this, win, root, api); }; }
+for (const s of screens) { s.rootInput = 'none'; const m = s.mount; s.mount = function (win, root, api) { root.dataset.cls = win.cls; root.dataset.modernOwned = s.mode === 'owned' ? '1' : '0'; return m.call(this, win, root, api); }; }
 export default { screens, classes: screens.flatMap(s => s.classes) };

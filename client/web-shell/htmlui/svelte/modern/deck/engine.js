@@ -29,18 +29,17 @@ function fire(type, [x, y]) {
 }
 let held = false;
 async function click(p) {
-  fire('mousemove', p); await frames(2);
-  fire('mousedown', p); await frames(2);
-  fire('mouseup', p); await frames(2);
+  fire('mousemove', p); await frames(1);
+  fire('mousedown', p); await frames(1);
+  fire('mouseup', p); await frames(1);
 }
 async function drag(from, to) {
-  fire('mousemove', from); await frames(2);
+  fire('mousemove', from); await frames(1);
   held = true;
-  fire('mousedown', from); await frames(2);
-  for (let i = 1; i <= 4; i++) { fire('mousemove', [from[0] + (to[0] - from[0]) * i / 4, from[1] + (to[1] - from[1]) * i / 4]); await frames(1); }
-  await frames(1);
+  fire('mousedown', from); await frames(1);
+  for (let i = 1; i <= 2; i++) { fire('mousemove', [from[0] + (to[0] - from[0]) * i / 2, from[1] + (to[1] - from[1]) * i / 2]); await frames(1); }
   held = false;
-  fire('mouseup', to); await frames(3);
+  fire('mouseup', to); await frames(1);
 }
 
 // the snapshot's pieces
@@ -89,7 +88,9 @@ export const add = (card, to) => queue(async () => {
   s = snap();
   const d = deckOf(s), n = total(d), [x, y] = at(row);
   await drag([x + 32, y + 28], target(d, to));
-  return !!(await waitFor(s2 => total(deckOf(s2) || d) !== n, 1500));
+  const ok = !!(await waitFor(s2 => total(deckOf(s2) || d) !== n, 1500));
+  await frames(1);   // the grids rebuild and the drag state clears before the next action presses
+  return ok;
 });
 
 // take card id out of section `from`, back to the trunk (to null) or into the other of Main / Side
@@ -102,7 +103,9 @@ export const move = (id, from, to = null) => queue(async () => {
   if (!c) return false;
   const before = JSON.stringify(d.counts), [x, y] = at(c);
   await drag([x + 25, y + 36], to ? target(d, to) : TRUNK);
-  return !!(await waitFor(s2 => JSON.stringify(deckOf(s2)?.counts) !== before, 1500));
+  const ok = !!(await waitFor(s2 => JSON.stringify(deckOf(s2)?.counts) !== before, 1500));
+  await frames(1);   // (as add)
+  return ok;
 });
 
 // ---- the side buttons (the scene's LoadBtn .. ExitBtn: CSwfEngine elements at (0, 40 + 27 i), read/deck.js scene)

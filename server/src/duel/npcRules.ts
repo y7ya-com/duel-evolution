@@ -6,8 +6,10 @@ import * as PP from "../game/persist.ts";
 import type { Game } from "../game/game.ts";
 import { nrChainBase, nrMidB3, nrThreshold, ORIGINALS } from "../game/npcs.ts";
 import { NPC_DECKS } from "./data.ts";
+import LD from "../../gamedata/lobby.json";
 
 type P = Record<string, any>; // a profile, py shape
+const NPC_OUTFIT_BITS = new Set(Object.entries(LD.avatar_pbin).filter(([, row]) => row[3] === 6).map(([bit]) => Number(bit)));
 
 /** py mundo/npc.py NPC_RULES_2008 */
 export const NPC_RULES_2008 = { no_record: true, card: true, friendship: true, famous_decks: true, npc_window: false };
@@ -61,7 +63,7 @@ function rewards(p: P, nid: number, oldB3: number, b3: number, result: string): 
   }
   // Reconcile previously earned cosmetics too: existing characters already past five wins missed these gifts.
   // PBIN ownership makes this idempotent, including NPCs sharing an outfit and queued-but-unclaimed gifts.
-  if (b3 >= nrMidB3(nid)) bits.push(...(MID_AVATAR_BITS[nid] ?? []));
+  if (b3 >= nrMidB3(nid)) bits.push(...(MID_AVATAR_BITS[nid] ?? []).filter((bit) => !NPC_OUTFIT_BITS.has(bit)));
   const base = nrChainBase(nid);
   const name = base !== null ? PP.FAMOUS_BASE[base] : undefined;
   if (oldB3 < nrThreshold(nid) && nrThreshold(nid) <= b3) {

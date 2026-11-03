@@ -8,12 +8,15 @@ import type { Env } from "./env.ts";
 import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
-import { starterClaim, starterInfo } from "./game/starter.ts";
+import { starterClaim, starterInfo, walletInfo } from "./game/starter.ts";
 import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
+import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel } from "./game/cosmetics.ts";
+import { shopView, shopPurchaseApi } from "./game/shop-api.ts";
+import { chatGet, chatSend } from "./game/chat.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -130,6 +133,48 @@ export class WorldDO extends DurableObject<Env> {
       return "error" in out ? Response.json(out, { status: 400 }) : Response.json(out.ok);
     }
     if (this.srv.game.restarting) return new Response("server restarting", { status: 503, headers: { "Retry-After": "10" } });
+    if (/^\/__de\/(cosmetics|shop|chat)(?:\/|$)/.test(url.pathname)) {
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const reads: Record<string, () => unknown> = {
+        "/__de/cosmetics": () => cosmeticInfo(this.srv.game, user),
+        "/__de/shop": () => shopView(this.srv.game, user),
+        "/__de/chat": () => chatGet(this.srv.game, user, Number(url.searchParams.get("after") ?? 0)),
+      };
+      const writes: Record<string, (body: unknown) => unknown> = {
+        "/__de/cosmetics/open": (b) => cosmeticOpen(this.srv.game, user, b),
+        "/__de/cosmetics/equip": (b) => cosmeticEquip(this.srv.game, user, b),
+        "/__de/cosmetics/appearance": (b) => cosmeticAppearance(this.srv.game, user, b),
+        "/__de/cosmetics/trade": (b) => cosmeticTrade(this.srv.game, user, b),
+        "/__de/cosmetics/trade/accept": (b) => cosmeticTradeAccept(this.srv.game, user, b),
+        "/__de/cosmetics/trade/cancel": (b) => cosmeticTradeCancel(this.srv.game, user, b),
+        "/__de/cosmetics/trade/decline": (b) => cosmeticTradeCancel(this.srv.game, user, b),
+        "/__de/shop/buy": (b) => shopPurchaseApi(this.srv.game, user, b),
+        "/__de/chat": (b) => chatSend(this.srv.game, user, b),
+      };
+      let body: unknown = null;
+      if (request.method === "POST") {
+        const raw = await request.text();
+        if (raw.length > 32768) return Response.json({ error: "request too large" }, { status: 413 });
+        try { body = JSON.parse(raw); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      }
+      const action = request.method === "GET" ? reads[url.pathname] : request.method === "POST" && writes[url.pathname]
+        ? () => writes[url.pathname](body) : null;
+      if (!action) return Response.json({ error: "method not allowed" }, { status: 405 });
+      try {
+        const result = await new Promise<any>((resolve, reject) => {
+          void this.srv.world.run(() => { try { resolve(action()); } catch (e) { reject(e); } });
+        });
+        // A successful money/item response is acknowledged only after write-through persistence.
+        if (!url.pathname.startsWith("/__de/chat")) await this.sink?.flush();
+        const failed = result && typeof result === "object" && "error" in result;
+        return Response.json(result && typeof result === "object" && "ok" in result ? result.ok : result,
+          { status: failed ? (result.status ?? 409) : 200, headers: { "Cache-Control": "no-store" } });
+      } catch (e) {
+        console.error(`[game API] ${url.pathname}: ${e}`);
+        return Response.json({ error: "temporarily-unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+      }
+    }
     if (url.pathname === "/__de/prefetch") {
       // the Worker forwards GET /api/de/prefetch/duel here with x-de-user (a checked session); 204 = nothing to prefetch
       const user = request.headers.get("x-de-user");
@@ -165,6 +210,16 @@ export class WorldDO extends DurableObject<Env> {
         const g = this.srv.game;
         try { res(claim ? starterClaim(g, user, Number(claim.id)) : [200, starterInfo(g, user)]); }
         catch (e) { console.error(`[starter] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/wallet") {
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+      const [status, out] = await new Promise<[number, ReturnType<typeof walletInfo>]>((res) => this.srv.world.run(() => {
+        try { const info = walletInfo(this.srv.game, user); res(["error" in info ? 409 : 200, info]); }
+        catch (e) { console.error(`[wallet] ${e}`); res([500, { error: "server error" }]); }
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }

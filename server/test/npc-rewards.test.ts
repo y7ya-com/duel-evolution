@@ -93,11 +93,11 @@ describe("NPC rewards: every possible gift maps to a real card or item", () => {
         duel(RESULT_LOSE, 25);
       }
       expect(bad).toEqual([]);
-      // the walk reached the prizes: Yugi's 5-win card, his friendship title, the girl/boy present clothes, a recipe
-      expect([`c${pc(365)}`, "b160", "b121", "b374", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
-      // every outfit variant of every famous NPC, boy and girl alike, whatever this player's gender
+      // The walk still reaches cards, friendship titles and recipes; costumes now belong to boxes.
+      expect([`c${pc(365)}`, "b160", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
+      // Named costumes moved to Outfit Boxes. Existing owned cosmetics are never removed.
       const outfits = Object.values(PP.PRESENT_CLOTHES).flat().filter((b) => b !== null).map((b) => `b${b}`);
-      expect(outfits.filter((k) => !given.has(k))).toEqual([]);
+      expect(outfits.filter((k) => given.has(k))).toEqual([]);
     });
   }
 });
@@ -122,23 +122,27 @@ describe("original NPC five-win cosmetics", () => {
 
   it.each(Object.entries(MID_AVATAR_BITS))("NPC %s grants its cosmetic once at five wins", (nid, bits) => {
     const g = harness().game, p = PP.blankProfile("cosmetics");
+    const eligible = bits.filter((bit) => ROWS[String(bit)][3] !== 6);
     for (let i = 0; i < 4; i++) lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
     expect(bits.some((bit) => PP.pbinTest(p, bit))).toBe(false);
     lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
-    expect(bits.every((bit) => PP.pbinTest(p, bit))).toBe(true);
+    expect(eligible.every((bit) => PP.pbinTest(p, bit))).toBe(true);
+    expect(bits.filter((bit) => !eligible.includes(bit)).some((bit) => PP.pbinTest(p, bit))).toBe(false);
     const [earned, cards] = itemget(PP.onItemget(g, p, 3, 0));
-    expect(bits.every((bit) => earned.includes(bit))).toBe(true);
+    expect(eligible.every((bit) => earned.includes(bit))).toBe(true);
     expect(cards.length).toBeGreaterThan(0);
     lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
     expect(itemget(PP.onItemget(g, p, 3, 0))[0]).toEqual([]);
   });
 
-  it("catches up an existing character's missed five-win gift without requiring another win", () => {
+  it("does not catch up retired outfit prizes and keeps already owned outfits", () => {
     const g = harness().game, p = PP.blankProfile("catchup");
     PP.npcbinSet(p, 21, [20, 0, 0, 21]);
     lobbyAfterDuelMsgs(g, p, 21, RESULT_LOSE);
-    expect(itemget(PP.onItemget(g, p, 3, 0))[0]).toContain(117);
+    expect(itemget(PP.onItemget(g, p, 3, 0))[0]).not.toContain(117);
+    PP.pbinSet(p, 117);
     lobbyAfterDuelMsgs(g, p, 21, RESULT_LOSE);
     expect(itemget(PP.onItemget(g, p, 3, 0))[0]).toEqual([]);
+    expect(PP.pbinTest(p, 117)).toBe(true);
   });
 });

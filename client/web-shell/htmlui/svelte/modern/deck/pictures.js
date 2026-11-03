@@ -63,11 +63,13 @@ let io = null;
 const seen = new WeakMap();
 export function picture(img, id) {
   const show = () => {
-    const u = cached(id);
+    io?.unobserve(img); seen.delete(img);
+    const requested = id;
+    const u = cached(requested);
     if (u) { img.src = u; return; }
     io ||= new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { io.unobserve(e.target); seen.get(e.target)?.(); } }), { rootMargin: '240px' });
-    seen.set(img, () => art(id).then(u => { if (u && seen.get(img)?.id === id) img.src = u; }));
-    seen.get(img).id = id;
+    seen.set(img, () => art(requested).then(u => { if (u && id === requested && seen.get(img)?.id === requested) img.src = u; }));
+    seen.get(img).id = requested;
     img.removeAttribute('src');
     io.observe(img);
   };

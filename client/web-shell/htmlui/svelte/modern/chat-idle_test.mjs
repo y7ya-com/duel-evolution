@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { chatPreview, CHAT_PREVIEW_LIFETIME } from './chat-idle.js';
+const entered = 1000;
+const history = [{ key: 'a', text: 'Welcome' }, { key: 'b', text: 'Hello' }];
+assert.equal(chatPreview(history, entered, entered).length, 2, 'existing conversation is briefly readable on arriving');
+assert.equal(chatPreview(history, entered + CHAT_PREVIEW_LIFETIME, entered).length, 0, 'idle history disappears');
+const live = { key: 'new', text: 'Ready to duel?', t: 14000 };
+assert.deepEqual(chatPreview([...history, live], 14000, entered).map(r => r.key), ['new'], 'new speech revives only new lines');
+assert.equal(chatPreview([live], 23000, entered)[0].opacity, .75, 'speech fades over its final four seconds');
+assert.equal(chatPreview([live], 26000, entered).length, 0);
+assert.equal(chatPreview([live], 13000, entered)[0].opacity, 1, 'a clock adjustment does not brighten past full opacity');
+assert.deepEqual(chatPreview(Array.from({ length: 8 }, (_, key) => ({ key, t: 14000 })), 14000, entered).map(r => r.key), [4, 5, 6, 7]);
+console.log('chat-idle_test: history arrival, live speech, fading and bounded preview pass');

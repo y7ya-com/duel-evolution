@@ -10,6 +10,7 @@ import LD from "../../gamedata/lobby.json";
 import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 import { freeTrunk, isFree } from "./freemode.ts";
+import { expandCosmeticBits } from "./cosmetics-catalog.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
@@ -153,6 +154,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   if (p !== null) {
     p.rec ??= {};
     progressionReset(p);
+    if (Array.isArray(p.pbin)) p.pbin = expandCosmeticBits(p.pbin);
   }
   return p;
 }
@@ -651,7 +653,9 @@ export const PRESENT_CLOTHES: Record<string, [number | null, number | null]> = {
   Tea: [null, 374], Alexis: [null, 390], "Yami Bakura": [84, 342] };
 /** The outfit prize of a famous NPC's chain: EVERY variant (boy and girl), whatever the player's gender (the owner's
  *  call; py gave only the player's own, so a girl got nothing from Yugi and a boy nothing from Téa). */
-export const presentClothes = (name: string): number[] => (PRESENT_CLOTHES[name] ?? []).filter((b): b is number => b !== null);
+// Named character costumes are future Outfit Box drops, not easy NPC-win prizes.
+// Keep the historical mapping for migration and existing ownership; never revoke already granted cosmetics.
+export const presentClothes = (_name: string): number[] => [];
 const TITLE_FRIEND_ALL = 159;
 const CHALLENGE_RIGHT: Record<number, number> = { 54: 592, 66: 593, 75: 594 };
 const CHALLENGE_MODE: string = "free";

@@ -8,11 +8,21 @@
   // own places. Pass mode: the engine keeps every input and its own focus, so this is paint only (no <button>s of its
   // own: the game's are what the pointer and keys reach). Pictures, Flash and unknown controls stay the engine's, cut
   // out of the plate.
-  import { generic, genericKeys, family } from './logic.js';
+  import { generic, genericKeys, family, duelPrompt, duelCmd } from './logic.js';
+  import DuelPrompt from './DuelPrompt.svelte';
+  import DuelCmd from './DuelCmd.svelte';
   import Icon from './Icon.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const g = $derived(generic(win));
+  // an in-duel prompt waiting for a click on the field or hand: the banner and the ring instead (DuelPrompt)
+  const prompt = $derived(duelPrompt(win));
+  // a duel command menu (Summon / Set ...): its options as buttons (DuelCmd)
+  const cmd = $derived(duelCmd(win));
+  let selectedCard = $state(globalThis.__yo2ModernCardSelection || 0);
+  $effect(() => { const select = e => { selectedCard = e.detail; }; addEventListener('yo2-card-actions', select); return () => removeEventListener('yo2-card-actions', select); });
+  // a duel window: compact and translucent, no scrim (owner: "too opaque and loud, it blocks the duel field")
+  const duel = $derived(/^CU/.test(win.cls));
   // everything drawn here with the engine's pictures cut out (evenodd: the window's box and a margin for the plate's
   // shadow, then each hole): nothing of the DOM ever covers what the engine still draws
   const cut = $derived.by(() => {
@@ -21,7 +31,8 @@
     return `path(evenodd, '${r(-m, -m, win.w + 2 * m, win.h + 2 * m)}${g.holes.map(h => r(h.x, h.y, h.w, h.h)).join('')}')`;
   });
   // a button a little inside its rect: the engine's often touch (the Duel Log's tabs)
-  const inset = c => c.w > 40 ? { x: c.x + 2, y: c.y + 1, w: c.w - 4, h: c.h - 2 } : c;
+  // and a short one (the engine's 24 px) a little taller, about its centre: the game's own click spot stays inside it
+  const inset = c => c.w > 40 ? (c.h < 28 ? { x: c.x + 2, y: c.y - 2, w: c.w - 4, h: c.h + 4 } : { x: c.x + 2, y: c.y + 1, w: c.w - 4, h: c.h - 2 }) : c;
   const at = c => `left: ${c.x}px; top: ${c.y}px; width: ${c.w}px; height: ${c.h}px;`;
   // the engine lays text out on its own line pitch (fontSize + lineGap): kept, so pageLines fit where it put them
   const px = c => Math.min(13.5, (c.fontSize || 16) * .82);
@@ -58,8 +69,15 @@
   const ICON = { Hide: 'close', Show: 'chevron', Expand: 'plus', Shrink: 'back' };
 </script>
 
-{#if win.modal}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
-<div class="mu" aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
+{#if prompt}
+<div class="mu"><DuelPrompt p={prompt} {win} /></div>
+{:else if cmd}
+{#if selectedCard && selectedCard === win.commandPointer}
+<div class="mu"><DuelCmd m={cmd} {win} api={view.api} /></div>
+{/if}
+{:else}
+{#if win.modal && !duel}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
+<div class="mu" class:duel aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
   {#if g.plate}
     <div class="mu-plate plate" style={at(g.plate)}>
       {#if g.band}<div class="mu-plaque band" style:height="{g.band.h - 5}px"><span>{g.band.title}</span></div>{/if}
@@ -101,13 +119,16 @@
     {/if}
   {/each}
 </div>
+{/if}
 
 <style>
   .mu > * { position: absolute; }
+  /* duel windows see-through, so the field stays in view */
+  .duel :global(.mu-plate::after) { background: linear-gradient(180deg,rgba(221,249,255,.96),rgba(152,220,248,.94)); }
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .22); pointer-events: none; }
   .plate { overflow: hidden; }
-  .band { position: absolute; left: 0; right: 0; top: 0; }
-  .well { border-radius: 6px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
+  .band { position: absolute; left: 0; right: 0; top: 0; min-height: 0; }
+  .well { border-radius: 2px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
   .text { color: var(--ink); white-space: pre-wrap; word-break: break-word; overflow: hidden; }
   .text.heading { font-weight: 700; color: var(--ink-strong); }
   .text.inwell { padding: 8px 12px; }
@@ -115,7 +136,7 @@
   .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gbtn.on { color: #fff; background: var(--sel); box-shadow: 0 0 0 1px var(--p700); }
   .check { display: flex; align-items: center; }
-  .box { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; background: #fff;
+  .box { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 2px; background: #effbff;
     box-shadow: inset 0 1px 2px rgba(11, 42, 92, .15), 0 0 0 1px var(--btn-edge); color: #fff; }
   .check.on .box { background: var(--sel); box-shadow: 0 0 0 1px var(--p700); }
   .box :global(.mu-ico) { transform: rotate(90deg); }

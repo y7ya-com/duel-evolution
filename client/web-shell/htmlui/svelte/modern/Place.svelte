@@ -1,40 +1,21 @@
-<script module>
-  // The place banner, modern (CWindowModelPlace, src/Game/yo2MenuPlace.cpp): a location chip, a line per row of its
-  // ShadowTexts (logic.js placeRows): the place's name and its "(here/capacity)" as a count.
-  import { placeRows } from './logic.js';
-</script>
-
 <script>
-  import Icon from './Icon.svelte';
+  import { placeRows } from './logic.js';
   let { view } = $props();
-  const f = $derived(view.win.controls.find(c => c.cls === 'CWindowTaskFramePlace'));
-  const lines = $derived(placeRows(view.win));
+  const win = $derived(view.win);
+  const lines = $derived(placeRows(win));
+  const room = $derived(lines.at(-1));
+  const detail = $derived(lines.map(l => `${l.name}${l.cap ? ` · ${l.here}/${l.cap}` : ''}`).join(' / '));
 </script>
-
-{#if f?.shown && lines.length}
-  <div class="mu">
-    <div class="mu-plate chip" style:left="{f.x + 8}px" style:top="{f.y + 8}px">
-      <Icon name="pin" size={20} class="pin" />
-      <div class="lines">
-        {#each lines as l, i (l.id)}
-          <div class="line" class:first={i === 0}>
-            <span class="name">{l.name}</span>
-            {#if l.cap}<span class="count" title="{l.here} here of {l.cap}"><Icon name="people" size={13} />{l.here}<i>/</i>{l.cap}</span>{/if}
-          </div>
-        {/each}
-      </div>
-    </div>
+{#if room}
+  <div class="mu place-root" style:left="{-win.x}px" style:top="{-win.y}px">
+    <div class="location" title={detail} aria-label={detail}><span>{room.name}</span>{#if room.cap}<span class="population" aria-label="{room.here} players here">{room.here} / {room.cap}</span>{/if}</div>
   </div>
 {/if}
-
 <style>
-  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 14px 7px 10px; border-radius: var(--r-plate) var(--r-plate) var(--r-plate) 6px; min-width: 190px; }
-  .chip :global(.pin) { color: var(--icon); }
-  .lines { display: grid; grid-template-columns: auto auto; column-gap: 14px; row-gap: 1px; align-items: baseline; }
-  .line { display: contents; }
-  .count { justify-self: end; }
-  .name { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-  .first .name { font-size: 14.5px; font-weight: 800; color: var(--ink-strong); }
-  .count { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 700; color: var(--azure-500); }
-  .count i { font-style: normal; opacity: .5; }
+
+  .place-root { width:1024px; height:768px; pointer-events:none; }
+  .location { pointer-events:none; position:absolute; right:12px; top:12px; height:27px; max-width:430px; display:flex; align-items:center; gap:10px; padding:0 9px; border:1px solid #b5d5e32e; border-radius:3px; font-size:13px; line-height:1; color:#edf7ff; background:#0a243c83; text-shadow:0 1px 2px #001524; }
+  .location > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:700; }
+  .population { flex:none; padding-left:10px; border-left:1px solid #a0dfff50; color:#d7eaf5; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
+
 </style>

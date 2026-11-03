@@ -10,6 +10,7 @@ import type { AuthEnv } from "./auth/env.ts";
 import { ipBucket, verifySession } from "./auth/auth.ts";
 import { gateUpgrade, originAllowed, safeGameQuery } from "./auth/binding.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
+import { cardRarityCatalog } from "./game/card-rarity.ts";
 
 export { WorldDO } from "./do.ts";
 
@@ -181,6 +182,31 @@ routes.post("/api/de/duel/challenge", async (c) => {
   const fwd = new Request(c.req.raw);
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/duel/challenge", fwd);
+});
+
+// Shared card classifications contain no account data and are independent of random box rarities.
+routes.get("/api/de/card-rarities", (c) => c.json(cardRarityCatalog(), 200, { "Cache-Control": "public, max-age=1800" }));
+
+// Game shop, wardrobe and chat are authenticated here; mutations additionally require our Origin.
+const gameFeature = async (c: Context<E>) => {
+  if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw); fwd.headers.set("x-de-user", v.userId);
+  const url = new URL(c.req.url);
+  return toWorld(c.env, c.req.raw, "/__de/" + url.pathname.slice("/api/de/".length) + url.search, fwd);
+};
+for (const feature of ["cosmetics", "shop", "chat"]) {
+  routes.on(["GET", "POST"], `/api/de/${feature}`, gameFeature);
+  routes.on(["GET", "POST"], `/api/de/${feature}/*`, gameFeature);
+}
+
+routes.get("/api/de/wallet", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/wallet", fwd);
 });
 
 // the player's own decks (game/decks.ts): GET the list; PUT a deck, PUT /current {name}, DELETE /<name> (same origin)

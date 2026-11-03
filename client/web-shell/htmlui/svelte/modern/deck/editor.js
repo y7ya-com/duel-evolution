@@ -99,3 +99,11 @@ export function blocked(c, to, { inDeck = 0, left = 0, counts = {} }) {
   if ((counts[to] || 0) >= max) return 'Section is full';
   return '';
 }
+
+// a trunk card's plate and look: the copies still available to add (the engine's trunk count: owned less every copy in
+// Main / Fusion / Side, soul-bound ones included: binding only stops a trade), counted down live as copies go in;
+// `out` when every owned copy is in the deck (shown greyed with ×0, not draggable or addable), `notown` with none at all
+export function trunkCard(left, inDeck) {
+  const n = Math.max(0, left | 0), used = Math.max(0, inDeck | 0);
+  return { n, owned: n + used, out: n === 0 && used > 0, notown: n === 0 && used === 0 };
+}

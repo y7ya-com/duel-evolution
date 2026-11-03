@@ -90,7 +90,7 @@ it("Aster develops fusion material while waiting, then chooses Phoenix Enforcer 
   expect(bot.choose(fusion)?.indicies).toEqual([1]);
 });
 
-it("repeatedly challenging a map NPC advances all three recipes and awards the completion outfit", () => {
+it("repeatedly challenging a map NPC advances all recipes and retains completion titles without granting boxed costumes", () => {
   const g = harness().game, p = PP.blankProfile("progression");
   expect(PP.FAMOUS_BASE[84]).toBe("Aster");
   const get = (id: number) => PP.npcbinGet(p, id);
@@ -100,7 +100,7 @@ it("repeatedly challenging a map NPC advances all three recipes and awards the c
     for (let win = 0; win < nrCompWins(stage); win++) lobbyAfterDuelMsgs(g, p, 84, RESULT_WIN);
     expect(get(stage)[0]).toBe(nrCompWins(stage));
   }
-  const outfits = PP.presentClothes(PP.FAMOUS_BASE[84]!);
-  expect(outfits.length).toBeGreaterThan(0);
-  expect(outfits.every((bit) => PP.pbinTest(p, bit))).toBe(true);
+  const name = PP.FAMOUS_BASE[84]!;
+  expect(PP.pbinTest(p, PP.TITLE_BITS[name][0])).toBe(true);
+  expect(PP.PRESENT_CLOTHES[name].filter((b) => b !== null).some((bit) => PP.pbinTest(p, bit!))).toBe(false);
 });

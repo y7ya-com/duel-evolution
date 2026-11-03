@@ -147,9 +147,9 @@ INTENTIONAL):
   an `[economia]` log line with the day's totals. Parity runs keep it off.
 - **Starting MP is soulbound.** New-character and progression-reset grants track their promotional balance in
   `p.mp_wallet`; `rec.mp` remains the native protocol's total. The shop spends bound MP first. Any pack, deck or
-  single-card unit paid partly with bound MP gives soulbound cards; earned-MP purchases stay tradeable. Cosmetics
-  consume either balance and remain account items. Cart rows are combined before allocation, and an unaffordable
-  cart changes neither balance nor inventory.
+  single-card unit paid partly with bound MP gives soulbound cards; earned-MP purchases stay tradeable. Ordinary
+  accessories consume either balance; cosmetic boxes consume earned MP only. Cart rows are combined before allocation, and an unaffordable
+  cart changes neither balance nor inventory. `GET /api/de/wallet` exposes total/bound/earned to the shop UI.
   Existing `mp_bound` balances migrate idempotently into the wallet, including archived characters.
   The ledger persists in D1 `state_extras` without a schema migration. Existing balances with no provenance ledger
   are grandfathered as unbound: daily economy totals cannot reliably separate earlier grants from earned savings.
@@ -185,9 +185,32 @@ INTENTIONAL):
   0x5205, and the client gets them with the next 0x3114. A prize with nothing left to show is no present (no 0x4237).
   `test/npc-rewards.test.ts` walks every NPC's prizes. No parity scenario reaches an NPC prize, so `parity/run.py`
   needs no mask.
-- **NPC outfit prizes ignore gender.** Completing a famous NPC's chain gives every outfit variant (both of a boy/girl
-  pair, or the only one), not just the player's own as py did. The client stores both, and the avatar editor lists
-  the other gender's after switching gender (`persist.ts` `presentClothes`, test/npc-rewards.test.ts).
+- **Cosmetics come from boxes and player trades.** Outfit, Duel Disk and Hair Boxes cost 1500, 1000 and 500 earned
+  MP. Starter MP cannot fund them. Outfits/disks have Common/Rare/Super/Ultra odds of 60/30/8/2%; hair uses
+  60/30/10/0%. A Super-or-better arrives within ten openings; outfits/disks guarantee an Ultra within twenty.
+  The UI discloses base and next-opening odds, including each item's probability. Server-side cryptographic rolls,
+  per-account pity, monotonic opening tokens and persisted receipts prevent rerolls or duplicate payment on retries.
+  The account wardrobe keeps its first unlock permanently; later copies can be traded through escrow with explicit
+  recipient acceptance. Native PBIN ownership migrates without manufacturing tradable copies. Design families use
+  verified native artwork identities, so all real body variants share ownership. New Outfit Box drops require both
+  male and female artwork; school uniforms and one-body costumes stay outside the paid pool. Yugi/Téa also stay
+  out: sharing an internal artwork index does not establish matching-body versions of the same named costume.
+  Existing owners keep their items. Native wear-location restrictions remain enforced: the shop discloses each
+  reward's supported world and the next opening's chance of a style wearable in the current world before payment.
+  NPC chains retain card, title, recipe and other non-outfit rewards; future outfit rewards are retired.
+- **The HTML shop uses authenticated game APIs.** `/api/de/shop` lists the native catalogue and buys through the
+  same validated purchase path, with persisted retry tokens. `/api/de/cosmetics` handles boxes, wardrobe, appearance
+  and duplicate trades. The Worker verifies the session and mutation Origin; the WorldDO serializes mutations and
+  waits for D1 before acknowledging purchases. Appearance edits update both server world looks and native client
+  caches. The menu provides Appearance and Cosmetic Boxes shortcuts in both UI modes.
+- **Chat is server-wide.** Global and Trade work in rooms and across lobby areas. Whisper and Team recipients are
+  enforced server-side, including ignores and account restrictions. Proximity chat is removed. The HTML chat uses
+  a bounded in-memory stream and adds short-lived public speech bubbles anchored to actual character name labels;
+  private channels never produce public bubbles. It does not persist or write chat polling to D1.
+- **Cards have a visible trading rarity.** `/api/de/card-rarities` supplies N/R/SR/UR design classifications seeded
+  from the owner's DuelForge catalogue, with explicit source/version metadata in `data/card-rarities.json`.
+  These labels are not historical printing grades and do not alter pack drop probabilities. Tokens and unknown
+  cards remain unclassified. Collection, deck, detail and trade views map native IDs and passcodes explicitly.
 
 ## Not ported
 

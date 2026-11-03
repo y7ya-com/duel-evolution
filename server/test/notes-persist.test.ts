@@ -150,17 +150,18 @@ describe("B06/B08/B09 NPC results, chains and prizes", () => {
     expect([PP.npcbinGet(p, 53), r1.present, r1.pkg, PP.pbinTest(p, prize["53"].mid_got)]).toEqual([[1, 0, 0, 2], 0, null, true]);
     expect(PP.takePresent(p)).toBe(0);
   });
-  it("B09: 3rd win (b3 = 4): コンプ (619) + Yugi friendship title (160) + clothes (121); ITEMGET(3) hands it over once", () => {
+  it("B09: completion gives the recipe and friendship title, while retired outfit prizes are not granted", () => {
     const g = game();
     const p = PP.profile({ players: { 0: "X" } }, 0)!;
     p.trunk = {};                                       // (a full trunk would also queue the collection titles)
     PP.onItemget(g, p, 4, 53);
     PP.npcDuelResult(g, p, 53, "win"); PP.npcDuelResult(g, p, 53, "win");
     const r3 = PP.npcDuelResult(g, p, 53, "win");
-    expect(r3.pkg.bits).toEqual([619, 160, 121]);
+    expect(r3.pkg.bits).toEqual([619, 160]);
     const rep = PP.onItemget(g, p, 3, 0);
-    expect([rep.length, ...rep.subarray(0, 4)]).toEqual([10, 0, 3, 2, 0x6b]);
-    expect([619, 160, 121].every((b) => PP.pbinTest(p, b))).toBe(true);
+    expect([rep.length, ...rep.subarray(0, 4)]).toEqual([8, 0, 2, 2, 0x6b]);
+    expect([619, 160].every((b) => PP.pbinTest(p, b))).toBe(true);
+    expect(PP.pbinTest(p, 121)).toBe(false);
     expect(p.pending.filter((x: any) => x.via === "npc")).toEqual([]);
     expect([...PP.onItemget(g, p, 3, 0)]).toEqual([0, 0, 0, 0]);
   });

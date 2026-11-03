@@ -61,32 +61,62 @@ export function chatLine(s) {
   const m = /^([^:：]{1,24})[:：]\s?(.*)$/s.exec(t);
   return m ? { name: m[1], text: m[2] } : { text: t };
 }
+// the chat's parts. tabs: left to right, each with its log (the reader's pairs, read/chat.js; without them, the logs in
+// tab order) and a short name ('All Chat' -> 'All', 'TRADE' -> 'Trade'). The Duel Log tab (ovr/duellog.c, the duel
+// screen) is left out (owner: no use to anyone).
+// mode: the engine's height (0 tall, 1 short, 2 collapsed), from the reader or else the window's height
 export function chatParts(win) {
-  const cs = win.controls;
+  const cs = win.controls, byId = new Map(cs.map(c => [c.id, c])), logs = cs.filter(c => c.cls === 'CWindowTaskTextlist');
+  const tabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x).map((t, i) => {
+    const pair = win.pairs?.find(p => p.tab === t.id), label = nice(untag(t.label).trim());
+    return { id: t.id, label, short: label.replace(/\s+chat$/i, ''), active: !!t.active, enabled: t.enabled !== false,
+      log: (pair ? byId.get(pair.log) : logs[i]) || null };
+  }).filter(t => !/^duel log$/i.test(t.label));
   return {
-    tabs: cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x),
-    // one log per tab, the active tab's shown
-    log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
+    tabs,
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
-    // the window folded to its bar (the deck editor's chat: 32 high, its log parked at 99999, no line): the log and the
-    // line are drawn only as the game shows them, never past the window's rect
-    open: cs.some(c => c.cls === 'CWindowTaskTextlist' && c.shown && c.h >= 0 && c.y < 9999),
+    // the line, drawn only as the game shows it (the deck editor's chat, folded to its bar, has none)
     typing: cs.some(c => /CWindowTaskInput$/.test(c.cls) && top(c) && c.shown),
-    taller: cs.find(c => c.cls === 'CWindowTaskIconExpand' && c.shown),
-    shorter: cs.find(c => c.cls === 'CWindowTaskIconHide' && c.shown),
+    expand: cs.find(c => c.cls === 'CWindowTaskIconExpand'),
+    shrink: cs.find(c => c.cls === 'CWindowTaskIconHide'),
+    mode: win.mode ?? (win.h > 200 ? 0 : win.h < 48 ? 2 : 1),
+    // in the online world (read/chat.js; not known: yes): out of it the chat shows nothing (owner)
+    online: win.online !== false,
+    world: win.world !== false,   // a game scene (not the title or the sign-in): only there is the engine's chat folded
   };
 }
 
-// the chat's logs by tab: the Textlists in the order the window made them, a tab each, left to right
-export const chatLogs = win => win.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-// new lines in a log since its last snapshot (old, now: its items): the items past the last line it had; a log that
-// dropped its oldest lines still counts only what was added
-export function newLines(old = [], now = []) {
-  if (!old.length) return now.length;
-  const last = old[old.length - 1];
-  for (let i = now.length - 1; i >= 0; i--) if (now[i] === last) return now.length - 1 - i;
-  return now.length;
+// the engine's △ / ▽ step its height 1 -> 0 -> 2 -> 1 (short, tall, collapsed; ▽ from tall skips short): the presses
+// that take it from one mode to another, two at most
+const STEPS = { '1>2': ['expand', 'shrink'], '1>0': ['expand'], '0>1': ['shrink', 'expand'], '0>2': ['shrink'], '2>1': ['expand'],
+  '2>0': ['expand', 'expand'] };
+export const sizeSteps = (from, to) => STEPS[`${from}>${to}`] || [];
+
+// a log's change since the last read: [rows dropped at the top, items appended], or null when the two don't overlap.
+// The whole overlap is compared, so a repeated line ("gg", "gg") is still a new one
+export function logDelta(old, now) {
+  for (let d = 0; d <= old.length; d++) {
+    const keep = old.length - d;
+    if (keep <= now.length && old.slice(d).every((s, i) => s === now[i])) return [d, now.slice(keep)];
+  }
+  return null;
 }
+// a log as rows with stable keys and the time each line arrived (null: it was there when first read, history), so a
+// new line only adds a row and a dropped one only removes one. prev: the last result (or null); added: new lines
+export function logRows(prev, items = [], t = Date.now()) {
+  const old = prev?.items;
+  if (old && old.length === items.length && old.every((s, i) => s === items[i])) return prev.added ? { ...prev, added: 0 } : prev;
+  let next = prev?.next || 0;
+  const row = (s, time) => ({ key: next++, ...chatLine(s), t: time });
+  const d = old && logDelta(old, items);
+  const rows = !old ? items.map(s => row(s, null)) : d ? [...prev.rows.slice(d[0]), ...d[1].map(s => row(s, t))] : items.map(s => row(s, t));
+  return { items, rows, next, added: !old ? 0 : d ? d[1].length : items.length };
+}
+// a sender's colour: one of eight inks (each 4.5:1 or better on the white log), the same for a name every time
+const INKS = ['#1d5bc0', '#0f7568', '#8238b0', '#b0401f', '#2d7319', '#ad2c66', '#5248c4', '#856000'];
+export const senderInk = name => INKS[[...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % INKS.length];
+// grouped rows: a line from the sender of the line above shows no name again
+export const grouped = rows => rows.map((r, i) => ({ ...r, cont: !!r.name && !rows[i - 1]?.notice && rows[i - 1]?.name === r.name }));
 
 // ---- the deck editor's check (the deck panel's CWindowTaskDeck counts, read/deck.js): Main 40-60, Fusion and Side up
 // to 15 each, no card the trunk doesn't hold (missing). ok: a legal deck
@@ -218,7 +248,7 @@ export function presence(rows) {
 // The windows it takes (svelte/modern/DESIGN.md "Coverage"; the inventory: every CWindowTaskModel subclass in
 // client/include/yo2): the generic ones, and htmlui-select's until their bespoke screens land. Not here: the bespoke
 // ones (svelte/modern.js), base classes, CDeckCardLoader (no controls), CWindowTaskCardArea (trade's drag: the
-// engine's), CWindowModelTitleConfig, and CWindowLogin (the 2008 ID / password form, which must never show).
+// engine's), and CWindowLogin (the 2008 ID / password form, which must never show).
 export const GENERIC = [
   // htmlui-select's, until theirs land
  'CFixedsentenceList',
@@ -232,12 +262,18 @@ export const GENERIC = [
   'CWindowModelListCardAttr', 'CWindowModelListCardForbi', 'CWindowModelListCardIcon', 'CWindowModelListCardPack',
   'CWindowModelListCardStar', 'CWindowModelListCardType', 'CWindowModelPictureButton', 'CWindowModelPresent', 'CWindowModelProgress',
   'CWindowModelReturnButton', 'CWindowModelThin', 'CWindowModelThinImg', 'CWindowModelTp', 'CWindowModelTrade', 'ParamWindow',
+  'CWindowModelTitleConfig',   // the Main Menu's Change Title (html-ui-pixel: it showed the old look)
   // the duel's
   'CUDiceDialog', 'CUDiscardDialog', 'CUGHelpManager', 'CULockOnDialog', 'CUOkDialog', 'CUPhaseSelectDialog', 'CUPhaseYesNoDialog',
   'CURitualDialog', 'CUSelectAttributeDialog', 'CUSelectCoinDialog', 'CUSelectDialog', 'CUSelectNumDialog', 'CUSelectStandDialog',
-  'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowDeckList', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
-  'CWindowResult', 'CWindowResultNext', 'CWindowResultNpc',
+  'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
+  'CWindowResultNext',   // CWindowResult: its own screen (ResultCard)
 ];
+
+// the plaque's name for a generic window with no heading of its own
+export const GENERIC_TITLES = { CWindowModelDuellogTop: 'Duel Log', CWindowModelDuellogList: 'Duel Log', CWindowModelDuellogSearch: 'Find Duel Logs',
+  CWindowModelTitleConfig: 'Change Title', CWindowModelHelp: 'Help', CHelpDialog: 'Help', CWindowModelItemGet: 'New!', CWindowModelTrade: 'Trade',
+  CWindowModelPresent: 'Present', CWindowModelTp: 'Trade Points' };
 
 // a control's family (CONTRACT.md's), by class; 'engine': the engine keeps drawing it (pictures, Flash, unknown)
 const FAMILIES = [
@@ -309,7 +345,10 @@ export function generic(win) {
   const plate = frames[0] && area(frames[0]) >= win.w * win.h * .5 ? { x: frames[0].x, y: frames[0].y, w: frames[0].w, h: frames[0].h }
     : frames[0] || backdrop.length ? { x: 0, y: 0, w: win.w, h: win.h } : null;
   const title = plate && top.find(c => /ShadowText$/.test(c.cls) && c.text?.trim() && c.y - plate.y < 30 && c.y >= plate.y - 4);
-  const band = title ? { h: Math.max(30, Math.min(44, title.y - plate.y + title.h + 7)), title: untag(title.text).trim(), c: title } : null;
+  // no heading of its own but room for one above its controls: its name as the plaque (the Duel Log's top window)
+  const named = !title && plate && GENERIC_TITLES[win.cls] && !top.some(c => family(c) !== 'frame' && has(c) && c.y < plate.y + 42 && c.y + c.h > plate.y);
+  const band = title ? { h: Math.max(30, Math.min(44, title.y - plate.y + title.h + 7)), title: untag(title.text).trim(), c: title }
+    : named ? { h: 41, title: GENERIC_TITLES[win.cls], c: null } : null;
   const items = [], holes = [], keep = [];
   for (const c of top) {
     const f = fam.get(c.id);
@@ -363,6 +402,57 @@ export function genericKeys(g) {
   const bs = g.items.filter(i => i.kind === 'button' && i.c.enabled !== false && i.c.state !== 'disabled').map(i => ({ ...i.c, label: i.label }));
   return { leave: leaveButton(bs) || null, primary: bs.find(primary) || null };
 }
+// ---- an in-duel prompt that only waits for a click on the field or the hand (owner: "my turn, couldn't end turn": the
+// End Phase discard, CUDiscardDialog "Discard from your hand.", was a small box easy to miss, and the generic window
+// drew it blank: its text is nested). A duel window (CU*) with words and no button of its own: { kind, title, say,
+// line, zone } or null. zone: where to click, in game px (the duel field's fixed layout: the hand along the bottom,
+// the two fields above it)
+export const DUEL_ZONES = { hand: { x: 264, y: 522, w: 522, h: 92 }, field: { x: 318, y: 60, w: 392, h: 466 } };
+export function duelPrompt(win) {
+  if (!/^CU/.test(win.cls) || duelCmd(win)) return null;
+  const shown = win.controls.filter(c => c.shown !== false);
+  if (shown.some(c => family(c) === 'button' && c.enabled !== false)) return null;
+  const line = shown.filter(c => family(c) === 'text').map(c => untag(c.text || '').trim()).filter(Boolean)[0] || '';
+  if (!line) return null;
+  if (win.cls === 'CUDiscardDialog' || /discard/i.test(line))
+    return { kind: 'discard', title: 'Too many cards', say: 'Your hand is over the limit of 6. Click a card in your hand to discard it.', line, zone: DUEL_ZONES.hand };
+  if (win.cls === 'CULockOnDialog' || /target|select|choose/i.test(line))
+    return { kind: 'target', title: 'Choose a card', say: 'Click a card on the field.', line, zone: DUEL_ZONES.field };
+  return { kind: 'wait', title: 'Your move', say: line, line: '', zone: null };
+}
+
+// ---- a duel command menu (CWindowModelListDuelCmd and its kin, CUSummonDialogSp: "Summon" / "Set", "Activate",
+// "Attack" ...; owner: "I can pick between set and normal summon, it's so buggy and weird"): its ListboxDuelCmd's rows,
+// each a shown Text child in row order with a ViewItemDuelCmd at y = 16 i. { list, options: [{ label, gp }] } or null;
+// gp: the row's centre in game px, where the engine takes the choice
+export function duelCmd(win) {
+  const list = win.controls.find(c => /ListboxDuelCmd$/.test(c.cls) && c.shown !== false);
+  if (!list) return null;
+  const kids = win.controls.filter(c => c.parent === list.id && c.shown !== false);
+  const labels = kids.filter(c => /CWindowTaskText$/.test(c.cls) && c.x > 0).map(c => untag(c.text || '').trim()).filter(Boolean);
+  const rows = kids.filter(c => /ViewItemDuelCmd$/.test(c.cls)).sort((a, b) => a.y - b.y);
+  const h = rows.length > 1 ? rows[1].y - rows[0].y : 16;
+  const options = labels.map((label, i) => ({ label, gp: [win.x + list.x + list.w / 2, win.y + list.y + (rows[i]?.y ?? i * h) + h / 2] }));
+  return options.length ? { list, options } : null;
+}
+
+// ---- a duel's result card (CWindowResult, one a player; owner: "the W-L record page thing at the end looks so bad"):
+// { name, winner, stats: [{ label, value }] }. The ShadowText's lines are the name, then the labels (WIN, LOSE, SCORE);
+// the figures are the window's CTextElm extras, top to bottom (a colour tag and the number: "@90"); winner from the
+// ResultBase's banner picture (result_winner_ / result_loser_), null when it isn't read
+export function result(win) {
+  if (win.cls === 'CWindowResultNpc' && win.resultStats) return {
+    name: win.resultName || '', winner: null,
+    stats: ['wins', 'losses', 'draws'].map(k => ({ label: k.toUpperCase(), value: String(win.resultStats[k]) })),
+  };
+  const head = win.controls.find(c => /ShadowText$/.test(c.cls) && !c.parent && c.text) || win.controls.find(c => /Text$/.test(c.cls) && c.text);
+  const lines = untag(head?.text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const values = (win.extras || []).filter(e => e.cls === 'CTextElm' && e.shown !== false).sort((a, b) => (a.wy ?? 0) - (b.wy ?? 0)).map(e => untag(e.text || '').trim());
+  const banner = win.controls.flatMap(c => c.parts?.sprites || []).find(s => /result_(winner|loser)/.test(s.tex || ''));
+  return { name: lines[0] || '', winner: banner ? /winner/.test(banner.tex) : null,
+    stats: win.resultStats ? ['WIN', 'LOSE', 'SCORE'].map((label, i) => ({ label, value: String(win.resultStats[['wins', 'losses', 'score'][i]]) })) : lines.slice(1).map((label, i) => ({ label, value: values[i] ?? '' })) };
+}
+
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out
 export const shownText = c => { const f = c.firstLine || 0; return untag(c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n'); };
 // a list's shown rows: [{ i, text, selected, marked }] from its top, as many as fit
@@ -406,10 +496,14 @@ export function duelConfig(win) {
 
 // ---- the Move window (CWindowModelMove, the bar's door: where to go): its place buttons top to bottom, each its name
 // and head count; the x; the scroll bar the game shows past six places (then only six buttons are shown at a time)
+// (loading: the game's own placeholder while it asks the server, one button "Connecting to server...": no place)
 export function moveWindow(win) {
   const cs = win.controls.filter(c => c.shown && top(c));
+  const places = cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) }));
+  const loading = places.length === 1 && !places[0].cap && /^connecting/i.test(places[0].name);
   return {
-    places: cs.filter(c => /ButtonDuel$/.test(c.cls) && c.label).sort((a, b) => a.y - b.y).map(c => ({ c, ...place(untag(c.label).trim()) })),
+    loading,
+    places: loading ? [] : places,
     close: cs.find(c => c.cls === 'CWindowTaskIconHide'),
     bar: cs.find(c => /Scroll$/.test(c.cls)),
   };

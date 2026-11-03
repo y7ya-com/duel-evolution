@@ -61,7 +61,7 @@
           <span class="who"><span class="nm">{n}</span>{#if st}<span class="where">{st.online ? st.place || 'Online' : 'Offline'}</span>{/if}</span></button>
           {#if friends}<button type="button" class="mu-icon-btn act" title="Mail {n}" aria-label="Mail {n}" onclick={mail}><Icon name="mail" size={15} /></button>{/if}</li>
       {:else}
-        <li class="empty">Nobody on this list yet.</li>
+        <li class="empty"><b>Nobody on this list yet.</b><span>{win.cls === 'CWindowModelFriendlist' ? 'Click a player in a lobby to add them as a friend.' : win.cls === 'CWindowModelBlacklist' ? 'Players you ignore show up here.' : 'Team members show up here.'}</span></li>
       {/each}
     </ul>
     <footer>
@@ -76,11 +76,11 @@
   .panel { left: 0; top: -8px; display: flex; flex-direction: column; padding-bottom: 12px; }
   .panel :global(.lead) { color: var(--gold-300); }
   .count { font-size: 12px; font-weight: 800; color: #fff; margin-right: 6px; text-shadow: 0 1px 0 rgba(0, 20, 60, .35); }
-  .list { list-style: none; margin: 10px 14px 0; padding: 4px; height: 128px; border-radius: 10px; display: grid; grid-template-columns: repeat(3, 1fr);
+  .list { list-style: none; margin: 10px 14px 0; padding: 4px; height: 128px; border-radius: 2px; display: grid; grid-template-columns: repeat(2, 1fr);
     align-content: start; gap: 4px; background: var(--well); box-shadow: var(--well-shadow); }
-  .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 8px; font-weight: 600;
+  .list button { display: flex; align-items: center; gap: 8px; width: 100%; height: 31px; padding: 0 8px; border-radius: 2px; font-weight: 600;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, box-shadow .12s; }
-  .list button:hover { background: var(--p50); }
+  .list button:hover { background: #c2edff; }
   .list button.on { color: #fff; background: var(--sel); box-shadow: inset 0 0 0 1px var(--p900); }
   .row { position: relative; display: flex; align-items: center; gap: 2px; }
   .row > button:first-child { flex: 1; min-width: 0; }
@@ -91,8 +91,11 @@
   .on .where { color: rgba(255, 255, 255, .85); }
   .dot { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--n500); box-shadow: 0 0 0 2px #fff; }
   .dot.live { background: #2fae55; }
-  .badge { position: relative; display: grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; font-size: 11px; font-weight: 750; color: #fff;
+  .badge { position: relative; display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 2px; font-size: 11px; font-weight: 750; color: #fff;
     background: var(--sel); }
-  .empty { grid-column: 1 / -1; padding: 10px; color: var(--ink-3); }
+  /* the empty state: centred in the list, what it is and how to fill it */
+  .empty { grid-column: 1 / -1; display: grid; place-content: center; gap: 4px; min-height: 64px; padding: 12px; text-align: center; color: var(--ink-3); }
+  .empty b { font-size: 13.5px; color: var(--ink-2); }
+  .empty span { font-size: 12px; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px 0; }
 </style>

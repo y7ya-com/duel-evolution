@@ -33,10 +33,16 @@ export function plan(win, editor = true) {
       const shadowText = ctl?.name === 'CWindowTaskShadowTextのテキスト' && ctl.color;
       const ink = shadowText ? ctl.color.slice(0, 3).reduce((v, x) => v << 8 | Math.round(x * 255), 0) : ctl?.name === 'Title' ? 0xffffff : null;
       const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.w, px: ctl.fontSize || 16, ink } : { align: 0 };
-      // a paged text field (the card detail's text: pageLines 9): the whole text, wrapped by words, in a native scroll box
-      if (ctl?.cls === 'CWindowTaskText' && ctl.pageLines > 1 && ctl.pageLines < 50 && box.w) {
-        const h = box.px * ctl.pageLines;
-        add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w, h }, { kind: 'flow', text: t.text, x: t.wx - ox, y: t.wy - oy, w: box.w, h, alpha: t.a ?? 1, px: box.px });
+      // a paged text field (the card detail's text): the whole text, wrapped by words, in a native scroll box, in the
+      // engine's own text rect (the control's place and size, never pageLines x the font: it lags a mode change and ran
+      // past the box in a duel), never into the stats strip below it (screens/deck.js plan, htmlui-deck 4ee02bd).
+      // In the card detail any text of its text field (the field less its scroll bar) goes there too
+      const field = ctl?.cls === 'CWindowTaskTextField' && win.cls === 'CCardDetailViewDlg';
+      if ((ctl?.cls === 'CWindowTaskText' || field) && (ctl.pageLines > 1 && ctl.pageLines < 50 || win.cls === 'CCardDetailViewDlg') && box.w) {
+        const x = ctl.wx ?? t.wx, y = ctl.wy ?? t.wy, w = field ? box.w - 16 : box.w;
+        const strip = Math.min(...(win.labels || []).filter(l => l.shown && l.text && l.wy > y).map(l => l.wy));
+        const h = Math.max(0, Math.min(y + (ctl.h || box.px * ctl.pageLines), strip) - y);
+        if (h && x < 9999) add(t.id, t.wz ?? 0, { x, y, w, h }, { kind: 'flow', text: t.text, x: x - ox, y: y - oy, w, h, alpha: t.a ?? 1, px: box.px });
         continue;
       }
       add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * t.text.split('\n').length },
