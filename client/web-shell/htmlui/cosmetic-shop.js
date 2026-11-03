@@ -4,7 +4,7 @@ import VT from './vtables.js';
 import { cosmeticArtPath } from './cosmetic-preview.js';
 import { CARD_RARITY_LABELS, rarityBadge } from './card-rarity.js';
 import { shopAssetBytes } from './shop-assets.js';
-import { art as cardArt } from './svelte/modern/deck/pictures.js';
+import { art as cardArt } from './card-pictures.js';
 import { getNativeAppearanceHeap } from './native-appearance.js';
 
 export const openCosmetics = (tab = 'boxes') => globalThis.dispatchEvent(new CustomEvent('yo2-cosmetics-open', { detail: { tab } }));
