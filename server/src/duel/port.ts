@@ -114,6 +114,23 @@ export class DuelPort {
     df.h_autoduelstart(rival, mode);
   }
 
+  /** Called inside World.run before any deployment socket closes. No player-supplied exemption flag. */
+  prepareRestart(): void {
+    // Retry cleanup after a partial failure while keeping gameplay latched off.
+    this.g.restarting = true;
+    this.g.pvp?.prepareRestart?.();
+    const conns = new Set(this.g.world.peerConns.values());
+    for (const session of this.g.hub.sessions.values()) {
+      for (const c of session.conns.values()) conns.add(c);
+      const df = this.duelState(session)?.df;
+      if (df) { df.sess.end = null; df.sess.ask = false; }
+    }
+    this.df.sess.end = null;
+    this.df.sess.ask = false;
+    for (const c of conns) { X(c).duelQ?.stop(); X(c).ocg?.abandon(); }
+    this.g.log("[deploy] unfinished duels voided before server restart");
+  }
+
   /** py on_conn_closed (around the hub/lobby part, which server.ts already does: base). */
   onConnClosed(c: Conn, why: string, base: () => void): void {
     const x = X(c);

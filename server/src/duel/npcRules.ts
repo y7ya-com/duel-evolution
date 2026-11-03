@@ -29,6 +29,16 @@ const MID_CARDS: Record<number, number[]> = {
 };
 for (const [nid, [, , card]] of Object.entries(ORIGINALS)) MID_CARDS[+nid] ??= [card];
 
+/** Documented original NPC five-win avatar prizes, alongside their card (not shop-only).
+ * Source: https://duelevolution.wordpress.com/2007/09/09/ (NPC Domino City).
+ * Item identities checked against the client's yo2text_e.bin/.idx and lobby.avatar_pbin:
+ * 7 Quiff Lv1; 10/261 Afro Lv1; 80/336 Sunglasses; 116/117 red/green tracksuit;
+ * 119/372 Black Suit; 369 Punk: Red. Award every existing gender variant, as famous outfits do. */
+export const MID_AVATAR_BITS: Record<number, number[]> = {
+  2: [10, 261], 3: [7], 4: [116], 5: [369], 6: [119, 372], 7: [80, 336],
+  8: [119, 372], 9: [80, 336], 21: [117], 27: [10, 261],
+};
+
 function newB3(old: number, result: string, nid: number): number {
   let pts = result === "win" ? WIN_PTS : result === "lose" ? LOSS_PTS : DRAW_PTS;
   if (COUNT_ALL_DUELS.has(nid)) pts = Math.max(pts, 1);
@@ -49,6 +59,9 @@ function rewards(p: P, nid: number, oldB3: number, b3: number, result: string): 
     if ("mid_got" in pb) bits.push(pb.mid_got);
     cards.push(...(MID_CARDS[nid] ?? []));
   }
+  // Reconcile previously earned cosmetics too: existing characters already past five wins missed these gifts.
+  // PBIN ownership makes this idempotent, including NPCs sharing an outfit and queued-but-unclaimed gifts.
+  if (b3 >= nrMidB3(nid)) bits.push(...(MID_AVATAR_BITS[nid] ?? []));
   const base = nrChainBase(nid);
   const name = base !== null ? PP.FAMOUS_BASE[base] : undefined;
   if (oldB3 < nrThreshold(nid) && nrThreshold(nid) <= b3) {
@@ -94,7 +107,10 @@ export function nrNpcDuelEnd(g: Game, base: (p: P, npc: number, result: string, 
   p: P, npc0: number, result: string, turns = 0, lpLeft = 0): Uint8Array {
   const f = NPC_RULES_2008;
   if (!(f.no_record || f.friendship)) return base(p, npc0, result, turns, lpLeft);
-  const npc = PP.int(npc0 || 0);
+  // Challenging the map's base character can play an advanced recipe. Credit that same stage, otherwise the
+  // base counter keeps growing forever and neither the third deck nor the chain-completion outfit is reachable.
+  const requested = PP.int(npc0 || 0);
+  const npc = f.famous_decks ? deckNpc(requested, (i) => PP.npcbinGet(p, i)) : requested;
   const valid = npc > 0 && npc < PP.NPCBIN_MAX;
   const recBefore = structuredClone(p.rec ?? {});
   const eBefore = valid ? PP.npcbinGet(p, npc) : [0, 0, 0, 0];

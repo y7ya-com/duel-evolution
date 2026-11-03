@@ -6,7 +6,7 @@ it("admin online counts live players; announce puts a server line in every lobby
   const h = harness();
   const cs: Client[] = [];
   for (const n of ["A", "B"]) { const c = h.client(n, `user${n}`); await c.account(0, n); await c.enterRoom(); cs.push(c); }
-  expect(h.game.admin.run("online", {})).toEqual({ online: 2 });
+  expect(h.game.admin.run("online", {})).toEqual({ online: 2, duels: 0 });
   const marks = cs.map((c) => c.room!.mark());
   expect(h.game.admin.run("announce", { text: "Server update in 2 min." })).toEqual({ sent: 2 });
   await h.tick(300);

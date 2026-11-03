@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The production deploy (DEPLOY.md): at most one per ~2 h, players warned first. A deploy restarts the WorldDO, which
-# drops every game connection; this warns them in the game, then closes their sockets with 4012 "server-update"
-# (the web client reconnects by itself), then deploys and checks.
+# drops every game connection; this warns players, voids unfinished duels and flushes saves,
+# closes sockets with 4012 "server-update", then deploys and checks.
 #   DEPLOY_TOKEN=... [DEPLOY_TEXT=...] scripts/deploy.sh [warning seconds, default 120]
 # DEPLOY_TOKEN is the Worker secret of the same name (wrangler secret put DEPLOY_TOKEN --env production).
 set -euo pipefail
@@ -31,7 +31,17 @@ if [ "${d:-0}" != 0 ]; then
   api announce '{"text":"Server update postponed: carry on."}' >/dev/null || true
   exit 3
 fi
-echo "closed with 4012: $(api shutdown || echo 'n/a')"
+# First retire live duels without recording a result. This must happen on the OLD WorldDO, before a code update
+# can evict it. Older servers without prepare-restart refuse the request: stop rather than silently award losses.
+if ! prepared=$(api prepare-restart); then
+  echo "Refusing deployment: live server could not prepare a restart without duel losses." >&2
+  exit 1
+fi
+python3 -c 'import json, sys; r=json.load(sys.stdin); sys.exit(0 if r.get("ready") is True and r.get("duelsVoided") is True else 1)' <<<"$prepared"
+echo "prepared: $prepared"
+closed=$(api shutdown)
+python3 -c 'import json, sys; r=json.load(sys.stdin); sys.exit(0 if r.get("duelsVoided") is True else 1)' <<<"$closed"
+echo "closed with 4012 (duels exempt): $closed"
 # DEPLOY_SECRETS_FILE (JSON or .env, kept outside the repo): secrets uploaded with this version, e.g. a new DEPLOY_TOKEN
 # the upload retried: the sockets are already closed and refused (a network blip once failed it: "fetch failed")
 for try in 1 2 3; do
@@ -39,12 +49,14 @@ for try in 1 2 3; do
   echo "wrangler deploy failed (try $try of 3)"; [ $try = 3 ] && { echo "$out"; exit 1; }; sleep 10
 done
 echo "$out" | grep -E "Uploaded|Current Version ID"
+# The old WorldDO can keep serving for minutes after the deploy. It is already quiescent and has no live duels;
+# wait until the new instance answers before reporting success.
 new=$(echo "$out" | sed -n 's/.*Current Version ID: *//p' | tr -d '[:space:]')   # not /__version: the edge may still answer the old one
 for i in $(seq 1 60); do
   v=$(api version 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("v", ""))' 2>/dev/null || true)
   [ "$v" = "$new" ] && { echo "WorldDO on $new after $((i * 10)) s"; break; }
   sleep 10
 done
-[ "$v" = "$new" ] || echo "WARNING: the WorldDO still answers ${v:-old code} after 10 min"
+[ "$v" = "$new" ] || { echo "FAIL: the WorldDO still answers ${v:-old code} after 10 min" >&2; exit 1; }
 scripts/post_deploy.sh
 scripts/prod_check.sh

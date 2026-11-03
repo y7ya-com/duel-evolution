@@ -11,6 +11,7 @@ import { importSql, stripRetired } from "../scripts/import_state.ts";
 import { adminSink, loadAdmin } from "../src/db/admin.ts";
 import { attach, D1Sink, loadState } from "../src/db/d1.ts";
 import { upgradeCards } from "../src/game/passcodes.ts";
+import CARDS from "../gamedata/cards.json";
 import { Store, type State } from "../src/game/store.ts";
 import { fullState, pyEraState, realStates, RETIRED_RX } from "./db-fixtures.ts";
 import * as schema from "../src/db/schema.ts";
@@ -88,11 +89,22 @@ describe("write-through sink", () => {
   }, 60_000);
 
   it("a pre-card-wire state: upgraded on load and written back (do.ts)", async () => {
-    const [, text] = realStates()[0];
-    await runSql(DB, importSql(json(stripRetired(JSON.parse(text)))));
+    // Deliberately synthetic legacy indices, independent of private player snapshots.
+    const [a, b] = CARDS.filter(c => c.pc > 10000 && c.pc !== c.i).slice(0, 2);
+    const legacy = { players: { "0": "Synthetic legacy" }, active_slot: 0, profiles: { "0": {
+      name: "Synthetic legacy", rec: { mp: 1800 }, pbin: [784, 785],
+      trunk: { [a.i]: 3, [b.i]: 2 },
+      decks: { last_duel: { main: [a.i, b.i, a.i], extra: [] } },
+    } } };
+    await runSql(DB, importSql(json(legacy)));
     const loaded = await loadState(DB);
     const st = structuredClone(loaded);
     expect(upgradeCards(st)?.profiles).toBeGreaterThan(0);
+    expect(st.profiles["0"].trunk).toEqual({ [a.pc]: 3, [b.pc]: 2 });
+    expect(st.profiles["0"].decks.last_duel.main).toEqual([a.pc, b.pc, a.pc]);
+    expect(st.profiles["0"].rec.mp).toBe(1800);
+    expect(st.profiles["0"].pbin).toEqual([784, 785]);
+    expect(upgradeCards(st)).toBeNull();
     const store = new Store(st);
     const sink = attach(store, DB, { baseline: loaded, log: () => {} });
     sink.save(store.loadRaw());

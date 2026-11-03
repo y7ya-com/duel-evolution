@@ -5,8 +5,14 @@ import SD from "../../gamedata/shop.json";
 import LD from "../../gamedata/lobby.json";
 import type { Game } from "./game.ts";
 import * as PP from "./persist.ts";
+import { boundOf } from "./starter.ts";
 
-const PACKS = SD.packs as [number, number, number | null][];
+// packinfo_s stopped at 45, but the shipped client and card pools also include 46–48.
+// Append these rather than renumbering existing shop items (carts use catalogue indices).
+const PACKS = [...SD.packs] as [number, number, number | null][];
+for (const pid of [46, 47, 48]) {
+  if (!PACKS.some(([id]) => id === pid) && SD.iid[String(pid) as keyof typeof SD.iid]?.length) PACKS.push([pid, 0, null]);
+}
 const IID = SD.iid as Record<string, number[]>;
 const YDC = SD.ydc as Record<string, number[]>;
 /** the single cards the shop sells: the first 40 of the 2008 card list, by passcode, then gamedata's `single` (the cards
@@ -71,13 +77,17 @@ const u32at = (b: Uint8Array, i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (
 /** py shop_buy: 0x5210, a cart of (u32 item, u8 count); all or nothing. */
 export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
   const fail = (why: string) => { g.log(`[tienda] purchase refused: ${why}`); c.send(0x5212, new W().u32(1).bytes()); c.send(0x5211, new W().u32(1).bytes()); };
-  const cart: [number, number][] = [];
-  for (let i = 0; i + 5 <= data.length - (data.length % 5); i += 5) cart.push([u32at(data, i), data[i + 4]]);
+  const cart = new Map<number, number>();
+  for (let i = 0; i + 5 <= data.length - (data.length % 5); i += 5) {
+    const iid = u32at(data, i);
+    cart.set(iid, (cart.get(iid) ?? 0) + data[i + 4]);
+  }
   const cat = shopCatalog(g);
   const st = g.loadState();
   const p = PP.profile(st, PP.activeSlot(st))!;
   const owned = new Set<number>(p.pbin ?? []);
-  const plan: [number, number, number, [number, number][] | null][] = [];
+  type Purchase = { iid: number; kind: number; prm: number; cost: number; units: [number, number][][] };
+  const plan: Purchase[] = [];
   let total = 0, packs = 0;
   for (const [iid, num] of cart) {
     if (!(iid > 0 && iid <= cat.length) || num === 0) { g.log(`[tienda] item ${iid} x${num} not valid: skipped`); continue; }
@@ -85,41 +95,62 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
     const prm = u32at(it, 5), cost = u32at(it, 9);
     if (kind === 2) {
       if (!(String(prm) in AV_PBIN) || owned.has(prm)) continue;
-      owned.add(prm); plan.push([iid, 2, prm, null]); total += cost;
+      owned.add(prm); plan.push({ iid, kind: 2, prm, cost, units: [] }); total += cost;
       continue;
     }
-    const cards = shopPurchase(g, kind, prm, num);
-    if (!cards.length) continue;
-    plan.push([iid, kind, prm, cards]); total += cost * num;
-    if (kind === 1) packs += num;
+    const units = Array.from({ length: num }, () => shopPurchase(g, kind, prm, 1)).filter((cards) => cards.length);
+    if (!units.length) continue;
+    plan.push({ iid, kind, prm, cost, units }); total += cost * units.length;
+    if (kind === 1) packs += units.length;
   }
   const mp = plan.length ? p.rec.mp : 0;
-  const bought = plan.filter(([, kind]) => kind !== 2).flatMap(([, , , cards]) => cards!);
+  const bought = plan.flatMap(({ units }) => units.flat());
   const have = p.trunk ?? {};
   const seen = new Set<number>(), newFlags: number[] = [];
   for (const [, cid] of bought) { newFlags.push(PP.int((have[String(cid)] ?? 0) || 0) === 0 && !seen.has(cid) ? 1 : 0); seen.add(cid); }
   let recipes: number[] = [];
   if (SHOP_DECK_RECIPE) {
     const deckBits = new Map(PACKS.filter(([, k, bit]) => k === 1 && bit !== null).map(([pid, , bit]) => [pid, bit!]));
-    recipes = [...new Set(plan.filter(([, kind, prm]) => kind === 1 && deckBits.has(prm)).map(([, , prm]) => deckBits.get(prm)! + 1))].sort((a, b) => a - b);
+    recipes = [...new Set(plan.filter(({ kind, prm }) => kind === 1 && deckBits.has(prm)).map(({ prm }) => deckBits.get(prm)! + 1))].sort((a, b) => a - b);
   }
   if (!plan.length) return fail("empty cart");
-  if (mp < total) return fail(`balance ${mp} < total ${total}`);
-  const bound0 = PP.mpBound(p), fromBound = Math.min(bound0, total);   // soul-bound MP first (PP.grantStartMp)
-  p.rec.mp = mp - total;
-  p.mp_bound = bound0 - fromBound;
+  if (!Number.isSafeInteger(total) || mp < total) return fail(`balance ${mp} < total ${total}`);
+  // Promotional money is spent first per ITEM, never per card. A partly bound-funded pack/deck binds all of its
+  // contents. Split/duplicate cart rows cannot turn a fraction of free currency into tradeable card output.
+  let boundLeft = PP.progression() ? PP.mpBalances(p).bound : 0;
+  const bind: number[] = [], added = new Map<number, number>();
+  for (const { kind, cost, units } of plan) {
+    if (kind === 2) { boundLeft -= Math.min(boundLeft, cost); continue; }
+    for (const cards of units) {
+      const boundPaid = Math.min(boundLeft, cost);
+      boundLeft -= boundPaid;
+      for (const [, cid] of cards) {
+        const prior = PP.int(have[String(cid)] ?? 0) + (added.get(cid) ?? 0);
+        if (prior < 0xff) {
+          added.set(cid, (added.get(cid) ?? 0) + 1);
+          if (boundPaid > 0) bind.push(cid);
+        }
+      }
+    }
+  }
+  if (PP.progression()) {
+    if (PP.spendMp(p, total) === null) return fail("invalid balance");
+  } else p.rec.mp = mp - total;
+  if (bind.length) boundOf(p); // migrate an older free starter BEFORE adding/binding purchased copies
   PP.mpSpent(g, p, total, packs);
   PP.onShopPurchase(g, p, bought);
-  // paid wholly or partly with soul-bound MP: the whole purchase is soul-bound (no trading the grant's cards away)
-  if (fromBound > 0 && bought.length) { PP.bindCards(p, bought.map(([, cid]) => cid)); g.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${bought.length} cards soul-bound (${fromBound} of ${total} MP from the starting grant)`); }
-  for (const [, kind, prm] of plan) if (kind === 2) PP.pbinSet(p, prm);
+  if (bind.length) {
+    PP.bindCards(p, bind);
+    g.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${bind.length} purchased copies soul-bound (starting MP)`);
+  }
+  for (const { kind, prm } of plan) if (kind === 2) PP.pbinSet(p, prm);
   for (const bit of recipes) PP.pbinSet(p, bit);
   g.saveState(st);
   const entries: [number, number, number, number][] = [];
   let nf = 0;
-  for (const [iid, kind, prm, cards] of plan) {
+  for (const { iid, kind, prm, units } of plan) {
     if (kind === 2) entries.push([iid, 2, prm, 1]);
-    else for (const [k, card] of cards!) entries.push([iid, k, card, nf < newFlags.length ? newFlags[nf++] : 1]);
+    else for (const [k, card] of units.flat()) entries.push([iid, k, card, nf < newFlags.length ? newFlags[nf++] : 1]);
   }
   for (let i = 0; i < entries.length; i += SHOP_ENTRIES_PER_MSG) {
     const w = new W().u32(0);

@@ -1,15 +1,15 @@
 // Combo plans: the multi-turn planning layer the greedy heuristic lacks. A greedy player cannot pilot a combo deck: it
 // chumps away the pieces and spends the assembler before the payoff lines up. A ComboPlan declares the payoff and its
-// pieces; while the combo can still be assembled the player (1) HOLDS the pieces instead of summoning them, (2) DUMPS
+// pieces; while the combo can still be assembled the player (1) PROTECTS the pieces when discarding, (2) DUMPS
 // the grave-enabler when something asks it to discard, (3) picks the goal fusion when the assembler resolves and
 // (4) holds the deck's after-payoff cards until the payoff is out. Everything is by lowercase card name (cards.cdb).
 //
 // One entry per NPC (this game's NPC ids) whose deck has a real assembled payoff; NPCs without an entry play the plain
-// heuristic. Empty for now: to be tuned per deck.
+// heuristic. The official fusion-focused character decks below reserve their material and choose their payoff.
 export interface ComboPlan {
   /** The Extra Deck fusion the plan assembles. */
   fusion: string;
-  /** Monster pieces to gather and HOLD in hand for the fusion. */
+  /** Monster pieces to gather and protect from discards (fusion can use them from hand or field). */
   pieces: string[];
   /** How many pieces (hand + field) the fusion needs. */
   need: number;
@@ -23,4 +23,9 @@ export interface ComboPlan {
   afterPayoff?: string[];
 }
 
-export const COMBO_PLANS: Record<number, ComboPlan> = {};
+export const COMBO_PLANS: Record<number, ComboPlan> = {
+  52: { fusion: "dark paladin", pieces: ["dark magician", "buster blader", "king of the swamp"], need: 2, assembler: "polymerization" },
+  66: { fusion: "cyber blader", pieces: ["blade skater", "etoile cyber", "the earth - hex-sealed fusion"], need: 2, assembler: "polymerization" },
+  67: { fusion: "cyber blader", pieces: ["blade skater", "etoile cyber", "the earth - hex-sealed fusion"], need: 2, assembler: "polymerization" },
+  84: { fusion: "elemental hero phoenix enforcer", pieces: ["elemental hero avian", "elemental hero burstinatrix", "king of the swamp"], need: 2, assembler: "polymerization" },
+};

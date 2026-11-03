@@ -61,11 +61,9 @@ function wire(g: Game): Game {
     if (rival === null) {
       try {
         const st = g.loadState();
-        const a = PP.profile(st, PP.activeSlot(st))!.avatar ?? {};
-        const h = a[w === 1 ? "b" : "a"] || a.a;
-        if (h) { const b = new Uint8Array(16); b.set(Buffer.from(h, "hex").subarray(0, 16)); return b; }
+        return PP.avatarParts(PP.profile(st, PP.activeSlot(st))!, w);
       } catch { /* py: default */ }
-      return new Uint8Array(Buffer.from("0000203040608090b820000000000000", "hex"));
+      return new Uint8Array(Buffer.from(w === 1 ? "0000203040608090b820000000000000" : "0000203040607090b020000000000000", "hex"));
     }
     if (!(rival >= 51 && rival <= 94)) return avNpcParts(rival, g.npcSex.get(rival) ?? null, w);
     return new Uint8Array(16);
@@ -91,6 +89,7 @@ export function buildServer(cfg: Config, initial: State | null, log: (s: string)
     ...duel,
     handlerFor(port) {
       const g = srv.game;
+      if (g.restarting) return () => {};
       const svc = PORTS.get(port);
       if (svc === "gate") return (c, id) => { g.enter(c); gateReply(g, c, id); };
       if (svc === "accounts") return (c, id, p, d) => { g.enter(c); gameReply(g, c, id, p, d); };

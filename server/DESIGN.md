@@ -47,10 +47,9 @@ D1 (drizzle): accounts, characters, cards, decks, …  ◀── WorldDO and Mat
   Node. *Changed from the first draft*: no MatchDO per duel. One shared engine needs less memory than one wasm
   instance and one script pack per Durable Object. We can split duels out later if one DO's CPU ever becomes the
   bottleneck.
-- **The NPC AI** (`src/duel/ai`) is Duel Evolution's own NPC player and the code's default one (the deployed Workers
-  still set `NPC_AI=py` in wrangler.jsonc until the owner switches): a heuristic player with
-  per-card rules (generic staples, rules from the card-text tags, an empty per-NPC map for tuning). It has three tiers
-  by the NPC's level in `npc_profiles.json` (1-3 easy, with occasional random lines; 4-6 hard; 7-9 elite), which
+- **The NPC AI** (`src/duel/ai`) is Duel Evolution's own NPC player and the deployed default (`NPC_AI=ai`): a heuristic player with
+  per-card rules (generic staples, rules from the card-text tags, per-NPC plans for the fusion and Destiny HERO decks). It has three tiers
+  by the NPC's level in `npc_profiles.json` (1-3 easy, with occasional main-phase random lines; 4-6 hard; 7-9 elite), which
   `TIER_BY_NPC` can override. The elite tier adds lookahead: it forks the duel (a new duel in the same `DuelCore` with
   the same seed, replaying the recorded commands) and scores each candidate line with a short rollout, within a CPU
   budget per decision. Play is honest by default: the AI uses only the select's `view`, and the elite's rollouts stop
@@ -146,6 +145,14 @@ INTENTIONAL):
   win 250 / loss 100, +300 for the day's first win, nothing for a PvP duel under 3 turns and 2 minutes, at most 5
   rewarded duels a day against the same account, and 25% after 40 rewarded duels a day. Each reward and purchase is
   an `[economia]` log line with the day's totals. Parity runs keep it off.
+- **Starting MP is soulbound.** New-character and progression-reset grants track their promotional balance in
+  `p.mp_wallet`; `rec.mp` remains the native protocol's total. The shop spends bound MP first. Any pack, deck or
+  single-card unit paid partly with bound MP gives soulbound cards; earned-MP purchases stay tradeable. Cosmetics
+  consume either balance and remain account items. Cart rows are combined before allocation, and an unaffordable
+  cart changes neither balance nor inventory.
+  Existing `mp_bound` balances migrate idempotently into the wallet, including archived characters.
+  The ledger persists in D1 `state_extras` without a schema migration. Existing balances with no provenance ledger
+  are grandfathered as unbound: daily economy totals cannot reliably separate earlier grants from earned savings.
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with

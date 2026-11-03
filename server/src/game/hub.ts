@@ -6,6 +6,7 @@ import { accountId, legacyId } from "../util/cifrado.ts";
 import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
 import { modeAgrees } from "./freemode.ts";
+import { avatarParts, profile } from "./persist.ts";
 import { entryKind } from "./gate.ts";
 
 export const PID_BASE = 1000;
@@ -218,6 +219,13 @@ export class Hub {
     s.name = name || "Duelista";
     s.lang = lang;
     s.lobby = c;
+    // Restore both looks on reconnect/character selection; never retain the previous character's cache.
+    this.g.withCtx(s, () => {
+      const p = profile(this.g.loadState(), s.slot!, false) ?? {};
+      s.partsW.clear();
+      for (const world of [0, 1]) s.partsW.set(world, avatarParts(p, world));
+      s.parts = s.partsW.get(s.world ?? 1)!;
+    });
     return s;
   }
 

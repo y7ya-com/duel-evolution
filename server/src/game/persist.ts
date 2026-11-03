@@ -144,7 +144,10 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     // delete-and-remake isn't an MP mint: past the account's first FREE_STARTS characters (live + archived; the archive
     // keeps the last 10, so the count never drops back) a new one starts with no MP. It keeps its starter claim: a
     // character must always be able to get cards (owner, 2026-10-29: else it is stuck in Edit Deck)
-    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) { p.rec.mp = 0; p.mp_bound = 0; }
+    if (PROGRESSION && Object.keys(profs).length + (st.profiles_borrados?.length ?? 0) > FREE_STARTS) {
+      p.rec.mp = 0;
+      p.mp_wallet = { version: 1, bound: 0 };
+    }
   }
   if (p !== null && !p.name) p.name = st.players?.[s] ?? "";
   if (p !== null) {
@@ -175,16 +178,18 @@ export const setProgression = (on: boolean) => { PROGRESSION = on; };
 export const progression = () => PROGRESSION;
 /** The "Startup Present 40" right (yo2pbinmap 784, py research/lobby NOTES.md 0x8401): at login the client offered
  *  its presentEntry pick of any 40 cards. Retired (owner, 2026-10-29): new characters claim a free structure deck
- *  instead (starter.ts); a character that claimed the pick (bit + 1) keeps its cards, an unclaimed right is dropped. */
+ *  instead (starter.ts). The offer right is retired even after a claim; its GET marker (bit + 1) remains as history
+ *  and prevents a second free starter. The native CCardPackCheckScene branch at 0x00852edf tests the offer right
+ *  alone, so leaving that right set reopens the picker even with the GET marker. Cards and the marker are kept. */
 export const STARTER_RIGHT = 0x310;
 const STARTUP_PRESENT_RANGE = [782, 791];
 /** Bumped to restart every character again; 1 = the progression launch ("reset everyone", the owner's call). */
 const PROGRESSION_EPOCH = 1;
 /** A character from before progression (or before the current epoch) restarts: empty trunk, no startup present
  *  bits (so it can claim the starter deck), the starting MP. Everything else (record, NPCs, avatar, titles) is kept.
- *  An unclaimed old startup present right is dropped (no 40-card pick offer at login; the starter deck replaces it). */
+ *  The retired startup present offer right is dropped (no 40-card pick offer at login; the starter deck replaces it). */
 export function progressionReset(p: P): boolean {
-  if (PROGRESSION && pbinTest(p, STARTER_RIGHT) && !pbinTest(p, STARTER_RIGHT + 1)) pbinSet(p, STARTER_RIGHT, false);
+  if (PROGRESSION && pbinTest(p, STARTER_RIGHT)) pbinSet(p, STARTER_RIGHT, false);
   if (!PROGRESSION || int(p.prog ?? 0) >= PROGRESSION_EPOCH) return false;
   p.trunk = {};
   delete p.bound;
@@ -195,17 +200,22 @@ export function progressionReset(p: P): boolean {
   return true;
 }
 /** Soul-bound MP (owner, 2026-11-02: "anything bought with these points cannot be traded"): the free starting grant
- *  sits in p.mp_bound, a part of rec.mp. The shop spends it first, and every card of a purchase it paid for, wholly
+ *  sits in p.mp_wallet.bound, a part of rec.mp. The shop spends it first, and every card of a purchase it paid for, wholly
  *  or partly, is soul-bound (bindCards): an alt can't turn its grant into cards for a main. Earned MP never enters it.
  *  Characters from before it have none (going forward only: their grant can't be told apart from what they earned). */
-export function grantStartMp(p: P): void { (p.rec ??= {}).mp = ECON.START_MP; p.mp_bound = ECON.START_MP; }
+export function grantStartMp(p: P): void {
+  (p.rec ??= {}).mp = ECON.START_MP;
+  p.mp_wallet = { version: 1, bound: ECON.START_MP };
+  delete p.mp_bound;
+}
 /** The bound part of a character's MP (never more than its balance). */
-export const mpBound = (p: P): number => Math.max(0, Math.min(int(p.mp_bound ?? 0), int(p.rec?.mp ?? 0)));
+export const mpBound = (p: P): number => mpBalances(p).bound;
 // ---- the MP economy (progression only; parity runs keep py's 0 per duel). The owner's MVP values (2026-10-28, set
 // by the coordinator as "healthy values"); shop prices are unchanged (shop.ts: booster 200, beginner packs 1001-1003
 // 100, structure decks 7000+ 1000, avatar items as they were).
 export const ECON = {
   START_MP: 5000, // 25 boosters on top of the free starter deck (starter.ts): a fun first session, not half the shop
+  NPC_MIN_TURNS: 3, // early surrender/disconnect is ineligible for consolation MP
   NPC_WIN: 150, NPC_LOSS: 50, // a booster every ~1.3 NPC wins, about one pack per 10 minutes of play
   PVP_WIN: 250, PVP_LOSS: 100, // real duels pay a bit more than NPCs; a loss pays less than a win, so throwing doesn't pay
   PVP_MIN_TURNS: 3, PVP_MIN_S: 120, // a PvP duel shorter than both (early surrender, disconnect) pays nobody
@@ -213,6 +223,30 @@ export const ECON = {
   FIRST_WIN: 300, // bonus on the first rewarded win of the UTC day
   SOFT_CAP: 40, SOFT_RATE: 0.25, // after 40 rewarded duels in a UTC day, every reward pays 25%
 } as const;
+
+/** The native protocol keeps total MP in rec.mp. Only the tracked promotional subset is soulbound.
+ * Existing mp_bound ledgers migrate without changing the balance. Profiles without either ledger keep zero bound MP:
+ * daily economy counters cannot prove how much of a legacy balance was earned or spent, so we must not relabel earned savings as a free grant.
+ * The ledger survives in D1 state_extras, including archived characters; no destructive progression reset. */
+export function mpBalances(p: P): { total: number; bound: number; earned: number } {
+  const total = Math.max(0, Math.min(0xffffffff, int0(p.rec?.mp)));
+  if (p.mp_wallet?.version !== 1) p.mp_wallet = { version: 1, bound: Math.max(0, int0(p.mp_bound)) };
+  delete p.mp_bound;
+  const bound = Math.max(0, Math.min(total, int0(p.mp_wallet.bound)));
+  p.mp_wallet.bound = bound;
+  return { total, bound, earned: total - bound };
+}
+
+/** Debit a validated purchase atomically, consuming promotional MP first. A rejected debit changes no balance. */
+export function spendMp(p: P, amount: number): { bound: number; earned: number } | null {
+  const total = Math.max(0, Math.min(0xffffffff, int0(p.rec?.mp)));
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > total) return null;
+  const wallet = mpBalances(p);
+  const bound = Math.min(wallet.bound, amount);
+  (p.rec ??= {}).mp = wallet.total - amount;
+  p.mp_wallet.bound = wallet.bound - bound;
+  return { bound, earned: amount - bound };
+}
 // The day's counters live on each character (p.econ, D1 state_extras); the caps add them up over the account
 // (econAccount), so its 4 characters, and one deleted and remade, share one pair cap, first win and soft cap.
 function econToday(g: Game | null, p: P): P {
@@ -249,6 +283,7 @@ export function mpReward(g: Game | null, p: P, result: string, turns: number, pv
   if (pvp && turns < E.PVP_MIN_TURNS && pvp.secs < E.PVP_MIN_S) { mp = 0; why = " short"; }
   else if (pvp && pvp.opp && (acc.pairs[pvp.opp] ?? 0) >= E.PAIR_DAY_MAX) { mp = 0; why = " pair cap"; }
   if (mp) {
+    mpBalances(p); // clamp the existing promotional subset BEFORE adding earned currency
     if (pvp?.opp) e.pairs[pvp.opp] = (e.pairs[pvp.opp] ?? 0) + 1;
     if (win && !acc.wins) mp += E.FIRST_WIN;
     if (acc.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
@@ -333,8 +368,8 @@ export function trunkRemove(p: P, cards: unknown[], g: Game | null = null, src =
 
 // ---- soul-bound copies (the owner, 2026-10-30): cards given free (the starter deck, the retired Startup Present) can't
 // be traded, so new accounts can't farm them onto one. p.bound = card -> bound copies, never more than owned; a removal
-// takes the unbound copies first (only what's left over owned is unbound). Earned cards (shop, PvP, NPC prizes,
-// tournaments) and the admin's grant stay free to trade.
+// takes the unbound copies first (only what's left over owned is unbound). Shop items paid partly or fully with
+// bound MP bind every card in that item. Earned-MP purchases, PvP/NPC prizes and admin grants stay free to trade.
 /** Binds these cards (repeats are copies), up to what the trunk holds. */
 export function bindCards(p: P, cards: unknown[]): void {
   const b: Record<string, number> = (p.bound ??= {});
@@ -376,6 +411,20 @@ export function pbinBytes(p: P): Uint8Array {
 export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit));
 
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
+/** Protocol world 0 = Domino (a), 1 = Academy (b). Never borrow the other world's uniform. */
+export function avatarParts(p: P, world: number): Uint8Array {
+  const saved = p.avatar?.[world === 1 ? "b" : "a"];
+  if (typeof saved === "string" && /^[0-9a-f]{32}$/i.test(saved)) return new Uint8Array(Buffer.from(saved, "hex"));
+  const parts = new Uint8Array(Buffer.from("0000203040607090b020000000000000", "hex"));
+  const other = p.avatar?.[world === 1 ? "a" : "b"];
+  if (typeof other === "string" && /^[0-9a-f]{32}$/i.test(other)) {
+    const looks = Buffer.from(other, "hex");
+    for (let i = 0; i < 16; i++) if (i !== 6 && i !== 8) parts[i] = looks[i];
+  }
+  if (world === 1) { parts[6] = 0x80; parts[8] = 0xb8; }
+  return parts;
+}
+
 /** Whether every avatar item in these 16 part bytes (0x4170) is this character's: bytes 1-9 are the parts, item
  *  (PBIN bit) = value + 0x100 for a girl; a default item (column 2) or an owned bit. Bytes that are no item of
  *  their slot ("none", colours) aren't items to own. */
@@ -879,7 +928,8 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);
-  mpReward(g, p, result, int(turns || 0));
+  // Instant surrender must not be a faster MP source than playing a duel.
+  if (!(surrender === "me" && int(turns || 0) < ECON.NPC_MIN_TURNS)) mpReward(g, p, result, int(turns || 0));
   let present = 0, pkg: P | null = null;
   if (npc > 0 && npc < NPCBIN_MAX) {
     let e = npcbinGet(p, npc);
@@ -1004,8 +1054,10 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       return { mp: int(r.mp ?? 0) };
     },
     set_wallet(kv: { mp?: number }) {
-      const st = g.loadState(); const r = profile(st, activeSlot(st))!.rec;
-      if (kv.mp !== undefined) r.mp = Math.max(0, int(kv.mp));
+      const st = g.loadState(), p = profile(st, activeSlot(st))!, r = p.rec;
+      if (PROGRESSION) mpBalances(p); // preserve the old promotional subset when an admin adds earned MP
+      if (kv.mp !== undefined) r.mp = Math.min(0xffffffff, Math.max(0, int(kv.mp)));
+      if (PROGRESSION) mpBalances(p); // a reduction cannot leave stale bound MP to taint a later credit
       g.saveState(st);
       return { mp: r.mp };
     },

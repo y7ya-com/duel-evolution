@@ -30,6 +30,7 @@ export function whyFromOcg(reason: unknown): string {
   if (typeof reason === "number" && Number.isInteger(reason)) return OCG_WIN_REASON[reason] ?? WHY_LP;
   const r = String(reason ?? "").toLowerCase();
   if (r === "surrender") return WHY_SURRENDER;
+  if (r === "timeout") return WHY_TIMEOUT;
   if (r === "error" || r === "ended") return WHY_ABORT;
   return r.includes("deck") ? WHY_DECKOUT : WHY_LP;
 }
@@ -105,9 +106,9 @@ export const npcPresentType = (kind: number): Uint8Array => new W().u32(PP.int(k
 export const duelAbort = (code = 0): Uint8Array => new W().u32(PP.int(code)).bytes();
 
 /** duelfin's own npc_duel_end: persistence's on_npc_duel_end with the right NPCBIN split (b1 losses, b2 draws). */
-function npcDuelEndBase(g: Game, p: P, npc: number, result: string, turns = 0, lpLeft = 0): Uint8Array {
+function npcDuelEndBase(g: Game, p: P, npc: number, result: string, turns = 0, lpLeft = 0, surrender: string | null = null): Uint8Array {
   const before = PP.npcbinGet(p, npc);
-  PP.npcDuelResult(g, p, npc, result, turns, lpLeft);
+  PP.npcDuelResult(g, p, npc, result, turns, lpLeft, null, surrender);
   const e = PP.npcbinGet(p, npc);
   if (result !== "win") {
     const want = result === "lose" ? 1 : 2;
@@ -118,15 +119,15 @@ function npcDuelEndBase(g: Game, p: P, npc: number, result: string, turns = 0, l
 }
 
 /** DFM.npc_duel_end (as research/npcreglas wraps it) */
-export const npcDuelEnd = (g: Game, p: P, npc: number, result: string, turns = 0, lpLeft = 0): Uint8Array =>
-  nrNpcDuelEnd(g, (pp, n, r, t, l) => npcDuelEndBase(g, pp, n, r, t, l), p, npc, result, turns, lpLeft);
+export const npcDuelEnd = (g: Game, p: P, npc: number, result: string, turns = 0, lpLeft = 0, surrender: string | null = null): Uint8Array =>
+  nrNpcDuelEnd(g, (pp, n, r, t, l) => npcDuelEndBase(g, pp, n, r, t, l, surrender), p, npc, result, turns, lpLeft);
 
 /** DFM.lobby_after_duel_msgs (as research/npcreglas wraps it): lobby messages after an NPC duel. */
 export function lobbyAfterDuelMsgs(g: Game, p: P, npc: number, result: number, turns = 0, lpLeft = 0,
-  present: number | null = null, packs: number[] = [], card = true): Msg[] {
+  present: number | null = null, packs: number[] = [], card = true, surrender: string | null = null): Msg[] {
   const r = result === RESULT_WIN ? "win" : result === RESULT_LOSE ? "lose" : "draw";
   return nrLobbyAfterDuel(g, (pk) => {
-    const out: Msg[] = [[M_PDU, npcDuelEnd(g, p, npc, r, turns, lpLeft)]];
+    const out: Msg[] = [[M_PDU, npcDuelEnd(g, p, npc, r, turns, lpLeft, surrender)]];
     if (present !== null) out.push([M_NPCPRESENT, npcPresentType(present)]);
     out.push([M_CARDPACKLIST, cardpacklistNotice(pk)]);
     return out;
@@ -179,6 +180,7 @@ export function makeDf(g: Game, lobbyConn: () => Conn | null, confirmSurrender =
     sess,
     h_autoduelstart(npc, mode) { Object.assign(sess, { end: new DuelEnd(mode), npc: PP.int(npc), turn: 0 }); },
     finish(c, winner, reason, turns = 0, lpLeft = 0, present = null) {
+      if (g.restarting) { sess.end = null; sess.ask = false; return false; }
       // one result per NPC duel begun (h_autoduelstart): a repeated surrender dialog or a late finish pays nothing
       const de = sess.end;
       if (de === null || de.over) { g.log(`[AVISO] [duelfin] ${reason} with no NPC duel in progress: ignored`); return false; }
@@ -189,7 +191,7 @@ export function makeDf(g: Game, lobbyConn: () => Conn | null, confirmSurrender =
         const p = PP.profile(st, PP.activeSlot(st))!;
         const res = de.mode === 1 ? de.matchResult() : resultForClient(winner);
         // the NPC card (npcRules card) is for a duel played to its end, not given up
-        const pdu = lobbyAfterDuelMsgs(g, p, sess.npc, res, turns, lpLeft, present, [], reason !== WHY_SURRENDER);
+        const pdu = lobbyAfterDuelMsgs(g, p, sess.npc, res, turns, lpLeft, present, [], reason !== WHY_SURRENDER, reason === WHY_SURRENDER ? "me" : null);
         g.saveState(st);
         burst(lob, pdu.slice(0, 1));
         burst(c, msgs);
@@ -200,23 +202,24 @@ export function makeDf(g: Game, lobbyConn: () => Conn | null, confirmSurrender =
     h_6350(c, data) {
       if (!isSurrender(data)) return false;
       if (confirmSurrender) { sess.ask = true; burst(c, surrenderConfirmMsgs()); return "ask"; }
-      df.finish(c, 1, WHY_SURRENDER);
+      df.finish(c, 1, WHY_SURRENDER, (c.ext.ocg as { turn?: number } | undefined)?.turn ?? sess.turn);
       return true;
     },
     h_6423(c, data) {
       if (!sess.ask) return null;
       sess.ask = false;
       const v = data.length >= 4 ? new DataView(data.buffer, data.byteOffset).getUint32(0) : NO;
-      if (v === YES) { df.finish(c, 1, WHY_SURRENDER); return "end"; }
+      if (v === YES) { df.finish(c, 1, WHY_SURRENDER, (c.ext.ocg as { turn?: number } | undefined)?.turn ?? sess.turn); return "end"; }
       return "no";
     },
     h_0003() { sess.end = null; return true; },
-    h_disconnect() {
+    h_disconnect(c) {
+      if (g.restarting) { sess.end = null; sess.ask = false; return; }
       const de = sess.end;
       if (de !== null && !de.over) {
         const st = g.loadState();
         const p = PP.profile(st, PP.activeSlot(st))!;
-        npcDuelEnd(g, p, sess.npc, "lose");
+        npcDuelEnd(g, p, sess.npc, "lose", (c.ext.ocg as { turn?: number } | undefined)?.turn ?? sess.turn, 0, "me");
         p.rec.duels_void = (p.rec.duels_void ?? 0) + 1;
         g.saveState(st);
       }

@@ -19,11 +19,11 @@ export function installDuel(g: Game): DuelPort {
     const m = m0 as PvpMatch;
     const fin = m.finish.bind(m), close = m.closeMatch.bind(m);
     m.finish = (k, wv, ...a) => {
-      try { if (wv === 0) onFinish(m.sess[k].pid!); else if (wv === null) onFinish("draw"); } catch { /* py: pass */ }
+      try { if (g.restarting) return; if (wv === 0) onFinish(m.sess[k].pid!); else if (wv === null) onFinish("draw"); } catch { /* py: pass */ }
       return fin(k, wv, ...a);
     };
     m.closeMatch = () => {
-      try { return close(); } finally { onClose([0, 1].filter((k) => m.c[k] !== null).map((k) => m.sess[k].pid!)); }
+      try { return close(); } finally { if (!g.restarting) onClose([0, 1].filter((k) => m.c[k] !== null).map((k) => m.sess[k].pid!)); }
     };
   };
   const base = g.onConnClosed;

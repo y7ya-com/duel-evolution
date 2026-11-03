@@ -16,8 +16,6 @@ import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
-/** After /__admin/shutdown, how long new game sockets are refused if no deploy replaces this instance. */
-const STOP_S = 120;
 
 export class WorldDO extends DurableObject<Env> {
   private srv!: Server;
@@ -78,19 +76,24 @@ export class WorldDO extends DurableObject<Env> {
       if (!request.headers.get("x-de-admin") && this.env.DEV !== "1") return new Response("forbidden", { status: 403 });
       // the version this instance runs: after a deploy the old instance keeps serving its sockets for minutes
       if (url.pathname === "/__admin/version") return Response.json({ v: this.env.CF_VERSION_METADATA?.id ?? "dev" });
-      if (url.pathname === "/__admin/shutdown") {
-        // a planned deploy, just before `wrangler deploy` (immediate DO code update, scripts/deploy.sh): 4012
-        // "server-update" tells the web client to wait for the new version; each socket's game side closes now (duels
-        // end with no result, g.stopping); the D1 writes they cause are flushed; new game sockets are refused until the
-        // new code answers (else a client lands here and drops again). A deploy that never comes: back after STOP_S.
-        const n = this.sockets.size;
-        const g = this.srv.game;
-        g.stopping = true;
-        setTimeout(() => { g.stopping = false; }, STOP_S * 1000);
-        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(false); }
-        await new Promise((r) => setTimeout(r, 2000));   // the close handlers' saves (world queue, PvP queues)
+      if (url.pathname === "/__admin/prepare-restart" || url.pathname === "/__admin/shutdown") {
+        if (request.method !== "POST") return new Response("method not allowed", { status: 405 });
+        // Latch and stop all result paths BEFORE flushing saves or closing any transport.
+        // World.run logs handler exceptions; explicitly propagate preparation failures.
+        await new Promise<void>((resolve, reject) => {
+          void this.srv.world.run(() => {
+            try { this.srv.game.duel!.prepareRestart(); resolve(); }
+            catch (error) { reject(error); }
+          });
+        });
         await this.sink?.flush();
-        return Response.json({ closed: n, flushed: !!this.sink });
+        if (url.pathname === "/__admin/prepare-restart") return Response.json({ ready: true, duelsVoided: true });
+        const n = this.sockets.size;
+        this.srv.game.stopping = true;
+        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(false); }
+        await this.srv.world.run(() => {});
+        await this.sink?.flush();
+        return Response.json({ closed: n, duelsVoided: true });
       }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
@@ -126,6 +129,7 @@ export class WorldDO extends DurableObject<Env> {
       }));
       return "error" in out ? Response.json(out, { status: 400 }) : Response.json(out.ok);
     }
+    if (this.srv.game.restarting) return new Response("server restarting", { status: 503, headers: { "Retry-After": "10" } });
     if (url.pathname === "/__de/prefetch") {
       // the Worker forwards GET /api/de/prefetch/duel here with x-de-user (a checked session); 204 = nothing to prefetch
       const user = request.headers.get("x-de-user");
@@ -223,6 +227,7 @@ export class WorldDO extends DurableObject<Env> {
     world.openPeer(id, request.headers.get("x-de-user"), (s) => { try { ws.send(s); } catch { /* closing */ } },
       (b) => { try { ws.send(b); return true; } catch { return false; } }, sid, url.searchParams.get("resume") === "1");
     ws.addEventListener("message", (e) => {
+      if (this.srv.game.restarting) return;
       if (typeof e.data === "string") world.onText(id, e.data);
       else world.onBinary(id, new Uint8Array(e.data as ArrayBuffer));
     });
