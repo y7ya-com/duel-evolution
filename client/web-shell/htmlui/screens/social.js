@@ -4,6 +4,7 @@
 // Skin rule: the duel-style frame, its well, buttons and list rows are CSS (controls/skin.js duelWindow, duelButton,
 // stripes; colours sampled from the engine); text is Arial (textBox); the rest the generic renderers.
 import { owned } from './chat.js';
+import { rankSelf, rankByName, rankTag, labelWidth } from '../rank.js';
 const ui = await import('../../ui.js').catch(() => null);   // null under node
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
@@ -33,10 +34,32 @@ const DRAW = {
   Scroll: () => {},   // a native box, chat.js's ownScroll
 };
 
+// My Profile's rows: an item name (align 0) with its value 16 below it, right-aligned (svelte/modern/logic.js profile())
+const ITEM = 'プロフィールウィンドウの項目名', VALUE = 'プロフィールウィンドウの項目の数値';
+const itemOf = (win, label) => win.controls.find(k => k.name === ITEM && k.shown && (k.text || '').trim() === label);
+const valueOf = (win, item) => item && win.controls.find(k => k.name === VALUE && k.shown && k.y === item.y + 16);
+/** The LV row's value control, and the profile's player (the Name row's value), or null for any other control. */
+export function profileLevel(win, c) {
+  if (win.cls !== 'CWindowModelProfile' || c.name !== VALUE || valueOf(win, itemOf(win, 'LV'))?.id !== c.id) return null;
+  return { name: (valueOf(win, itemOf(win, 'Name'))?.text || '').trim() };
+}
+// the player's standing left of the level, in the LV row (../rank.js): the account's own character by name (My
+// Profile), else an online player by name. Drawn into the value's element when the answer comes (the control
+// may not change again to redraw it)
+async function profileRank(c, el, who) {
+  const r = (await rankSelf())?.find(x => x.name === who.name) || await rankByName(who.name);
+  if (!r || !el.isConnected) return;
+  const right = c.x + c.w - labelWidth((c.text || '').trimEnd(), c.fontSize || 16) - 16;
+  rankTag(el, r, { x: c.x, y: c.y, w: right - c.x, align: 2, px: c.fontSize || 16 });
+}
+
 function draw(c, el, api, win) {
   const fam = c.cls.replace(/^CWindowTask/, '');
   if (/(^|[^i])Input(Duel)?$/.test(fam)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
-  return DRAW[fam] ? DRAW[fam](el, c, api, win) : api.renderControl(c, el);
+  const out = DRAW[fam] ? DRAW[fam](el, c, api, win) : api.renderControl(c, el);
+  const lv = profileLevel(win, c);
+  if (lv?.name) profileRank(c, el, lv);
+  return out;
 }
 
 export default owned(['CWindowModelProfile', 'CWindowModelFriendlist', 'CWindowModelBlacklist', 'CWindowModelTeamlist',

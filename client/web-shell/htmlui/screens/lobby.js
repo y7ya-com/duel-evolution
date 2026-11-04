@@ -10,6 +10,7 @@ import { SHEET, sprite } from '../../ui.js';
 import { textBox } from '../controls/basic.js';
 import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
+import { rankByPid, peekRank, pidKey, rankTag, rankFit, labelWidth, cardHeader, PID_BASE } from '../rank.js';
 
 // CWindowTaskFramePlace, lobbyname_win_01_c01.png (256 x 52; the body stretched after its first 224 px): a 1 px brown
 // edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
@@ -151,12 +152,35 @@ function menuBar(win, root, st) {
   }
 }
 
+// The card's ranked standing (../rank.js, GET /api/de/rank?pid=: read/lobby.js reads the card's pid_), in the school's
+// colour, under "LV01  Name" on the header's second line: centred there as the header is (showInfo: align 1 in 320 px),
+// or after the team's name when the player has one (then the short form if that is what fits). An NPC's card (a pid
+// under PID_BASE) and an unknown player show nothing.
+function cardRank(win, root, st) {
+  const pid = win.pid, head = cardHeader(win);
+  if (!(pid >= PID_BASE) || !head) { st.rank?.remove(); st.rank = null; st.rankKey = null; return; }
+  const r = peekRank(pidKey(pid));
+  if (r === undefined) { rankByPid(pid).then(() => { if (st.win?.pid === pid) cardRank(st.win, root, st); }); return; }
+  const key = JSON.stringify([pid, r, head, win.w]);
+  if (st.rankKey === key) return;
+  st.rankKey = key;
+  st.rank?.remove(); st.rank = null;
+  if (!r) return;
+  const px = 16, y = head.y + 16 + head.lineGap;
+  if (!head.team) { st.rank = rankTag(root, r, { x: head.x, y, w: head.w, align: head.align, px, text: rankFit(r, head.w, px) }); return; }
+  // the team's line as the engine lays it out (centred, or from the left), the rank after it to the box's right end
+  const tw = labelWidth(head.team, px), start = head.align === 1 ? head.x + (head.w - tw) / 2 : head.align === 2 ? head.x + head.w - tw : head.x;
+  const after = start + tw + 6, s = rankFit(r, head.x + head.w - after - labelWidth('· ', px), px);
+  if (s) st.rank = rankTag(root, r, { x: after, y, px, text: '· ' + s });
+}
+
 // A player's card (CPlayerListMenu): the game draws all of it (its ids pass through, `kept`); the page adds one
 // 2008 button on a tab above its top right, Duel (../invite.js), when the game offers no duel request of its
-// own, and a refusal's reason in a box under the tab for a few seconds
+// own, and a refusal's reason in a box under the tab for a few seconds; and the player's rank (cardRank)
 const kept = new Map();   // window id -> its control and sprite ids
 function playerCard(win, root, st) {
   kept.set(win.id, new Set([...win.controls.map(c => c.id), ...(win.extras || []).map(e => e.id)]));
+  cardRank(win, root, st);
   const show = win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
   if (!show) { if (st.btn) { st.btn.remove(); st.btn = null; } return; }
   if (st.btn) return;
