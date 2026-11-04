@@ -13,7 +13,7 @@
 // route: a name from ROUTES below (the clicks that reach a screen and the window classes to flip there).
 // Writes <outdir>/<cls>@<dpr>x-{engine,html,heat}.png and report.json ({cls: {identical, within2, max, px}}).
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -173,6 +173,29 @@ export const ROUTES = {
   'shop-open': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_CONFIRM, ['rc', 'move 393 562'],
     ['wait', 800], ['rc', 'click 393 562'], ['scene', 24, 30000], ['wait', 4000]], flip: ['CCardDetailViewDlg'] },
   // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
+  // the in-place reconnect (client/recomp/ovr/lobbyretry.c, platform/net/net_ws.cpp): My Room, the blue door's first
+  // room, Clock Square's top exit to Domino Pier, then the page closes its /net WebSocket (__ws: every /net opened
+  // from the first step on). The game must come back on the pier with no reload (--boot: then boot-*.png).
+  reconnect: { player: 'Reconnect Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [
+    ['js', `(() => { window.__ws = []; const R = window.WebSocket; window.WebSocket = class extends R { constructor(...a) { super(...a); if (/\\/net(\\?|$)/.test(String(a[0]))) window.__ws.push(this); } }; })()`],
+    ['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7],
+    ['scene', 10, 90000], ['wait', 4000], ['rhold', 735, 230, 2500], ['wait', 4000], ['click', 510, 214], ['wait', 20000], ['click', 512, 671], ['wait', 2000], ['shot', 'square'],
+    ['rc', 'walkto 1750 160 1200'], ['rc', 'walkto 1750 40 400'], ['wait', 40000], ['shot', 'pier'],
+    ['js', 'window.__ws.forEach(w => w.close()), window.__ws.length'], ['wait', 3000], ['shot', 'dropped'], ['wait', 30000],
+    ['shot', 'back'], ['log', 'console']], flip: [] },
+  // the duel re-attach (client/recomp/ovr/duelreattach.c) against a wrangler dev with DEV:1: Yami Yugi's duel from
+  // Clock Square, then the server cuts the duel socket (cut: POST /__dev/cut for this player's 5760). The client
+  // reconnects and sends 0x6001 = pid + the 0x6202 count (the server's log shows it). An NPC duel isn't kept by the
+  // server yet (its stage 4): a refused re-attach (0x6007 0) is the game's box. Rock-paper-scissors rounds vary the hand.
+  duelcut: { player: 'Duel Cut Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [
+    ['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7],
+    ['scene', 10, 90000], ['wait', 4000], ['rhold', 735, 230, 2500], ['wait', 4000], ['click', 510, 214], ['wait', 20000], ['click', 512, 671], ['wait', 2000],
+    // after clicknpc the game reads the scripted mouse (RC_INPUT), so the rest of the clicks are scripted too
+    ['rc', 'clicknpc Yami Yugi'], ['wait', 8000], ['shot', 's1'], ['rc', 'click 520 170'], ['wait', 3000], ['shot', 's2'], ['rc', 'click 520 170'], ['wait', 6000],
+    ['shot', 's3'], ['rc', 'move 432 439'], ['wait', 1000], ['rc', 'click 432 439'], ['wait', 3000], ['shot', 's4'], ['wait', 9000], ['shot', 'rps'], ['rc', 'move 256 680'], ['wait', 600], ['rc', 'click 256 680'], ['wait', 5000], ['rc', 'move 775 680'], ['wait', 600], ['rc', 'click 775 680'], ['wait', 5000], ['rc', 'move 515 680'], ['wait', 600], ['rc', 'click 515 680'], ['wait', 5000], ['rc', 'move 256 680'], ['wait', 600], ['rc', 'click 256 680'], ['wait', 5000], ['rc', 'move 775 680'], ['wait', 600], ['rc', 'click 775 680'], ['wait', 5000], ['rc', 'move 515 680'], ['wait', 600], ['rc', 'click 515 680'], ['wait', 5000], ['rc', 'move 256 680'], ['wait', 600], ['rc', 'click 256 680'], ['wait', 5000], ['shot', 'rps2'],
+    ['rc', 'move 512 290'], ['wait', 600], ['rc', 'click 512 290'], ['scene', 28, 120000],
+    ['wait', 15000], ['shot', 'duel'], ['cut', 5760], ['wait', 4000], ['shot', 'cut'], ['wait', 25000], ['shot', 'after'], ['wait', 30000],
+    ['shot', 'late'], ['log', 'console']], flip: [] },
   shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000]], flip: [] },
@@ -193,13 +216,13 @@ const kids = [];
 process.on('exit', () => kids.forEach(k => k.kill()));
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => process.exit(1));   // so the line above runs
 
-let origin = opt('server'), cookie = opt('cookie');
+let origin = opt('server'), cookie = opt('cookie'), stackLog = null;
 if (!origin) {   // our own stack
   const st = spawn('python3.12', ['-I', path.join(here, 'stack.py'), String(SLOT != null ? 8800 + 10 * SLOT : 8799), ...(route.player ? ['--player', route.player] : []), ...(route.deck != null ? ['--deck', String(route.deck)] : [])],
     { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...(SLOT != null && { FLIP_SLOT: String(SLOT) }) } });
   kids.push(st);
   const line = await new Promise((ok, no) => { readline.createInterface({ input: st.stdout }).once('line', ok); st.once('exit', c => no(new Error('stack.py exited ' + c))); });
-  ({ origin, cookie } = JSON.parse(line));
+  ({ origin, cookie, log: stackLog } = JSON.parse(line));
 }
 if (route.signedOut) cookie = '';   // the sign-in panel shows only to a signed-out player
 kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: origin, COOKIE: cookie,
@@ -268,7 +291,13 @@ for (const [a, x, y, z] of route.steps) {
     for (const [px, py, ms] of x.slice(1)) { p = await toClient(px, py); await mouse('mouseMoved', p, 'right'); await sleep(ms); }
     await mouse('mouseReleased', p, 'right'); await sleep(1000);
   }
-  if (a === 'js') await b.ev(x);   // an expression in the page (e.g. switch a screen's classes on to load its reader)
+  if (a === 'js') await b.ev(x);
+  if (a === 'cut') {   // wrangler dev DEV:1: the server cuts this player's virtual socket on port x (the account key: the stack's log)
+    const acct = [...readFileSync(stackLog, 'utf8').matchAll(/u:[A-Za-z0-9_-]{20,}/g)].pop()?.[0];
+    const r = await fetch(origin + '/__dev/cut', { method: 'POST', headers: { 'content-type': 'application/json', origin, cookie }, body: JSON.stringify({ acct, port: x }) });
+    console.log('cut', acct, x, r.status, await r.text());
+  }
+  if (a === 'log') writeFileSync(path.join(out, x + '.txt'), b.logs.join('\n'));   // the page's console so far   // an expression in the page (e.g. switch a screen's classes on to load its reader)
   // rc 'cmd': one line of the runtime's scripted input (recomp README: walkto, clicknpc, ...) appended to the
   // route's RC_INPUT_FILE (query RC_INPUT_FILE=/rcin.txt), which the game reads every 5 frames
   if (a === 'rc') await b.ev(`(() => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + ${JSON.stringify(x)} + '\\n'); })()`);

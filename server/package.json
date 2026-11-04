@@ -21,7 +21,7 @@
     "drizzle-kit": "0.31.10",
     "typescript": "5.9.3",
     "vitest": "2.1.9",
-    "wrangler": "4.103.0"
+    "wrangler": "4.156.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

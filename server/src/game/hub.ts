@@ -366,6 +366,7 @@ export class Hub {
   leave(s: Session | null, why = "") {
     const key = s?.block ?? null;
     if (!s || key === null) return;
+    this.g.lp?.inviteBusy(s);
     const members = this.blocks.get(key) ?? new Map();
     if (members.get(s.pid!) === s) members.delete(s.pid!);
     if (!members.size) this.blocks.delete(key);
@@ -389,12 +390,21 @@ export class Hub {
   setState(s: Session | null, state: number, rivalName = "", b = 0, u: [number, number, number] = [0, 0, 0]) {
     if (!s || s.pid === null) return;
     s.state = state & 0xff;
+    if (s.state) this.g.lp?.inviteBusy(s);   // busy now (a room, a duel, autoduel): its direct invites go at once
     s.stateExtra = s.state >= 0x67 && s.state <= 0x6a
       ? cat(name16(rivalName), new W().u8(b & 0xff).u16(u[0] & 0xffff).u16(u[1] & 0xffff).u16(u[2] & 0xffff).bytes())
       : new Uint8Array(0);
     const rest = this.others(s);
     const msg = this.stateMsg(s);
     for (const o of rest) this.post(o, 0x3112, msg);
+  }
+
+  /** s's 0x3112 as one viewer sees it with another state; s.state itself stays as it is (synchronous: nothing sees the
+   *  swap). lobby.ts duelInvite: the target as a room owner, to its challenger alone */
+  stateMsgAs(s: Session, state: number): Uint8Array {
+    const st = s.state, ex = s.stateExtra;
+    s.state = state & 0xff; s.stateExtra = new Uint8Array(0);
+    try { return this.stateMsg(s); } finally { s.state = st; s.stateExtra = ex; }
   }
 
   stateMsg(s: Session, known = true): Uint8Array {

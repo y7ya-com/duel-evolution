@@ -1,6 +1,7 @@
 // Front door (Hono): the updater's files, the game WebSocket handoff to the singleton WorldDO, admin and dev routes,
 // the account API (src/auth), and the recompiled client's files from R2.
 // The Durable Objects stay plain DurableObject classes speaking the YO2 binary protocol over WebSockets.
+import { toHttps, withHsts } from "./https.ts";
 import { Hono, type Context } from "hono";
 import rootTxt from "../static/yo2/root.txt";
 import mergeTxt from "../static/yo2/merge.txt";
@@ -44,7 +45,8 @@ routes.get("/__version", (c) => c.json({ v: c.env.CF_VERSION_METADATA?.id ?? "de
 // (index.html: gateway = <host>/net); /boxedwine-network stays for builds and links that name it
 routes.on("GET", ["/boxedwine-network", "/net"], async (c) => {
   const fwd = await gateUpgrade(c.req.raw, c.env as unknown as AuthEnv);
-  return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network", fwd);
+  // the query too: ?sid=&resume=1, the client's tunnel resume (world.ts)
+  return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network" + new URL(c.req.url).search, fwd);
 });
 
 // admin actions on live players: a session with the admin role (role_grant); the header is always ours
@@ -92,7 +94,8 @@ for (const [path, dir, max, perHour] of [["crash", "crashes", 65536, 10], ["stal
     if (n >= perHour) return c.body(null, 429);
     await bucket.put(rateKey, String(n + 1));
     // the client's IP family: one ISP's IPv6 route to the zone ran at ~76 KB/s against 0.8 MB/s over IPv4 (2026-10-28)
-    const account = path === "crash" ? ((await verifySession(c.req.raw, c.env as unknown as AuthEnv).catch(() => null))?.name ?? null) : undefined;
+    // the signed-in player's name on crash reports and stall batches alike, so either can be tied to a player (null signed out)
+    const account = (await verifySession(c.req.raw, c.env as unknown as AuthEnv).catch(() => null))?.name ?? null;
     const out = row && typeof row === "object" && !Array.isArray(row) ? JSON.stringify({ ...row, ip_family: ipFamily(c.req.raw), account }) : body;
     await bucket.put(`${prefix}${now}-${crypto.randomUUID().slice(0, 8)}.json`, out, { httpMetadata: { contentType: "application/json" } });
     return c.body(null, 204);
@@ -159,6 +162,25 @@ routes.post("/api/de/starter/claim", async (c) => {
   const fwd = new Request(c.req.raw);
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/starter/claim", fwd);
+});
+
+// the Modern UI's friend list (Lobby.friendsInfo): the signed-in player's active character's friends, online and where
+routes.get("/api/de/friends", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/friends", fwd);
+});
+
+// a direct duel invite from the player card's Duel {pid} or {name} (Lobby.duelInvite): same origin, a signed-in session
+routes.post("/api/de/duel/challenge", async (c) => {
+  if (!originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/duel/challenge", fwd);
 });
 
 // the player's own decks (game/decks.ts): GET the list; PUT a deck, PUT /current {name}, DELETE /<name> (same origin)
@@ -308,10 +330,12 @@ routes.all("*", (c) => c.text("method not allowed", 405));
 // its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
 const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
 export default {
-  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(req.url);
     if (url.hostname === "www.ygoevolution.com") return Response.redirect(`https://ygoevolution.com${url.pathname}${url.search}`, 301);
+    const https = toHttps(req, GAME_HOSTS);   // https only (src/https.ts)
+    if (https) return https;
     if ((env as unknown as AuthEnv).DEPLOY_ENV === "production" && GAME_HOSTS.has(url.hostname)) env = { ...env, PUBLIC_ORIGIN: `https://${url.hostname}` } as Env;
-    return routes.fetch(req, env, ctx);
+    return withHsts(req, await routes.fetch(req, env, ctx), GAME_HOSTS);
   },
 };

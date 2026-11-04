@@ -105,9 +105,13 @@ export function shopBuy(g: Game, c: Conn, data: Uint8Array): void {
   }
   if (!plan.length) return fail("empty cart");
   if (mp < total) return fail(`balance ${mp} < total ${total}`);
+  const bound0 = PP.mpBound(p), fromBound = Math.min(bound0, total);   // soul-bound MP first (PP.grantStartMp)
   p.rec.mp = mp - total;
+  p.mp_bound = bound0 - fromBound;
   PP.mpSpent(g, p, total, packs);
   PP.onShopPurchase(g, p, bought);
+  // paid wholly or partly with soul-bound MP: the whole purchase is soul-bound (no trading the grant's cards away)
+  if (fromBound > 0 && bought.length) { PP.bindCards(p, bought.map(([, cid]) => cid)); g.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${bought.length} cards soul-bound (${fromBound} of ${total} MP from the starting grant)`); }
   for (const [, kind, prm] of plan) if (kind === 2) PP.pbinSet(p, prm);
   for (const bit of recipes) PP.pbinSet(p, bit);
   g.saveState(st);

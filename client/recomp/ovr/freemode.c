@@ -96,6 +96,7 @@ void f_007fa450(CPU *c) {
 }
 
 void o_00adcda0(CPU *c);
+int rc_myroom_retry(uint32_t self);   // ovr/lobbyretry.c
 
 // 0x00adcda0 CWorldMng::waitMyRoom, thiscall: My Room's lobby connection is up (the lobby task, +0x80, busy +0x88 == 2)
 // -> the My Room scene. In DUEL mode it is a move instead, what CWorldMng::inMyRoom does when My Room picks a lobby:
@@ -105,6 +106,11 @@ void o_00adcda0(CPU *c);
 void f_00adcda0(CPU *c) {
     RC_LOCALS;
     uint32_t self = c->ecx, lobby = RD32(self + 0x80), conn = RD32(self + 0x8c);
+    if (rc_myroom_retry(self)) {   // a failed connect waits and tries again (ovr/lobbyretry.c), never the fatal box
+        c->ret_to = RD32(c->esp);
+        c->esp += 4;
+        return;
+    }
     if (rc_free() != 2 || !lobby || RD32(lobby + 0x88) != 2 || !conn) {
         o_00adcda0(c);
         return;
