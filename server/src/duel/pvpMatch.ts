@@ -188,6 +188,7 @@ export class Matches {
     m.roomTime = this.room(sa, sb, (r) => (r.x?.length >= 2 ? (r.x[1] ? 1 : 0) : undefined));
     m.matchStyle = this.room(sa, sb, (r) => r.dstyle);
     m.roomSurrender = this.room(sa, sb, (r) => (r.x?.length >= 1 ? (r.x[0] ? 1 : 0) : undefined));
+    m.roomWatch = this.room(sa, sb, (r) => (r.wmode === 0 || r.dstyle === 6 ? 0 : 1));
     this.log(`[pvp] reserva ${m.name}: ${sa.acct} contra ${sb.acct}` + (m.roomTime === 0 ? " (sala con «Límite de Tiempo» OFF)" : "")
       + (m.roomSurrender === 0 ? " (sala con «Rendirse» OFF)" : "") + (m.matchStyle === MATCH_STYLE ? (m.bo3() ? " (MATCH al mejor de 3)" : " (sala de match)") : ""));
     return m;
@@ -211,8 +212,9 @@ export class Matches {
     if (!PVP_WATCH) return null;
     const m = this.byPid(pid);
     if (!m || m.done) return null;
-    // the stream is player 0's own view (its hand included): never to a player of that match
+    // the stream is the public view (PvpSession.pub: neither hand nor set card), but a player of the match has its own
     if (who && m.sess.includes(who)) { this.log(`[AVISO] [pvp] ${m.name}: a player of the match asks to watch it: refused`); return null; }
+    if (m.roomWatch === 0) { this.log(`[pvp] ${m.name}: its room is «Watch» OFF: spectator ${peer} refused`); return null; }
     this.watchReq.set(peer, [m, now()]);
     return m;
   }
@@ -262,6 +264,9 @@ export class PvpMatch {
   okAsk = [false, false];
   roomSurrender: number | null = null;
   roomTime: number | null = null;
+  /** The room's «Watch»: 0 = OFF (wmode 0, or a dstyle-6 room), which the 2008 client's player menu never offers to
+   *  watch (CPlayerListMenu condWatch_); null = no room (a duel agreed without one). */
+  roomWatch: number | null = null;
   matchStyle: number | null = null;
   closed = [false, false];
   ps: PvpSession | null = null;
@@ -957,7 +962,8 @@ export class PvpMatch {
       const stats = tally ? tally.forPlayer(k) : null;
       PP.applyDuelStats(p, stats, lpLeft, surr === null ? null : surr === k ? "me" : "opp");
       const name = res === DFM.RESULT_WIN ? "win" : res === DFM.RESULT_LOSE ? "lose" : "draw";
-      PP.mpReward(this.g, p, name, turns, { opp: this.sess[1 - k]?.acct ?? null, secs: this.t0 ? now() - this.t0 : 0 });
+      // the economy's minimum length counts the turns the duel reached: a surrender or disconnect ends with turns 0
+      PP.mpReward(this.g, p, name, Math.max(turns, this.ps?.turn ?? 0), { opp: this.sess[1 - k]?.acct ?? null, secs: this.t0 ? now() - this.t0 : 0 });
       const lv = this.xpLevels();
       return PP.pvpXp(p, lv[1 - k], name, this.bo3(), mres, last, lv[k]);
     } catch (e) { this.log(`[EXC] ${this.name}: puntuación: ${errStr(e)}`); return null; }

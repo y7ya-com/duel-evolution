@@ -75,8 +75,12 @@ export class Trades {
   }
   private trunkPairs(s: Session): [number, number][] { try { return this.withProfile(s, PP.trunkPairs); } catch { return []; } }
   private sendTrunk(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of PP.pairTable(M.TRUNKSTART, M.TRUNK, M.TRUNKEND, this.trunkPairs(t.sess(pid)))) this.to(t, pid, m, d, c); }
-  // py LIMIT_BYTES None: nothing is held back from trading (an empty table)
-  private sendLimit(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of PP.pairTable(M.LIMITSTART, M.LIMIT, M.LIMITEND, [])) this.to(t, pid, m, d, c); }
+  /** The client's per-card "not tradeable" copies (TRADELIMIT, the 2008 card box's limit column): the soul-bound ones,
+   *  so the client holds them back when they're offered rather than the trade failing at its confirmation (execute). */
+  private limitPairs(s: Session): [number, number][] {
+    try { return this.withProfile(s, (p) => PP.trunkPairs({ trunk: boundOf(p) })); } catch { return []; }
+  }
+  private sendLimit(t: Trade, pid: number, c: Conn | null = null) { for (const [m, d] of PP.pairTable(M.LIMITSTART, M.LIMIT, M.LIMITEND, this.limitPairs(t.sess(pid)))) this.to(t, pid, m, d, c); }
   private available(s: Session, cid: number) {
     try { return PP.cardOk(cid) ? this.withProfile(s, (p) => PP.int(p.trunk?.[String(cid)] ?? 0)) : 0; } catch { return 0; }
   }
