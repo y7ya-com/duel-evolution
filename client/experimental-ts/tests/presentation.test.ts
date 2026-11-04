@@ -64,7 +64,8 @@ describe('duel presentation adapter preserves server choices', () => {
     const p = view(s).prompt!;
     expect(p.kind).toBe('place'); expect(p.candidates).toBeUndefined();
     expect(p.options[0].id).toBe('action:0:11:0:11');
-    expect(p.cancelable).toBe(true);
+    // Kind 13 is only the hand-limit discard, which the translator never lets the player cancel.
+    expect(p.cancelable).toBe(kind !== 13);
     expect(() => interpretResponse(s, p.id, { cardIds: [] })).toThrow(/board action/);
     expect(interpretResponse(s, p.id, { optionId: p.options[0].id })).toEqual({ type: 'action', player: 0, zone: 11, index: 0, command: 11 });
   });

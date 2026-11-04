@@ -44,8 +44,9 @@ export interface DuelState {
   prompt: DuelPrompt | null; promptSequence: number;
   fieldMasks: [number[], number[]]; handMasks: [Record<number, number>, Record<number, number>];
   buttons: [number[], number[]]; inputKind: number; acceptingInput: boolean;
-  list: { mode: number; items: ListItem[]; owner: number };
-  dialog: { expected: number; items: DialogItem[] }; variables: Record<number, number>;
+  /** `consumed`: a view already showed this list/dialog text; a later view that sent none of its own must not reuse it. */
+  list: { mode: number; items: ListItem[]; owner: number; consumed?: boolean };
+  dialog: { expected: number; items: DialogItem[]; consumed?: boolean }; variables: Record<number, number>;
   timer: { player: Player; seconds: number; paused: boolean; otherSeconds: number } | null;
   /** Match sideboarding uses GLOBAL_CLOCK=3; it is not a third board player. */
   matchTimer: { seconds: number; paused: boolean; otherSeconds: number } | null;

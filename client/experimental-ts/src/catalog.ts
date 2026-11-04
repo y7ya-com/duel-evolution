@@ -23,7 +23,7 @@ export class CardCatalog {
       if (c.extra !== undefined && typeof c.extra !== 'boolean') throw new Error('Invalid card zone');
       next.set(c.passcode, { ...c });
     }
-    this.cards = next;
+    this.cards = next; this.sortedNames = null;
   }
   card(passcode: number, owned?: number): CardView {
     const c = this.cards.get(passcode);
@@ -38,12 +38,12 @@ export class CardCatalog {
       }
       next.set(c.passcode,entry);
     }
-    this.cards = next;
+    this.cards = next; this.sortedNames = null;
   }
   installOriginalTexts(texts: OriginalCardTextCatalog): void {
     const next = new Map(this.cards);
     for (const c of texts.entries) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:'original-en'});
-    this.cards = next;
+    this.cards = next; this.sortedNames = null;
   }
   /** The server's rarity per passcode; display only. */
   installRarities(rarities: Readonly<Record<string, string>>): void {
@@ -59,6 +59,16 @@ export class CardCatalog {
   }
   get size(): number { return this.cards.size; }
   allCards(): CardView[] { return [...this.cards.keys()].map(pc => this.card(pc)); }
+  /** Card declarations: the passcode a typed name (case and spacing ignored) or passcode names; the first art of a name. */
+  named(text: string): number | null {
+    const key = text.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (/^\d{1,9}$/.test(key)) return Number(key);
+    for (const c of this.cards.values()) if (c.name.toLowerCase().replace(/\s+/g, ' ') === key) return c.passcode;
+    return null;
+  }
+  /** Each card name once, sorted: suggestions for a card declaration. */
+  names(): string[] { return this.sortedNames ??= [...new Set([...this.cards.values()].map(c => c.name))].sort((a, b) => a.localeCompare(b)); }
+  private sortedNames: string[] | null = null;
   get mergePaths(): Record<string, string> { return Object.fromEntries([...this.cards.values()].filter(c => c.mergePath).map(c => [String(c.passcode), c.mergePath!])); }
 }
 

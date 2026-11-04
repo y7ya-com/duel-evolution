@@ -36,6 +36,15 @@ real Worker, better-auth, D1, WorldDO, duel engine). Each asserted flow appends 
 `press` fails on a covered or disabled control rather than skipping it: that is usually a UI defect worth fixing.
 Server logs: the stack's `log` path. Test sign-in and register/sign-in are rate limited like production.
 
+## Scenario duels (`duel-scenarios.test.ts`)
+
+Cases ordinary play rarely reaches (card/number/attribute/type declarations, control changes, tokens, counters,
+ritual and discard selections, cancels) are forced with tiny decks: a 6-card deck is a player's whole hand on its first
+turn, so both players hold known cards. The test rewrites the server state (`POST /__dev/state` gives the two characters
+the cards), so it needs a stack of its own, never a shared one: `STACK_VARS=DEV:1,SEND_PACE:0,DUEL_PAUSE:0.001,DECK_CHECK:avisar`
+(`DECK_CHECK:avisar` lets a PvP duel start with a deck under 40 cards; progression otherwise blocks it). Run it with
+`ACCEPTANCE_SCENARIO=1`; without that it is skipped.
+
 ## Setting up a separate worktree
 
 A git worktree lacks untracked inputs. From the worktree root, link or copy them from the main checkout

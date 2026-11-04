@@ -62,6 +62,8 @@ export interface DuelPromptView {
   readOnly?: boolean;
   numberMin?: number;
   numberMax?: number;
+  /** A card declaration's name suggestions (every catalog name; the server decides what is declarable). */
+  suggestions?: readonly string[];
 }
 export interface DuelView {
   players: readonly [DuelistView, DuelistView];

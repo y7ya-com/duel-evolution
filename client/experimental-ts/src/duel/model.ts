@@ -130,18 +130,20 @@ export function legalActions(state: DuelState): LegalAction[] {
 function prompt(state: DuelState, kind: DuelPrompt['kind'], title: string): DuelPrompt {
   return { id: ++state.promptSequence, kind, title, cancelable: true, cancellationKnown: false,
     actions: legalActions(state), buttons: [...state.buttons[0]], items: structuredClone(state.list.items),
-    text: structuredClone(state.dialog.items), min: 0, max: 1, options: [], dialogKind: 0,
+    text: state.dialog.consumed ? [] : structuredClone(state.dialog.items), min: 0, max: 1, options: [], dialogKind: 0,
     listMode: state.list.mode, detail: 0, hints: 0 };
 }
 function listPrompt(state: DuelState, mode: number, hints = 0): DuelPrompt {
   const result = prompt(state, mode === 0x4b || hints & 1 ? 'announce-card' : 'cards', 'Choose cards');
+  if (state.list.consumed) result.items = [];
   result.listMode = mode; result.hints = hints;
   if (mode === 6) result.min = result.max = 1;
   else if (mode > 6 && mode <= 0x26) result.min = result.max = mode - 6;
   else if (mode === 0x48) { result.min = 0; result.max = result.items.length; }
   else if (mode > 0x27 && mode < 0x48) { result.min = 0; result.max = mode - 0x27; }
   else { result.min = 0; result.max = result.items.length; result.title = 'Inspect cards'; }
-  if (result.kind === 'announce-card') { result.cancelable = false; result.cancellationKnown = true; }
+  // The announcement view carries no list or dialog of its own: what the model holds is the previous view's.
+  if (result.kind === 'announce-card') { result.cancelable = false; result.cancellationKnown = true; result.items = []; result.text = []; result.title = 'Declare a card'; }
   return result;
 }
 function dialogPrompt(state: DuelState, params: number[], hints: number): DuelPrompt {
@@ -149,6 +151,9 @@ function dialogPrompt(state: DuelState, params: number[], hints: number): DuelPr
   const kinds: Record<number, DuelPrompt['kind']> = { 2: 'yesno', 3: 'yesno', 4: 'option', 6: 'race',
     7: 'attribute', 8: 'position', 11: 'number', 13: 'discard', 14: 'ritual', 0xff: 'field-selection', 0xfe: 'cards' };
   const result = prompt(state, kinds[kind] ?? 'unsupported', 'Choose an action');
+  // A dialog keeps the last dialog pictures (LIST_DIALOG), as the original's list buffer does, but never the cards of
+  // a list view that came before it (a Graveyard list under a position question).
+  if (state.list.consumed && state.list.mode !== 0xff) { result.items = []; result.listMode = 0; }
   result.dialogKind = kind; result.detail = detail; result.hints = hints;
   if (['option', 'position', 'race', 'attribute', 'number', 'unsupported'].includes(result.kind)) {
     result.cancelable = false; result.cancellationKnown = true;
@@ -171,7 +176,10 @@ function dialogPrompt(state: DuelState, params: number[], hints: number): DuelPr
     const label = detail & 0xffff, scale = label === 302 ? 1000 : label === 303 ? 100 : 1;
     for (let i = result.min; i <= result.max; i++) result.options.push({ value: i,
       label: `${i * scale}${label === 302 || label === 303 ? ' LP' : label === 304 ? ' stars' : label === 318 ? ' counters' : ''}` });
-  } else if (result.kind === 'discard') result.min = result.max = state.variables[1] ?? 0;
+  } else if (result.kind === 'discard') {
+    // The hand-limit discard (its only dialog) is forced: the server re-asks a cancel.
+    result.min = result.max = state.variables[1] ?? 0; result.cancelable = false; result.cancellationKnown = true;
+  }
   return result;
 }
 
@@ -354,8 +362,11 @@ function applyRecord(state: DuelState, record: CommandRecord): void {
     case 0x1b:
       // Kind 0 is an information box (e.g. surrender refused); the server re-sends the pending prompt right after it.
       if (record.b === 0x32 && p[0] === 0) event(state, 'notice', 0, [p[1] ?? 0]);
-      else if (record.b === 0x32) state.prompt = dialogPrompt(state, p, record.hints);
-      else if (record.b === 0x33) state.prompt = listPrompt(state, p[1], record.hints);
+      else if (record.b === 0x32) {
+        state.prompt = dialogPrompt(state, p, record.hints);
+        // A card-list dialog (0xfe) titles the list view that follows it; every other view uses its texts up.
+        state.list.consumed = true; if (p[0] !== 0xfe) state.dialog.consumed = true;
+      } else if (record.b === 0x33) { state.prompt = listPrompt(state, p[1], record.hints); state.list.consumed = state.dialog.consumed = true; }
       else if (![0x0a, 0x0b, 0x0c, 0x29, 0x37, 0x47].includes(record.b)) {
         unsupported(state, 0x6202, record.kind, record.b, 'Unknown view/prompt command');
       }

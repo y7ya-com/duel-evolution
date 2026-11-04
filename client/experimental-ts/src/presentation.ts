@@ -74,6 +74,9 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }), ...(place ? { place } : {}) };
   }) : [];
   if (p?.kind === 'actions' && state.acceptingInput && !blocked) for (const b of p.buttons) actions.push({ id: `phase:${b}`, label: phases[b] ?? `Phase ${b}` });
+  // A card selection on the board (tributes, a target) can be backed out of, as with the original's right click; the
+  // server refuses (re-sends) one that cannot be cancelled. A zone placement is never cancellable.
+  if (p && isBoardSelection(state, p) && state.acceptingInput && !blocked) actions.push({ id: 'cancel', label: 'Cancel' });
   let prompt: DuelPromptView | null = null;
   if (p && p.kind !== 'actions' && !blocked) {
     const kind: DuelPromptView['kind'] = p.kind === 'yesno' ? 'yes-no' : p.kind === 'position' ? 'position'
@@ -82,16 +85,20 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
       : ['field-selection', 'discard', 'ritual'].includes(p.kind) ? 'place' : 'choice';
     prompt = { id: String(p.id), text: p.title, kind, cancelable: p.cancelable,
       min: p.min, max: p.max, options: p.options.map(o => ({ id: `answer:${o.value}`, label: o.label })),
-      ...(p.kind === 'number' ? { numberMin: p.min, numberMax: p.max } : {}) };
+      ...(p.kind === 'number' ? { numberMin: p.min, numberMax: p.max } : {}), ...(p.kind === 'announce-card' ? { suggestions: catalog.names() } : {}) };
     if (texts) {
       // CHAIN_END has no wire command to clear the cached chain. Only this dialog's
       // explicit picture list is safe context for text alternatives.
-      const context = p.listMode === 0xff ? p.items.find(item => item.owner < 2 && item.passcode)?.passcode ?? undefined : undefined;
+      // Several pictures (a chain question naming every card that could respond) name no single card.
+      const pictured = p.listMode === 0xff ? p.items.filter(item => item.owner < 2 && item.passcode) : [];
+      const context = pictured.length === 1 ? pictured[0]!.passcode ?? undefined : undefined;
       const described = describePrompt(p, texts, context);
       prompt.text = described.title;
       prompt.options = prompt.options.map((option, i) => ({ ...option, label: described.optionLabels.get(i) ?? option.label }));
     }
-    if (p.items.length) prompt.candidates = p.items.map((c, i) => ({ id: String(i), label: c.passcode ? catalog.card(c.passcode).name : 'Hidden card', ...(c.passcode ? { card: catalog.card(c.passcode) } : {}) }));
+    // Owner 2 rows are an option dialog's texts (its choices), not cards.
+    if (p.items.some(c => c.owner !== 2)) prompt.candidates = p.items.map((c, i) => ({ id: String(i), owner: c.owner, label: c.passcode ? catalog.card(c.passcode).name : 'Hidden card', ...(c.passcode ? { card: catalog.card(c.passcode) } : {}) }))
+      .filter(c => c.owner !== 2).map(({ owner: _, ...c }) => c);
     if (p.kind === 'cards' && !(p.listMode >= 6 && p.listMode <= 0x26 || p.listMode >= 0x28 && p.listMode <= 0x48)) {
       prompt.min = prompt.max = 0;
       prompt.readOnly = true;
@@ -132,9 +139,11 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     ...(latestIssue ? { waiting: `Unsupported gameplay: ${latestIssue}`, issue: `A duel message could not be used (${latestIssue}); the board shows the last good state.` } : blocked ? { waiting: 'Waiting for the server…' } : {}),
   };
 }
+const isBoardSelection = (state: DuelState, p: NonNullable<DuelState['prompt']>) => p.kind === 'actions' && !p.buttons.length && p.actions.some(a => a.command === 11 && uidFor(state, a) !== null);
 function actionResponse(id: string, state: DuelState): EngineResponse {
   const p = state.prompt;
   if (!p || !state.acceptingInput) throw new Error('No active server choice');
+  if (id === 'cancel' && isBoardSelection(state, p)) return { type: 'cancel' };
   const a = p.actions.find(a => actionId(a) === id);
   if (a) return { type: 'action', player: a.player, zone: a.zone, index: a.index, command: a.command };
   const phase = p.buttons.find(b => `phase:${b}` === id);
@@ -143,7 +152,8 @@ function actionResponse(id: string, state: DuelState): EngineResponse {
   if (option) return p.kind === 'yesno' ? { type: 'yesno', yes: option.value === 1 } : { type: 'answer', value: option.value };
   throw new Error('The choice is no longer available');
 }
-export function interpretResponse(state: DuelState, id: string, response?: DuelResponse): EngineResponse {
+/** `named` resolves a typed card declaration (a name or passcode) to a passcode; the server decides if it is declarable. */
+export function interpretResponse(state: DuelState, id: string, response?: DuelResponse, named?: (text: string) => number | null): EngineResponse {
   const p = state.prompt;
   if (!p || String(p.id) !== id) throw new Error('This prompt is no longer active');
   if (!response) throw new Error('A response is required');
@@ -165,7 +175,11 @@ export function interpretResponse(state: DuelState, id: string, response?: DuelR
     }) };
   }
   if ('number' in response) return { type: 'answer', value: response.number };
-  if ('text' in response && p.kind === 'announce-card' && /^\d{1,8}$/.test(response.text)) return { type: 'announce-card', passcode: Number(response.text) };
+  if ('text' in response && p.kind === 'announce-card') {
+    const passcode = named ? named(response.text) : /^\d{1,8}$/.test(response.text.trim()) ? Number(response.text.trim()) : null;
+    if (passcode === null) throw new Error(`No card is named “${response.text.trim().slice(0, 60)}”.`);
+    return { type: 'announce-card', passcode };
+  }
   throw new Error('Unsupported choice');
 }
 export function interpretAction(state: DuelState, id: string): EngineResponse { return actionResponse(id, state); }
