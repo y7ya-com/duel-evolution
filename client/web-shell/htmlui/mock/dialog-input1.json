@@ -1,0 +1,160 @@
+{
+ "v": 1,
+ "frame": 4000,
+ "scene": 7,
+ "_note": "MOCK: the name prompt",
+ "mouse": {
+  "x": 0,
+  "y": 0,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 6708224,
+   "cls": "CWindowModelInput1",
+   "x": 344,
+   "y": 312,
+   "w": 336,
+   "h": 144,
+   "z": 51403,
+   "wz": 51408,
+   "drawn": {
+    "x": 344,
+    "y": 312,
+    "w": 336,
+    "h": 144
+   },
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 6638592,
+     "cls": "CWindowTaskFramePlane",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 0.7,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 0,
+     "y": 0,
+     "w": 336,
+     "h": 144,
+     "style": 1
+    },
+    {
+     "id": 6639616,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 16,
+     "y": 24,
+     "w": 304,
+     "h": 16,
+     "text": "Enter your Player Name",
+     "align": 1,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 6,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 6640640,
+     "cls": "CWindowTaskInput",
+     "name": "",
+     "parent": 0,
+     "z": 1,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": true,
+     "x": 56,
+     "y": 52,
+     "w": 224,
+     "h": 32,
+     "value": "Duelist",
+     "password": false,
+     "caret": {
+      "col": 7,
+      "line": 0
+     },
+     "caretOn": true,
+     "maxLen": 16,
+     "multiLine": false
+    },
+    {
+     "id": 6641664,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "",
+     "parent": 0,
+     "z": 1,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 44,
+     "y": 112,
+     "w": 80,
+     "h": 24,
+     "label": "OK",
+     "state": "normal",
+     "checked": false,
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null
+    },
+    {
+     "id": 6642688,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "",
+     "parent": 0,
+     "z": 1,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 212,
+     "y": 112,
+     "w": 80,
+     "h": 24,
+     "label": "Cancel",
+     "state": "normal",
+     "checked": false,
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null
+    }
+   ],
+   "extras": [],
+   "_note": "MOCK: CWindowModelInput1; GEOMETRY GUESSED (no decomp of its layout): check live."
+  }
+ ],
+ "tasks": []
+}

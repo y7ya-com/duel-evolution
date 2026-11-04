@@ -1,0 +1,913 @@
+{
+ "v": 1,
+ "frame": 5000,
+ "scene": 11,
+ "_note": "MOCK: a player's card (CPlayerListMenu) in the lobby, laid out as showInfo does (no duel room); strings made up. The friend button hovered, ignore pressed; the Duel tab above.",
+ "mouse": {
+  "x": 400,
+  "y": 300,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 7379968,
+   "cls": "CPlayerListMenu",
+   "x": 340,
+   "y": 220,
+   "w": 336,
+   "h": 328,
+   "z": 30000,
+   "wz": 31000,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": true,
+   "active": true,
+   "controls": [
+    {
+     "id": 7341056,
+     "cls": "CWindowTaskFrameThin",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 336,
+     "h": 328,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "style": 3
+    },
+    {
+     "id": 7342080,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuのレベル＆名前表示",
+     "parent": 0,
+     "x": 8,
+     "y": 8,
+     "w": 320,
+     "h": 36,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7344128,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7342080,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 36,
+     "z": 0,
+     "alpha": 0.63,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7343104,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.63,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.9,
+         0.9,
+         0.9,
+         0.63
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7345152,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7342080,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 36,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "LV12  Duelist E\nTeam Kaiba",
+     "align": 1,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7346176,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuの『称号：』テキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 44,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7348224,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7346176,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.81,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7347200,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.81,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.8,
+         0.8,
+         0.8,
+         0.81
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7349248,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7346176,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Title:",
+     "align": 0,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7350272,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuの称号テキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 60,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7352320,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7350272,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.81,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7351296,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.81,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.8,
+         0.8,
+         0.8,
+         0.81
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7353344,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7350272,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Rookie Duelist",
+     "align": 2,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7354368,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuの『勝率：』テキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 76,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7356416,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7354368,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.63,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7355392,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.63,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.9,
+         0.9,
+         0.9,
+         0.63
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7357440,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7354368,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Win%:",
+     "align": 0,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7358464,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuの勝率テキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 92,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7360512,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7358464,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.63,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7359488,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.63,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.9,
+         0.9,
+         0.9,
+         0.63
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7361536,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7358464,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Wins 12 / Losses 7",
+     "align": 2,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7362560,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuの『コメント:』テキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 108,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7364608,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7362560,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.81,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7363584,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.81,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.8,
+         0.8,
+         0.8,
+         0.81
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7365632,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7362560,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Comment:",
+     "align": 0,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7366656,
+     "cls": "CWindowTaskHelp",
+     "name": "CPlayerListMenuのコメントテキスト",
+     "parent": 0,
+     "x": 8,
+     "y": 124,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false
+    },
+    {
+     "id": 7368704,
+     "cls": "CWindowTaskBackPlane",
+     "name": "",
+     "parent": 7366656,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.81,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7367680,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.81,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         0.8,
+         0.8,
+         0.8,
+         0.81
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7369728,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 7366656,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 16,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Trading for dragons!",
+     "align": 2,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7371776,
+     "cls": "CWindowTaskBackPlane",
+     "name": "CPlayerListMenuの背景",
+     "parent": 0,
+     "x": 8,
+     "y": 140,
+     "w": 320,
+     "h": 180,
+     "z": 0,
+     "alpha": 0.9,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7370752,
+        "name": "CWindowTaskBackPlaneの画像",
+        "tex": "data/common/window/window_base_01_c01.png",
+        "src": [
+         8,
+         8,
+         8,
+         8
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 0,
+        "a": 0.63,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         1,
+         1,
+         1,
+         0.63
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7372800,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "フレンド申し込みボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 148,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Send Friend Request",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "hover",
+     "checked": false
+    },
+    {
+     "id": 7373824,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "トレード申し込みボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 184,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Request Trade",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "normal",
+     "checked": false
+    },
+    {
+     "id": 7374848,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "チャットメッセージボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 220,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Send Chat Message",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "normal",
+     "checked": false
+    },
+    {
+     "id": 7375872,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "ブラックリストボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 256,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Add to Ignore List",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "pressed",
+     "checked": false
+    },
+    {
+     "id": 7376896,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "近くに飛ぶボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 292,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Go to Player",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "normal",
+     "checked": false
+    },
+    {
+     "id": 7377920,
+     "cls": "CWindowTaskTextSwitch",
+     "name": "デュエル申し込みボタン",
+     "parent": 0,
+     "x": 24,
+     "y": 0,
+     "w": 288,
+     "h": 24,
+     "z": 2,
+     "alpha": 1,
+     "shown": false,
+     "enabled": true,
+     "focused": false,
+     "label": "Send Duel Request",
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "state": "normal",
+     "checked": false
+    }
+   ],
+   "extras": [
+    {
+     "id": 7378944,
+     "cls": "CNationFlag"
+    }
+   ]
+  }
+ ],
+ "tasks": []
+}

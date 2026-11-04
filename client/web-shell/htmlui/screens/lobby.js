@@ -1,24 +1,17 @@
 // The lobby's own windows in HTML: the Main Menu (CMainMenu, src/Game/yo2MenuMain.cpp), the place banner
-// (CWindowModelPlace, src/Game/yo2MenuPlace.cpp) and the menu bar (CWindowModelMenu + CWindowTaskMenubar,
-// src/Game/yo2MenuBar.cpp.wip, yo2WindowControls.cpp CWindowTaskMenubar::onInit). The owner's skin rule (CONTRACT.md
-// "Skin": sharp at 2x): the Main Menu is controls/skin.js's components (panel, titleBar with its close box,
-// menuButton), as skin.html lays them out; the banner and the bar's strip are CSS here in their art's sampled colours
-// (for skin.js once promoted). The bar's buttons are pictures (menuicon_02_c01.png): <button>s showing the look the
-// engine shows. Text: Arial (textBox, spaced as the game), white captions outlined as skin.js's.
+// (CWindowModelPlace, src/Game/yo2MenuPlace.cpp), the menu bar (CWindowModelMenu + CWindowTaskMenubar,
+// src/Game/yo2MenuBar.cpp.wip, yo2WindowControls.cpp CWindowTaskMenubar::onInit) and the cards a click in the lobby
+// opens (CPlayerListMenu, CNpcListMenu: src/Lobby/). The owner's skin rule (CONTRACT.md "Skin": sharp at 2x): the
+// Main Menu is controls/skin.js's components (panel, titleBar with its close box, menuButton), as skin.html lays them
+// out; the banner, the bar's strip, its picture buttons (./lobby_icons.js: the menuicon_02_c01 plates and pictograms
+// as CSS + SVG) and the cards' frames are CSS here in their art's sampled colours (for skin.js once promoted). Text:
+// Arial (textBox, spaced as the game), white captions outlined as skin.js's.
 // Pass mode: the game takes the input; hover and pressed come from the snapshot.
-import { SHEET, sprite } from '../../ui.js';
-import { textBox } from '../controls/basic.js';
+import { textBox, shownLines, textWidth, spacing } from '../controls/basic.js';
 import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
+import { KIND, PLATE, plateBackground, glyph } from './lobby_icons.js';
 
-// CWindowTaskFramePlace, lobbyname_win_01_c01.png (256 x 52; the body stretched after its first 224 px): a 1 px brown
-// edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
-// #7deffc over its first 219 px, every other row lighter (the art's scan lines).
-// CWindowTaskMenubar, menuber_01_c01.png (1024 x 32, over menuber_02_c01.png's white field at 0.7): a cyan to blue
-// strip, its top 3 rows lighter, its bottom 3 darker; the message field x 392..1016, y 8..24: menuber_02's white panel
-// at 0.698 (the strip's texels there are transparent: live in My Room, over the black backdrop, the engine's field
-// reads #b2b2b2), its edge a pixel of half white blended into the strip (the strip's white texel rows read half a
-// texel up-left). Measured with htmlui-chat in My Room.
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
   border-color: #cbb598 #894009 #893b06 #a57f4e; background: #f2e14f;
@@ -39,7 +32,18 @@ const CSS = `
   -webkit-mask-composite: xor; mask-composite: exclude; }
 .lb-field { position: absolute; left: 392px; top: 8px; width: 625px; height: 17px;
   background: rgba(255, 255, 255, .698); box-shadow: 0 0 0 1px rgba(255, 255, 255, .5); }
-.lb-icon { position: absolute; width: 80px; height: 32px; }`;
+.lb-icon { position: absolute; width: 80px; height: 32px; margin: 0; padding: 0; border: 0; background: none; }
+.lb-icon > i { position: absolute; left: 8px; top: 4px; width: 72px; height: 24px; box-sizing: border-box; border: 1px solid;
+  clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
+.lb-icon > svg { position: absolute; left: 0; top: 0; overflow: visible; display: none; }
+${['normal', 'hover', 'pressed'].map(k => `.lb-icon[data-look=${k}] > i { border-color: ${PLATE[k].border}; background: ${plateBackground(PLATE[k])}; }
+.lb-icon[data-look=${k}] > svg[data-look=${k}] { display: block; }`).join('\n')}
+.lb-msg { position: absolute; left: 392px; top: 8px; width: 624px; height: 16px; overflow: hidden; }
+.lb-card { position: absolute; left: 0; top: 0; }
+.lb-thin { position: absolute; box-sizing: border-box; border: 3px solid; border-bottom-right-radius: 6px; }
+.lb-thin > i { position: absolute; inset: 0; border: 1px solid; border-bottom-right-radius: 3px;
+  box-shadow: inset 0 0 0 3px var(--body), inset 0 0 0 4px #fff; }
+.lb-plane { position: absolute; }`;
 
 function inject() {
   if (document.getElementById('htmlui-lobby')) return;
@@ -57,20 +61,6 @@ function shadowText(parent, c) {
 }
 const top = c => !c.parent;
 const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 'pressed' : c.state === 'hover' ? 'hover' : 'normal';
-
-// The bar's picture atlas (not in ui.js's SHEET yet), loaded as it loads one: its clamp copy's alpha says where
-// sprite() needs the .rgb copy under a mask
-let icons, loading;
-const loadIcons = () => loading ||= (async () => {
-  const base = SHEET.window.url.slice(0, SHEET.window.url.lastIndexOf('/') + 1), m = new Image();
-  m.src = base + 'clamp/menuicon_02_c01.png';
-  await m.decode();
-  const g = new OffscreenCanvas(m.width, m.height).getContext('2d', { willReadFrequently: true });
-  g.drawImage(m, 0, 0);
-  const d = g.getImageData(0, 0, m.width, m.height).data, a = new Uint8Array(m.width * m.height);
-  for (let i = 0; i < a.length; i++) a[i] = d[4 * i + 3];
-  icons = { url: base + 'menuicon_02_c01.png', w: 240, h: 192, alpha: a };
-})();
 
 // CMainMenu: the frame (FrameMain, the window's size: skin.js panel with the bottom-thick band), the title bar with the
 // × (ShadowText, IconHide), an entry per shown ButtonMain (skin.js menuButton)
@@ -115,48 +105,156 @@ function place(win, root, st) {
   for (const c of texts) shadowText(root, c);
 }
 
-// CWindowModelMenu: the strip and its message field (the Menubar), the picture buttons, the message text
+// CWindowModelMenu: the strip and its message field (the Menubar), the picture buttons (CWindowTaskPictureSwitch, 80 x 32
+// at slot x 80: ./lobby_icons.js, the kind from the atlas row its art reads, the look from the one of its sprites the
+// engine shows: hover, pressed, or checked, whose art is pressed's), the help message (CWindowTaskMenubar::setMessage
+// 0x005d4f80 / onMain 0x005d4970: its two texts are the Menubar's own, unlisted: `message` at x 392 + scroll, y 8, and
+// a second copy at width + scroll + 704 once it is wider than 624; the strip covers them outside the field: clipped
+// there), the window's own text at (392, 8). The notice icons (CNoticeIcon*: 32 x 32 SWF animations, from x 232 at
+// y -16, CWindowModelMenu::placeNotices 0x00a7fbf0) are pictures the engine keeps drawing (passthrough).
+const iconKind = c => KIND[c.art?.normal?.src?.[1]] || ({ MAIN: 'main', DUEL: 'duel', MOVE: 'move', CONFIG: 'config', RETURN: 'return' })[/MENUBAR_MENU_([A-Z]+)/.exec(c.name || '')?.[1]];
+const iconLook = c => {
+  const a = c.art || {};
+  if (a.pressed?.shown || a.checked?.shown) return 'pressed';
+  if (a.hover?.shown) return 'hover';
+  if (a.normal?.shown) return 'normal';
+  return c.state === 'pressed' ? 'pressed' : c.state === 'hover' ? 'hover' : 'normal';
+};
+const textW = s => textWidth(s) + spacing(s) * [...s].length;
 function menuBar(win, root, st) {
+  kept.set(win.id, new Set(win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id)));
   if (!st.bar) {
     root.replaceChildren();
     st.bar = document.createElement('div');
     st.bar.className = 'lb-bar';
-    root.append(st.bar, Object.assign(document.createElement('div'), { className: 'lb-field' }));   // not in the masked strip
+    st.clip = Object.assign(document.createElement('div'), { className: 'lb-msg' });
+    root.append(st.bar, Object.assign(document.createElement('div'), { className: 'lb-field' }), st.clip);   // not in the masked strip
     st.icons = new Map();
   }
   const seen = new Set();
   for (const c of win.controls) {
     if (c.cls !== 'CWindowTaskPictureSwitch' || !c.shown) continue;
+    const kind = iconKind(c);
+    if (!kind) continue;
     seen.add(c.id);
     let b = st.icons.get(c.id);
-    if (!b) {
-      b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn lb-icon', tabIndex: -1 });
-      b.sp = sprite(b, icons, 0, 0, 80, 32, 0, 0, 80, 32);
+    if (!b || b.kind !== kind) {
+      b?.remove();
+      b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn lb-icon', tabIndex: -1, kind });
+      b.setAttribute('aria-label', kind);
+      b.innerHTML = '<i></i>' + ['normal', 'hover', 'pressed'].map(k => glyph(kind, k).replace('<svg ', `<svg data-look="${k}" `)).join('');
       root.append(b);
       st.icons.set(c.id, b);
     }
-    // the look the engine shows: the one of its four sprites that is drawn
-    const a = Object.values(c.art || {}).find(s => s?.shown) || c.art?.normal;
     Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px' });
-    if (a && b.uv !== a.src.join()) { b.uv = a.src.join(); b.sp.src(a.src[0], a.src[1]); }
+    b.dataset.look = iconLook(c);
     b.dataset.state = look(c);
   }
   for (const [id, b] of st.icons) if (!seen.has(id)) { b.remove(); st.icons.delete(id); }
-  const msg = win.controls.find(c => c.cls === 'CWindowTaskText' && top(c));
-  const text = msg?.shown ? msg.text : '';
-  if (st.text !== text) {
-    st.text = text;
-    st.msg?.remove();
-    st.msg = text ? textBox(root, text, { x: msg.x, y: msg.y }) : null;
+  // the help message, scrolled as the engine scrolls it; the window's own text
+  const bar = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
+  const own = win.controls.find(c => c.cls === 'CWindowTaskText' && top(c));
+  const m = bar?.shown ? bar.message || '' : '', o = own?.shown ? own.text || '' : '';
+  const key = JSON.stringify([m, bar?.scroll || 0, o, own?.x, own?.y]);
+  if (st.text !== key) {
+    st.text = key;
+    st.clip.replaceChildren();
+    if (m) {
+      const w = textW(m), sc = bar.scroll || 0;
+      textBox(st.clip, m, { x: sc });
+      if (w > 624) textBox(st.clip, m, { x: w + sc + 704 - 392 });
+    }
+    if (o) textBox(st.clip, o, { x: own.x - 392, y: own.y - 8 });
   }
 }
 
-// A player's card (CPlayerListMenu): the game draws all of it (its ids pass through, `kept`); the page adds one
-// 2008 button on a tab above its top right, Duel (../invite.js), when the game offers no duel request of its
-// own, and a refusal's reason in a box under the tab for a few seconds
-const kept = new Map();   // window id -> its control and sprite ids
-function playerCard(win, root, st) {
-  kept.set(win.id, new Set([...win.controls.map(c => c.id), ...(win.extras || []).map(e => e.id)]));
+// A player's / an NPC's card (CPlayerListMenu, CNpcListMenu: src/Lobby/yo2PlayerListMenu.cpp, yo2NpcListMenu.cpp;
+// onInit builds it, showInfo lays it out). Every piece is the snapshot's:
+//  - the frame: CWindowTaskFrameThin (layout 0x005a29b0: eight 8 x 8 pieces of window_base_01_c0<style>, corners fixed,
+//    edges stretched, NO centre: the card is see-through between its planes) at the card's 0.9 (kAlpha 0x00bee924).
+//    Style 3 (the player's, yellow) / 2 (the NPC's, green), sampled from the atlas texels: 3 rows / columns of the
+//    outer colour (light top and left, darker right and bottom), 1 of a middle one, 3 of the body colour, 1 of #fff;
+//    the corners mitred, the bottom right one cut (5 transparent texels on the diagonal). CSS borders: their corners
+//    mitre as the art's do; the body and the white line an inset shadow inside the 1-px middle border.
+//  - the texts: CWindowTaskHelps (read/lobby.js: their size), each a text on its back plane (window_base_01_c01's
+//    white middle texel tinted by windowHelpSetBackColor: the 『』 labels' and values' grey 0.8): the plane's colour and
+//    alpha are its sprite's drawn ones (parts: col), the text Arial (textBox) in the Help's own text's place, width and
+//    alignment (the name centred, labels left, values right). A CTextElm's colour multiplies black glyphs: the name's
+//    red (setColor(1, 0, 0, 1)) draws black, as textBox draws it.
+//  - the buttons' back plane (the BackPlane "CPlayerListMenuの背景", from the room's conditions down: white) and the
+//    buttons (TextSwitch, 288 x 24 at x 24: the generic renderer's CSS plate and black caption, api.syncWindow).
+//  - the nation flag (CNationFlag "Duel国旗", a CTask child, not a control) and any other picture under the card: the
+//    window's extras, which the engine keeps drawing (passthrough).
+// The page adds one 2008 button on a tab above the player card's top right, Duel (../invite.js), when the game offers
+// no duel request of its own, and a refusal's reason in a box under the tab for a few seconds.
+const kept = new Map();   // window id -> the ids the engine keeps drawing (with their subtrees)
+// window_base_01_c0<style>: [outer top, left, right, bottom], [middle top, left, right, bottom], body
+const THIN = {
+  2: [['#80ffda', '#5aff99', '#31e75c', '#26d84d'], ['#5cff9d', '#50ff88', '#3bf368', '#35eb60'], '#44ff74'],
+  3: [['#ffff80', '#ffff5a', '#f6e431', '#f2d426'], ['#ffff5c', '#ffff50', '#faf23b', '#f8ea35'], '#fdff44'],
+};
+const rgba = ([r, g, b, a]) => `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${+(+a).toFixed(3)})`;
+// a plane's drawn colour: its sprite's col (its colour x its parents', alpha included); without parts, the back
+// colour showInfo / onInit set (grey 0.8 for the player's title and comment, the NPC's record; white otherwise) at
+// the plane's 0.7 x the Help's 0.9 (ponytail: a live capture to confirm)
+export const planeColor = (p, name = '') => {
+  const s = p?.parts?.sprites?.find(q => q.shown) || p?.parts?.sprites?.[0];
+  if (s?.col) return rgba(s.col);
+  const g = /称号|コメント|勝率/.test(name) && !/^CPlayerListMenuの(『勝率|勝率)/.test(name) || /CNpcList.*勝率/.test(name) ? 0.8 : 1;
+  return rgba([g, g, g, 0.63]);
+};
+// what the card draws, from the snapshot (also its redraw key)
+export function cardArt(win) {
+  const cs = win.controls, under = id => cs.filter(c => c.parent === id);
+  const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin' && top(c));
+  const helps = cs.filter(c => c.cls === 'CWindowTaskHelp' && top(c) && c.shown).map(hp => {
+    const plane = under(hp.id).find(c => c.cls === 'CWindowTaskBackPlane'), t = under(hp.id).find(c => c.cls === 'CWindowTaskText');
+    const w = hp.w || plane?.w || 0, h = hp.h || plane?.h || 16;
+    return { x: hp.x, y: hp.y, w, h, back: plane && !plane.shown ? null : planeColor(plane, hp.name),
+      text: t?.shown ? shownLines(t) : '', tx: t?.x || 0, ty: t?.y || 0, tw: t?.w > 0 && t.w <= 1024 ? t.w : w,
+      align: t?.align ?? 0, px: t?.fontSize || 16, gap: t?.lineGap || 0, color: t?.color, alpha: t?.alpha ?? 1 };
+  });
+  const planes = cs.filter(c => c.cls === 'CWindowTaskBackPlane' && top(c) && c.shown && c.w > 0 && c.h > 0)
+    .map(p => ({ x: p.x, y: p.y, w: p.w, h: p.h, back: planeColor(p) }));
+  return { frame: frame?.shown ? { x: frame.x, y: frame.y, w: frame.w, h: frame.h, style: frame.style, alpha: frame.alpha } : null, planes, helps };
+}
+function card(win, root, st) {
+  kept.set(win.id, new Set((win.extras || []).map(e => e.id)));
+  const art = cardArt(win), key = JSON.stringify(art);
+  if (st.key !== key) {
+    st.key = key;
+    st.art ||= root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-card' }));
+    st.art.replaceChildren();
+    const f = art.frame;
+    if (f) {
+      const [out, mid, body] = THIN[f.style] || THIN[3], d = document.createElement('div'), i = document.createElement('i');
+      d.className = 'lb-thin';
+      Object.assign(d.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px', opacity: f.alpha ?? 1, borderColor: out.join(' ') });
+      i.style.borderColor = mid.join(' ');
+      i.style.setProperty('--body', body);
+      d.append(i);
+      st.art.append(d);
+    }
+    for (const p of [...art.planes, ...art.helps]) {
+      if (!p.back || !p.w || !p.h) continue;
+      const d = document.createElement('div');
+      d.className = 'lb-plane';
+      Object.assign(d.style, { left: p.x + 'px', top: p.y + 'px', width: p.w + 'px', height: p.h + 'px', background: p.back });
+      st.art.append(d);
+    }
+    for (const t of art.helps) {
+      if (!t.text) continue;
+      const d = textBox(st.art, t.text, { x: t.x + t.tx, y: t.y + t.ty, w: t.tw, align: t.align, px: t.px, gap: t.gap, color: t.color });
+      if (t.alpha < 1) d.style.opacity = t.alpha;
+    }
+  }
+  // the buttons over the planes: the generic TextSwitch (its plate, its caption, the snapshot's state)
+  st.btns ||= root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-card' }));
+  st.btnMap ||= new Map();
+  st.api.syncWindow(st.btns, { ...win, controls: win.controls.filter(c => top(c) && /TextSwitch$/.test(c.cls)) }, st.btnMap);
+  if (win.cls === 'CPlayerListMenu') duelTab(win, root, st);
+}
+function duelTab(win, root, st) {
   const show = win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
   if (!show) { if (st.btn) { st.btn.remove(); st.btn = null; } return; }
   if (st.btn) return;
@@ -179,17 +277,18 @@ function playerCard(win, root, st) {
   };
 }
 
-const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CPlayerListMenu: playerCard };
+const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CPlayerListMenu: card, CNpcListMenu: card };
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
-  clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
+  clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, the Duel tab over the card
+  parts: true,   // the cards' planes: their sprites' drawn colours
   mount: (win) => { inject(); return { id: win.id }; },
-  passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),   // a kept control's parts too
+  // what the engine keeps drawing: the cards' extras (flag, pictures), the bar's notice icons, with their subtrees
+  passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),
   update(win, prev, root, api, st) {
     st.win = win;
     st.api = api;
-    if (win.cls === 'CWindowModelMenu' && !icons) { loadIcons().then(() => menuBar(st.win, root, st)); return; }
     DRAW[win.cls](win, root, st);
   },
   unmount(root, st) { kept.delete(st?.id); root.replaceChildren(); },

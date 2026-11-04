@@ -1,0 +1,794 @@
+{
+ "v": 1,
+ "frame": 5000,
+ "scene": 11,
+ "_note": "MOCK: the lobby menu bar (CWindowModelMenu): Main, Duel hovered, Move pressed, Config, Return; a long help message scrolled 140 px; a mail notice (engine-drawn). Strings made up.",
+ "mouse": {
+  "x": 400,
+  "y": 300,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 7441408,
+   "cls": "CWindowModelMenu",
+   "x": 0,
+   "y": 736,
+   "w": 384,
+   "h": 32,
+   "z": 30000,
+   "wz": 31000,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": true,
+   "active": true,
+   "controls": [
+    {
+     "id": 7412736,
+     "cls": "CWindowTaskMenubar",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 0,
+     "h": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "message": "Open the Main Menu: Edit Deck, My Profile, Create Comment, Duel Options, D-Mail, Audio, Duel Log, the Ignore, Friend and Team lists.",
+     "scroll": -140
+    },
+    {
+     "id": 7413760,
+     "cls": "CWindowTaskText",
+     "name": "",
+     "parent": 0,
+     "x": 392,
+     "y": 8,
+     "w": 256,
+     "h": 256,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "",
+     "align": 0,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 100,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 7418880,
+     "cls": "CWindowTaskPictureSwitch",
+     "name": "CWindowModelMenuのMENUBAR_MENU_MAINボタン",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 80,
+     "h": 32,
+     "z": 10,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "",
+     "state": "normal",
+     "checked": false,
+     "art": {
+      "normal": {
+       "id": 7414784,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        0,
+        0,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": true
+      },
+      "hover": {
+       "id": 7415808,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        80,
+        0,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "pressed": {
+       "id": 7416832,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        0,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "checked": {
+       "id": 7417856,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        0,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      }
+     }
+    },
+    {
+     "id": 7424000,
+     "cls": "CWindowTaskPictureSwitch",
+     "name": "CWindowModelMenuのMENUBAR_MENU_DUELボタン",
+     "parent": 0,
+     "x": 80,
+     "y": 0,
+     "w": 80,
+     "h": 32,
+     "z": 10,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "",
+     "state": "hover",
+     "checked": false,
+     "art": {
+      "normal": {
+       "id": 7419904,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        0,
+        64,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "hover": {
+       "id": 7420928,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        80,
+        64,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": true
+      },
+      "pressed": {
+       "id": 7421952,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        64,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "checked": {
+       "id": 7422976,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        64,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      }
+     }
+    },
+    {
+     "id": 7429120,
+     "cls": "CWindowTaskPictureSwitch",
+     "name": "CWindowModelMenuのMENUBAR_MENU_MOVEボタン",
+     "parent": 0,
+     "x": 160,
+     "y": 0,
+     "w": 80,
+     "h": 32,
+     "z": 10,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "",
+     "state": "pressed",
+     "checked": false,
+     "art": {
+      "normal": {
+       "id": 7425024,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        0,
+        96,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "hover": {
+       "id": 7426048,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        80,
+        96,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "pressed": {
+       "id": 7427072,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        96,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": true
+      },
+      "checked": {
+       "id": 7428096,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        96,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      }
+     }
+    },
+    {
+     "id": 7434240,
+     "cls": "CWindowTaskPictureSwitch",
+     "name": "CWindowModelMenuのMENUBAR_MENU_CONFIGボタン",
+     "parent": 0,
+     "x": 240,
+     "y": 0,
+     "w": 80,
+     "h": 32,
+     "z": 10,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "",
+     "state": "normal",
+     "checked": false,
+     "art": {
+      "normal": {
+       "id": 7430144,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        0,
+        128,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": true
+      },
+      "hover": {
+       "id": 7431168,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        80,
+        128,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "pressed": {
+       "id": 7432192,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        128,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "checked": {
+       "id": 7433216,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        128,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      }
+     }
+    },
+    {
+     "id": 7439360,
+     "cls": "CWindowTaskPictureSwitch",
+     "name": "CWindowModelMenuのMENUBAR_MENU_RETURNボタン",
+     "parent": 0,
+     "x": 320,
+     "y": 0,
+     "w": 80,
+     "h": 32,
+     "z": 10,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "",
+     "state": "normal",
+     "checked": false,
+     "art": {
+      "normal": {
+       "id": 7435264,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        0,
+        160,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": true
+      },
+      "hover": {
+       "id": 7436288,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        80,
+        160,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "pressed": {
+       "id": 7437312,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        160,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      },
+      "checked": {
+       "id": 7438336,
+       "name": "",
+       "tex": "data/common/window/menuicon_02_c01.png",
+       "src": [
+        160,
+        160,
+        80,
+        32
+       ],
+       "x": 0,
+       "y": 0,
+       "z": 0,
+       "a": 1,
+       "sx": 1,
+       "sy": 1,
+       "rgba": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "col": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "shown": false
+      }
+     }
+    },
+    {
+     "id": 7440384,
+     "cls": "CNoticeIconMail",
+     "name": "CWindowModelMenuのMENUBAR_NOTICE_MAILEボタン",
+     "parent": 0,
+     "x": 232,
+     "y": -16,
+     "w": 0,
+     "h": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "unknown": true
+    }
+   ],
+   "extras": []
+  }
+ ],
+ "tasks": []
+}
