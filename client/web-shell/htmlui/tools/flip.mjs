@@ -141,6 +141,18 @@ export const ROUTES = {
       for (let i = 1; i <= 12; i++) { cv.dispatchEvent(new MouseEvent('mousemove', at(${x0} + (${x1} - ${x0}) * i / 12, ${y0} + (${y1} - ${y0}) * i / 12, 1))); await sl(250); }
       await sl(800); cv.dispatchEvent(new MouseEvent('mouseup', at(${x1}, ${y1}, 0)));
     })()`];
+    // SPAIR: PAIR with waits for a loaded machine (a few game frames a second: the hide table and the DOM need time)
+    const SPAIR = (cls, tag) => [['js', `yo2Html.isolate(${JSON.stringify(cls)})`], ['wait', 3000], ['shot', tag + '-engine'],
+      ['on', cls], ['wait', 3000], ['shot', tag + '-html'], ['snap', tag], ['js', `yo2Html.toggle(${JSON.stringify(cls)}, false); yo2Html.isolate(null)`], ['wait', 3000]];
+    // HOLD(x, y, down): the left button pressed (down) or released over a game point (canvas events)
+    const HOLD = (x, y, down) => ['js', `(() => { const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      cv.dispatchEvent(new MouseEvent(${down ? "'mousedown'" : "'mouseup'"}, { clientX: r.left + ${x} * k, clientY: r.top + ${y} * k, bubbles: true, button: 0, buttons: ${down ? 1 : 0} })); })()`];
+    // NOTICE: until the menu bar shows a notice icon (tools/partner.mjs --friend: the partner's friend request)
+    const NOTICE = ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms));
+      for (let t = 0; t < 400; t++, await sl(1000)) if (yo2Html.snapshot().windows.some(w => w.cls === 'CWindowModelMenu' && w.controls.some(c => /^CNoticeIcon/.test(c.cls) && c.shown))) return;
+      throw new Error('no notice icon');
+    })()`];
     return {
       'tl-explore': { player: 'Lobby Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...TL_LOBBY, ['shot', 'x-lobby'], ['snap', 'x-lobby'], ['log', 'console']], flip: [] },
       // the menu bar (CWindowModelMenu) in the lobby (Main, Duel, Move): the strip, each icon hovered, Main pressed
@@ -153,6 +165,8 @@ export const ROUTES = {
       // the NPC card (CNpcListMenu): Yami Yugi in Clock Square (the blue door's first room, as the duelcut route): clicknpc
       // clicks his body and his row in the list of avatars that opens (the Store lobby's NPCs wander off their map spots)
       'tl-npc': { player: 'Lobby Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...TL_ROOM, DOOR(BLUE, [510, 214]), ['wait', 20000], ['click', 512, 671], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
+        // walked up to him first: he wanders, and behind the chat window a click on him lands on the chat
+        ['rc', 'walkto npc Yami Yugi 900'], ['wait', 20000],
         ...PRE('CNpcListMenu', 'CWindowModelMenu'), // clicknpc, then (the game runs at a few frames a second under load: clicknpc's own row click comes too early) his
         // row in the list of avatars at the click (CWindowModelList), a press held over it (a list opens a card only for a
         // held press, invite.js); rc: the runtime holds the mouse from the first rc command
@@ -170,6 +184,8 @@ export const ROUTES = {
         })()`],
         ['wait', 12000], ['shot', 'x-npc'], ['snap', 'x-npc'],
         ['window', 'CNpcListMenu', 30000], ['wait', 1500], ['on', 'CNpcListMenu'], ['wait', 1500], ['snap', 'npc-on'],
+        ['shot', 'npc-on'], ['wait', 5000], ['shot', 'npc-on-late'], ['js', "yo2Html.toggle('CNpcListMenu', false)"], ['wait', 5000], ['shot', 'npc-off-late'],
+        ['on', 'CNpcListMenu'], ['wait', 3000],
         ['js', "yo2Html.toggle('CNpcListMenu', false)"], ['wait', 1500], ['log', 'console']], flip: ['CNpcListMenu'] },
       // the other player's card (CPlayerListMenu: the live one, its Duel tab): a second player (tools/partner.mjs, stack.py
       // --player2 'Card Partner') in the same lobby; Show all, their row. Run with --server / --cookie (stack.py's)
@@ -194,6 +210,41 @@ export const ROUTES = {
       // probe: the player list's search button (the magnifier at its title's right), Show all, then A-lien's row
       'tl-search': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...SHOW_ALL, ['shot', 'x-all'], ['snap', 'x-all'], ROW('A-lien'), ['wait', 5000],
         ['shot', 'x-npc'], ['snap', 'x-npc'], ['log', 'console']], flip: [] },
+      // the menu bar's notice icon (an engine SWF the bar keeps drawing: passthrough): the partner's friend request
+      // (tools/partner.mjs --player2='Card Partner' --friend='Lobby Tester'), then engine / HTML pairs, three HTML shots
+      // 1 s apart (does it animate?), the icon hovered; the Main icon held down (its pressed look), released elsewhere
+      'tl-notice': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CWindowModelMenu'), NOTICE, ['wait', 4000], MOVE(700, 300), ['wait', 1500],
+        ['snap', 'notice-snap'], ...SPAIR('CWindowModelMenu', 'notice'), ['on', 'CWindowModelMenu'], ['wait', 3000], ['shot', 'anim-a'], ['wait', 1000], ['shot', 'anim-b'],
+        ['wait', 1000], ['shot', 'anim-c'], ['js', "yo2Html.toggle('CWindowModelMenu', false)"], ['wait', 1000], ['shot', 'anim-ea'], ['wait', 1000], ['shot', 'anim-eb'],
+        ['wait', 1000], ['shot', 'anim-ec'], MOVE(248, 744), ['wait', 1500], ...SPAIR('CWindowModelMenu', 'notice-hover'),
+        MOVE(40, 752), ['wait', 1500], HOLD(40, 752, true), ['wait', 1500], ...SPAIR('CWindowModelMenu', 'bar-held-main'),
+        MOVE(700, 300), ['wait', 800], HOLD(700, 300, false), ['wait', 2500], MOVE(700, 300), ['wait', 1500], ['log', 'console']], flip: ['CWindowModelMenu'] },
+      // the player list (CPlayerListDlg, screens/duelsetup.js) with the partner's row (tools/partner.mjs --player2 'Card
+      // Partner'): engine (pl-engine, the row hovered: hover-engine), in HTML (pl-html), the row clicked in the DOM (PRESS:
+      // what the press landed on) -> the card (card-from-html), closed; the search switch -> the engine's search menu over
+      // the HTML list (find-from-html); back to the engine for the flip (--pointer=213,620: the search switch hovered)
+      'ds-plist': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CPlayerListDlg', 'CPlayerListMenu', 'CFindMenu'), ...SHOW_ALL,
+        ['js', `(async () => {
+          const sl = ms => new Promise(r => setTimeout(r, ms)), pl = () => yo2Html.snapshot().windows.find(w => w.cls === 'CPlayerListDlg' && w.shown);
+          for (let t = 0; t < 90 && !(pl()?.controls.find(c => /Listbox$/.test(c.cls))?.items || []).some(s => s.includes('Card Partner')); t++) await sl(1000);
+          try {
+          const w = pl(), dv = new DataView((globalThis.HEAPU8 || Module.HEAPU8).buffer), u32 = a => dv.getUint32(a, true), f32 = a => +dv.getFloat32(a, true).toFixed(2);
+          const str = a => { const p = u32(a + 4), n = Math.min(u32(a + 8), 200); return p ? new TextDecoder().decode((globalThis.HEAPU8 || Module.HEAPU8).slice(p, p + n)) : ''; };
+          console.log('PROBE', JSON.stringify(w.extras.map(e => e.cls !== 'CDupSprite' ? e : { ...e, tex: str(e.id + 0x358), disp: (globalThis.HEAPU8 || Module.HEAPU8)[e.id + 0xc4],
+            at: [0x70, 0x74, 0xc8, 0xcc].map(o => f32(e.id + o)), tiles: (() => { const o = [], f = u32(e.id + 0x5088 + 4), l = u32(e.id + 0x5088 + 8);
+              for (let p = f; f && p < l && o.length < 40; p += 0x24) o.push([0, 4, 8, 12, 16, 20, 24, 28, 32].map(k => f32(p + k))); return o; })() })));
+          } catch (e) { console.log('PROBE failed', String(e)); }
+        })()`], ['wait', 2000], ['shot', 'pl-engine'], ['snap', 'pl'],
+        MOVE(60, 640), ['wait', 2500], ['shot', 'hover-engine'], ['snap', 'hover'], MOVE(700, 300), ['wait', 1500],
+        ['on', 'CPlayerListDlg'], ['wait', 6000], ['shot', 'pl-html'], ['snap', 'pl-on'],
+        ['js', `document.addEventListener('pointerdown', e => console.log('PRESS', e.target.tagName, e.target.className, (e.target.closest('button')?.textContent || '').slice(0, 30)), true)`],
+        ['click', 60, 640], ['window', 'CPlayerListMenu', 30000], ['wait', 2500], ['shot', 'card-from-html'], ['snap', 'card-from-html'],
+        ['click', 700, 200], ['wait', 4000], ['shot', 'card-closed'], ['snap', 'card-closed'],
+        // the search switch pressed in the DOM: the engine's CFindMenu (a child of the list) shows over the HTML list
+        // (find-from-html), then its Show all
+        ['click', 213, 620], ['window', 'CFindMenu', 20000], ['wait', 2500], ['shot', 'find-from-html'], ['snap', 'find-from-html'],
+        ['click', 298, 732], ['wait', 3000],
+        ['js', "yo2Html.toggle('CPlayerListDlg', false)"], ['wait', 2000], ['log', 'console']], flip: ['CPlayerListDlg'] },
     };
   })(),
   // the game cursor poses (--cursor), game px: [name, x, y, held]. Empty slots: no click lands on a character

@@ -1,7 +1,11 @@
 // lobby_icons.js's tracer on synthetic texels (no atlas): outlines, the smoothing rule, a traced glyph's layers.
 //   node client/web-shell/htmlui/screens/lobby_icons_test.mjs
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { outlines, smooth, traceGlyph, STRIP } from './lobby_icons.js';
+// web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there): for lobby.js below
+registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
+  ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
 
 const mask = rows => ({ m: Uint8Array.from(rows.join('').split('').map(c => c === '#' ? 1 : 0)), w: rows[0].length, h: rows.length });
 
@@ -50,4 +54,16 @@ const mask = rows => ({ m: Uint8Array.from(rows.join('').split('').map(c => c ==
 // the strip's bands cover its 32 rows once
 assert.equal(STRIP.reduce((n, [, h]) => n + h, 0), 32);
 STRIP.forEach(([y, h], i) => i && assert.equal(y, STRIP[i - 1][0] + STRIP[i - 1][1]));
+// the menu bar's hole for its notice icons (lobby.js noticeHole): the live friend notice (a 32 x 32 plate and a 48 x 48
+// glow at world (248, 736) in the bar at (0, 736)), 16 px left of them, 8 right; none without a shown notice
+{
+  const { noticeHole } = await import('./lobby.js');
+  const spr = (w, h) => ({ shown: true, src: [0, 0, w, h], wx: 248, wy: 736, sx: 1, sy: 1 });
+  const notice = (shown, sprites) => ({ cls: 'CNoticeIconFriend', x: 232, y: -16, w: 0, h: 0, shown, parts: { sprites } });
+  const bar = controls => ({ x: 0, y: 736, controls: [{ cls: 'CWindowTaskMenubar', shown: true }, ...controls] });
+  assert.deepEqual(noticeHole(bar([notice(true, [spr(32, 32), spr(48, 48)])])), { x: 232, w: 72 });
+  assert.equal(noticeHole(bar([notice(false, [spr(32, 32)])])), null);
+  assert.equal(noticeHole(bar([])), null);
+  assert.deepEqual(noticeHole(bar([notice(true, [])])), { x: 216, w: 72 });   // no parts: its own place, 48 wide
+}
 console.log('lobby_icons_test: ok');

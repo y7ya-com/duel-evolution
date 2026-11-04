@@ -141,16 +141,47 @@ function paintIcon(b) {
   b.innerHTML = '<i></i>' + ['normal', 'hover', 'pressed'].map(svg).join('');
   b.traced = !!t;
 }
+// The notice icons draw over the strip (live: the friend notice's 32 x 32 plate and 48 x 48 glow at x 248, y 736, inside
+// the bar, not above it), and the canvas lies under the DOM: the strip has a hole there (noticeHole) and the engine
+// draws its own strip under the whole bar meanwhile (the Menubar's two sprites, passthrough), so the hole shows the
+// engine's pixels, icon and strip, animation included. The engine's strip carries the field too: the DOM field steps
+// aside while it shows (doubled, the field's white would be too bright). The hole fades in over 6 px each side (the CSS
+// strip and the engine's differ by a few levels: no seam), from 16 px left of the icons (under the Move button's plate)
+// to 8 px right of them.
+export function noticeHole(win) {
+  const rs = win.controls.filter(c => /^CNoticeIcon/.test(c.cls) && c.shown).flatMap(c => {
+    const ss = (c.parts?.sprites || []).filter(s => s.shown && s.src);
+    return ss.length ? ss.map(s => ({ x: (s.wx ?? win.x + c.x) - win.x, w: s.src[2] * (s.sx ?? 1) })) : [{ x: c.x, w: 48 }];
+  });
+  if (!rs.length) return null;
+  const x0 = Math.max(0, Math.floor(Math.min(...rs.map(r => r.x)) - 16)), x1 = Math.min(1024, Math.ceil(Math.max(...rs.map(r => r.x + r.w)) + 8));
+  return x1 > x0 ? { x: x0, w: x1 - x0 } : null;
+}
+const BAR_MASK = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat';
 function menuBar(win, root, st) {
   bars.add(st);
-  kept.set(win.id, new Set(win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id)));
+  const hole = noticeHole(win), strip = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
+  kept.set(win.id, new Set([...win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id),
+    ...(hole ? (strip?.parts?.sprites || []).map(s => s.id) : [])]));
   if (!st.bar) {
     root.replaceChildren();
     st.bar = document.createElement('div');
     st.bar.className = 'lb-bar';
     st.clip = Object.assign(document.createElement('div'), { className: 'lb-msg' });
-    root.append(st.bar, Object.assign(document.createElement('div'), { className: 'lb-field' }), st.clip);   // not in the masked strip
+    st.field = Object.assign(document.createElement('div'), { className: 'lb-field' });
+    root.append(st.bar, st.field, st.clip);   // not in the masked strip
     st.icons = new Map();
+  }
+  const holeKey = hole ? `${hole.x},${hole.w}` : '';
+  if (st.hole !== holeKey) {
+    st.hole = holeKey;
+    // one more layer xor'ed out of the strip: the hole (never over the field: the notices sit at x 232..)
+    const m = hole ? `${BAR_MASK}, linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 6px), transparent) ${hole.x}px 0 / ${hole.w}px 32px no-repeat` : '';
+    st.bar.style.webkitMask = st.bar.style.mask = m;
+    // (the shorthands reset the composite: set it again)
+    st.bar.style.webkitMaskComposite = hole ? 'xor' : '';
+    st.bar.style.maskComposite = hole ? 'exclude' : '';
+    st.field.style.display = hole ? 'none' : '';
   }
   const seen = new Set();
   for (const c of win.controls) {

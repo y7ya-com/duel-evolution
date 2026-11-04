@@ -27,7 +27,7 @@ const stack = JSON.parse(await new Promise((ok, no) => { readline.createInterfac
 kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ...process.env, SERVER: stack.origin, COOKIE: stack.cookie2 }, stdio: 'ignore' }));
 await sleep(500);
 // flip.mjs as the first user, on the same stack (its own game page and browser)
-const flipArgs = args.filter(a => a.startsWith('--') && !/^--(player2?|ms)=/.test(a));
+const flipArgs = args.filter(a => a.startsWith('--') && !/^--(player2?|ms|friend|friend-wait)=/.test(a));
 const flip = spawn('node', [path.join(here, 'flip.mjs'), out, route, `--server=${stack.origin}`, `--cookie=${stack.cookie}`, ...flipArgs], { stdio: 'inherit' });
 kids.push(flip);
 const flipDone = new Promise(r => flip.once('exit', r));
@@ -57,6 +57,39 @@ try {
   await until('lobby', 30000, async () => (await snap())?.windows.some(w => w.cls === 'CChatWindow' && w.shown));
   await shot('lobby');
   console.log('partner: in the lobby, scene', (await snap())?.scene);
+  // --friend=NAME: that player's card (the player list's Show all, their row held as a hand clicks), Send Friend Request
+  // (the first user's menu bar gets its friend notice icon: flip.mjs tl-notice)
+  if (opt('friend')) {
+    await sleep(Number(opt('friend-wait') ?? 0));
+    await click(213, 620);
+    await until('find menu', 20000, async () => (await snap())?.windows.some(w => w.cls === 'CFindMenu' && w.shown));
+    await sleep(1500); await click(298, 732); await sleep(4000);
+    console.log('partner: friend', await b.ev(`(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms)), name = ${JSON.stringify(opt('friend'))};
+      const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      const press = async (x, y) => { const p = { clientX: r.left + x * k, clientY: r.top + y * k, bubbles: true, button: 0 };
+        cv.dispatchEvent(new MouseEvent('mousemove', { ...p, buttons: 0 })); await sl(600);
+        cv.dispatchEvent(new MouseEvent('mousedown', { ...p, buttons: 1 })); await sl(400);
+        cv.dispatchEvent(new MouseEvent('mouseup', { ...p, buttons: 0 })); };
+      let pl, list, i = -1;
+      for (let t = 0; t < 120 && i < 0; t++, await sl(1000)) {
+        pl = yo2Html.snapshot().windows.find(w => w.cls === 'CPlayerListDlg' && w.shown);
+        list = pl?.controls.find(c => /Listbox$/.test(c.cls) && c.shown);
+        i = (list?.items || []).findIndex(s => s.replace(/@\\d/g, '').includes(name));
+      }
+      if (i < 0) return 'no row ' + name;
+      const rows = list.rows || 6, top = Math.min(i, Math.max(0, list.items.length - rows)), bar = pl.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls));
+      if (i >= rows && bar) { window.__htmlui?.api?.setValue?.(bar.id, top); await sl(1500); }
+      const at = i < rows ? i : i - top;
+      await press(pl.x + list.x + 40, pl.y + list.y + (list.h / rows) * (at + 0.5));
+      let w, c;
+      for (let t = 0; t < 30 && !c; t++, await sl(1000)) for (w of yo2Html.snapshot().windows) if (w.shown && (c = w.controls.find(q => q.shown && (q.label || '').trim() === 'Send Friend Request'))) break;
+      if (!c) return 'no Send Friend Request';
+      await press((c.wx ?? w.x + c.x) + c.w / 2, (c.wy ?? w.y + c.y) + c.h / 2);
+      return 'sent to ' + name;
+    })()`));
+    await sleep(3000); await shot('friend');
+  }
   // idle: say yes to whatever asks; the pointer parked between
   let done = false;
   flipDone.then(() => { done = true; });
