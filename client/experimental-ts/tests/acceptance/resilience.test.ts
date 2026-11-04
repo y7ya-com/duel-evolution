@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, surrender, duelBot, claimNpcReward, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page } from './harness';
 
 /** Records the client's game WebSockets (one per tunnel; a resume opens another) without changing them. `rewrite`
  * redirects later connections (a refused port, a black hole, a forged resume id) as a broken network would. Binary
@@ -134,14 +134,14 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const log = await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent)`) as string[];
       const ends = log.filter(l => l === `${me} ends the turn.`).length;
       await screenshot(page,'resilience-duel-resumed');
-      await surrender(page);
+      const presses = await giveUp(page);
       const result = await page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`);
       expect(result).toBe('Defeat');
       const resumes = await page.ev(`window.__net.urls.filter(u=>u.includes('resume=1')).length`) as number;
       expect(resumes).toBeGreaterThanOrEqual(4);
       record('reconnect.resume',{ actions:'Drop the game WebSocket: with a chat message in flight (lobby), right after Purchase (shop), in the deck editor, and in the duel on my main phase; then chat, re-read MP/collection, End Turn once, surrender',
         expected:'Tunnel resume keeps channels and sequences; no duplicate chat, purchase or duel input',
-        observed:`${resumes} resumed tunnels; lobby ${lobbyStatuses}; "${first}" ×${count(first)}, "${second}" ×${count(second)}; MP ${before} → ${after} (one 200 MP pack, "${receipt}"), collection ${copies} → ${granted} copies, unchanged after the deck-editor drop (${again}); duel turn ${t0} → ${t1} after one End Turn pressed while the tunnel was ${heldWhile} (${declined} chain question${declined === 1 ? '' : 's'} declined) (board unchanged by an earlier drop, "${me} ends the turn." ×${ends} in the log), surrender → ${result}` });
+        observed:`${resumes} resumed tunnels; lobby ${lobbyStatuses}; "${first}" ×${count(first)}, "${second}" ×${count(second)}; MP ${before} → ${after} (one 200 MP pack, "${receipt}"), collection ${copies} → ${granted} copies, unchanged after the deck-editor drop (${again}); duel turn ${t0} → ${t1} after one End Turn pressed while the tunnel was ${heldWhile} (${declined} chain question${declined === 1 ? '' : 's'} declined) (board unchanged by an earlier drop, "${me} ends the turn." ×${ends} in the log), surrender (${presses} press${presses === 1 ? '' : 'es'}) → ${result}` });
     } finally { closeAll(); }
   },600000);
   it('offers a clean new connection after a rejected or expired resume',async () => {
