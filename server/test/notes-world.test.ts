@@ -87,6 +87,37 @@ describe("NPC list (mundo/npc.py, research/mundo, research/npcreglas)", () => {
 });
 
 describe("avatar (mundo/avatar.py, research/avatar)", () => {
+  it("restores saved world outfits on lobby selection and clears stale character looks", async () => {
+    const h = harness(), A = h.client("A");
+    await A.account(0, "Alice"); await A.enterRoom();
+    const session = h.game.hub.byPid(A.pid!)!;
+    const domino = Uint8Array.from([1, 2, 32, 48, 64, 96, 112, 144, 176, 32, 0, 0, 0, 0, 0, 0]);
+    const academy = domino.slice(); academy[6] = 128; academy[8] = 184;
+    const state = h.state();
+    const p = (Object.values(state.accounts)[0] as any).profiles["0"];
+    p.avatar = { a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex") };
+    h.game.store.saveRaw(state);
+    session.partsW.set(0, new Uint8Array(16));
+    h.game.hub.select(session.lobby!, 0, 5, "Alice");
+    expect(session.partsW.get(0)).toEqual(domino);
+    expect(session.partsW.get(1)).toEqual(academy);
+    h.game.withCtx(session, () => {
+      expect(h.game.duelParts(null, 0)).toEqual(domino);
+      expect(h.game.duelParts(null, 1)).toEqual(academy);
+    });
+    h.game.hub.select(session.lobby!, 1, 5, "Other");
+    expect(session.partsW.get(0)?.[0]).toBe(0);
+    expect(session.partsW.get(1)?.[6]).toBe(128);
+    expect(session.partsW.get(0)).not.toEqual(domino);
+  });
+
+  it("a missing world outfit keeps the face and uses the correct default uniform", () => {
+    const p = PP.blankProfile("Alice");
+    p.avatar = { b: "0102203040608090b820000000000000" };
+    expect([...PP.avatarParts(p, 0)].slice(0, 9)).toEqual([1, 2, 32, 48, 64, 96, 112, 144, 176]);
+    expect(PP.avatarParts(p, 1)[6]).toBe(128);
+  });
+
   it("P0-4: 0x5320 for another connected player -> 0x5340 with his name and last position", async () => {
     const h = harness();
     const A = h.client("A"), B = h.client("B");

@@ -32,6 +32,19 @@ async function buy(A: Client, data: Uint8Array) {
 }
 
 describe("shop (tienda.py)", () => {
+  it("later boosters 46–48 are listed and can be purchased", async () => {
+    const [, A, items] = await setup();
+    for (const pid of [46, 47, 48]) {
+      const item = items.find((i) => i.kind === 1 && i.prm === pid);
+      expect(item, `booster ${pid}`).toBeDefined();
+      expect(item!.cost).toBe(200);
+      const r = await buy(A, cart([item!.iid, 1]));
+      expect(r.r5211).toBe(0);
+      expect(r.ents).toHaveLength(5);
+      expect(r.ents.every((e) => e.card > 0)).toBe(true);
+    }
+  });
+
   it("B71: the prize packs (type 2: 9001 TP3, 9002 Startup Present) are not sold", async () => {
     const [, , items] = await setup();
     const packs = items.filter((i) => i.kind === 1).map((i) => i.prm);

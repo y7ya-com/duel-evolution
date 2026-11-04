@@ -44,7 +44,8 @@ const PVP_WATCH = true;
 export const WATCH_BATCH = 64, WATCH_REQ_TTL = 60.0, WATCH_SIN_DECISIONES = true, WATCH_SEND_PREP = false;
 const PVP_MATCH = "1", MATCH_STYLE = 4, MATCH_WAIT = 300;
 const NEXT_MSGS = new Set([0x6600, 0x6601, 0x6603, 0x6100, 0x6101, 0x6102, 0x6103, 0x61fe]);
-const SWAP_TIME = 180, SWAP_LEAD = 10, GLOBAL_CLOCK = 3;
+export const SIDE_CLOCK = { seconds: 180 };
+const SWAP_LEAD = 10, GLOBAL_CLOCK = 3;
 /** «Time Limit» OFF rooms: seconds a player may sit on one turn (or on its answers in the other's turn). */
 export const AFK = { s: 600 };
 const now = () => Date.now() / 1000;
@@ -173,7 +174,7 @@ class PvpTx {
 }
 
 type Item = ["msg", Conn, number, Uint8Array] | ["close", Conn] | ["watch", Conn] | ["timeout"] | ["cancel", string]
-  | ["clock", number, number] | ["tick", number] | ["between", number] | ["grace", number, number];
+  | ["clock", number, number] | ["tick", number] | ["between", number] | ["grace", number, number] | ["side", number];
 
 export class Matches {
   pids = new Map<number, PvpMatch>();
@@ -203,6 +204,8 @@ export class Matches {
   }
 
   byPid(pid: number | null | undefined): PvpMatch | null { return pid == null ? null : this.pids.get(pid) ?? null; }
+
+  prepareRestart(): void { for (const m of new Set(this.pids.values())) m.voidForRestart(); }
 
   drop(m: PvpMatch): void { for (const p of m.pids) if (this.pids.get(p) === m) this.pids.delete(p); }
   /** PvP matches not over: reserved, waiting for both, at rock-paper-scissors, dueling, or in a dropped socket's grace. */
@@ -367,6 +370,7 @@ export class PvpMatch {
   }
 
   private item(it: Item): Promise<void> | void {
+    if (this.g.restarting) { this.voidForRestart(); return; }
     const k = it[0];
     if (k === "watch") return this.watchNew(it[1]);
     if (k === "msg" && X(it[1]).pvpW) return this.watchMsg(it[1], it[2], it[3]);
@@ -386,6 +390,7 @@ export class PvpMatch {
     if (k === "clock" || k === "tick") return this.clockItem(it);
     if (k === "between") return this.betweenTimeout(it[1]);
     if (k === "grace") return this.graceEnd(it[1], it[2]);
+    if (k === "side") return this.sideTimeout(it[1]);
   }
 
   private msg(i: number, c: Conn, mid: number, data: Uint8Array): Promise<void> | void {
@@ -635,8 +640,14 @@ export class PvpMatch {
   }
 
   gameEnd(winner: number | null, why: string, turns = 0, svr: Record<number, number> = {}, close = false): void {
+    if (this.g.restarting) { this.voidForRestart(); return; }
+    if (this.done) return;
     const wv = (k: number) => (winner === null ? null : winner === k ? 0 : 1);
     this.traceDump(why);
+    // Engine end events are deliberately suppressed by the public translator. Supply the
+    // same terminal command for spectators on every exit path (LP, time, surrender, close).
+    this.pubRec.note(0, DFM.endDuelMsgs(winner === null ? null : winner === 0 ? 0 : 1, why));
+    this.watchPump();
     this.xpLevels();
     if (!this.bo3()) {
       for (const k of [0, 1]) this.finish(k, wv(k), why, turns, { svr: svr[k] ?? null });
@@ -669,8 +680,10 @@ export class PvpMatch {
 
   private swapClock(): void {
     this.swapClockOn = [false, false];
-    if (SWAP_TIME <= 0 || this.roomTime === 0) return;
-    const secs = Math.round(SWAP_TIME + SWAP_LEAD);
+    if (SIDE_CLOCK.seconds <= 0) return;
+    const secs = Math.round(SIDE_CLOCK.seconds + SWAP_LEAD);
+    const gen = this.btwGen;
+    setTimeout(() => this.q(["side", gen]), secs * 1000);
     for (const k of [0, 1]) if (this.tx[k] && !this.closed[k]) { this.send(k, 0x6461, timeup_warning(GLOBAL_CLOCK, secs, 0)); this.swapClockOn[k] = true; }
     this.log(`[pvp] ${this.name}: reloj del side deck: ${secs} s a los dos (global, corriendo)`);
   }
@@ -680,6 +693,18 @@ export class PvpMatch {
     if (!sc || !sc[i]) return;
     sc[i] = false;
     this.send(i, 0x6461, timeup_warning(GLOBAL_CLOCK, 0, 1));
+  }
+
+  private sideTimeout(gen: number): void {
+    if (this.done || !this.needStart || gen !== this.btwGen) return;
+    const late = [0, 1].filter((k) => this.swapClockOn?.[k]);
+    if (!late.length) return;
+    if (late.length === 1) {
+      const loser = late[0];
+      this.finish(loser, 1, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(loser) });
+      this.finish(1 - loser, 0, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(1 - loser) });
+    } else for (const k of [0, 1]) this.finish(k, null, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(k) });
+    this.closeMatch();
   }
 
   private nextGame(): void {
@@ -892,6 +917,14 @@ export class PvpMatch {
 
   roomKind(s: Session): number { return entryKind(this.g, s); }
 
+  /** No finish()/draw record: a server restart has no winner, XP, rewards or tournament result. */
+  voidForRestart(): void {
+    if (this.done) return;
+    this.ps?.end();
+    this.log(`[pvp] ${this.name}: voided for server restart`);
+    this.closeMatch();
+  }
+
   closeMatch(): void {
     this.done = true;
     for (const s of this.sess) s.ext.pvpEndT = Date.now();   // Lobby.handle's post-duel trace (POST_PVP_MS)
@@ -914,6 +947,7 @@ export class PvpMatch {
   /** The end for client k: wv = 0 wins, 1 loses, null draw (their view). Profile + lobby + end queue. */
   finish(k: number, wv: number | null, why: string, turns = 0,
     o: { svr?: number | null; fin?: number | null; score?: [number[], number[]] | null; last?: boolean; played?: boolean; ends?: boolean; send?: boolean; mres?: string | null } = {}): void {
+    if (this.g.restarting) return;
     const { svr = null, score = null, last = true, played = true, ends = true, send = true, mres = null } = o;
     let fin = o.fin ?? null;
     const s = this.sess[k];

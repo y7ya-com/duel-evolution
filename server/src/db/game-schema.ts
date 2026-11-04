@@ -67,8 +67,8 @@ export const characters = sqliteTable("characters", {
   slot: text("slot"),                  // null for an archived profile (archived_characters has its old slot)
   name: text("name"),
   country: text("country"),
-  avatarA: text("avatar_a"),           // 16 B hex, Duel Academy look
-  avatarB: text("avatar_b"),           // 16 B hex, Domino look
+  avatarA: text("avatar_a"),           // 16 B hex, Domino look (world 0)
+  avatarB: text("avatar_b"),           // 16 B hex, Duel Academy look (world 1)
   team: int("team"),                   // equipos team id (py EQ profile_set)
   pvpN: int("pvp_n"),                  // pvp.n: PvP games played (XP)
   pvpLastResult: int("pvp_last_result"), // pvp.last {result, t}: the last PvP game (py pvp_match.pvp_record)

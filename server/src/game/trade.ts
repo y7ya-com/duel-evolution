@@ -52,6 +52,8 @@ export class Trades {
   private trades = new Map<number, Trade>();
   constructor(private g: Game) {}
 
+  isTrading(s: Session): boolean { return s.pid !== null && this.trades.has(s.pid); }
+
   inTrade(s: Session | null) { return !!this.tradeOf(s); }
   private tradeOf(s: Session | null) { return s && s.pid !== null ? this.trades.get(s.pid) ?? null : null; }
   private drop(t: Trade) { for (const p of [t.a.pid!, t.b.pid!]) if (this.trades.get(p) === t) this.trades.delete(p); }
