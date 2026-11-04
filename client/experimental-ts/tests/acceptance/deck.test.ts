@@ -209,9 +209,11 @@ describe.skipIf(!enabled)('deck editor against the real server',() => {
       expect(spell).toContain('Pot of Greed'); expect(spell).toMatch(/Spell/); expect(spell).toMatch(/Forbidden/); expect(spell).not.toMatch(/ATK/);
       await screenshot(page,'card-inspect');
       // Without original art the same card is drawn as a named fallback tile, never a broken image.
-      await reload(page,character,false);
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(400);
-      const fallback = await page.ev(`(()=>{const t=document.querySelector('.de-card-inspector .de-card');return {text:t?.querySelector('.de-card-unknown')?.textContent ?? '',images:t?.querySelectorAll('img').length ?? -1,name:document.querySelector('.de-card-inspector h3')?.textContent}})()`) as { text:string; images:number; name:string };
+      // (a second player in its own browser context, opened without the original archive)
+      const plain = await openPage(1280,900);
+      await openClient(plain,await signIn(`TestDp${RUN}`),{ assets:false }); await enterWorld(plain,`Dp ${RUN}`); await editDeck(plain);
+      await press(plain,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(400);
+      const fallback = await plain.ev(`(()=>{const t=document.querySelector('.de-card-inspector .de-card');return {text:t?.querySelector('.de-card-unknown')?.textContent ?? '',images:t?.querySelectorAll('img').length ?? -1,name:document.querySelector('.de-card-inspector h3')?.textContent}})()`) as { text:string; images:number; name:string };
       expect(fallback.images).toBe(0); expect(fallback.text).toBe(fallback.name);
       record('cards.inspect',{ actions:'Inspect Kuriboh (three arts) and Pot of Greed from the collection', expected:'Passcode, text, type, stats, rarity, alternate art and image fallback are correct',
         observed:`Kuriboh: ${inspector.replace(/\n+/g,' | ').slice(0,300)}; art ${JSON.stringify(art)}; Pot of Greed: ${spell.replace(/\n+/g,' | ').slice(0,200)}; without original art "${fallback.name}" is drawn as a named fallback tile ("${fallback.text}", ${fallback.images} images)` });
