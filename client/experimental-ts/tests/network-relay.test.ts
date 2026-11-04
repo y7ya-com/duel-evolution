@@ -35,9 +35,11 @@ describe('four-seat relay through actual game authority', () => {
       await drive(Promise.all([sessions[0].chooseHand(0),sessions[1].chooseHand(1)])); await drive(sessions[0].chooseFirst(true)); await vi.advanceTimersByTimeAsync(100);
       expect(sessions.map(s => s.state.duelFirst)).toEqual([0,1,0,1]);
       sessions.forEach((s,i) => s.duel!.subscribe(message => { if ([0x6202,0x6610,0x6611,0x6612,0x6461,0x6613,0x649b].includes(message.id)) boards[i] = reduceDuelMessage(boards[i],message); }));
-      sessions.slice(0,3).forEach(s => s.beginDuel(false)); await vi.advanceTimersByTimeAsync(500);
+      // Partners report ready on attach (their screen offers no Start Duel); the relay then waits for both captains.
+      sessions[0].beginDuel(false); await vi.advanceTimersByTimeAsync(500);
       expect(boards.every(board => board.status === 'idle')).toBe(true);
-      sessions[3].beginDuel(false);
+      expect(sessions.slice(2).map(s => s.state.phase)).toEqual(['preparing-duel','preparing-duel']);
+      sessions[1].beginDuel(false);
       for (let step = 0; step < 1000 && !sessions[2].state.relay?.canAct; step++) {
         await vi.advanceTimersByTimeAsync(20);
         for (let i = 0; i < 4; i++) {
@@ -54,6 +56,7 @@ describe('four-seat relay through actual game authority', () => {
         }
       }
       expect(sessions.every(s => s.state.relay?.players.length === 4)).toBe(true);
+      expect(sessions.map(s => s.state.phase)).toEqual(['duel','duel','duel','duel']);
       expect(sessions[2].state.relay).toMatchObject({ self:1,active:[1,0],canAct:true });
       expect(sessions[0].state.relay?.canAct).toBe(false);
       expect(sessions[2].state.relay!.players.map(p => p.name)).toEqual(['Captain A','Partner A','Captain B','Partner B']);

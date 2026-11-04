@@ -141,6 +141,8 @@ describe('independent client against actual server/World', () => {
       expect(a.session.state.duelOffer?.source).toBe('pvp'); expect(b.session.state.duelOffer?.source).toBe('pvp');
       await drive(Promise.all([a.session.acceptDuelOffer(NPC_DECKS['51']),b.session.acceptDuelOffer(NPC_DECKS['54'])]));
       expect(await drive(Promise.all([a.session.chooseHand(0),b.session.chooseHand(1)]))).toEqual(['win','lose']);
+      // The loser waits for the winner's choice instead of being offered another hand.
+      expect([a.session.state.rpsLost,b.session.state.rpsLost]).toEqual([false,true]);
       await drive(a.session.chooseFirst(true)); await vi.advanceTimersByTimeAsync(100);
       const recordsA: Uint8Array[] = [], publicRecords: Uint8Array[] = [];
       a.session.duel!.subscribe(m => { if (m.id === 0x6202) recordsA.push(m.data); });

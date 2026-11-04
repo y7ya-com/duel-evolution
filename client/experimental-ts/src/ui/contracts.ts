@@ -7,6 +7,7 @@ import type { CaptureStatus } from '../parity/live';
 import type { AudioAction, AudioState } from '../features/audio';
 import type { SocialAction, SocialState } from '../features/social';
 import type { OnlineAction, OnlineState } from '../features/online';
+import type { TagLobbyAction, TagLobbyState } from '../features/tag';
 /** Render-only browser UI contract. No component reads guest memory or opens a socket. */
 export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'social' | 'settings';
 export type DeckZone = 'main' | 'side' | 'extra';
@@ -112,6 +113,7 @@ export interface ClientView {
   audio?: AudioState;
   socialDetail?: SocialState;
   online?: OnlineState;
+  tagLobby?: TagLobbyState;
   sideboarding?: { deck: DeckView; original: DeckView; round: number; scores: [number, number, number]; deadline?: number | null; ready: boolean; error?: string };
   match?: { round: number; scores: [number, number, number]; complete: boolean };
   scene: Scene;
@@ -155,6 +157,7 @@ export type ClientCommand =
   | { type: 'audioAction'; action: AudioAction }
   | { type: 'socialAction'; action: SocialAction }
   | { type: 'onlineAction'; action: OnlineAction }
+  | { type: 'tagAction'; action: TagLobbyAction }
   | { type: 'disconnect' }
   | { type: 'signIn'; username: string; password: string }
   | { type: 'signOut' }
