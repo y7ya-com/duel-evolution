@@ -3,8 +3,9 @@
 // their parts. The clerk, the player's avatar and the backdrop belong to the scene (engine); the swf buttons, pack art
 // and the card window's per-frame card art stay engine-drawn under holes.
 // The Avatar Parts category (CShopAvatarWindow) is the Cosmetic Boxes shop (cosmetics/boxes.js): the server sells no
-// wearables, so its list is empty; the boxes draw inside its frame (the engine's), its Confirm pill becomes Wardrobe,
-// and while it is open the MP plate (CShopMileagePlate) shows the wallet: total, earned (what boxes take), starter.
+// wearables, so its list is empty; the boxes draw inside its frame (the engine's), its Confirm pill becomes Open Box,
+// and while it is open the MP plate (CShopMileagePlate) shows the wallet in the shop's digits: total, earned (what
+// boxes take).
 import deck from './deck.js';
 import { mountBoxes, drawWallet, drawCategoryLabel, PILLS } from '../cosmetics/boxes.js';
 
@@ -20,11 +21,11 @@ const boxes = { ctl: null, shown: false, view: 'showcase', plate: null };
 const active = () => !!boxes.ctl && boxes.shown;
 // a control's screen point inside a pill (its texts: the ShadowText at x, y; its text child at wx, wy)
 const inPill = (c, r) => { const x = c.wx || c.x, y = c.wy || c.y; return x >= r.x && x < r.x + r.w && y >= r.y - 4 && y < r.y + r.h; };
-/** What deck.js draws of a window while the boxes are open: not the Confirm label (Wardrobe is drawn over its pill),
+/** What deck.js draws of a window while the boxes are open: not the Confirm label (Open Box is drawn over its pill),
  *  not Back's on the contents sheet (Back to box), none of the MP plate's texts (the wallet replaces them). */
 export function strip(win, on = active(), view = boxes.view) {
   if (!on) return win;
-  if (win.cls === AVATAR) return { ...win, controls: win.controls.filter(c => !inPill(c, PILLS.wardrobe) && !(view === 'contents' && inPill(c, PILLS.back))) };
+  if (win.cls === AVATAR) return { ...win, controls: win.controls.filter(c => !inPill(c, PILLS.confirm) && !(view === 'contents' && inPill(c, PILLS.back))) };
   if (win.cls === PLATE) return { ...win, controls: [] };
   return win;
 }

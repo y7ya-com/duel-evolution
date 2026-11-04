@@ -1,8 +1,8 @@
 // The Wardrobe's DOM in headless Chrome (skin.html as the page; fetch stubbed with a server-shaped state; Module.yo2Lazy
-// stubbed with synthetic PNGs drawn here, no game art): it opens over the page, the tabs and counts, the tiles' art
-// (drawn, the placeholder for a missing picture, the "♀ only for now" cue), EQUIPPED per world, the world switch, the
-// rank uniforms (earned / locked), a Domino outfit in the Academy refused with the reason, an equip (its request, the
-// confirmation, the refresh), the server's refusal text, keys kept from the game, Esc, focusId, the empty state.
+// stubbed with synthetic PNGs drawn here, no game art): it opens over the page, the tabs, the rows' art (drawn, the
+// placeholder for a missing picture, the other body's art dimmed), Wearing per world, the world switch, the rank
+// uniforms (earned / locked rows), the spares, a Domino outfit in the Academy refused with the reason, an equip (its
+// request, the confirmation, the refresh), the server's refusal text, keys kept from the game, Esc, focusId, empty.
 //   node client/web-shell/htmlui/cosmetics/wardrobe_dom_test.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -70,56 +70,72 @@ await b.ev(`(async () => {
 })()`);
 const until = async (js, ms = 4000) => { for (const t = Date.now(); Date.now() - t < ms; await sleep(50)) if (await b.ev(js)) return true; throw new Error('timed out: ' + js); };
 const q = js => b.ev(`(() => { const R = document.querySelector('.de-wd'); return ${js}; })()`);
-await until(`document.querySelectorAll('.de-wd .wd-tile[data-id]').length > 0`);
-await until(`[...document.querySelectorAll('.de-wd .wd-tile .de-art')].every(e => e.dataset.state !== 'loading')`);
+await until(`document.querySelectorAll('.de-wd .wd-row[data-id]').length > 0`);
+await until(`[...document.querySelectorAll('.de-wd .wd-row .de-art')].every(e => e.dataset.state !== 'loading')`);
+const row = id => `R.querySelector('[data-id="${id}"]')`;
 
-// the overlay: over the canvas, modal, the native skin's pieces
+// the overlay: over the canvas, modal, built from the shop's pieces (the glass window, its band, the title plate)
 assert.equal(await q(`R.getAttribute('role') + R.getAttribute('aria-modal')`), 'dialogtrue');
-assert.equal(await q(`R.querySelector('.de-title').textContent`), 'Wardrobe');
-assert.ok(await q(`R.classList.contains('de-c') && !!R.querySelector('.de-glass') && !!document.getElementById('de-cosmetics-theme')`));
+assert.equal(await q(`R.querySelector('.sa-title').textContent`), 'Wardrobe');
+assert.ok(await q(`R.classList.contains('de-c') && !!R.querySelector('.sa-glass') && !!R.querySelector('.sa-band') && !!document.getElementById('de-shop-skin')`));
 assert.equal(await q(`document.activeElement === R`), true);
-// tabs and counts (outfits: 3 + Slifer and Ra earned); the Academy by default (the character's world)
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.dataset.tab + ':' + t.querySelector('b').textContent + ':' + t.getAttribute('aria-selected'))`),
-  ['outfit:5:true', 'hair:1:false', 'accessory:1:false', 'dueldisk:1:false']);
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-worlds .de-pill')].map(p => p.getAttribute('aria-pressed'))`), ['false', 'true']);
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tile[data-id]')].map(t => t.dataset.id)`),
+// tabs (plates; counts kept as data, no bubbles); the Academy by default (the character's world)
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.dataset.tab + ':' + t.dataset.count + ':' + t.getAttribute('aria-selected') + ':' + t.hasAttribute('data-on'))`),
+  ['outfit:5:true:true', 'hair:1:false:false', 'accessory:1:false:false', 'dueldisk:1:false:false']);
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.textContent)`), ['Outfits', 'Hair', 'Accessories', 'Duel Disks']);
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-worlds .sa-plate')].map(p => p.getAttribute('aria-pressed') + p.hasAttribute('data-on'))`), ['falsefalse', 'truetrue']);
+// the rows: the outfits, then the rank uniforms as plain rows
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-row[data-id]')].map(t => t.dataset.id)`),
   ['outfit:jaden', 'outfit:tea', 'outfit:black-suit', 'uniform:slifer', 'uniform:ra', 'uniform:obelisk']);
-// art: drawn into a canvas at the device's pixels; the other body's art with its cue; Obelisk locked
-assert.equal(await q(`R.querySelector('[data-id="outfit:jaden"] .de-art').dataset.state`), 'ready');
-assert.ok(await q(`R.querySelector('[data-id="outfit:jaden"] canvas').width >= 96`));
-assert.equal(await q(`R.querySelector('[data-id="outfit:tea"] .de-art-only').textContent`), '♀ only for now');
+assert.ok(await q(`[...R.querySelectorAll('.wd-row')].every(r => r.classList.contains('sa-row'))`), 'the Avatar Parts row plates');
+assert.equal(await q(`R.querySelector('.wd-row[data-on]').dataset.id`), 'outfit:jaden', 'the cyan row: the selection');
+// art: drawn into a canvas at the device's pixels; the other body's art marked (dimmed by its frame), no glyph cue
+assert.equal(await q(`${row('outfit:jaden')}.querySelector('.de-art').dataset.state`), 'ready');
+assert.ok(await q(`${row('outfit:jaden')}.querySelector('canvas').width >= 26`));
+assert.ok(await q(`${row('outfit:tea')}.querySelector('.de-art').hasAttribute('data-fallback') && ${row('outfit:tea')}.querySelector('.de-rf').hasAttribute('data-dim')`));
+assert.equal(await q(`R.querySelector('.de-art-only')`), null);
+assert.doesNotMatch(await q(`R.textContent`), /♂|♀|🎓/);
 assert.ok((await b.ev('__read')).includes('data/avatar/chibi/cw_dc_04_c01_n01_01.png'));
-assert.ok(await q(`R.querySelector('[data-id="uniform:obelisk"]').hasAttribute('data-locked')`));
-assert.equal(await q(`R.querySelector('[data-id="uniform:obelisk"] .wh').textContent`), 'Reach Obelisk Blue in ranked Autoduel to unlock');
-assert.equal(await q(`R.querySelector('[data-id="uniform:ra"] .wh').textContent`), 'Unlocked by reaching Ra Yellow');
-assert.ok(await q(`!!R.querySelector('[data-id="uniform:slifer"] .eq')`));   // the Academy look wears Slifer Red
-assert.match(await q(`R.querySelector('.wd-grad').textContent`), /LV 12\/20 · Rivals beaten 7\/25/);
-// the spares: ×3 on the tile; the detail's trade note is disabled
-assert.equal(await q(`R.querySelector('[data-id="outfit:black-suit"] .sp').textContent`), '×3');
+assert.equal(await q(`${row('outfit:tea')}.querySelector('.de-rf').dataset.rarity`), 'ultra', 'rarity on the art frame');
+// the rank uniforms: Obelisk locked (the dark plate, "Locked"), Slifer worn in the Academy look
+assert.ok(await q(`${row('uniform:obelisk')}.hasAttribute('data-off') && ${row('uniform:obelisk')}.hasAttribute('data-locked')`));
+assert.equal(await q(`${row('uniform:obelisk')}.querySelector('.wr').textContent`), 'Locked');
+assert.equal(await q(`${row('uniform:slifer')}.querySelector('.wr').textContent`), 'Wearing');
+assert.ok(await q(`${row('uniform:slifer')}.hasAttribute('data-hi')`), 'the worn row: the light plate');
+assert.equal(await q(`R.querySelector('.wd-foot').textContent`), 'Graduation: LV 12/20 · 7/25 rivals beaten');
+// the spares: a plain ×3 in the row's text; the trade note only in the detail
+assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.nm').textContent`), 'Black Suit  ×3');
+await b.ev(`document.querySelector('[data-id="uniform:obelisk"]').click()`);
+assert.ok(await q(`${row('uniform:obelisk')}.hasAttribute('data-on') && !${row('uniform:obelisk')}.hasAttribute('data-off')`), 'selected: cyan even when locked');
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /Reach Obelisk Blue in ranked Autoduel to unlock/);
+assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Lockedtrue');
 
-// a Domino outfit in the Academy: EQUIP disabled, the reason shown
+// a Domino outfit in the Academy: Equip disabled, the reason shown, the trade note
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Black Suit');
+assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Rare outfit');
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), true);
 assert.match(await q(`R.querySelector('.wd-why').textContent`), /outside Duel Academy until you graduate/);
-assert.equal(await q(`R.querySelector('.wd-facts .trade').textContent`), 'Trade (coming soon)');
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3\. Trading spare copies is coming soon\./);
+assert.equal(await q(`R.querySelector('.wd-stage').dataset.rarity`), 'rare');
 // a female-only item: its notice
 await b.ev(`document.querySelector('[data-id="outfit:tea"]').click()`);
 assert.match(await q(`R.querySelector('.wd-why').textContent`), /female|male version/);
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /Female body only for now/);
 
-// Domino City: the suit is wearable; equip it -> POST {id, world: 0}, the confirmation, the tile now EQUIPPED
+// Domino City: the suit is wearable; equip it -> POST {id, world: 0}, the confirmation, the row now Wearing
 await b.ev(`document.querySelector('.wd-worlds [data-world="0"]').click()`);
-assert.ok(await q(`!!R.querySelector('[data-id="outfit:jaden"] .eq')`));   // Domino wears Jaden's
+assert.equal(await q(`${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing');   // Domino wears Jaden's
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), false);
 await b.ev(`document.querySelector('.wd-equip').click()`);
-assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'EQUIPPING…');
-await until(`!!document.querySelector('.de-wd .wd-toast')`);
-assert.match(await q(`R.querySelector('.wd-toast').textContent`), /Black Suit equipped in Domino City!Other players will see your new look\./);
+assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Equipping…');
+await until(`document.querySelector('.de-wd .wd-why[data-tone=ok]')`);
+assert.equal(await q(`R.querySelector('.wd-why').textContent`), 'Equipped in Domino City. Other players see your new look.');
 assert.deepEqual((await b.ev('__calls')).find(c => c[0].endsWith('/equip')), ['/cosmetics/equip', { id: 'outfit:black-suit', world: 0 }]);
-assert.ok(await q(`!!R.querySelector('[data-id="outfit:black-suit"] .eq') && !R.querySelector('[data-id="outfit:jaden"] .eq')`));
-assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'EQUIPPED');
-// the server refuses: its error text (api.js errorText) under the button
+assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.wr').textContent + '|' + ${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing|');
+assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Wearing');
+// the server refuses: its error text (api.js errorText) in the detail
 await b.ev(`__fail = { error: 'no-compatible-variant', status: 409, reason: 'world', worlds: [0] }; document.querySelector('[data-id="outfit:jaden"]').click()`);
 await b.ev(`document.querySelector('.wd-equip').click()`);
 await until(`document.querySelector('.de-wd .wd-why')?.textContent.includes('only be worn in Domino City')`);
@@ -128,12 +144,13 @@ await b.ev(`__fail = null`);
 
 // keys: arrows move the selection, none reaches the game; the disk tab: no picture -> the placeholder
 const before = await b.ev('__gameKeys');
-await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
-await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
 assert.equal(await b.ev('__gameKeys'), before);
 await b.ev(`document.querySelector('[data-tab="dueldisk"]').click()`);
 await until(`document.querySelector('.de-wd [data-id="dueldisk:3417"] .de-art')?.dataset.state === 'none'`);
 assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Battle City Alpha Gold');
+assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Ultra Rare duel disk');
 // Esc closes, and a second open with focusId lands on that item's tab
 await b.ev(`document.querySelector('.de-wd').focus()`);
 await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
@@ -145,8 +162,10 @@ assert.equal(await q(`R.querySelector('.wd-tab[aria-selected=true]').dataset.tab
 assert.equal(await b.ev(`(W.openWardrobe({ focusId: 'hair:afro' }), document.querySelectorAll('.de-wd').length)`), 1);   // one at a time
 await until(`document.querySelector('.de-wd .wd-name')?.textContent === 'Afro'`);
 await b.ev(`__close()`);
-// empty: the hint
+// empty: the hint (the outfits tab keeps its rank uniforms; the hair tab is empty)
 await b.ev(`__info.inventory = []; window.__close = W.openWardrobe({ focusId: 'x' })`);
+await until(`!!document.querySelector('.de-wd .wd-row[data-id="uniform:slifer"]')`);
+await b.ev(`document.querySelector('[data-tab="hair"]').click()`);
 await until(`!!document.querySelector('.de-wd .wd-empty')`);
 assert.match(await q(`R.querySelector('.wd-empty').textContent`), /Open boxes in the Card Shop to get wearables\./);
 await b.ev(`__close()`);

@@ -6,7 +6,7 @@
 //     bodies, notice?, owned, copies, compatible); pity { superMisses, ultraMisses, superAt, ultraAt }
 //   info.appearance { gender, world }
 // Odds are percentages (cosmetics-catalog.ts oddsPercent). nextOdds already includes the player's pity.
-import { RARITIES, RARITY, KIND_LABEL, WORLD_LABEL, mp } from './theme.js';
+import { RARITIES, RARITY, KIND_LABEL, WORLD_LABEL, BODY_LABEL, mp, mpDigits } from './theme.js';
 
 /** The tabs, left to right (the server's ids; "hair" is the head box's former id). */
 export const TABS = [
@@ -14,12 +14,15 @@ export const TABS = [
   { id: 'outfit', label: 'Outfit', short: 'Outfit' },
   { id: 'dueldisk', label: 'Duel Disk', short: 'Duel Disk' },
 ];
-/** Each box's look: the box's colours (its body, lid, trim) and the word on its front. */
+/** Each box's look: its category banner (cosmetics/shopart.js BANNER: the shop's own Avatar / Single Cards banners) and
+ *  what its items are called. */
 export const BOX_LOOK = {
-  head: { word: 'HEAD & HAIR', body: ['#2a6fb0', '#3d95dc', '#1d4f86'], trim: '#9fe6ff', glow: '#7fdcff', unit: 'items' },
-  outfit: { word: 'OUTFIT', body: ['#6a2fa6', '#8f4fd6', '#47207a'], trim: '#e2c8ff', glow: '#c9a2ff', unit: 'outfits' },
-  dueldisk: { word: 'DUEL DISK', body: ['#a3361d', '#d9572c', '#6f2412'], trim: '#ffd2a8', glow: '#ffb37a', unit: 'disks' },
+  head: { banner: 'bnHead', unit: 'items', one: 'item' },
+  outfit: { banner: 'bnOutfit', unit: 'outfits', one: 'outfit' },
+  dueldisk: { banner: 'bnDisk', unit: 'disks', one: 'disk' },
 };
+/** Items per page of the showcase's strip (the native pack display's row). */
+export const STRIP = 5;
 
 /** "55%", "4%", "0.57%", "12.5%": whole numbers bare, under 1 two decimals, else one (trailing zeros dropped). */
 export function pct(n) {
@@ -42,6 +45,11 @@ export function pityMeters(box) {
   meter('super', p.superAt ?? box?.superAt, p.superMisses, 'Super Rare or better');
   meter('ultra', p.ultraAt ?? box?.ultraAt, p.ultraMisses, 'Ultra Rare guaranteed');
   return out;
+}
+
+/** The showcase's one pity line: "Super Rare or better within 6 · Ultra Rare within 10" ('' without pity). */
+export function pityLine(box) {
+  return pityMeters(box).map(m => `${m.key === 'super' ? 'Super Rare or better' : 'Ultra Rare'} ${m.left === 1 ? 'on the next open' : `within ${m.left}`}`).join(' · ');
 }
 
 /** The drop-rate bar: one segment per rarity with a chance, next-open odds (pity included) beside the base ones. */
@@ -68,12 +76,26 @@ export function wearWorld(item, gender, world) {
   if (!ws.length) return null;
   return ws.includes(world) ? { world, here: true } : { world: ws[0], here: false };
 }
-/** Who can wear it: "both bodies", "♂ only for now", "♀ only for now". */
+/** Who can wear it: "Both bodies", "Male body only for now", "Female body only for now". */
 export function bodiesText(item) {
   const b = item?.bodies || [];
-  if (b.length >= 2) return 'both bodies';
-  if (b.length === 1) return `${b[0] === 'male' ? '♂ male' : '♀ female'} only for now`;
+  if (b.length >= 2) return 'Both bodies';
+  if (b.length === 1) return `${BODY_LABEL[b[0]] || b[0]} body only for now`;
   return '';
+}
+const cap = s => s && s[0].toUpperCase() + s.slice(1);
+/** A selected item's detail (the showcase's band): [name, "Ultra Rare outfit", "Both bodies · Domino City"]. */
+export function itemLines(item, gender) {
+  if (!item) return [];
+  const kind = (KIND_LABEL[item.kind] || item.kind || '').toLowerCase();
+  const worlds = worldsText(item, (item.bodies || []).includes(gender) ? gender : null);
+  return [item.name, `${RARITY[item.rarity]?.label || 'Common'} ${kind}`.trim(), [bodiesText(item), cap(worlds)].filter(Boolean).join(' · ')];
+}
+
+/** The strip's items: the whole pool, rarest first (the pool's own order within a rarity). */
+export function stripItems(box) {
+  const order = { ultra: 0, super: 1, rare: 2, common: 3 };
+  return [...(box?.pool || [])].map((i, k) => [i, k]).sort((a, b) => (order[a[0].rarity] ?? 4) - (order[b[0].rarity] ?? 4) || a[1] - b[1]).map(x => x[0]);
 }
 
 /** The featured items (the hero's sides): the ultras first, then the supers, up to n. */
@@ -102,13 +124,14 @@ export function boxView(info, id) {
   if (!box) return { id, box: null, wallet, tab: TABS.find(t => t.id === id), look: BOX_LOOK[id] || BOX_LOOK.head };
   const pool = box.pool || [], owned = pool.filter(i => i.owned).length;
   const short = Math.max(0, box.price - (wallet.earned || 0));
-  const disabled = box.available === false ? 'This box is closed for now while its items are restocked.'
-    : short > 0 ? `You need ${short.toLocaleString('en-US')} more earned MP. Starter MP can't be spent on boxes: win duels to earn more.` : '';
+  const disabled = box.available === false ? 'This box is closed while its items are restocked.'
+    : short > 0 ? `Needs ${short.toLocaleString('en-US')} more earned MP. Starter MP buys cards only.` : '';
   const ultra = pool.find(i => i.rarity === 'ultra') || pool.find(i => i.rarity === 'super') || null;
   return { id, box, wallet, tab: TABS.find(t => t.id === id), look: BOX_LOOK[id] || BOX_LOOK.head,
-    name: box.name, price: box.price, priceText: mp(box.price), affordable: !disabled, short, disabled,
+    name: box.name, price: box.price, priceText: mp(box.price), priceDigits: mpDigits(box.price), affordable: !disabled, short, disabled,
     count: pool.length, owned, unit: (BOX_LOOK[id] || BOX_LOOK.head).unit,
-    hero: ultra, featured: featured(box), odds: oddsBar(box), pityOn: pityActive(box), pity: pityMeters(box),
+    hero: ultra, featured: featured(box), items: stripItems(box), odds: oddsBar(box), pityOn: pityActive(box), pity: pityMeters(box),
+    pityLine: pityLine(box),
     notice: box.notice || '' };
 }
 
@@ -122,10 +145,11 @@ export function revealView(reward, gender) {
     kind: KIND_LABEL[r.kind] || r.kind || '', bodies: r.bodies || [], bodiesText: bodiesText(r),
     worlds: worldsText(r, r.compatible === false ? null : gender),
     isNew: !r.duplicate, duplicate: !!r.duplicate, copies,
-    dupText: r.duplicate ? `Duplicate: +1 tradable copy (you now have ${copies})` : '',
+    // copies: the spares after this one (the first duplicate makes 1): you hold copies + 1
+    dupText: r.duplicate ? `Duplicate: you now have ${copies + 1}` : '',
     // the "other version is still being made" notice is for a body that can't wear it, not for the one that can
     notice: r.notice && !(gender && (r.bodies || []).includes(gender)) ? r.notice : '', compatible: r.compatible !== false,
-    // the reveal's pace: commons quick, ultras the long, special one (sparkles, gold frame)
+    // the reveal's pace: commons quick, ultras the long, special one (the gold frame and its one sheen)
     tempo: rarity === 'common' ? 'quick' : rarity === 'ultra' ? 'special' : 'normal',
     anticipation: rarity === 'common' ? 700 : rarity === 'ultra' ? 1500 : 1250,
   };

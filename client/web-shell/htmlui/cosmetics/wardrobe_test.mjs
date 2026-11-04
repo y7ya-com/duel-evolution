@@ -46,7 +46,7 @@ assert.equal(bs.spares, 2); assert.equal(bs.where, 'Domino City');
 // a female-only item on a male character: its notice; a male-only one is fine for him
 const t1 = byId('outfit:tea');
 assert.equal(t1.wearable, false); assert.equal(t1.reason, tea.notice); assert.equal(t1.single, 'female'); assert.equal(t1.otherBody, true);
-assert.equal(t1.where, '♀ only for now');
+assert.equal(t1.where, 'Female body only for now');
 assert.equal(byId('outfit:kaiba').single, 'male'); assert.equal(byId('outfit:kaiba').otherBody, false);
 // the selection: the first unlocked tile by default, a focused id when it is there
 assert.equal(w.selected.id, 'outfit:jaden');
@@ -73,7 +73,7 @@ assert.equal(canWear(sun, 'male', 1, grad).ok, true);
 assert.equal(graduationOf(grad).graduated, true); assert.match(graduationOf(grad).text, /^Graduated/);
 const g = graduationOf(rank);
 assert.deepEqual([g.level, g.levelRequired, g.opponents, g.opponentsRequired, g.levelPct, g.opponentsPct], [12, 20, 5, 25, 60, 20]);
-assert.match(g.text, /LV 12\/20 · 5\/25 different opponents/);
+assert.match(g.text, /LV 12\/20 · 5\/25 rivals beaten/);
 assert.equal(graduationOf(undefined).levelRequired, 20);
 
 // a beginner: only Slifer Red unlocked

@@ -1,7 +1,8 @@
-// The box shop's DOM in headless Chrome (skin.html as the page, fetch stubbed with synthetic data): the showcase (tabs,
-// odds, pity, the price), paging, the insufficient-MP state, the reveal (its phases, skipping, a new / duplicate /
-// single-body result, equip), reduced motion, the contents sheet, and screens/shop.js's strip() (the engine labels it
-// drops while the boxes are open).   node client/web-shell/htmlui/cosmetics/boxes_dom_test.mjs
+// The box shop's DOM in headless Chrome (skin.html as the page, fetch stubbed with synthetic data): the showcase (the
+// band, the price tags in the shop digits, the banner, the strip with rarity frames, the pity line, Open Box), the
+// boxes' keys, the insufficient-MP line, the reveal (its phases, skipping, a new / duplicate / single-body result,
+// equip), reduced motion, the contents sheet, and screens/shop.js's strip() (the engine labels it drops while the boxes
+// are open).   node client/web-shell/htmlui/cosmetics/boxes_dom_test.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -55,71 +56,93 @@ const qa = (sel, f = 'e => e.textContent') => b.ev(`[...document.querySelectorAl
 const click = sel => b.ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
 await sleep(300);
 
-// ---- the showcase
+// ---- the showcase: the band (the selected item), the title, three price tags, the banner, the strip, the pity line
 assert.equal(await q('.bx-title'), 'Cosmetic Boxes');
 assert.deepEqual(await qa('.bx-tab .nm'), ['Head & Hair', 'Outfit', 'Duel Disk']);
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Head & Hair');
-assert.deepEqual(await qa('.bx-seg'), ['Common55%', 'Rare30%', 'Super Rare11%', 'Ultra Rare4%']);
-assert.deepEqual(await qa('.bx-meter .hd'), ['Super Rare or betterin 6 opens', 'Ultra Rare guaranteedin 10 opens']);
-assert.equal(await q('.bx-price .v'), '500 MP');
-assert.equal(await q('.bx-price .s'), 'Earned MP only');
-assert.equal(await q('.bx-open', 'e => [e.textContent, e.disabled]').then(JSON.stringify), '["OPEN BOX",false]');
-assert.match(await q('#plate .bx-wallet'), /6,200 MP.*Earned 1,200.*Starter 5,000/);
-assert.match(await q('.bx-hero .bx-count'), /You own 1 \/ 5/);
-assert.equal(await qa('.bx-mini').then(x => x.length), 2, 'the ultra and the super featured');
-// paging: the arrows and the keyboard wrap round the three boxes; a box beyond the earned MP is disabled with the reason
-await click('.bx-next');
+assert.deepEqual(await qa('.bx-tab .pr .sa-num', 'e => e.getAttribute("aria-label")'), ['500 MP', '1500 MP', '1000 MP'], 'prices in the shop digits');
+assert.equal(await qa('.bx-tab[data-on] .sa-num i').then(x => x.length), 5, '"500MP": five glyphs');
+assert.equal(await q('.bx-head .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnHead)');
+assert.ok(await q('.bx-head .sa-frame', 'e => !!e'));
+assert.deepEqual(await qa('.bx-cell', 'e => e.dataset.id'), ['u1', 's1', 'r1', 'c1', 'c2'], 'rarest first, five to the page');
+assert.deepEqual(await qa('.bx-cell .de-rf', 'e => e.dataset.rarity'), ['ultra', 'super', 'rare', 'common', 'common'], 'rarity on the art frame');
+assert.equal(await qa('.bx-cell .tag').then(x => x.join('|')), 'Item u1|Item s1|Item r1|Item c1|Item c2');
+assert.equal(await q('.bx-cell[data-on]', 'e => e.dataset.id'), 'u1');
+assert.deepEqual(await qa('.bx-band > div'), ['Item u1', 'Ultra Rare hair', 'Both bodies · Both worlds']);
+assert.equal(await q('.bx-pity'), 'Super Rare or better within 6 · Ultra Rare within 10');
+assert.equal(await q('.bx-why'), null, 'no reason while Open can be pressed');
+assert.equal(await q('.bx-open', 'e => [e.textContent, e.disabled, e.dataset.tone]').then(JSON.stringify), '["Open Box",false,"go"]');
+assert.deepEqual(await qa('.bx-main .sa-btn2'), ['Contents & odds', 'Wardrobe']);
+assert.equal(await qa('.bx-main [class*=chip], .bx-main .de-sex, .bx-new').then(x => x.length), 0, 'no chips, glyph badges or stickers');
+assert.doesNotMatch(await q('.bx-main'), /♂|♀|★/);
+assert.match(await q('#plate .bx-wallet .tot .sa-num', 'e => e.getAttribute("aria-label")'), /^6200 MP$/);
+assert.match(await q('#plate .bx-wallet .ern'), /Earned/);
+assert.match(await q('#plate .bx-wallet .ern .sa-num', 'e => e.getAttribute("aria-label")'), /^1200 MP$/);
+// a single-body item: dimmed for a body that can't wear it (not for this male body), its body in the band only
+await click('.bx-cell[data-id=s1]');
+assert.equal(await q('.bx-cell[data-on]', 'e => e.dataset.id'), 's1');
+assert.deepEqual(await qa('.bx-band > div'), ['Item s1', 'Super Rare hair', 'Male body only for now · Domino City']);
+assert.equal(await q('.bx-cell[data-id=s1] .de-rf', 'e => e.hasAttribute("data-dim")'), false);
+// the arrows have one page here: hidden
+assert.equal(await q('.bx-next', 'e => e.disabled'), true);
+// the tabs: a click and the keyboard wrap round the three boxes; a box beyond the earned MP is disabled with one line why
+await click('.bx-tab:nth-child(2)');
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Outfit');
 assert.equal(await q('.bx-open', 'e => e.disabled'), true);
-assert.match(await q('.bx-why'), /You need 300 more earned MP/);
+assert.equal(await q('.bx-why'), 'Needs 300 more earned MP. Starter MP buys cards only.');
+assert.equal(await q('.bx-head .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnOutfit)');
 await b.ev(`document.querySelector('.bx-tab[data-on]').focus(); document.querySelector('.bx-tab[data-on]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Duel Disk');
 assert.equal(await b.ev('document.activeElement.classList.contains("bx-tab")'), true, 'focus follows the tab');
-await click('.bx-next');
+assert.equal(await q('.bx-head .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnDisk)');
+await b.ev(`document.querySelector('.bx-tab[data-on]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Head & Hair');
 
-// ---- the reveal: a new ultra. Anticipation (shake), then the card, then the result with its buttons
+// ---- the reveal: a new ultra. Anticipation (the box's banner), then the card, then the result with its buttons
 await b.ev(`__reward = ${JSON.stringify({ ...INFO.boxes[0].pool[4], duplicate: false, owned: true })}`);
 await click('.bx-open');
-assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'shake');
-assert.equal(await q('.bx-open', 'e => e.textContent'), 'OPENING…');
+assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'wait');
+assert.equal(await q('.bx-rv .wait .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnHead)');
+assert.equal(await q('.bx-open', 'e => e.textContent'), 'Opening…');
 await sleep(400);
-assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'shake', 'still anticipating (about 1.5 s for an ultra)');
+assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'wait', 'still anticipating (about 1.5 s for an ultra)');
 assert.equal(await q('.bx-rv', 'e => e.dataset.tempo'), 'special');
 await sleep(1400);
 assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'card');
 await sleep(1500);
 assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
-assert.equal(await q('.bx-card .rl'), 'Ultra Rare');
-assert.equal(await q('.bx-new'), 'NEW!');
-assert.equal(await q('.bx-card .nm'), 'Item u1');
-assert.match(await q('.bx-card'), /fits both bodies/);
-assert.match(await q('.bx-card'), /both worlds/);
-assert.equal(await qa('.bx-rv .pt').then(x => x.length) > 12, true, 'an ultra bursts with sparkles');
-assert.deepEqual(await qa('.bx-rv button', 'e => e.textContent'), ['EQUIP NOW', 'Open another · 500 MP', 'Done', 'View it in your Wardrobe']);
+assert.equal(await q('.bx-card', 'e => e.dataset.rarity'), 'ultra');
+assert.equal(await q('.bx-card .de-rf', 'e => e.dataset.rarity'), 'ultra');
+assert.ok(await q('.bx-card .sheen', 'e => !!e'), "the ultra's one flourish: the gold sheen");
+assert.equal(await q('.bx-rv .after .nm'), 'Item u1');
+assert.equal(await q('.bx-rv .after .rl'), 'Ultra Rare hair');
+assert.equal(await q('.bx-rv .news'), 'New: added to your Wardrobe');
+assert.equal(await qa('.bx-rv .pt, .bx-rv .rays, .bx-rv .shine').then(x => x.length), 0, 'no rays, no confetti');
+assert.deepEqual(await qa('.bx-rv button', 'e => e.textContent'), ['Equip', 'Open another', 'Wardrobe', 'Done']);
+assert.deepEqual(await qa('.bx-rv .sa-pill', 'e => e.dataset.tone || ""'), ['go', 'hi', '', ''], 'orange primary, cyan secondaries');
 assert.deepEqual(__lastOpen(await b.ev('__calls')), ['/cosmetics/open', { boxId: 'head', requestId: '0' }]);
-assert.match(await q('#plate .bx-wallet'), /5,700 MP.*Earned 700/, 'the wallet follows the open');
+assert.match(await q('#plate .bx-wallet .tot .sa-num', 'e => e.getAttribute("aria-label")'), /^5700 MP$/, 'the wallet follows the open');
 // equip: the server's answer, then the note that others see it
 await click('.bx-rv .equip');
 await sleep(100);
-assert.equal(await q('.bx-rv .equip'), 'EQUIPPED ✓');
+assert.equal(await q('.bx-rv .equip'), 'Equipped');
 assert.match(await q('.bx-rv .status'), /Other players see your new look/);
 assert.deepEqual((await b.ev('__calls')).at(-1), ['/cosmetics/equip', { id: 'u1', world: 0 }]);
 await click('.bx-rv .done');
 assert.equal(await q('.bx-rv'), null);
 
-// a duplicate common, skipped with a click: straight to the result, the duplicate line, no NEW!
-await b.ev(`__reward = ${JSON.stringify({ ...INFO.boxes[0].pool[0], duplicate: true, owned: true, copies: 2 })}`);
+// a duplicate common, skipped with a click: straight to the result, the duplicate line in its plate
+await b.ev(`__reward = ${JSON.stringify({ ...INFO.boxes[0].pool[0], duplicate: true, owned: true, copies: 1 })}`);
 await click('.bx-open');
 await sleep(120);
 await click('.bx-rv');
 await sleep(50);
 assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
 assert.equal(await q('.bx-rv', 'e => e.dataset.tempo'), 'quick');
-assert.equal(await q('.bx-new'), null);
-assert.equal(await q('.bx-card .dup'), 'Duplicate: +1 tradable copy (you now have 2)');
+assert.equal(await q('.bx-card .sheen'), null);
+assert.equal(await q('.bx-rv .news'), 'Duplicate: you now have 2');
 assert.equal(await q('.bx-rv .again', 'e => e.disabled'), true, 'two opens left 200 earned MP: no third');
-assert.match(await q('.bx-rv .after'), /You need 300 more earned MP/);
+assert.match(await q('.bx-rv .after'), /Needs 300 more earned MP/);
 // Escape closes it
 await b.ev(`document.querySelector('.bx-rv').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
 assert.equal(await q('.bx-rv'), null);
@@ -128,38 +151,43 @@ assert.equal(await q('.bx-rv'), null);
 await b.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
 await b.ev(`__info = { ...__info, appearance: { gender: 'female', world: 0 }, wallet: { total: 6200, bound: 5000, earned: 1200 } }; __reward = ${JSON.stringify({ ...single, duplicate: false, owned: true, compatible: false })}`);   // a female body: a male-only item
 await b.ev('__ctl.refresh()'); await sleep(100);
+assert.equal(await q('.bx-cell[data-id=s1] .de-rf', 'e => e.hasAttribute("data-dim")'), true, 'dimmed for the female body: nothing more');
 await click('.bx-open');
 await sleep(150);
 assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
 assert.equal(await q('.bx-rv .notice'), 'The female version of this item is still being made.');
-assert.equal(await q('.bx-rv .equip', 'e => [e.disabled, e.textContent].join()'), "true,CAN'T WEAR YET");
-assert.match(await q('.bx-card'), /♂ male only for now/);
-assert.match(await q('.bx-card'), /Domino City/);
+assert.equal(await q('.bx-rv .equip', 'e => [e.disabled, e.textContent].join()'), "true,Can't wear yet");
+assert.equal(await q('.bx-rv .after .rl'), 'Super Rare hair');
 await click('.bx-rv .done');
 await b.send('Emulation.setEmulatedMedia', { features: [] });
 
-// an error from the server: the reveal goes, the reason in the game's style
+// an error from the server: the reveal goes, the reason as the one line
 await b.ev(`__reward = { error: 'in-duel', status: 409 }`);
 await click('.bx-open');
 await sleep(200);
 assert.equal(await q('.bx-rv'), null);
-assert.match(await q('.bx-why .de-msg'), /during a duel/);
+assert.match(await q('.bx-why'), /during a duel/);
+assert.equal(await q('.bx-why', 'e => e.getAttribute("role")'), 'alert');
 
-// ---- contents & odds
+// ---- contents & odds: the yellow list window, rarest first, chances, ownership, bodies
 await click('.bx-link');
 assert.equal(await q('.bx-title'), 'Box Contents');
-assert.deepEqual(await qa('.bx-grp .gh .r'), ['Ultra Rare · 4%', 'Super Rare · 11%', 'Rare · 30%', 'Common · 55%']);
-assert.equal(await qa('.bx-tile').then(x => x.length), 5);
-assert.equal(await qa('.bx-tile[data-owned] .bx-own').then(x => x.length), 1);
-assert.match(await q('.bx-tile[data-rarity=super] .fn'), /for now/);
+assert.ok(await q('.bx-sheet', 'e => e.classList.contains("sa-yellow")'));
+assert.deepEqual(await qa('.bx-sheet .hd .sa-t'), ['Item', 'Body', 'Chance', 'Owned']);
+assert.deepEqual(await qa('.bx-grp .c-nm'), ['Ultra Rare: 1 item', 'Super Rare: 1 item', 'Rare: 1 item', 'Common: 2 items']);
+assert.deepEqual(await qa('.bx-grp .c-pc'), ['4%', '11%', '30%', '55%']);
+assert.equal(await qa('.bx-row').then(x => x.length), 5);
+assert.deepEqual(await qa('.bx-row[data-owned] .c-ow'), ['Owned']);
+assert.equal(await q('.bx-row:has(.de-rf[data-rarity=super]) .c-bd'), 'Male');
 assert.match(await q('.bx-rules'), /8th open in a row/);
 assert.equal(await q('.bx-list', 'e => getComputedStyle(e).overflowY'), 'auto');
-assert.equal(await qa('.bx-sidebtn').then(x => x.join('|')), 'Wardrobe|Back to box');
+assert.equal(await qa('.bx-sidebtn').then(x => x.join('|')), 'Back to box');
+assert.equal(await q('.bx-open', 'e => !!e'), true, 'Open Box stays on its pill');
 await b.ev(`document.querySelector('.bx-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
 assert.equal(await q('.bx-title'), 'Cosmetic Boxes');
 
 // ---- nothing of it outside its window's frame: every piece inside the 1024 x 600 the root may use
-const out = await b.ev(`[...document.querySelectorAll('.bx-main *')].filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > 1024.5 || r.bottom > 600.5 || r.left < 263.5); }).map(e => e.className)`);
+const out = await b.ev(`[...document.querySelectorAll('.bx-main *')].filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > 1024.5 || r.bottom > 600.5 || r.left < 257.5); }).map(e => e.className)`);
 assert.deepEqual(out, []);
 
 // ---- screens/shop.js strip(): the Confirm label goes (Wardrobe is drawn there), Back's only on the contents sheet

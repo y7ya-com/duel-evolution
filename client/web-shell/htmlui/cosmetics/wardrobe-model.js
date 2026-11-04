@@ -22,7 +22,7 @@ export const TABS = [
 export const EMPTY_HINT = 'Open boxes in the Card Shop to get wearables.';
 export const WORLDS = [{ id: 0, label: 'Domino City' }, { id: 1, label: 'Duel Academy' }];
 const WORLD_NAME = { 0: 'Domino City', 1: 'Duel Academy' };
-const SIGN = { male: '♂', female: '♀' };
+const BODY = { male: 'male', female: 'female' };
 const RARITY_ORDER = { ultra: 0, super: 1, rare: 2, common: 3 };
 const SLOT_NAME = { 1: 'Hair', 2: 'Face', 6: 'Outfit', 8: 'Duel Disk', 9: 'Glasses' };
 
@@ -65,8 +65,8 @@ export function canWear(item, body, world, rank) {
   }
   const { variant, worlds } = wearInfo(item, body, rank);
   if (!variant) {
-    const own = (item.bodies || []).map(b => SIGN[b]).join('');
-    return { ok: false, reason: item.notice || `This item is ${own} only for now.` };
+    const own = (item.bodies || []).map(b => BODY[b]).join(' and ');
+    return { ok: false, reason: item.notice || `This item is for the ${own} body only for now.` };
   }
   if (!worlds.includes(world)) {
     if (item.slot === 6 && worlds.includes(0) && world === 1)
@@ -90,8 +90,8 @@ export function graduationOf(rank) {
   const opponents = +g.opponents || 0, opponentsRequired = +g.opponentsRequired || 25;
   return { graduated: !!rank?.graduated, level, levelRequired, opponents, opponentsRequired,
     levelPct: Math.min(100, Math.round(100 * level / levelRequired)), opponentsPct: Math.min(100, Math.round(100 * opponents / opponentsRequired)),
-    text: rank?.graduated ? 'Graduated: any outfit you own, in either world'
-      : `Graduation: LV ${Math.min(level, levelRequired)}/${levelRequired} · ${Math.min(opponents, opponentsRequired)}/${opponentsRequired} different opponents beaten` };
+    text: rank?.graduated ? 'Graduated: any outfit you own can be worn in either world.'
+      : `Graduation: LV ${Math.min(level, levelRequired)}/${levelRequired} · ${Math.min(opponents, opponentsRequired)}/${opponentsRequired} rivals beaten` };
 }
 
 /** One tile's view. */
@@ -105,7 +105,7 @@ export function tileOf(item, info, world) {
     id: item.id, item, name: item.name, rarity: item.rarity, kind: item.kind, uniform: !!item.uniform, school: item.school || null,
     equipped: isEquipped(item, body, look), equippedIn, locked, wearable: wear.ok, reason: wear.reason,
     spares: item.uniform ? 0 : Math.max(0, +item.copies || 0), single, otherBody: single && single !== body,
-    worlds: item.uniform ? [0, 1] : worlds, where: item.uniform ? 'Both worlds' : wearInfo(item, body, rank).variant ? worldsText(worlds) : `${SIGN[single] || ''} only for now`,
+    worlds: item.uniform ? [0, 1] : worlds, where: item.uniform ? 'Both worlds' : wearInfo(item, body, rank).variant ? worldsText(worlds) : `${single ? BODY[single][0].toUpperCase() + BODY[single].slice(1) + ' body' : 'Not this body'} only for now`,
     status: item.uniform ? uniformStatus(item, rank) : '', slotName: SLOT_NAME[item.slot] || '',
   };
 }

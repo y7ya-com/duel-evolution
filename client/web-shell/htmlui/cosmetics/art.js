@@ -6,7 +6,7 @@
 //   itemArtUrls(item, body)  -> Promise<string[]>: the art's layers as blob URLs, bottom first ([] when none can be read)
 //   itemArtPaths(item, body) -> { paths, w, h, body, fallback, crop? }: the merge.dat names (pure; the mapping below)
 //   artBody(item, body)      -> { body, fallback }: the body whose art is shown (a single-body item shows its own body's
-//     art for the other body, fallback true: renderItemArt adds a subtle "♂ only for now" cue)
+//     art for the other body, fallback true: renderItemArt marks the box data-fallback, for its caller to dim)
 // `item` is the server's API item (server/src/game/cosmetics.ts itemOut: { id, name, kind, slot, rarity, variants:
 // [{ gender, bit, number, worlds }], bodies, notice }); a variant's `number` is the native part number the renderer uses.
 //
@@ -30,10 +30,12 @@
 // folder is usually in memory already: lazyfs pins data/avatar/chibi once the player is on a map). A runtime without
 // entry() gets the entry as one HTTP range, unpacked here (svelte/modern/deck/pictures.js's fallback). Each picture is
 // a blob URL kept for the session; a few reads at a time.
-import { BODY_SIGN } from './theme.js';
 
 export const CHIBI = 'data/avatar/chibi/';
 export const DISKS = 'data/map/map_switch/';
+// the shop's own sprites and the card get's glow frame (cosmetics/shopart.js: the skin the boxes and the Wardrobe use)
+export const SHOP = 'data/shop/', RESULT = 'data/y/result/';
+const READ = [CHIBI, DISKS, SHOP, RESULT];
 const two = n => String(n).padStart(2, '0');
 const prefix = female => (female ? 'cw_' : 'cm_');
 const chibi = (female, part) => `${CHIBI}${prefix(female)}${part}_n01_01.png`;
@@ -186,7 +188,7 @@ function directory(L) {
     const head = await bytes(L, url, 0, 12), n = head[8] | head[9] << 8 | head[10] << 16 | (head[11] << 24 >>> 0);
     if (!n || n > 200000) return null;
     const all = parseDirectory(await bytes(L, url, 0, 12 + n * 268)), keep = new Map();
-    for (const [k, v] of all) if (k.startsWith(CHIBI) || k.startsWith(DISKS)) keep.set(k, v);   // what art.js reads
+    for (const [k, v] of all) if (READ.some(p => k.startsWith(p))) keep.set(k, v);   // what art.js reads
     return { url, entries: keep };
   })().catch(e => { dirLoad = null; throw e; });   // a dropped connection: asked again next time
 }
@@ -247,8 +249,6 @@ const ART_CSS = `
 .de-art[data-state=none] > .de-art-none { display: grid; }
 .de-art-none > i { width: 46%; aspect-ratio: 1; border-radius: 50%; border: 2px dashed rgba(70,90,105,.45);
   display: grid; place-items: center; color: rgba(70,90,105,.6); font: bold 15px/1 Arial, sans-serif; font-style: normal; }
-.de-art > .de-art-only { position: absolute; right: 0; bottom: 0; padding: 1px 4px; border-radius: 3px; white-space: nowrap;
-  font: bold 9px/12px Arial, sans-serif; letter-spacing: .2px; color: #fff; background: rgba(40,60,75,.72); pointer-events: none; }
 `;
 function injectArtCss(doc) {
   if (!doc || doc.getElementById('de-art-css')) return;
@@ -271,13 +271,13 @@ function extent(imgs, w, h) {
   }
   return x1 < 0 ? null : [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
 }
-const signOf = b => BODY_SIGN?.[b] || (b === 'female' ? '♀' : '♂');
 
 /** Draw `item`'s art into `el` (its contents replaced): fitted into a size x size box (game px; default el's width),
  *  centred, a little padding; a skeleton until it loads and a placeholder if it can't. opts.fit 'extent' (default:
  *  the drawn pixels fill the box) or 'canvas' (the native canvas as it is, e.g. two hairs side by side).
- *  opts.cue false: no "♂ only for now" cue for a fallback body. -> { ready: Promise<boolean>, destroy() } */
-export function renderItemArt(el, item, { body = 'male', size, lit = false, fit = 'extent', pad = 0.08, cue = true, scale } = {}) {
+ *  opts.max: at most that many game px per texel (small art stays near its size). The other body's art (a single-body
+ *  item) marks el data-fallback. -> { ready: Promise<boolean>, destroy() } */
+export function renderItemArt(el, item, { body = 'male', size, lit = false, fit = 'extent', pad = 0.08, scale, max = 4 } = {}) {
   const doc = el.ownerDocument || document;
   injectArtCss(doc);
   const info = itemArtPaths(item, body, { lit });
@@ -291,13 +291,7 @@ export function renderItemArt(el, item, { body = 'male', size, lit = false, fit 
   none.className = 'de-art-none';
   none.innerHTML = '<i>?</i>';
   el.replaceChildren(skel, canvas, none);
-  if (info.fallback && cue) {
-    const only = doc.createElement('span');
-    only.className = 'de-art-only';
-    only.textContent = `${signOf(info.body)} only for now`;
-    only.title = item?.notice || '';
-    el.append(only);
-  }
+  el.toggleAttribute('data-fallback', !!info.fallback);
   let dead = false;
   const ready = (async () => {
     const layers = await itemArtUrls(item, body, { lit });
@@ -316,7 +310,7 @@ export function renderItemArt(el, item, { body = 'male', size, lit = false, fit 
     canvas.width = px; canvas.height = px;
     const g = canvas.getContext('2d');
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-    const room = px * (1 - 2 * pad), f = Math.min(room / src[2], room / src[3], fit === 'canvas' ? Infinity : 4 * k);
+    const room = px * (1 - 2 * pad), f = Math.min(room / src[2], room / src[3], fit === 'canvas' ? Infinity : max * k);
     const dw = src[2] * f, dh = src[3] * f, dx = (px - dw) / 2, dy = (px - dh) / 2;
     for (const i of imgs) g.drawImage(i, src[0], src[1], src[2], src[3], dx, dy, dw, dh);
     el.dataset.state = 'ready';
