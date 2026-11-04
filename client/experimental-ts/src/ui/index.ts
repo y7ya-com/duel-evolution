@@ -107,8 +107,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (p.selfPid === pid) return [
       { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
       { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
-      // the rewrite's appearance editor (main's avatar editor, Change Avatar, is not ported yet)
-      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } }] : []),
+      // the rewrite's appearance editor until main's avatar editor (Change Avatar) is ported: main's Main Menu has no Appearance
+      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } }] : []),
     ];
     return [];
   };
@@ -961,7 +961,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
-      // the same thing, then the rewrite's own scenes (Shop, Appearance), the way back to a duel or the lobby, and
+      // the same thing, then the rewrite's own scenes (Find Player, Shop), the way back to a duel or the lobby, and
       // Return to Title (Disconnect). Before a character is chosen the bar is its strip alone, as on Select Player.
       const blocked = !!state.busy, sideboard = !!state.sideboarding;
       const go = (scene: Scene) => () => open(scene);
@@ -982,7 +982,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } })) : []),
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
-          { label: 'Appearance', key: 'appearance', disabled: blocked || state.scene === 'duel' || sideboard, run: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
