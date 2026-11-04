@@ -87,7 +87,9 @@ export function boardInstruction(state: DuelState, p: NonNullable<DuelState['pro
   const choices = p.actions.filter(a => a.command !== 10 && a.command !== 1);
   if (p.kind !== 'actions' || p.buttons.length || !choices.length) return null;
   const line = (id: number) => texts?.dialog(id) ?? INSTRUCTIONS[id]!;
-  if (choices.every(a => a.command === 0)) return line(222);
+  // Attack actions on the player's own monsters declare an attack (the Battle Phase's idle choice): nothing to explain;
+  // on the opponent's monsters they pick the attack's target.
+  if (choices.every(a => a.command === 0)) return choices.every(a => a.player === 1 && a.zone <= 4) ? line(222) : null;
   if (!choices.every(a => a.command === 11)) return null;
   if (choices.every(a => uidFor(state, a) === null)) {
     const monster = choices.every(a => a.zone <= 4), spell = choices.every(a => a.zone >= 5 && a.zone <= 10);

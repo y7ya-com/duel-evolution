@@ -169,6 +169,8 @@ describe('board selection instructions', () => {
     expect(view(ask(initial(), [['0,6', 1 << 11]])).instruction).toBe('Select a Spell & Trap Card Zone.');
     // An attack target (command 0 on the opponent's monsters).
     expect(view(ask(reduce(initial(), set_card(1, 0, 2, 123, 9)), [['1,2', 1 << 0]])).instruction).toBe('Select monster as target for attack.');
+    // Attack actions on the player's own monsters declare an attack: no instruction.
+    expect(view(ask(reduce(initial(), set_card(0, 0, 1, 123, 4)), [['0,1', 1 << 0]])).instruction).toBeUndefined();
   });
   it('reads a choice among the player\'s monsters right after a summon from the hand as the Tribute', () => {
     const s = ask(reduce(initial(), set_card(0, 0, 0, 123, 4)), [['0,0', 1 << 11]]);
