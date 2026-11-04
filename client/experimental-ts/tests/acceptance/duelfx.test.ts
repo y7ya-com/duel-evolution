@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender, claimNpcReward, byKey } from './harness';
 
 /** In the page: while the effects layer reports an active effect, how many pixels of its canvas are painted
  * (every 16th pixel's alpha), per effect kind. Proves the original-art effects are drawn, not only scheduled. */
@@ -25,15 +25,22 @@ describe.skipIf(!enabled)('duel presentation with original art',() => {
       const portraits = [await page.ev(portrait(0)),await page.ev(portrait(1))] as number[];
       await screenshot(page,'duelfx-start');
       const want = ['phase','turn','attack','damage'], shots = new Set<string>();
-      const start = Date.now();
-      while (Date.now() - start < 420000) {
+      const start = Date.now(), done = (seen:Record<string,number>) => want.every(k => (seen[k] ?? 0) > 0) && !!(seen.summon || seen.set) && Object.keys(seen).length >= 6;
+      let duels = 1, attackLines = 0;
+      while (Date.now() - start < 480000) {
         const state = await duelBot(page);
         const seen = await painted(page);
         for (const k of Object.keys(seen)) if (!shots.has(k)) { shots.add(k); await screenshot(page,`duelfx-${k}`); }
-        if (state === 'finished' || want.every(k => (seen[k] ?? 0) > 0) && (seen.summon || seen.set) && Object.keys(seen).length >= 6) break;
+        attackLines = Math.max(attackLines, await page.ev(`[...document.querySelectorAll('.de-duel-log div')].filter(d=>/ attacks/.test(d.textContent)).length`) as number);
+        if (done(seen)) break;
+        // A duel can end without an attack (effect damage, deck-out): play another, at most three.
+        if (state === 'finished') { if (duels >= 3) break; duels++; await claimNpcReward(page); await until(page,byKey('lobby-npcs'),60000); await startNpcDuel(page,'Yami Yugi'); await until(page,`document.querySelectorAll('.de-field-card').length>5`,60000); }
         await sleep(120);
       }
       const seen = await painted(page), error = await page.ev(`window.__fxError ?? ''`);
+      const cued = await page.ev(`document.querySelector('.de-duel-fx')?.dataset.played ?? ''`) as string;
+      const log = (await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent).filter(l=>/attacks|damage/.test(l)).slice(-6).join(' | ')`)) as string;
+      console.log('cued', cued, 'painted', JSON.stringify(seen), 'log', log);
       // The effects canvas at its fullest frame per effect (transparent where nothing is drawn).
       const frames = JSON.parse(await page.ev(`JSON.stringify(window.__fxShots)`) as string) as Record<string,string>;
       mkdirSync('/tmp/acceptance',{ recursive:true });
@@ -44,12 +51,14 @@ describe.skipIf(!enabled)('duel presentation with original art',() => {
       const info = await page.ev(`document.querySelector('.de-duel-info').innerText.replace(/\\s+/g,' ').slice(0,160)`) as string;
       await screenshot(page,'duelfx-info');
       expect(error).toBe('');
-      for (const k of want) expect(seen[k] ?? 0,`${k} painted`).toBeGreaterThan(0);
+      // Every attack the duel log reports has its cue (the log keeps the last lines only, so at least one).
+      if (attackLines) expect(Number(/attack:(\d+)/.exec(cued)?.[1] ?? 0)).toBeGreaterThan(0);
+      for (const k of want) expect(seen[k] ?? 0,`${k} painted (cued ${cued}; ${log})`).toBeGreaterThan(0);
       expect((seen.summon ?? 0) + (seen.set ?? 0)).toBeGreaterThan(0);
       expect(portraits.every(n => n > 500)).toBe(true);
       record('duel.presentation',{ actions:'NPC duel (Yami Yugi) with motion on; bot summons, sets, attacks and ends turns; canvas sampled while effects run',
         expected:'Original-art duel presentation: waist-up portraits both sides, card box, phase/turn banners, summon/set, attack, LP damage digits, other cue effects drawn',
-        observed:`portrait pixels ${portraits.join('/')}; painted samples per effect ${JSON.stringify(seen)}; card box "${info}"` });
+        observed:`${duels} duel(s); cues played ${cued}; portrait pixels ${portraits.join('/')}; painted samples per effect ${JSON.stringify(seen)}; card box "${info}"` });
       if (!(await page.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`))) await surrender(page);
     } finally { closeAll(); }
   },600000);
