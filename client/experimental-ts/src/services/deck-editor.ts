@@ -23,6 +23,8 @@ export class DeckEditor {
   }
   get deck(): DeckView { return clone(this.value); }
   get dirty(): boolean { return !equal(this.value, this.baseline); }
+  /** The name the draft was loaded or last saved under: a different current name is a rename. */
+  get savedName(): string { return this.baseline.name; }
   setCollection(collection: readonly CardView[]): void {
     this.cards = new Map(collection.filter(c => c.passcode !== undefined).map(c => [c.passcode!, { ...c }]));
   }

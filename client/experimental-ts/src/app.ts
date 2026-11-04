@@ -9,6 +9,7 @@ import { encodeDuelResponse } from './duel/responses';
 import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
 import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
+import { readableError } from './shop/errors';
 import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
 import { SocialController } from './features/social';
@@ -209,6 +210,17 @@ export class ClientApp implements ClientController {
     if (!this.options.assets) return null;
     return this.packCatalog ??= loadPackCatalog(this.options.assets, this.scope.signal).catch(error => { this.packCatalog = null; throw error; });
   }
+  private rarities: Promise<void> | null = null;
+  /** Card rarities for the inspector, once per client; the editor redraws when they arrive. */
+  private loadRarities(): void {
+    const api = this.services.api; if (this.rarities || typeof api.cardRarities !== 'function') return;
+    this.rarities = api.cardRarities({ signal: this.scope.signal }).then(table => {
+      if (this.disposed) return;
+      this.catalog.installRarities(table); this.catalogCards = null; this.collectionRef = null; this.projections.clear();
+      const game = this.game?.state; if (game) this.collection = [...game.collection].map(([pc, n]) => this.catalog.card(pc, n));
+      this.editor?.setCollection(this.collection); this.syncEditor(); this.emit();
+    }).catch(() => { this.rarities = null; });
+  }
   /** Reward packs are named from the same original tables as the shop. */
   private loadPackNames(): void {
     if (this.view.packNames) return;
@@ -236,7 +248,7 @@ export class ClientApp implements ClientController {
   readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
@@ -528,6 +540,7 @@ export class ClientApp implements ClientController {
     if (scene === 'deck') {
       await this.requireGame().refreshCollection();
       await this.requireGame().refreshPlayerBits();
+      this.loadRarities();
       const data = await this.services.refreshDecks(options);
       if (epoch !== this.epoch || this.disposed) throw new DOMException('Session changed', 'AbortError');
       if (!this.editor) {
@@ -711,14 +724,34 @@ export class ClientApp implements ClientController {
           } else this.download(new Blob([serializeDeck(deck,command.format)], { type:command.format === 'json' ? 'application/json' : 'text/plain;charset=utf-8' }),`${deck.name}.${command.format}`);
           break;
         }
-        case 'saveDeck': if (!this.editor) throw new Error('Choose a deck first.'); await this.services.saveEditor(this.editor, this.deckMode, { signal: this.connectionScope.signal }); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
-        case 'deleteDeck': await this.services.deleteDeck(command.name, { signal: this.connectionScope.signal }); if (this.editor?.deck.name === command.name) this.editor = null; await this.refresh('deck'); break;
+        case 'saveDeck': {
+          if (!this.editor) throw new Error('Choose a deck first.');
+          // A saved deck saved under another name is renamed: the new name is written (and made current) first, then the old one removed.
+          const from = this.editor.savedName, to = this.editor.deck.name, saved = this.services.decks.state.data?.decks ?? [];
+          if (from !== to && saved.some(d => d.name === to)) throw new Error(`A deck named “${to}” already exists. Choose another name.`);
+          await this.services.saveEditor(this.editor, this.deckMode, { signal: this.connectionScope.signal });
+          if (from !== to && saved.some(d => d.name === from)) await this.services.deleteDeck(from, { signal: this.connectionScope.signal });
+          await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
+        }
+        case 'deleteDeck': {
+          await this.services.deleteDeck(command.name, { signal: this.connectionScope.signal }); if (this.editor?.deck.name === command.name) this.editor = null; await this.refresh('deck');
+          // Deleting the active deck leaves the server without one: the deck now shown becomes active, as the original selects the next deck.
+          const data = this.services.decks.state.data, shown = this.editor?.savedName;
+          if (data && !data.current[this.deckMode] && shown && data.decks.some(d => d.name === shown)) { await this.services.selectDeck(shown, this.deckMode, { signal: this.connectionScope.signal }); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); }
+          break;
+        }
         case 'buy': {
           const pending = this.services.pendingPurchase;
           if (pending && (pending.itemId !== command.itemId || pending.count !== command.count)) throw new Error('Retry your pending purchase first.');
-          const result = pending ? await this.services.retryPurchase({ signal: this.connectionScope.signal }) : await this.services.buy(command.itemId, command.count, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
+          const had = new Set(this.collection.filter(c => (c.owned ?? 0) > 0).map(c => c.passcode));
+          const result = await (pending ? this.services.retryPurchase({ signal: this.connectionScope.signal }) : this.services.buy(command.itemId, command.count, { signal: this.connectionScope.signal })).catch(e => { throw readableError(e); }); this.assertEpoch(epoch);
           const view = await this.shopView(result); this.assertEpoch(epoch);
-          this.patch({ shop: { ...view, purchased:result.purchased.filter(c=>c.passcode>0).map(c=>this.catalog.card(c.passcode)),replayed:result.replayed }, status: 'Purchase confirmed.' }); await this.requireGame().refreshCollection();await this.requireGame().refreshPlayerBits();break;
+          // Accessories (kind 2) are avatar parts, not cards. A card is new once: the first copy of a passcode not owned before
+          // (unknown for a replayed receipt, whose cards are already in the collection).
+          const cards = result.purchased.filter(c => c.kind !== 2 && c.passcode > 0), seen = new Set<number>();
+          const fresh = cards.map(c => { const n = !had.has(c.passcode) && !seen.has(c.passcode); seen.add(c.passcode); return n; });
+          const purchased = cards.map(c => this.catalog.card(c.passcode));
+          this.patch({ shop: { ...view, purchased, ...(purchased.length ? { opening: { cards: purchased, fresh: result.replayed ? fresh.map(() => false) : fresh, rarities: cards.map(c => c.rarity) } } : {}), replayed:result.replayed }, status: 'Purchase confirmed.' }); await this.requireGame().refreshCollection();await this.requireGame().refreshPlayerBits();break;
         }
         case 'duelRespond': {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');

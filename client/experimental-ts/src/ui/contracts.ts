@@ -27,6 +27,10 @@ export interface CardView {
   defense?: number;
   owned?: number;
   limit?: number;
+  /** false for cards that never go in a deck (gods, tokens). */
+  deckAllowed?: boolean;
+  /** N, R, SR or UR (the server's card-rarities table). */
+  rarity?: string;
   extra?: boolean;
 }
 export interface DeckView { name: string; main: number[]; side: number[]; extra: number[]; }
@@ -35,7 +39,9 @@ export interface LobbyAvatar { id: number; name: string; x: number; y: number; s
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
 export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean }[]; invitation?: { name: string; pid: number }; areas?: { area: number; block: number; name: string; population?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
 export interface ShopItem { id: number; name: string; price: number; category?: string; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
-export interface ShopView { purchased?: CardView[]; replayed?: boolean; items: ShopItem[]; mp: number; earnedMp?: number; loading?: boolean; available?: boolean; error?: string; }
+/** One purchase's opened cards, for the card-get presentation: whether each was new to the collection, its rarity. */
+export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
+export interface ShopView { purchased?: CardView[]; opening?: CardGetView; replayed?: boolean; items: ShopItem[]; mp: number; earnedMp?: number; loading?: boolean; available?: boolean; error?: string; }
 export type FieldZone = 'deck' | 'hand' | 'monster' | 'spell' | 'graveyard' | 'banished' | 'extra' | 'field';
 export interface DuelCardView extends CardView { counters?: { kind: number; count: number }[]; turnCounter?: number; motion?: { x: number; y: number; rotation: number; scaleX: number; opacity?: number; zIndex?: number }; controller: 0 | 1; zone: FieldZone; index: number; faceUp: boolean; position?: 'attack' | 'defense'; }
 export interface DuelOption { id: string; label: string; disabled?: boolean; cardId?: string;

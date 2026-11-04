@@ -20,6 +20,9 @@ export type ChatChannel = 'global' | 'trade' | 'whisper' | 'team';
 export interface ChatMessage { id: number; at: number; channel: ChatChannel; pid: number; name: string; text: string; targetPid?: number; }
 export interface ChatFeed { ok: { cursor: number; reset: boolean; pid: number; name: string; players: { pid: number; name: string }[]; messages: ChatMessage[] }; }
 
+export const CARD_RARITIES = ['N', 'R', 'SR', 'UR'] as const;
+export type CardRarity = typeof CARD_RARITIES[number];
+
 // Decode the actual route envelopes at the boundary; no unchecked generic casts enter gameplay state.
 const bad = (): never => { throw new ResponseError('Unexpected API response shape'); };
 const obj = (x: unknown): Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : bad();
@@ -67,6 +70,10 @@ export class GameApi {
   }
   deleteDeck(name: string, options?: RequestOptions): Promise<{ updated: number }> {
     return this.http.request('DELETE', `/api/de/decks/${encodeURIComponent(name)}`, stamp, undefined, options);
+  }
+  /** The game-wide rarity of each card (server/src/game/card-rarity.ts): Common, Rare, Super Rare, Ultra Rare. */
+  cardRarities(options?: RequestOptions): Promise<Record<string, CardRarity>> {
+    return this.http.request('GET', '/api/de/card-rarities', x => Object.fromEntries(Object.entries(obj(obj(x).byPasscode)).map(([pc, r]) => [pc, oneOf(r, CARD_RARITIES)])), undefined, options);
   }
   wallet(options?: RequestOptions): Promise<Wallet> { return this.http.request('GET', '/api/de/wallet', wallet, undefined, options); }
   shop(options?: RequestOptions): Promise<ShopCatalog> { return this.http.request('GET', '/api/de/shop', shop, undefined, options); }

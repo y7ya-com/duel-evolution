@@ -3,7 +3,7 @@ import type { CardDetailsCatalog } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
 export interface CatalogEntry {
   passcode: number; name: string; description?: string; type?: string; level?: number;
-  attack?: number; defense?: number; extra?: boolean; limit?: number; mergePath?: string;
+  attack?: number; defense?: number; extra?: boolean; limit?: number; deckAllowed?: boolean; rarity?: string; mergePath?: string;
   race?: string; attribute?: string;
   descriptionSource?: 'cards.cdb' | 'original-en';
 }
@@ -33,7 +33,7 @@ export class CardCatalog {
     const next = new Map(this.cards);
     for (const c of details.entries) {
       const old = next.get(c.passcode), entry: CatalogEntry = { ...old, passcode:c.passcode, name:c.name };
-      for (const key of ['description','type','race','attribute','level','attack','defense','extra','limit'] as const) {
+      for (const key of ['description','type','race','attribute','level','attack','defense','extra','limit','deckAllowed'] as const) {
         if (c[key] !== undefined) Object.assign(entry, { [key]:c[key] });
       }
       next.set(c.passcode,entry);
@@ -43,6 +43,12 @@ export class CardCatalog {
   installOriginalTexts(texts: OriginalCardTextCatalog): void {
     const next = new Map(this.cards);
     for (const c of texts.entries) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:'original-en'});
+    this.cards = next;
+  }
+  /** The server's rarity per passcode; display only. */
+  installRarities(rarities: Readonly<Record<string, string>>): void {
+    const next = new Map(this.cards);
+    for (const [pc, c] of next) { const rarity = rarities[String(pc)]; if (rarity) next.set(pc, { ...c, rarity }); }
     this.cards = next;
   }
   get size(): number { return this.cards.size; }
