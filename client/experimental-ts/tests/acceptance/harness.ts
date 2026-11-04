@@ -188,8 +188,9 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       if(pick)return {kind:'text',text:pick.textContent,scope:'.de-duel-inspector'};
       return {kind:'text',text:'Close',scope:'.de-duel-inspector'};
     }
-    const end=find('End Turn');
-    if(end){
+    // The server can withhold End Turn (only Battle Phase offered, e.g. after Dark Magic Curtain): advance through the phase it offers.
+    const end=find('End Turn'),advance=end??find('Main Phase 2')??find('Battle Phase');
+    if(advance){
       const phase=document.querySelector('.de-phase.current')?.title??'';
       const mine=[...document.querySelectorAll('.de-field-card')].filter(b=>ok(b)&&!window.__tried.has(b.dataset.key)&&/, your (hand|monster)/.test(b.getAttribute('aria-label')??''));
       const hand=mine.filter(b=>/your hand/.test(b.getAttribute('aria-label')));
@@ -197,7 +198,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       if(!phase.includes('Battle')&&hand.length&&${options.summon !== false}){window.__tried.add(hand[0].dataset.key);return {kind:'key',key:hand[0].dataset.key};}
       if(${options.attack !== false}&&!window.__battled&&find('Battle Phase')&&field.length){window.__battled=true;return {kind:'text',text:'Battle Phase'};}
       if(phase.includes('Battle')&&field.length&&${options.attack !== false}){window.__tried.add(field[0].dataset.key);return {kind:'key',key:field[0].dataset.key};}
-      return {kind:'text',text:'End Turn'};
+      return {kind:'text',text:advance.textContent};
     }
     return null;})()`) as { kind:string; key?:string; text?:string; scope?:string; sel?:string } | null;
   if (!next) return 'idle';
