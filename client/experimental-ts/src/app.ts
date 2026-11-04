@@ -20,6 +20,7 @@ import { fieldThemeKindForPasscode } from './duel/theme';
 import { describeNotice } from './duel/text';
 import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
+import { DuelCueQueue } from './duel/cues';
 import { DuelAudioDirector } from './duel/audio';
 import { fieldAudioSlotForPasscode } from './duel/theme';
 import { AccountController } from './features/account';
@@ -111,6 +112,9 @@ export class ClientApp implements ClientController {
   /** Process-lifetime, like the original's never-cleared result category global; never reset with a session. */
   private npcResult = createNpcResultContext();
   private timeline = new DuelTimeline(this.duelState);
+  private duelCues = new DuelCueQueue({ cardKind: pc => { const t = this.catalog.card(pc).type?.toLowerCase() ?? ''; return t.startsWith('spell') ? 'spell' : t.startsWith('trap') ? 'trap' : t ? 'monster' : undefined; },
+    fieldKind: pc => { try { return fieldThemeKindForPasscode(pc, id => this.options.cardDetails?.get(id)?.internalId); } catch { return null; } } });
+  private duelPortraits: [Uint8Array | undefined, Uint8Array | undefined] = [undefined, undefined];
   private duelAudio = new DuelAudioDirector();
   private animationFrame: number | null = null;
   private lastFrame: number | null = null;
@@ -240,7 +244,8 @@ export class ClientApp implements ClientController {
   readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv.
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|card|avatar\/wu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
@@ -357,7 +362,7 @@ export class ClientApp implements ClientController {
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
     for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: event.sequence, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
-    this.timeline.enqueue(previous, this.duelState);
+    this.timeline.enqueue(previous, this.duelState); this.duelCues.collect(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
     if (this.npcResult.complete && !npcResult.complete) this.npc.refreshResultLine();
@@ -415,7 +420,7 @@ export class ClientApp implements ClientController {
   private resetDuel(): void {
     this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
-    this.duelAudio.reset(this.duelState.sequence);
+    this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
     this.settledDuel = null;
     this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null;
   }
@@ -424,6 +429,15 @@ export class ClientApp implements ClientController {
     this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
       spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
+  }
+  /** Each duelist's avatar bytes for the waist-up portraits, kept from the first time they are known in this duel. */
+  private duelParts(): [Uint8Array | undefined, Uint8Array | undefined] {
+    const state = this.game?.state, self = state?.profile?.pid;
+    if (!state) return this.duelPortraits;
+    const [mine, theirs] = this.duelPortraits, opponent = this.duelIsPvp ? this.duelNames()[1] : null;
+    this.duelPortraits = [mine ?? state.players.find(p => p.pid === self)?.parts,
+      theirs ?? (this.duelIsPvp ? state.players.find(p => p.name === opponent && p.pid !== self)?.parts : state.npcs.find(n => n.id === this.npc.state.npc?.id)?.parts)];
+    return this.duelPortraits;
   }
   private duelNames(): [string, string] {
     const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
@@ -444,7 +458,9 @@ export class ClientApp implements ClientController {
   }
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;
-    const sample = this.timeline.sample(), duel = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
+    const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
+    const parts = this.duelParts(), duel = { ...timed, cues: this.duelCues.release(this.timeline.acknowledgedThrough),
+      players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
     for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
     this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);

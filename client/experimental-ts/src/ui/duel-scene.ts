@@ -1,0 +1,180 @@
+import type { CardView, DuelCardView, DuelView } from './contracts';
+import { DuelFx, type ArchiveLoader } from './duel-fx';
+import { WaistUpComposer } from './duel-portrait';
+import { fieldCardPosition } from './helpers';
+
+/** The original duel screen's furniture around the field, with its art: the two waist-up portraits between the backdrop
+ * and the zone frames (the opponent's on the right: the `_r` pose as drawn; the player's on the left: the `_l` pose
+ * mirrored, so both face the field; measured against captures of the original), the card
+ * information box at the bottom left (name, [race/kind/attribute], text, race and attribute icons, level, ATK/DEF:
+ * data/y/duel/card/icon_syuzoku.png 21 × 16 px in YO2 race order, icon_zokusei.png 10 × 16 px, icon_star_01.png) and
+ * the effects layer (src/ui/duel-fx.ts). The nodes persist across renders: a render re-attaches them to the new board. */
+
+const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Machine', 'Fish', 'Dinosaur', 'Insect', 'Beast', 'Beast-Warrior',
+  'Plant', 'Aqua', 'Warrior', 'Winged Beast', 'Fairy', 'Spellcaster', 'Thunder', 'Reptile', 'Divine-Beast'];
+const ATTRIBUTES = ['light', 'dark', 'water', 'fire', 'earth', 'wind', 'divine'];
+/** Where the composed 768×768 portrait sits on the 1024×768 screen, measured from captures of the original. */
+export const PORTRAIT_PLACE: Record<0 | 1, { x: number; y: number }> = { 0: { x: -230, y: 26 }, 1: { x: 562, y: 24 } };
+/** The original draws the 768-pixel composition at about 0.9 (eye spacing 52-54 px on the 1024×768 screen). */
+export const PORTRAIT_SCALE = 0.9;
+
+const CSS = `
+.de-duel-board>canvas.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+.de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
+.de-duel-fx canvas { width:100%; height:100%; display:block; }
+.de-duel-board>canvas.de-duel-stats { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:6; }
+.de-duel-info { position:absolute; left:${6 / 1024 * 100}%; top:${496 / 768 * 100}%; width:${240 / 1024 * 100}%; height:${122 / 768 * 100}%; z-index:8;
+  box-sizing:border-box; padding:.35em .5em; overflow:hidden; pointer-events:none; font:13px/1.25 Arial,'Segoe UI',sans-serif; color:#2a2f38;
+  background:linear-gradient(180deg,rgba(236,246,255,.9),rgba(214,232,250,.86)); border:1px solid #6fb3ea; border-radius:3px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.7); }
+.de-duel-info[hidden] { display:none; }
+.de-duel-info-name { color:#a3922a; font-weight:bold; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.de-duel-info-kind { color:#62862a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.de-duel-info-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
+.de-duel-info-stats { position:absolute; left:.5em; right:.5em; bottom:.3em; display:flex; align-items:center; gap:2px; white-space:nowrap; font-weight:bold; }
+.de-duel-info-icon { width:16px; height:16px; overflow:hidden; position:relative; flex:none; }
+.de-duel-info-icon img { position:absolute; top:0; height:16px; }
+.de-duel-info-star { width:19px; height:16px; flex:none; }
+.de-duel-info-stats span { margin-left:4px; }
+`;
+
+function isMonster(card: CardView): boolean { return !!card.type?.startsWith('Monster') || card.attack !== undefined && !/^(Spell|Trap)/.test(card.type ?? ''); }
+export function cardKindLine(card: CardView): string {
+  if (!isMonster(card)) return '';
+  const kinds = (card.type ?? '').split('/').map(s => s.trim()).filter(s => s && s !== 'Monster' && s !== 'Normal');
+  const attribute = typeof card.attribute === 'string' && card.attribute ? card.attribute.toUpperCase() : '';
+  return `[${[typeof card.race === 'string' && card.race ? card.race : '', ...kinds, attribute].filter(Boolean).join('/')}]`;
+}
+
+export class DuelPresentation {
+  readonly fx: DuelFx;
+  private readonly portraits: [HTMLCanvasElement, HTMLCanvasElement];
+  private readonly portraitKeys: [string, string] = ['', ''];
+  private readonly composer: WaistUpComposer | null;
+  private readonly abort = new AbortController();
+  private readonly info: HTMLElement;
+  /** ATK/DEF under face-up monsters in the original's duel_fontm digits (7×16, "0123456789/"). */
+  private readonly statsLayer: HTMLCanvasElement;
+  private statsKey = '';
+  private statsFont: HTMLImageElement | null = null;
+  private readonly style: HTMLStyleElement;
+  private duel: DuelView | null = null;
+  private shown: string | null = null;
+  private hovered: string | null = null;
+  private infoKey = '';
+
+  constructor(private readonly load: ArchiveLoader | null) {
+    this.fx = new DuelFx(load);
+    this.composer = load ? new WaistUpComposer(load) : null;
+    this.portraits = [0, 1].map(side => {
+      const c = document.createElement('canvas'); c.width = 768; c.height = 768; c.className = `de-duel-portrait side-${side}`; c.setAttribute('aria-hidden', 'true');
+      const at = PORTRAIT_PLACE[side as 0 | 1]; c.style.left = `${at.x / 1024 * 100}%`; c.style.top = `${at.y / 768 * 100}%`; c.hidden = true;
+      // The art faces left: the player's portrait is the mirrored composition of the other pose.
+      if (side === 0) c.style.transform = 'scaleX(-1)';
+      return c;
+    }) as [HTMLCanvasElement, HTMLCanvasElement];
+    this.info = document.createElement('aside'); this.info.className = 'de-duel-info'; this.info.setAttribute('aria-label', 'Card information'); this.info.hidden = true;
+    this.style = document.createElement('style'); this.style.textContent = CSS;
+    this.statsLayer = document.createElement('canvas'); this.statsLayer.width = 1024; this.statsLayer.height = 768; this.statsLayer.className = 'de-duel-stats'; this.statsLayer.setAttribute('aria-hidden', 'true');
+    load?.('data/y/duel/font/duel_fontm.png', this.abort.signal).then(lease => {
+      const img = new Image(); img.onload = () => { this.statsFont = img; this.statsKey = ''; if (this.duel) this.drawStats(); lease.release(); }; img.onerror = () => lease.release(); img.src = lease.url;
+    }, () => {});
+  }
+
+  /** Attach to a freshly rendered board. */
+  mount(board: HTMLElement, duel: DuelView, reducedMotion: boolean): void {
+    board.append(this.style);
+    if (this.load) {
+      const bg = board.querySelector('.de-duel-bg');
+      if (bg) bg.after(...this.portraits); else board.prepend(...this.portraits);
+      board.append(this.statsLayer, this.fx.element, this.info);
+    }
+    board.addEventListener('pointerover', e => {
+      const id = (e.target as Element | null)?.closest?.('[data-key^="field-card:"]')?.getAttribute('data-key')?.slice('field-card:'.length);
+      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.renderInfo(); }
+    });
+    this.update(duel, reducedMotion);
+  }
+  update(duel: DuelView, reducedMotion: boolean): void {
+    if (duel !== this.duel && duel.cues !== this.duel?.cues) {
+      // The last card a cue points at (summoned, activated, attacking) is what the box shows until the pointer picks another.
+      const last = [...(duel.cues ?? [])].reverse().find(c => c.at && ['summon', 'activate', 'flip', 'attack'].includes(c.kind) && c.id > (this.lastCue ?? 0));
+      if (last?.at) {
+        const card = duel.cards.find(c => c.controller === last.at!.controller && c.zone === last.at!.zone && c.index === last.at!.index && c.faceUp);
+        if (card) this.shown = card.id;
+      }
+      this.lastCue = duel.cues?.[duel.cues.length - 1]?.id ?? this.lastCue;
+    }
+    this.duel = duel;
+    if (!this.load) return;
+    this.fx.update(duel, reducedMotion);
+    for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
+    this.renderInfo(); this.drawStats();
+  }
+  private lastCue: number | null = null;
+  dispose(): void { this.abort.abort(); this.statsLayer.remove(); this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove(); }
+
+  private drawStats(): void {
+    const font = this.statsFont, ctx = this.statsLayer.getContext('2d'); if (!font || !ctx || !this.duel) return;
+    const shown = this.duel.cards.filter(c => c.zone === 'monster' && c.faceUp && c.attack !== undefined && c.attack !== null);
+    const key = shown.map(c => `${c.id}:${c.attack}:${c.defense}:${Math.round(c.motion?.x ?? -1)}:${Math.round(c.motion?.y ?? -1)}:${c.controller}:${c.index}`).join('|');
+    if (key === this.statsKey) return;
+    this.statsKey = key; ctx.clearRect(0, 0, 1024, 768);
+    for (const card of shown) {
+      const p = fieldCardPosition(card, 0), x = card.motion?.x ?? p.x, y = (card.motion?.y ?? p.y) + 42;
+      // "1800 / 1600": the slash with a few pixels of space each side, centred under the card.
+      const atk = String(card.attack), def = card.defense === undefined || card.defense === null ? '?' : String(card.defense);
+      const width = (atk.length + def.length + 1) * 7 + 8;
+      let at = x - width / 2;
+      const glyph = (ch: string) => { const g = '0123456789/'.indexOf(ch); if (g >= 0) ctx.drawImage(font, g * 7, 0, 7, 16, at, y - 8, 7, 16); at += 7; };
+      for (const ch of atk) glyph(ch); at += 4; glyph('/'); at += 4; for (const ch of def) glyph(ch);
+    }
+  }
+  private portrait(side: 0 | 1, parts: Uint8Array | undefined): void {
+    const canvas = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
+    if (key === this.portraitKeys[side]) return;
+    this.portraitKeys[side] = key;
+    if (!parts || !this.composer) { canvas.hidden = true; return; }
+    void this.composer.compose(parts, side === 0 ? 1 : 0, this.abort.signal).then(composed => {
+      if (this.portraitKeys[side] !== key) return;
+      const ctx = canvas.getContext('2d'); if (!ctx) return;
+      ctx.clearRect(0, 0, 768, 768); ctx.drawImage(composed, 0, 0); canvas.hidden = false; canvas.dataset.parts = key;
+    }).catch(() => { canvas.hidden = true; });
+  }
+
+  private renderInfo(): void {
+    const card = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
+    const visible = card && (card.faceUp || card.controller === 0 && card.passcode !== undefined) && card.name && card.name !== 'Hidden card' ? card : undefined;
+    const key = visible ? `${visible.id}:${visible.passcode}:${visible.attack}:${visible.defense}` : '';
+    if (key === this.infoKey) return;
+    this.infoKey = key;
+    this.info.replaceChildren();
+    this.info.hidden = !visible;
+    if (!visible) return;
+    this.info.dataset.cardId = visible.id;
+    const div = (cls: string, text: string) => { const d = document.createElement('div'); d.className = cls; d.textContent = text; return d; };
+    this.info.append(div('de-duel-info-name', visible.name));
+    const kind = cardKindLine(visible); if (kind) this.info.append(div('de-duel-info-kind', kind));
+    this.info.append(div('de-duel-info-text', visible.description ?? ''));
+    this.info.append(this.stats(visible));
+  }
+  private icon(sheet: string, index: number): HTMLElement {
+    const box = document.createElement('span'); box.className = 'de-duel-info-icon';
+    const img = document.createElement('img'); img.alt = ''; img.style.left = `${-index * 16}px`; box.append(img);
+    this.load?.(`data/y/duel/card/${sheet}`, this.abort.signal).then(lease => { img.src = lease.url; img.onload = img.onerror = () => lease.release(); }, () => box.remove());
+    return box;
+  }
+  private stats(card: DuelCardView): HTMLElement {
+    const row = document.createElement('div'); row.className = 'de-duel-info-stats';
+    if (isMonster(card)) {
+      const race = RACES.indexOf(String(card.race ?? '')), attribute = ATTRIBUTES.indexOf(String(card.attribute ?? '').toLowerCase());
+      if (race >= 0) row.append(this.icon('icon_syuzoku.png', race));
+      if (attribute >= 0) row.append(this.icon('icon_zokusei.png', attribute));
+      const star = document.createElement('img'); star.className = 'de-duel-info-star'; star.alt = '';
+      this.load?.('data/y/duel/card/icon_star_01.png', this.abort.signal).then(lease => { star.src = lease.url; star.onload = star.onerror = () => lease.release(); }, () => star.remove());
+      const text = document.createElement('span');
+      text.textContent = `${card.level ?? '?'} ATK${card.attack ?? '?'}/DEF${card.defense ?? '?'}`;
+      row.append(star, text);
+    } else row.append(this.icon('icon_zokusei.png', /^Trap/.test(card.type ?? '') ? 8 : 7));
+    return row;
+  }
+}

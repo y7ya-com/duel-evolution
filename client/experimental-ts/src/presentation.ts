@@ -213,5 +213,5 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
   });
   return { ...view, cards, effects, players: [
     { ...view.players[0], lp: sample.lp[0] }, { ...view.players[1], lp: sample.lp[1] },
-  ], ...(sample.pending ? { prompt: null, actions: EMPTY_ACTIONS, waiting: view.waiting ?? 'Resolving duel animations…' } : {}) };
+  ], ...(sample.pending ? { prompt: null, actions: EMPTY_ACTIONS, ...(view.waiting ? { waiting: view.waiting } : {}) } : {}) };
 }

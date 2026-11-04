@@ -2,6 +2,7 @@ import type { DuelCardView, DuelView, CardView, ClientCommand, ClientController,
 import { deckCollection, sideboardDifference, defaultDeckFilters, parseDeckImport, MAX_DECK_IMPORT_BYTES } from './deck';
 import type { DeckCardType, DeckFilters, DeckSort } from './deck';
 import { deckPlacementReason, FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { DuelPresentation } from './duel-scene';
 import { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
@@ -76,6 +77,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   host.append(css, header, stage, nav); root.append(host);
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
+  const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   const avatarNodes = new Map<number, HTMLElement>();
   const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
@@ -182,6 +184,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const node = el('span', `de-effect de-effect-${effect.type}`), progress = Math.max(0, Math.min(1, effect.progress));
       const card = effect.cardId ? duel.cards.find(c => c.id === effect.cardId) : undefined;
       if (effect.cardId) { const target = fieldNodes.get(effect.cardId); if (target) target.dataset.effect = effect.type; }
+      if (controller.loadArchiveImage) continue; // the original art's effects layer (duel-fx.ts) draws these
       node.textContent = effect.type === 'damage' ? `−${effect.value ?? ''}` : effect.type === 'recover' ? `+${effect.value ?? ''}` : effect.type === 'chain' ? 'Chain' : effect.type === 'attack' ? 'Attack' : 'Effect';
       const handCount = card ? duel.cards.filter(c => c.controller === card.controller && c.zone === 'hand').length : 0;
       const p = card ? fieldCardPosition(card, handCount) : { x: effect.player === 0 ? 150 : 874, y: 95 };
@@ -194,7 +197,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
     for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); }
-    presentEffects(duel);
+    presentEffects(duel); duelScene.update(duel, state.settings.reducedMotion);
   };
   const pruneArt = () => {
     for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
@@ -654,7 +657,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
       cards.append(zone);
     }
-    board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel);
+    board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
     const actions = el('div', 'de-duel-actions');
     for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => send({ type: 'duelAction', actionId: a.id }), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
@@ -895,5 +898,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

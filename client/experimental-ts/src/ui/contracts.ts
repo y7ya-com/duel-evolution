@@ -56,7 +56,7 @@ export interface DuelPromptView {
   numberMax?: number;
 }
 export interface DuelView {
-  players: readonly [{ name: string; lp: number; deckCount?: number; handCount?: number; turnCounters?: { passcode: number; name: string; turns: number }[] }, { name: string; lp: number; deckCount?: number; handCount?: number; turnCounters?: { passcode: number; name: string; turns: number }[] }];
+  players: readonly [DuelistView, DuelistView];
   cards: DuelCardView[];
   prompt: DuelPromptView | null;
   turn: number;
@@ -75,6 +75,25 @@ export interface DuelView {
   /** Only server-issued commands are offered. */
   actions?: DuelOption[];
   effects?: { type: 'attack' | 'chain' | 'damage' | 'recover' | 'flash'; player: 0 | 1; progress: number; cardId?: string; value?: number }[];
+  /** Presentation cues for the original duel effects (src/duel/cues.ts), oldest first; ids only grow. */
+  cues?: readonly DuelCue[];
+}
+/** `parts`: the 16 avatar bytes the waist-up portrait is composed from (src/ui/duel-portrait.ts). */
+export interface DuelistView { name: string; lp: number; deckCount?: number; handCount?: number; turnCounters?: { passcode: number; name: string; turns: number }[]; parts?: Uint8Array }
+export interface DuelCuePlace { controller: 0 | 1; zone: FieldZone; index: number }
+export interface DuelCue {
+  id: number;
+  kind: 'start' | 'turn' | 'phase' | 'summon' | 'set' | 'flip' | 'activate' | 'chain-run' | 'attack' | 'destroy' | 'tribute' | 'damage' | 'recover' | 'coin' | 'dice' | 'field';
+  player: 0 | 1;
+  at?: DuelCuePlace; target?: DuelCuePlace; direct?: boolean; defense?: boolean;
+  cardKind?: 'monster' | 'spell' | 'trap';
+  phase?: 'draw' | 'standby' | 'main1' | 'battle' | 'main2' | 'end';
+  /** Chain link number (activate / chain-run). */
+  link?: number;
+  /** LP amount, die face or field theme. */
+  value?: number;
+  /** Coin faces, 1 = heads. */
+  values?: number[];
 }
 export interface SocialEntry { id: number | string; name: string; status?: string; online?: boolean; }
 export interface SocialView { friends: SocialEntry[]; mail?: { id: string; sender: string; subject: string; body: string }[]; loading?: boolean; }
