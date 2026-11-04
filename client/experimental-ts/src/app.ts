@@ -691,7 +691,8 @@ export class ClientApp implements ClientController {
           const match = this.requireGame().state.match;
           if (!this.sideboard || match?.stage !== 'sideboarding' || match.complete || this.sideboard.main.length !== match.original.main.length || this.sideboard.side.length !== (match.original.side?.length ?? 0)) throw new Error('Restore the original Main and Side counts before continuing.');
           const deck = structuredClone(this.sideboard);
-          this.resetDuel(); this.patch({ duel:null }); await this.requireGame().submitSideboard(deck); break;
+          // The next game of the same match: still player versus player, against the same opponent.
+          const pvp = this.duelIsPvp; this.resetDuel(); this.duelIsPvp = pvp; this.patch({ duel:null }); await this.requireGame().submitSideboard(deck); break;
         }
         case 'deckReorder': { const result = this.editor?.reorder(command.zone, command.fromIndex, command.toIndex); if (!result?.ok) throw new Error(result && !result.ok ? result.reason : 'Choose a deck first.'); this.syncEditor(); this.emit(); break; }
         case 'replaceDeck': {

@@ -127,7 +127,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       expect(log.some(l => / attacks| summons /.test(l))).toBe(true);
       record('pvp.play',{ actions:'Both players play with active bots (summon, set, attack, answer prompts) to the end',
         expected:'Two clients agree on field, LP, phases, timers and final result',
-        observed:`${result.agreements} turn starts checked with both settled screens mirrored (phase bar, LP, names, per-zone counts); final ${ea.ended}/${eb.ended} at turn ${ea.turn}, LP ${ea.lp.join('/')} vs ${eb.lp.join('/')}; e.g. "${log.find(l => / attacks/.test(l)) ?? ''}"` });
+        observed:`${result.agreements} turn starts checked with both settled screens mirrored (phase bar, LP, names, per-zone counts, turn clocks within 3 s); final ${ea.ended}/${eb.ended} at turn ${ea.turn}, LP ${ea.lp.join('/')} vs ${eb.lp.join('/')}; e.g. "${log.find(l => / attacks/.test(l)) ?? ''}"` });
       for (const p of [a,b]) await backToLobby(p);
       // Both can challenge again: the lobby is usable after the duel.
       expect(await menuActions(a,names.b)).toContain('Duel');

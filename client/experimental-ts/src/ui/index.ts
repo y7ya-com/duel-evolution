@@ -684,15 +684,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
     }
     if (duel.prompt) renderPrompt(duel.prompt);
-    if (local.inspected && local.inspectedFrom === 'duel') {
-      const inspected = duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || (duel.actions ?? []).some(a => a.cardId === c.id)));
-      if (inspected) {
-        const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(inspected.faceUp ? inspected.name : 'Face-down card'), drawCard(inspected, inspected.faceUp, inspected.faceUp), ...(inspected.faceUp ? [note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-        for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { send({ type: 'duelAction', actionId: action.id }); local.inspected = null; }, !!action.disabled || !!state.busy, true));
-        panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
-      } else local.inspected = null;
+    // A stale inspection (the card moved or its action is gone) is dropped and the result or waiting banner shown instead.
+    const inspected = local.inspected && local.inspectedFrom === 'duel' ? duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || (duel.actions ?? []).some(a => a.cardId === c.id))) : undefined;
+    if (local.inspected && local.inspectedFrom === 'duel' && !inspected) local.inspected = null;
+    if (inspected) {
+      const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(inspected.faceUp ? inspected.name : 'Face-down card'), drawCard(inspected, inspected.faceUp, inspected.faceUp), ...(inspected.faceUp ? [note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
+      for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { send({ type: 'duelAction', actionId: action.id }); local.inspected = null; }, !!action.disabled || !!state.busy, true));
+      panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
     }
-    else if (duel.ended) {
+    if (duel.ended) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
       const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : duel.ended === 'Draw' ? 'drow' : null;
       const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', duel.ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', duel.ended);
@@ -702,7 +702,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       stage.append(banner);
     }
-    else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
+    else if (duel.waiting && !inspected) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
   }
   function respondToPrompt(promptId: string, response: DuelResponse): void {
     const currentState = controller.getState(), current = currentState.duel?.prompt;

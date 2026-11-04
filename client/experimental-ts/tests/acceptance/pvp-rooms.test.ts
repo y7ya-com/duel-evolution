@@ -12,7 +12,11 @@ async function openRooms(page:Page) {
   await until(page,`${rooms}.open`,5000);
 }
 const option = (label:string) => `[...document.querySelectorAll('[data-key="lobby-room-options"] label')].find(l=>l.textContent.startsWith(${JSON.stringify(label)}))?.querySelector('input')`;
-async function setOption(page:Page,label:string,on:boolean) { if (await page.ev(`${option(label)}.checked`) !== on) await press(page,option(label)); expect(await page.ev(`${option(label)}.checked`)).toBe(on); }
+async function setOption(page:Page,label:string,on:boolean) {
+  // The panel re-renders as lobby updates arrive; a press can land on the control being replaced.
+  for (let i = 0; i < 5 && await page.ev(`${option(label)}.checked`) !== on; i++) { await press(page,option(label)); await sleep(400); }
+  expect(await page.ev(`${option(label)}.checked`)).toBe(on);
+}
 /** Everything a page keeps where a password could leak: markup, input values, storage, console. */
 const exposed = (page:Page) => page.ev(`[document.documentElement.outerHTML,...[...document.querySelectorAll('input')].map(i=>i.value),JSON.stringify(localStorage),JSON.stringify(sessionStorage),document.cookie].join('\\n')`) as Promise<string>;
 const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
@@ -21,7 +25,7 @@ async function surrenderAt10(a:Page,b:Page,loser:Page) {
   // Before turn 10 the server refuses with its information box; the duel goes on.
   await click(loser,'Surrender',60000);
   await until(loser,`document.querySelector('.de-duel-notice')?.textContent.includes('10th turn')`,30000);
-  const refusal = await loser.ev(`document.querySelector('.de-duel-notice').textContent`) as string;
+  const refusal = await loser.ev(`document.querySelector('.de-duel-notice p').textContent`) as string;
   await press(loser,`document.querySelector('.de-duel-notice button')`);
   const played = await playBoth(a,b,{ attack:false,stop:turn => turn >= 10,timeout:400000 });
   expect(played.turn).toBeGreaterThanOrEqual(10);
@@ -118,10 +122,10 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
       record('pvp.match',{ actions:'Match room: game 1 (B surrenders at turn 10), sideboarding (illegal Main → Side refused, restored, submitted), game 2 (B surrenders), result',
         expected:'Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result',
         observed:`after game 1: A "${score.a}", B "${score.b}"; B's short Main disabled Submit ("${illegal.trim().slice(0,100)}") until restored; game 2 HUD "${hud}"; game 2 surrendered at turn ${g2.turn}; overall A ${overall.a} / B ${overall.b} (${overall.hudA ?? ''})` });
+      for (const p of [a,b]) await backToLobby(p);
       record('pvp.end',{ actions:'Surrender before and from turn 10 in a hosted room; return to lobby',
         expected:'Resolve each termination path and return both players to a usable lobby',
         observed:`surrender: refused before turn 10 with "${g1.refusal}", confirmed at turn ${g1.turn} and ${g2.turn}; both players returned to a lobby with Create Duel available` });
-      for (const p of [a,b]) await backToLobby(p);
     } finally { closeAll(); }
   },1800000);
 });

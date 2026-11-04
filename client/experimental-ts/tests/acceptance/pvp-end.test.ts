@@ -58,7 +58,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       b.close();
       const gone = Date.now();
       await until(a,`document.querySelector('.de-duel-notice')?.textContent.includes('lost the connection')`,60000);
-      const notice = await a.ev(`document.querySelector('.de-duel-notice').textContent`) as string;
+      const notice = await a.ev(`document.querySelector('.de-duel-notice p').textContent`) as string;
       await until(a,finished,120000);
       const disconnect = { result:await read(a), after:Math.round((Date.now() - gone) / 1000) };
       expect(disconnect.result.ended).toBe('Victory');

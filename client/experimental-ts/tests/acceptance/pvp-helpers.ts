@@ -27,9 +27,10 @@ export const pageText = async (page:Page) => (await page.ev('document.body.inner
 /** Both players through rock-paper-scissors and first-player choice until both duel screens are dealt. */
 export async function startBoth(a:Page,b:Page) {
   const ready = `[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent.trim())&&!x.disabled)||(${onDuel})`;
-  await until(a,ready,90000); await until(b,ready,90000);
+  // Either side may be the one to act first (in a match the previous game's loser chooses who goes first).
+  await until(a,`(${ready})||document.querySelector('.de-duel-board')`,90000); await until(b,`(${ready})||document.querySelector('.de-duel-board')`,90000);
   const hands = ['Rock','Scissors','Paper'];
-  for (let round = 0; round < 80; round++) {
+  for (let round = 0; round < 160; round++) {
     const dealt = await Promise.all([a,b].map(p => p.ev(`Boolean((${onDuel})&&!document.querySelector('.de-duel-prompt'))`)));
     if (dealt.every(Boolean)) return;
     for (const [i,p] of [a,b].entries()) {
@@ -39,7 +40,7 @@ export async function startBoth(a:Page,b:Page) {
     }
     await sleep(500);
   }
-  throw new Error('Both players did not reach the dealt duel screen');
+  throw new Error(`Both players did not reach the dealt duel screen\n--- A ---\n${String(await a.ev('document.body.innerText')).slice(0,1200)}\n--- B ---\n${String(await b.ev('document.body.innerText')).slice(0,1200)}`);
 }
 export interface DuelReading { bar:string; turn:number; lp:string[]; names:string[]; counts:Record<string,number>; hand:string[]; handBacks:number; opponentHand:string[]; clock:string[]; ended:string; prompt:boolean; controls:string[] }
 /** What one screen shows: the phase bar, both LP, per side/zone card counts, the hand as seen, clocks, result. */
@@ -83,13 +84,36 @@ export async function settled(a:Page,b:Page):Promise<[DuelReading,DuelReading]> 
   }
   return last;
 }
+const dump = `(()=>{const x=window.__deApp;if(!x)return 'no debug handle';const d=x.duelState,p=d?.prompt;return JSON.stringify({accepting:d?.acceptingInput,inputKind:d?.inputKind,submitted:x.submittedPrompt,status:d?.status,prompt:p&&{id:p.id,kind:p.kind,buttons:p.buttons,actions:p.actions?.map(a=>a.label+':'+a.zone+':'+a.index),dialogKind:p.dialogKind},buttons:d?.buttons,turn:d?.turn,phase:d?.phase})})()`;
+/** A field selection (a tribute or a target: the cards themselves are the choices, as in the original) is answered by
+ * opening each field card's details and pressing its Select action. True if one was chosen. */
+export async function selectOnField(page:Page):Promise<boolean> {
+  const keys = await page.ev(`[...document.querySelectorAll('.de-field-card')].filter(b=>/, (your|opponent) (monster|spell)/.test(b.getAttribute('aria-label')??'')||(b.getAttribute('aria-label')??'').startsWith('Face-down card, opponent monster')||(b.getAttribute('aria-label')??'').startsWith('Face-down card, opponent spell')).map(b=>b.dataset.key)`) as string[];
+  for (const key of keys) {
+    await page.ev(`[...document.querySelectorAll('.de-field-card')].find(b=>b.dataset.key===${JSON.stringify(key)})?.click()`);
+    await sleep(150);
+    const action = await page.ev(`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>/^Select/.test(b.textContent)&&!b.disabled)?.textContent ?? null`) as string | null;
+    if (action) { await press(page,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent===${JSON.stringify(action)})`); return true; }
+    await page.ev(`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')?.click()`);
+  }
+  return false;
+}
 /** Both bots play until `stop` (or the duel ends); at each newly reached turn both settled screens must agree. */
 export async function playBoth(a:Page,b:Page,options:{ stop?:(turn:number) => boolean; attack?:boolean; summon?:boolean; timeout?:number; each?:(turn:number) => Promise<void> } = {}) {
-  const start = Date.now(); let checked = 0, agreements = 0;
+  const start = Date.now(); let checked = 0, agreements = 0, moved = Date.now(), lastBar = '';
+  const idle = [0,0];
   while (Date.now() - start < (options.timeout ?? 420000)) {
     const [x,y] = await Promise.all([duelBot(a,options),duelBot(b,options)]);
+    for (const [i,p] of [a,b].entries()) {
+      const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button')].some(b=>/^Inspect:/.test(b.textContent))`);
+      idle[i] = stuck ? idle[i]! + 1 : 0;
+      if (idle[i]! > 8) { idle[i] = 0; await selectOnField(p); }
+    }
     if (x === 'finished' && y === 'finished') break;
     const turn = Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`) as string)?.[1] ?? 0);
+    const bar = `${await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`)}|${await a.ev(`document.querySelectorAll('.de-duel-log div').length`)}`;
+    if (bar !== lastBar) { lastBar = bar; moved = Date.now(); }
+    else if (Date.now() - moved > 90000) throw new Error(`The duel made no progress for 90 s at ${bar}\n--- models ---\n${await a.ev(dump)}\n${await b.ev(dump)}\n--- A ---\n${String(await a.ev('document.body.innerText')).slice(-1500)}\n--- B ---\n${String(await b.ev('document.body.innerText')).slice(-1500)}`);
     if (turn > checked && x !== 'finished' && y !== 'finished') {
       checked = turn;
       const pair = await settled(a,b);
