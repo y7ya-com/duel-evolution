@@ -110,7 +110,8 @@ export async function makeLayer(host, screens, art = 'ui/') {
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
-      const mod = screens.get(w.cls), viewKey = mod?.viewKey?.(w, snap);
+      // box: where the screen draws the window, when not its rect (screens/lobby.js: the Main Menu's taller frame)
+      const mod = screens.get(w.cls), viewKey = mod?.viewKey?.(w, snap), box = mod?.occlusionBox?.(w, snap);
       // the address was reused, or another screen took the class (Modern UI switched)
       if (e && (e.cls !== w.cls || e.mod !== mod || e.viewKey !== viewKey)) { unmount(w.id); e = null; }
       if (!e) {
@@ -126,19 +127,19 @@ export async function makeLayer(host, screens, art = 'ui/') {
         left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
         visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.rootInput ?? (mod?.mode === 'owned' ? 'auto' : 'none'),
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
-        clipPath: holes(w, snap.windows, owned, mod?.occlusionBox?.(w, snap) || w),
+        clipPath: holes(w, snap.windows, owned, box || w),
       });
       // A pass window takes no pointer, so over an owned HTML window a click on it went to that window's DOM, not the
       // game (htmlui-select: "Display by name" in the find menu over the chat did nothing). Over one, a catcher under
       // its own content, where it draws, hands what its content doesn't take (its inputs and native scrollers do) to
       // the canvas as the same mouse events.
-      const at = w.drawn || w, over = mod?.mode !== 'owned' && under.some(r => meet(r, at));
+      const at = box || w.drawn || w, over = mod?.mode !== 'owned' && under.some(r => meet(r, at));
       if (over) {
         const c = e.catcher ||= catcher();
         if (e.root.firstChild !== c) e.root.prepend(c);
         Object.assign(c.style, { left: at.x - w.x + 'px', top: at.y - w.y + 'px', width: at.w + 'px', height: at.h + 'px' });
       } else if (e.catcher) { e.catcher.remove(); e.catcher = null; }
-      if (mod?.mode === 'owned') under.push(w, ...w.drawn ? [w.drawn] : []);
+      if (mod?.mode === 'owned') under.push(w, ...w.drawn ? [w.drawn] : [], ...box ? [box] : []);
       // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
       // extension's fields change with no control changing
       const json = JSON.stringify(w);
