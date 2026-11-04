@@ -45,7 +45,7 @@ function harness() {
   const app = new ClientApp({ gatewayUrl: 'ws://game.test/net', api: api as unknown as GameApi, catalog,
     sessionFactory: o => { options = o; return game as unknown as GameSession; } });
   const root = document.createElement('div'), mounted = mountClient(root as unknown as HTMLElement, app);
-  const enter = async () => { await app.initialize(); await flush(); findButton(root, 'Go Online').onclick?.({}); await flush(); root.querySelectorAll('button').find(b => b.textContent.startsWith('Alice'))!.onclick?.({}); await flush(); };
+  const enter = async () => { await app.initialize(); await flush(); findButton(root, 'Go Online').onclick?.({}); await flush(); expect(mounted.htmlUi.text()).toContain('Alice'); expect(mounted.htmlUi.press('character-slot:0')).toBe(true); await flush(); };
   const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); findButton(root, 'Test NPC').onclick?.({}); await flush(); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
   return { app, game, api, session, root, mounted, enter, startNpc, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
 }
@@ -76,10 +76,8 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('carries the selected whisper recipient from composer to authenticated API', async () => {
     const f = harness(); await f.enter();
-    const channel = f.root.querySelectorAll('select').find(n => n.dataset.key === 'chat-channel')!; channel.value = 'whisper'; channel.onchange?.({}); await flush();
-    const target = f.root.querySelectorAll('input').find(n => n.dataset.key === 'chat-target')!, message = f.root.querySelectorAll('input').find(n => n.dataset.key === 'chat')!;
-    target.value = 'Bob'; target.oninput?.({}); message.value = 'Hello'; message.oninput?.({});
-    f.root.querySelectorAll('form')[0].onsubmit?.({ preventDefault() {} }); await flush();
+    // main's chat (CChatWindow): a whisper is '/w <name> <text>' on the input line, sent with Enter
+    expect(f.mounted.htmlUi.type('chat', '/w Bob Hello')).toBe(true); expect(f.mounted.htmlUi.enter('chat')).toBe(true); await flush();
     expect(f.api.sendChat).toHaveBeenCalledWith(expect.objectContaining({ channel: 'whisper', text: 'Hello', targetPid: 88, requestId: expect.any(String) }), expect.any(Object)); f.dispose();
   });
   it('selects a server-listed lobby area through the UI', async () => {

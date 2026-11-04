@@ -146,8 +146,10 @@ describe('UI ownership and semantic interaction', () => {
     const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [] } }); await Promise.resolve();
     const rooms = f.root.querySelectorAll('details').find(n => n.dataset.key === 'lobby-duel-rooms')!; rooms.open = true;
     f.update({ status: 'Another player arrived' }); await Promise.resolve(); expect(f.root.querySelectorAll('details').find(n => n.dataset.key === 'lobby-duel-rooms')?.open).toBe(true);
-    f.update({ scene: 'characters', characters: [] }); await Promise.resolve(); const name = f.root.querySelectorAll('input').find(n => n.dataset.key === 'character-name')!; name.value = 'Draft';
-    f.update({ status: 'Character list refreshed' }); await Promise.resolve(); expect(f.root.querySelectorAll('input').find(n => n.dataset.key === 'character-name')?.value).toBe('Draft'); f.mounted.dispose();
+    // Select Player's name dialog (main's screens, src/ui/htmlui) keeps its draft across updates
+    f.update({ scene: 'characters', characters: [] }); await Promise.resolve(); expect(f.mounted.htmlUi.press('character-create:0')).toBe(true); f.mounted.htmlUi.type('character-name', 'Draft');
+    f.update({ status: 'Character list refreshed' }); await Promise.resolve();
+    expect(f.mounted.htmlUi.windows().flatMap(w => w.win.controls).find(c => c.name === 'name')?.value).toBe('Draft'); f.mounted.dispose();
   });
   it('routes registration without retaining the submitted password through a rerender', async () => {
     const f = fixture(); f.update({ accountDetail: { panel: 'register', busy: false, status: 'Account', error: null, errorCode: null, session: null, verification: null, inviteUrl: null, redirectUrl: null, claimedAccount: null } }); await Promise.resolve();
@@ -221,8 +223,9 @@ describe('UI ownership and semantic interaction', () => {
     f.mounted.dispose(); expect(listeners.size).toBe(0);
   });
   it('renders user messages as text nodes rather than markup', async () => {
-    const f = fixture(); f.update({ scene: 'lobby', lobby: { name: 'Academy', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: '<script>', text: '<img src=x onerror=alert(1)>', channel: 'global' }] } }); await Promise.resolve();
-    expect(f.root.textContent).toContain('<img src=x onerror=alert(1)>');
+    const f = fixture(); f.update({ scene: 'lobby', connection: 'online', lobby: { name: 'Academy', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: '<script>', text: '<img src=x onerror=alert(1)>', channel: 'global' }] } }); await Promise.resolve();
+    // the chat is main's (textContent rows, chat.js ownList); its log holds the line as text
+    expect(f.mounted.htmlUi.text()).toContain('<script>:<img src=x onerror=alert(1)>');
     expect(f.root.querySelectorAll('script')).toHaveLength(0); expect(f.root.querySelectorAll('img')).toHaveLength(0); f.mounted.dispose();
   });
 });

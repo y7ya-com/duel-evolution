@@ -22,6 +22,10 @@ import { renderCardDetails } from './extra/card-details';
 import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { renderProfileFeature } from '../features/profile-ui';
+import { Ids } from './htmlui/snapshot';
+import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
+import { htmlUiLocal, htmlWindows } from './htmlui/windows';
+import type { HtmlUiLayer } from './htmlui/layer';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -73,10 +77,13 @@ interface LocalState {
   logScroll: number | null;
   tradeSearch: string;
   message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
-  channel: string; chat: string; whisperTarget: string; target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
+  target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
   sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
 }
-export interface MountedClient { dispose(): void; render(): void; }
+/** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
+ * handlers the DOM's buttons and inputs call. */
+export interface HtmlUiDriver { windows(): WindowSpec[]; press(key: string): boolean; type(key: string, value: string): boolean; enter(key: string): boolean; text(): string }
+export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUiDriver; }
 
 /** A fully disposable view. Networking, game rules and persistence are injected by the controller. */
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
@@ -84,13 +91,31 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
   let roomJoin: number | null = null, roomJoinPassword = '';
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + DECK_CHECK_CSS + WALLET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
   const menuBar = new MenuBar(host, controller.loadArchiveImage?.bind(controller));
+  // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
+  // snapshots the rewrite builds; browser only (the layer needs a real document)
+  const htmlUiState = htmlUiLocal(), htmlIds = new Ids();
+  let htmlUi: HtmlUiLayer | null = null;
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml });
+  const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene)); };
+  const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
+  const htmlDriver: HtmlUiDriver = {
+    windows: buildHtml,
+    press: key => { const h = htmlHandler(key); h?.click?.(); return !!h?.click; },
+    type: (key, value) => { const h = htmlHandler(key); h?.text?.(value); return !!h?.text; },
+    enter: key => { const h = htmlHandler(key); h?.enter?.(); return !!h?.enter; },
+    text: () => buildHtml().flatMap(s => s.win.controls.flatMap(c => [c.label, c.text, ...(Array.isArray(c.items) ? c.items : [])].filter(v => typeof v === 'string'))).join('\n'),
+  };
+  if (typeof document !== 'undefined' && document.body && typeof ResizeObserver === 'function') {
+    void import('./htmlui/layer').then(m => { if (disposed) return; htmlUi = new m.HtmlUiLayer({ art: new URL('/ui/', location.href).href, stage: () => stage }); showHtml(); })
+      .catch((e: unknown) => console.warn('htmlui', e));
+  }
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
@@ -277,25 +302,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (state.accountDetail) { const account = el('details', 'de-account-details'); account.dataset.key = `title-account:${state.accountDetail.panel}`; account.open = state.accountDetail.panel !== 'overview'; account.append(el('summary', '', 'Registration, password recovery & account options'), renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action }))); panel.append(account); }
     panel.append(button('Options', () => open('settings')), note(state.status)); n.append(panel);
   }
-  function renderCharacters(): void {
-    const n = sceneRoot('Select Character'), panel = el('section', 'de-panel de-center de-stack', title('Select Character'));
-    const grid = el('div', 'de-characters');
-    for (const c of state.characters) {
-      const b = button('', () => send({ type: 'selectCharacter', slot: c.slot }), !!state.busy, !!c.selected);
-      b.append(el('strong', '', c.name), el('span', '', `Slot ${c.slot + 1}${c.level ? ` · Lv ${c.level}` : ''}`)); const slot = el('article', 'de-character-slot', b, button(`Delete ${c.name}`, () => { if (confirmAction(`Permanently delete character ${c.name} and their game progress?`)) send({ type: 'deleteCharacter', slot: c.slot }); }, !!state.busy)); grid.append(slot);
-    }
-    panel.append(grid);
-    if (!state.characters.length) panel.append(note('No characters received. Create a character or wait for the server.'));
-    const create = el('form', 'de-row'), name = textField('character-name', local.characterName, 'Character name'); name.maxLength = 16; name.required = true;
-    name.oninput = () => { local.characterName = name.value; };
-    const slot = el('select'); slot.setAttribute('aria-label', 'Character slot'); slot.dataset.key = 'character-slot';
-    for (let k = 0; k < 4; k++) if (!state.characters.some(c => c.slot === k)) { const o = el('option', '', `Slot ${k + 1}`); o.value = String(k); slot.append(o); }
-    slot.value = String(local.characterSlot); if (!slot.value && slot.options[0]) slot.value = slot.options[0].value;
-    slot.onchange = () => { local.characterSlot = Number(slot.value); };
-    const submit = el('button', '', 'Create'); submit.type = 'submit'; submit.disabled = !!state.busy || !slot.options.length;
-    create.append(slot, name, submit); create.onsubmit = e => { e.preventDefault(); if (name.value.trim() && slot.value) send({ type: 'createCharacter', slot: Number(slot.value), name: name.value.trim() }); };
-    panel.append(create, button('Back', () => open('title'))); n.append(panel);
-  }
+  // Select Player is main's (src/ui/htmlui: its window over the 2008 backdrop); the stage only names the scene
+  function renderCharacters(): void { sceneRoot('Select Player'); }
   function drawLobby(canvas: HTMLCanvasElement): void {
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     ctx.fillStyle = '#77b6ca'; ctx.fillRect(0, 0, 1024, 768);
@@ -333,19 +341,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     showAvatarViews(lobby);
     const target = lobby.avatars.find(a => a.id === local.target);
     if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => { local.target = null; send({ type: 'duelChallenge', playerId: target.id }); }, !!state.busy || !!target.self || !!target.duelling), ...(target.duelling && !target.self && !lobby.rooms?.some(r => (r.owner === target.id || r.opponent === target.id) && r.watch === false) ? [button('Watch', () => { local.target = null; send({ type: 'spectate', pid: target.id }); }, !!state.busy)] : []), button('Close', () => { local.target = null; requestRender(); })));
-    const chat = el('section', 'de-panel de-chat'); chat.setAttribute('aria-label', 'Chat');
-    const lines = el('div', 'de-chat-log'); lines.setAttribute('role', 'log'); lines.setAttribute('aria-live', 'polite');
-    for (const line of lobby.chat.slice(-200)) lines.append(line.sender.trim() ? el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text) : el('div', 'de-chat-line de-chat-system', line.text));
-    const form = el('form'), channel = el('select'); channel.setAttribute('aria-label', 'Chat channel'); channel.dataset.key = 'chat-channel';
-    for (const value of lobby.channels.length ? lobby.channels : ['lobby']) { const o = el('option', '', value); o.value = value; channel.append(o); }
-    if (!Array.from(channel.options).some(o => o.value === local.channel)) local.channel = channel.options[0]?.value ?? 'lobby';
-    channel.value = local.channel; channel.onchange = () => { local.channel = channel.value; requestRender(); };
-    const input = textField('chat', local.chat, 'Enter a message…'); input.maxLength = 256; input.setAttribute('aria-label', 'Chat message'); input.oninput = () => { local.chat = input.value; };
-    const submit = el('button', 'gold', 'Send'); submit.type = 'submit'; submit.disabled = !lobby.connected || !!state.busy;
-    form.append(channel);
-    if (local.channel === 'whisper') { const target = textField('chat-target', local.whisperTarget, 'Player name or ID'); target.setAttribute('aria-label', 'Whisper recipient'); target.maxLength = 64; target.oninput = () => { local.whisperTarget = target.value; }; form.append(target); }
-    form.append(input, submit); form.onsubmit = e => { e.preventDefault(); if (input.value.trim()) { send({ type: 'chat', channel: local.channel, text: input.value, ...(local.channel === 'whisper' ? { target: local.whisperTarget.trim() } : {}) }); local.chat = ''; input.value = ''; } };
-    chat.append(lines, form); stage.append(chat); lines.scrollTop = lines.scrollHeight;
+    // the chat is main's (src/ui/htmlui: CChatWindow)
     if (lobby.areas?.length || lobby.npcs?.length || lobby.rooms?.length || state.player) {
       const places = el('section', 'de-panel de-lobby-places de-stack');
       if (lobby.areas?.length) {
@@ -841,7 +837,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       card: (passcode: number) => controller.cardView?.(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` },
       drawCard: (card: CardView) => drawCard(card),
       friendList: state.social?.friends ?? [],
-      onWhisper: (name: string) => { local.channel = 'whisper'; local.whisperTarget = name; open('lobby'); },
+      onWhisper: (name: string) => { htmlUiState.chatDraft = `/w ${name} `; open('lobby'); },
       onDuel: (pid: number) => send({ type: 'duelChallenge', playerId: pid }),
     };
   }
@@ -959,6 +955,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       if (focusNpc) Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key?.startsWith('npc:') && !(x as HTMLButtonElement).disabled)?.focus({ preventScroll: true });
     } finally { pruneArt(); rendering = false; }
+    showHtml();
   }
   host.onkeydown = e => {
     if (e.key !== 'Escape') return;
@@ -974,5 +971,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
