@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page, say, chatLines } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page, say, chatLines, profileText, placeName } from './harness';
 
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 const avatarCount = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].filter(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)}).length`;
@@ -29,7 +29,7 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       const a = await openPage(), b = await openPage(), c = await openPage();
       await openClient(a,await signIn(`TestSa${RUN}`)); await openClient(b,await signIn(`TestSb${RUN}`),{ assets:false }); await openClient(c,await signIn(`TestSc${RUN}`),{ assets:false });
       await enterWorld(a,names.a);
-      const area = await a.ev(`document.querySelector('.de-lobby-name').textContent`) as string;
+      const area = await a.ev(placeName) as string;
       // lobby.presence: B joins A's area and appears once on A's screen; A appears on B's.
       await enterWorld(b,names.b);
       await until(a,`${avatarCount(names.b)}===1`,30000); await until(b,`${avatarCount(names.a)}===1`,30000);
@@ -61,25 +61,23 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await pressAvatar(a,avatar(names.b));
       await until(a,`document.querySelector('.de-context')`,10000);
       await click(a,'Talk / Interact');
-      await until(a,`document.querySelector('.de-profile-panel')?.textContent.includes(${JSON.stringify(names.b)})&&/Level/.test(document.querySelector('.de-profile-panel').textContent)`,20000);
-      const profile = await a.ev(`document.querySelector('.de-profile-panel').innerText`) as string;
-      expect(profile).toMatch(/Wins/); expect(profile).toContain('Add friend');
+      await until(a,`(${profileText})?.includes(${JSON.stringify(names.b)})&&/LV/.test(${profileText})`,20000);
+      const profile = await a.ev(profileText) as string;
+      expect(profile).toMatch(/Wins/); expect(profile).toContain('Add Friend');
       record('lobby.interact',{ actions:"Click another player's avatar, Talk / Interact", expected:'Occupant selected; profile and valid actions shown', observed:`context menu for ${names.b}; profile with Add friend / Write mail / trade / team / ignore` });
       record('social.profile',{ actions:"Open another player's profile", expected:'Correct identity, progression, title and status', observed:profile.replace(/\s+/g,' ').slice(0,200) });
-      await click(a,'Close');
+      await press(a,byKey('profile-ok'));
       // avatars.titles: A sets a comment and personal title; B sees them on A's profile.
       await click(a,'My Profile');
-      await until(a,`document.querySelector('[data-key="profile-comment"]')`,20000);
-      await type(a,byKey('profile-comment'),`Hello from ${RUN}`);
-      await press(a,`document.querySelector('[aria-label="Save comment"]')`);
-      await until(a,`document.querySelector('.de-profile-comments')?.textContent.includes('Hello from ${RUN}')`,20000);
-      await type(a,byKey('profile-title'),`Champ ${RUN}`);
-      await press(a,`document.querySelector('[aria-label="Save personal title"]')`);
-      await until(a,`document.querySelector('.de-profile-comments')?.textContent.includes('Champ ${RUN}')`,20000);
-      await click(a,'Close');
+      await until(a,byKey('profile-comment'),20000); await press(a,byKey('profile-comment'));
+      await until(a,byKey('comment-greeting'),10000);
+      await type(a,byKey('comment-greeting'),`Hello from ${RUN}`); await type(a,byKey('comment-duel'),`Champ ${RUN}`);
+      await press(a,byKey('comment-ok'));
+      await until(a,`(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`,20000);
+      await press(a,byKey('profile-ok'));
       await pressAvatar(b,avatar(names.a)); await until(b,`document.querySelector('.de-context')`,10000); await click(b,'Talk / Interact');
-      await until(b,`document.querySelector('.de-profile-panel')?.textContent.includes('Hello from ${RUN}')&&document.querySelector('.de-profile-panel').textContent.includes('Champ ${RUN}')`,20000);
-      await click(b,'Close');
+      await until(b,`(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`,20000);
+      await press(b,byKey('profile-ok'));
       record('avatars.titles',{ actions:'Set own comment and personal title; another player opens the profile', expected:'Read and change own profile/title; only owned choices offered', observed:`B read "Hello from ${RUN}" and "Champ ${RUN}" on A's profile; only own-profile edit controls offered` });
       // social.chat: global reaches everyone once; whisper reaches only its target.
       await chat(a,'global',`hi all ${RUN}`);
@@ -139,12 +137,12 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('social.chat-policy',{ actions:'Chat length limit and ignore applied', expected:'Limits and ignore handled without leaking private messages', observed:`message box limited to ${maxLength} characters; ignored sender hidden; whispers never shown to third parties` });
       // lobby.rooms: A moves to another area; B (left behind) no longer sees A; A's NPC/room lists refresh.
       const options = await a.ev(`[...document.querySelectorAll('[data-key="lobby-area"] option')].map(o=>o.value).filter(Boolean)`) as string[];
-      const current = await a.ev(`document.querySelector('.de-lobby-name').textContent`) as string;
+      const current = await a.ev(placeName) as string;
       const target = options.find(v => !current.includes(`Area ${v.split('/')[0]}`)) ?? options[0]!;
       await a.ev(`(()=>{const s=document.querySelector('[data-key="lobby-area"]');s.value=${JSON.stringify(target)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-      await until(a,`document.querySelector('.de-lobby-name')?.textContent!==${JSON.stringify(current)}`,30000);
+      await until(a,`(${placeName})!==${JSON.stringify(current)}`,30000);
       await until(b,`${avatarCount(names.a)}===0`,30000);
-      const moved = await a.ev(`document.querySelector('.de-lobby-name').textContent`) as string;
+      const moved = await a.ev(placeName) as string;
       record('lobby.rooms',{ actions:'Choose another area from the area list', expected:'Change rooms and refresh player and NPC lists', observed:`A moved ${current} → ${moved}; A vanished from B's area` });
       record('lobby.enter',{ actions:'Enter the world; leave for other screens and return', expected:'Correct world, room, occupants; no stale listeners', observed:`entered ${area}; after Friends & Mail and back each player appears once` });
       c.close();

@@ -246,7 +246,7 @@ export function commentDialog(ctx: BuildContext, lines: [string, string]): Windo
   text('title', 103, 8, 'Create Comment'); text('greeting', 8, 48, 'Greeting'); text('duel', 8, 112, 'Duel Message');
   b.add('CWindowTaskTextSwitch', 'cancel', { x: 212, y: 180, w: 80, h: 24 }, { label: 'Cancel', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'comment-cancel', click: close });
   b.add('CWindowTaskTextSwitch', 'ok', { x: 44, y: 180, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'comment-ok', click: ok });
-  ([[1, 128, 'profile-title', 'Duel Message'], [0, 64, 'profile-comment', 'Greeting']] as const).forEach(([line, y, key, label]) =>
+  ([[1, 128, 'comment-duel', 'Duel Message'], [0, 64, 'comment-greeting', 'Greeting']] as const).forEach(([line, y, key, label]) =>
     b.add('CWindowTaskInput', `line${line}`, { x: 8, y, w: 320, h: 32 }, { focused: line === 0, value: lines[line], password: false, caret: null, caretOn: false, maxLen: 31, multiLine: false },
       { key, label, text: v => { lines[line] = v; }, enter: ok }));
   return b.spec();

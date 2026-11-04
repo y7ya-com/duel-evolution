@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 const rooms = `document.querySelector('[data-key="lobby-duel-rooms"]')`;
@@ -67,7 +67,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       // B comes back with the same account and character to a usable lobby.
       b = await openPage(); await openClient(b,cookies.b,{ assets:false }); await reenter(b,names.b);
       await until(b,`[...document.querySelectorAll('button')].some(x=>x.textContent==='Create Duel'&&!x.disabled)`,30000);
-      const bLobby = await b.ev(`document.querySelector('.de-lobby-name')?.textContent`) as string;
+      const bLobby = await b.ev(placeName) as string;
 
       // pvp.end (time-out): a Single room with Time limit; the player to move does nothing and loses on time.
       await openRooms(b);

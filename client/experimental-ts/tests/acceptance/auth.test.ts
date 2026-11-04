@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, placeName } from './harness';
 
 const titleSignedOut = `document.body.innerText.includes('Sign In')&&document.querySelector('input[name="password"],[data-key="password"]')`;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
@@ -132,7 +132,7 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       await press(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)}))`);
       await until(a,byKey('lobby-npcs'),60000);
       expect(await text(a)).toContain(name);
-      const world = await a.ev(`document.querySelector('.de-lobby-name')?.textContent`) as string;
+      const world = await a.ev(placeName) as string;
       record('character.select',{ actions:'Select the existing character', expected:'Loads the selected player and enters the correct world', observed:`entered ${world} as ${name}` });
       // starter offered only once: not offered again on re-entry
       expect(await a.ev(`document.body.innerText.includes('Choose your Starter Deck')`)).toBe(false);
