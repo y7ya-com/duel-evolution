@@ -87,6 +87,8 @@ export async function press(page:Page,selector:string):Promise<void> {
   const up = page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
   await down; await up;
 }
+/** Avatars spawn at random points and can sit under the chat or area panel, where a player would walk closer first. */
+export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
 export async function click(page:Page,text:string,timeout = 30000) { await until(page,byText(text),timeout); await press(page,byText(text)); }

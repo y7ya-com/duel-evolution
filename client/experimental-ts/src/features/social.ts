@@ -28,7 +28,7 @@ export interface SocialTrade {
 export interface SocialState {
   status: string; error: string | null; drafts: Readonly<Record<string, string>>;
   mail: readonly Mail[]; mailLoading: boolean;
-  lookup: { result: number; pid: number } | null;
+  lookup: { result: number; pid: number; name?: string } | null;
   friendOffers: readonly FriendOffer[]; friends: readonly { pid: number; name: string }[];
   ignored: readonly number[];
   teamInvites: readonly TeamInvite[]; team: TeamHeader | null; teamMembers: readonly TeamMember[]; teamLoading: boolean;
@@ -45,6 +45,7 @@ function text(value: string, max: number): string {
 
 export class SocialController {
   private current = initial();
+  private lookupName: string | null = null;
   private disposed = false;
   private ignorePending = new Map<number, number>();
   private decliningTrade = false;
@@ -77,7 +78,7 @@ export class SocialController {
         case 'sendMail':
           if (this.mailSending) throw new Error('A mail request is pending.');
           command = socialCommands.sendMail(pid(action.toPid), text(action.subject, 31), text(action.body, 511)); this.mailSending = true; break;
-        case 'findPlayer': command = socialCommands.findPlayer(text(action.name, 15)); break;
+        case 'findPlayer': command = socialCommands.findPlayer(text(action.name, 15)); this.lookupName = action.name; break;
         case 'inviteFriend': command = socialCommands.requestFriend(pid(action.pid)); break;
         case 'replyFriend':
           if (!s.friendOffers.some(o => o.pid === action.pid)) throw new Error('Friend invitation is no longer available.');
@@ -138,7 +139,7 @@ export class SocialController {
       if (event.type === 'trade') { this.receiveTrade(event.event); return; }
       if (event.type === 'data') {
         switch (event.id) {
-          case 0x4501: this.update({ lookup: event.value, status: event.value.result === 0 ? `Player id: ${event.value.pid}` : `Player lookup failed (${event.value.result}).` }); break;
+          case 0x4501: this.update({ lookup: { ...event.value, ...(this.lookupName ? { name: this.lookupName } : {}) }, status: event.value.result === 0 ? `Player id: ${event.value.pid}` : `Player lookup failed (${event.value.result}).` }); break;
           case 0x4512: this.update({ friendOffers: bounded([...this.current.friendOffers.filter(o => o.pid !== event.value.pid), event.value]) }); break;
           case 0x4515: this.update({ friends: event.value.accepted ? bounded([...this.current.friends.filter(f => f.pid !== event.value.pid), { pid: event.value.pid, name: event.value.name }]) : this.current.friends, status: `Friend invitation ${event.value.accepted ? 'accepted' : 'declined'} by ${event.value.name}.` }); break;
           case 0x4612: this.update({ mail: bounded([...this.current.mail, event.value], 50) }); break;

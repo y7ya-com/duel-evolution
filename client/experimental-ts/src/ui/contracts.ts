@@ -184,6 +184,8 @@ export interface ClientController {
   loadWorldScene?(mapId: number, signal: AbortSignal): Promise<WorldScene>;
   loadAvatar?(parts: Uint8Array, options: AvatarLoadOptions): Promise<AvatarResource>;
   loadCardImage?(passcode: number, signal: AbortSignal): Promise<{ url: string; release(): void }>;
+  /** Display data for a card the server named by passcode (catalogue name, stats, text). */
+  cardView?(passcode: number): CardView;
   /** A leased original image by archive path (shop packs, duel backdrop/field/phase sprites, card back). */
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
 }

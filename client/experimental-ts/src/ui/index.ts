@@ -9,7 +9,7 @@ import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-bro
 import { CLIENT_CSS } from './styles';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
-import { renderSocialFeature } from './extra/social';
+import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderProfileFeature } from '../features/profile-ui';
 export type * from './contracts';
@@ -57,6 +57,7 @@ function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: 
 interface LocalState {
   /** The last duel information box the player closed. */
   noticeSeen: number;
+  tradeSearch: string;
   message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
   channel: string; chat: string; whisperTarget: string; target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
   sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
@@ -68,7 +69,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0 };
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -157,7 +158,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
-    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames) return false;
+    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
     return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
   };
@@ -168,7 +169,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
-    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames) return false;
+    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
     if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.cards.length !== b.cards.length) return false;
     if (a.players.some((p, i) => p.name !== b.players[i].name || p.turnCounters !== b.players[i].turnCounters)) return false;
     return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense && c.counters === n.counters && c.turnCounter === n.turnCounter; });
@@ -198,7 +199,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const pruneArt = () => {
     for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
   };
-  const requestRender = () => { if (!queued && !disposed) { queued = true; queueMicrotask(() => { queued = false; if (!disposed) render(); }); } };
+  // A full render replaces the stage's controls. Between a press and its release that would swallow the click, so
+  // renders wait until the pointer is released (or 1.5 s pass, e.g. a release outside the window).
+  let pointerHeld = false, deferredRender = false, pointerTimer: ReturnType<typeof setTimeout> | null = null;
+  const releasePointer = () => { pointerHeld = false; if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (deferredRender) { deferredRender = false; requestRender(); } };
+  const holdPointer = () => { pointerHeld = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(releasePointer, 1500); };
+  host.addEventListener?.('pointerdown', holdPointer, true);
+  globalThis.addEventListener?.('pointerup', releasePointer, true); globalThis.addEventListener?.('pointercancel', releasePointer, true);
+  const requestRender = () => { if (pointerHeld) { deferredRender = true; return; } if (!queued && !disposed) { queued = true; queueMicrotask(() => { queued = false; if (!disposed) render(); }); } };
   const browserDisplay = new BrowserDisplaySettings(browserFullscreenAdapter(host), () => { if (!disposed && controller.getState().scene === 'settings') requestRender(); });
   const send = (command: ClientCommand) => {
     if (disposed) return;
@@ -294,7 +302,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     positionAvatars(lobby);
     showAvatarViews(lobby);
     const target = lobby.avatars.find(a => a.id === local.target);
-    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => send({ type: 'interact', playerId: target.id }), !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self), button('Close', () => { local.target = null; requestRender(); })));
+    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self), button('Close', () => { local.target = null; requestRender(); })));
     const chat = el('section', 'de-panel de-chat'); chat.setAttribute('aria-label', 'Chat');
     const lines = el('div', 'de-chat-log'); lines.setAttribute('role', 'log'); lines.setAttribute('aria-live', 'polite');
     for (const line of lobby.chat.slice(-200)) lines.append(line.sender.trim() ? el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text) : el('div', 'de-chat-line de-chat-system', line.text));
@@ -753,17 +761,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (prep.opponentHand !== undefined && prep.opponentHand !== null) panel.append(note(`Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand] ?? 'an unknown hand'}.`));
     stage.append(panel);
   }
+  function socialOptions() {
+    return {
+      card: (passcode: number) => controller.cardView?.(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` },
+      drawCard: (card: CardView) => drawCard(card),
+      friendList: state.social?.friends ?? [],
+      onWhisper: (name: string) => { local.channel = 'whisper'; local.whisperTarget = name; open('lobby'); },
+      onDuel: (pid: number) => send({ type: 'duelChallenge', playerId: pid }),
+    };
+  }
   function renderSocial(): void {
-    const social = state.social ?? (state.socialDetail ? { friends: [] } : null); if (!social) return emptyPanel('social', 'Friends & Mail', 'Loading your friends and mail.');
-    const n = sceneRoot('Friends & Mail'), grid = el('div', 'de-social-grid');
-    const friends = el('section', 'de-panel de-scroll', title('Friends'));
-    for (const friend of social.friends) friends.append(el('div', 'de-social-row', el('strong', 'de-fill', friend.name), note(friend.status ?? (friend.online ? 'Online' : 'Offline')), ...(typeof friend.id === 'number' && friend.online ? [button('Duel', () => send({ type: 'duelChallenge', playerId: Number(friend.id) }), !!state.busy)] : [])));
-    if (!social.friends.length) friends.append(note('No friends have been received.'));
-    const mail = el('section', 'de-panel de-scroll', title('Mail'));
-    for (const m of social.mail ?? []) { const details = el('details'); details.append(el('summary', '', `${m.subject} · ${m.sender}`), el('p', '', m.body)); mail.append(details); }
-    if (!social.mail?.length) mail.append(note('No mail has been received.'));
-    grid.append(friends, mail); n.append(grid);
-    if (state.socialDetail) { grid.style.flex = '0 0 140px'; const feature = renderSocialFeature(state.socialDetail, action => send({ type: 'socialAction', action })); feature.className += ' de-panel de-feature-panel de-fill de-scroll'; n.append(feature); }
+    if (!state.socialDetail) return emptyPanel('social', 'Friends & Mail', 'Loading your friends and mail.');
+    const n = sceneRoot('Friends & Mail'), feature = renderSocialFeature(state.socialDetail, action => send({ type: 'socialAction', action }), socialOptions());
+    feature.className += ' de-panel de-feature-panel de-fill de-scroll'; n.append(title('Friends & Mail'), feature);
   }
   function renderSettings(): void {
     const n = sceneRoot('Options'), panel = el('section', 'de-panel de-center de-stack', title('Options'));
@@ -825,6 +835,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
+      if (state.socialDetail && state.socialDetail.trade.phase !== 'idle' && !['title', 'characters'].includes(state.scene)) {
+        const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); } });
+        if (trade) stage.append(trade);
+      }
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
@@ -873,5 +887,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

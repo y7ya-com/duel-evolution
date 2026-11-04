@@ -141,6 +141,33 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-duel-end-text { font:900 clamp(28px,6vw,64px)/1 Arial Black,Arial,sans-serif; color:#ffe14a; -webkit-text-stroke:2px #b3260e; text-shadow:0 0 18px #ffde5a; }
 .de-duel-end.has-art .de-duel-end-text { visibility:hidden; }
 @keyframes de-end-glow { from { opacity:.35; transform:scale(.98); } to { opacity:1; transform:scale(1.03); } }
+.social-feature { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:10px; align-content:start; }
+.de-social-card { background:#effcffd9; border:1px solid #75a8c5; border-radius:4px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; min-width:0; }
+.de-social-card h3 { color:#0d4f8c; border-bottom:1px solid #9fd2ec; padding-bottom:3px; }
+.de-social-card h4 { margin:4px 0 0; font-size:13px; }
+.de-social-card form { display:flex; flex-direction:column; gap:5px; }
+.de-social-card form.de-row { flex-direction:row; align-items:flex-end; }
+.de-social-card label { flex-direction:column; align-items:stretch; gap:2px; font-size:12px; flex:1; }
+.de-social-card textarea { min-height:70px; resize:vertical; }
+.de-social-row { display:flex; align-items:center; gap:6px; padding:3px 0; border-bottom:1px dotted #b6dcef; flex-wrap:wrap; }
+.de-social-row button,.de-social-found button { min-height:26px; padding:3px 8px; font-size:12px; }
+.de-social-found { display:flex; flex-direction:column; gap:5px; padding:6px; background:#fffbe0; border:1px solid #e3c45d; border-radius:3px; }
+.de-social-request { background:#fff6d6; }
+.de-presence { width:9px; height:9px; border-radius:50%; background:#9aa9b5; flex:none; }
+.de-presence.online { background:#38c75a; box-shadow:0 0 4px #38c75a; }
+.de-mail-item summary { cursor:pointer; font-weight:bold; }
+.de-mail-body { white-space:pre-wrap; padding:4px 8px; }
+.de-confirm { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.de-trade-window { position:absolute; z-index:20; left:50%; top:50%; transform:translate(-50%,-50%); width:min(94%,820px); max-height:92%; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+.de-trade-columns { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.de-trade-side,.de-trade-picker { background:#effcffd9; border:1px solid #75a8c5; padding:6px; border-radius:4px; }
+.de-trade-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(70px,1fr)); gap:6px; margin-top:5px; }
+.de-trade-trunk { max-height:240px; overflow:auto; }
+.de-trade-card { display:flex; flex-direction:column; gap:3px; align-items:stretch; }
+.de-trade-card>.de-card { aspect-ratio:.7; }
+.de-trade-card button { min-height:22px; padding:1px 4px; font-size:11px; }
+.de-trade-picker input[type=search] { width:100%; margin-top:4px; }
+.de-trade-result { font-weight:bold; color:#16733a; }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
 .de-duel-board>canvas { position:absolute; inset:0; }
 .de-duel-bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; pointer-events:none; }
@@ -204,7 +231,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .social-feature form { display:flex; flex-wrap:wrap; align-items:end; gap:7px; padding:7px 0; }
 .social-feature form label { flex-direction:column; align-items:start; }
 .online-feature form { display:flex; gap:7px; flex-wrap:wrap; }
-.de-social-row { display:flex; gap:7px; align-items:center; padding:6px; border-bottom:1px solid #75a8c5; }
 .de-account-details { max-height:360px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
 .de-account-details>summary { cursor:pointer; font-weight:bold; }
 .account-feature nav { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
