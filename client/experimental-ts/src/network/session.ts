@@ -664,7 +664,13 @@ export class GameSession {
       this.state.area = this.joiningRoomKind === 12 ? 8 : this.state.areas.find((entry) => entry.block === this.state.areaBlock)?.area ?? announced;
     } else if (id === 0x4211) this.listPlayers = [];
     else if (id === 0x4212) this.listPlayers.push(...decodePlayers(data));
-    else if (id === 0x4213) this.state.players = this.listPlayers.slice();
+    else if (id === 0x4213) {
+      // a player list (the area's, or a profile's player query) carries no presence: keep what presence (0x4216, the hub's
+      // state messages) told about each player still listed (duelling, appearance, position)
+      const known = new Map(this.state.players.map((p) => [p.pid, p]));
+      this.state.players = this.listPlayers.map((p) => { const old = known.get(p.pid); if (!old) return p;
+        const merged = { ...old, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)) } as typeof p; return merged; });
+    }
     else if (id === 0x4216) {
       const r = new BinaryReader(data);
       while (r.remaining) {

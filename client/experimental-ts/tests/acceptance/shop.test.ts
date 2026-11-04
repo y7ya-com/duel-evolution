@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton } from './harness';
 
 /** The shop (GET /api/de/shop, POST /api/de/shop/buy), the card-get presentation, the cosmetic boxes and wardrobe
  * (/api/de/cosmetics) and the Main Menu's Appearance editor, against the real server. */
@@ -182,7 +182,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const alpha = `[...document.querySelectorAll('[data-key^="avatar:"]')].find(x=>x.textContent.includes(${JSON.stringify(names.a)}))`;
       await until(b,alpha,60000); await pressAvatar(b,alpha);
-      await click(b,'Duel'); await click(a,'Accept Duel',60000);
+      await until(b,cardButton('Send Duel Request'),10000); await press(b,cardButton('Send Duel Request')); await click(a,'Accept Duel',60000);
       // Rock-paper-scissors until one side wins (A plays Rock, B cycles), then the winner goes first and both start.
       for (const p of [a,b]) await until(p,`[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent.trim())&&!x.disabled)`,60000);
       for (let round = 0; round < 12; round++) {
