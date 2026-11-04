@@ -1,4 +1,5 @@
 import type { SocialAction, SocialState, SocialTrade } from '../../features/social';
+import { tradeableCopies } from '../../features/social';
 import type { CardView } from '../contracts';
 
 export interface SocialUIOptions {
@@ -178,10 +179,9 @@ export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialA
       search.oninput = () => options.onSearch?.(search.value);
       picker.append(make('h3', 'Your collection'), search);
       const grid = make('div', undefined, 'de-trade-cards de-trade-trunk');
-      const offered = (passcode: number) => trade.ownOffer.filter(p => p === passcode).length;
-      const entries = trade.view.trunk.filter(entry => entry.count - offered(entry.passcode) > 0 && (!query || card(entry.passcode).name.toLowerCase().includes(query))).slice(0, 60);
+      const entries = trade.view.trunk.filter(entry => tradeableCopies(trade, entry.passcode) > 0 && (!query || card(entry.passcode).name.toLowerCase().includes(query))).slice(0, 60);
       for (const entry of entries) {
-        const left = entry.count - offered(entry.passcode), add = button(`Offer (×${left})`, () => dispatch({ type: 'addTradeCard', passcode: entry.passcode }), !editable || trade.ownOffer.length >= 10);
+        const left = tradeableCopies(trade, entry.passcode), add = button(`Offer (×${left})`, () => dispatch({ type: 'addTradeCard', passcode: entry.passcode }), !editable || trade.ownOffer.length >= 10);
         add.setAttribute('aria-label', `Offer ${card(entry.passcode).name}`); grid.append(tile(entry.passcode, add));
       }
       if (!entries.length) grid.append(make('p', query ? 'No matching cards.' : 'No tradeable cards.', 'de-note'));

@@ -48,12 +48,24 @@ describe('social controller authority and lifecycle', () => {
   it('only confirms own trade movements on ARRIVE and requires explicit final confirmation', () => {
     const { controller: c, sent } = setup(); c.dispatch({ type: 'inviteTrade', pid: 1004 }); receive(c, 0x7103, result()); expect(c.state.trade.phase).toBe('waiting');
     receive(c, 0x7105, result()); expect(c.state.trade.phase).toBe('open'); expect(sent.slice(-2).map(x => [...x.data])).toEqual([[0x71, 0x32], [0x71, 1]]);
+    receive(c, 0x7125); receive(c, 0x7126, new W().u32(89631139).u8(1).bytes()); receive(c, 0x7127);
     c.dispatch({ type: 'addTradeCard', passcode: 89631139 }); receive(c, 0x7113, result()); expect(c.state.trade.ownOffer).toEqual([]);
     c.dispatch({ type: 'readyTrade' }); expect(c.state.error).toContain('acknowledge'); receive(c, 0x7122); expect(c.state.trade.ownOffer).toEqual([89631139]);
     receive(c, 0x7116, new W().u32(123).u8(0).bytes()); expect(c.state.trade.view.otherOffer).toEqual([123]); expect([...sent.at(-1)!.data]).toEqual([0x71, 0x22]);
     c.dispatch({ type: 'readyTrade' }); expect(c.state.trade.view.ready).toBe(false); receive(c, 0x7117, Uint8Array.of(1)); receive(c, 0x7134, Uint8Array.of(1));
     const mark = sent.length; receive(c, 0x7118); expect(sent).toHaveLength(mark); c.dispatch({ type: 'confirmTrade', accept: true }); expect([...sent.at(-1)!.data]).toEqual([0x71, 0x19, 1]);
     receive(c, 0x7120, Uint8Array.of(3)); expect(c.state.trade.view.success).toBeNull(); receive(c, 0x7121, Uint8Array.of(1)); expect(c.state.trade.view.success).toBe(true);
+  });
+  it('offers only tradeable copies: soul-bound ones stay home, and a refused add unlocks the offer', () => {
+    const { controller: c, sent } = setup(); c.dispatch({ type: 'inviteTrade', pid: 1004 }); receive(c, 0x7103, result()); receive(c, 0x7105, result());
+    receive(c, 0x7125); receive(c, 0x7126, new W().u32(100).u8(3).u32(200).u8(1).bytes()); receive(c, 0x7127);
+    receive(c, 0x7129); receive(c, 0x7130, new W().u32(100).u8(2).u32(200).u8(1).bytes()); receive(c, 0x7131);
+    const mark = sent.length;
+    c.dispatch({ type: 'addTradeCard', passcode: 200 }); expect(c.state.error).toBe('Soul-bound copies cannot be traded.'); expect(sent).toHaveLength(mark);
+    c.dispatch({ type: 'addTradeCard', passcode: 100 }); expect(sent).toHaveLength(mark + 1); receive(c, 0x7122); expect(c.state.trade.ownOffer).toEqual([100]);
+    c.dispatch({ type: 'addTradeCard', passcode: 100 }); expect(c.state.error).toBe('Soul-bound copies cannot be traded.'); expect(sent).toHaveLength(mark + 1);
+    c.dispatch({ type: 'removeTradeCard', index: 0 }); receive(c, 0x7114, result(-1)); expect(c.state.trade.pendingMove).toBeNull(); expect(c.state.trade.ownOffer).toEqual([100]);
+    c.dispatch({ type: 'readyTrade' }); expect(c.state.error ?? '').not.toContain('acknowledge');
   });
   it('handles declined trade ack zero without opening, return-to-editing, malformed messages and disposal', () => {
     const { controller: c, sent, changed } = setup(); receive(c, 0x7104, new W().u32(1004).s('Bob', 16).bytes());
