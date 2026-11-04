@@ -68,7 +68,7 @@ export function draftLines(draft, view) {
 }
 
 const count = lines => (lines || []).reduce((n, l) => n + l.count, 0);
-/** The band between the areas: the last refusal, a change that reset the confirmations, a lock, or what the trade
+/** The band between the areas (one line, 456 px: no names, which run long): the last refusal, a change that reset the confirmations, a lock, or what the trade
  *  holds. -> { text, tone: 'error' | 'reset' | 'changed' | 'lock' | 'info' | 'done' } */
 export function bandOf(view, { error, resetUntil = 0, changedUntil = 0, now = Date.now() } = {}) {
   if (!view) return { text: 'Loading cosmetics…', tone: 'info' };
@@ -76,14 +76,14 @@ export function bandOf(view, { error, resetUntil = 0, changedUntil = 0, now = Da
   if (error) return { text: error, tone: 'error' };
   if (!view.panel?.partner) return { text: "Your trade partner's game can't show cosmetics yet.", tone: 'lock' };
   if (view.changed && now < resetUntil && view.changed.reset)
-    return { text: `${view.changed.by === 'me' ? 'You' : view.partner?.name || 'Your partner'} changed the cosmetics: both confirmations were reset.`, tone: 'reset' };
+    return { text: 'Cosmetics changed: both confirmations were reset.', tone: 'reset' };   // the changed lines get the brackets
   if (view.changed && now < changedUntil && view.changed.by === 'partner')
-    return { text: `${view.partner?.name || 'Your partner'} changed their cosmetics. Check them before you confirm.`, tone: 'changed' };
+    return { text: 'Your partner changed their cosmetics: check them.', tone: 'changed' };
   if (view.locked === 'ready-me') return { text: 'You pressed Ready: cosmetics are locked until the trade question.', tone: 'lock' };
   if (view.locked === 'ready-partner') return { text: 'Your partner pressed Ready: cosmetics are locked until the trade question.', tone: 'lock' };
   const a = count(view.theirs), b = count(view.mine);
   if (!a && !b) return { text: view.spares?.length ? 'Cosmetics can be traded too: press Cosmetics to add your spares.' : 'No cosmetics in this trade.', tone: 'info' };
-  return { text: `Cosmetics in this trade: ${view.partner?.name || 'your partner'} gives ${a || 'none'}, you give ${b || 'none'}.`, tone: 'info' };
+  return { text: `Cosmetics: your partner gives ${a || 'none'}, you give ${b || 'none'}.`, tone: 'info' };
 }
 
 /** The Cosmetics button: its label and whether it opens (it never opens while the lines can't change). */

@@ -91,7 +91,7 @@ await until(`document.querySelectorAll('[data-side=partner] .tc-tile').length ==
 const ptiles = await ev(`[...document.querySelectorAll('[data-side=partner] .tc-tile')].map(e => [e.dataset.id, e.querySelector('.de-rf').dataset.rarity, e.dataset.count,
   !!e.querySelector('.sa-brackets'), !!e.querySelector('.sa-num'), e.getBoundingClientRect().left, e.getBoundingClientRect().top])`);
 assert.deepEqual(ptiles, [[GOLD.id, 'ultra', '1', true, true, 264, 222], [JADEN.id, 'common', '2', true, true, 316, 222]]);
-assert.equal(await ev(`document.querySelector('.tc-band').textContent`), 'Rival changed their cosmetics. Check them before you confirm.');
+assert.equal(await ev(`document.querySelector('.tc-band').textContent`), 'Your partner changed their cosmetics: check them.');
 assert.equal(await ev(`document.querySelector('.tc-band').hasAttribute('data-hi')`), true, 'a light plate for the change');
 assert.equal(await ev(`document.querySelector('[data-side=partner] .tc-tile').title`), 'Battle City Alpha Gold');
 await aligned('the strips', 'trade');
@@ -140,7 +140,7 @@ await shot('04-both-sides');
 await ev(`__s.asked = false; __s.ready = { me: false, partner: false }; __s.theirs = [{ id: '${GOLD.id}', count: 2, item: ${JSON.stringify(GOLD)} }];
   __s.rev++; __s.changed = { rev: __s.rev, by: 'partner', reset: true };`);
 await until(`document.querySelector('.tc-band').dataset.tone === 'reset'`, 3000);
-assert.equal(await ev(`document.querySelector('.tc-band').textContent`), 'Rival changed the cosmetics: both confirmations were reset.');
+assert.equal(await ev(`document.querySelector('.tc-band').textContent`), 'Cosmetics changed: both confirmations were reset.');
 assert.ok(await ev(`document.querySelector('.tc-band').hasAttribute('data-on')`));
 assert.equal(await ev(`document.querySelectorAll('[data-side=partner] .tc-tile').length`), 1);
 assert.ok(await ev(`!!document.querySelector('[data-side=partner] .tc-tile[data-count="2"] .sa-brackets')`), 'the changed line marked');

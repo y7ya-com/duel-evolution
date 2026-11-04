@@ -48,15 +48,15 @@ const now = 1000;
 assert.deepEqual(M.bandOf(view(), { error: 'Nope.', now }), { text: 'Nope.', tone: 'error' });
 assert.equal(M.bandOf(view({ panel: { me: true, partner: false } }), { now }).text, "Your trade partner's game can't show cosmetics yet.");
 const changed = view({ rev: 3, changed: { rev: 3, by: 'partner', reset: true } });
-assert.deepEqual(M.bandOf(changed, { resetUntil: now + 1, now }), { text: 'Rival changed the cosmetics: both confirmations were reset.', tone: 'reset' });
-assert.equal(M.bandOf({ ...changed, changed: { rev: 3, by: 'me', reset: true } }, { resetUntil: now + 1, now }).text, 'You changed the cosmetics: both confirmations were reset.');
+assert.deepEqual(M.bandOf(changed, { resetUntil: now + 1, now }), { text: 'Cosmetics changed: both confirmations were reset.', tone: 'reset' });
+assert.equal(M.bandOf({ ...changed, changed: { rev: 3, by: 'me', reset: true } }, { resetUntil: now + 1, now }).tone, 'reset');
 assert.equal(M.bandOf({ ...changed, changed: { ...changed.changed, reset: false } }, { changedUntil: now + 1, now }).tone, 'changed');
 assert.equal(M.bandOf(changed, { resetUntil: now - 1, now }).tone, 'info', 'the reset line fades');
 assert.equal(M.bandOf(view({ locked: 'ready-me' }), { now }).text, 'You pressed Ready: cosmetics are locked until the trade question.');
 assert.equal(M.bandOf(view(), { now }).text, 'Cosmetics can be traded too: press Cosmetics to add your spares.');
 assert.equal(M.bandOf(view({ spares: [] }), { now }).text, 'No cosmetics in this trade.');
 assert.equal(M.bandOf(view({ theirs: [{ id: GOLD.id, count: 1 }], mine: [{ id: SUIT.id, count: 2 }] }), { now }).text,
-  'Cosmetics in this trade: Rival gives 1, you give 2.');
+  'Cosmetics: your partner gives 1, you give 2.');
 assert.deepEqual(M.bandOf({ trading: false, last: { result: 'cos-missing', text: 'Trade cancelled: x' } }), { text: 'Trade cancelled: x', tone: 'error' });
 assert.equal(M.bandOf({ trading: false, last: { result: 'done', text: 'Trade complete.' } }).tone, 'done');
 
