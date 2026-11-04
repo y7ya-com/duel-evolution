@@ -1,0 +1,40 @@
+// screens/playerlist.js's pure parts under node: a row's tags (AtConverter's pen moves), the row brought into the
+// engine's view, the game point a row is pressed at, and prepList (what a redraw depends on)
+import assert from 'node:assert/strict';
+import { rowRuns, topFor, rowPoint, prepList, parts } from './playerlist.js';
+import screen from './duelsetup.js';
+
+// "@0Lv 1@>40/Card Partner" (the live list's row): the level at 0, the name at the pen's 40
+assert.deepEqual(rowRuns('@0Lv 1@>40/Card Partner'), [{ x: 0, s: 'Lv 1' }, { x: 40, s: 'Card Partner' }]);
+assert.deepEqual(rowRuns('@>64Name@1 red'), [{ x: 64, s: 'Name red' }]);   // the '/' is optional; a style joins its run
+assert.deepEqual(rowRuns('a@@b'), [{ x: 0, s: 'a@b' }]);
+assert.deepEqual(rowRuns(''), []);
+
+// the engine's first row: unchanged while item i is in view, else i (clamped to the last page)
+assert.equal(topFor(2, 0, 6, 10), 0);
+assert.equal(topFor(7, 0, 6, 10), 4);
+assert.equal(topFor(1, 3, 6, 10), 1);
+assert.equal(topFor(9, 0, 6, 12), 6);
+
+// the list at (8, 24) in the window at (0, 608): item 2 with item 1 first is the second row, 40 in
+const list = { x: 8, y: 24, w: 232, h: 96, top: 1 };
+assert.deepEqual(rowPoint({ x: 0, y: 608 }, list, 2), [48, 656]);
+assert.deepEqual(rowPoint({ x: 0, y: 608 }, list, 0, 0), [48, 640]);
+
+// prepList: the list is the screen's own (no redraw for a hover, a selection or a scroll); the switch keeps checked
+const win = { cls: 'CPlayerListDlg', x: 0, y: 608, w: 248, h: 128, controls: [
+  { id: 1, cls: 'CWindowTaskActiveListbox', parent: 0, x: 8, y: 24, w: 232, h: 96, shown: true, items: ['@0Lv 1@>40/A'], selected: -1, top: 0, rows: 6, wx: 8 },
+  { id: 2, cls: 'CWindowTaskScroll', parent: 1, x: 216, y: 0, w: 16, h: 96, max: 0, value: 0 },
+  { id: 3, cls: 'CWindowTaskPictureSwitch', parent: 0, x: 197, y: 0, w: 32, h: 24, state: 'hover', checked: false, art: { normal: {} }, wx: 197 }] };
+const p = prepList(win), q = prepList({ ...win, controls: win.controls.map(c => c.id === 1 ? { ...c, selected: 0, top: 1, items: ['x'] }
+  : c.id === 3 ? { ...c, state: 'normal', wx: 0 } : c) });
+assert.deepEqual(p, q);
+assert.equal(p.controls[0].cls, 'CWindowTaskPlayerRows');
+assert.equal(p.controls[2].cls, 'CWindowTaskSearchSwitch');
+assert.equal(p.controls[2].art, undefined);
+assert.equal(parts(win).bar.id, 2);
+assert.ok(screen.classes.includes('CPlayerListDlg'));
+// the search menu (a child task of the list) stays the engine's while no HTML draws it
+assert.equal(screen.passthrough({ id: 9, cls: 'CFindMenu' }), true);
+assert.equal(screen.passthrough({ id: 9, cls: 'CDupSprite' }), false);   // only the list's own (seen by rows())
+console.log('playerlist ok');

@@ -3,7 +3,7 @@
 // (src/Lobby/yo2DuelMenu.h: not decompiled; their controls as the snapshot reports them), Duel Options
 // (CWindowModelDuelConfig + CWindowTaskDuelConfigFrame, src/Game/yo2DuelWindows.cpp), the bar's door list
 // (CWindowModelMove + CWindowTaskFrameMove, src/Game/yo2MenuMove.cpp, yo2MenuMain.cpp) and the player list's search
-// menu (CFindMenu, src/Lobby/yo2FindMenu.cpp).
+// menu (CFindMenu, src/Lobby/yo2FindMenu.cpp) and the player list it searches (CPlayerListDlg: ./playerlist.js).
 // The owner's Skin rule (CONTRACT.md: sharp at 2x): every piece of their art is CSS here with the texels' colours
 // (data/common/window/, sampled from the atlases; cited per piece below): the duel frame (duel_win_01_c01, a 9-slice:
 // grey title bar, grey body, a slate well with its 4-pixel mesh), Duel Options' one picture (duel_win_03_c01: the same
@@ -14,6 +14,7 @@
 // ownInput), the help text's scroll bar a native box (ownScroll); the Move list's wheel sets its hidden scroll bar.
 // For skin.js once promoted: DS_CSS's .ds-btn (the duel button's hover / pressed, sampled; skin.js's are filters).
 import { owned } from './chat.js';
+import * as plist from './playerlist.js';
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
@@ -60,6 +61,7 @@ export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 
 // frames the window's size (FrameDuel reads 0 x 0, DuelConfigFrame its 80 x 24 piece, FrameMove its layout's);
 // CFindMenu's list becomes rows of buttons (a class owned() doesn't take as a native list)
 export function prep(win) {
+  if (win.cls === plist.CLS) return plist.prepList(win);
   const frame = /Move$/.test(win.cls) ? moveFrame(win) : null;
   return { ...win, controls: win.controls.map(c => {
     const f = fam(c), { wx, wy, wz, focused, ...k } = c;
@@ -341,24 +343,32 @@ const DRAW = {
   },
 };
 DRAW.TextSwitch = DRAW.ButtonDuel;
+Object.assign(DRAW, plist.DRAW);   // the player list's bar, frame, icons and search switch
 
 function draw(c, el, api, win) {
   const f = fam(c);
+  if (f === 'IconHide' && win.cls === plist.CLS) return plist.iconHide(el, c, api);   // its shorter icon (Move's ×)
   if (f === 'InputDuel') return el.append(box('ds-in', c));   // the text is ownInput's
   if (/(^|[^i])Input$/.test(f)) return api.renderControl(c, el, { noText: true });
   return DRAW[f] ? DRAW[f](el, c, api, win) : api.renderControl(c, el);
 }
 
 const CLASSES = ['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait', 'CWindowModelDuelConfig',
-  'CWindowModelMove', 'CFindMenu'];
+  'CWindowModelMove', 'CFindMenu', plist.CLS];
 const base = ui ? owned(CLASSES, draw) : { classes: CLASSES };
 
 // Keys on the window (the bridge stops them at its root): Esc is the way out (Cancel, the Move list's ×)
-const leave = win => win.controls.find(c => c.shown && top(c) && (c.cls === 'CWindowTaskIconHide'
+const leave = win => win.cls !== plist.CLS && win.controls.find(c => c.shown && top(c) && (c.cls === 'CWindowTaskIconHide'
   || (/ButtonDuel$/.test(c.cls) && /^\s*(cancel|キャンセル|閉じる|close)\s*$/i.test(c.label || ''))));
+
+// the search menu (CFindMenu) is a CTask child of the player list: while the list is HTML (its window in the hide table)
+// and the menu is not, the engine keeps drawing the menu (passthrough: htmlui.c, the nearest listed ancestor decides)
+const mounted = new Set();   // the CFindMenu windows this module draws now
 
 export default {
   ...base,
+  // the list's CDupSprite (data/guns_trial/guns_star16_01.png: a player's stars, a picture) stays the engine's too
+  passthrough: x => (x.cls === 'CFindMenu' && !mounted.has(x.id)) || plist.stars.has(x.id),
   // the Move list's frame and × lie past its window's rect (CWindowModelMove is 296 wide, its frame the widest place +
   // 38: 327 with Clock Square's 289-wide button), as the engine draws them
   clip: false,
@@ -366,6 +376,9 @@ export default {
     inject();
     const st = base.mount(prep(win), root, api);
     st.win = win;
+    st.id = win.id;
+    if (win.cls === 'CFindMenu') mounted.add(win.id);
+    if (win.cls === plist.CLS) plist.rows(win, root, api, st);
     root.addEventListener('keydown', e => {
       if (e.key !== 'Escape' || e.target.closest?.('input, textarea')) return;
       const c = leave(st.win);
@@ -385,5 +398,11 @@ export default {
   update(win, prev, root, api, st) {
     st.win = win;
     base.update(prep(win), prev, root, api, st);
+    if (win.cls === plist.CLS) plist.rows(win, root, api, st);
+  },
+  unmount(root, st) {
+    mounted.delete(st.id);
+    if (st.pl) plist.stars.clear();
+    base.unmount?.(root, st);
   },
 };
