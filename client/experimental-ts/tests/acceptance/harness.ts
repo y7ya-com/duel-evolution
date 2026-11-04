@@ -97,7 +97,7 @@ export async function pressAvatar(page:Page,selector:string) { try { await press
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
-const MAIN_MENU = ['Edit Deck','My Profile','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Appearance','Return to Duel','Return to Lobby','Return to Title'];
+const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Appearance','Return to Duel','Return to Lobby','Return to Title'];
 const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
 /** Presses the visible control with this text; a Main Menu entry is reached through the MAIN key, as a player would. */
 export async function click(page:Page,text:string,timeout = 30000) {
@@ -155,6 +155,10 @@ export async function reenterWorld(page:Page,name:string) {
   await until(page,characterSlot(name),60000); await press(page,characterSlot(name));
   await until(page,byKey('lobby-npcs'),60000);
 }
+/** The place banner's names (main's CWindowModelPlace: the world, then the area), as 'World · Area'. */
+export const placeName = `[...document.querySelectorAll('#htmlui-host .lb-shadow')].filter(t=>t.style.left==='20px').map(t=>t.textContent).join(' · ')`;
+/** The open profile's text (main's CWindowModelProfile window). */
+export const profileText = `document.querySelector('[data-key="profile-ok"]')?.closest('.win')?.innerText`;
 /** The lines main's chat window shows on its current tab (CChatWindow's log). */
 export const chatLines = (page:Page) => page.ev(`[...document.querySelectorAll('#htmlui-host [role="log"]')].filter(l=>l.style.display!=='none').flatMap(l=>[...l.children].map(r=>r.textContent))`) as Promise<string[]>;
 /** A line typed into the chat and sent with Enter, on a tab (all, trade, team) or as a whisper ('/w name text'). */
