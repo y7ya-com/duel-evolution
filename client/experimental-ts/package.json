@@ -1,0 +1,23 @@
+{
+  "name": "@duel-evolution/experimental-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/run.mjs vite --host 127.0.0.1",
+    "build": "node tools/run.mjs tsc --noEmit && node tools/run.mjs vite build",
+    "typecheck": "node tools/run.mjs tsc --noEmit",
+    "test": "node tools/run.mjs vitest run",
+    "parity": "node tools/parity.mjs",
+    "catalog": "node tools/catalog.mjs",
+    "smoke": "node tools/browser-smoke.mjs",
+    "test:parity-infrastructure": "node tools/parity.mjs --test",
+    "world": "node tools/world.mjs",
+    "texts": "node tools/duel-texts.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "2.1.9"
+  }
+}

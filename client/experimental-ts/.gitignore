@@ -1,0 +1,7 @@
+dist/
+.vite/
+recordings/
+parity-report.json
+public/card-catalog.json
+public/world-maps.json
+public/duel-texts.json

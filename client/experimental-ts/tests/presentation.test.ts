@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+import { CardCatalog } from '../src/catalog';
+import { projectDuel, interpretAction, interpretResponse } from '../src/presentation';
+import { createDuelState, reduceDuelMessage } from '../src/duel/model';
+import { encodeDuelResponse } from '../src/duel/responses';
+import { engine, set_card, setcommand, comid_field, comid_hand, request_input } from '../../../server/src/duel/translator/lockstep';
+import { CardMap } from '../../../server/src/duel/translator/cardmap';
+import { norm, YO2Duel } from '../../../server/src/duel/translator/translator';
+import type { DuelState } from '../src/duel/types';
+
+const cat = new CardCatalog(); cat.install([{ passcode: 123, name: 'Reference card' }]);
+const reduce = (s: DuelState, data: Uint8Array) => reduceDuelMessage(s, { id: 0x6202, data });
+const initial = () => reduce(createDuelState(), engine(1));
+const view = (s: DuelState) => projectDuel(s, cat, ['You', 'Rival']);
+function translator() {
+  return new YO2Duel([{}, {}], { cardmap: new CardMap({ wire: [123], wireHash: 0,
+    cdb: { 123: [1, 0, 100, 100, 1, 1, 0, 1] }, scripts: {} }) });
+}
+
+describe('duel presentation adapter preserves server choices', () => {
+  it('keeps legal opponent target actions and pile inspection available', () => {
+    let s = initial();
+    s = reduceDuelMessage(s, { id: 0x6611, data: comid_field(new Map([['1,2', 1 << 11], ['1,14', 1 << 1]])) });
+    s = reduce(s, request_input(3));
+    expect(view(s).actions?.map(a => a.id)).toContain('action:1:2:0:11');
+    expect(view(s).actions?.map(a => a.id)).toContain('action:1:14:0:1');
+    expect(interpretAction(s, 'action:1:2:0:11')).toEqual({ type: 'action', player: 1, zone: 2, index: 0, command: 11 });
+  });
+  it('keeps own deck identity hidden while allowing inspection of own face-down field cards', () => {
+    let s = reduce(initial(), set_card(0, 13, 0, 123, 1));
+    s = reduce(s, set_card(0, 0, 1, 123, 2));
+    const cards = view(s).cards;
+    expect(cards.find(c => c.id === '2')).toMatchObject({ name: 'Hidden card', faceUp: false });
+    expect(cards.find(c => c.id === '2')?.passcode).toBeUndefined();
+    expect(cards.find(c => c.id === '4')?.name).toBe('Reference card');
+  });
+  it('never projects cached opponent face-down identities, descriptions, stats or images', () => {
+    const s = reduce(initial(), set_card(1, 0, 2, 123, 1));
+    const card = view(s).cards.find(c => c.id === '3')!;
+    expect(card).toMatchObject({ name: 'Hidden card', faceUp: false });
+    expect(card.passcode).toBeUndefined(); expect(card.attack).toBeUndefined(); expect(card.description).toBeUndefined();
+  });
+  it.each([[1, 'Victory'], [2, 'Defeat'], [3, 'Draw']] as const)('uses server result constant %s', (result, text) => {
+    expect(view(reduce(initial(), setcommand(0x4d, 0, [result, 0]))).ended).toBe(text);
+  });
+  it('maps real server multi-attribute prompt through UI selections to exact server response', () => {
+    const d = translator(); let s = initial();
+    for (const [id, data] of norm(d._on_select({ type: 'ANNOUNCE_ATTRIB', available: 0x30, count: 2 }))) s = reduceDuelMessage(s, { id, data });
+    const p = view(s).prompt!;
+    expect(p.kind).toBe('attributes'); expect([p.min, p.max]).toEqual([2, 2]);
+    const response = interpretResponse(s, p.id, { optionIds: ['answer:2', 'answer:4'] });
+    expect(response).toEqual({ type: 'answer', value: 6 });
+    const packets = encodeDuelResponse(s, response);
+    expect(d.on_client(packets[0].id, packets[0].data)[0]).toEqual({ cmd: 'respond', response: { type: 'ANNOUNCE_ATTRIB', attributes: [0x10, 0x20] } });
+    expect(() => interpretResponse(s, p.id, { optionIds: ['answer:2'] })).toThrow(/exactly/);
+    expect(() => interpretResponse(s, p.id, { optionIds: ['answer:2', 'answer:2'] })).toThrow();
+  });
+  it.each([13, 14, 0xff])('maps field dialog kind %s to one-at-a-time board actions', kind => {
+    let s = reduce(initial(), setcommand(0x1b, 0x32, [kind, 0, 0]));
+    s = reduceDuelMessage(s, { id: 0x6612, data: comid_hand([[0, 0, 1 << 11]]) });
+    s = reduce(s, request_input(kind === 14 ? 8 : 3));
+    const p = view(s).prompt!;
+    expect(p.kind).toBe('place'); expect(p.candidates).toBeUndefined();
+    expect(p.options[0].id).toBe('action:0:11:0:11');
+    expect(p.cancelable).toBe(true);
+    expect(() => interpretResponse(s, p.id, { cardIds: [] })).toThrow(/board action/);
+    expect(interpretResponse(s, p.id, { optionId: p.options[0].id })).toEqual({ type: 'action', player: 0, zone: 11, index: 0, command: 11 });
+  });
+  it('assigns a fresh prompt token on every repeated board-selection request', () => {
+    let s = reduce(initial(), setcommand(0x1b, 0x32, [14, 0, 0]));
+    s = reduce(s, request_input(8)); const old = s.prompt!.id;
+    s = reduce(s, request_input(8));
+    expect(s.prompt!.id).toBeGreaterThan(old);
+    expect(() => interpretResponse(s, String(old), { cancel: true })).toThrow(/no longer active/);
+    expect(view(s).prompt?.cancelable).toBe(true);
+  });
+  it('clears a completed selection panel on authoritative gameplay progression', () => {
+    let s = reduce(initial(), setcommand(0x1b, 0x32, [14, 0, 0]));
+    s = reduce(s, request_input(8)); s = reduce(s, engine(0x0e, 0)); s = reduce(s, request_input(3));
+    expect(s.prompt?.kind).toBe('actions');
+  });
+  it('blocks submitted prompt controls without changing the authoritative model', () => {
+    const s = reduce(initial(), request_input(3)), before = structuredClone(s);
+    const projected = projectDuel(s, cat, ['You', 'Rival'], s.prompt!.id);
+    expect(projected.prompt).toBe(null); expect(projected.actions).toEqual([]);
+    expect(projected.waiting).toMatch(/server/); expect(s).toEqual(before);
+  });
+  it('never exposes stale board/phase masks while a dialog is active', () => {
+    let s = reduceDuelMessage(initial(), { id: 0x6611,
+      data: comid_field(new Map([['0,2', 1 << 4]]), null, new Map([['0,5', 1]])) });
+    s = reduce(s, request_input(3));
+    expect(view(s).actions?.some(a => a.id === 'phase:5')).toBe(true);
+    s = reduce(s, setcommand(0x1b, 0x32, [2, 0, 0]));
+    expect(view(s).prompt?.kind).toBe('yes-no'); expect(view(s).actions).toEqual([]);
+  });
+});
