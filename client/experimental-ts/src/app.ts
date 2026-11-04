@@ -162,7 +162,14 @@ export class ClientApp implements ClientController {
     this.duelAudio.setMuted(!options.audio || this.view.settings.sound === 0);
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
     this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }) });
-    this.online = new OnlineController({ http: this.services.api.http, onChange: online => this.patch({ online }) });
+    // A cosmetics response carries the authoritative wallet: the shop's wallet plate follows it.
+    let cosmetics: unknown = null;
+    this.online = new OnlineController({ http: this.services.api.http, onChange: online => {
+      // Only a new server response counts; a loading or error notification repeats the previous one.
+      const fresh = online.cosmetics !== cosmetics; cosmetics = online.cosmetics;
+      const wallet = fresh ? online.cosmetics?.wallet : undefined, shop = this.view.shop;
+      this.patch({ online, ...(wallet && shop && (shop.mp !== wallet.total || shop.earnedMp !== wallet.earned) ? { shop: { ...shop, mp: wallet.total, earnedMp: wallet.earned } } : {}) });
+    } });
     if (options.assets) this.loadArchiveImage = (path, signal) => this.readArchiveImage(path, signal);
     this.profile = new ProfileController({send:command=>this.sendGameplay(command),onChange:profileDetail=>this.patch({profileDetail})});
     this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>{ if (npc.packs.length) this.loadPackNames(); this.patch({npc,
@@ -235,7 +242,7 @@ export class ClientApp implements ClientController {
     }
     view.items = view.items.map((item, i) => {
       const product = shop.items[i]!;
-      if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param); return { ...item, name: product.name || card.name, card, ...(card.description ? { description: card.description } : {}) }; }
+      if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param), known = card.name !== `Card ${product.param}`; return { ...item, name: known ? card.name : product.name || card.name, card, ...(card.description ? { description: card.description } : {}) }; }
       const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
       if (!pack) return item;
       const imagePath = packImagePath(pack.image);
@@ -751,7 +758,7 @@ export class ClientApp implements ClientController {
           const cards = result.purchased.filter(c => c.kind !== 2 && c.passcode > 0), seen = new Set<number>();
           const fresh = cards.map(c => { const n = !had.has(c.passcode) && !seen.has(c.passcode); seen.add(c.passcode); return n; });
           const purchased = cards.map(c => this.catalog.card(c.passcode));
-          this.patch({ shop: { ...view, purchased, ...(purchased.length ? { opening: { cards: purchased, fresh: result.replayed ? fresh.map(() => false) : fresh, rarities: cards.map(c => c.rarity) } } : {}), replayed:result.replayed }, status: 'Purchase confirmed.' }); await this.requireGame().refreshCollection();await this.requireGame().refreshPlayerBits();break;
+          this.patch({ shop: { ...view, purchased, ...(purchased.length ? { opening: { cards: purchased, fresh: result.replayed ? fresh.map(() => false) : fresh, rarities: cards.map(c => c.rarity) } } : {}), replayed:result.replayed }, status: 'Purchase confirmed.' }); void this.online.refresh(); await this.requireGame().refreshCollection();await this.requireGame().refreshPlayerBits();break;
         }
         case 'duelRespond': {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');

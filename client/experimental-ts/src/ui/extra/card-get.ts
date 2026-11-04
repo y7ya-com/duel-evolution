@@ -110,6 +110,8 @@ export const CARD_GET_CSS = `
 .de-card-get-count { font-weight:bold; text-shadow:0 1px 2px #000; }
 .de-client button.de-card-get-exit { padding:0; width:85px; height:46px; background:none; border:0; box-shadow:none; overflow:hidden; font:700 18px Georgia,serif; color:#fff; }
 .de-card-get-exit-art { display:block; width:85px; height:46px; overflow:hidden; }
-.de-card-get-exit-art img { display:block; height:46px; margin-left:-85px; }
-.de-card-get-exit:hover .de-card-get-exit-art img { margin-left:-170px; }
+/* exit_e.png: pressed, plain and lit cells of 85 x 46; the lit one reads on the dark board. */
+.de-card-get-exit-art img { display:block; height:46px; margin-left:-170px; }
+.de-card-get-exit:hover .de-card-get-exit-art img { filter:brightness(1.25); }
+.de-card-get-exit:active .de-card-get-exit-art img { margin-left:0; }
 `;

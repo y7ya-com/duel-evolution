@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, prepareDuel, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, type Page } from './harness';
 
 /** The shop (GET /api/de/shop, POST /api/de/shop/buy), the card-get presentation, the cosmetic boxes and wardrobe
  * (/api/de/cosmetics) and the Main Menu's Appearance editor, against the real server. */
@@ -18,7 +18,7 @@ async function buy(page:Page,name:string,count:number | string) {
   await press(page,`[...(${product(name)}).querySelectorAll('button')].pop()`);
 }
 const notice = (page:Page) => page.ev(`document.querySelector('.de-notice')?.textContent ?? ''`) as Promise<string>;
-async function shop(page:Page) { await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item').length>0&&document.querySelector('[data-key="shop-wallet"]')`,60000); await sleep(800); }
+async function shop(page:Page) { await click(page,'Shop'); await until(page,`(document.querySelectorAll('.de-shop-item').length>0||document.querySelector('.de-cosmetics'))&&document.querySelector('[data-key="shop-wallet"]')`,60000); await sleep(800); }
 /** The whole owned collection from the deck editor (every page): copies per card name. */
 async function collection(page:Page):Promise<Map<string,number>> {
   await click(page,'Edit Deck'); await until(page,byKey('collection-search'),60000); await sleep(800);
@@ -96,6 +96,9 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await buy(page,single.name,2); await until(page,cardGet,30000);
       const singles = await cardGetState(page);
       expect(singles!.thumbs).toHaveLength(2);
+      await click(page,'Open All'); await sleep(300);
+      const singleCard = (await cardGetState(page))!.thumbs[0]!.replace(/, new$/,'');
+      expect((await cardGetState(page))!.thumbs.map(t => t.replace(/, new$/,''))).toEqual([singleCard,singleCard]);
       await press(page,`document.querySelector('.de-card-get-exit')`);
       const w2 = await wallet(page);
       expect(w2.total).toBe(w1.total - 2 * single.price);
@@ -104,9 +107,9 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const w3 = await wallet(page);
       expect(w3.total).toBe(w2.total);
       const afterSingle = await collection(page);
-      expect(afterSingle.get(single.name)).toBe((afterPack.get(single.name) ?? 0) + 2);
+      expect(afterSingle.get(singleCard)).toBe((afterPack.get(singleCard) ?? 0) + 2);
       record('shops.purchase',{ actions:`Buy 1 × ${pack.name}: turn the first card, Open All, EXIT; buy 2 × ${single.name}; reload the page`, expected:'Purchase/open products, update inventory/wallet once and render acquired cards',
-        observed:`pack opened face down in the card-get board (banner "${opened!.banner}", ${opened!.art} original images loaded), cards [${packCards.join(', ')}], ${fresh} marked NEW!!; wallet ${w0.total}→${w1.total}; collection ${total(before)}→${total(afterPack)} with each card's count +copies; 2 × ${single.name}: wallet →${w2.total}, ${single.name} ×${afterPack.get(single.name) ?? 0}→×${afterSingle.get(single.name)}; after reload wallet ${w3.total}` });
+        observed:`pack opened face down in the card-get board (banner "${opened!.banner}", ${all!.art} original images loaded), cards [${packCards.join(', ')}], ${fresh} marked NEW!!; wallet ${w0.total}→${w1.total}; collection ${total(before)}→${total(afterPack)} with each card's count +copies; 2 × ${single.name}: wallet →${w2.total}, ${singleCard} ×${afterPack.get(singleCard) ?? 0}→×${afterSingle.get(singleCard)}; after reload wallet ${w3.total}` });
 
       // shops.constraints: invalid counts, an order over the balance, a double submission, an owned accessory.
       await shop(page); await department(page,'packs');
@@ -174,15 +177,33 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       record('cosmetics.catalog',{ actions:`Shop → Wardrobe: list; Preview "${unowned.name}" (not owned); Shop → Cosmetic Boxes: rewards lists`, expected:'Browse categories and preview supported owned/unowned appearances',
         observed:`${catalog.length} cosmetics, ${catalog.filter(c => c.owned).length} owned; "${unowned.name}" previewed on the player's avatar (painted: ${painted}) with "${previewNote.split('\n').slice(1,3).join(' / ')}", its Equip disabled: "${unowned.why}"; boxes ${pools.join('; ')}` });
 
-      // Earn MP: a PvP duel to turn 10, B surrenders; A wins 250 + 300 first-win earned MP.
+      // Earn MP: a PvP duel past turn 10 and two minutes (the server pays nothing for a shorter one), B surrenders;
+      // A wins 250 + 300 first-win earned MP.
       await click(a,'Lobby'); await click(b,'Lobby');
       const alpha = `[...document.querySelectorAll('[data-key^="avatar:"]')].find(x=>x.textContent.includes(${JSON.stringify(names.a)}))`;
       await until(b,alpha,60000); await pressAvatar(b,alpha);
       await click(b,'Duel'); await click(a,'Accept Duel',60000);
-      await Promise.all([prepareDuel(a,'Rock'),prepareDuel(b,'Scissors')]);
+      // Rock-paper-scissors until one side wins (A plays Rock, B cycles), then the winner goes first and both start.
+      for (const p of [a,b]) await until(p,`[...document.querySelectorAll('button')].some(x=>['Rock','Go First','Go Second','Start Duel'].includes(x.textContent.trim())&&!x.disabled)`,60000);
+      for (let round = 0; round < 12; round++) {
+        if (await a.ev(`Boolean(${byText('Rock')})`)) await press(a,byText('Rock'));
+        const hand = ['Scissors','Rock','Paper'][round % 3]!;
+        if (await b.ev(`Boolean(${byText(hand)})`)) await press(b,byText(hand));
+        await sleep(600);
+        const decided = await Promise.all([a,b].map(x => x.ev(`[...document.querySelectorAll('button')].some(b=>['Go First','Start Duel'].includes(b.textContent.trim())&&!b.disabled)||!document.body.innerText.includes('Choose your hand')`)));
+        if (decided.some(Boolean)) break;
+      }
+      const dealt = `document.querySelectorAll('.de-field-card').length>0&&!document.querySelector('.de-duel-prompt')`;
+      for (let tries = 0; tries < 80 && !(await a.ev(`Boolean(${dealt})`) && await b.ev(`Boolean(${dealt})`)); tries++) {
+        for (const p of [a,b]) for (const label of ['Go First','Start Duel']) if (await p.ev(`Boolean(${byText(label)})`)) await press(p,byText(label)).catch(() => {});
+        await sleep(400);
+      }
       const turn = async () => Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')`) as string ?? '')?.[1] ?? 0);
-      for (const started = Date.now(); Date.now() - started < 300000 && await turn() < 10;) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(250); }
+      const duelStart = Date.now();
+      for (; Date.now() - duelStart < 400000 && (await turn() < 10 || Date.now() - duelStart < 125000);) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(1500); }
       expect(await turn()).toBeGreaterThanOrEqual(10);
+      const duelSeconds = Math.round((Date.now() - duelStart) / 1000), duelTurns = await turn();
+      await screenshot(a,'cosmetics-pvp');
       await click(b,'Surrender');
       const yes = `[...document.querySelectorAll('button')].find(x=>x.dataset.key?.startsWith('prompt-option:')&&x.textContent==='Yes'&&!x.disabled)`;
       await until(b,`${yes}||[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`,60000);
@@ -217,13 +238,13 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const name = names.a;
       await reload(a,name); await shop(a); await department(a,'wardrobe');
       await until(a,`document.querySelector('[data-key="cosmetic:${ownedItem.id}"]')`,30000);
-      const persisted = await a.ev(`document.querySelector('[data-key="cosmetic:${ownedItem.id}"]').dataset`) as { owned:string; equipped:string };
+      const persisted = await a.ev(`(()=>{const d=document.querySelector('[data-key="cosmetic:${ownedItem.id}"]').dataset;return {owned:d.owned,equipped:d.equipped}})()`) as { owned:string; equipped:string };
       expect(persisted.owned).toBe('true');
       if (!ownedItem.why) expect(persisted.equipped).toBe('true');
       const walletReload = await a.ev(`document.querySelector('[data-key="cosmetic-wallet"]').textContent`) as string;
       expect(walletReload.startsWith(`${earned1.toLocaleString('en-US')} earned MP`)).toBe(true);
       record('cosmetics.purchase',{ actions:'Win a PvP duel (opponent surrenders at turn 10); Shop → Cosmetic Boxes → Hair Box: Open box (clicked twice); Wardrobe: Equip the reward; reload', expected:'Spend correct wallet funds, grant once, equip only owned items and persist selection',
-        observed:`earned ${earned0}→${earned1} and starter ${bound0}→${bound1} after one opening despite a double click; reward "${reward.replace(/\n+/g,' / ')}"; "${ownedItem.name}" ${equippedNote}${ownedItem.why ? ` (equip refused: ${ownedItem.why})` : ''}; after reload owned=${persisted.owned} equipped=${persisted.equipped}, wallet "${walletReload}"` });
+        observed:`PvP win after ${duelTurns} turns/${duelSeconds} s; earned ${earned0}→${earned1} and starter ${bound0}→${bound1} after one opening despite a double click; reward "${reward.replace(/\n+/g,' / ')}"; "${ownedItem.name}" ${equippedNote}${ownedItem.why ? ` (equip refused: ${ownedItem.why})` : ''}; after reload owned=${persisted.owned} equipped=${persisted.equipped}, wallet "${walletReload}"` });
       record('cosmetics.wallet',{ actions:'Starter-only wallet: Hair Box button and a direct open request; after a PvP win: open with earned MP', expected:'Balances, eligibility and purchase restrictions match authoritative wallet semantics',
         observed:`new character "${startWallet}": button disabled with "${reason}", server refused ${refused.status} ${refused.body.error}; after the win ${earned0} earned/${bound0} starter → box cost 500 earned only (${earned1}/${bound1})` });
 
@@ -234,6 +255,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(choice).toBeTruthy();
       await a.ev(`(()=>{const s=document.querySelector('[data-key="${choice.key}"]');s.value=${JSON.stringify(choice.to)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(500);
       expect(await a.ev(`document.querySelector('[data-key="${choice.key}"]').value`)).toBe(choice.to);
+      const previewPainted = await until(a,`document.querySelector('[data-key="appearance"] canvas')?.dataset.avatarPainted==='true'`,30000).then(() => true,() => false);
       await screenshot(a,'appearance-draft');
       await click(a,'Save appearance');
       await until(a,`/Appearance saved on the server/.test(document.querySelector('[data-key="appearance"]')?.innerText ?? '')`,30000);
@@ -244,7 +266,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const others = await a.ev(`[...document.querySelectorAll('[data-key^="avatar:"]')].length`);
       await screenshot(a,'appearance-saved');
       record('avatars.edit',{ actions:`Main Menu → Appearance: change ${choice.label} ${choice.from}→${choice.to} ("${choice.text}"), preview, Save appearance; reload; reopen`, expected:'Preview, apply and reload permitted appearance parts',
-        observed:`only owned parts offered; the draft previewed on the avatar; server confirmed "Appearance saved on the server"; after reload ${choice.label} is ${kept}; lobby shows ${others} avatars` });
+        observed:`only owned parts offered; the draft previewed on the avatar (painted: ${previewPainted}); server confirmed "Appearance saved on the server"; after reload ${choice.label} is ${kept}; lobby shows ${others} avatars` });
     } finally { closeAll(); }
   },1500000);
 });

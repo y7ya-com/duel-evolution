@@ -108,7 +108,7 @@ export class GameApi {
   }
   dispose(): void { this.http.dispose(); }
 }
-export const toShopView = (s: ShopCatalog): ShopView => ({ items: s.items.map(i => ({ id: i.id, name: i.name || `Item ${i.id}`, price: i.price, category: i.category, owned: i.owned })), mp: s.wallet.total, earnedMp: s.wallet.earned, available: s.available });
+export const toShopView = (s: ShopCatalog): ShopView => ({ items: s.items.map(i => ({ id: i.id, name: i.name || (i.kind === 2 ? `Avatar item ${i.param}` : `Item ${i.id}`), price: i.price, category: i.category, owned: i.owned, ...(i.kind === 2 ? { avatarBit: i.param } : {}) })), mp: s.wallet.total, earnedMp: s.wallet.earned, available: s.available });
 export const toSocialView = (f: Friends): SocialView => ({ friends: f.friends.map(p => ({ id: p.pid, name: p.name, online: p.online, status: p.place })) });
 export const toChatLine = (m: ChatMessage): ChatLine => ({ id: String(m.id), sender: m.name, text: m.text, channel: m.channel });
 export function expandStarterDeck(d: StarterDeck): DeckView {

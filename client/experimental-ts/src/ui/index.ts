@@ -14,7 +14,7 @@ import { renderOnlineFeature } from './extra/online';
 import { renderCardGet, CARD_GET_CSS } from './extra/card-get';
 import { deckProblems, renderDeckCheck, DECK_CHECK_CSS } from './extra/deck-check';
 import { renderCardDetails } from './extra/card-details';
-import { renderWallet, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
+import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { renderProfileFeature } from '../features/profile-ui';
 export type * from './contracts';
@@ -492,7 +492,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       } else collection.append(button(`Add ${card.name}`, () => addCard(card), !editor.current || !!state.busy));
     }
     if (card) {
-      const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), /spell|trap/i.test(card.type ?? '') ? null : note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
+      const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), ...(/spell|trap/i.test(card.type ?? '') ? [] : [note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`)]), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
     }
     cols.append(inspector, deckColumn, collection); panel.append(cols, note('Double-click or drag cards to move them. Select a deck card and press Delete to remove it, or Alt + Left/Right to reorder it. Server validation applies when saving and entering a duel.')); n.append(panel);
     function addCard(c: CardView): void {
@@ -571,7 +571,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (item.card) product.append(el('div', 'de-shop-art', drawCard(item.card, false)));
       else if (item.imagePath && controller.loadArchiveImage) { const img = el('img'); img.alt = ''; img.className = 'de-shop-art'; product.append(img); loadArchiveArt(item.imagePath, img); }
       else if (image) { const img = el('img'); img.src = image; img.alt = ''; img.loading = 'lazy'; img.className = 'de-shop-art'; product.append(img); }
-      product.append(el('h3', '', item.name), el('strong', '', `${item.price.toLocaleString()} MP`));
+      product.append(el('h3', '', accessoryName(item, state.online?.cosmetics ?? null)), el('strong', '', `${item.price.toLocaleString()} MP`));
       if (item.description) { const about = el('p', 'de-note de-shop-about', item.description); about.title = item.description; product.append(about); }
       const count = textField(`buy-count-${item.id}`, '1'); count.type = 'number'; count.min = '1'; count.max = '50'; count.setAttribute('aria-label', `${item.name} quantity`);
       const buy = button(item.owned ? 'Owned' : 'Purchase', () => { const quantity = Number(count.value); if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) { local.message = 'Choose a quantity from 1 to 50.'; requestRender(); return; } if (item.price * quantity > shop.mp) { local.message = `Not enough MP: ${quantity} × ${item.price.toLocaleString()} MP is ${(item.price * quantity).toLocaleString()} MP and you have ${shop.mp.toLocaleString()} MP.`; requestRender(); return; } if (confirmAction(`Purchase ${quantity} × ${item.name} for ${(item.price * quantity).toLocaleString()} MP?`)) send({ type: 'buy', itemId: item.id, count: quantity }); }, !!item.owned || shop.available === false || !!shop.loading || !!state.busy || item.price > shop.mp, true);
@@ -872,7 +872,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
       if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
       for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); nav.append(b); }
-      if (state.player && state.mode !== 'free' && state.online) nav.append(button('Appearance', () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); }, !!state.busy || !!state.duel || !!state.sideboarding));
+      if (state.player && state.mode !== 'free') nav.append(button('Appearance', () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); }, !!state.busy || state.scene === 'duel' || !!state.sideboarding));
       if (state.connection === 'online') nav.append(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {

@@ -38,7 +38,7 @@ export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & {
 export interface LobbyAvatar { id: number; name: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; }
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
 export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean }[]; invitation?: { name: string; pid: number }; areas?: { area: number; block: number; name: string; population?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
-export interface ShopItem { id: number; name: string; price: number; category?: string; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
+export interface ShopItem { id: number; name: string; price: number; category?: string; /** Accessories: the avatar part's ownership bit. */ avatarBit?: number; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
 /** One purchase's opened cards, for the card-get presentation: whether each was new to the collection, its rarity. */
 export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
 export interface ShopView { purchased?: CardView[]; opening?: CardGetView; replayed?: boolean; items: ShopItem[]; mp: number; earnedMp?: number; loading?: boolean; available?: boolean; error?: string; }

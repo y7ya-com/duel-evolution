@@ -200,7 +200,8 @@ export const COSMETICS_CSS = `
 .de-rarity-rare { background:#2f7fd0; } .de-rarity-super { background:#b043c9; } .de-rarity-ultra { background:linear-gradient(90deg,#d18b00,#f5d142,#d18b00); color:#3a2500; }
 .de-client button.de-small { padding:2px 8px; font-size:12px; }
 .de-cosmetic-avatar { display:flex; justify-content:center; align-items:flex-end; min-height:180px; background:radial-gradient(ellipse at 50% 85%,#bfefff,#e8fbff 70%); border:1px solid #9cc8dc; }
-.de-cosmetic-avatar canvas { width:150px; height:auto; image-rendering:auto; }
+.de-cosmetic-avatar { position:relative; height:200px; }
+.de-cosmetic-avatar canvas.de-avatar-canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
 .de-appearance { position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:rgba(4,20,50,.45); }
 .de-appearance>.de-panel { width:min(720px,94%); max-height:94%; overflow:auto; }
 .de-appearance-columns { display:grid; grid-template-columns:220px 1fr; gap:12px; }
