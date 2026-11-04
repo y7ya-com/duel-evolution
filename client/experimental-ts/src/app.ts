@@ -78,6 +78,7 @@ export class ClientApp implements ClientController {
   private epoch = 0;
   private lockToken: object | null = null;
   private attachingOffer = false;
+  private observedAccountSession: unknown = null;
   constructor(private options: AppOptions) {
     this.catalog = options.catalog ?? new CardCatalog();
     this.services = new GameplayService(options.api ?? new GameApi());
@@ -86,7 +87,10 @@ export class ClientApp implements ClientController {
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
     this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }) });
     this.online = new OnlineController({ http: this.services.api.http, onChange: online => this.patch({ online }) });
-    this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => this.patch({ accountDetail, ...(accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) }) });
+    this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => {
+      const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;
+      this.patch({ accountDetail, ...(changed && accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) });
+    } });
     this.view = { ...this.view, accountDetail: this.account.state, capture: this.capture.status };
   }
   getState(): ClientView { return this.view; }
@@ -337,7 +341,7 @@ export class ClientApp implements ClientController {
           const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal });
           if (!this.disposed) this.patch({ auth: { signedIn: auth.signedIn, ...(auth.signedIn && auth.name ? { name: auth.name } : {}) }, status: 'Signed in. Go online to select a character.' }); break;
         }
-        case 'signOut': this.disconnect(); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;
+        case 'signOut': this.disconnect(); this.lockToken = token; this.patch({ busy: true, auth: { signedIn: false } }); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;
         case 'createCharacter': await this.requireGame().createCharacter(command.slot, command.name); break;
         case 'deleteCharacter': await this.requireGame().deleteCharacter(command.slot); break;
         case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
@@ -391,7 +395,7 @@ export class ClientApp implements ClientController {
         case 'challengeRoom': if (!this.services.decks.state.data) await this.refresh('deck'); this.requireGame().challengeRoom(command.roomId, command.password); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
-        case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.'); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
+        case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.'); this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
         case 'chooseHand': await this.requireGame().chooseHand(command.hand); break;
         case 'chooseFirst': await this.requireGame().chooseFirst(command.first); break;
         case 'beginDuel': this.requireGame().beginDuel(); break;

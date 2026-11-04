@@ -26,3 +26,7 @@ The requested completion condition is **not achieved**. The independent TypeScri
 6. Measure long sessions with original assets on representative desktop/mobile devices. Existing cache budgets intentionally exclude browser decoded-image/GPU memory.
 
 The checkpoint contains only new client files. Matching server/API changes already present in the original dirty working tree were preserved and are not part of this commit. A clean checkout requires those server changes and generated data. No push, PR, deployment or replacement of the published client was performed.
+
+## Last lifecycle corrections before the pause
+
+A final read-only review confirmed logout/reconnect, stale account-panel auth and abandoned spectator presentation races. Logout now keeps the command lock and clears local auth while awaiting the server; account panels only publish newly received session snapshots; leaving a spectator duel cancels and retires its presentation state. Strict typecheck and 29 focused lifecycle/UI/world tests passed after the fixes; the spectator case additionally checks settings cannot restore the abandoned view. The 564-test full-suite result above predates these final focused corrections; the complete suite was not rerun afterward within the time limit.

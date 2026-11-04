@@ -43,6 +43,24 @@ function harness(env: Record<string, unknown> = {}) {
 async function flush() { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 
 describe('ClientApp lifecycle and late completion regressions', () => {
+  it('blocks reconnect while sign-out is pending and retires the old connection', async () => {
+    const f = harness(); await f.enter(); const wait = f.hold('POST /api/auth/sign-out');
+    const logout = f.app.dispatch({ type: 'signOut' }); await flush();
+    expect(f.app.getState().auth?.signedIn).toBe(false);
+    await expect(f.app.dispatch({ type: 'connect' })).rejects.toThrow('Wait');
+    wait.resolve(Response.json({ success: true })); await drive(logout);
+    expect(f.app.getState()).toMatchObject({ connection: 'offline', player: null, auth: { signedIn: false } });
+  });
+  it('does not copy a stale signed-out account snapshot when opening an account tab', async () => {
+    const f = harness(); await f.enter(); await f.send({ type: 'disconnect' });
+    const old = f.hold('GET /api/de/session'); const refresh = f.app.dispatch({ type: 'accountAction', action: { type: 'refreshSession' } });
+    old.resolve(Response.json({ signedIn: false })); await drive(refresh);
+    const current = f.hold('GET /api/de/session'); current.resolve(Response.json({ signedIn: true, userId: 'lifecycle', name: 'Lifecycle', roles: [], discord: false, password: true }));
+    await f.send({ type: 'signIn', username: 'Lifecycle', password: 'test-password' });
+    expect(f.app.getState().auth?.signedIn).toBe(true);
+    await f.send({ type: 'accountAction', action: { type: 'show', panel: 'register' } });
+    expect(f.app.getState().auth?.signedIn).toBe(true);
+  });
   it('keeps title after disconnect during character boot deck refresh', async () => {
     const f = harness(); await f.connect(); const wait = f.hold('GET /api/de/decks');
     const boot = f.app.dispatch({ type: 'selectCharacter', slot: 0 }); await vi.advanceTimersByTimeAsync(200);
