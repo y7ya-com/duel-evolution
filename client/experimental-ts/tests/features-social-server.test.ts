@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { harness } from '../../../server/test/notes-harness';
 import type { Link } from '../../../server/test/notes-harness';
 import { SocialController } from '../src/features/social';
+import { tradeCommands } from '../src/gameplay/trade';
 
 afterEach(() => vi.useRealTimers());
 async function setup() {
@@ -36,8 +37,10 @@ it('real trade flows acknowledge peer moves, unlock on negative confirmation and
   ca.dispatch({ type: 'removeTradeCard', index: 0 }); await pump(); expect(ca.state.trade.ownOffer).toEqual([]); expect(cb.state.trade.view.otherOffer).toEqual([]);
   ca.dispatch({ type: 'readyTrade' }); cb.dispatch({ type: 'readyTrade' }); await pump(); expect(ca.state.trade.view.allReady).toBe(true);
   ca.dispatch({ type: 'confirmTrade', accept: false }); await pump(); expect(cb.state.trade.view.allReady).toBe(false); expect(ca.state.trade.view.ready).toBe(false);
-  // An unknown card is accepted provisionally by ADDCARD but refused at the final server execution.
-  ca.dispatch({ type: 'addTradeCard', passcode: 4294967295 }); await pump(); ca.dispatch({ type: 'readyTrade' }); cb.dispatch({ type: 'readyTrade' }); await pump();
+  // A card outside the trade's trunk is refused by the client; sent anyway (a modified client), ADDCARD accepts it
+  // provisionally and the final server execution refuses it.
+  ca.dispatch({ type: 'addTradeCard', passcode: 4294967295 }); expect(ca.state.error).toBe('No copy of that card is left to offer.');
+  const raw = tradeCommands.addCard(4294967295); a.room!.send(raw.id, raw.data); await pump(); ca.dispatch({ type: 'readyTrade' }); cb.dispatch({ type: 'readyTrade' }); await pump();
   ca.dispatch({ type: 'confirmTrade', accept: true }); cb.dispatch({ type: 'confirmTrade', accept: true }); await pump();
   expect(ca.state.trade.view.success).toBe(false); expect(cb.state.trade.view.success).toBe(false); expect(ca.state.status).toContain('not exchanged');
 });
