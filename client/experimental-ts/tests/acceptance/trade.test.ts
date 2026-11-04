@@ -3,7 +3,7 @@ import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click
 
 const tradeWindow = `document.querySelector('.de-trade-window')`;
 const inTrade = (page:Page,selector:string) => press(page,`[...document.querySelectorAll('.de-trade-window button')].find(b=>${selector})`);
-async function social(page:Page) { await click(page,'Friends & Mail'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
+async function social(page:Page) { await click(page,'Friend List'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
 async function find(page:Page,name:string) {
   const input = `document.querySelector('[data-key="social-Player name"]')`;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -42,7 +42,7 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       // Both earn tradeable cards (starter and starting-MP cards are soul-bound).
       const rewardA = await earnCards(a), rewardB = await earnCards(b);
       expect(rewardA.length).toBeGreaterThan(0); expect(rewardB.length).toBeGreaterThan(0);
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       // trade.invite: decline first.
       await invite(a,b,names.b);
       await inTrade(b,`b.textContent==='Decline trade'`);
@@ -85,9 +85,9 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       expect(after).toEqual({ aGive:start.aGive - 1, aTake:start.aTake + 1, bGive:start.bGive + 1, bTake:start.bTake - 1 });
       record('trade.commit',{ actions:`Ready, Complete trade and confirm on both sides; read both collections`, expected:'Only eligible owned cards exchanged atomically; both inventories refresh', observed:`A ${give} ${start.aGive}→${after.aGive}, ${take} ${start.aTake}→${after.aTake}; B ${give} ${start.bGive}→${after.bGive}, ${take} ${start.bTake}→${after.bTake}` });
       // trade.failure: a cancelled trade changes nothing.
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const beforeCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       await invite(a,b,names.b); await inTrade(b,`b.textContent==='Accept trade'`);
       for (const p of [a,b]) await until(p,`${tradeWindow}?.querySelector('.de-trade-trunk')`,30000);
       const offerAgain = (await offerable(a))[0]!.name;
@@ -102,7 +102,7 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const afterCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
       expect(afterCancel).toEqual(beforeCancel);
       // A soul-bound starter card: both ready and confirm; the server refuses the exchange and says why; nothing moves.
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       await invite(a,b,names.b); await inTrade(b,`b.textContent==='Accept trade'`);
       for (const p of [a,b]) await until(p,`${tradeWindow}?.querySelector('.de-trade-trunk')`,30000);
       const bound = (await offerable(a)).find(c => !rewardA.includes(c.name) && c.name !== take)!.name, boundBefore = await trunk(a,bound);

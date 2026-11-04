@@ -32,7 +32,7 @@ async function invite(p:Page,teammate:string,opponent:string,other:string) {
 async function mp(p:Page):Promise<number> {
   await click(p,'Shop'); await until(p,`[...document.querySelectorAll('strong')].some(s=>/^[\\d,]+ MP/.test(s.textContent))`,60000);
   const value = Number(String(await p.ev(`[...document.querySelectorAll('strong')].find(s=>/^[\\d,]+ MP/.test(s.textContent)).textContent`)).split(' ')[0]!.replace(/,/g,''));
-  await click(p,'Lobby'); await until(p,`document.querySelector('[data-key="lobby-npcs"]')`,60000);
+  await click(p,'Return to Lobby'); await until(p,`document.querySelector('[data-key="lobby-npcs"]')`,60000);
   return value;
 }
 const relayNotices = (p:Page) => p.ev(`(document.body.innerText.match(/\\[Tag\\] Relay finished/g) ?? []).length`) as Promise<number>;
@@ -220,7 +220,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       const roles2 = await relayRoles(pages,names);
       await relayTurns(pages,roles2,2);
       const gone = roles2.partnerOf[roles2.captains[1]!]!, goneTeam = roles2.team[gone]!;
-      await click(pages[gone]!,'Disconnect');
+      await click(pages[gone]!,'Return to Title');
       const stay = pages.filter((_,i) => i !== gone);
       const results2 = await Promise.all(stay.map(p => until(p,`document.querySelector('.de-duel-end')`,60000).then(() => p.ev(`document.querySelector('.de-duel-end').getAttribute('aria-label')`) as Promise<string>)));
       const stayIdx = pages.map((_,i) => i).filter(i => i !== gone);

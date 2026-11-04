@@ -13,7 +13,7 @@ const worldSnapshot = async (page:Page, probe:string) => {
   return { ...deck, owned, wallet };
 };
 async function enterFree(page:Page,character:string) {
-  await click(page,'Disconnect');
+  await click(page,'Return to Title');
   await click(page,'Free Duel & Deck Editor',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
   await until(page,`${slot}||document.querySelector('[data-key="lobby-npcs"],[data-key="lobby-map"]')`,60000);
@@ -21,7 +21,7 @@ async function enterFree(page:Page,character:string) {
   await until(page,`document.querySelector('[data-key="lobby-map"]')`,60000);
 }
 async function backToWorld(page:Page,character:string) {
-  await click(page,'Disconnect'); await click(page,'Go Online',60000);
+  await click(page,'Return to Title'); await click(page,'Go Online',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
   await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
 }
@@ -47,7 +47,7 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       await click(a,'Save'); await sleep(1500);
       await screenshot(a,'free-deck');
       // Duel another free player with that deck, then leave.
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const other = `[...document.querySelectorAll('[data-key^="avatar:"]')].find(x=>x.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(names.b)})`;
       await until(a,other,60000); await pressAvatar(a,other);
       await until(a,`document.querySelector('.de-context')`,10000); await click(a,'Duel');

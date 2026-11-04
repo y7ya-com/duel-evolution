@@ -30,6 +30,7 @@ export class HtmlUiLayer {
   private render: ((snap: unknown, owned: Set<number>, api: HtmlUiApi) => void) | null = null;
   private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false;
   private roots = new Map<number, HTMLElement>(); private scale = 1; private disposed = false;
+  private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
   private declared = new Map<string, 'pass' | 'owned'>();
   private screens = new Map<string, HtmlUiScreen>();
   private back: { el: HTMLElement; bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } } | null = null;
@@ -131,8 +132,10 @@ export class HtmlUiLayer {
   // A module main runs in pass mode draws buttons the engine would click: the click lands on the control under it
   private onClick = (e: MouseEvent): void => {
     if (this.clicked) return;
-    const [x, y] = this.point(e), c = hitTest(this.specs, x, y, h => !!h.click);
-    if (!c) return;
+    // the element's control (a keyboard press has no pointer position), else the control under the pointer
+    const el = (e.target as Element | null)?.closest?.('button'), byEl = el ? this.elementIds.get(el) : undefined;
+    const [x, y] = this.point(e), c = byEl !== undefined ? this.specs.flatMap(s => s.win.controls).find(k => k.id === byEl) ?? null : hitTest(this.specs, x, y, h => !!h.click);
+    if (!c || !this.handlers.get(c.id)?.click) return;
     const win = this.specs.find(s => s.win.controls.includes(c))?.win;
     if (win && this.declared.get(win.cls) === 'owned') return;   // an owned screen clicks its own controls
     void this.api.click(c.id);
@@ -154,11 +157,14 @@ export class HtmlUiLayer {
       return { el, x: (r.left + r.width / 2 - rr.left) / k, y: (r.top + r.height / 2 - rr.top) / k, area: r.width * r.height };
     }).filter(e => e.area > 0);
     for (const c of win.controls) {
-      const h = spec.handlers.get(c.id); if (!h?.key && !h?.label) continue;
+      const h = spec.handlers.get(c.id); if (!h) continue;
       const input = !!(h.text || h.enter);
       const at = els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
         e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el;
       if (!at) continue;
+      this.elementIds.set(at, c.id);
+      // a pass-mode screen shows a disabled control's look only: the element says it too (keyboard, tests, a11y)
+      if (at instanceof HTMLButtonElement && c.state !== undefined) at.disabled = c.state === 'disabled' || !c.enabled;
       if (h.key && at.dataset.key !== h.key) at.dataset.key = h.key;
       if (h.label && at.getAttribute('aria-label') !== h.label) at.setAttribute('aria-label', h.label);
     }

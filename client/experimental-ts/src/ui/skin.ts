@@ -11,8 +11,6 @@ const TITLE_BAR = 'linear-gradient(to bottom,#e5f1f4 0,#cae7f3 9%,#a3d7f3 18%,#9
 const FRAME = 'inset 3px 0 #76ffff,inset 0 3px #a7ffff,inset -3px 0 #41abef,inset 0 -3px #329be5,inset 4px 0 #68e8ff,inset 0 4px #79ffff,inset -4px 0 #4db9f7,inset 0 -4px #46b1f2';
 // The yellow menu key (main_btn_01_c01, columns normal / hover / pressed): rows and columns as hard stops.
 const MENU_KEY = 'linear-gradient(to right,#f1b757 0 1px,#ffff95 1px 2px,transparent 2px calc(100% - 2px),#f2cc51 calc(100% - 2px) calc(100% - 1px),#f0bd45 calc(100% - 1px)),linear-gradient(to bottom,#f1b780 0 1px,#ffffc8 1px 2px,#fff97f 2px 3px,#f9e45f 3px 4px,#f4d558 4px calc(100% - 3px),#f3d054 calc(100% - 3px) calc(100% - 2px),#f0be45 calc(100% - 2px) calc(100% - 1px),#eca430 calc(100% - 1px))';
-const MENU_KEY_HOVER = 'linear-gradient(to bottom,#fffec8 0 1px,#fff 1px 2px,#ffffe2 2px 3px,#fcf4b8 3px 4px,#faeaac 4px calc(100% - 3px),#f9e4a4 calc(100% - 3px) calc(100% - 2px),#f6d086 calc(100% - 2px) calc(100% - 1px),#f2b55e calc(100% - 1px))';
-const MENU_KEY_PRESSED = 'linear-gradient(to bottom,#fada68 0 1px,#f8c550 1px 2px,#fce473 2px 3px,#fef98c 3px 4px,#ffff93 4px calc(100% - 3px),#ffff9e calc(100% - 3px) calc(100% - 2px),#ffffd2 calc(100% - 2px) calc(100% - 1px),#fffffe calc(100% - 1px))';
 // The cream plate key (swich_01_c00 columns normal / hover / pressed; html-ui ui.js PLATE): the player menu's and
 // dialogs' buttons.
 const PLATE = 'linear-gradient(to right,#f7f4ef 0 1px,#f6f2eb 1px 2px,transparent 2px calc(100% - 2px),#e9e2d7 calc(100% - 2px) calc(100% - 1px),#d3c9b9 calc(100% - 1px)),linear-gradient(to bottom,#fefdfc 0 1px,#f8f4ef 1px 2px,transparent 2px calc(100% - 2px),#f1ede7 calc(100% - 2px) calc(100% - 1px),#c6bba7 calc(100% - 1px)),repeating-linear-gradient(to bottom,transparent 0 3px,#faf7f3 3px 4px),#f4efe7';
@@ -82,29 +80,9 @@ export const SKIN_CSS = `
 .de-client .de-collection>.de-zone-title,.de-client .de-collection .de-zone-title { background:linear-gradient(180deg,#fff0d8,#ffc466 14%,#f0861e 70%,#d6680c); border-color:#9b4a06; }
 .de-client .de-deck-zone { background:#effcffcc; border:1px solid #6299bd; border-top:0; border-radius:0 0 2px 2px; }
 
-/* The menu bar (CMenubar, menuber_01_c01): light cyan glass on the left deepening to blue, the message strip on the
- * right; the Menu, Duel and Move keys (menuicon_02_c01). Joined to the game frame above it. */
-.de-client .de-nav { position:relative; z-index:40; display:flex; align-items:center; gap:10px; height:32px; padding:0 6px 0 8px; overflow:visible; border:0; border-top:1px solid #0132d3;
-  background:linear-gradient(to bottom,#ffffff8c 0 2px,#ffffff33 3px,transparent 4px calc(100% - 4px),#00285a33 calc(100% - 3px),#00285a59 100%),
-    linear-gradient(to right,#74ffff 0,#82e2ff 6%,#cafcff 15%,#b4feff 24%,#6cc2fe 38%,#3c8efd 59%,#0054fb 99%,#0041d5 100%); }
-.de-menubar-keys { display:flex; gap:0; flex:none; height:32px; }
-.de-client button.de-menubar-key { position:relative; width:80px; height:32px; min-height:0; padding:0; border:0; border-radius:0; background:none; box-shadow:none; text-shadow:none; filter:none; transform:none; }
-.de-client button.de-menubar-key::after { content:attr(data-caption); position:absolute; inset:4px 6px; display:grid; place-items:center; border:1px solid #e36f08; border-radius:8px; color:#fff; font:bold 13px Arial,sans-serif; ${OUTLINE}; background:${MENU_KEY}; }
-.de-client button.de-menubar-key:hover:not(:disabled)::after { background:${MENU_KEY_HOVER}; border-color:#ffd04a; }
-.de-client button.de-menubar-key:is(:active,[data-open=true]):not(:disabled)::after { background:linear-gradient(#ffc4e6,#ff4fb0 55%,#e0218e); border-color:#c9177a; }
-.de-client button.de-menubar-key:hover:not(:disabled),.de-client button.de-menubar-key:active:not(:disabled) { background:none; box-shadow:none; transform:none; }
-.de-client[data-menu-art=true] button.de-menubar-key::after { content:''; inset:0; border:0; border-radius:0; background:var(--de-menu-icons) 0 calc(var(--y) * -1px) / 240px 192px no-repeat; }
-.de-client[data-menu-art=true] button.de-menubar-key:hover:not(:disabled)::after { background:var(--de-menu-icons) -80px calc(var(--y) * -1px) / 240px 192px no-repeat; }
-.de-client[data-menu-art=true] button.de-menubar-key:is(:active,[data-open=true]):not(:disabled)::after { background:var(--de-menu-icons) -160px calc(var(--y) * -1px) / 240px 192px no-repeat; }
-.de-menubar-key[data-kind=menu] { --y:0; } .de-menubar-key[data-kind=duel] { --y:32; } .de-menubar-key[data-kind=move] { --y:96; }
-.de-menubar-message { flex:1; min-width:0; height:18px; margin-left:auto; max-width:62%; border:1px solid #fff; background:#f2fbffd9; display:flex; align-items:center; padding:0 6px; overflow:hidden; }
-.de-menubar-message .de-status { flex:1; min-width:0; text-align:left; font-size:12px; line-height:16px; color:#14365b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The menu bar and Main Menu are main's (src/ui/htmlui); the nav keeps only the status, for assistive technology. */
+.de-client .de-nav { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 
-/* The Main Menu window (CMainMenu: 282 wide, the frame with a bottom band, 24 px yellow keys every 26 px). */
-.de-main-menu { position:absolute; left:0; bottom:calc(100% + 2px); width:282px; max-height:min(560px,calc(100vh - 60px)); overflow:auto; padding:27px 12px 14px; border-radius:2px;
-  background:linear-gradient(transparent calc(100% - 13px),#e5e5e5 calc(100% - 13px) calc(100% - 7px),transparent calc(100% - 7px)),rgba(132,244,255,.82);
-  box-shadow:inset 3px 0 #76ffff,inset 0 3px #a7ffff,inset -3px 0 #41abef,inset 0 -3px #329be5,inset 4px 0 #68e8ff,inset 0 4px #79ffff,inset -4px 0 #4db9f7,inset 0 -4px #46b1f2,inset 7px 0 #59c6ff,inset -7px 0 #59c6ff,inset 0 -7px #59c6ff,0 4px 14px #082f6766; }
-.de-main-menu[hidden] { display:none; }
 .de-window-title { position:absolute; left:0; right:0; top:0; height:22px; background:${TITLE_BAR}; }
 .de-window-title h2 { margin:0; font:15px/21px Arial,sans-serif; letter-spacing:.04em; color:#fff; ${OUTLINE}; text-align:center; }
 .de-client button.de-close-box { position:absolute; top:4px; right:4px; width:16px; height:13px; min-height:0; padding:0; border:0; border-left:1px solid #fff; border-radius:0; box-shadow:none;
@@ -112,12 +90,6 @@ export const SKIN_CSS = `
 .de-client button.de-close-box::before,.de-client button.de-close-box::after { content:''; position:absolute; left:1px; top:5.5px; width:12px; height:2px; background:#005fea; border-radius:1px; transform:rotate(42deg); }
 .de-client button.de-close-box::after { transform:rotate(-42deg); }
 .de-client button.de-close-box:hover { filter:brightness(1.08); background:linear-gradient(to bottom,#fffec2 .5px,#fffd63 1.5px,#fffc00 3px,#fffc00 calc(100% - 2.5px),#f1bb00 calc(100% - 1.5px),#f5cf80 calc(100% - .5px)); box-shadow:none; }
-.de-main-menu-keys { display:flex; flex-direction:column; gap:2px; }
-.de-client .de-main-menu button.de-menu-key { width:100%; height:24px; min-height:0; padding:0 8px; border:1px solid; border-color:#e36f08 #e99223 #e68317 #e36f08; border-radius:3px; color:#fff; font:15px/22px Arial,sans-serif; letter-spacing:.04em; ${OUTLINE}; box-shadow:none; background:${MENU_KEY}; text-align:center; }
-.de-client .de-main-menu button.de-menu-key:hover:not(:disabled),.de-client .de-main-menu button.de-menu-key:focus-visible { background:${MENU_KEY_HOVER}; border-color:#fffe92; box-shadow:none; filter:none; }
-.de-client .de-main-menu button.de-menu-key:active:not(:disabled) { background:${MENU_KEY_PRESSED}; border-color:#fffe92; transform:none; box-shadow:none; padding-top:2px; }
-.de-client .de-main-menu button.de-menu-key[aria-current=page] { border-color:#fff9b0; box-shadow:0 0 0 1px #ff9c1a,inset 0 0 6px #fff7; }
-.de-client .de-main-menu button.de-menu-key:disabled { filter:grayscale(.8) brightness(.92); color:#e8e8e8; opacity:1; }
 
 /* Lobby: the place plate (lobbyname_win_01_c01: a gold rim round a blue to cyan glass), names in white with a dark
  * edge (no plate), the chat window (iconbar over a translucent plane), the player menu (yellow-green frame, cream
@@ -126,15 +98,6 @@ export const SKIN_CSS = `
   background:linear-gradient(to right,#1f7cf7,#4aa6fb 55%,#8ff3ff); box-shadow:inset 0 0 0 1px #ffe57a,0 1px 3px #0005; }
 .de-client .de-avatar-name { color:#fff; background:none; padding:0 2px; font-size:12px; letter-spacing:.04em; ${OUTLINE}; }
 .de-client .de-avatar.self .de-avatar-name { color:#fffc9b; }
-.de-client .de-chat { left:0; bottom:0; width:min(76%,780px); max-height:none; padding:26px 8px 8px; border:0; border-radius:5px 0 0 0; outline:0; box-shadow:inset 3px 0 #76ffffb3,inset -3px 0 #41abefb3,inset 0 -3px #329be5b3;
-  background:linear-gradient(to bottom,#ffffffb3 0 3px,#beffffb3 4px,#86d9ffb3 5px,#226cffb3 19px,#0132d3 19px 20px,#59c6ffb3 20px 24px,transparent 24px),rgba(255,255,255,.42); }
-.de-client .de-chat::before { content:'Chat'; position:absolute; left:8px; top:1px; height:19px; padding:0 14px 0 20px; font:13px/20px Arial,sans-serif; color:#0b2a4a; background:linear-gradient(to bottom,#fafeff 5px,#dcfaff 9px,#b3f4ff 13px,#81edff 19px); clip-path:polygon(17px 0,100% 0,100% 100%,0 100%); pointer-events:none; }
-.de-client .de-chat-log { height:96px; background:rgba(255,255,255,.62); border:1px solid #ffffffcc; padding:3px 6px; font-size:13px; color:#0b1d30; }
-.de-client .de-chat-line strong { color:#004fb1; }
-.de-client .de-chat form { margin-top:4px; gap:4px; }
-.de-client .de-chat select { position:absolute; top:1px; left:62px; height:19px; min-height:0; padding:0 22px 0 8px; font-size:12px; border:1px solid #0132d3; border-bottom:0; border-radius:0; background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0h10L5 6z' fill='%23fff'/%3E%3C/svg%3E") right 6px center / 9px 5px no-repeat,linear-gradient(to bottom,#39a6d3 0,#4690d5 2px,#3d98ec 9px,#379dfd 100%); color:#fff; ${OUTLINE}; box-shadow:inset 0 1px #dbdbdb; }
-.de-client .de-chat input { height:26px; padding:3px 6px; background:#fff; }
-.de-client .de-chat button { min-height:26px; padding:2px 14px; }
 .de-client .de-context { border:0; outline:0; border-radius:2px; padding:10px 14px 12px; background:rgba(255,255,255,.78); box-shadow:inset 0 0 0 1px #ecf481,inset 0 0 0 3px #ebf368,inset 0 0 0 5px #e9ea54,inset -1px -1px 0 5px #e2cf32,0 3px 10px #0004; }
 .de-client .de-context>.de-panel-title:first-child { margin:-10px -14px 8px!important; padding:4px 10px; color:#e8202a; text-shadow:none; background:#c8c8d0b3; border-radius:0; text-align:left; letter-spacing:.04em; }
 .de-client .de-context button:where(:not(:disabled)),.de-client .de-context button:disabled { color:#111; text-shadow:none; font-weight:normal; letter-spacing:.04em; border:1px solid #011434; border-radius:0; box-shadow:none; background:${PLATE}; }
@@ -190,5 +153,5 @@ export const SKIN_CSS = `
 .de-client .de-shop-item h3 { color:#0d4f8c; }
 .de-client .de-shop-item>strong { color:#a0560c; }
 
-@media(max-width:700px) { .de-client .de-chat { width:100%; } .de-client .de-chat select { left:58px; } .de-main-menu { width:min(282px,calc(100vw - 16px)); } .de-menubar-message { max-width:none; } .de-client .de-lobby-places { max-height:calc(100% - 200px); } }
+@media(max-width:700px) { .de-client .de-lobby-places { max-height:calc(100% - 200px); } }
 `;

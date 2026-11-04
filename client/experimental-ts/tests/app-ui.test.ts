@@ -65,7 +65,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.api.starter).toHaveBeenCalledTimes(1); expect(f.api.decks).toHaveBeenCalledTimes(1); f.dispose();
   });
   it('edits Fusion Deck through UI and persists the exact server deck payload', async () => {
-    const f = harness(); await f.enter(); findButton(f.root, 'Edit Deck').onclick?.({}); await flush();
+    const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:deck')).toBe(true); await flush();
     const destination = f.root.querySelectorAll('select').find(n => n.dataset.key === 'deck-destination')!;
     destination.value = 'extra'; destination.onchange?.({});
     const card = f.root.querySelectorAll('button').find(n => n.dataset.key === 'collection-card:2')!;
@@ -87,7 +87,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.game.enterArea).toHaveBeenCalledWith(3); expect(f.app.getState().lobby?.name).toContain('Area 3'); f.dispose();
   });
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
-    const f = harness(); await f.enter(); findButton(f.root, 'Shop').onclick?.({}); await flush(); findButton(f.root, 'Purchase').onclick?.({}); await flush();
+    const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:shop')).toBe(true); await flush(); findButton(f.root, 'Purchase').onclick?.({}); await flush();
     expect(f.api.purchase).toHaveBeenCalledWith({ itemId: 10, count: 1, requestId: 'server-token' }, expect.any(Object));
     expect(f.app.getState().shop?.mp).toBe(900); f.dispose();
   });

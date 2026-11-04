@@ -9,7 +9,6 @@ import { renderNpcFeature } from './npc';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
 import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
-import { MenuBar } from './menu';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderLanguageSettings } from './extra/language';
@@ -25,6 +24,7 @@ import { renderProfileFeature } from '../features/profile-ui';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
+import type { MenuEntry, MenuView } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 export type * from './contracts';
 
@@ -97,12 +97,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + DECK_CHECK_CSS + WALLET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
-  const menuBar = new MenuBar(host, controller.loadArchiveImage?.bind(controller));
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids();
   let htmlUi: HtmlUiLayer | null = null;
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml });
+  let menuView: MenuView | null = null;
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView });
   const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene)); };
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
   const htmlDriver: HtmlUiDriver = {
@@ -329,7 +329,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
       const d = delta[e.key]; if (!d) return; e.preventDefault(); send({ type: 'move', x: Math.max(0, Math.min(worldW, self.x + d[0])), y: Math.max(0, Math.min(worldH, self.y + d[1])) });
     };
-    stage.append(el('h2', 'de-lobby-name', lobby.name));
     for (const avatar of lobby.avatars) {
       const b = button('', () => { local.target = avatar.id; requestRender(); }, !lobby.connected);
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
@@ -917,15 +916,34 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
-      const menuItems: HTMLButtonElement[] = [];
-      const scenes: [Scene, string][] = state.player ? [['lobby', 'Lobby'], ['deck', 'Edit Deck'], ['shop', 'Shop'], ['social', 'Friends & Mail'], ['settings', 'Options']] : [['title', 'Title'], ['characters', 'Characters'], ['settings', 'Options']];
-      if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
-      if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
-      for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); menuItems.push(b); }
-      if (state.player && state.mode !== 'free') menuItems.push(button('Appearance', () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); }, !!state.busy || state.scene === 'duel' || !!state.sideboarding));
-      // Disconnect stays available while busy: it is how a player abandons a request that never answers.
-      if (state.connection === 'online') menuItems.push(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }));
-      menuBar.render(nav, { items: menuItems, status, ...(state.scene === 'lobby' && state.lobby ? { world: { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } } : {}) });
+      // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
+      // the same thing, then the rewrite's own scenes (Shop, Appearance), the way back to a duel or the lobby, and
+      // Return to Title (Disconnect). Before a character is chosen the bar is its strip alone, as on Select Player.
+      const blocked = !!state.busy, sideboard = !!state.sideboarding;
+      const go = (scene: Scene) => () => open(scene);
+      const entries: MenuEntry[] = !state.player ? [] : [
+        { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
+        ...(state.profileDetail && state.mode !== 'free' ? [{ label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } }] : []),
+        { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: go('settings') },
+        ...(state.mode !== 'free' ? [
+          { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard, run: go('social') },
+          { label: 'Audio', key: 'audio', disabled: blocked, run: go('settings') },
+          { label: 'Ignore List', key: 'ignore', disabled: blocked || sideboard, run: go('social') },
+          { label: 'Friend List', key: 'friends', disabled: blocked || sideboard, run: go('social') },
+          { label: 'Team List', key: 'teams', disabled: blocked || sideboard, run: go('social') },
+          { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
+          { label: 'Appearance', key: 'appearance', disabled: blocked || state.scene === 'duel' || sideboard, run: () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } },
+        ] : []),
+        ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
+        ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
+        // Return to Title stays available while busy: it is how a player abandons a request that never answers
+        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); } }] : []),
+      ];
+      const world = state.scene === 'lobby' && state.lobby;
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player,
+        message: `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}`,
+        ...(world ? { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } : {}) };
+      nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
         if (!control.dataset.key && !secretField(control)) control.dataset.key = `focus:${tag}:${i}:${control.getAttribute('aria-label') ?? control.textContent?.slice(0, 80) ?? ''}`;
@@ -960,7 +978,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   host.onkeydown = e => {
     if (e.key !== 'Escape') return;
     if (browserDisplay.state.active) return;
-    if (menuBar.escape()) { e.preventDefault(); return; }
+    if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (local.target !== null) { local.target = null; requestRender(); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
@@ -971,5 +989,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

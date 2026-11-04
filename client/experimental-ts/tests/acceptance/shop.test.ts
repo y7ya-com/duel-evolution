@@ -179,7 +179,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
 
       // Earn MP: a PvP duel past turn 10 and two minutes (the server pays nothing for a shorter one), B surrenders;
       // A wins 250 + 300 first-win earned MP.
-      await click(a,'Lobby'); await click(b,'Lobby');
+      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const alpha = `[...document.querySelectorAll('[data-key^="avatar:"]')].find(x=>x.textContent.includes(${JSON.stringify(names.a)}))`;
       await until(b,alpha,60000); await pressAvatar(b,alpha);
       await click(b,'Duel'); await click(a,'Accept Duel',60000);
@@ -249,7 +249,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
         observed:`new character "${startWallet}": button disabled with "${reason}", server refused ${refused.status} ${refused.body.error}; after the win ${earned0} earned/${bound0} starter → box cost 500 earned only (${earned1}/${bound1})` });
 
       // avatars.edit: the Main Menu's Appearance window previews a draft, applies it and keeps it after a reload.
-      await click(a,'Lobby');
+      await click(a,'Return to Lobby');
       await click(a,'Appearance'); await until(a,`document.querySelector('[data-key="appearance"] [data-key^="appearance-part:"]')`,30000);
       const choice = await a.ev(`(()=>{for(const s of document.querySelectorAll('[data-key="appearance"] select[data-key^="appearance-part:"]')){const o=[...s.options].find(o=>o.value!==s.value);if(o)return {key:s.dataset.key,label:s.getAttribute('aria-label'),from:s.value,to:o.value,text:o.textContent};}return null})()`) as { key:string; label:string; from:string; to:string; text:string };
       expect(choice).toBeTruthy();

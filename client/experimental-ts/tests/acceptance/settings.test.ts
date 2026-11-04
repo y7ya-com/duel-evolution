@@ -212,7 +212,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       const area = await page.ev(`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()`) as string;
       await sample('lobby',area === 'gx-area.wav' ? 'gx-area.wav' : 'yugi-area.wav');
       await openDeck(page); await sample('deck','deck.wav');
-      await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000); await sample('lobby',area);
+      await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000); await sample('lobby',area);
       // A duel: rock-paper-scissors slot, then a duel slot; effects from Sound.dat at the sound volume.
       const startsBefore = await page.ev(`window.__audio.starts.length`) as number;
       await startNpcDuel(page,'Yami Yugi');
@@ -231,7 +231,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await page.ev(`(()=>{const i=document.querySelector('input[type=range][aria-label="Sound effects"]');i.value='0';i.dispatchEvent(new Event('change',{bubbles:true}));})()`);
       await until(page,`window.__audio.gain.gain.value===0`,5000);
       const background = await playing(page);
-      await click(page,'Duel'); const mutedFrom = await page.ev(`window.__audio.starts.length`) as number;
+      await click(page,'Return to Duel'); const mutedFrom = await page.ev(`window.__audio.starts.length`) as number;
       for (let i = 0; i < 60; i++) { if (await duelBot(page) === 'finished') break; await sleep(150); }
       const mutedCues = (await page.ev(`window.__audio.starts.length`) as number) - mutedFrom;
       expect(mutedCues).toBe(0);

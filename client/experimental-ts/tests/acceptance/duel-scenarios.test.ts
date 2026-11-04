@@ -127,7 +127,7 @@ async function chooseDeck(page:Page,name:string,size:number) {
   }
   expect(current).toBe(name);
   await until(page,`[...document.querySelectorAll('[data-key^="deck-card:main:"]')].length===${size}`,20000);
-  await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000);
+  await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
 }
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 /** B challenges A; A wins rock-paper-scissors and goes first. Retries while the previous duel is still closing. */

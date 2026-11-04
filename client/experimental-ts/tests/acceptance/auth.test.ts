@@ -104,10 +104,10 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       const wallet = /([0-9,]+) MP/.exec(await text(a))?.[0];
       const level = /Lv (\d+)/.exec(await a.ev(`document.querySelector('.de-status')?.textContent ?? ''`) as string)?.[0];
       expect(mainCount).toBeGreaterThanOrEqual(40); expect(owned).toBeGreaterThan(0); expect(wallet).toBeTruthy();
-      await click(a,'Lobby'); await until(a,byKey('lobby-npcs'),60000);
+      await click(a,'Return to Lobby'); await until(a,byKey('lobby-npcs'),60000);
       expect(await a.ev(`document.body.innerText.includes('Choose your Starter Deck')`)).toBe(false);
       record('character.starter',{ actions:'Fresh character claims the offered starter; open deck editor and shop; return to lobby', expected:'Claimed once; deck, inventory, level and wallet reflect it', observed:`starter claimed; main deck ${mainCount} cards; ${owned} owned collection entries on page 1; wallet ${wallet}; ${level}; not offered again` });
-      await click(a,'Disconnect');
+      await click(a,'Return to Title');
       await click(a,'Go Online',60000);
       await until(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes(${JSON.stringify(name)}))`,30000);
       const slots = await a.ev(`[...document.querySelectorAll('[data-key^="character-slot:"]')].map(s=>s.textContent)`) as string[];

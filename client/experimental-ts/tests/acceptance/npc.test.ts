@@ -46,7 +46,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       const card = received[0]!, after = await ownedCopies(page,card);
       expect(after).toBeGreaterThan(0);
       // Granted once: reconnecting and reading the collection again gives the same count.
-      await click(page,'Disconnect'); await click(page,'Go Online',60000);
+      await click(page,'Return to Title'); await click(page,'Go Online',60000);
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(`Npc ${RUN}`)})&&!b.disabled)`;
       await until(page,slot,60000); await press(page,slot);
       await until(page,byKey('lobby-npcs'),60000);
@@ -54,7 +54,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       expect(again).toBe(after);
       record('npc.rewards',{ actions:`Return to lobby after the duel; choose ${pack}; close; read the collection, reconnect, read it again`, expected:'Rewards and unlocks applied exactly once', observed:`received ${received.join(', ')}; ${card} owned ×${after}, still ×${again} after reconnecting; dialog: ${receipt}` });
       // Rematch lifecycle: the same NPC accepts another duel.
-      await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000);
+      await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
       await click(page,'Surrender');

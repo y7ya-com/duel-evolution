@@ -96,10 +96,13 @@ export async function press(page:Page,selector:string):Promise<void> {
 export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
-/** A Main Menu entry (Lobby, Edit Deck, Shop, Friends & Mail, Options, Disconnect...) while the menu is closed. */
-const inMainMenu = (text:string) => `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled))`;
-/** Presses the visible control with this text; a Main Menu entry is reached through the Menu key, as a player would. */
+/** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
+const MAIN_MENU = ['Edit Deck','My Profile','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Appearance','Return to Duel','Return to Lobby','Return to Title'];
+const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
+/** Presses the visible control with this text; a Main Menu entry is reached through the MAIN key, as a player would. */
 export async function click(page:Page,text:string,timeout = 30000) {
+  // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
+  if (text === 'Options') { await until(page,`${byText(text)}||${inMainMenu('DUEL OPTIONS')}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = 'DUEL OPTIONS'; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
   if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,`document.querySelector('[data-key="main-menu"]')`); await until(page,byText(text),5000); }
   await press(page,byText(text));

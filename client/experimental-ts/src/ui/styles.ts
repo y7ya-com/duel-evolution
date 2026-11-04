@@ -51,13 +51,6 @@ export const CLIENT_CSS = `
 .de-character-slot>button+button { min-height:26px; font-size:11px; }
 .de-characters button { display:flex; flex-direction:column; align-items:center; min-height:110px; justify-content:center; }
 .de-characters strong { font-size:18px; }
-.de-chat { z-index:8; position:absolute; left:12px; bottom:12px; width:min(65%,540px); max-height:230px; display:flex; flex-direction:column; padding:8px; }
-.de-chat-log { height:115px; overflow:auto; background:#effcffd9; padding:6px; font-size:13px; }
-.de-chat-line { overflow-wrap:anywhere; }
-.de-chat-system { color:#2f6688; font-style:italic; }
-.de-chat form { display:flex; gap:5px; margin-top:5px; }
-.de-chat input { flex:1; }
-.de-chat select { max-width:110px; }
 .de-lobby-name { z-index:5; position:absolute; left:12px; top:12px; padding:5px 12px; color:#fff; background:#075db9cc; border:1px solid #8ce8ff; }
 .de-avatar { position:absolute; transform:translate(-50%,-100%); display:flex; flex-direction:column; align-items:center; gap:0; background:transparent!important; border:0!important; box-shadow:none!important; padding:0!important; min-width:50px; }
 .de-avatar-sprite { display:block; width:32px; height:54px; object-fit:contain; filter:drop-shadow(0 2px 2px #1238); }
@@ -249,7 +242,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-connection.online { background:#95f19a; }
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }
 .de-busy { opacity:.7; }
-@media(max-width:700px) { .de-client { font-size:12px; width:100%; } .de-stage { min-height:480px; aspect-ratio:auto; height:75vh; max-height:850px; } .de-scene { padding:10px; } .de-deck-columns { grid-template-columns:1fr 1fr; } .de-sideboard-columns { grid-template-columns:2fr 1fr; } .de-sideboard-columns>section:last-child { grid-column:1/-1; max-height:100px; } .de-card-inspector { display:none; } .de-mobile-details { display:block; max-height:170px; overflow:auto; background:#effcff; padding:5px; } .de-mobile-details summary { cursor:pointer; font-weight:bold; } .de-chat { width:calc(100% - 24px); max-height:190px; } .de-chat-log { height:95px; } .de-duel-prompt { left:5%; right:5%; top:30%; } .de-target-prompt { top:60px; max-height:110px; } .de-duelist { min-width:0; padding:4px 7px; } .de-duelist strong { font-size:17px; } .de-duel-log { width:30%; max-height:100px; } .de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
+@media(max-width:700px) { .de-client { font-size:12px; width:100%; } .de-stage { min-height:480px; aspect-ratio:auto; height:75vh; max-height:850px; } .de-scene { padding:10px; } .de-deck-columns { grid-template-columns:1fr 1fr; } .de-sideboard-columns { grid-template-columns:2fr 1fr; } .de-sideboard-columns>section:last-child { grid-column:1/-1; max-height:100px; } .de-card-inspector { display:none; } .de-mobile-details { display:block; max-height:170px; overflow:auto; background:#effcff; padding:5px; } .de-mobile-details summary { cursor:pointer; font-weight:bold; } .de-duel-prompt { left:5%; right:5%; top:30%; } .de-target-prompt { top:60px; max-height:110px; } .de-duelist { min-width:0; padding:4px 7px; } .de-duelist strong { font-size:17px; } .de-duel-log { width:30%; max-height:100px; } .de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
 .de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
 .de-duel-actions { max-width:65%; } .de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-context { left:12px; right:12px; width:auto; top:auto; bottom:215px; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-social-grid { grid-template-columns:1fr; } .de-top { padding:7px; } }
 @media(prefers-reduced-motion:reduce) { .de-client * { animation:none!important; transition:none!important; } }

@@ -103,7 +103,7 @@ async function deckNames(page:Page):Promise<string[]> {
   await click(page,'Edit Deck');
   await until(page,`document.querySelector('[data-key^="deck-card:main:"]')`,60000);
   const names = await page.ev(`[...document.querySelectorAll('[data-key^="deck-card:"]')].map(b=>b.title.split(' · ')[0])`) as string[];
-  await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000);
+  await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
   return [...new Set(names)];
 }
 /** Go online and create a character; claim the starter deck at `starter` (so the two players hold different decks). */
@@ -367,7 +367,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       const prompts = tracker();
       let duels = 0, results:string[] = [];
       for (const npc of ['Yami Yugi','Tea Gardner','Joey Wheeler','Jaden Yuki','Chazz Princeton']) {
-        await click(page,'Lobby').catch(() => {}); await until(page,byKey('lobby-npcs'),60000);
+        await click(page,'Return to Lobby').catch(() => {}); await until(page,byKey('lobby-npcs'),60000);
         await until(page,`document.querySelectorAll('[data-key="lobby-npcs"] button').length>0`,30000);
         const listed = await page.ev(`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)`) as string[];
         if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }

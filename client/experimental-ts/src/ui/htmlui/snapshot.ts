@@ -81,6 +81,9 @@ export function applyPointer(specs: readonly WindowSpec[], hover: number, presse
     if (c.cls.includes('Icon')) { c.pressed = c.id === pressed; continue; }
     if (c.state === 'disabled' || !c.enabled) continue;
     c.state = c.id === pressed ? 'pressed' : c.id === hover ? 'hover' : 'normal';
+    // a picture switch shows one of its four sprites (CWindowTaskPictureSwitch): pressed, checked, hover, normal
+    const art = c.art as Record<string, { shown: boolean } | null> | undefined;
+    if (art) { const look = c.state === 'pressed' ? 'pressed' : c.checked ? 'checked' : c.state === 'hover' ? 'hover' : 'normal'; for (const [k, v] of Object.entries(art)) if (v) v.shown = k === look; }
   }
 }
 
