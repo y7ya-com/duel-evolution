@@ -143,6 +143,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     const w = st.wallet;
     if (w && Object.keys(w).length && s === "0") { p.rec.mp = int(w.mp ?? START_MP); }
     seedTrunk(p);
+    if (PROGRESSION) { p.earned = { duels: 0 }; p.bind_v = LEGACY_BIND_V; }
     // delete-and-remake isn't an MP mint: past the account's first FREE_STARTS characters (live + archived; the archive
     // keeps the last 10, so the count never drops back) a new one starts with no MP. It keeps its starter claim: a
     // character must always be able to get cards (owner, 2026-10-29: else it is stuck in Edit Deck)
@@ -155,6 +156,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   if (p !== null) {
     p.rec ??= {};
     progressionReset(p);
+    legacyBind(p);
     if (Array.isArray(p.pbin)) p.pbin = expandCosmeticBits(p.pbin);
   }
   return p;
@@ -254,7 +256,7 @@ export function spendMp(p: P, amount: number): { bound: number; earned: number }
 // (econAccount), so its 4 characters, and one deleted and remade, share one pair cap, first win and soft cap.
 function econToday(g: Game | null, p: P): P {
   const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
-  if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0 };
+  if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0, tin: 0 };
   return p.econ;
 }
 /** Today's counters of the whole account: this character's `e` plus every other one, live or archived (a deleted
@@ -275,6 +277,51 @@ function econAccount(g: Game | null, e: P): { duels: number; wins: number; pairs
   }
   return t;
 }
+
+// ---- what a character has earned by playing (the owner, 2026-11-04: alts traded away the packs their free 5000 MP
+// bought before soul-bound MP existed, 261 cards onto one main in four days). p.earned.duels counts the duels that paid
+// MP (mpReward > 0: not a short PvP, not past the pair cap); the trade gate and the legacy bind read it.
+/** Rewarded duels this character has played. A character from before the ledger is estimated once from its record:
+ *  its PvP games and its NPC wins, losses and draws (generous: duels from before progression count too). */
+export function earnedDuels(p: P): number {
+  if (p.earned && typeof p.earned === "object") return int0(p.earned.duels);
+  let n = int0(p.pvp?.n);
+  for (const e of Object.values(p.npcbin ?? {}) as number[][]) n += int0(e?.[NPCBIN_WIN]) + int0(e?.[NPCBIN_LOSE]) + int0(e?.[NPCBIN_DRAW]);
+  return n;
+}
+/** Rewarded duels before a character's cards can leave it in a trade (trade.ts); receiving needs none. */
+export const TRADE_GIVE_MIN_DUELS = 20;
+/** Net cards an account may take in through trades in a UTC day (received − given, per trade, summed over its
+ *  characters live and archived); balanced swaps never count. */
+export const TRADE_IN_DAY_MAX = 30;
+/** 1: the one-off bind of 2026-11-04. Cards bought with the starting grant before soul-bound MP (2026-11-02) were
+ *  tradeable: nothing recorded which MP paid for them. A character that had played fewer than TRADE_GIVE_MIN_DUELS
+ *  rewarded duels then has its whole trunk soul-bound (its earned share is a few packs at most); one past that keeps
+ *  its cards. New characters are born past it (profile). */
+const LEGACY_BIND_V = 1;
+export function legacyBind(p: P): boolean {
+  if (!PROGRESSION || int0(p.bind_v) >= LEGACY_BIND_V) return false;
+  const n = earnedDuels(p);
+  p.earned = { duels: n };
+  p.bind_v = LEGACY_BIND_V;
+  if (n >= TRADE_GIVE_MIN_DUELS) return false;
+  p.bound = Object.fromEntries(Object.entries(p.trunk ?? {}).map(([k, q]) => [k, int0(q)]).filter(([, q]) => (q as number) > 0));
+  return true;
+}
+/** Net cards the account behind `st` took in through trades today (TRADE_IN_DAY_MAX). */
+export function tradeInToday(g: Game | null, st: State): number {
+  const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
+  let n = 0;
+  for (const q of [...Object.values(st.profiles ?? {}), ...(st.profiles_borrados ?? []).map((a: P) => a?.perfil)] as P[])
+    if (q?.econ?.day === day) n += int0(q.econ.tin);
+  return n;
+}
+/** A done trade's net intake on this character's day (negative nets count as 0: giving away earns no allowance). */
+export function tradeInAdd(g: Game | null, p: P, net: number): void {
+  if (!PROGRESSION || net <= 0) return;
+  const e = econToday(g, p);
+  e.tin = int0(e.tin) + net;
+}
 const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${what}; `
   + `${e.day}: ${e.duels} duels, ${e.wins} wins, +${e.earned} MP, -${e.spent} MP, ${e.packs} packs`);
 
@@ -293,6 +340,7 @@ export function mpReward(g: Game | null, p: P, result: string, turns: number, pv
     e.duels++; if (win) e.wins++;
     e.earned += mp;
     recInc((p.rec ??= {}), "mp", mp);
+    (p.earned = { duels: earnedDuels(p) }).duels++;
   }
   econLog(g, e, `+${mp} MP (${pvp ? "pvp" : "npc"} ${result}, ${turns} turns${pvp ? `, ${Math.round(pvp.secs)} s` : ""}${why})`);
   return mp;

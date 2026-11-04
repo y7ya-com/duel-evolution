@@ -8,7 +8,8 @@ import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
 import type { AuthEnv } from "./auth/env.ts";
 import { ipBucket, verifySession } from "./auth/auth.ts";
-import { gateUpgrade, originAllowed, safeGameQuery } from "./auth/binding.ts";
+import { gateUpgrade, originAllowed, safeGameQuery, USER_HEADER } from "./auth/binding.ts";
+import { buildReport, recordLogin, runTradeReport } from "./db/audit.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 import { cardRarityCatalog } from "./game/card-rarity.ts";
 
@@ -46,6 +47,9 @@ routes.get("/__version", (c) => c.json({ v: c.env.CF_VERSION_METADATA?.id ?? "de
 // (index.html: gateway = <host>/net); /boxedwine-network stays for builds and links that name it
 routes.on("GET", ["/boxedwine-network", "/net"], async (c) => {
   const fwd = await gateUpgrade(c.req.raw, c.env as unknown as AuthEnv);
+  // the sign-in IP history (db/audit.ts): who connected from where, once per user, IP and day
+  const user = fwd instanceof Request ? fwd.headers.get(USER_HEADER) : null;
+  if (user && c.env.DB) c.executionCtx.waitUntil(recordLogin(c.env.DB, user, c.req.raw).catch((e) => console.error(`[login_ip] ${e}`)));
   // the query too: ?sid=&resume=1, the client's tunnel resume (world.ts)
   return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network" + new URL(c.req.url).search, fwd);
 });
@@ -355,7 +359,33 @@ routes.all("*", (c) => c.text("method not allowed", 405));
 // The game is served on the apex and on original. (kept so players find it where they're used to): each request sees
 // its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
 const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
+// The daily trade report (db/audit.ts; wrangler.jsonc triggers): GET /__trade-report (admin) shows the latest, ?day=
+// one kept in R2, ?run=1 builds one now without keeping or posting it.
+routes.get("/__trade-report", async (c) => {
+  if (c.env.DEV !== "1") {
+    const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+    if (!v) return c.text("sign in first", 401);
+    if (!v.roles.includes("admin")) return c.text("forbidden", 403);
+  }
+  if (c.req.query("run") === "1") return c.env.DB ? c.json(await buildReport(c.env.DB)) : c.text("no database", 503);
+  const bucket = c.env.BUCKET;
+  if (!bucket) return c.text("not found", 404);
+  let key = `private/reports/trades/${c.req.query("day") ?? ""}.json`;
+  if (!c.req.query("day")) {
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do { const r = await bucket.list({ prefix: "private/reports/trades/", cursor }); keys.push(...r.objects.map((o) => o.key)); cursor = r.truncated ? r.cursor : undefined; } while (cursor);
+    if (!keys.length) return c.text("no report yet", 404);
+    key = keys.sort().at(-1)!;
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(c.req.query("day")!)) return c.text("bad day", 400);
+  const o = await bucket.get(key);
+  return o ? new Response(o.body, { headers: { "content-type": "application/json", "cache-control": "no-store" } }) : c.body(null, 404);
+});
+
 export default {
+  async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runTradeReport(env).then(() => undefined, (e) => console.error(`[trade report] ${e}`)));
+  },
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(req.url);
     if (url.hostname === "www.ygoevolution.com") return Response.redirect(`https://ygoevolution.com${url.pathname}${url.search}`, 301);
