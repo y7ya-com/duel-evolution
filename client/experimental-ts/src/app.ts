@@ -723,7 +723,9 @@ export class ClientApp implements ClientController {
         case 'connect': await this.connectAfterLoss(command.freeMode); break;
         case 'disconnect': this.disconnect(); break;
         case 'signIn': {
-          const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal });
+          // A refused sign-in is a 401 too, but it is a wrong User ID or Password, not an ended session (failure()).
+          const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal })
+            .catch((e: unknown) => { throw e instanceof ApiError && e.status === 401 ? new Error('Incorrect User ID or Password.') : e; });
           if (!this.disposed) this.patch({ auth: { signedIn: auth.signedIn, ...(auth.signedIn && auth.name ? { name: auth.name } : {}) }, status: 'Signed in. Go online to select a character.' }); break;
         }
         case 'signOut': this.disconnect(); this.lockToken = token; this.patch({ busy: true, auth: { signedIn: false } }); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;

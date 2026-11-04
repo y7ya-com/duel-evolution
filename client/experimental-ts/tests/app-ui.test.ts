@@ -3,6 +3,7 @@ import { ClientApp } from '../src/app';
 import { CardCatalog } from '../src/catalog';
 import { mountClient } from '../src/ui';
 import { HttpClient } from '../src/services';
+import { ApiError } from '../src/services/http';
 import type { GameApi, DeckList, ShopCatalog } from '../src/services';
 import type { GameSession, SessionOptions, SessionState } from '../src/network/session';
 import { findButton, TestDocument } from './ui-dom-fixture';
@@ -51,6 +52,12 @@ function harness() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('actual ClientApp mounted through semantic UI', () => {
+  it('tells a refused sign-in apart from an ended session', async () => {
+    const f = harness(); await f.app.initialize(); await flush();
+    f.api.signIn.mockRejectedValueOnce(new ApiError('Invalid username or password', 401));
+    await expect(f.app.dispatch({ type: 'signIn', username: 'Alice', password: 'wrong' })).rejects.toThrow('Incorrect User ID or Password.'); await flush();
+    expect(f.app.getState().error).toBe('Incorrect User ID or Password.'); f.dispose();
+  });
   it('enters a real controller character lifecycle without synthetic engine input', async () => {
     const f = harness(); await f.enter();
     expect(f.game.start).toHaveBeenCalledTimes(1); expect(f.game.selectCharacter).toHaveBeenCalledWith(0);
