@@ -28,6 +28,9 @@ real Worker, better-auth, D1, WorldDO, duel engine). Each asserted flow appends 
 - Duels: `startNpcDuel`, `prepareDuel`, `duelBot` / `playDuel` (summons, sets, attacks through the duel screen),
   `surrender`, `claimNpcReward`, `earnCards` (tradeable cards: starter and starting-MP cards are soul-bound),
   `ownedCopies(page, name)` from the deck editor.
+- `click(page, text)` presses the visible control with that text; a Main Menu entry (Lobby, Edit Deck, Shop, Friends & Mail,
+  Options, Disconnect) is reached through the menu bar's Menu key (`[data-key="main-menu"]`), as a player would.
+  `skin.test.ts` is a screenshot tour of every out-of-duel screen (`SKIN_SHOT=<set>` names the files).
 - `record(flow, {actions, expected, observed})`: one evidence line. `screenshot(page, name)` to `/tmp/acceptance/`.
 
 `press` fails on a covered or disabled control rather than skipping it: that is usually a UI defect worth fixing.
@@ -41,7 +44,8 @@ A git worktree lacks untracked inputs. From the worktree root, link or copy them
 ```sh
 M=/home/y7ya/Documents/repos/duel-evolution
 ln -s $M/server/node_modules server/node_modules
-ln -s $M/server/gamedata server/gamedata
+# server/gamedata is tracked (its README): link its entries, not the directory
+for f in $M/server/gamedata/*; do [ "${f##*/}" = README.md ] || ln -s "$f" server/gamedata/; done
 [ -d $M/server/data ] && ln -s $M/server/data server/data
 ln -s $M/client/web-shell/htmlui/node_modules client/web-shell/htmlui/node_modules
 cp $M/client/experimental-ts/public/*.json client/experimental-ts/public/

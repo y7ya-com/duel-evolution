@@ -236,7 +236,7 @@ export class ClientApp implements ClientController {
   readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|card|common\/window|common\/icon)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }

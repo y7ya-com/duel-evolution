@@ -91,7 +91,14 @@ export async function press(page:Page,selector:string):Promise<void> {
 export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
-export async function click(page:Page,text:string,timeout = 30000) { await until(page,byText(text),timeout); await press(page,byText(text)); }
+/** A Main Menu entry (Lobby, Edit Deck, Shop, Friends & Mail, Options, Disconnect...) while the menu is closed. */
+const inMainMenu = (text:string) => `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled))`;
+/** Presses the visible control with this text; a Main Menu entry is reached through the Menu key, as a player would. */
+export async function click(page:Page,text:string,timeout = 30000) {
+  await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
+  if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,`document.querySelector('[data-key="main-menu"]')`); await until(page,byText(text),5000); }
+  await press(page,byText(text));
+}
 export async function type(page:Page,selector:string,value:string) {
   await until(page,selector);
   await page.ev(`(()=>{const i=${selector};i.focus();i.value=${JSON.stringify(value)};i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));})()`);

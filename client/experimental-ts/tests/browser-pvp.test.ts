@@ -21,6 +21,10 @@ async function activate(browser:Browser,selector:string) {
 }
 const buttonText = (text:string) => `[...document.querySelectorAll('button,summary')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 async function click(browser:Browser,text:string) {
+  // Main Menu entries (Lobby, Edit Deck, Options...) are reached through the menu bar's Menu key, as a player would.
+  const entry = `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled))`;
+  await until(browser,`${buttonText(text)}||${entry}`);
+  if (!await browser.ev(`Boolean(${buttonText(text)})`) && !await activate(browser,`document.querySelector('[data-key="main-menu"]')`)) throw new Error('Main Menu key is covered');
   await until(browser,buttonText(text));
   // An obstructed control is a UI defect, not something to skip.
   if (!await activate(browser,buttonText(text))) throw new Error(`Button is covered or vanished: ${text}`);

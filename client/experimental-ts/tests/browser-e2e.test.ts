@@ -33,7 +33,11 @@ async function activate(browser:Browser,selector:string,touch = false) {
 }
 async function click(browser:Browser,text:string,touch = false) {
   const literal = JSON.stringify(text), selector = `[...document.querySelectorAll('button,summary')].find(b=>b.textContent.trim()===${literal}&&!b.disabled&&b.getClientRects().length)`;
-  await until(browser,selector); return activate(browser,selector,touch);
+  // Main Menu entries (Lobby, Edit Deck, Options...) are reached through the menu bar's Menu key, as a player would.
+  const entry = `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${literal}&&!b.disabled))`;
+  await until(browser,`${selector}||${entry}`);
+  if (!await browser.ev(`Boolean(${selector})`)) { await activate(browser,`document.querySelector('[data-key="main-menu"]')`,touch); await until(browser,selector); }
+  return activate(browser,selector,touch);
 }
 
 describe('actual headless browser against real game authority',() => {
