@@ -14,6 +14,11 @@ function chromePath() {
     : `${base}/${dir}/chrome-linux64/chrome`;
 }
 
+// the GPU: Metal on macOS; on Linux the Intel GPU through Vulkan (headless Chrome otherwise falls back to SwiftShader,
+// ~50x slower: 1 vs 54 frames/s measured here, its GPU process 90-150 % CPU). YO2_GPU_FLAGS='...' overrides
+const gpuFlags = () => process.env.YO2_GPU_FLAGS != null ? process.env.YO2_GPU_FLAGS.split(/\s+/).filter(Boolean)
+  : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'];
+
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
 export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false } = {}) {
   const free = process.platform === 'darwin'   // Linux: MemAvailable (page cache counts as free, as memory_pressure's)
@@ -25,7 +30,7 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
   const profile = '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...(process.platform === 'darwin' ? ['--use-angle=metal'] : []), 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
