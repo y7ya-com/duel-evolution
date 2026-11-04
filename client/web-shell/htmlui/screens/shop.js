@@ -26,7 +26,7 @@ import { textBox, textColor, spacing, fontCss } from '../controls/basic.js';
 import { scrollList } from '../controls/scroll.js';
 import { runs, clip, spriteRect } from './deck.js';
 import * as skin from '../controls/shop-skin.js';
-import { panel } from '../controls/skin.js';
+import { measure } from '../../ui.js';
 
 // ---------------------------------------------------------------- what is whose
 // the texture's file name, no folder, no extension, the language letter as English (the art this module knows)
@@ -81,13 +81,20 @@ function shadowOf(ctl, win) {
   if (ctl.cls === 'CWindowTaskShadowText' || /^CWindowTaskShadowText/.test(ctl.name || '')) return true;
   return !!ctl.parent && win.controls.some(k => k.id === ctl.parent && k.cls === 'CWindowTaskShadowText');
 }
+// The web engine's glyphs sit lower in their line than Arial's baseline puts them (live flips, every shop text: 16-px
+// lines 1.5 to 1.75 px lower, the plate's 24-px figures 0.5): the shop's texts move down as much
+export const textDrop = px => px === 16 ? 1.5 : px === 24 ? 0.5 : 0;
 export function drawText(el, s, { x, y, w, align = 0, px = 16, gap = 0, color, white = false, alpha = 1 }) {
+  y += textDrop(px);
   const lines = s.split('\n');
   lines.forEach((line, i) => {
     const ty = y + i * (px + gap);
     const rs = runs(line);
     if (rs.length <= 1 && rs.every(r => r.x == null)) {
       const t = textBox(el, rs[0]?.s ?? line.replace(/@\d/g, ''), { x, y: ty, w, align, px, gap, color, white });
+      // spacing() scales the 16-pixel table's cells, their +1 too; the engine's cell at another size is
+      // round(advance) + 1 (the MP plate's 24-pixel figures came out 4 px too wide): that +1 unscaled
+      if (px !== 16 && t.firstChild) { const ls = parseFloat(t.firstChild.style.letterSpacing) - (px / 16 - 1); Object.assign(t.firstChild.style, { letterSpacing: ls + 'px', marginRight: -ls + 'px' }); }
       if (rs[0] && rs[0].rgb && !white) t.style.color = '#' + rs[0].rgb.toString(16).padStart(6, '0');
       if (alpha < 1) t.style.opacity = alpha;
       return;
@@ -118,6 +125,11 @@ export function drawText(el, s, { x, y, w, align = 0, px = 16, gap = 0, color, w
 // (the pictures the engine draws: every item behind one is clipped around it). pills: the swf buttons (their state
 // follows the mouse without a rebuild).
 const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// The engine draws every picture half a pixel right and down of its place (D3D's texel centres; at 2x a full device
+// pixel): a hole cut at the place showed a 1-px seam of what is behind the picture along its top and left (live
+// flips, the card faces). Holes sit where the picture really lands.
+const HALF = 0.5;
+const at = r => ({ x: r.x + HALF, y: r.y + HALF, w: r.w, h: r.h });
 export function plan(win) {
   const items = [], holes = [], pills = [], ox = win.x, oy = win.y;
   const add = (id, z, rect, draw) => items.push({ id, z, rect, draw, i: items.length });
@@ -127,14 +139,14 @@ export function plan(win) {
     const cat = skin.CATEGORY.exec(name);
     if (cat) {   // a category banner: the engine's picture; its hover / chosen frame here, over it
       const p = skin.CAT_PICTURE, k = s.sx ?? 1;
-      holes.push({ z, rect: { x: r.x + p.x * k, y: r.y + p.y * k, w: p.w * k, h: p.h * k } });
+      holes.push({ z, rect: at({ x: r.x + p.x * k, y: r.y + p.y * k, w: p.w * k, h: p.h * k }) });
       if (cat[2] !== '1') add(s.id + 0.5, z + 0.1, { x: r.x, y: r.y, w: 420, h: 170 }, el => skin.categoryFrame(el, x, y));
       if (ctl) add(ctl.id, z + 0.2, { x: r.x + p.x, y: r.y + p.y, w: p.w, h: p.h }, el => button(el, ctl, x + p.x, y + p.y, p.w, p.h));
       return;
     }
     const kind = recipe(name);
     if (!kind) {
-      if (!mine(s)) holes.push({ z, rect: r });   // a picture: the engine's
+      if (!mine(s)) holes.push({ z, rect: at(r) });   // a picture: the engine's
       return;
     }
     const a = s.a ?? 1;
@@ -167,7 +179,7 @@ export function plan(win) {
   if (win.parts) tree(win.parts, null);
   for (const c of win.controls || []) if (c.shown && c.parts) tree(c.parts, c);
   // the card window's faces, drawn each frame (not elements): over the panel, under the confirm window
-  for (const h of win.holes || []) holes.push({ z: 1020, rect: { x: ox + h.x, y: oy + h.y, w: h.w, h: h.h } });
+  for (const h of win.holes || []) holes.push({ z: 1020, rect: at({ x: ox + h.x, y: oy + h.y, w: h.w, h: h.h }) });
   const st = swfStates(pills, win.mouse);
   pills.forEach((p, i) => { p.state = st[i]; });
   if (confirmList) {
@@ -237,6 +249,7 @@ function confirmRows(el, win, sc, api, L) {
   list.set(win.lines, (s, i) => {
     const r = document.createElement('div');
     r.style.background = i % 2 ? 'linear-gradient(#c2c2c2 15px, #7a7a7a 15px)' : '#e7e7e7';
+    r.style.width = '430px';   // the rows end at the list's edge (x 447): the scroll column (448..462) stays the frame's
     drawText(r, s, { x: 7, y: 0, w: 424, px: 16 });
     return r;
   }, (s, i) => i + '\u0000' + s);
@@ -251,34 +264,76 @@ function confirmRows(el, win, sc, api, L) {
 const RANK = { CShopCategoryWindow: 1, CShopCardWindow: 1, CShopPackWindow: 1, CShopAvatarWindow: 1, CShopMileagePlate: 2,
   CShopPricePlate: 3, CShopConfirmWindow: 4 };
 const live = new Map();
+// Lent items: a window's piece the engine draws over a price plate (the card window's no-trade marks, z 1023, on the
+// tags, z 1021) is drawn in that plate's root, whose rank is above the window's (a root is one stacking context: no
+// z inside the window's could put it over a later root). Each live task's list: its own pieces not lent away, then
+// those lent to it (placed from their owner's origin).
+const LEND_Z = 1020;
+function lend() {
+  const plates = [...live.values()].filter(L => L.win.cls === 'CShopPricePlate' && L.win.shown);
+  for (const L of live.values()) {
+    const items = /^CShop(Card|Pack|Avatar)Window$/.test(L.win.cls);   // the item windows' marks only (the confirm
+    for (const it of L.plan.items) {                                     // window, 51003, is over everything anyway)
+      const r = it.rect, inside = P => r.x >= P.win.x && r.y >= P.win.y && r.x + r.w <= P.win.x + P.win.w && r.y + r.h <= P.win.y + P.win.h;
+      it.to = items && it.z > LEND_Z && it.z < 2000 && plates.find(inside)?.win.id || 0;
+    }
+  }
+  for (const L of live.values()) {
+    const own = L.plan.items.filter(it => !it.to).map(it => ({ it, from: L }));
+    const lent = [...live.values()].flatMap(O => O === L ? [] : O.plan.items.filter(it => it.to === L.win.id).map(it => ({ it, from: O })));
+    L.next = [...own, ...lent].sort((a, b) => a.it.z - b.it.z || a.it.i - b.it.i);
+  }
+}
+const sig = L => L.next.map(e => e.from.win.id + ':' + e.it.id).join();
 function reclip() {
   const holes = [...live.values()].flatMap(L => L.plan.holes);
   for (const L of live.values())
-    for (const it of L.plan.items) if (it.box) it.box.style.clipPath = clip(it, holes.filter(h => meet(h.rect, it.rect)), L.win.x, L.win.y);
+    for (const { it, from, box } of L.layers || []) if (box) box.style.clipPath = clip(it, holes.filter(h => meet(h.rect, it.rect)), from.win.x, from.win.y);
 }
 // ponytail: a full rebuild per changed frame (the mouse alone redraws only the swf buttons; the confirm list's
 // scroller is not rebuilt)
-function draw(L, api) {
+function draw(L) {
   L.inner.replaceChildren();
-  for (const it of L.plan.items) {
+  L.layers = L.next;
+  L.drawn = sig(L);
+  for (const e of L.layers) {
     const box = document.createElement('div');
     box.className = 'layer';
     box.style.width = box.style.height = '100%';
-    it.box = box;
-    it.draw(box, api, L);
+    if (e.from !== L) box.style.transform = `translate(${e.from.win.x - L.win.x}px, ${e.from.win.y - L.win.y}px)`;
+    e.box = box;
+    e.it.draw(box, e.from.api, e.from);
     if (box.childNodes.length) L.inner.append(box);
   }
-  reclip();
 }
 
-// the NPC's profile (a factory window, CWindowTaskModel): its FrameThin "m_frame" as the shared blue panel (skin.js;
-// ponytail: style 1 assumed, the frame's own style unchecked), the rest the generic renderers (its texts DOM)
-function npcProfile(win, root, api) {
+// the NPC's profile (a factory window, CWindowTaskModel, up on entering the shop: Sadie's name and blurb): its FrameThin
+// "m_frame" (style 2, green, at its alpha 0.9) as dialog.js's frame colours (shop-skin's thinFrame), the two
+// CWindowTaskHelps' back planes (white, 0.9) and texts (16 px, the blurb char-wrapped at its box's width by the
+// engine's own glyph advances, as CTextElm wraps), each at its world place, in the engine's z order
+export function wrapEngine(text, w) {
+  let adv;
+  try { measure('a'); adv = ch => measure(ch); } catch { return text; }   // no glyph table (node): as is
+  return text.split('\n').map(line => {
+    const out = []; let cur = '', cw = 0;
+    for (const ch of line) {
+      const a = adv(ch);
+      if (cur && cw + a > w) { out.push(cur); cur = ''; cw = 0; }
+      cur += ch; cw += a;
+    }
+    out.push(cur);
+    return out.join('\n');
+  }).join('\n');
+}
+function npcProfile(win, root) {
   root.replaceChildren();
-  for (const c of win.controls) {
-    if (!c.shown || c.parent) continue;
-    if (c.cls === 'CWindowTaskFrameThin') panel(root, { x: c.x, y: c.y, w: c.w, h: c.h });
-    else api.renderControl?.(c, root);
+  const ox = win.x, oy = win.y;
+  for (const c of win.controls.filter(c => c.shown).sort((a, b) => (a.wz || 0) - (b.wz || 0))) {
+    const x = (c.wx ?? 0) - ox, y = (c.wy ?? 0) - oy;
+    if (c.cls === 'CWindowTaskFrameThin') skin.thinFrame(root, { x, y, w: c.w, h: c.h, style: c.style, alpha: c.alpha });
+    else if (c.cls === 'CWindowTaskBackPlane') skin.backPlane(root, { x, y, w: c.w, h: c.h, alpha: c.alpha });
+    else if (c.cls === 'CWindowTaskText' && c.text)
+      textBox(root, wrapEngine(c.text.replace(/[@＠]\d/g, ''), c.w), { x, y: y + textDrop(c.fontSize || 16), w: c.w, align: c.align || 0, px: c.fontSize || 16, gap: c.lineGap || 0, color: c.color });
   }
 }
 
@@ -300,7 +355,7 @@ export default {
     root.setAttribute('aria-label', win.cls);
     if (win.cls === 'CShopNpcProfile') {
       const key = JSON.stringify(win);
-      if (key !== st.key) { st.key = key; npcProfile(win, st.inner, api); }
+      if (key !== st.key) { st.key = key; npcProfile(win, st.inner); }
       return;
     }
     root.style.zIndex = RANK[win.cls] || 1;
@@ -314,9 +369,11 @@ export default {
     }
     st.key = key;
     L = live.get(win.id) || { inner: st.inner };
-    Object.assign(L, { win, plan: plan(win) });
+    Object.assign(L, { win, plan: plan(win), api });
     live.set(win.id, L);
-    draw(L, api);
+    lend();
+    for (const K of live.values()) if (K === L || sig(K) !== K.drawn) draw(K);
+    reclip();
   },
   // A CEasyTask lists its sprites as children but isn't their CTask parent_, so the bridge's hide by the task (htmlui.c
   // walks parent_) misses them: hide() names the elements themselves: every control (its parts follow it; the
@@ -326,6 +383,8 @@ export default {
     ...['sprites', 'labels', 'swfs'].flatMap(k => (win.parts?.[k] || []).filter(mine).map(e => e.id))],
   unmount(root, st) {
     for (const [id, L] of live) if (L.inner === st.inner) live.delete(id);
+    lend();
+    for (const K of live.values()) if (sig(K) !== K.drawn) draw(K);
     reclip();
   },
 };

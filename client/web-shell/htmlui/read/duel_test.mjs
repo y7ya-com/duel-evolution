@@ -5,7 +5,7 @@ import { read, extend, FACTORY } from '../read.js';
 import VT from '../vtables.js';
 import duel from './duel.js';
 import result from './result.js';
-import { holes, loc, thinShadow, stripeLook, TONES } from '../screens/duel.js';
+import { holes, loc, thinShadow, stripeLook, TONES, nudge, artOk } from '../screens/duel.js';
 
 extend(duel); extend(result);
 const vt = (cls, off = 0) => +Object.keys(VT).find(k => VT[k][0] === cls && VT[k][1] === off);
@@ -59,4 +59,11 @@ assert.match(thinShadow(1), /^inset 3px 0 #76ffff, inset 0 3px #a7ffff/);
 assert.doesNotMatch(thinShadow(1, false), /inset 0 -3px/);
 // stripes: every other row from the top item's parity, the selection over it
 assert.deepEqual([0, 1, 2, 3].map(i => stripeLook(i, 0, i === 2)), ['alt', 'plain', 'sel', 'plain']);
+// the 2x half-pixel shift (measured on the live flips): a whole device pixel at 2x, none at 1x
+assert.equal(nudge(2), 'translate(0.5px, 0.5px)');
+assert.equal(nudge(1), '');
+// no Image under node: every list icon stays the engine's, under a hole
+assert.equal(artOk('data/common/icon/duelcmd_icon_01.png'), false);
+const icon = { id: 9, cls: 'CWindowTaskImageDuelCmd', parent: 0, x: 8, y: 8, w: 16, h: 16, wz: 0, shown: true, texture: 'data/common/icon/duelcmd_icon_01.png' };
+assert.deepEqual(holes({ x: 0, y: 0, controls: [icon] }), [{ x: 8, y: 8, w: 16, h: 16 }]);
 console.log('read/duel_test: ok');

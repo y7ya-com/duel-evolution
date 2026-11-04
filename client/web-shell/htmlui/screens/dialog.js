@@ -118,11 +118,13 @@ const CSS = () => `
 .dlg-list .dlg-row:hover, .dlg-list .dlg-row:focus-visible { background: rgba(0, 132, 255, ${A70.toFixed(3)}); outline: none; }
 `;
 
-// A frame: Thin (band 0), BottomThick (band), or a FramePlane (plane: true)
-export function frame(parent, { x = 0, y = 0, w, h, style = 1, band = 0, plane = false } = {}) {
+// A frame: Thin (band 0), BottomThick (band), or a FramePlane (plane: true), at the control's own alpha where the
+// snapshot has it (the dialogs' 0.7 from onInit; a dialog its owner sets opaque, modelSetAlpha(d, 1): the deck editor's)
+export function frame(parent, { x = 0, y = 0, w, h, style = 1, band = 0, plane = false, alpha } = {}) {
   const f = document.createElement('div');
   f.className = plane ? 'dlg-frame dlg-plane' : 'dlg-frame';
-  Object.assign(f.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: frameAlpha(style) });
+  const a = style === 5 || style === 6 ? 1 : alpha ?? frameAlpha(style);
+  Object.assign(f.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: a });
   for (const [k, v] of Object.entries(frameVars(style, plane ? 0 : band))) f.style.setProperty(k, v);
   if (!plane) f.append(document.createElement('i'));   // the ring
   parent.append(f);
@@ -204,15 +206,17 @@ function pickList(el, c, api, reg, win) {
 }
 
 const DRAW = {
-  FrameBottomThick: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style, band: c.band ?? 24 }),
-  FrameThin: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style }),
-  FramePlane: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style, plane: true }),
+  FrameBottomThick: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style, band: c.band ?? 24, alpha: c.alpha }),
+  FrameThin: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style, alpha: c.alpha }),
+  FramePlane: (el, c) => frame(el, { x: c.x, y: c.y, w: c.w, h: c.h, style: c.style, plane: true, alpha: c.alpha }),
   // CWindowTaskTextField::layout (0x005b0c60): its back plane over the whole field (the dialogs set it white, 70 %:
-  // yo2WindowDialogs.cpp dialogPanels), the text in w - 16 (the hidden scroll bar's column), from its first line
-  TextField(el, c) {
-    const d = document.createElement('div');
+  // yo2WindowDialogs.cpp dialogPanels; its alpha the snapshot's: 1 in a dialog its owner made opaque), the text in
+  // w - 16 (the hidden scroll bar's column), from its first line
+  TextField(el, c, api, win) {
+    const d = document.createElement('div'), plane = win?.controls.find(k => k.parent === c.id && /BackPlane$/.test(k.cls));
     d.className = 'dlg-back';
     Object.assign(d.style, { left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
+    if (plane && plane.alpha != null) d.style.background = `rgba(255, 255, 255, ${+(plane.alpha * (c.alpha ?? 1)).toFixed(3)})`;
     basic.textBox(d, basic.shownLines(c), { w: c.w - 16, h: c.h, align: c.align, px: c.fontSize || 16, gap: c.lineGap, color: c.color });
     el.append(d);
   },

@@ -10,7 +10,9 @@
 import { textBox, shownLines, textWidth, spacing } from '../controls/basic.js';
 import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
-import { KIND, PLATE, plateBackground, glyph } from './lobby_icons.js';
+import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas } from './lobby_icons.js';
+import * as ui from '../../ui.js';
+import { pieceCss } from './trade.js';
 
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
@@ -21,17 +23,11 @@ const CSS = `
     linear-gradient(to right, #0985ff 0, #7deffc 219px, #7deffc 100%); }
 .lb-shadow { color: #fff; text-shadow: 1px 0 #4a4a4a, -1px 0 #4a4a4a, 0 1px #4a4a4a, 0 -1px #4a4a4a; }   /* skin.js's outline */
 .lb-bar { position: absolute; left: 0; top: 0; width: 1024px; height: 32px;
-  background: linear-gradient(to right, #75ffff 0, #caffff 60px, #fff 150px, #e5ffff 300px, #a7ffff 385px, #47bcff 700px,
-      #0f8dff 1016px, #005eff 1024px) 0 0 / 100% 3px no-repeat,
-    linear-gradient(to right, #56d4f6 0, #51a1c2 60px, #86b3be 150px, #5ea8c0 300px, #347fbc 385px, #0049bc 700px,
-      #0028b9 1024px) 0 29px / 100% 3px no-repeat,
-    linear-gradient(to right, #70ffff 0, #6cdbff 32px, #8ae4ff 64px, #a7eeff 96px, #c1f8ff 128px, #cdfeff 160px,
-      #c4feff 224px, #aefeff 256px, #a0f3ff 288px, #8ee4ff 320px, #77d3fe 352px, #64c0fe 384px, #2279fd 700px,
-      #0053fb 1016px, #003dd4 1024px);
-  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 625px 17px no-repeat;
+  background: ${STRIP.map(([y, h, stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${h}px no-repeat`).join(',\n    ')};
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
-.lb-field { position: absolute; left: 392px; top: 8px; width: 625px; height: 17px;
-  background: rgba(255, 255, 255, .698); box-shadow: 0 0 0 1px rgba(255, 255, 255, .5); }
+.lb-field { position: absolute; left: 391px; top: 7px; width: 626px; height: 18px; box-sizing: border-box;
+  border: 1px solid #fff; background: rgba(255, 255, 255, .698); }
 .lb-icon { position: absolute; width: 80px; height: 32px; margin: 0; padding: 0; border: 0; background: none; }
 .lb-icon > i { position: absolute; left: 8px; top: 4px; width: 72px; height: 24px; box-sizing: border-box; border: 1px solid;
   clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
@@ -121,7 +117,32 @@ const iconLook = c => {
   return c.state === 'pressed' ? 'pressed' : c.state === 'hover' ? 'hover' : 'normal';
 };
 const textW = s => textWidth(s) + spacing(s) * [...s].length;
+// the glyphs traced from the atlas (lobby_icons.js traceAtlas), once it has loaded; until then the hand-drawn ones.
+// The atlas comes from the art folder ui.js was given (as screens/trade.js's window_base); the bars wait in `bars`
+let traced = null, tracing = false;
+const bars = new Set();
+function icons() {
+  if (traced || tracing || typeof Image === 'undefined') return traced;
+  tracing = true;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const c = new OffscreenCanvas(img.width, img.height).getContext('2d', { willReadFrequently: true });
+    c.drawImage(img, 0, 0);
+    traced = traceAtlas(c.getImageData(0, 0, img.width, img.height).data, img.width);
+    for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b);
+  };
+  img.onerror = () => console.warn('htmlui lobby: no menu icon atlas');
+  img.src = ui.SHEET.window.url.replace(/[^/]*$/, '') + 'menuicon_02_c01.png';
+  return null;
+}
+function paintIcon(b) {
+  const t = icons(), svg = (k) => (t?.[b.kind]?.[k] || glyph(b.kind, k)).replace('<svg ', `<svg data-look="${k}" `);
+  b.innerHTML = '<i></i>' + ['normal', 'hover', 'pressed'].map(svg).join('');
+  b.traced = !!t;
+}
 function menuBar(win, root, st) {
+  bars.add(st);
   kept.set(win.id, new Set(win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id)));
   if (!st.bar) {
     root.replaceChildren();
@@ -142,7 +163,7 @@ function menuBar(win, root, st) {
       b?.remove();
       b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn lb-icon', tabIndex: -1, kind });
       b.setAttribute('aria-label', kind);
-      b.innerHTML = '<i></i>' + ['normal', 'hover', 'pressed'].map(k => glyph(kind, k).replace('<svg ', `<svg data-look="${k}" `)).join('');
+      paintIcon(b);
       root.append(b);
       st.icons.set(c.id, b);
     }
@@ -179,8 +200,8 @@ function menuBar(win, root, st) {
 //  - the texts: CWindowTaskHelps (read/lobby.js: their size), each a text on its back plane (window_base_01_c01's
 //    white middle texel tinted by windowHelpSetBackColor: the 『』 labels' and values' grey 0.8): the plane's colour and
 //    alpha are its sprite's drawn ones (parts: col), the text Arial (textBox) in the Help's own text's place, width and
-//    alignment (the name centred, labels left, values right). A CTextElm's colour multiplies black glyphs: the name's
-//    red (setColor(1, 0, 0, 1)) draws black, as textBox draws it.
+//    alignment (the name centred, labels left, values right), wrapped in its width. A tinted text draws in its colour
+//    (the NPC name's setColor(1, 0, 0, 1): red in the live engine); the default white draws black.
 //  - the buttons' back plane (the BackPlane "CPlayerListMenuの背景", from the room's conditions down: white) and the
 //    buttons (TextSwitch, 288 x 24 at x 24: the generic renderer's CSS plate and black caption, api.syncWindow).
 //  - the nation flag (CNationFlag "Duel国旗", a CTask child, not a control) and any other picture under the card: the
@@ -196,41 +217,102 @@ const THIN = {
 const rgba = ([r, g, b, a]) => `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${+(+a).toFixed(3)})`;
 // a plane's drawn colour: its sprite's col (its colour x its parents', alpha included); without parts, the back
 // colour showInfo / onInit set (grey 0.8 for the player's title and comment, the NPC's record; white otherwise) at
-// the plane's 0.7 x the Help's 0.9 (ponytail: a live capture to confirm)
+// the plane control's alpha (live, the player's card: its planes often come without parts)
 export const planeColor = (p, name = '') => {
   const s = p?.parts?.sprites?.find(q => q.shown) || p?.parts?.sprites?.[0];
   if (s?.col) return rgba(s.col);
   const g = /称号|コメント|勝率/.test(name) && !/^CPlayerListMenuの(『勝率|勝率)/.test(name) || /CNpcList.*勝率/.test(name) ? 0.8 : 1;
-  return rgba([g, g, g, 0.63]);
+  // the plane's own drawn alpha (its alpha times its parents': 0.63 / 0.81 / 0.9 live, the sprite's col alpha when
+  // parts come); 0.63 when the snapshot has none
+  return rgba([g, g, g, p?.alpha ?? 0.63]);
 };
 // what the card draws, from the snapshot (also its redraw key)
 export function cardArt(win) {
   const cs = win.controls, under = id => cs.filter(c => c.parent === id);
   const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin' && top(c));
+  // the nation flag (an extra, at (8, 8) over the name's plane: src/Lobby/yo2PlayerListMenu.cpp, flag_->pos_ = {8, 8, 10})
+  // is the engine's picture: the plane under it stays the engine's too (passthrough, `engine`), or the DOM plane would
+  // veil the flag
+  const flag = (win.extras || []).some(e => e.cls === 'CNationFlag');
   const helps = cs.filter(c => c.cls === 'CWindowTaskHelp' && top(c) && c.shown).map(hp => {
     const plane = under(hp.id).find(c => c.cls === 'CWindowTaskBackPlane'), t = under(hp.id).find(c => c.cls === 'CWindowTaskText');
-    const w = hp.w || plane?.w || 0, h = hp.h || plane?.h || 16;
-    return { x: hp.x, y: hp.y, w, h, back: plane && !plane.shown ? null : planeColor(plane, hp.name),
+    const w = hp.w || plane?.w || 0, h = hp.h || plane?.h || 16, engine = flag && hp.x <= 8 && hp.y <= 8 && hp.x + w >= 30 && hp.y + h >= 22;
+    return { x: hp.x, y: hp.y, w, h, engine: engine ? plane?.id ?? null : null, back: engine || (plane && !plane.shown) ? null : planeColor(plane, hp.name),
       text: t?.shown ? shownLines(t) : '', tx: t?.x || 0, ty: t?.y || 0, tw: t?.w > 0 && t.w <= 1024 ? t.w : w,
       align: t?.align ?? 0, px: t?.fontSize || 16, gap: t?.lineGap || 0, color: t?.color, alpha: t?.alpha ?? 1 };
   });
   const planes = cs.filter(c => c.cls === 'CWindowTaskBackPlane' && top(c) && c.shown && c.w > 0 && c.h > 0)
     .map(p => ({ x: p.x, y: p.y, w: p.w, h: p.h, back: planeColor(p) }));
-  return { frame: frame?.shown ? { x: frame.x, y: frame.y, w: frame.w, h: frame.h, style: frame.style, alpha: frame.alpha } : null, planes, helps };
+  // the frame's own pieces (window_base_01_c0<style>: corners, stretched edges), where the engine draws them
+  const pieces = (frame?.parts?.sprites || []).filter(q => q.shown && q.tex)
+    .map(q => ({ tex: q.tex, src: q.src, x: (q.wx ?? q.x) - win.x, y: (q.wy ?? q.y) - win.y, w: q.src[2] * (q.sx ?? 1), h: q.src[3] * (q.sy ?? 1), col: q.col || q.rgba, a: q.a ?? 1 }));
+  return { frame: frame?.shown ? { x: frame.x, y: frame.y, w: frame.w, h: frame.h, style: frame.style, alpha: frame.alpha, pieces } : null, planes, helps };
 }
+// the engine's own line breaks: a line breaks before the character that would pass the width, by the game's glyph
+// cells (ui.js measure: the same table spacing() uses); null while the glyph table isn't loaded (the browser wraps)
+export function engineWrap(text, w, measure = ui.measure) {
+  try {
+    return text.split('\n').map(line => {
+      const out = [];
+      let cur = '', cw = 0;
+      for (const ch of line) {
+        const a = measure(ch);
+        if (cur && cw + a > w) { out.push(cur); cur = ''; cw = 0; }
+        cur += ch; cw += a;
+      }
+      out.push(cur);
+      return out.join('\n');
+    }).join('\n');
+  } catch { return null; }
+}
+// a frame atlas's texels (window_base_01_c0N, from the art folder ui.js was given, as screens/trade.js reads them);
+// null until loaded (then onReady once): the hand-sampled THIN borders stand in
+const sheets = new Map();
+function frameSheet(tex, onReady) {
+  const name = tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
+  let s = sheets.get(name);
+  if (!s && typeof Image !== 'undefined') {
+    s = { ready: false, wait: new Set() };
+    sheets.set(name, s);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const c = new OffscreenCanvas(img.width, img.height).getContext('2d', { willReadFrequently: true });
+      c.drawImage(img, 0, 0);
+      Object.assign(s, { ready: true, w: img.width, h: img.height, px: c.getImageData(0, 0, img.width, img.height).data });
+      const w = [...s.wait];
+      s.wait.clear();
+      w.forEach(f => f());
+    };
+    img.src = ui.SHEET.window.url.replace(/[^/]*$/, '') + name;
+  }
+  if (s && !s.ready) s.wait.add(onReady);
+  return s?.ready ? s : null;
+}
+// THIN's [top, left, right, bottom] as CSS's border-color order (top right bottom left)
+const trbl = ([t, l, r, b]) => `${t} ${r} ${b} ${l}`;
 function card(win, root, st) {
-  kept.set(win.id, new Set((win.extras || []).map(e => e.id)));
   const art = cardArt(win), key = JSON.stringify(art);
+  kept.set(win.id, new Set([...(win.extras || []).map(e => e.id), ...art.helps.map(h => h.engine).filter(Boolean)]));
   if (st.key !== key) {
     st.key = key;
     st.art ||= root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-card' }));
     st.art.replaceChildren();
-    const f = art.frame;
-    if (f) {
+    const f = art.frame, sheet = f?.pieces.length && frameSheet(f.pieces[0].tex, st.redraw ||= () => { st.key = null; card(st.win, root, st); });
+    if (sheet) {
+      // each piece from its texels (screens/trade.js pieceCss: a stretched edge a gradient of hard stops, a corner an
+      // SVG of its texel runs): the engine's own frame, sharp at any DPR
+      for (const q of f.pieces) {
+        const { bg, clip } = pieceCss(sheet, q.src, q.col || [1, 1, 1, 1]), d = document.createElement('div');
+        Object.assign(d.style, { position: 'absolute', left: q.x + 'px', top: q.y + 'px', width: q.w + 'px', height: q.h + 'px', background: bg, clipPath: clip || '' });
+        if (q.a !== 1) d.style.opacity = q.a;
+        st.art.append(d);
+      }
+    } else if (f) {
       const [out, mid, body] = THIN[f.style] || THIN[3], d = document.createElement('div'), i = document.createElement('i');
       d.className = 'lb-thin';
-      Object.assign(d.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px', opacity: f.alpha ?? 1, borderColor: out.join(' ') });
-      i.style.borderColor = mid.join(' ');
+      Object.assign(d.style, { left: f.x + 'px', top: f.y + 'px', width: f.w + 'px', height: f.h + 'px', opacity: f.alpha ?? 1, borderColor: trbl(out) });
+      i.style.borderColor = trbl(mid);
       i.style.setProperty('--body', body);
       d.append(i);
       st.art.append(d);
@@ -244,7 +326,10 @@ function card(win, root, st) {
     }
     for (const t of art.helps) {
       if (!t.text) continue;
-      const d = textBox(st.art, t.text, { x: t.x + t.tx, y: t.y + t.ty, w: t.tw, align: t.align, px: t.px, gap: t.gap, color: t.color });
+      // a tinted text draws in its colour (live: the NPC name's setColor(1, 0, 0) is red), the default white draws black;
+      // a Help's text wraps in its width at any character, as the engine breaks it (live: "Yugi Mu" / "to")
+      const tint = t.color && t.color.slice(0, 3).some(v => v < 1), lines = engineWrap(t.text, t.tw);
+      const d = textBox(st.art, lines ?? t.text, { x: t.x + t.tx, y: t.y + t.ty, w: t.tw, align: t.align, px: t.px, gap: t.gap, color: t.color, white: !!tint, wrap: lines == null });
       if (t.alpha < 1) d.style.opacity = t.alpha;
     }
   }
@@ -291,5 +376,5 @@ export default {
     st.api = api;
     DRAW[win.cls](win, root, st);
   },
-  unmount(root, st) { kept.delete(st?.id); root.replaceChildren(); },
+  unmount(root, st) { kept.delete(st?.id); bars.delete(st); root.replaceChildren(); },
 };

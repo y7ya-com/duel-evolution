@@ -4,7 +4,7 @@
 // piece in CSS / SVG where the snapshot puts it); the sizes below are the art's (shop_win_01_c01 512 x 512, shop_money_01_c01 256 x 128,
 // shop_win_01_c00 512 x 256), clipped to the 1024 x 768 screen.
 export default h => {
-  const { u8, u32, i32, f32, ptr, vec, wstr, locked } = h;
+  const { u8, u32, i32, f32, ptr, vec, wstr, locked, cls, children, spr, label, swf } = h;
   const SCENE_SHOP = 0x0e;
   // CSceneMng::s_instance (yo2SceneManager.h:77): sceneId_ +0x7c. The shop's tasks outlive it under the pack scenes
   // pushed over it (0x19 / 0x17 / 0x18): gate on the id, not on the tasks
@@ -13,7 +13,7 @@ export default h => {
   // shown: in the shop, and no lock bit on the task or above (the shop hides with lockFlags |= 2, §0.2); a CEasyTask
   // isn't a CElement, so the base reader's disp_ (+0xc4) is some other field of it
   // alpha 1: a CEasyTask has no CElement colour (read.js's alpha() reads garbage there: the root came out opacity 0)
-  const gate = (t, r) => ({ ...r, alpha: 1, shown: inShop() && !locked(t) });
+  const gate = (t, r) => ({ ...r, alpha: 1, shown: inShop() && !locked(t), parts: own(t) });
   // the item windows: frame (280, 84) 512 x 512, title band (280, 3), prev arrow at x 264, MP plate (795, 390) to the edge
   const ITEMS = { x: 264, y: 0, w: 760, h: 600 };
   // CShopCardWindow: page 0x258 of the cards vector 0x248 (ShopItem 0x14), 10 a page; the card art is drawn each frame
@@ -28,9 +28,40 @@ export default h => {
   // 256 x 64 shape): g_app (0x012711ac, read.js APP) +0x148 is its CMyMouseEx (yo2MouseTask.h: YaneMouseEx x_ +0x1c,
   // y_ +0x20, lDown_ +0x15, this frame's left button)
   const mouse = () => { const a = u32(0x012711ac); return a ? [i32(a + 0x164), i32(a + 0x168), u8(a + 0x15d)] : null; };
-  // CShopConfirmWindow's cart lines, all of them (the window shows ten): lineTexts_ 0x160 is a ShopLineVec
-  // (yo2ShopVec.h: v_ at +4, a vector<wstring> (vc6: first +4, last +8; wstring 0x10 bytes) or null when never filled)
-  const lines = t => { const v = u32(t + 0x164); return v ? vec(v, 0x10).map(wstr) : []; };
+  // CShopConfirmWindow's cart lines, all of them (the window shows ten): lineTexts_ 0x160 is the vector<wstring>
+  // itself (vc6: first +4, last +8; wstring 0x10 bytes; scanned live: "Pack 4@>320/x1@>360/200MP" at first), empty
+  // (first 0) when never filled
+  const lines = t => vec(t + 0x160, 0x10).map(wstr);
+  // a swf button: the movie (CSwfEngine) at its place, its button (Offset > CSwfButton2) where the movie puts it
+  // (shop_button_01: 1 px lower than the movie, at 795, 541 for the Exit button at 795, 540)
+  const button = k => {
+    const f = swf(k), off = children(k).find(o => cls(o) === 'CElement'), b = off && children(off).find(o => cls(o) === 'CSwfButton2');
+    return b ? { ...f, wx: f32(b + 0xc8), wy: f32(b + 0xcc) } : f;
+  };
+  // the base element's CTaskPtr: +0x78 (task_ +0x7c; +0x70 is the parent's); the price plate's at +0x80 (its +0x78
+  // holds the item window's base: scanned live)
+  const baseOf = t => ptr(t + (cls(t) === 'CShopPricePlate' ? 0x80 : 0x78));
+  // a task's parts: not its CTask children (a CEasyTask's are its sub-tasks: the category window's mileage plate) but
+  // its base element's (CEasyTask m_pBaseElm, a CTaskPtr at +0x78 under the scene's +0x70: the live tree,
+  // CShopScene::m_pBaseElm > the window's base > its sprites, swfs, controls), 4 deep. Left out: controls (listed with
+  // their own parts) and a sub-task's base (the mileage plate's, the price plates': that task's parts)
+  const own = t => {
+    const out = { sprites: [], labels: [], swfs: [] }, b = baseOf(t);
+    if (!b) return out;
+    const subs = new Set(children(t).filter(k => /^CShop/.test(cls(k))).map(baseOf).filter(Boolean));
+    const walk = (e, d) => {
+      for (const k of children(e)) {
+        const n = cls(k);
+        if (subs.has(k) || n.startsWith('CWindowTask')) continue;
+        if (n === 'CSpriteElm') out.sprites.push(spr(k));
+        else if (n === 'CTextElm') out.labels.push(label(k));
+        else if (n === 'CSwfEngine') { out.swfs.push(button(k)); continue; }   // its insides are the movie's
+        if (d < 4) walk(k, d + 1);
+      }
+    };
+    walk(b, 0);
+    return out;
+  };
   return {
     tasks: {
       // frame (280, 84), intro (270, 70), MP plate (795, 390), leave button (795, 540): decomp 0xae61c0. chosen 0x130

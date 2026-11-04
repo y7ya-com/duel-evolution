@@ -32,12 +32,12 @@ assert.equal(T.mouse, null);   // no g_app yet
 const app = alloc(0x200);
 w32(0x012711ac, app); dv.setInt32(app + 0x164, 800, true); dv.setInt32(app + 0x168, 500, true); w8(app + 0x15d, 1);
 assert.deepEqual(read(dv).tasks.find(t => t.cls === 'CShopCardWindow').mouse, [800, 500, 1]);
-// the confirm window: three cart lines (vector<wstring> behind lineTexts_ +0x160's v_ at +4), a text control of its own
+// the confirm window: three cart lines (lineTexts_ +0x160, a vector<wstring>), a text control of its own
 const cw = alloc(0x180);
 w32(cw, vt('CShopConfirmWindow')); w32(cw + 0x70, vt('CShopConfirmWindow', 0x70));
 const strs = ['Card A@>320/x1@>360/300MP', 'Card B@>320/x2@>360/600MP', 'Pack@>320/x1@>360/500MP'];
-const vecObj = alloc(16), elems = alloc(16 * strs.length);
-w32(cw + 0x164, vecObj); w32(vecObj + 4, elems); w32(vecObj + 8, elems + 16 * strs.length);
+const elems = alloc(16 * strs.length);
+w32(cw + 0x164, elems); w32(cw + 0x168, elems + 16 * strs.length);   // lineTexts_ +0x160: the vector itself
 strs.forEach((s, i) => {
   const buf = alloc(2 * s.length);
   for (let k = 0; k < s.length; k++) dv.setUint16(buf + 2 * k, s.charCodeAt(k), true);
@@ -48,11 +48,32 @@ w32(tx, vt('CWindowTaskText')); w8(tx + 0xc4, 1); w32(tx + 0x344, cw + 0x70);
 w32(ctl, sw); const ctls = alloc(8); w32(ctls, sw); w32(ctls + 4, tx); w32(fac + 4, ctls); w32(fac + 8, ctls + 8);
 const C = read(dv).tasks.find(t => t.cls === 'CShopConfirmWindow');
 assert.deepEqual(C.lines, strs);
-w32(cw + 0x164, 0);   // never filled: no vector yet
+w32(cw + 0x164, 0); w32(cw + 0x168, 0);   // never filled: an empty vector
 assert.deepEqual(read(dv).tasks.find(t => t.cls === 'CShopConfirmWindow').lines, []);
 dv.setInt32(mng + 0x7c, 0x19, true);   // the pack check scene pushed over the shop: its tasks live on, hidden
 T = read(dv).tasks.find(t => t.cls === 'CShopCardWindow');
 assert.equal(T.shown, false);
 dv.setInt32(mng + 0x7c, 0x0e, true); w32(win + 0x20, 2);   // back in the shop, the window hidden (lockFlags |= 2)
 assert.equal(read(dv).tasks.find(t => t.cls === 'CShopCardWindow').shown, false);
+// parts: the base element's (CTaskPtr +0x78, task_ +0x7c), not the task's children; a control under it is left out (its
+// parts come with it), a sub-task's base too (the mileage plate under the category window)
+const list = (...items) => {   // a vc6 list of CTask children: {alloc, head}; head a sentinel, nodes {next, prev, value}
+  const head = alloc(12), nodes = items.map(() => alloc(12));
+  [head, ...nodes].forEach((n, i, all) => { w32(n, all[(i + 1) % all.length]); w32(n + 4, all[(i + all.length - 1) % all.length]); });
+  nodes.forEach((n, i) => w32(n + 8, items[i]));
+  const l = alloc(12); w32(l + 4, head); return l;
+};
+const el = (cls, kids = []) => { const e = alloc(0x420); w32(e, vt(cls)); const l = list(...kids); w32(e + 0x0c + 4, u32(l + 4)); w8(e + 0xc4, 1); return e; };
+const u32 = a => dv.getUint32(a, true);
+const panelSpr = el('CSpriteElm'), plateSpr = el('CSpriteElm'), ctlInBase = el('CWindowTaskShadowText'), sub = el('CElement', [plateSpr]);
+const base = el('CElement', [panelSpr, ctlInBase, sub]);
+const cat = alloc(0x140), mp = alloc(0xb0);
+w32(cat, vt('CShopCategoryWindow')); w32(cat + 0x70, vt('CShopCategoryWindow', 0x70)); w32(cat + 0x7c, base);
+w32(mp, vt('CShopMileagePlate')); w32(mp + 0x7c, sub);
+{ const l = list(mp); w32(cat + 0x0c + 4, u32(l + 4)); }
+const ct = alloc(0x3d0);
+w32(ct, vt('CWindowTaskText')); w8(ct + 0xc4, 1); w32(ct + 0x344, cat + 0x70);
+const ctls2 = alloc(12); w32(ctls2, sw); w32(ctls2 + 4, tx); w32(ctls2 + 8, ct); w32(fac + 4, ctls2); w32(fac + 8, ctls2 + 12);
+const CAT = read(dv).tasks.find(t => t.cls === 'CShopCategoryWindow');
+assert.deepEqual(CAT.parts.sprites.map(s => s.id), [panelSpr]);
 console.log('read/shop_test: ok');
