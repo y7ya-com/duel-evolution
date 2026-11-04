@@ -8,6 +8,8 @@ import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
 import { CLIENT_CSS } from './styles';
+import { SKIN_CSS } from './skin';
+import { MenuBar } from './menu';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderSocialFeature, renderTradeWindow } from './extra/social';
@@ -72,9 +74,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let queueSimilarLevel: boolean | null = null;
   const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + SKIN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
+  const menuBar = new MenuBar(host, controller.loadArchiveImage?.bind(controller));
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
@@ -386,6 +389,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Choose your Starter Deck'), el('p', '', 'Choose one free structure deck for this character.'));
     for (const d of state.starter?.decks ?? []) panel.append(button(`${d.name}${d.mainCount !== undefined ? ` · ${d.mainCount} cards` : ''}`, () => { if (confirmAction(`Claim ${d.name} as your starter deck? This choice is permanent.`)) send({ type: 'claimStarter', id: d.id }); }, !!state.busy, true));
     stage.append(panel);
+  }
+  /** The menu bar's Duel and Move keys: the lobby's duel rooms group, or its area list. */
+  function openLobbyGroup(key: string): void {
+    const node = Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key === key); if (!node) return;
+    if (node.tagName === 'DETAILS') { (node as HTMLDetailsElement).open = true; node.querySelector('summary')?.focus({ preventScroll: true }); } else node.focus({ preventScroll: true });
+    node.scrollIntoView?.({ block: 'nearest' });
   }
   function confirmAction(message: string): boolean { return typeof window.confirm === 'function' ? window.confirm(message) : false; }
   function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection', index: number | null = null): void { local.inspected = card; local.inspectedFrom = from; local.inspectedIndex = index; requestRender(); }
@@ -801,7 +810,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (data.issues.length) details.append(el('ul', '', ...data.issues.slice(0, 16).map(issue => el('li', '', issue))));
       details.append(button(data.loading ? 'Loading Game Data…' : 'Retry loading game data', () => send({ type: 'reloadData' }), data.loading || !!state.busy)); panel.append(details);
     }
-    for (const [key, name] of [['sound', 'Sound effects'], ['music', 'Music']] as const) {
+    for (const [key, name] of [['sound', 'Sound effects'], ['music', 'Background audio']] as const) {
       const input = el('input'); input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.05'; input.value = String(state.settings[key]); input.setAttribute('aria-label', name);
       input.onchange = () => send({ type: 'settings', settings: { [key]: Number(input.value) } }); panel.append(labelled(`${name} · ${Math.round(state.settings[key] * 100)}%`, input));
     }
@@ -841,7 +850,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const selection = focusKey && editable ? { start: editable.selectionStart, end: editable.selectionEnd, value: editable.value, password: editable.type === 'password' } : null;
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
-      status.setAttribute('role', 'status'); header.append(status);
+      status.setAttribute('role', 'status');
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene;
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
@@ -854,12 +863,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
-      nav.replaceChildren();
+      const menuItems: HTMLButtonElement[] = [];
       const scenes: [Scene, string][] = state.player ? [['lobby', 'Lobby'], ['deck', 'Edit Deck'], ['shop', 'Shop'], ['social', 'Friends & Mail'], ['settings', 'Options']] : [['title', 'Title'], ['characters', 'Characters'], ['settings', 'Options']];
       if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
       if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
-      for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); nav.append(b); }
-      if (state.connection === 'online') nav.append(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
+      for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); menuItems.push(b); }
+      if (state.connection === 'online') menuItems.push(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
+      menuBar.render(nav, { items: menuItems, status, ...(state.scene === 'lobby' && state.lobby ? { world: { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } } : {}) });
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
         if (!control.dataset.key && !secretField(control)) control.dataset.key = `focus:${tag}:${i}:${control.getAttribute('aria-label') ?? control.textContent?.slice(0, 80) ?? ''}`;
@@ -893,10 +903,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   host.onkeydown = e => {
     if (e.key !== 'Escape') return;
     if (browserDisplay.state.active) return;
+    if (menuBar.escape()) { e.preventDefault(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (local.target !== null) { local.target = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

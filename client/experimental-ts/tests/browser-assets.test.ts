@@ -25,7 +25,10 @@ async function until(browser:Browser,condition:string,timeout=60000) {
 }
 async function click(browser:Browser,text:string) {
   const selector = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
-  await until(browser,selector);
+  // Main Menu entries (Lobby, Disconnect...) are reached through the menu bar's Menu key, as a player would.
+  const entry = `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled))`;
+  await until(browser,`${selector}||${entry}`);
+  if (!await evaluate(browser,`Boolean(${selector})`)) { await evaluate(browser,`document.querySelector('[data-key="main-menu"]').click()`); await until(browser,selector); }
   const point = await evaluate(browser,`(async()=>{let b=${selector};b.scrollIntoView({block:'center',behavior:'instant'});await new Promise(requestAnimationFrame);b=${selector};if(!b)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===b||b.contains(hit))?{x,y}:null})()`);
   if (!point) throw new Error(`Asset browser button is obstructed: ${text}`);
   const down = browser.send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});

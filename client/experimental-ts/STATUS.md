@@ -2,6 +2,17 @@
 
 The requested completion condition is **not achieved**. The independent TypeScript client is implemented and playable for the exercised paths, but full parity with the current client plus improvements is not established. The original one-hour work window paused at 2026-11-04 08:13:48 UTC. The user resumed work and explicitly removed the time limit. The checkpoint results below are historical; resumed integration is in progress.
 
+## Window skin and menu bar — 2026-11-04
+
+Out-of-duel screens now use the original window language (src/ui/skin.ts over styles.ts, CSS with colours sampled from
+data/common/window/* as in the htmlui replica): cyan bevel windows with the blue title bar, yellow Main Menu keys,
+cream plate keys in the player menu and character list, yellow dialog boxes, the grey duel-style profile window, the
+gold-rimmed place plate, outlined avatar names and the chat window's bar and translucent log. The page header and
+bottom navigation are replaced by the original menu bar (src/ui/menu.ts: Menu, Duel and Move keys drawn from
+menuicon_02_c01 when assets are configured, and the message strip); the former navigation entries live in the Main
+Menu window it opens. Still different from the replica: title art (not in merge.dat), chat channel tabs (a select),
+the deck editor and shop layouts, and the in-duel windows.
+
 ## Walkthrough with original art — 2026-11-04 (afternoon)
 
 The client was driven end to end in Chromium against the real game authority with original art read from the archive (title → character → lobby → profile → shop → deck editor → NPC dialogue → rock-paper-scissors → full NPC duel → result → lobby), and every screen was compared with captures of the original. Fixed from that:
