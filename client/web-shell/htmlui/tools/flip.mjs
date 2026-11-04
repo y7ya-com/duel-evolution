@@ -39,12 +39,13 @@ const SHOP_STEPS = [['scene', 4, 90000], ['wait', 3000],
     // the runtime's input from here on: once RC input has moved the mouse it holds it (rt/user32.cpp: "never real
     // input"), so a page click would land where walkto left the cursor
     ['rc', 'click 712 226'], ['task', 'CShopCategoryWindow', 20000], ['wait', 4000]];
-// Booster Packs; a switch takes a click only once the mouse has been over it (move, then click): pack 4's price tag
+// Booster Packs; a switch takes a click only once the mouse has been over it for a frame or two (move, wait 3 s: at
+// ~1 fps on a loaded machine 1 s missed it, then click): pack 4's price tag
 // into the cart (200MP), Confirm: the confirm window
-const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 1000], ['rc', 'click 530 395'], ['task', 'CShopPackWindow', 20000],
+const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 3000], ['rc', 'click 530 395'], ['task', 'CShopPackWindow', 20000],
     ['wait', 2500]];
-const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 800], ['rc', 'click 630 300'], ['wait', 1500],
-    ['rc', 'move 900 504'], ['wait', 800], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
+const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 3000], ['rc', 'click 630 300'], ['wait', 1500],
+    ['rc', 'move 900 504'], ['wait', 3000], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
 export const ROUTES = {
   // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
   signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
@@ -54,6 +55,198 @@ export const ROUTES = {
   // the starter-deck picker (starter.js; shipped pages only, --ship): a character that never claimed one, into My Room
   starter: { player: 'Starter Tester', deck: 0, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 20000]], flip: [] },
   myroom: { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 15000]], flip: [] },
+  // htmlui-tradelobby: the lobby group (screens/lobby.js) and the trade group (screens/trade.js) in the game. TL_ROOM:
+  // My Room; TL_LOBBY: then Beginner's Lobby A (the red door held, Lobby, the popup's OK), as the chat route
+  ...(() => {
+    const TL_ROOM = [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7],
+      ['scene', 10, 90000], ['wait', 6000]];
+    // DOOR(points, entry): My Room's door held with the right button until its menu (CWindowModelMove) is up, then its
+    // entry: the avatar often stands in front of a door (the hold is then the avatar's), so a few points on it in turn
+    const DOOR = (pts, [ex, ey]) => ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms)), cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      const ev = (t, x, y, button, buttons) => cv.dispatchEvent(new MouseEvent(t, { clientX: r.left + x * k, clientY: r.top + y * k, bubbles: true, button, buttons }));
+      const menu = () => yo2Html.snapshot().windows.find(w => w.cls === 'CWindowModelMove' && w.shown);
+      const pts = ${JSON.stringify(pts)};
+      for (let n = 0; n < 8 && yo2Html.snapshot().scene === 10; n++) {
+        if (!menu()) {
+          const [x, y] = pts[n % pts.length];
+          ev('mousemove', x, y, 0, 0); await sl(600); ev('mousedown', x, y, 2, 2); await sl(2500); ev('mouseup', x, y, 2, 0);
+          for (let t = 0; t < 10 && !menu(); t++) await sl(500);
+          if (!menu()) continue;
+        }
+        ev('mousemove', ${ex}, ${ey}, 0, 0); await sl(800); ev('mousedown', ${ex}, ${ey}, 0, 1); await sl(300); ev('mouseup', ${ex}, ${ey}, 0, 0);
+        for (let t = 0; t < 30 && yo2Html.snapshot().scene === 10; t++) await sl(500);
+      }
+    })()`];
+    const RED = [[855, 300], [845, 170], [880, 230], [830, 340]], BLUE = [[735, 230], [730, 120], [700, 180], [760, 300]];
+    const TL_LOBBY = [...TL_ROOM, DOOR(RED, [504, 240]), ['wait', 8000], ['click', 511, 670],
+      ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 3000]];
+    // the HTML layer (screens, readers, atlases) loads on the first class switched on: on once, then back to the engine
+    const PRE = (...cls) => [['js', `${JSON.stringify(cls)}.forEach(c => yo2Html.toggle(c, true))`], ['wait', 4000],
+      ['js', `${JSON.stringify(cls)}.forEach(c => yo2Html.toggle(c, false))`], ['wait', 2000]];
+    // PAIR: full-page captures of one window alone (isolate), the engine's then HTML's: <tag>-engine.png, <tag>-html.png
+    // (for what lies outside the window's rect: the menu bar's 1024-wide strip; hover and pressed states)
+    const PAIR = (cls, tag) => [['js', `yo2Html.isolate(${JSON.stringify(cls)})`], ['wait', 900], ['shot', tag + '-engine'],
+      ['on', cls], ['wait', 600], ['shot', tag + '-html'], ['snap', tag], ['js', `yo2Html.toggle(${JSON.stringify(cls)}, false); yo2Html.isolate(null)`], ['wait', 900]];
+    // MOVE: the page's mouse over a game point (a canvas mousemove, as invite.js's slowClick)
+    const MOVE = (x, y) => ['js', `(() => { const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      cv.dispatchEvent(new MouseEvent('mousemove', { clientX: r.left + ${x} * k, clientY: r.top + ${y} * k, bubbles: true })); })()`];
+    // SHOW_ALL: the player list's search (its magnifier), Show all (CFindMenu's last row): every avatar in the room, NPCs
+    // too. ROW(name): that row of the player list, held a few frames as a hand clicks (invite.js slowClick: the list
+    // opens a card only for a held press), scrolled into view first
+    const SHOW_ALL = [['click', 213, 620], ['window', 'CFindMenu', 20000], ['wait', 1500], ['click', 298, 732], ['wait', 4000]];
+    const ROW = name => ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms));
+      let pl, list, i = -1;
+      for (let t = 0; t < 90 && i < 0; t++, await sl(1000)) {   // the list fills from the server (a second player arriving)
+        pl = yo2Html.snapshot().windows.find(w => w.cls === 'CPlayerListDlg' && w.shown);
+        list = pl?.controls.find(c => /Listbox$/.test(c.cls) && c.shown);
+        i = (list?.items || []).findIndex(s => s.replace(/@\\d/g, '').includes(${JSON.stringify(name)}));
+      }
+      const bar = pl.controls.find(c => c.parent === list.id && /Scroll$/.test(c.cls));
+      if (i < 0) throw new Error('no row ' + ${JSON.stringify(name)} + ': ' + (list?.items || []).join(' | '));
+      const rows = list.rows || 6, top = Math.min(i, Math.max(0, list.items.length - rows));
+      if (i >= rows && bar) { window.__htmlui?.api?.setValue?.(bar.id, top); }
+      const at = i < rows ? i : i - top, cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      const p = { clientX: r.left + (pl.x + list.x + 40) * k, clientY: r.top + (pl.y + list.y + (list.h / rows) * (at + 0.5)) * k, bubbles: true, button: 0 };
+      cv.dispatchEvent(new MouseEvent('mousemove', { ...p, buttons: 0 })); await sl(300);
+      cv.dispatchEvent(new MouseEvent('mousedown', { ...p, buttons: 1 })); await sl(300);
+      cv.dispatchEvent(new MouseEvent('mouseup', { ...p, buttons: 0 }));
+      return i;
+    })()`];
+    // BTN(label): the shown button with that caption, pressed as a hand does (move, a held press, release)
+    const BTN = label => ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms));
+      let w, c;
+      for (let t = 0; t < 30 && !c; t++, await sl(1000)) for (w of yo2Html.snapshot().windows) if (w.shown && (c = w.controls.find(q => q.shown && (q.label || '').trim() === ${JSON.stringify(label)}))) break;
+      if (!c) throw new Error('no button ' + ${JSON.stringify(label)});
+      const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      const p = { clientX: r.left + ((c.wx ?? w.x + c.x) + c.w / 2) * k, clientY: r.top + ((c.wy ?? w.y + c.y) + c.h / 2) * k, bubbles: true, button: 0 };
+      cv.dispatchEvent(new MouseEvent('mousemove', { ...p, buttons: 0 })); await sl(600);
+      cv.dispatchEvent(new MouseEvent('mousedown', { ...p, buttons: 1 })); await sl(400);
+      cv.dispatchEvent(new MouseEvent('mouseup', { ...p, buttons: 0 }));
+    })()`];
+    const TRADE = ['CWindowModelTrade', 'CWindowTaskCardArea'];
+    // TPAIR(tag): the trade scene's windows (TRADE, the deck windows staying the engine's) engine-drawn, then in HTML,
+    // full page: <tag>-engine.png / <tag>-html.png, the snapshot with them on (<tag>.json)
+    const TPAIR = tag => [['js', `${JSON.stringify(TRADE)}.forEach(c => yo2Html.toggle(c, false))`], ['wait', 1500], ['shot', tag + '-engine'],
+      ['js', `${JSON.stringify(TRADE)}.forEach(c => yo2Html.toggle(c, true))`], ['wait', 5000], ['shot', tag + '-html'], ['snap', tag],
+      ['js', `${JSON.stringify(TRADE)}.forEach(c => yo2Html.toggle(c, false))`], ['wait', 1500]];
+    // DRAG(from, to): the left button held at from, moved to to in steps, released (canvas events, as a hand drags)
+    const DRAG = ([x0, y0], [x1, y1]) => ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms)), cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      const at = (x, y, b) => ({ clientX: r.left + x * k, clientY: r.top + y * k, bubbles: true, button: 0, buttons: b });
+      cv.dispatchEvent(new MouseEvent('mousemove', at(${x0}, ${y0}, 0))); await sl(800);
+      cv.dispatchEvent(new MouseEvent('mousedown', at(${x0}, ${y0}, 1))); await sl(800);
+      for (let i = 1; i <= 12; i++) { cv.dispatchEvent(new MouseEvent('mousemove', at(${x0} + (${x1} - ${x0}) * i / 12, ${y0} + (${y1} - ${y0}) * i / 12, 1))); await sl(250); }
+      await sl(800); cv.dispatchEvent(new MouseEvent('mouseup', at(${x1}, ${y1}, 0)));
+    })()`];
+    // SPAIR: PAIR with waits for a loaded machine (a few game frames a second: the hide table and the DOM need time)
+    const SPAIR = (cls, tag) => [['js', `yo2Html.isolate(${JSON.stringify(cls)})`], ['wait', 3000], ['shot', tag + '-engine'],
+      ['on', cls], ['wait', 3000], ['shot', tag + '-html'], ['snap', tag], ['js', `yo2Html.toggle(${JSON.stringify(cls)}, false); yo2Html.isolate(null)`], ['wait', 3000]];
+    // HOLD(x, y, down): the left button pressed (down) or released over a game point (canvas events)
+    const HOLD = (x, y, down) => ['js', `(() => { const cv = document.getElementById('canvas'), r = cv.getBoundingClientRect(), k = r.width / 1024;
+      cv.dispatchEvent(new MouseEvent(${down ? "'mousedown'" : "'mouseup'"}, { clientX: r.left + ${x} * k, clientY: r.top + ${y} * k, bubbles: true, button: 0, buttons: ${down ? 1 : 0} })); })()`];
+    // NOTICE: until the menu bar shows a notice icon (tools/partner.mjs --friend: the partner's friend request)
+    const NOTICE = ['js', `(async () => {
+      const sl = ms => new Promise(r => setTimeout(r, ms));
+      for (let t = 0; t < 400; t++, await sl(1000)) if (yo2Html.snapshot().windows.some(w => w.cls === 'CWindowModelMenu' && w.controls.some(c => /^CNoticeIcon/.test(c.cls) && c.shown))) return;
+      throw new Error('no notice icon');
+    })()`];
+    return {
+      'tl-explore': { player: 'Lobby Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...TL_LOBBY, ['shot', 'x-lobby'], ['snap', 'x-lobby'], ['log', 'console']], flip: [] },
+      // the menu bar (CWindowModelMenu) in the lobby (Main, Duel, Move): the strip, each icon hovered, Main pressed
+      // (its menu open: the switch's checked look), then the plain flip
+      'tl-menubar': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CWindowModelMenu'), MOVE(700, 300), ['wait', 800],
+        ...PAIR('CWindowModelMenu', 'bar'), MOVE(40, 752), ['wait', 800], ...PAIR('CWindowModelMenu', 'bar-hover-main'),
+        MOVE(120, 752), ['wait', 800], ...PAIR('CWindowModelMenu', 'bar-hover-duel'), MOVE(200, 752), ['wait', 800],
+        ...PAIR('CWindowModelMenu', 'bar-hover-move'), ['click', 40, 752], ['wait', 2000], MOVE(700, 300), ['wait', 800],
+        ...PAIR('CWindowModelMenu', 'bar-checked-main'), ['click', 40, 752], ['wait', 2000], ['log', 'console']], flip: ['CWindowModelMenu'] },
+      // the NPC card (CNpcListMenu): Yami Yugi in Clock Square (the blue door's first room, as the duelcut route): clicknpc
+      // clicks his body and his row in the list of avatars that opens (the Store lobby's NPCs wander off their map spots)
+      'tl-npc': { player: 'Lobby Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...TL_ROOM, DOOR(BLUE, [510, 214]), ['wait', 20000], ['click', 512, 671], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
+        // walked up to him first: he wanders, and behind the chat window a click on him lands on the chat
+        ['rc', 'walkto npc Yami Yugi 900'], ['wait', 20000],
+        ...PRE('CNpcListMenu', 'CWindowModelMenu'), // clicknpc, then (the game runs at a few frames a second under load: clicknpc's own row click comes too early) his
+        // row in the list of avatars at the click (CWindowModelList), a press held over it (a list opens a card only for a
+        // held press, invite.js); rc: the runtime holds the mouse from the first rc command
+        ['rc', 'clicknpc Yami Yugi'],
+        ['js', `(async () => {
+          const rc = c => { let t = ''; try { t = FS.readFile('/rcin.txt', { encoding: 'utf8' }); } catch {} FS.writeFile('/rcin.txt', t + c + '\\n'); };
+          const shown = c => yo2Html.snapshot().windows.find(w => w.cls === c && w.shown), sl = ms => new Promise(r => setTimeout(r, ms));
+          for (let k = 0; k < 4 && !shown('CNpcListMenu'); k++) {
+            let w; for (let t = 0; t < 60 && !(w = shown('CWindowModelList')) && !shown('CNpcListMenu'); t++) await sl(1000);
+            if (!w) { rc('clicknpc Yami Yugi'); continue; }
+            const l = w.controls.find(c => /Listbox$/.test(c.cls)), x = w.x + l.x + 60, y = w.y + l.y + 8;
+            rc('move ' + x + ' ' + y); await sl(4000); rc('down ' + x + ' ' + y); await sl(4000); rc('up ' + x + ' ' + y);
+            for (let t = 0; t < 30 && !shown('CNpcListMenu'); t++) await sl(1000);
+          }
+        })()`],
+        ['wait', 12000], ['shot', 'x-npc'], ['snap', 'x-npc'],
+        ['window', 'CNpcListMenu', 30000], ['wait', 1500], ['on', 'CNpcListMenu'], ['wait', 1500], ['snap', 'npc-on'],
+        ['shot', 'npc-on'], ['wait', 5000], ['shot', 'npc-on-late'], ['js', "yo2Html.toggle('CNpcListMenu', false)"], ['wait', 5000], ['shot', 'npc-off-late'],
+        ['on', 'CNpcListMenu'], ['wait', 3000],
+        ['js', "yo2Html.toggle('CNpcListMenu', false)"], ['wait', 1500], ['log', 'console']], flip: ['CNpcListMenu'] },
+      // the other player's card (CPlayerListMenu: the live one, its Duel tab): a second player (tools/partner.mjs, stack.py
+      // --player2 'Card Partner') in the same lobby; Show all, their row. Run with --server / --cookie (stack.py's)
+      'tl-card': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CPlayerListMenu', 'CWindowModelMenu'), ...SHOW_ALL, ROW('Card Partner'),
+        ['window', 'CPlayerListMenu', 30000], ['wait', 2500], ['shot', 'x-card'], ['snap', 'x-card'], ['on', 'CPlayerListMenu'], ['wait', 1500],
+        ['snap', 'card-on'], ['shot', 'x-card-on'], ['js', "yo2Html.toggle('CPlayerListMenu', false)"], ['wait', 1500], ['log', 'console']], flip: ['CPlayerListMenu'] },
+      // the card's Duel tab (screens/lobby.js duelTab, invite.js): the card in HTML, the tab pressed (a page click on the
+      // DOM button), then the game's own Send Duel Request on the reopened card, pressed; the partner says yes
+      'tl-duel': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CPlayerListMenu'), ...SHOW_ALL, ROW('Card Partner'),
+        ['window', 'CPlayerListMenu', 30000], ['wait', 2500], ['on', 'CPlayerListMenu'], ['wait', 2000], ['shot', 'duel-tab'],
+        ['js', `(() => { const b = [...document.querySelectorAll('#htmlui-host button')].find(b => /^\\s*Duel\\s*$/.test(b.textContent)); if (!b) throw new Error('no Duel tab'); b.click(); })()`],
+        ['wait', 20000], ['shot', 'duel-after'], ['snap', 'duel-after'], ['wait', 20000], ['shot', 'duel-later'], ['snap', 'duel-later'],
+        ['log', 'console']], flip: [] },
+      // Card Swap (scene 0x26: CWindowModelTrade, the two CWindowTaskCardAreas, the deck windows): the partner's card,
+      // Request Trade, the partner's Yes (tools/partner.mjs, --player2 'Trade Partner')
+      'tl-trade': { player: 'Trade Tester', steps: [...TL_LOBBY, ...PRE(...TRADE, 'CPlayerListMenu'), ...SHOW_ALL, ROW('Trade Partner'),
+        ['window', 'CPlayerListMenu', 30000], ['wait', 2500], BTN('Send Trade Request'), ['wait', 3000], ['shot', 'x-requested'],
+        ['scene', 0x26, 240000], ['wait', 15000], ['snap', 'x-trade'], ...TPAIR('trade'),
+        // a card of mine offered: a trunk row's thumbnail dragged into my area (the lower one), then Ready to Trade.
+        DRAG([776, 118], [490, 440]), ['wait', 6000], ...TPAIR('trade-offer'),
+        BTN('Ready to Trade.'), ['wait', 6000], ...TPAIR('trade-ready'), ...PAIR('CWindowTaskCardArea', 'area'), ['log', 'console']], flip: TRADE },
+      // probe: the player list's search button (the magnifier at its title's right), Show all, then A-lien's row
+      'tl-search': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...SHOW_ALL, ['shot', 'x-all'], ['snap', 'x-all'], ROW('A-lien'), ['wait', 5000],
+        ['shot', 'x-npc'], ['snap', 'x-npc'], ['log', 'console']], flip: [] },
+      // the menu bar's notice icon (an engine SWF the bar keeps drawing: passthrough): the partner's friend request
+      // (tools/partner.mjs --player2='Card Partner' --friend='Lobby Tester'), then engine / HTML pairs, three HTML shots
+      // 1 s apart (does it animate?), the icon hovered; the Main icon held down (its pressed look), released elsewhere
+      'tl-notice': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CWindowModelMenu'), NOTICE, ['wait', 4000], MOVE(700, 300), ['wait', 1500],
+        ['snap', 'notice-snap'], ...SPAIR('CWindowModelMenu', 'notice'), ['on', 'CWindowModelMenu'], ['wait', 3000], ['shot', 'anim-a'], ['wait', 1000], ['shot', 'anim-b'],
+        ['wait', 1000], ['shot', 'anim-c'], ['js', "yo2Html.toggle('CWindowModelMenu', false)"], ['wait', 1000], ['shot', 'anim-ea'], ['wait', 1000], ['shot', 'anim-eb'],
+        ['wait', 1000], ['shot', 'anim-ec'], MOVE(248, 744), ['wait', 1500], ...SPAIR('CWindowModelMenu', 'notice-hover'),
+        MOVE(40, 752), ['wait', 1500], HOLD(40, 752, true), ['wait', 1500], ...SPAIR('CWindowModelMenu', 'bar-held-main'),
+        MOVE(700, 300), ['wait', 800], HOLD(700, 300, false), ['wait', 2500], MOVE(700, 300), ['wait', 1500], ['log', 'console']], flip: ['CWindowModelMenu'] },
+      // the player list (CPlayerListDlg, screens/duelsetup.js) with the partner's row (tools/partner.mjs --player2 'Card
+      // Partner'): engine (pl-engine, the row hovered: hover-engine), in HTML (pl-html), the row clicked in the DOM (PRESS:
+      // what the press landed on) -> the card (card-from-html), closed; the search switch -> the engine's search menu over
+      // the HTML list (find-from-html); back to the engine for the flip (--pointer=213,620: the search switch hovered)
+      'ds-plist': { player: 'Lobby Tester', steps: [...TL_LOBBY, ...PRE('CPlayerListDlg', 'CPlayerListMenu', 'CFindMenu'), ...SHOW_ALL,
+        ['js', `(async () => {
+          const sl = ms => new Promise(r => setTimeout(r, ms)), pl = () => yo2Html.snapshot().windows.find(w => w.cls === 'CPlayerListDlg' && w.shown);
+          for (let t = 0; t < 90 && !(pl()?.controls.find(c => /Listbox$/.test(c.cls))?.items || []).some(s => s.includes('Card Partner')); t++) await sl(1000);
+          try {
+          const w = pl(), dv = new DataView((globalThis.HEAPU8 || Module.HEAPU8).buffer), u32 = a => dv.getUint32(a, true), f32 = a => +dv.getFloat32(a, true).toFixed(2);
+          const str = a => { const p = u32(a + 4), n = Math.min(u32(a + 8), 200); return p ? new TextDecoder().decode((globalThis.HEAPU8 || Module.HEAPU8).slice(p, p + n)) : ''; };
+          console.log('PROBE', JSON.stringify(w.extras.map(e => e.cls !== 'CDupSprite' ? e : { ...e, tex: str(e.id + 0x358), disp: (globalThis.HEAPU8 || Module.HEAPU8)[e.id + 0xc4],
+            at: [0x70, 0x74, 0xc8, 0xcc].map(o => f32(e.id + o)), tiles: (() => { const o = [], f = u32(e.id + 0x5088 + 4), l = u32(e.id + 0x5088 + 8);
+              for (let p = f; f && p < l && o.length < 40; p += 0x24) o.push([0, 4, 8, 12, 16, 20, 24, 28, 32].map(k => f32(p + k))); return o; })() })));
+          } catch (e) { console.log('PROBE failed', String(e)); }
+        })()`], ['wait', 2000], ['shot', 'pl-engine'], ['snap', 'pl'],
+        MOVE(60, 640), ['wait', 2500], ['shot', 'hover-engine'], ['snap', 'hover'], MOVE(700, 300), ['wait', 1500],
+        ['on', 'CPlayerListDlg'], ['wait', 6000], ['shot', 'pl-html'], ['snap', 'pl-on'],
+        ['js', `document.addEventListener('pointerdown', e => console.log('PRESS', e.target.tagName, e.target.className, (e.target.closest('button')?.textContent || '').slice(0, 30)), true)`],
+        ['click', 60, 640], ['window', 'CPlayerListMenu', 30000], ['wait', 2500], ['shot', 'card-from-html'], ['snap', 'card-from-html'],
+        ['click', 700, 200], ['wait', 4000], ['shot', 'card-closed'], ['snap', 'card-closed'],
+        // the search switch pressed in the DOM: the engine's CFindMenu (a child of the list) shows over the HTML list
+        // (find-from-html), then its Show all
+        ['click', 213, 620], ['window', 'CFindMenu', 20000], ['wait', 2500], ['shot', 'find-from-html'], ['snap', 'find-from-html'],
+        ['click', 298, 732], ['wait', 3000],
+        ['js', "yo2Html.toggle('CPlayerListDlg', false)"], ['wait', 2000], ['log', 'console']], flip: ['CPlayerListDlg'] },
+    };
+  })(),
   // the game cursor poses (--cursor), game px: [name, x, y, held]. Empty slots: no click lands on a character
   select: { cursor: [['button-hover', 868, 508], ['text', 690, 272], ['row-hover', 600, 344], ['button-pressed', 868, 508, true], ['click-effect', 690, 272, 'click']],
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
@@ -111,6 +304,48 @@ export const ROUTES = {
     ['shot', 'request'], ['click', 504, 404], ['wait', 15000], ['shot', 'rps'], ['leave', 250, 680, 30], ['leave', 250, 680, 30], ['wait', 3000], ['click', 512, 290], ['scene', 28, 120000],
     ['wait', 20000], ['click', 375, 620], ['wait', 3000], ['shot', 'duellog-engine'], ['on', 'CChatWindow'], ['wait', 2000],
     ['shot', 'duellog-html']], flip: [] },
+  // The duel's windows (screens/duel.js, result.js) in a local NPC duel. The NPC's request needs a server whose
+  // lobby.ts CHALLENGE_DELAY is a number (this tree's is null: PARITY_SRC=<a copy with `= 2`>, STACK_VARS=DEV:1). The way
+  // in: the red door held (a slow machine's long hold goes straight into its first room, a fast one's opens the menu:
+  // its first), the room's popup OK, Create Duel with Time Limit OFF (at 2-7 fps a turn's timer runs out), the request's
+  // Yes, Rock and First to Go in turns until the duel (28), at 2x speed. 'duel-cmd': the command list on the
+  // first hand card (run with --pointer=312,570: the list closes once the pointer leaves the card); 'duel-yesno': the
+  // deck's Surrender command, its Yes / No; 'duel-result': Yes, the two records (the left flipped, both in result.png)
+  get 'duel-in'() {
+    return { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
+      ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 8000], ['wait', 4000],
+      ['leave', 504, 214, 10], ['wait', 10000], ['click', 512, 671], ['wait', 6000], ['click', 125, 750], ['window', 'CWindowModelDuel', 60000],
+      ['wait', 1500], ['click', 624, 420], ['window', 'CWindowModelDuelWait', 60000], ['wait', 1500], ['click', 625, 316], ['wait', 1500],
+      ['click', 385, 543], ['window', 'CWindowModelDialogYesNo', 180000], ['wait', 2000], ['click', 504, 404], ['scene', 30, 180000],
+      // Rock, then First to Go, in turns while the RPS scene lasts (a draw replays the round; each click is harmless on
+      // the other screen: the opponent's hidden cards / below the two buttons); the page's own canvas events, as api.click
+      ['wait', 5000], ['js', `(async () => {
+        const c = document.getElementById('canvas'), sl = ms => new Promise(r => setTimeout(r, ms)), rps = () => yo2Html.snapshot()?.scene === 30;
+        const at = (x, y, b = 0) => { const r = c.getBoundingClientRect(); return { bubbles: true, buttons: b, clientX: r.left + x * r.width / 1024, clientY: r.top + y * r.height / 768 }; };
+        const click = async (x, y) => { c.dispatchEvent(new MouseEvent('mousemove', at(x, y))); await sl(600); c.dispatchEvent(new MouseEvent('mousedown', at(x, y, 1))); await sl(300); c.dispatchEvent(new MouseEvent('mouseup', at(x, y))); };
+        for (let i = 0; i < 30 && rps(); i++) { await click(250, 680); await sl(5000); if (rps()) { await click(512, 290); await sl(5000); } }
+      })()`], ['scene', 28, 300000], ['js', 'Module.yo2DuelSpeed = 2'],
+      // the HTML layer loads once a window it may draw shows (the flip's toggle doesn't wait for it): the chat, on then off
+      ['on', 'CChatWindow'], ['wait', 5000], ['js', "yo2Html.toggle('CChatWindow', false)"], ['wait', 25000]], flip: [] };
+  },
+  get 'duel-cmd'() {
+    const hover = (x, y) => ['js', `(() => { const c = document.getElementById('canvas'), r = c.getBoundingClientRect(); c.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.left + ${x} * r.width / 1024, clientY: r.top + ${y} * r.height / 768 })); })()`];
+    return { ...ROUTES['duel-in'], steps: [...ROUTES['duel-in'].steps, hover(312, 570), ['window', 'CUSummonDialogSp', 300000], ['wait', 3000],
+      ['snap', 'cmd'], ['shot', 'cmd']], flip: ['CUSummonDialogSp'] };
+  },
+  get 'duel-yesno'() {
+    const hover = (x, y) => ['js', `(() => { const c = document.getElementById('canvas'), r = c.getBoundingClientRect(); c.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.left + ${x} * r.width / 1024, clientY: r.top + ${y} * r.height / 768 })); })()`];
+    return { ...ROUTES['duel-in'], steps: [...ROUTES['duel-in'].steps, hover(740, 480), ['window', 'CUSummonDialogSp', 300000], ['wait', 3000],
+      ['shot', 'surrender-cmd'], ['click', 720, 430], ['window', 'CUYesNoDialog', 60000], ['wait', 3000], ['snap', 'yesno']], flip: ['CUYesNoDialog'] };
+  },
+  get 'duel-result'() {
+    // the question in place, the engine's then HTML's (full page), Yes pressed on the HTML one (pass mode: the game's click);
+    // the records the same way, then the flip
+    return { ...ROUTES['duel-in'], steps: [...ROUTES['duel-yesno'].steps, ['shot', 'yesno-engine'], ['on', 'CUYesNoDialog'], ['wait', 4000],
+      ['shot', 'yesno-html'], ['click', 428, 436], ['scene', 32, 180000], ['wait', 10000], ['snap', 'result'], ['shot', 'result-engine'],
+      ['on', 'CWindowResult'], ['wait', 4000], ['shot', 'result-html'], ['js', "yo2Html.toggle('CWindowResult', false)"], ['wait', 3000]],
+      flip: ['CWindowResult', 'CWindowResultNpc', 'CWindowResultNext'] };
+  },
   // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
   // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
   // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)
@@ -144,15 +379,20 @@ export const ROUTES = {
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000], ['click', 60, 80], ['window', 'CWindowModelFileList', 30000], ['wait', 2000]],
     flip: ['CWindowModelFileList'] },
   'shop-menu': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_STEPS, flip: ['CShopCategoryWindow', 'CShopMileagePlate'] },
-  'shop-cards': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 200'], ['wait', 1000],
+  'shop-cards': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 200'], ['wait', 3000],
     ['rc', 'click 530 200'], ['task', 'CShopCardWindow', 20000], ['wait', 2500]], flip: ['CShopCardWindow', 'CShopPricePlate'] },
-  'shop-avatar': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 490'], ['wait', 1000],
+  'shop-avatar': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS, ['rc', 'move 530 490'], ['wait', 3000],
     ['rc', 'click 530 490'], ['task', 'CShopAvatarWindow', 20000], ['wait', 2500]], flip: ['CShopAvatarWindow'] },
   'shop-packs': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_PACKS, flip: ['CShopPackWindow', 'CShopPricePlate'] },
   'shop-confirm': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: SHOP_CONFIRM, flip: ['CShopConfirmWindow'] },
+  // the shop entered, before Sadie's menu: her profile (CShopNpcProfile, up while she greets)
+  // (the HTML layer loads with the first class switched on: on once, then back to the engine for the flip)
+  'shop-npc': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_STEPS.slice(0, SHOP_STEPS.findIndex(s => s[0] === 'js')),
+    ['js', "yo2Html.toggle('CShopNpcProfile', true)"], ['wait', 4000], ['js', "yo2Html.toggle('CShopNpcProfile', false)"], ['wait', 3000]],
+    flip: ['CShopNpcProfile'] },
   // Yes: bought (the local stack's test player), the pack opens: the reveal scene (24) and its card detail
   'shop-open': { player: 'Shop Tester', query: 'RC_INPUT_FILE=/rcin.txt', steps: [...SHOP_CONFIRM, ['rc', 'move 393 562'],
-    ['wait', 800], ['rc', 'click 393 562'], ['scene', 24, 30000], ['wait', 4000]], flip: ['CCardDetailViewDlg'] },
+    ['wait', 3000], ['rc', 'click 393 562'], ['scene', 24, 30000], ['wait', 4000]], flip: ['CCardDetailViewDlg'] },
   // the lobby (Beginner's Lobby A, as the chat route), then Sadie's shop: walked to by clicks on the map
   // the in-place reconnect (client/recomp/ovr/lobbyretry.c, platform/net/net_ws.cpp): My Room, the blue door's first
   // room, Clock Square's top exit to Domino Pier, then the page closes its /net WebSocket (__ws: every /net opened
@@ -177,6 +417,47 @@ export const ROUTES = {
     ['rc', 'move 512 290'], ['wait', 600], ['rc', 'click 512 290'], ['scene', 28, 120000],
     ['wait', 15000], ['shot', 'duel'], ['cut', 5760], ['wait', 4000], ['shot', 'cut'], ['wait', 25000], ['shot', 'after'], ['wait', 30000],
     ['shot', 'late'], ['log', 'console']], flip: [] },
+  // htmlui-dialogsetup: the dialog and duel set-up windows (screens/dialog.js, duelsetup.js) reached in the game. DS_ROOM:
+  // My Room, the red door's first room (as the duel route), its popup still up
+  ...(() => {
+    const DS_ROOM = [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
+      ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 214, 10], ['wait', 10000]];
+    // My Room (DS_MYROOM), the deck editor (DS_DECK: Main Menu, Edit Deck)
+    const DS_MYROOM = [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7],
+      ['scene', 10, 90000], ['wait', 4000]];
+    const DS_DECK = [...DS_MYROOM, ['click', 43, 747], ['wait', 2500], ['click', 140, 422], ['window', 'CWindowModelKaban', 90000], ['wait', 4000]];
+    return {
+      // each: the window as the engine draws it (open-engine) and its snapshot, in HTML (open-html), a button of the HTML
+      // pressed (the page's own click on the DOM, <press>-after: the game's answer and snapshot; console.txt: PRESS),
+      // back to the engine, the window opened again and flipped (report@2x.json)
+      ...Object.fromEntries([
+        // the Duel menu (the bar's duel disk), Cancel; Create Duel (Match Mode chosen, then Cancel); Auto Duel (Cancel)
+        ['ds-menu', 'CWindowModelDuel', [[125, 750]], [['cancel', 512, 472]]],
+        ['ds-create', 'CWindowModelDuelWait', [[125, 750], [624, 420]], [['match', 624, 268], ['cancel', 635, 544]]],
+        ['ds-find', 'CWindowModelDuelFind', [[125, 750], [400, 420]], [['match', 624, 328], ['cancel', 635, 472]]],
+        // the bar's door: where to go (the ×); the player list's search icon (Show all)
+        ['ds-move', 'CWindowModelMove', [[200, 752]], [['close', 479, 560]]],
+        ['ds-findmenu', 'CFindMenu', [[213, 620]], [['showall', 358, 732]]],
+        // Duel Options (My Room's Main Menu, Duel Setting): Auto Card Placing OFF, then Cancel
+        ['ds-config', 'CWindowModelDuelConfig', [[43, 747], [140, 526]], [['chainoff', 624, 279], ['cancel', 635, 590]], DS_MYROOM],
+        // SAVE DECK, the deck "deck" picked, OK: "Do you want to overwrite the file?" (No: back to the list); Yes: saved,
+        // the OK box (OK closes it)
+        ['dlg-yesno', 'CWindowModelDialogYesNo', [[60, 80], [504, 360], [599, 500]], [['no', 596, 436]], DS_DECK, 'Deck Tester'],
+        ['dlg-ok', 'CWindowModelDialogOk', [[60, 80], [504, 360], [599, 500], [428, 436]], [['ok', 512, 422]], DS_DECK, 'Deck Tester'],
+      ].map(([n, cls, open, presses, start = [...DS_ROOM, ['click', 512, 671], ['wait', 4000]], player = 'Duel Tester']) => {
+        const opening = open.flatMap(([x, y], i) => [['click', x, y], i < open.length - 1 ? ['wait', 2500] : ['window', cls, 30000]]);
+        return [n, { player, steps: [...start, ...opening, ['wait', 2500],
+          // the first 'on' loads the screen modules (the bridge's init): give it time, then log what the DOM holds
+          ['shot', 'open-engine'], ['snap', 'open'], ['on', cls], ['wait', 8000], ['shot', 'open-html'],
+          ['js', `console.log('HTMLCHECK', JSON.stringify([...document.querySelectorAll('#htmlui-host .win')].map(w => [w.style.left, w.style.top, w.querySelectorAll('button').length])))`],
+          // what each press lands on (PRESS: the element; an HTML button, not the canvas); the game answers a few of its
+          // (slow, headless) frames later
+          ['js', `document.addEventListener('pointerdown', e => console.log('PRESS', e.target.tagName, e.target.className, (e.target.closest('button')?.textContent || '').slice(0, 20)), true)`],
+          ...presses.flatMap(([p, x, y]) => [['click', x, y], ['wait', 6000], ['shot', p + '-after'], ['snap', p + '-after']]),
+          ['log', 'console'], ['js', `yo2Html.toggle(${JSON.stringify(cls)}, false)`], ['wait', 1000], ...opening, ['wait', 2500]], flip: [cls] }];
+      })),
+    };
+  })(),
   shop: { player: 'Shop Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000]], flip: [] },

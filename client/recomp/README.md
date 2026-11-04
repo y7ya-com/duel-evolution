@@ -176,6 +176,12 @@ an "Audio" entry (`ovr/audiomenu.c`: the exe's never-shown entry 6) that opens t
 reread on each Audio click, fed to the slot API in `rt/audioslots.h` (until playback links it, `rt/audioui.c`'s weak
 stand-ins log the calls). `RC_NOAUDIOMENU=1` leaves the menu as it was.
 
+Audio packs (web): one .zip sets many slots at once, and that is all the Audio page asks of most players. Dropped
+anywhere on the game (or opened / linked from the page), `web/audiopack.js` (`Module.yo2AudioPack`) reads it: its
+`audiopack.json`, or else file and folder names (title.mp3, duel/, y_gx_04.ogg); the page shows what it plays in before
+anything changes. Its "Create audio pack" view (every slot, files per slot) is for pack authors and saves the setup as
+a pack. The format: `AUDIO_PACKS.md`. The project ships no packs and no audio. `node web/audiopack_test.mjs`.
+
 Sound effects: `ovr/sedefer.c` moves the game's load of all 41 (5.7 MB of Sound.dat, read before the first frame)
 to a later Present: on the web once `web/lazyfs.js` has them in memory (`Module.yo2Lazy.sounds()`, fetched in the
 background after the first frame), natively at the first. An effect the game plays before that is skipped.

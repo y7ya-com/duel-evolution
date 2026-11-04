@@ -2,40 +2,37 @@
 // to start with under 25 % memory free (buildslot admits the whole run at 35 %) (the shared Mac's rule). CHROME=<binary> to pick another build.
 import { spawn, execSync } from 'node:child_process';
 import { rmSync, readdirSync, readFileSync } from 'node:fs';
+import { totalmem } from 'node:os';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;
-  const mac = process.platform === 'darwin';   // Playwright's cache: ~/Library/Caches on macOS, ~/.cache on Linux
+  const mac = process.platform === 'darwin';
   const base = process.env.HOME + (mac ? '/Library/Caches/ms-playwright' : '/.cache/ms-playwright');
-  const dir = readdirSync(base).filter(d => d.startsWith('chromium-')).sort().pop();
+  const dir = readdirSync(base).filter(d => /^chromium-\d/.test(d)).sort().pop();
   return mac ? `${base}/${dir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
     : `${base}/${dir}/chrome-linux64/chrome`;
 }
 
-// The real GPU: Metal on the build Mac; on Linux, ANGLE over Vulkan (Mesa). Without it Chrome falls back to
-// SwiftShader, CPU rendering about 50x slower for the game's full-screen sprite layers. YO2_GPU_FLAGS overrides.
-const GPU_FLAGS = process.env.YO2_GPU_FLAGS ? process.env.YO2_GPU_FLAGS.split(' ')
-  : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=vulkan', '--enable-features=Vulkan'];
-// Free memory in percent: macOS memory_pressure; Linux /proc/meminfo (MemAvailable of MemTotal).
-function freeMemoryPercent() {
-  if (process.platform === 'darwin') return +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
-  try {
-    const m = readFileSync('/proc/meminfo', 'utf8'), kb = k => +(new RegExp(`^${k}:\\s+(\\d+)`, 'm').exec(m)?.[1] ?? 0);
-    return kb('MemTotal') ? Math.round(100 * kb('MemAvailable') / kb('MemTotal')) : 100;
-  } catch { return 100; }
-}
+// the GPU: Metal on macOS; on Linux the Intel GPU through Vulkan (headless Chrome otherwise falls back to SwiftShader,
+// ~50x slower: 1 vs 54 frames/s measured here, its GPU process 90-150 % CPU). YO2_GPU_FLAGS='...' overrides
+const gpuFlags = () => process.env.YO2_GPU_FLAGS != null ? process.env.YO2_GPU_FLAGS.split(/\s+/).filter(Boolean)
+  : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'];
+
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
 // args: more Chrome flags (warm.mjs: no background throttling for its second player's window); profile: the profile
 // directory (warm.mjs: on disk, not the RAM-backed /tmp)
 export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false, args = [], profile: dir } = {}) {
-  const free = freeMemoryPercent();
-  if (free < 25) throw new Error(`only ${free}% memory free`);
+  const free = process.platform === 'darwin'   // Linux: MemAvailable (page cache counts as free, as memory_pressure's)
+    ? +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100)
+    : Math.round(+/MemAvailable:\s+(\d+)/.exec(readFileSync('/proc/meminfo', 'utf8'))[1] * 1024 / totalmem() * 100);
+  const min = +(process.env.CDP_MIN_FREE || 25);   // CDP_MIN_FREE=15: a big machine where 25 % is still gigabytes
+  if (free < min) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
   const profile = dir || '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...GPU_FLAGS, ...args, 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), ...args, 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
