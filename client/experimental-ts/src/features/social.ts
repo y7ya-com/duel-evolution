@@ -25,6 +25,8 @@ export interface SocialTrade {
   ownOffer: readonly number[];
   pendingMove: { type: 'add'; passcode: number } | { type: 'remove'; index: number } | null;
   view: TradeView;
+  /** The server's explanation when it refused the exchange (sent as a system chat line). */
+  reason?: string;
 }
 export interface SocialState {
   status: string; error: string | null; drafts: Readonly<Record<string, string>>;
@@ -50,6 +52,9 @@ export class SocialController {
   private disposed = false;
   private ignorePending = new Map<number, number>();
   private decliningTrade = false;
+  /** A server trade session exists (opened, not yet exited): closing it needs USEREXIT even after it finished. */
+  private tradeSession = false;
+  private closingTimer: ReturnType<typeof setTimeout> | null = null;
   private mailSending = false;
   constructor(private readonly options: { send: (command: GameplayCommand) => void; onChange: (state: SocialState) => void }) {}
   get state(): SocialState { return this.current; }
@@ -58,10 +63,10 @@ export class SocialController {
   private send(command: GameplayCommand): void { this.options.send(command); }
   reset(): void {
     if (this.disposed) return;
-    this.ignorePending.clear(); this.decliningTrade = false; this.mailSending = false;
+    this.ignorePending.clear(); this.decliningTrade = false; this.mailSending = false; this.tradeSession = false; if (this.closingTimer) { clearTimeout(this.closingTimer); this.closingTimer = null; }
     this.current = initial(); this.options.onChange(this.current);
   }
-  dispose(): void { this.disposed = true; this.ignorePending.clear(); }
+  dispose(): void { this.disposed = true; this.ignorePending.clear(); if (this.closingTimer) { clearTimeout(this.closingTimer); this.closingTimer = null; } }
   dispatch(action: SocialAction): void {
     if (this.disposed) return;
     const before = {state:this.current,ignorePending:new Map(this.ignorePending),decliningTrade:this.decliningTrade,mailSending:this.mailSending};
@@ -117,8 +122,11 @@ export class SocialController {
         case 'confirmTrade': open(); if (!t.view.allReady) throw new Error('Both players must be ready before confirmation.'); command = tradeCommands.confirm(action.accept); break;
         case 'cancelTrade':
           if (t.phase === 'idle') return;
-          // A trade the server already ended (completed, declined, cancelled) has no session to exit: close locally.
-          if (t.phase === 'finished') { this.trade(freshTrade()); this.update({ status: 'Trade closed.', error: null }); return; }
+          // A declined invitation never opened a session: close locally. A finished trade still has its session
+          // (the original leaves the trade room with USEREXIT), so it is exited like an open one.
+          if (t.phase === 'finished' && !this.tradeSession) { this.trade(freshTrade()); this.update({ status: 'Trade closed.', error: null }); return; }
+          if (this.closingTimer) clearTimeout(this.closingTimer);
+          this.closingTimer = setTimeout(() => { this.closingTimer = null; if (!this.disposed && this.current.trade.phase === 'closing') { this.tradeSession = false; this.trade(freshTrade()); } }, 3000);
           // USEREXIT also handles a request accepted while its reply was still in flight.
           command = tradeCommands.exit();
           this.trade({ phase: 'closing' }); break;
@@ -136,6 +144,11 @@ export class SocialController {
   }
   receive(message: { id: number; data: Uint8Array }): void {
     if (this.disposed) return;
+    // server/src/game/trade.ts: a refused exchange is explained by a server line (pid 0) starting "Trade cancelled:".
+    if (message.id === 0x4402 && message.data.length > 26 && this.current.trade.phase !== 'idle') {
+      const text = String.fromCharCode(...message.data.subarray(26)).replace(/\0[\s\S]*$/, '');
+      if (/^Trade cancelled:/.test(text)) this.trade({ reason: text });
+    }
     try {
       const event = decodeGameplayMessage(message.id, message.data);
       if (!event) return;
@@ -185,7 +198,7 @@ export class SocialController {
         // The decliner has nothing left to show; the inviter sees the ended trade until it closes it.
         if (this.decliningTrade) { this.decliningTrade = false; this.trade(freshTrade()); this.update({ status: 'Trade invitation declined.' }); return; }
         if (event.code !== 0) { this.trade({ phase: 'finished' }); this.update({ status: event.code === 1 ? 'Trade invitation declined.' : `Trade reply failed (${event.code}).` }); return; }
-        this.trade({ phase: 'open' });
+        this.trade({ phase: 'open' }); this.tradeSession = true;
         this.send(tradeCommands.loadCollection()); this.send(tradeCommands.start());
       }
       return;
@@ -195,6 +208,11 @@ export class SocialController {
       this.trade({ ownOffer: move.type === 'add' ? bounded([...t.ownOffer, move.passcode], 10) : t.ownOffer.filter((_, i) => i !== move.index), pendingMove: null });
       return;
     }
+    if ((event.type === 'exit' || event.type === 'cancelled') && t.phase === 'closing') {
+      this.tradeSession = false; if (this.closingTimer) { clearTimeout(this.closingTimer); this.closingTimer = null; }
+      this.trade(freshTrade()); return;
+    }
+    if (event.type === 'exit' || event.type === 'cancelled') this.tradeSession = false;
     const view = reduceTradeView(t.view, event);
     this.trade({ view: { ...view, otherOffer: bounded(view.otherOffer, 10), trunk: bounded(view.trunk, 20000), limit: bounded(view.limit, 20000) },
       ...(event.type === 'end' || event.type === 'exit' || event.type === 'cancelled' ? { phase: event.type === 'cancelled' ? 'idle' as const : 'finished' as const, pendingMove: null } : {}) });

@@ -193,9 +193,10 @@ export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialA
       root.append(actions);
     }
     // The server explains a refused exchange in a system message (e.g. soul-bound cards); show it here.
-    if (trade.view.finished) root.append(make('p', trade.view.success ? 'Trade complete. Your collection has been updated.' : options.reason ?? 'The trade ended without an exchange.', trade.view.success ? 'de-trade-result' : 'de-note'));
+    if (trade.view.finished) root.append(make('p', trade.view.success ? 'Trade complete. Your collection has been updated.' : trade.reason ?? options.reason ?? 'The trade ended without an exchange.', trade.view.success ? 'de-trade-result' : 'de-note'));
   }
-  if (trade.phase === 'finished' || trade.phase === 'closing') root.append(button('Close', () => dispatch({ type: 'cancelTrade' })));
+  if (trade.phase === 'closing') root.append(make('p', 'Closing the trade…', 'de-note'));
+  else if (trade.phase === 'finished') root.append(button('Close', () => dispatch({ type: 'cancelTrade' })));
   else root.append(confirm('Cancel trade', 'Close this trade? Offers on both sides are abandoned.', () => dispatch({ type: 'cancelTrade' })));
   return root;
 }

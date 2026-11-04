@@ -20,6 +20,16 @@ async function invite(from:Page,to:Page,name:string) {
 }
 /** The offer buttons in the picker, with the card names they offer. */
 const trunk = (page:Page,name:string) => page.ev(`Number(/×(\\d+)/.exec([...document.querySelectorAll('.de-trade-trunk .de-trade-card')].find(c=>c.title===${JSON.stringify(name)})?.querySelector('button')?.textContent ?? '×0')?.[1] ?? 0)`) as Promise<number>;
+/** Ready (with its confirmation) until this side's offer shows it; a press can land on a window that re-rendered. */
+async function ready(page:Page) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await page.ev(`[...document.querySelectorAll('.de-trade-side h3')][0]?.textContent.includes('Ready')`)) return;
+    if (await page.ev(`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Ready')`)) await inTrade(page,`b.textContent==='Ready'`);
+    if (await page.ev(`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Confirm')`)) await inTrade(page,`b.textContent==='Confirm'`);
+    try { await until(page,`[...document.querySelectorAll('.de-trade-side h3')][0]?.textContent.includes('Ready')`,8000); return; } catch { await sleep(300); }
+  }
+  throw new Error('Ready did not take');
+}
 const offerable = (page:Page) => page.ev(`[...document.querySelectorAll('.de-trade-trunk .de-trade-card')].map(c=>({name:c.title,key:c.querySelector('button')?.getAttribute('aria-label')}))`) as Promise<{ name:string }[]>;
 
 describe.skipIf(!enabled)('card trades between two real players',() => {
@@ -57,14 +67,14 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       await inTrade(b,`b.getAttribute('aria-label')===${JSON.stringify(`Offer ${take}`)}`);
       await until(a,`[...document.querySelectorAll('.de-trade-side')][1]?.querySelector(${JSON.stringify(`.de-trade-card[title="${take}"]`)})`,30000);
       // Both ready; then A goes back to editing, which clears both confirmations.
-      for (const p of [a,b]) { await inTrade(p,`b.textContent==='Ready'`); await inTrade(p,`b.textContent==='Confirm'`); }
+      for (const p of [a,b]) await ready(p);
       for (const p of [a,b]) await until(p,`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Complete trade')`,30000);
       await inTrade(a,`b.textContent==='Back to editing'`);
       for (const p of [a,b]) await until(p,`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Ready')&&![...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Complete trade')`,30000);
       record('trade.offers',{ actions:`A offers ${give}, B offers ${take}; both ready; A returns to editing`, expected:'Both sides see current cards; offer changes invalidate confirmations', observed:`each side saw the other's card live; Back to editing cleared both Ready states` });
       // trade.commit: ready again and complete; inventories move by exactly one copy each way.
       const counts = async ():Promise<Record<string,number>> => ({ aGive:await ownedCopies(a,give), aTake:await ownedCopies(a,take), bGive:await ownedCopies(b,give), bTake:await ownedCopies(b,take) });
-      for (const p of [a,b]) { await inTrade(p,`b.textContent==='Ready'`); await inTrade(p,`b.textContent==='Confirm'`); }
+      for (const p of [a,b]) await ready(p);
       for (const p of [a,b]) await until(p,`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Complete trade')`,30000);
       for (const p of [a,b]) { await inTrade(p,`b.textContent==='Complete trade'`); await inTrade(p,`b.textContent==='Confirm'`); }
       for (const p of [a,b]) await until(p,`${tradeWindow}?.textContent.includes('Trade complete')`,60000);
@@ -83,7 +93,10 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const offerAgain = (await offerable(a))[0]!.name;
       await inTrade(a,`b.getAttribute('aria-label')===${JSON.stringify(`Offer ${offerAgain}`)}`);
       await until(b,`[...document.querySelectorAll('.de-trade-side')][1]?.querySelector('.de-trade-card')`,30000);
-      await inTrade(b,`b.textContent==='Cancel trade'`); await inTrade(b,`b.textContent==='Confirm'`);
+      // Cancel (with its confirmation) until this side is closing; a press can land on a window that re-rendered.
+      for (let attempt = 0; attempt < 3 && !(await b.ev(`!${tradeWindow}||${tradeWindow}.textContent.includes('Closing')`)); attempt++) {
+        await inTrade(b,`b.textContent==='Cancel trade'`); await inTrade(b,`b.textContent==='Confirm'`).catch(() => {}); await sleep(1000);
+      }
       for (const p of [a,b]) await until(p,`!${tradeWindow}||/ended|Close/.test(${tradeWindow}.textContent)`,30000);
       for (const p of [a,b]) if (await p.ev(`Boolean(${tradeWindow})`)) await inTrade(p,`b.textContent==='Close'`).catch(() => {});
       const afterCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
@@ -95,7 +108,7 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const bound = (await offerable(a)).find(c => !rewardA.includes(c.name) && c.name !== take)!.name, boundBefore = await trunk(a,bound);
       await inTrade(a,`b.getAttribute('aria-label')===${JSON.stringify(`Offer ${bound}`)}`);
       await until(b,`[...document.querySelectorAll('.de-trade-side')][1]?.querySelector('.de-trade-card')`,30000);
-      for (const p of [a,b]) { await inTrade(p,`b.textContent==='Ready'`); await inTrade(p,`b.textContent==='Confirm'`); }
+      for (const p of [a,b]) await ready(p);
       for (const p of [a,b]) await until(p,`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Complete trade')`,30000);
       for (const p of [a,b]) { await inTrade(p,`b.textContent==='Complete trade'`); await inTrade(p,`b.textContent==='Confirm'`); }
       await until(a,`${tradeWindow}?.textContent.includes('soul-bound')`,60000);
