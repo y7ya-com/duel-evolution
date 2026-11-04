@@ -173,7 +173,8 @@ describe("the shared lobby lists (mail, friends, black list)", () => {
     expect(a.room!.closedByServer).toBe(false);
     expect(lob.mail.length).toBeLessThanOrEqual(1000);
     expect(lob.mail.filter((m: { to: number }) => m.to === 1004).length).toBe(50);
-    expect(lob.black.length).toBeLessThanOrEqual(200);
+    const me = (Object.values(h.state().accounts) as any[]).find((x) => x.profiles?.["0"]?.name === "Alice").profiles["0"];
+    expect(me.black.length).toBeLessThanOrEqual(200);   // the Ignore List is the character's own (Lobby.hBlack)
   }, 60_000);
 });
 
@@ -224,7 +225,7 @@ describe("NPC duel results", () => {
       expect(PP.npcbinGet(prof(), 1)[1]).toBe(1);   // NPCBIN b1, losses: one against NPC 1
       g.withCtx(s, () => { df.h_autoduelstart(1, 0); expect(df.finish(sink, 0, "lp", 6)).toBe(true); });   // the player wins
       expect(prof().npc_card_due.length).toBe(1);                // a duel played to its end: the card
-      expect(prof().rec.mp).toBe(PP.ECON.START_MP + PP.ECON.NPC_LOSS + PP.ECON.NPC_WIN + PP.ECON.FIRST_WIN);   // NPC MP is paid
+      expect(prof().rec.mp).toBe(PP.ECON.START_MP + PP.ECON.NPC_WIN + PP.ECON.FIRST_WIN);   // no MP for the instant surrender
     } finally { PP.setProgression(false); }
   });
 });

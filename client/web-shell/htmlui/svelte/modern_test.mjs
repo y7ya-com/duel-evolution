@@ -497,6 +497,14 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.ok(!L.GENERIC.includes('CWindowResult'), 'its own screen');
 }
 
+// Result numbers use named engine fields, independent of extra-text draw order.
+{
+  const r = L.result({ cls: 'CWindowResultNpc', resultName: 'TestLocal', resultStats: { wins: 5, losses: 2, draws: 0 } });
+  assert.deepEqual(r.stats.map(s => s.value), ['5', '2', '0']);
+  const normal = L.result({ cls: 'CWindowResult', controls: [], resultStats: { wins: 3, losses: 0, score: 125 } });
+  assert.deepEqual(normal.stats.map(s => s.value), ['3', '0', '125']);
+}
+
 // the switch (../modern.js) on a stub page: default off ("Legacy UI" checked), ?LEGACY_UI= / ?MODERN_UI= win, remembered, killed by htmlui.json
 {
   const store = new Map();
@@ -518,7 +526,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   assert.equal(mu.set(true), true);
   assert.deepEqual(mu.hide(titleSnap, false), [11, 12], 'modern hides the title movie\'s buttons');
   assert.equal(box.checked, false, 'Legacy UI off while modern');
-  assert.deepEqual(mu.hide(titleSnap, true), [], 'not through a scene load');
+  assert.deepEqual(mu.hide(titleSnap, true), [11, 12], 'modern keeps the native title hidden through scene loads');
   assert.equal(store.get('yo2.modernUI'), '1', 'remembered');
   assert.equal(modernUi({ canvas, query: q('') }).on(), true, 'remembered across loads');
   assert.equal(modernUi({ canvas, query: q('MODERN_UI=0') }).on(), false, '?MODERN_UI=0 wins for the page');
@@ -538,7 +546,7 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   mu.set(true);
   assert.equal(seen, true, 'listeners hear the switch');
 }
-// A dock quick action (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
+// A shared menu macro (macro.js menu): the Main Menu stays out of sight (html.mu-macro) until the game says it closed,
 // however many browser frames that takes (at 120 Hz, or a slow frame, two browser frames were not enough: the menu
 // flashed at the bottom left). The game here closes it 6 frames after its button is pressed.
 {

@@ -89,17 +89,17 @@
   .panel :global(.lead) { color: var(--gold-300); }
   .body { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 0; }
   .setting { display: flex; flex-direction: column; gap: 6px; }
-  .name { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
-  .seg { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 4px; padding: 4px; border-radius: calc(var(--r-ctl) + 4px);
+  .name { font-size: 13px; font-weight: 700; letter-spacing: 0; color: var(--ink-2); }
+  .seg { display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 4px; padding: 4px; border-radius: 2px;
     background: var(--well); box-shadow: var(--well-shadow); }
-  .opt { height: 34px; padding: 0 10px; border-radius: var(--r-ctl); font-weight: 700; text-align: center; color: var(--ink-2);
+  .opt { height: 34px; padding: 0 10px; background: var(--btn); border: 1px solid #7aabc7; border-radius: var(--r-ctl); font-weight: 700; text-align: center; color: var(--ink-2);
     transition: background .14s, box-shadow .14s, color .14s; }
-  .opt:hover { color: var(--ink-strong); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
+  .opt:hover { color: var(--ink-strong); background: var(--well); box-shadow: var(--well-shadow); }
   .opt.on { color: var(--gold-ink); background: var(--gold); box-shadow: 0 0 0 1px var(--gold-edge), inset 0 1px 0 rgba(255, 255, 255, .8), 0 2px 4px rgba(120, 70, 0, .22); }
   /* a fixed box: the help of the option under the pointer changes length (one line to five), and the plate must not
      grow and shrink under the pointer with it (the owner: "lots of layout shifts"); its title line always reserved; tall
      enough for the longest (Semi Auto Cancel's, nine lines), so it never scrolls either */
-  .help { height: 200px; overflow-y: auto; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--p50); box-shadow: inset 0 0 0 1px var(--p200); }
+  .help { height: 200px; overflow-y: auto; padding: 10px 12px; border-radius: var(--r-ctl); background: var(--well); box-shadow: var(--well-shadow); }
   .help b { display: block; height: 18px; margin-bottom: 4px; font-size: 12px; line-height: 18px; color: var(--link); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .help p { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--ink); white-space: pre-wrap; }
   footer { display: flex; align-items: center; gap: 8px; padding: 14px 18px 0; }

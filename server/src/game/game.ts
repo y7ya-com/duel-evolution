@@ -10,7 +10,7 @@ import type { Npc } from "./npcs.ts";
 import type { Lobby } from "./lobby.ts";
 
 /** What the lobby needs from the PvP matches (py pvp_match.Matches); ported with the PvP module. */
-export interface PvpLike { byPid(pid: number): unknown; reserve(a: Session, b: Session): void; watchRequest(peer: string, pid: number, who?: Session | null): unknown }
+export interface PvpLike { prepareRestart?(): void; byPid(pid: number): unknown; reserve(a: Session, b: Session): void; watchRequest(peer: string, pid: number, who?: Session | null): unknown; live(): number }
 export interface NpcWatchLike { watchRequest(peer: string, pid: number): unknown; forget(peer: string): void }
 import { Clock } from "../util/clock.ts";
 import AUTO from "../data/auto_replies.json";
@@ -30,6 +30,10 @@ export class Game {
   readonly acadKinds = ACAD_KINDS_SET;
   /** py CTX.sess: the session of the message being handled. */
   ctx: Ctx = null;
+  /** /__admin/shutdown ran (a deploy): duels that lose their sockets now end with no result, not a loss. */
+  stopping = false;
+  /** Latched only by the authenticated restart endpoint, never by a client close frame. */
+  restarting = false;
   readonly NO_SESSION: typeof NO_SESSION = NO_SESSION;
   readonly clock = new Clock();
   /** py PH (persistence handlers) and the id tables PH_GAME / PH_LOBBY that route to them. */

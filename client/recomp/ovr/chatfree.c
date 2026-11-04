@@ -49,3 +49,25 @@ void f_00a75760(CPU *restrict c) {
     for (int ch = 0; ch < 6; ch++)
         WR32m(self + 0x464 + 4 * ch, 0);
 }
+
+// The original CHATNOTICE drops every line in My Room (rank12). The room is part of the same online
+// server now: let the unchanged decoder enqueue it, restoring the real rank before returning.
+void o_006bb780(CPU *restrict c);
+void f_006bb780(CPU *restrict c) {
+    uint32_t self = c->ecx;
+    uint8_t *rank = (uint8_t *)G(self + 0x9ed), saved = *rank;
+    if (saved == 12) *rank = 0;
+    o_006bb780(c);
+    *rank = saved;
+}
+
+// The native channel remains a fallback when the HTTP chat is unavailable. Remove the proximity
+// tab by its stable native index, without relabelling whispers/team as a public channel.
+void rc_social_chat_layout(CPU *c, uint32_t self) {
+    uint32_t first = RD32m(self + 0x3e4), last = RD32m(self + 0x3e8);
+    if (!first || last < first || last - first < 2 * 0x1c) return;
+    if (*(uint8_t *)G(first + 0x1c)) {
+        CPU call = *c; uint32_t args[2] = {1, 0}; call.ecx = self;
+        rc_call(&call, 0x005f4800, 2, args);   // setTabVisible(1, false)
+    }
+}

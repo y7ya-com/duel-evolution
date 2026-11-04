@@ -12,6 +12,7 @@
   import { duelMenu, nice } from './logic.js';
   import { focusSoon } from './macro.js';
   import Icon from './Icon.svelte';
+  import { openTagLobby } from '../../tag-lobby.js';
   import GamePanel from './game/GamePanel.svelte';
   import GameButton from './game/GameButton.svelte';
   let { view } = $props();
@@ -48,6 +49,9 @@
           {#if SAYS[w.kind]}<small>{SAYS[w.kind]}</small>{/if}
         </GameButton>
       {/each}
+      <GameButton class="way" onclick={() => openTagLobby()}>
+        <Icon name="people" size={22} /><b>Tag Duel</b><small>Invite a teammate and an opposing team</small>
+      </GameButton>
     </div>
     {#if d.cancel}<footer><GameButton ctl={d.cancel} {api} label={d.cancel.label} /></footer>{/if}
   </GamePanel>
@@ -60,7 +64,7 @@
   .figs div { padding: 8px 12px; border-radius: var(--r-ctl); background: var(--well); box-shadow: var(--well-shadow); }
   dt { font-size: 11px; font-weight: 700; color: var(--ink-3); }
   dd { margin: 2px 0 0; font-size: 20px; font-weight: 800; color: var(--ink-strong); }
-  .ways { margin: 12px 18px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ways { margin: 12px 18px 0; display: grid; grid-template-columns: 1fr; gap: 8px; }
   /* a way in: a large game key, its icon beside its name and what it does */
   .ways :global(.mu-btn.way) { height: auto; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px;
     align-items: center; justify-items: start; padding: 12px 14px; text-align: left; white-space: normal; }

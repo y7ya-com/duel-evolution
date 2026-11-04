@@ -27,6 +27,10 @@ interface Peer {
   sendText(s: string): void;
   sendBinary(b: Uint8Array): boolean;
   socks: Map<number, VSock>;
+  /** the client's tunnel id (/net?sid=): a dropped WebSocket's sockets wait RESUME_HOLD_MS for a resume with it */
+  sid: string | null;
+  /** the WebSocket is gone; its sockets are held for a resume (output buffered), closed when the hold ends */
+  held: ReturnType<typeof setTimeout> | null;
 }
 
 type Inbound = { m: Msg } | { kill: string } | { eof: true };
@@ -34,6 +38,10 @@ type Inbound = { m: Msg } | { kill: string } | { eof: true };
  *  its sends block for their pause: so inbound messages wait in `inq` until the connection's send queue drains. */
 interface VSock {
   id: number; conn: Conn; reader: Reader; closed: boolean; inq: Inbound[]; busy: boolean; dead: boolean;
+  /** the WebSocket it rides now (a resume moves it) */
+  peer: Peer;
+  /** tunnel resume: bytes received from the client; bytes sent, kept in `out` from byte `outBase` until acked */
+  rx: number; out: Uint8Array[]; outBase: number; outLen: number; ackT: number; ackTimer: ReturnType<typeof setTimeout> | null;
   /** the card wire's hello: waiting for the client's 0xCA02, or settled (cfg.cardWire off: settled from the start) */
   wire: "wait" | "ok";
 }
@@ -41,6 +49,10 @@ interface VSock {
 const HELLO_S = 0xca01, HELLO_C = 0xca02, WIRE_VERSION = 2, HELLO_WAIT_MS = 5000;
 
 const MAX_SOCKS_PER_PEER = 32; // py MAX_CONNS_PER_IP
+/** Tunnel resume (phase2-net's net_ws.cpp): how long a dropped WebSocket's sockets wait (the client retries for 40 s),
+ *  and how much unacked output one socket may hold (the client keeps 256 KB); past that it is closed at the resume. */
+export const RESUME_HOLD_MS = 45_000;
+const RESUME_MAX_OUT = 256 * 1024, ACK_MS = 1000;
 /** Game WebSockets one DE user may hold at once (a few tabs and a reload's overlap; each holds up to 32 sockets). */
 export const MAX_PEERS_PER_USER = 8;
 /** Messages a connection may have waiting to be served: the client waits for answers, so only a flood fills it. */
@@ -51,6 +63,8 @@ export class World implements ConnHost {
   /** py PEER_CONNS: `${peer}|${port}` -> that client's last connection on the port. */
   readonly peerConns = new Map<string, Conn>();
   private peers = new Map<string, Peer>();
+  /** sid -> the peer that owns it (live or held) */
+  private sids = new Map<string, Peer>();
   private sockOf = new Map<Conn, [Peer, VSock]>();
   services!: Services;
   /** All handlers run one at a time, like py's per-state lock but global: the game code stays synchronous. */
@@ -67,41 +81,122 @@ export class World implements ConnHost {
   beforeSend(c: Conn, msgId: number): void { this.services.beforeSend?.(c, msgId); }
 
   // ---- WebSockets
-  /** userId: the signed-in DE user the Worker bound to this WebSocket (null only on the DEV parity bridge). */
-  openPeer(id: string, userId: string | null, sendText: (s: string) => void, sendBinary: (b: Uint8Array) => boolean): void {
-    this.peers.set(id, { id, userId, sendText, sendBinary, socks: new Map() });
+  /** userId: the signed-in DE user the Worker bound to this WebSocket (null only on the DEV parity bridge). sid: the
+   *  client's tunnel id, for a resume after a drop; a resume (resume=true) only takes it over once it succeeds. */
+  openPeer(id: string, userId: string | null, sendText: (s: string) => void, sendBinary: (b: Uint8Array) => boolean,
+    sid: string | null = null, resume = false): void {
+    const p: Peer = { id, userId, sendText, sendBinary, socks: new Map(), sid, held: null };
+    this.peers.set(id, p);
+    if (sid && !resume) this.sids.set(sid, p);
   }
 
   /** Whether this user may open another WebSocket (do.ts answers 429 before accepting it). */
   canOpen(userId: string | null): boolean {
     if (userId === null) return true;
     let n = 0;
-    for (const p of this.peers.values()) if (p.userId === userId) n++;
+    for (const p of this.peers.values()) if (p.userId === userId && !p.held) n++;
     return n < MAX_PEERS_PER_USER;
   }
 
-  closePeer(id: string): void {
+  /** The WebSocket closed. With a sid (and hold), its sockets stay open toward the game for RESUME_HOLD_MS, their
+   *  output buffered, for the client's resume; else (or when the hold ends) each one closes like a TCP close. */
+  closePeer(id: string, hold = true): void {
     const p = this.peers.get(id);
-    if (!p) return;
-    this.peers.delete(id);
+    if (!p || p.held) return;
+    if (hold && p.sid && this.sids.get(p.sid) === p && p.socks.size) {
+      p.held = setTimeout(() => this.endPeer(p), RESUME_HOLD_MS);
+      this.log(`[srv] ${id}: WebSocket gone, ${p.socks.size} sockets held ${RESUME_HOLD_MS / 1000} s for a resume`);
+      return;
+    }
+    this.endPeer(p);
+  }
+  private endPeer(p: Peer): void {
+    if (p.held) clearTimeout(p.held);
+    p.held = null;
+    this.peers.delete(p.id);
+    if (p.sid && this.sids.get(p.sid) === p) this.sids.delete(p.sid);
     for (const s of p.socks.values()) this.enqueue(p, s, { eof: true }); // like a TCP close: queued messages first
+  }
+
+  /** {"type":"resume","sid","socks":[{id,rx}]} on a new WebSocket: the held (or half-open) peer with that sid, same
+   *  user, hands its sockets over. Each listed socket answers our rx and gets everything after the client's rx again;
+   *  an unlisted one, or one whose bytes are no longer kept, is closed. */
+  private resume(p: Peer, m: { sid?: unknown; socks?: unknown }): void {
+    const old = typeof m.sid === "string" ? this.sids.get(m.sid) : undefined;
+    if (!old || old === p || m.sid !== p.sid || old.userId !== p.userId) {
+      p.sendText(JSON.stringify({ type: "resume", ok: false }));
+      this.log(`[srv] ${p.id}: resume refused (${!old ? "unknown or expired sid" : "another user"})`);
+      return;
+    }
+    if (old.held) clearTimeout(old.held);
+    old.held = null;
+    this.peers.delete(old.id);
+    this.sids.set(p.sid!, p);
+    const want = new Map<number, number>();
+    for (const x of Array.isArray(m.socks) ? m.socks : []) if (Number.isInteger(x?.id) && Number.isInteger(x?.rx)) want.set(x.id, x.rx);
+    const back: { id: number; rx: number }[] = [], again: [VSock, Uint8Array][] = [];
+    for (const vs of old.socks.values()) {
+      const rx = want.get(vs.id);
+      const kept = rx === undefined ? null : this.after(vs, rx);
+      if (!kept || p.socks.has(vs.id)) { this.enqueue(old, vs, { eof: true }); continue; }
+      vs.peer = p;
+      p.socks.set(vs.id, vs);
+      back.push({ id: vs.id, rx: vs.rx });
+      again.push([vs, kept]);
+    }
+    p.sendText(JSON.stringify({ type: "resumed", socks: back }));
+    for (const [vs, b] of again) if (b.length) p.sendBinary(dataFrame(vs.id, b));
+    this.log(`[srv] ${p.id}: resumed ${old.id}: ${back.length} sockets`);
+  }
+  /** What the client hasn't got of vs's output after its rx, or null if those bytes are gone. */
+  private after(vs: VSock, rx: number): Uint8Array | null {
+    if (rx < vs.outBase || rx > vs.outBase + vs.outLen) return null;
+    this.trim(vs, rx);
+    return concat(new Uint8Array(0), vs.out.reduce((a, b) => concat(a, b), new Uint8Array(0)));
+  }
+  /** Drops vs's kept output up to byte rx (the client has it). */
+  private trim(vs: VSock, rx: number): void {
+    while (vs.out.length && vs.outBase + vs.out[0].length <= rx) { vs.outBase += vs.out[0].length; vs.outLen -= vs.out[0].length; vs.out.shift(); }
+    if (vs.out.length && rx > vs.outBase) { const k = rx - vs.outBase; vs.out[0] = vs.out[0].subarray(k); vs.outBase = rx; vs.outLen -= k; }
+  }
+  /** A socket's bytes to the client: kept for a resume, sent if its WebSocket is up (a held one only keeps them). */
+  private sendOut(vs: VSock, b: Uint8Array): boolean {
+    if (vs.peer.sid) {
+      if (vs.outLen + b.length > RESUME_MAX_OUT) { vs.outBase += vs.outLen + b.length; vs.out = []; vs.outLen = 0; }   // too far behind: not resumable
+      else { vs.out.push(b); vs.outLen += b.length; }
+    }
+    return vs.peer.held ? true : vs.peer.sendBinary(dataFrame(vs.id, b));
+  }
+  /** Our rx to the client, at most once per ACK_MS, so it can drop what we have. */
+  private ack(vs: VSock): void {
+    if (!vs.peer.sid || vs.ackTimer) return;
+    const send = () => { vs.ackTimer = null; vs.ackT = Date.now(); if (!vs.closed && !vs.peer.held) vs.peer.sendText(JSON.stringify({ type: "ack", id: vs.id, rx: vs.rx })); };
+    const wait = vs.ackT + ACK_MS - Date.now();
+    if (wait <= 0) send(); else vs.ackTimer = setTimeout(send, wait);
   }
 
   onText(peerId: string, text: string): void {
     const p = this.peers.get(peerId);
     const m = parseControl(text);
     if (!p || !m) return;
+    if (m.type === "resume") return this.resume(p, m as { sid?: unknown; socks?: unknown });
     const id = Number(m.id);
+    if (m.type === "ack") {
+      const vs = p.socks.get(id), rx = Number((m as { rx?: unknown }).rx);
+      if (vs && Number.isInteger(rx)) this.trim(vs, Math.min(rx, vs.outBase + vs.outLen));
+      return;
+    }
     if (m.type === "open") {
       const port = Number((m as { port: number }).port) - this.cfg.portOffset;
       if (!Number.isInteger(id) || !PORTS.has(port) || p.socks.size >= MAX_SOCKS_PER_PEER || p.socks.has(id)) {
         p.sendText(JSON.stringify({ type: "open", id, status: ECONNREFUSED }));
         return;
       }
-      const conn = new Conn(this, this.seqTable, port, peerId, (b) => p.sendBinary(dataFrame(id, b)), PORTS.duel, this.cfg.sendPace);
+      let vs: VSock;
+      const conn = new Conn(this, this.seqTable, port, peerId, (b) => this.sendOut(vs, b), PORTS.duel, this.cfg.sendPace);
       conn.userId = p.userId;
-      const vs: VSock = { id, conn, reader: new Reader(), closed: false, inq: [], busy: false, dead: false,
-        wire: this.cfg.cardWire ? "wait" : "ok" };
+      vs = { id, conn, reader: new Reader(), closed: false, inq: [], busy: false, dead: false,
+        wire: this.cfg.cardWire ? "wait" : "ok", peer: p, rx: 0, out: [], outBase: 0, outLen: 0, ackT: 0, ackTimer: null };
       p.socks.set(id, vs);
       this.sockOf.set(conn, [p, vs]);
       p.sendText(JSON.stringify({ type: "open", id, status: 0 }));
@@ -113,9 +208,9 @@ export class World implements ConnHost {
       // real one, so a connection continuing the client's count, GATE_SEQ, stays right); the client's messages wait
       // for its answer
       if (this.cfg.cardWire) {
-        p.sendBinary(dataFrame(id, pack(HELLO_S, new W().u16(WIRE_VERSION).u32(cardmap().wireHash).bytes(), 0)));
+        this.sendOut(vs, pack(HELLO_S, new W().u16(WIRE_VERSION).u32(cardmap().wireHash).bytes(), 0));
         setTimeout(() => {
-          if (vs.wire === "wait" && !vs.closed) this.enqueue(p, vs, { kill: "no card-wire hello (an older client build)" });
+          if (vs.wire === "wait" && !vs.closed) this.enqueue(vs.peer, vs, { kill: "no card-wire hello (an older client build)" });
         }, HELLO_WAIT_MS);
       }
       this.run(() => this.services.onConnAccepted?.(conn, old));
@@ -131,6 +226,8 @@ export class World implements ConnHost {
     if (!p || !f) return;
     const vs = p.socks.get(f[0]);
     if (!vs || vs.closed || vs.dead) return;
+    vs.rx += f[1].length;
+    this.ack(vs);
     this.parse(p, vs, f[1].slice());
   }
 
@@ -138,8 +235,9 @@ export class World implements ConnHost {
   close(c: Conn, why = "closed by server"): void {
     const pv = this.sockOf.get(c);
     if (!pv) { c.closed = true; return; }
-    const [p, vs] = pv;
-    if (!vs.closed) p.sendText(JSON.stringify({ type: "close", id: vs.id }));
+    const [, vs] = pv;
+    const p = vs.peer;
+    if (!vs.closed && !p.held) p.sendText(JSON.stringify({ type: "close", id: vs.id }));
     this.sockClosed(p, vs, why);
   }
 
@@ -229,13 +327,16 @@ export class World implements ConnHost {
   }
 
   private kill(p: Peer, vs: VSock, why: string): void {
-    if (!vs.closed) p.sendText(JSON.stringify({ type: "close", id: vs.id }));
+    p = vs.peer;
+    if (!vs.closed && !p.held) p.sendText(JSON.stringify({ type: "close", id: vs.id }));
     this.sockClosed(p, vs, why);
   }
 
   private sockClosed(p: Peer, vs: VSock, why: string): void {
     if (vs.closed) return;
     vs.closed = true;
+    if (vs.ackTimer) clearTimeout(vs.ackTimer);
+    p = vs.peer;
     p.socks.delete(vs.id);
     this.sockOf.delete(vs.conn);
     vs.conn.closed = true;

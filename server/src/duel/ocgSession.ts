@@ -185,6 +185,52 @@ export class OcgSession {
   private dc: CoreQ | null = null;
   private think: Json | null = null;
   private endReq: [number | null, unknown, number] | null = null;
+  onPublic: ((msgs: Msg[]) => void) | null = null;
+  private pub: YO2Duel | null = null;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private timerGen = 0;
+  private timerStart: number | null = null;
+  private timerLeft = 0;
+  private timerTurn: number | null = null;
+
+  private stopTimer(): void {
+    if (this.timerStart !== null) this.timerLeft = Math.max(0, this.timerLeft - (now() - this.timerStart));
+    this.timerStart = null;
+    clearTimeout(this.timer);
+    this.timerGen++;
+  }
+
+  private beginTimer(): void {
+    if (!DEFAULT_CFG.turn_limit || this.over) return;
+    const limit = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
+    if (limit <= 0) return;
+    this.stopTimer();
+    const gen = this.timerGen;
+    this.out.put([[0x6461, timeup_warning(0, Math.ceil(this.timerLeft), 0)], { fn: () => {
+      if (gen !== this.timerGen || this.over) return;
+      this.timerStart = now();
+      this.timer = setTimeout(() => {
+        this.g.duel!.duelTask(this.c, async () => {
+          await step(this.g, this.ctx(), () => {
+            if (gen !== this.timerGen || this.over) return;
+            this.stopTimer();
+            this.d!.query = null;
+            this.d!.finished = true;
+            this.out.put([[0x649b, Uint8Array.of(3, 0)]]);
+            this.end(1, "timeout", this.turn);
+            void this.dc?.end(this.id).catch(() => {});
+          });
+          await this.flushEnd();
+        });
+      }, (this.timerLeft + Number(DEFAULT_CFG.tiempo_margen || 0)) * 1000);
+    } }]);
+  }
+
+  private feedPublic(evs: Json[]): void {
+    if (!this.pub || !this.onPublic) return;
+    try { this.onPublic(this.pub.feed_many(evs).filter((m) => !isEnd(m))); }
+    catch (e) { this.log(`[ocg] vista pública: ${errStr(e)}`); this.pub = null; }
+  }
 
   /** The Duel Log (duelLog.ts) and the duel's two names; null when the names were not given (parity, tests). */
   private dlog: DuelLog | null = null;
@@ -202,7 +248,13 @@ export class OcgSession {
   /** A batch to the client: the translator's messages, then (once they are out) its Duel Log lines on the lobby
    *  connection's chat as channel DUEL_LOG_CHANNEL, which a client without ovr/duellog.c drops. */
   private feed(evs: Json[], keep: (m: Msg) => boolean = () => true): void {
+    if (DEFAULT_CFG.turn_limit) for (const e of evs) if (e.ev === "msg" && e.type === "NEW_TURN") {
+      this.stopTimer();
+      this.timerTurn = Number(e.player);
+      this.timerLeft = Number(this.timerTurn === 1 ? DEFAULT_CFG.tiempo_respuesta : DEFAULT_CFG.turn_timer);
+    }
     this.out.put(this.d!.feed_many(evs).filter(keep));
+    this.feedPublic(evs);
     const lines = this.dlog?.feed(evs) ?? [];
     if (lines.length) this.out.put([{ fn: () => sendDuelLog(this.g, (this.c.sess as Session | undefined)?.lobby, lines) }]);
   }
@@ -244,10 +296,16 @@ export class OcgSession {
     const decks = [{ main: toCodes(this.player.main), extra: toCodes(this.player.extra) },
       { main: toCodes(this.npc!.main), extra: toCodes(this.npc!.extra) }];
     const place_order = this.g.cfg.placeOrder;
-    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order }, log: (s) => this.log(s), rng: this.g.rng }));
+    const d = (this.d = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, ...(DEFAULT_CFG.turn_limit ? { turn_timer: 0 } : {}) }, log: (s) => this.log(s), rng: this.g.rng }));
     d.place_manual = !!this.placeManual;
     d.query = () => this.core().query(this.id);
     this.out.put(d.start());
+    if (this.onPublic) {
+      try {
+        this.pub = new YO2Duel(decks, { first, cardmap: cardmap(), cfg: { place_order, turn_timer: 0, public_view: true }, rng: new PyRandom() });
+        this.onPublic(this.pub.start());
+      } catch (e) { this.log(`[ocg] vista pública: ${errStr(e)}`); this.pub = null; }
+    }
     const ct = cardText();
     if (this.names && ct) this.dlog = new DuelLog(this.names, ct);
     const seed = this.g.rng.randrange(1 << 30);
@@ -274,6 +332,7 @@ export class OcgSession {
   // ---- end
   /** py _end: marks the duel over; the drain and duelfin's finish run in flushEnd (the duel task awaits them). */
   private end(winner: number | null, reason: unknown, turns = 0): void {
+    this.stopTimer();
     this.ended = true;
     this.over = true;
     this.endReq = [winner, reason, turns];
@@ -377,6 +436,7 @@ export class OcgSession {
         return () => this.core().auto(this.id);
       }
       if (d.needs_auto()) return this.cmd(d.auto_response());
+      if (last.ev === "select" && (last.player ?? 0) === 0) this.beginTimer();
       return "stop";
     }
     return "stop";
@@ -402,6 +462,7 @@ export class OcgSession {
       }
       this.out.put(back);
       if (!cmd) return null;
+      this.stopTimer();
       try { return this.cmd(cmd); } catch (e) { this.fatal(e); return null; }
     });
     if (op) await this.run(op);
@@ -411,6 +472,7 @@ export class OcgSession {
 
   /** The end is sent by duelfin (h_6350/h_6423). */
   surrender(): void {
+    this.stopTimer();
     this.over = true;
     this.ended = true;
     this.dc?.end(this.id).catch(() => { /* py: pass */ });
@@ -419,6 +481,7 @@ export class OcgSession {
   /** py _abandon_duel: over, and the duel closed in duelcore. */
   abandon(): void {
     if (this.over) return;
+    this.stopTimer();
     this.over = true;
     let dc: CoreQ;
     try { dc = this.core(); } catch (e) { this.log(`[duelo] cerrar el duelo ${this.id} en duelcore: ${errStr(e)}`); return; }
@@ -468,6 +531,8 @@ export class PvpSession {
   pub: YO2Duel | null = null;
   onPublic: ((msgs: Msg[]) => void) | null = null;
   decider: number | null = null;
+  /** When the pending decision became the decider's (Date.now()): how long a duel has waited on whom. */
+  decideT0 = 0;
   over = false;
   started = false;
   ended = false;
@@ -483,7 +548,9 @@ export class PvpSession {
     this.clk = clock ? { ...clock, tp: null, left: [clock.turn, clock.turn], rleft: [clock.resp, clock.resp], run: null, gen: 0 } : null;
   }
 
-  private log(s: string) { this.g.log(s); }
+  /** PvpMatch's per-duel trace (its last lines are kept for an ending worth diagnosing). */
+  trace: ((s: string) => void) | null = null;
+  private log(s: string) { this.trace?.(s); this.g.log(s); }
   private core(): CoreQ { return (this.dc ??= core()); }
 
   private fatal(e: unknown): void {
@@ -607,6 +674,7 @@ export class PvpSession {
           try { this.out[p].put(v.sync_stats(v.query!())); } catch (e) { this.log(`[pvp] sync_stats: ${errStr(e)}`); }
           if (v.needs_auto()) return this.cmd(p, v.auto_response());
           this.decider = p;
+          this.decideT0 = Date.now();
           if (this.clk) this.clkBegin(p);
           return;
         }
@@ -646,11 +714,19 @@ export class PvpSession {
     }
     this.out[i].put(back);
     if (cmd) {
-      if (this.decider !== i) { this.log(`[pvp] ${this.id}: respuesta de ${i} sin ser su decisión (decide ${this.decider}): ignorada`); return; }
+      if (this.decider !== i) { this.log(`[AVISO] [pvp] ${this.id}: respuesta de ${i} sin ser su decisión (decide ${this.decider}): ignorada`); return; }
       let op: Op;
       try { op = this.cmd(i, cmd); } catch (e) { this.fatal(e); return; }
       return this.runPump(op);
     }
+  }
+
+  /** Who the duel waits on, for what and since when: for the logs of a duel's end (a "frozen" duel). */
+  pending(): string {
+    const p = this.decider;
+    if (p === null) return "no one (the engine is working)";
+    const v = this.views[p];
+    return `player ${p} (${v?.waiting?.type ?? "?"}, mode ${(v?.state as { mode?: string } | null)?.mode ?? "?"}) for ${Math.round((Date.now() - this.decideT0) / 1000)} s`;
   }
 
   resend(i: number): void {

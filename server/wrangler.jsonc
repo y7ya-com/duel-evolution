@@ -13,7 +13,7 @@
     "PORT_OFFSET": "1000",
     "PUBLIC_ORIGIN": "http://localhost:8787",
     "DEPLOY_ENV": "staging", // enables the test sign-in (with TEST_SIGNIN_SECRET); never set in production
-    "NPC_AI": "py", // the py-faithful NPC brain until the NPC AI's A/B is in (then "ai", in its own deploy)
+    "NPC_AI": "ai", // board-aware NPC policy; parity explicitly opts into "py"
     "CLIENT_PREFIX": "recomp-de/" // the client build production serves (game data from recomp/)
   },
   "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
@@ -35,7 +35,7 @@
         "PORT_OFFSET": "1000",
         "PUBLIC_ORIGIN": "https://original.ygoevolution.com",
         "DEPLOY_ENV": "production",
-        "NPC_AI": "py", // the 2008-faithful NPC brain until the new NPC AI's A/B is in (src/duel/ai)
+        "NPC_AI": "ai", // board-aware timing, replay reassessment and bounded lookahead (src/duel/ai)
         "CLIENT_PREFIX": "recomp-de/", // the sign-in client build; game data from recomp/ (src/worker.ts)
         "PROGRESSION": "1" // the 2008 card progression and the MP economy (config.ts, persist.ts ECON)
       },

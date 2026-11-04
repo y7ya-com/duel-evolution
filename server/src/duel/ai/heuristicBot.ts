@@ -104,6 +104,8 @@ export class HeuristicBot {
   #chainedThisWindow = new Set<string>();
   /** ATK of the monster whose attack we just declared, consumed by the follow-up target prompt. */
   #pendingAttacker: number | null = null;
+  /** Keep the declared monster across chain/target prompts: a replay must reassess the NEW board. */
+  #declaredAttacker: CardRef | null = null;
   #rules: Record<string, CardRule>;
   #combo: ComboPlan | undefined;
   #vision: boolean;
@@ -144,6 +146,7 @@ export class HeuristicBot {
     this.#turnPlayer = Number(sel.turn_player ?? 0);
     if (turn !== this.#turn) {
       this.#turn = turn;
+      this.#declaredAttacker = null;
       if (this.#turnPlayer === this.seat) { this.#idleActions = 0; this.#activatedThisTurn.clear(); }
     }
     this.#board = (this.#vision && this.#peek ? boardFromState(this.#peek(), this.seat, true) : null) ?? boardFromView(sel, this.seat) ?? this.#board;
@@ -171,7 +174,7 @@ export class HeuristicBot {
     if (ev.kind === "selectBattleCmd") {
       if (r.action === "SELECT_BATTLE") {
         const a = ev.attackable[index];
-        if (a) this.#pendingAttacker = this.#me()?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
+        if (a) { this.#declaredAttacker = a; this.#pendingAttacker = this.#me()?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk; }
       } else if (r.action === "SELECT_CHAIN") {
         const a = ev.activatable[index];
         if (a) this.#activatedThisTurn.add(`b:${a.location}:${a.sequence}:${a.description}`);
@@ -304,7 +307,7 @@ export class HeuristicBot {
    *  sometimes replaces the heuristic's; everything else (and any search failure) is the plain heuristic. */
   decide(ev: Prompt, sel?: Json): Json | null {
     if (ev.kind === "selectIdleCmd" && this.#hasForcedComboAction(ev)) return this.respond(ev);
-    if (this.#blunder > 0 && (ev.kind === "selectIdleCmd" || ev.kind === "selectBattleCmd") && this.#rng() < this.#blunder) {
+    if (this.#blunder > 0 && ev.kind === "selectIdleCmd" && this.#rng() < this.#blunder) {
       const cands = this.#candidates(ev);
       if (cands && cands.length > 1) {
         this.#pendingAttacker = null;
@@ -375,7 +378,6 @@ export class HeuristicBot {
     const out: Candidate[] = [];
     const act = () => { this.#idleActions++; };
     const ctx = this.#ctx();
-    const combo = this.#comboState();
     // Order matters when the budget only fits a few forks: draw/removal setup, the strongest summons, then the rest.
     const activatable = ev.activatable.map((a, i) => ({ a, i, p: this.#idlePriority(a.code, ctx) }))
       .filter(({ a, p }) => p > -Infinity && !this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`))
@@ -387,15 +389,14 @@ export class HeuristicBot {
     activatable.filter((x) => x.p > 0).forEach(pushActivation);
     ev.spSummonable.map((a, i) => ({ i, s: this.#stat(a.code).atk + (this.#ruleFor(a.code)?.summonScore?.(ctx) ?? 0) }))
       .sort((a, b) => b.s - a.s).forEach(({ i }) => out.push({ resp: respIdle("SELECT_SPECIAL_SUMMON", i), commit: act }));
-    const summonable = ev.summonable.map((a, i) => ({ a, i }))
-      .filter(({ a }) => !combo || !combo.plan.pieces.includes(this.#nameOf(a.code)));
+    // Fusion materials remain usable on the field: do not give up all board presence while waiting to draw Polymerization.
+    const summonable = ev.summonable.map((a, i) => ({ a, i }));
     summonable.map(({ a, i }) => ({ i, s: this.#stat(a.code).atk + (this.#ruleFor(a.code)?.summonScore?.(ctx) ?? 0) }))
       .sort((a, b) => b.s - a.s).forEach(({ i }) => out.push({ resp: respIdle("SELECT_SUMMON", i), commit: act }));
     activatable.filter((x) => x.p === 0).forEach(pushActivation);
     ev.repositionable.forEach((_, i) => out.push({ resp: respIdle("SELECT_POS_CHANGE", i), commit: act }));
     // One set-monster line (the weakest body as a wall) and one set-backrow line.
-    const settable = ev.monsterSet.map((a, i) => ({ a, i }))
-      .filter(({ a }) => !combo || !combo.plan.pieces.includes(this.#nameOf(a.code)));
+    const settable = ev.monsterSet.map((a, i) => ({ a, i }));
     if (settable.length > 0) {
       let wi = 0;
       settable.forEach(({ a }, i) => { if (this.#stat(a.code).atk < this.#stat(settable[wi]!.a.code).atk) wi = i; });
@@ -425,7 +426,7 @@ export class HeuristicBot {
     const out: Candidate[] = [];
     ev.attackable.forEach((a, i) => {
       const atk = me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
-      out.push({ resp: respBattle("SELECT_BATTLE", i), commit: () => { this.#pendingAttacker = atk; } });
+      out.push({ resp: respBattle("SELECT_BATTLE", i), commit: () => { this.#declaredAttacker = a; this.#pendingAttacker = atk; } });
     });
     ev.activatable.forEach((a, i) => {
       const key = `b:${a.location}:${a.sequence}:${a.description}`;
@@ -463,9 +464,7 @@ export class HeuristicBot {
       case "selectPosition": return respPosition(this.#position(ev.code, ev.positions));
       case "selectPlace": return respPlaces(ev.isDisfield, this.#selectPlace(ev));
       case "selectEffectYN": return this.#effectYN(ev);
-      // A bare yes/no is usually a cost or a risk: no. Except the engine's own battle questions: 30 "the attack was
-      // repeated, keep attacking?" and 31 "attack directly?".
-      case "selectYesNo": return respYesNo(ev.description === "30" || ev.description === "31");
+      case "selectYesNo": return this.#battleYesNo(ev.description);
       case "selectOption": return respOption(0);
       case "selectCounter": return this.#selectCounter(ev);
       case "announceRace": return { type: "ANNOUNCE_RACE", races: lowestBits(ev.available, ev.count) };
@@ -552,7 +551,7 @@ export class HeuristicBot {
     }
 
     // 2. Normal/tribute summon the strongest worthwhile monster (set it if it can't hold attack).
-    const play = this.#chooseMonsterPlay(ev, oppMax, oppHasMon, ctx, combo);
+    const play = this.#chooseMonsterPlay(ev, oppMax, oppHasMon, ctx);
     if (play && this.#idleActions < MAX_IDLE_ACTIONS) { this.#idleActions++; return respIdle(play.cmd, play.index); }
 
     // 2b. Stand a face-up DEFENSE monster up into ATTACK once it can swing and hold against the board.
@@ -599,10 +598,10 @@ export class HeuristicBot {
   /** The best monster to commit this main phase, and whether to summon it or set it. Greedy "play the strongest"
    *  (a 1-ply evaluation here under-develops: it prices the card spent, not the tempo gained); card rules'
    *  summonScore still biases the pick. */
-  #chooseMonsterPlay(ev: P<"selectIdleCmd">, oppMax: number, oppHasMon: boolean, ctx: RuleCtx, combo: ComboState | null): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number } | null {
+  #chooseMonsterPlay(ev: P<"selectIdleCmd">, oppMax: number, oppHasMon: boolean, ctx: RuleCtx): { cmd: "SELECT_SUMMON" | "SELECT_MONSTER_SET"; index: number } | null {
     if (ev.summonable.length === 0) return null;
     const bonus = (code: number): number => this.#ruleFor(code)?.summonScore?.(ctx) ?? 0;
-    const summonable = combo ? ev.summonable.filter((c) => !combo.plan.pieces.includes(this.#nameOf(c.code))) : ev.summonable;
+    const summonable = ev.summonable;
     if (summonable.length === 0) return null;
     const cands = summonable.map((c) => {
       const index = ev.summonable.indexOf(c);
@@ -610,7 +609,14 @@ export class HeuristicBot {
       return { index, code: c.code, ...st, score: st.atk + bonus(c.code) };
     });
     const noTrib = cands.filter((c) => c.level <= 4).sort((a, b) => b.score - a.score);
-    const trib = cands.filter((c) => c.level >= 5).sort((a, b) => b.score - a.score);
+    const material = this.#monstersOf(this.#me()).map((m) => 1000 + Math.max(m.atk, m.def) * 0.4).sort((a, b) => a - b);
+    const trib = cands.filter((c) => {
+      if (c.level < 5) return false;
+      const required = c.level >= 7 ? 2 : 1;
+      const cost = material.slice(0, required).reduce((sum, value) => sum + value, 0);
+      const breaksWall = c.atk > oppMax && ctx.myMaxAtk <= oppMax && oppHasMon;
+      return breaksWall || 1000 + c.atk * 0.4 + bonus(c.code) > cost;
+    }).sort((a, b) => b.score - a.score);
     const bestNoTrib = noTrib[0] ?? null;
     const bestTrib = trib[0] ?? null;
 
@@ -675,7 +681,11 @@ export class HeuristicBot {
           oppMon = dropOne(oppMon, t);
           const ai = myMon.findIndex((y) => y.attackPos && y.atk === a);
           if (ai >= 0) myMon = [...myMon.slice(0, ai), ...myMon.slice(ai + 1)];
-        } else myLp -= guard - a;
+        } else {
+          myLp -= guard - a;
+          const ai = myMon.findIndex((y) => y.attackPos && y.atk === a);
+          if (ai >= 0) myMon = [...myMon.slice(0, ai), ...myMon.slice(ai + 1)];
+        }
       } else {
         if (a > guard) oppMon = dropOne(oppMon, t);
         else if (a < guard) myLp -= guard - a;
@@ -710,12 +720,25 @@ export class HeuristicBot {
       for (const t of targets) bodyBest = Math.max(bodyBest, this.#attackScore(base, atk, t));
       if (bodyBest > bestScore) { bestScore = bodyBest; bestIdx = index; bestAtk = atk; }
     }
-    if (bestIdx >= 0) { this.#pendingAttacker = bestAtk; return respBattle("SELECT_BATTLE", bestIdx); }
+    if (bestIdx >= 0) { this.#declaredAttacker = ev.attackable[bestIdx]!; this.#pendingAttacker = bestAtk; return respBattle("SELECT_BATTLE", bestIdx); }
     if (ev.canMain2) return respBattle("TO_M2");
     return respBattle("TO_EP");
   }
 
   // ---- chains / responses -----------------------------------------------------------------------------------------
+  #battleYesNo(description: string): Json {
+    if (description !== "30" && description !== "31") return respYesNo(false);
+    const card = this.#declaredAttacker;
+    const live = card ? this.#snap(card) : null;
+    if (!live || isFaceDown(live.position) || !(live.position & POS.ATTACK)) return respYesNo(false);
+    const atk = live.attack ?? this.#stat(live.code).atk;
+    const base = this.#battlePosition();
+    const targets: (EvalMon | null)[] = description === "31" || base.oppMon.length === 0 ? [null] : base.oppMon;
+    const yes = targets.some((target) => this.#attackScore(base, atk, target) > evaluate(base));
+    if (yes) this.#pendingAttacker = atk;
+    return respYesNo(yes);
+  }
+
   #chain(ev: P<"selectChain">): Json {
     if (ev.chains.length === 0) return respChain(null);
     if (ev.forced) return respChain(0);
@@ -908,6 +931,10 @@ export function chooseTargets(cards: { controller: number; location: number; val
   const n = Math.min(Math.max(min, 0), max > 0 ? max : cards.length);
   if (n === 0) return [];
   const all = cards.map((_, i) => i);
+  // Reborn can revive from EITHER graveyard: control is not removal intent in this prompt.
+  if (cards.every((c) => (c.location & LOCATION.GRAVE) !== 0)) {
+    return all.sort((a, b) => cards[b]!.value - cards[a]!.value).slice(0, n);
+  }
   const theirs = all.filter((i) => cards[i]!.controller !== seat);
   if (theirs.length > 0) {
     const picks = theirs.slice().sort((a, b) => cards[b]!.value - cards[a]!.value).slice(0, n);

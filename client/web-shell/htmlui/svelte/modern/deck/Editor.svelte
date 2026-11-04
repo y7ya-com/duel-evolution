@@ -5,12 +5,14 @@
   // is the snapshot's deck (CWindowTaskDeck grids, read/deck.js) and the trunk's counts (yo2Deck.trunk).
   import { deckCheck } from '../logic.js';
   import Icon from '../Icon.svelte';
+  import CardRarity from '../CardRarity.svelte';
   import GameButton from '../game/GameButton.svelte';
   import GamePanel from '../game/GamePanel.svelte';
   import GameTabs from '../game/GameTabs.svelte';
   import { picture, cached } from './pictures.js';
   import * as E from './engine.js';
-  import { flip } from 'svelte/animate';
+  import { untrack } from 'svelte';
+  import { reconcileOrder, insertCopy, sortOrder } from './order.js';
   import { scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { NO_FILTER, TYPES, SORTS, SECTIONS, view as poolView, copies, blocked, home, group, typeLine, isFusion, trunkCard } from './editor.js';
@@ -20,18 +22,34 @@
   // window change (its own snapshot): a tick follows the reader's version until the cards are in
   let tick = $state(0), seenV = -1;
   $effect(() => {
-    const t = setInterval(() => { const d = globalThis.yo2Deck; if (d && (d.v !== seenV || !d.cards())) { seenV = d.v; tick++; } }, 250);
+    const t = setInterval(() => { const d = globalThis.yo2Deck; if (d && (d.v !== seenV || !d.cards())) { seenV = d.v; tick++; } }, 50);
     return () => clearInterval(t);
   });
   const db = $derived((tick, globalThis.yo2Deck));
   const win = $derived(view.win);
-  const all = $derived((win, tick, db?.cards?.() || []));
+  const all = $derived((tick, db?.cards?.() || []));
   const deck = $derived(win.controls.find(c => c.cls === 'CWindowTaskDeck'));
-  const grids = $derived(deck?.grids || { main: [], side: [], extra: [] });
+  const engineGrids = $derived(deck?.grids || { main: [], side: [], extra: [] });
+  let grids = $state({ main: [], side: [], extra: [] });
+  let layoutKey = '';
+  $effect(() => {
+    const current = engineGrids, key = 'yo2.deckLayout:' + (name || 'untitled');
+    untrack(() => {
+      let previous = grids;
+      if (key !== layoutKey) {
+        layoutKey = key;
+        try { previous = JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch { previous = {}; }
+      }
+      const next = Object.fromEntries(['main', 'side', 'extra'].map(k => [k, reconcileOrder(Array.isArray(previous[k]) ? previous[k] : [], current[k] || [])]));
+      if (JSON.stringify(next) !== JSON.stringify(grids)) grids = next;
+    });
+  });
+  $effect(() => { const layout = JSON.stringify(grids); try { localStorage.setItem(layoutKey, layout); } catch {} });
+  function arrange(mode) { grids = Object.fromEntries(Object.entries(grids).map(([k, ids]) => [k, sortOrder(ids, mode, id => db.card(id))])); }
   const counts = $derived(deck?.counts || { main: 0, side: 0, extra: 0, missing: 0 });
   const check = $derived(deckCheck(counts));
   const inDeck = $derived(copies(grids));
-  const trunk = $derived((win, tick, new Map(db?.trunk || [])));
+  const trunk = $derived((tick, new Map(db?.trunk || [])));
   const left = id => trunk.get(id) || 0;
   const s = $derived((win, globalThis.yo2Html?.snapshot?.()));
   const name = $derived(E.deckName(s));
@@ -74,7 +92,8 @@
   const run = async (p, fail) => { busy++; try { const ok = await p; if (ok) dirty = true; else if (fail) say(fail, true); return ok; } finally { busy--; } };
   // why a card can't go from `from` to `to` ('pool' the trunk; '' when it can, 'same' for no move)
   function why(id, from, to) {
-    if (!to || from === to) return 'same';
+    if (!to) return 'same';
+    if (from === to) return from === 'pool' ? 'same' : '';
     if (from === 'pool') return blocked(db.card(id), to, { inDeck: inDeck.get(id) || 0, left: left(id), counts });
     if (to === 'pool') return '';
     if (from === 'extra' || to === 'extra') return 'Fusion monsters stay in the Fusion Deck';
@@ -93,8 +112,7 @@
   const swap = (id, from) => act(id, from, from === 'main' ? 'side' : 'main');
 
   // ---- drag and drop: the card itself lifts and follows the pointer, the section under it lights (red where it can't
-  // go); let go, it flies to its place in that grid while the engine moves it, or back where it came from. The grids
-  // reflow by FLIP (animate:flip), a new card scales in, a last copy out.
+  // go). Drop commits immediately; arrangement within a section stays in the player's chosen order.
   const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const ms = n => (still ? 0 : n);
   let ed = $state(null), lift = $state(null), press = null;
@@ -102,7 +120,6 @@
   const rectOf = el => { const r = el.getBoundingClientRect(), b = ed.getBoundingClientRect(), k = b.width / 1024;
     return { x: (r.left - b.left) / k, y: (r.top - b.top) / k, w: r.width / k, h: r.height / k }; };
   const zoneAt = (cx, cy) => document.elementFromPoint(cx, cy)?.closest('[data-zone]')?.dataset.zone || '';
-  const wait = n => new Promise(r => setTimeout(r, n));
   function down(e, id, from, tile = '') {
     if (e.button !== 0 || lift || (from === 'pool' && left(id) <= 0)) return;   // a used-up trunk card stays put
     press = { id, from, tile, cx: e.clientX, cy: e.clientY, el: e.currentTarget };
@@ -115,61 +132,51 @@
     if (!lift) {
       if (Math.hypot(e.clientX - press.cx, e.clientY - press.cy) < 5) return;
       const r = rectOf(press.el), [px, py] = local(press.cx, press.cy);
-      lift = { id: press.id, from: press.from, tile: press.tile, src: r, dx: px - r.x, dy: py - r.y, ...r, zone: '', no: '', state: 'drag' };
+      lift = { id: press.id, from: press.from, tile: press.tile, src: r, dx: px - r.x, dy: py - r.y, ...r, zone: '', no: '', index: -1, state: 'drag' };
     }
     const [x, y] = local(e.clientX, e.clientY), z = zoneAt(e.clientX, e.clientY);
     lift.x = x - lift.dx;
     lift.y = y - lift.dy;
+    const tile = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-index]');
+    lift.index = tile ? Number(tile.dataset.index) : (grids[z]?.length ?? -1);
     if (z !== lift.zone) { lift.zone = z; lift.no = why(lift.id, lift.from, z); }
   }
-  // the card's place in section `to` ('pool' the trunk): its tile there, else the next cell after the last tile
-  function landing(id, to) {
-    const zone = ed.querySelector(`[data-zone="${to}"]`);
-    const el = [...(zone?.querySelectorAll(`[data-card="${id}"]`) || [])].at(-1);   // a new copy lands after the others
-    if (el) return rectOf(el);
-    if (to === 'pool' || !zone) { const r = rectOf(zone || ed); return { x: r.x + r.w / 2 - TW / 2, y: r.y + r.h / 2 - TH / 2, w: TW, h: TH }; }
-    const g = rectOf(zone.querySelector('.grid')), tiles = zone.querySelectorAll('.tile');
-    if (!tiles.length) return { x: g.x + 6, y: g.y + 6, w: TW, h: TH };
-    const t = rectOf(tiles[tiles.length - 1]);
-    return t.x + 2 * t.w + 4 > g.x + g.w ? { x: g.x + 6, y: t.y + t.h + 4, w: t.w, h: t.h } : { x: t.x + t.w + 4, y: t.y, w: t.w, h: t.h };
-  }
-  async function fly(r, state = 'fly', time = 220) {
-    if (!lift) return;
-    Object.assign(lift, { state, x: r.x, y: r.y, w: r.w, h: r.h });
-    await wait(ms(time) + 20);
-  }
-  async function up() {
+  async function up(e) {
     removeEventListener('pointermove', move);
     removeEventListener('pointerup', up);
     removeEventListener('pointercancel', up);
     press = null;
     const L = lift;
     if (!L || L.state !== 'drag') return;
+    lift = null;
+    if (e?.type === 'pointercancel') return;
     const to = L.zone;
-    if (!to || to === L.from || L.no) {   // back where it came from (and why not, when it says)
+    if (!to || L.no) {
       if (L.no && L.no !== 'same') say(`${db.card(L.id)?.name}: ${L.no}`, true);
-      await fly(L.src, 'back');
-      lift = null;
       return;
     }
-    const done = act(L.id, L.from, to);
-    await fly(landing(L.id, to));
-    lift.state = 'wait';
-    const ok = await done;
-    // the engine's own result: onto the real tile (the grid may have sorted it elsewhere), or back
-    await fly(ok ? landing(L.id, to) : L.src, ok ? 'settle' : 'back', 160);
-    lift = null;
+    if (to === L.from) {
+      const from = copiesOf(to).findIndex(g => g.key === L.tile);
+      grids = { ...grids, [to]: insertCopy(grids[to], from, L.index < 0 ? grids[to].length : L.index) };
+      return;
+    }
+    const ok = await act(L.id, L.from, to);
+    if (ok && to !== 'pool') {
+      const ordered = reconcileOrder(grids[to], engineGrids[to] || []);
+      // A new copy is appended by reconciliation; put that copy at the drop position.
+      grids = { ...grids, [to]: insertCopy(ordered, ordered.lastIndexOf(L.id), L.index < 0 ? ordered.length : Math.min(L.index, ordered.length)) };
+    }
   }
-  // the deck's grids never scroll: ten tiles a row in a fixed height (Main 4 rows, Fusion and Side 2); past that the
-  // rows overlap, each showing the top of its cards (name and art), so 60 cards still fit
-  const TW = 36, TH = 53, GAP = 3, ROWS = { main: 4, extra: 2, side: 2 };
+  // Eight larger card faces per row; excess rows overlap within each section's fixed well.
+  const TW = 44, TH = 64, GAP = 2, ROOM = { main: 221, extra: 109, side: 109 };
   const step = (key, n) => {
-    const rows = Math.max(1, Math.ceil(n / 10)), room = ROWS[key] * TH + (ROWS[key] - 1) * GAP;
-    return rows <= ROWS[key] ? TH + GAP : (room - TH) / (rows - 1);
+    const rows = Math.max(1, Math.ceil(n / 8));
+    return rows === 1 ? TH + GAP : Math.min(TH + GAP, (ROOM[key] - TH) / (rows - 1));
   };
-  // a section's cards: every copy its own tile, in the order the deck holds them (owner: duplicates side by side, as
-  // the original and EDOPro); a copy's key is its card and which copy it is, so the grid's FLIP follows each one
+  // Each copy has a stable key; display order is retained independently of the engine's automatic sorting.
   const copiesOf = key => { const seen = new Map(); return (grids[key] || []).map(id => { const k = seen.get(id) || 0; seen.set(id, k + 1); return { id, key: id + '#' + k }; }); };
+
+  $effect(() => () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); clearTimeout(qt); clearTimeout(nt); });
 
   // ---- files: Save (as the deck's own name), Save As, Load, Structure Deck, Clear, Exit (the engine's side buttons)
   let saving = $state(false), asOpen = $state(false), asName = $state(''), asField = $state(null);
@@ -281,6 +288,9 @@
     </div>
     <span class="status" role="status" aria-live="polite" title={note}>{#if note}<span class:bad={noteBad}>{note}</span>{:else if busy}Working…{/if}</span>
     <nav class="acts" aria-label="Deck files">
+      <select class="mu-field deck-sort" aria-label="Sort deck once" value="manual" onchange={e => { arrange(e.currentTarget.value); e.currentTarget.value = 'manual'; }}>
+        <option value="manual">Arrange cards…</option><option value="name">Sort by name</option><option value="atk">Sort by ATK</option><option value="level">Sort by level</option>
+      </select>
       <GameButton label="Load" onclick={() => openPicker('load')} aria-expanded={picker?.kind === 'load'} title="Load a saved deck (Ctrl+O)" />
       <GameButton label="Structure Deck" onclick={() => openPicker('recipe')} aria-expanded={picker?.kind === 'recipe'} title="Start from a Structure Deck" />
       <GameButton label="Clear" onclick={() => sideBtn('ClearBtn')} title="Empty the deck" />
@@ -320,7 +330,7 @@
   <GamePanel title="Card" class="preview" role="region"><div class="body">
     {#if shown}
       <div class="big">{@render face(shown.id)}</div>
-      <h2 class="preview-name">{shown.name}</h2>
+      <h2 class="preview-name">{shown.name} <CardRarity id={shown.id} /></h2>
       <p class="kind">
         {#if group(shown) === 'monster'}<span>{attrName(shown)}</span><span class="stars" aria-label="Level {shown.level}">Level {shown.level}</span><span>{raceName(shown)}</span>{/if}
         <span>{typeLine(shown)}</span>
@@ -350,17 +360,17 @@
       <div class="sec {key}" class:over={lift && lift.zone === key && !lift.no} class:refuse={lift && lift.zone === key && lift.no && lift.no !== 'same'} data-zone={key} role="group" aria-label={title}>
         <h3><span>{title}</span><b class:bad={part && !part.ok}>{counts[key]}</b>{#if part}<small>{part.rule}</small>{/if}</h3>
         <div class="grid mu-list" class:tight={step(key, gs.length) < TH + GAP} style:grid-auto-rows="{step(key, gs.length)}px" style:--step="{step(key, gs.length)}px">
-          {#each gs as g (g.key)}
+          {#each gs as g, index (g.key)}
             {@const id = g.id}
             {@const c = db.card(id)}
-            <button type="button" class="tile" class:lifted={lift?.tile === g.key && lift.from === key} data-card={id} title={c?.name}
-              animate:flip={{ duration: ms(240), easing: cubicOut }} in:scale={{ duration: ms(200), start: 0.6, easing: cubicOut }} out:scale={{ duration: ms(160), start: 0.6 }}
+            <button type="button" class="tile" class:lifted={lift?.tile === g.key && lift.from === key} class:dropbefore={lift?.zone === key && lift.index === index && !lift.no} data-card={id} data-index={index} title={c?.name}
               onpointerdown={e => down(e, id, key, g.key)}
               onmouseenter={() => (hover = id)} onmouseleave={() => (hover = 0)} onfocus={() => (pinned = id)} onclick={() => (pinned = id)}
               ondblclick={e => (e.shiftKey ? swap(id, key) : take(id, key))}
               oncontextmenu={e => { e.preventDefault(); e.shiftKey ? swap(id, key) : take(id, key); }}
               onkeydown={e => deckKey(e, id, key)}>
               {@render face(id)}
+              <span class="card-rarity"><CardRarity {id} /></span>
             </button>
           {:else}
             <p class="none">{key === 'main' ? 'Add 40 to 60 cards from the trunk.' : key === 'extra' ? 'Fusion monsters go here.' : 'Up to 15 cards to switch in between duels.'}</p>
@@ -390,7 +400,7 @@
         {#if filtered || q}<button type="button" class="clear" onclick={reset}>Clear filters</button>{/if}
       </div>
       {#if filtersOpen}
-      <div class="mu-plate filters" id="ed-filters" role="dialog" aria-label="Filters" bind:this={filtersPanel} transition:scale={{ duration: ms(140), start: 0.96, easing: cubicOut }}
+      <div class="mu-plate filters" id="ed-filters" role="dialog" tabindex="-1" aria-label="Filters" bind:this={filtersPanel} transition:scale={{ duration: ms(140), start: 0.96, easing: cubicOut }}
         onkeydown={e => { if (e.key === 'Escape') { e.stopPropagation(); filtersOpen = false; filtersBtn?.focus(); } }}>
       <GameTabs label="Card type" tabs={TYPES.map(([key, label]) => ({ key, label }))} value={f.type} onselect={k => (f.type = k)} />
       <div class="mu-tabs attrs" role="group" aria-label="Attribute">
@@ -428,6 +438,7 @@
             oncontextmenu={e => { e.preventDefault(); put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c)); }}
             onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
+            <span class="card-rarity"><CardRarity id={c.id} /></span>
             {#if tc.owned}<span class="n" class:out={tc.out}>×{tc.n}</span>{/if}
             {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
           </button>
@@ -448,6 +459,8 @@
 </div>
 
 <style>
+  .card-rarity { position: absolute; top: 2px; left: 2px; z-index: 2; line-height: 0; pointer-events: none; }
+  .deck-sort { width: 114px; height: 28px; font-size: 11px; }
   :global(html.mu-deck-driving .win:is([data-cls=CWindowModelFileList], [data-cls=CWindowModelDialogYesNo])) { visibility: hidden !important; }
   .ed { position: absolute; width: 1024px; height: 736px; overflow: hidden; pointer-events: auto;
     background: var(--stage); }
@@ -484,9 +497,9 @@
     text-shadow: 0 2px 8px color-mix(in srgb, var(--p900) 60%, transparent); }
   /* the panels (GamePanel): their places on the stage, a body under the plaque */
   .ed :global(.mu-plate) { position: absolute; display: flex; flex-direction: column; }
-  .ed :global(.preview) { left: 8px; top: 58px; width: 205px; height: 648px; }
-  .ed :global(.deck) { left: 219px; top: 58px; width: 429px; height: 648px; }
-  .ed :global(.pool) { left: 654px; top: 58px; width: 362px; height: 648px; }
+  .ed :global(.preview) { left: 8px; top: 58px; width: 230px; height: 648px; }
+  .ed :global(.deck) { left: 244px; top: 58px; width: 414px; height: 648px; }
+  .ed :global(.pool) { left: 664px; top: 58px; width: 352px; height: 648px; }
   .body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 12px; }
     .ed :global(.pool .body) { padding: 8px 8px 0 12px; gap: 0; }
   .ed :global(.pool.over .cards) { background: color-mix(in srgb, var(--p500) 10%, transparent); }
@@ -505,8 +518,8 @@
   .sec h3 { margin: 0 0 5px; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 400; }
   .sec h3 span { font-family: var(--display); letter-spacing: .07em; text-transform: uppercase; }
   .sec h3 b, .sec h3 small { font-family: inherit; }
-  /* ten 36 x 53 tiles a row in a fixed height (step() sets the row step: overlapping rows past the room) */
-  .grid { display: grid; grid-template-columns: repeat(10, 36px); column-gap: 3px; row-gap: 0; align-content: start; flex: none; height: 231px; padding: 5px; overflow: visible; }
+  /* eight 44 x 64 tiles a row in a fixed height (step() sets the row step: overlapping rows past the room) */
+  .grid { display: grid; grid-template-columns: repeat(8, 44px); column-gap: 2px; row-gap: 0; align-content: start; flex: none; height: 231px; padding: 5px; overflow: visible; }
   .find { position: relative; }
   .search-row { display: flex; gap: 6px; }
   .search { position: relative; flex: 1; min-width: 0; }
@@ -553,11 +566,11 @@
   .sec h3 b.bad { color: var(--bad); }
   .sec h3 small { font-size: 11px; font-weight: 700; color: var(--ink-3); }
   .sec.extra .grid, .sec.side .grid { height: 119px; }
-  .tile { position: relative; width: 36px; height: 53px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: transform var(--release) var(--spring), box-shadow .14s; }
+  .tile { position: relative; width: 44px; height: 64px; touch-action: none; border-radius: 3px; overflow: hidden; background: var(--p900); cursor: grab;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 40%, transparent); transition: box-shadow .07s; }
   /* a card under the press goes in at once and springs back (theme.js --press / --release / --spring, as .mu-btn) */
   .tile:active, .card:active { transition-duration: var(--press), .14s; transform: translateY(1px) scale(.96); }
-  .tile:hover, .tile:focus-visible { transform: translateY(-2px) scale(1.06); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 6px 12px -4px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
+  .tile:hover, .tile:focus-visible { transform: translateY(0); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 6px 12px -4px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   .face { display: block; width: 100%; height: 100%; object-fit: cover; }
   .none { grid-column: 1 / -1; margin: 0; align-self: center; text-align: center; font-size: 12px; color: var(--ink-3); }
   .missing { margin: 0; font-size: 12px; font-weight: 700; color: var(--bad); }
@@ -571,19 +584,18 @@
   .foot .own { display: flex; align-items: center; gap: 4px; font-weight: 600; }
   .foot .own input { accent-color: var(--p700); margin: 0; }
   .clear { color: var(--link); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
-  .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 76px); grid-auto-rows: 110px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
-  .card { position: relative; width: 76px; height: 110px; touch-action: none; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
+  .cards { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 75px); grid-auto-rows: 109px; gap: 8px 6px; align-content: start; padding: 10px 4px 12px 1px; }
+  .card { position: relative; width: 75px; height: 109px; touch-action: none; border-radius: 5px; overflow: hidden; background: var(--p900); cursor: grab;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--ink-strong) 35%, transparent), 0 4px 8px -4px color-mix(in srgb, var(--p900) 50%, transparent); transition: transform var(--release) var(--spring), box-shadow .14s, filter .14s; }
-  .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
+  .card:hover, .card:focus-visible { transform: translateY(0); box-shadow: 0 0 0 2px var(--n0), 0 0 0 4px var(--p500), 0 10px 18px -6px color-mix(in srgb, var(--p900) 60%, transparent); z-index: 1; }
   /* not in the trunk at all ("Cards I don't have"): grey; every copy in the deck: full colour, its label says so */
   .card.notown .face { filter: grayscale(.9) brightness(.8); }
   .card.spent .face { filter: grayscale(.85) brightness(.72); }
   .card.notown, .card.spent { cursor: default; }
   .card.spent:hover { transform: none; }
-  /* drag and drop: the lifted card over everything, a little larger and tilted, its shadow deep; it flies (left / top /
-     size) to where it lands; the section under it lights blue, red where it can't go */
+  /* The dragged card follows the pointer at its original size; valid destinations are highlighted. */
   .lift { position: absolute; z-index: 20; pointer-events: none; border-radius: 5px; overflow: hidden; background: var(--p900);
-    transform: scale(1.08) rotate(-2.5deg); box-shadow: 0 0 0 2px var(--n0), 0 18px 32px -10px color-mix(in srgb, var(--p900) 85%, transparent);
+    transform: none; box-shadow: 0 0 0 2px var(--n0), 0 18px 32px -10px color-mix(in srgb, var(--p900) 85%, transparent);
     transition: transform .14s var(--ease), box-shadow .14s; }
   .lift.no { box-shadow: 0 0 0 2px var(--n0), 0 0 0 5px var(--bad), 0 18px 32px -10px color-mix(in srgb, var(--p900) 85%, transparent); }
   .lift:is(.fly, .back, .settle, .wait) { transform: none; box-shadow: 0 0 0 1px var(--n0), 0 4px 10px -4px color-mix(in srgb, var(--p900) 70%, transparent);
@@ -591,7 +603,8 @@
   .lift.settle { transition-duration: .16s; }
   .lift .face { width: 100%; height: 100%; object-fit: cover; }
   .ed.dragging, .ed.dragging * { cursor: grabbing !important; }
-  .tile.lifted { opacity: .25; transition: opacity .12s; }
+  .tile.dropbefore { box-shadow: -3px 0 0 var(--gold-400); }
+  .tile.lifted { opacity: .12; transition: opacity .12s; }
   .sec.refuse { background: color-mix(in srgb, var(--bad) 10%, transparent); box-shadow: inset 0 0 0 2px var(--bad); }
   @media (prefers-reduced-motion: reduce) { .lift, .lift:is(.fly, .back, .settle, .wait) { transition: none; } }
   /* the trunk's copies left to add: a small plate in the corner, ×N; ×0 hollow on a greyed card when every copy is in the deck */
@@ -603,4 +616,29 @@
   .lim.l2 { background: var(--warm); }
   .empty-pool { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 40px 0; color: var(--ink-2); font-weight: 700; }
   .empty-pool p { margin: 0; }
+
+  .ed { background:linear-gradient(90deg,#4daee52e 1px,transparent 1px),linear-gradient(#4daee52e 1px,transparent 1px),var(--stage); background-size:16px 16px,16px 16px,auto; }
+  .bar { margin:0; height:50px; padding-left:14px; border:1px solid #1a67b5; border-bottom:3px solid #82e6ff; clip-path:none; box-shadow:inset 0 1px #d8ffff,0 2px #07539e; }
+  .word { font:italic 800 21px Arial,sans-serif; letter-spacing:.02em; text-shadow:1px 0 #225e9a,-1px 0 #225e9a,0 2px #194f8c; }
+  .file { border-radius:2px; background:#0c559a; border:1px solid #7ccded; box-shadow:inset 0 1px 3px #09336666; font-size:13px; }
+  .check,.status .bad { border-radius:2px; }
+  .acts :global(.mu-btn) { height:30px; font-size:12px; }
+  .sec { border-radius:2px; }
+  .sec h3 { min-height:23px; margin:0 0 5px; padding:2px 6px; color:#fff; background:linear-gradient(#6acaa9,#2e9473); border:1px solid #2c846e; box-shadow:inset 0 1px #b9efd5; }
+  .sec h3 span { color:#fff; font:bold 13px Arial,sans-serif; text-transform:none; letter-spacing:0; text-shadow:0 1px #276a5b; }
+  .sec h3 b { color:#fffbb2; font-size:14px; }
+  .sec h3 small { margin-left:auto; color:#f1fff9; font-size:11px; }
+  .sec.extra h3 { background:linear-gradient(#a199e7,#6c5ab4); border-color:#665297; }
+  .sec.side h3 { background:linear-gradient(#8bb8ed,#4c84cb); border-color:#457bb9; }
+  .ed :global(.pool .mu-head) { background:linear-gradient(#ffe7b6,#f6b765 45%,#db8e30 50%,#bc7425); border-color:#bf822e; }
+  .ed :global(.deck .mu-head) { background:linear-gradient(#b5f5dc,#5ebc94 45%,#2c966e 50%,#207554); border-color:#428b6d; }
+  .ed :global(.preview .mu-head) { background:var(--band); }
+  .big { border-radius:2px; box-shadow:0 0 0 1px #467b9c,0 2px 4px #16466b55; }
+  .text { font-size:13px; line-height:1.45; background:var(--well); border:1px solid #75a9c6; }
+  .preview-name { font-size:16px; }
+  .summary,.owned,.foot { font-size:12px; }
+  .tile,.card { border-radius:2px; }
+  .veil { border-radius:3px; border:1px solid #9cecff; }
+  kbd,.badge { border-radius:2px; }
+
 </style>

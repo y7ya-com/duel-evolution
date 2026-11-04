@@ -1,6 +1,8 @@
 // The chat window (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp), owned by the DOM.
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
-// shown on the duel screen only; the server's channel-9 lines land in its list), so nothing here knows tab names.
+// shown on the duel screen only); chatTabs shows them as the owner wants (no Duel Log, 'Trade', unread counts).
+// Online only (owner): out of the online world (the title, Free Duel, the title's Deck Editor: read/chat.js online)
+// nothing of the chat is drawn, and the engine's chat is folded to its collapsed bar (fold) so its rect stays small.
 // - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
 //   log (real DOM text, selectable here) and the input's field; controls/skin.js (CSS) for the rest.
 // - Input: tabs and the taller / shorter icons are real <button>s (CSS skin, the label text) that click the
@@ -158,6 +160,51 @@ const CSS = () => `
 // An owned window's screen module (social.js's too): each control redrawn by draw(c, el, api, win) when its snapshot
 // changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
 // background(win, el), if given, draws what the window itself draws under its controls (its own picture)
+// The chat's tabs as the owner wants them (CChatWindow): the Duel Log tab left out (owner: of no use; ovr/duellog.c adds
+// it on the duel screen until the runtime drops it), the game's all-capitals names in plain case ('TRADE' -> 'Trade'),
+// and a tab whose log had lines while another was shown says how many until it is opened: 'Proximity Chat (2)'. A tab
+// grows by its new text (the game's metrics) and the tabs after it move along, 8 px over each other as the game lays
+// them (yo2WindowChat.cpp layout). Each tab's log is the reader's pair (read/chat.js), else the logs in tab order.
+const unread = new Map();   // window id -> { seen: log id -> its items, n: tab id -> lines unread }. ponytail: never
+                            // pruned (a chat window or two a scene)
+const plainCase = s => s === s.toUpperCase() && /[A-Z]{3}/.test(s) ? s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase()) : s;
+const textW = s => basic ? basic.textWidth(s) + basic.spacing(s) * ([...s].length - 1) : 7 * s.length;
+export function chatTabs(win) {
+  const byId = new Map(win.controls.map(c => [c.id, c])), logs = win.controls.filter(c => c.cls === 'CWindowTaskTextlist');
+  if (!unread.has(win.id)) unread.set(win.id, { seen: new Map(), n: new Map() });
+  const st = unread.get(win.id), out = new Map();
+  let shift = 0;
+  win.controls.filter(c => c.cls === 'CWindowTaskTab').sort((a, b) => a.x - b.x).forEach((t, i) => {
+    const pair = win.pairs?.find(p => p.tab === t.id), log = pair ? byId.get(pair.log) : logs[i];
+    if (log) {
+      const items = log.items || [], old = st.seen.get(log.id), d = old && itemsDelta(old, items);
+      st.seen.set(log.id, items);
+      st.n.set(t.id, t.active ? 0 : (st.n.get(t.id) || 0) + (d ? d[1].length : 0));
+    }
+    const name = (t.label || '').replace(/[@＠]\d/g, '').trim();
+    if (/^(duel log|proximity chat)$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
+    const n = st.n.get(t.id) || 0, label = plainCase(name) + (n ? ` (${n > 99 ? '99+' : n})` : '');
+    const grow = label === name ? 0 : Math.ceil(textW(label) - textW(name));
+    if (label !== t.label || shift || grow) out.set(t.id, { ...t, x: t.x + shift, w: t.w + grow, label });
+    if (t.shown) shift += grow;
+  });
+  return out.size ? { ...win, controls: win.controls.map(c => out.has(c.id) ? out.get(c.id) : c).filter(Boolean) } : win;
+}
+
+// The engine's chat folded to its collapsed bar (mode 2), one press per snapshot: short -> tall by △, tall -> collapsed
+// by ▽ (a chat without its tab row: short -> collapsed by ▽, its △ off). The pointer goes to the icon bar first: a press
+// where the pointer already was is ignored by the engine.
+function fold(win, api, st) {
+  if (st.folding || win.mode == null || win.mode === 2) return;
+  const icon = cls => win.controls.find(c => c.cls === cls && c.enabled !== false);
+  const c = win.mode === 0 ? icon('CWindowTaskIconHide') : icon('CWindowTaskIconExpand') || icon('CWindowTaskIconHide');
+  const bar = win.controls.find(k => k.cls === 'CWindowTaskIconbar');
+  if (!c) return;
+  st.folding = true;
+  if (bar) api.hover(bar.id);
+  setTimeout(async () => { await api.click(c.id); setTimeout(() => { st.folding = false; }, 300); }, 200);
+}
+
 export function owned(classes, draw, background) {
   const screen = {
     classes,
@@ -180,6 +227,11 @@ export function owned(classes, draw, background) {
     },
 
     update(win, prev, root, api, st) {
+      if (win.cls === 'CChatWindow') {
+        win = chatTabs(win);
+        st.vis.hidden = st.own.hidden = win.online === false;
+        if (win.online === false && win.world !== false) fold(win, api, st);   // never pressed during the sign-in
+      }
       const seen = new Set(), order = [];
       const byId = new Map(win.controls.map(k => [k.id, k]));
       for (let [n, c] of win.controls.entries()) {

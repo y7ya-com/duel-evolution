@@ -188,6 +188,25 @@ def pvp_duel(fc, A, B):
          "PvP: both back in the lobby with results (0x4140)")
 
 
+DEPLOY_TOKEN = secrets.token_urlsafe(36)   # this local run's only: scripts/deploy.sh's admin actions
+
+
+def shutdown_check(cookie):
+    """deploy.sh's first step on this server: /__admin/shutdown closes every game socket (4012), flushes D1, and the
+    instance then refuses new game sockets (503) so no client lands on it before the new code answers."""
+    req = urllib.request.Request(BASE + "/__admin/shutdown", data=b"{}", method="POST",
+                                 headers={"x-de-deploy": DEPLOY_TOKEN, "Content-Type": "application/json", "User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        out = json.load(r)
+    step(out.get("closed", 0) >= 1 and out.get("flushed") is True, f"shutdown: game sockets closed with 4012 and D1 flushed ({out})")
+    import base64, http.client
+    h = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+    h.request("GET", "/net", headers={"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13",
+                                      "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode(), "Origin": ORIGIN, "Cookie": cookie, "User-Agent": UA})
+    st = h.getresponse().status
+    step(st == 503, f"shutdown: a new game socket is refused until the new code answers ({st}, want 503)")
+
+
 def main():
     shutil.rmtree(D, ignore_errors=True)
     os.makedirs(D)
@@ -198,7 +217,7 @@ def main():
     wr = subprocess.Popen(["nice", "npx", "wrangler", "dev", "--local", "--port", str(PORT), "--persist-to", os.path.join(D, "wr"),
                            "--var", f"PUBLIC_ORIGIN:{ORIGIN}", "--var", f"TEST_SIGNIN_SECRET:{SECRET}",
                            "--var", f"BETTER_AUTH_SECRET:{secrets.token_urlsafe(48)}", "--var", "DEPLOY_ENV:staging",
-                           "--var", "PROGRESSION:1"],
+                           "--var", "PROGRESSION:1", "--var", f"DEPLOY_TOKEN:{DEPLOY_TOKEN}"],
                           cwd=snap, stdout=open(os.path.join(D, "server.out"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
     br = None
     try:
@@ -233,6 +252,7 @@ def main():
         npc_refused(fc, A, unowned)
         errs = A.errors + B.errors
         step(not errs, "message numbering: " + ("; ".join(errs[:3]) or "ok"))
+        shutdown_check(cookies["A"])
     finally:
         R.BRIDGE["on"] = False
         if br:

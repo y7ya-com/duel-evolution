@@ -114,6 +114,23 @@ export class DuelPort {
     df.h_autoduelstart(rival, mode);
   }
 
+  /** Called inside World.run before any deployment socket closes. No player-supplied exemption flag. */
+  prepareRestart(): void {
+    // Retry cleanup after a partial failure while keeping gameplay latched off.
+    this.g.restarting = true;
+    this.g.pvp?.prepareRestart?.();
+    const conns = new Set(this.g.world.peerConns.values());
+    for (const session of this.g.hub.sessions.values()) {
+      for (const c of session.conns.values()) conns.add(c);
+      const df = this.duelState(session)?.df;
+      if (df) { df.sess.end = null; df.sess.ask = false; }
+    }
+    this.df.sess.end = null;
+    this.df.sess.ask = false;
+    for (const c of conns) { X(c).duelQ?.stop(); X(c).ocg?.abandon(); }
+    this.g.log("[deploy] unfinished duels voided before server restart");
+  }
+
   /** py on_conn_closed (around the hub/lobby part, which server.ts already does: base). */
   onConnClosed(c: Conn, why: string, base: () => void): void {
     const x = X(c);
@@ -131,6 +148,7 @@ export class DuelPort {
     if (s && s.over) return;
     this.log(`[duelo] el socket de duelo se cierra con el duelo ${s ? s.id : "-"} sin acabar`);
     s?.abandon();
+    if (this.g.stopping) return this.log(`[AVISO] [duelo] server update: the NPC duel ends with no result`);
     const df = this.dfFor(c);
     if (df && df.sess.end === (x.dfEnd ?? null)) {
       const old = this.g.ctx;
@@ -180,16 +198,33 @@ export class DuelPort {
       const n = (this.ls.npc_deck ?? []).length;
       return c.send(0x6005, new W().u16(n || 40).u16(0).bytes());
     }
-    if (msgId === 0x6001) return c.send(0x6007, new W().u32(1).bytes());
+    // a re-attach (u32 pid + u32 n, phase2-net's duel re-attach) that reaches here has no live duel (a PvP match takes
+    // its own in duelReply; an NPC duel is abandoned when its socket closes): refused (s32 0), so the client shows
+    // the game's own "disconnected" box instead of waiting in a dead duel. A new duel's 4-byte 0x6001: booked.
+    if (msgId === 0x6001) return c.send(0x6007, new W().u32(data.length >= 8 ? 0 : 1).bytes());
     if (!g.autoReply(c, msgId)) this.log(`[srv:${c.port}] sin respuesta para 0x${msgId.toString(16).padStart(4, "0")}`);
   }
 
   /** py duel_reply */
   duelReply(c: Conn, msgId: number, param: number, data: Uint8Array): void {
     const g = this.g, x = X(c);
+    // the client's bye after a duel's results (0x0003, research/duelfin: "the server closes it"): the real client keeps
+    // its end of the duel connection open and waits for that, and the next duel's new connection then ran beside the
+    // old one and never started (two real clients, 2026-11-02: "after one PvP we have to relog"). With no live duel
+    // on it (a PvP match over or none, an NPC duel over or none), the server closes it once what is queued is out.
+    if (msgId === 0x0003 && !(x.pvp && !x.pvp.done) && !(x.ocg && !x.ocg.over))
+      void c.flushed().then(() => { if (!c.closed) g.world.close(c, "the client's bye after the duel"); });
     if (g.nw && (g.nw as unknown as { onDuelMsg(c: Conn, m: number, d: Uint8Array): boolean }).onDuelMsg(c, msgId, data)) return;
     const pvp = g.pvp as { route(c: Conn, m: number): { on(c: Conn, m: number, p: number, d: Uint8Array): void } | null } | null;
     if (pvp) { const m = pvp.route(c, msgId); if (m) return m.on(c, msgId, param, data); }
+    // a new NPC duel on the duel connection the client kept from its last one (as PvP does, pvpMatch.ts route): that
+    // duel's state on the connection goes, else the new 0x61fe reads as a repeat and the duel never starts (live
+    // 2026-11-01, "we can't play 2 duels in a row"). Only once the last one is over: a 0x6001 mid-duel changes nothing
+    if (msgId === 0x6001 && (x.ocg ? x.ocg.over : x.duelStarted)) {
+      x.duelQ?.stop();
+      for (const k of ["duelStarted", "ocg", "duelQ", "duelSt", "dfEnd", "deckBlock"] as const) delete x[k];
+      this.log(`[duelo] a new duel on the duel connection kept from the last one: its state cleared`);
+    }
     const DF = this.dfFor(c);
     this.dfEndMark(c, DF, msgId);
     if (msgId === 0x61fe) {

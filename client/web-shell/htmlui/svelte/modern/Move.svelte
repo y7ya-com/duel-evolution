@@ -149,18 +149,18 @@
   .grid { list-style: none; margin: 0; padding: 10px 12px 0; display: grid; grid-template-columns: 1fr; gap: 6px; }
   .wide .grid { grid-template-columns: 1fr 1fr; }
   /* a tile: the name on top, how full under it; a fixed size, and hover / press change only colour (nothing moves) */
-  .place { display: grid; grid-template-columns: 1fr auto; grid-template-rows: 20px 14px; align-items: center; column-gap: 8px;
-    width: 100%; height: 48px; padding: 0 10px 0 14px; border-radius: var(--r-ctl); text-align: left; color: var(--ink-strong);
+  .place { display: grid; grid-template-columns: 1fr auto; grid-template-rows: 22px 15px; align-items: center; column-gap: 8px;
+    width: 100%; height: 52px; padding: 0 10px 0 14px; border-radius: var(--r-ctl); text-align: left; color: var(--ink-strong);
     background: var(--btn); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 2px rgba(10, 35, 80, .12);
     transition: background .12s, box-shadow .12s; }
   .place:hover, .place:focus-visible { background: var(--btn-hover); box-shadow: 0 0 0 2px var(--gold-edge), inset 0 1px 0 #fff; }
   .place:focus { outline: none; }
   .place:active { background: var(--gold); box-shadow: 0 0 0 2px var(--gold-edge), inset 0 1px 3px rgba(120, 70, 0, .3); }
   .place:disabled { opacity: .55; }
-  .nm { grid-column: 1; grid-row: 1; min-width: 0; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm { grid-column: 1; grid-row: 1; min-width: 0; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { grid-column: 1; grid-row: 2; display: flex; align-items: center; gap: 6px; height: 14px; }
   .place :global(.go) { grid-column: 2; grid-row: 1 / span 2; color: var(--icon-warm); }
-  .meter { width: 48px; height: 5px; border-radius: 3px; background: var(--n200); overflow: hidden; }
+  .meter { width: 48px; height: 5px; border-radius: 1px; background: #9bc3db; overflow: hidden; }
   .meter i { display: block; height: 100%; background: var(--ok); }
   .meter.full i { background: var(--bad); }
   .count { min-width: 56px; font-size: 11px; font-weight: 700; color: var(--ink-3); font-variant-numeric: tabular-nums; }

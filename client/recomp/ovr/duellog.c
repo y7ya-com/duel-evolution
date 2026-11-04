@@ -12,6 +12,8 @@ uint32_t rc_halloc(uint32_t n, int zero);
 int rc_scene_now(void);   // scene.c
 void o_00a770a0(CPU *c);
 void o_006af100(CPU *c);
+void rc_tagrelay_chat(CPU *c, uint32_t p, uint32_t n);
+void rc_social_chat_layout(CPU *c, uint32_t self);
 
 #define DUEL_LOG_CHANNEL 9
 #define DROP_CHANNEL 99           // not 0-5: the pump frees the line and shows nothing
@@ -81,6 +83,7 @@ void f_00a770a0(CPU *c) {
             shown = on;
         }
     }
+    rc_social_chat_layout(c, w);
     o_00a770a0(c);
     if (ntabs(w) > TAB && shown) order_tabs(w);
 }
@@ -90,6 +93,11 @@ void f_00a770a0(CPU *c) {
 void f_006af100(CPU *c) {
     uint32_t out = ARG(0);
     o_006af100(c);
+    if (RD32m(out) == 10) {
+        WR32m(out, DROP_CHANNEL);
+        rc_tagrelay_chat(c, RD32m(out + 0x1c), RD32m(out + 0x20));
+        return;
+    }
     if (RD32m(out) != DUEL_LOG_CHANNEL) return;
     WR32m(out, DROP_CHANNEL);
     uint32_t p = RD32m(out + 0x1c), n = RD32m(out + 0x20);

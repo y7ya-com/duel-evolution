@@ -24,7 +24,7 @@ const toRows = (db: Map<string, [string, Row]>): Rows => {
   return out;
 };
 
-describe("round trip of real states", () => {
+describe.skipIf(realStates().length === 0)("round trip of real states (requires private local fixtures)", () => {
   const states = realStates();
   it("finds the example states", () => { expect(states.length).toBeGreaterThan(0); });
   for (const [f, text] of states) {
