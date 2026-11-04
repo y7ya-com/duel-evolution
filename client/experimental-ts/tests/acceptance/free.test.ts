@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, ownedCopies, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, ownedCopies, type Page, cardButton } from './harness';
 
 /** deck.test: the original has no separate deck-test button (PRACTICE.md); deck testing is Free Duel: a free session
  * builds decks from the whole card pool and duels other free players with no MP, record, stats or card offer
@@ -50,7 +50,7 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const other = `[...document.querySelectorAll('[data-key^="avatar:"]')].find(x=>x.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(names.b)})`;
       await until(a,other,60000); await pressAvatar(a,other);
-      await until(a,`document.querySelector('.de-context')`,10000); await click(a,'Duel');
+      await until(a,cardButton('Send Duel Request'),10000); await press(a,cardButton('Send Duel Request'));
       await click(b,'Accept Duel',60000);
       await Promise.all([prepareDuel(a),prepareDuel(b,'Scissors')]);
       const deckInDuel = await a.ev(`document.querySelectorAll('.de-field-card').length`) as number;

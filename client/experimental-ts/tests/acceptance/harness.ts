@@ -157,6 +157,16 @@ export async function reenterWorld(page:Page,name:string) {
 }
 /** The place banner's names (main's CWindowModelPlace: the world, then the area), as 'World · Area'. */
 export const placeName = `[...document.querySelectorAll('#htmlui-host .lb-shadow')].filter(t=>t.style.left==='20px').map(t=>t.textContent).join(' · ')`;
+/** Another player's card (main's CPlayerListMenu, src/ui/htmlui): open, its text, its action buttons' labels, closed
+ * with Escape (as the game's). The old context menu's actions: Duel is Send Duel Request, Watch is Watch Duel. */
+export const cardOpen = `document.querySelector('#htmlui-host [data-key^="card-"]')`;
+export const cardText = `(document.querySelector('#htmlui-host [data-key^="card-"]')?.closest('.win')?.innerText ?? '')`;
+export const cardButton = (label:string) => `[...document.querySelectorAll('#htmlui-host [data-key^="card-"]')].find(b=>b.textContent.trim()===${JSON.stringify(label)}&&!b.disabled)`;
+export async function closeCard(page:Page) {
+  await page.ev(`document.activeElement?.blur()`);
+  for (const t of ['keyDown','keyUp']) await page.send('Input.dispatchKeyEvent',{ type:t,key:'Escape',code:'Escape',windowsVirtualKeyCode:27 });
+  await until(page,`!${cardOpen}`,10000);
+}
 /** The open profile's text (main's CWindowModelProfile window). */
 export const profileText = `document.querySelector('[data-key="profile-ok"]')?.closest('.win')?.innerText`;
 /** The lines main's chat window shows on its current tab (CChatWindow's log). */

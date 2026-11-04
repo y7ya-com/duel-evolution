@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page, say, chatLines, profileText, placeName } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page, say, chatLines, profileText, placeName, cardText, closeCard } from './harness';
 
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 const avatarCount = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].filter(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)}).length`;
@@ -59,14 +59,12 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('lobby.presence',{ actions:'B joins, A moves (seen by B), C joins then leaves', expected:'Join, departure and movement update the correct avatar once', observed:`${names.b} appeared once; A's move seen by B; ${names.c} appeared once` });
       // lobby.interact + social.profile: A clicks B, opens B's profile.
       await pressAvatar(a,avatar(names.b));
-      await until(a,`document.querySelector('.de-context')`,10000);
-      await click(a,'Talk / Interact');
-      await until(a,`(${profileText})?.includes(${JSON.stringify(names.b)})&&/LV/.test(${profileText})`,20000);
-      const profile = await a.ev(profileText) as string;
-      expect(profile).toMatch(/Wins/); expect(profile).toContain('Add Friend');
-      record('lobby.interact',{ actions:"Click another player's avatar, Talk / Interact", expected:'Occupant selected; profile and valid actions shown', observed:`context menu for ${names.b}; profile with Add friend / Write mail / trade / team / ignore` });
+      await until(a,`${cardText}.includes(${JSON.stringify(names.b)})&&/LV/.test(${cardText})`,20000);
+      const profile = await a.ev(cardText) as string;
+      expect(profile).toMatch(/Wins/); expect(profile).toContain('Send Friend Request');
+      record('lobby.interact',{ actions:"Click another player's avatar", expected:'Occupant selected; profile and valid actions shown', observed:`${names.b}'s card (main's CPlayerListMenu): level, title, wins / losses, comment; Send Duel / Friend / Trade Request, Chat Message, D-mail, Team, Ignore` });
       record('social.profile',{ actions:"Open another player's profile", expected:'Correct identity, progression, title and status', observed:profile.replace(/\s+/g,' ').slice(0,200) });
-      await press(a,byKey('profile-ok'));
+      await closeCard(a);
       // avatars.titles: A sets a comment and personal title; B sees them on A's profile.
       await click(a,'My Profile');
       await until(a,byKey('profile-comment'),20000); await press(a,byKey('profile-comment'));
@@ -75,9 +73,9 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await press(a,byKey('comment-ok'));
       await until(a,`(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`,20000);
       await press(a,byKey('profile-ok'));
-      await pressAvatar(b,avatar(names.a)); await until(b,`document.querySelector('.de-context')`,10000); await click(b,'Talk / Interact');
-      await until(b,`(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`,20000);
-      await press(b,byKey('profile-ok'));
+      await pressAvatar(b,avatar(names.a));
+      await until(b,`${cardText}.includes('Hello from ${RUN}')&&${cardText}.includes('Champ ${RUN}')`,20000);
+      await closeCard(b);
       record('avatars.titles',{ actions:'Set own comment and personal title; another player opens the profile', expected:'Read and change own profile/title; only owned choices offered', observed:`B read "Hello from ${RUN}" and "Champ ${RUN}" on A's profile; only own-profile edit controls offered` });
       // social.chat: global reaches everyone once; whisper reaches only its target.
       await chat(a,'global',`hi all ${RUN}`);

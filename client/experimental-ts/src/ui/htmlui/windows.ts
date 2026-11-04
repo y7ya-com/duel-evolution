@@ -5,6 +5,11 @@ import type { ClientCommand, ClientView } from '../contracts';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import playerSelectLive from '@htmlui/mock/playerselect-live.json';
+import dialogInput1 from '@htmlui/mock/dialog-input1.json';
+import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
+import dialogOk from '@htmlui/mock/dialog-ok.json';
+import lobbyCard from '@htmlui/mock/lobby-card.json';
+import playerListMock from '@htmlui/mock/duelsetup-plist.json';
 
 /** A dialog the rewrite has open over a screen (the engine's CNetAccountTask prompts, NetAccountTask.cpp). */
 export type HtmlDialog =
@@ -30,7 +35,9 @@ export interface BuildContext {
   rerender(): void;
   confirmDelete?: (name: string) => string;
   menu?: MenuView | null;
-  /** The profile's buttons the rewrite adds (another player's: friend, mail, trade, team, ignore; one's own: comment). */
+  /** Another player's card's actions (the rewrite's social and duel commands); opening a player's card. */
+  cardActions?: CardActions; openPlayer?: (pid: number) => void;
+  /** The profile's buttons the rewrite adds (one's own: comment, title, appearance). */
   profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
 }
 
@@ -66,42 +73,39 @@ export function playerSelect(ctx: BuildContext): WindowSpec {
   return b.spec();
 }
 
-// The engine's small dialogs, drawn by main's social.js module (owned: a FramePlane panel, real <input>s, real buttons).
-// CWindowModelInput1 at 344, 312, 336 x 144 (main's create route: Enter your Player Name, the field 8, 56, 320 x 32,
-// OK 44, 112 and Cancel 212, 112, 80 x 24; uiOpenInput at 344, 312 in NetAccountTask.cpp NEW_PROMPT)
+// The account prompts (CNetAccountTask, NetAccountTask.cpp) are main's stock dialogs, drawn by main's dialog.js from
+// its captured windows: the name prompt (mock/dialog-input1.json: CWindowModelInput1, 344, 312, its field and OK /
+// Cancel), Yes / No (mock/dialog-yesno.json, uiOpenYesNo) and OK (mock/dialog-ok.json, uiOpenDialogOk), their texts
+// and buttons the rewrite's.
+const named = (cs: HtmlControl[], cls: string, label?: string) => cs.find(c => c.cls === cls && (label === undefined || c.label === label));
 export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'create' }>): WindowSpec {
-  const b = new WindowBuilder(ctx.ids, 'create', 'CWindowModelInput1', { x: 344, y: 312, w: 336, h: 144 }, { modal: true, z: 51203 });
+  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'create', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51203 });
+  const cs = b.fromTemplate(t, true);
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
   const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'createCharacter', slot: dialog.slot, name }); ctx.rerender(); };
-  b.add('CWindowTaskFramePlane', 'frame', { x: 0, y: 0, w: 336, h: 144 }, { style: 1 });
-  b.add('CWindowTaskText', 'text', { x: 0, y: 8, w: 336, h: 16 }, { text: 'Enter your Player Name', align: 1, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 1, color: [1, 1, 1, 1] });
-  b.add('CWindowTaskTextSwitch', 'ok', { x: 44, y: 112, w: 80, h: 24 }, { label: 'OK', align: 1, state: dialog.name.trim() ? 'normal' : 'disabled', checked: false, color: [0, 0, 0, 1] }, { key: 'character-create-ok', click: ok });
-  b.add('CWindowTaskTextSwitch', 'cancel', { x: 212, y: 112, w: 80, h: 24 }, { label: 'Cancel', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'character-create-cancel', click: close });
-  b.add('CWindowTaskInput', 'name', { x: 8, y: 56, w: 320, h: 32 }, { focused: true, value: dialog.name, password: false, caret: null, caretOn: false, maxLen: 16, multiLine: false },
-    { key: 'character-name', label: 'Player name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok });
+  const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16, caretOn: false }); b.on(input, { key: 'character-name', label: 'Player name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
+  if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'character-create-ok', click: ok }); }
+  if (cancel) b.on(cancel, { key: 'character-create-cancel', click: close });
   return b.spec();
 }
-
-// Yes / No over Select Player (CNetAccountTask DEL_CONFIRM: uiOpenYesNo at 332, 324), then the OK box (DEL_DONE_OPEN:
-// uiOpenDialogOk at 344, 312): the same FramePlane dialog body, the text centred, the buttons as Input1's. The rewrite
-// keeps no login password, so the password prompt before them (DEL_PROMPT) is not shown.
-function messageDialog(ctx: BuildContext, key: string, at: { x: number; y: number }, text: string, buttons: [string, string, () => void][]): WindowSpec {
-  const b = new WindowBuilder(ctx.ids, key, 'CWindowModelInput1', { ...at, w: 336, h: 144 }, { modal: true, z: 51203 });
-  b.add('CWindowTaskFramePlane', 'frame', { x: 0, y: 0, w: 336, h: 144 }, { style: 1 });
-  b.add('CWindowTaskTextField', 'text', { x: 8, y: 16, w: 336, h: 80 }, { text, align: 1, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 5, color: [0, 0, 0, 1] });
-  const xs = buttons.length === 1 ? [128] : [44, 212];
-  buttons.forEach(([label, k, click], i) => b.add('CWindowTaskTextSwitch', k, { x: xs[i], y: 112, w: 80, h: 24 }, { label, align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: k, click }));
+function messageDialog(ctx: BuildContext, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>): WindowSpec {
+  const t = template.windows[0]!, b = new WindowBuilder(ctx.ids, key, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51203 });
+  const cs = b.fromTemplate(t, true);
+  const field = named(cs, 'CWindowTaskTextField'); if (field) field.text = text;
+  for (const child of cs) if (child.parent === field?.id && child.cls === 'CWindowTaskText') child.text = text;
+  for (const [label, [dataKey, click]] of Object.entries(buttons)) { const c = named(cs, 'CWindowTaskTextSwitch', label); if (c) b.on(c, { key: dataKey, click }); }
   return b.spec();
 }
 export function deleteDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'delete' }>): WindowSpec {
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
   const text = ctx.confirmDelete?.(dialog.name) ?? `Permanently delete character ${dialog.name} and their game progress?`;
-  return messageDialog(ctx, 'delete', { x: 332, y: 324 }, text, [
-    ['Yes', 'character-delete-yes', () => { if (ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'deleteCharacter', slot: dialog.slot }); ctx.rerender(); }],
-    ['No', 'character-delete-no', close]]);
+  return messageDialog(ctx, 'delete', dialogYesNo, text, {
+    Yes: ['character-delete-yes', () => { if (ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'deleteCharacter', slot: dialog.slot }); ctx.rerender(); }],
+    No: ['character-delete-no', close] });
 }
 export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'ok' }>): WindowSpec {
-  return messageDialog(ctx, 'ok', { x: 344, y: 312 }, dialog.text, [['OK', 'dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }]]);
+  return messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
 }
 
 // The chat (CChatWindow, main's screens/chat.js: online only, unread counts on its tabs, 'Trade', no Duel Log). Layout
@@ -214,8 +218,9 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
 // down-right; rows 32 high from 14, 32 (557 wide), each a name at 16, y and its value right-aligned 16 px lower; the
 // scroll column 571, 32, 318 long; OK 250, 364, 100 x 24. The values are the rewrite's (the server's player info).
 export function profileWindow(ctx: BuildContext): WindowSpec | null {
-  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null) return null;
-  const s = p.summary, d = p.details, self = p.selfPid === p.selectedPid;
+  // one's own profile (another player's is their card, playerCard)
+  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid !== p.selfPid) return null;
+  const s = p.summary, d = p.details, self = true;
   const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
   const rows: [string, string][] = [
     ['Name', s?.name ?? d?.name ?? ''], ['Title', p.comments[1] ?? ''], ['LV', String(s?.level ?? d?.level ?? '')],
@@ -278,6 +283,59 @@ export function saveNextComment(ctx: BuildContext): void {
   ctx.send({ type: 'profileAction', action: { type: 'saveComment', line: next.line } });
 }
 
+/** What another player's card offers (the rewrite's social and duel commands). */
+export interface CardActions { friend?(): void; trade?(): void; whisper?(): void; ignore?(): void; mail?(): void; team?(): void; duel?(): void; watch?(): void }
+// A player's card (CPlayerListMenu, main's lobby.js: its frame, planes and Help texts from the controls' parts and
+// children, the generic buttons): main's captured card (mock/lobby-card.json, 248, 279, 336 wide) with this player's
+// level and name (red), title, wins / losses and comment, and a button per action the rewrite has, 36 px apart from
+// 148 as the game stacks them (the window and the plane under the buttons grow with them; a card of another height
+// draws main's CSS thin frame, the captured frame pieces fit the 328-high card only).
+const CARD_BUTTONS: [string, keyof CardActions, string][] = [
+  ['デュエル申し込みボタン', 'duel', 'card-duel'], ['観戦ボタン', 'watch', 'card-watch'], ['フレンド申し込みボタン', 'friend', 'card-friend'],
+  ['トレード申し込みボタン', 'trade', 'card-trade'], ['チャットメッセージボタン', 'whisper', 'card-whisper'], ['メール送信ボタン', 'mail', 'card-mail'],
+  ['チームに誘うボタン', 'team', 'card-team'], ['ブラックリストボタン', 'ignore', 'card-ignore'],
+];
+export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec | null {
+  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return null;
+  const t = lobbyCard.windows[0]!, shown = CARD_BUTTONS.filter(([, k]) => actions[k]), n = shown.length, h = 148 + 36 * Math.max(1, n);
+  // where main's capture has it (x 248), standing on the player list and chat row (608) when it grows past the capture's
+  const y = Math.min(t.y, 600 - h);
+  const b = new WindowBuilder(ctx.ids, `card:${p.selectedPid}`, t.cls, { x: t.x, y, w: t.w, h }, { modal: false, z: 51603 });
+  const cs = b.fromTemplate(t, true);
+  const s = p.summary, d = p.details, wins = s?.wins ?? 0, losses = s?.losses ?? 0, name = s?.name ?? d?.name ?? '';
+  const help = (key: string, text: string) => { const hp = cs.find(c => c.cls === 'CWindowTaskHelp' && c.name.includes(key)); const tx = hp && cs.find(c => c.parent === hp.id && c.cls === 'CWindowTaskText'); if (tx) tx.text = text; };
+  help('レベル＆名前', `LV${String(s?.level ?? d?.level ?? 0).padStart(2, '0')}  ${name}\n`);
+  help('称号テキスト', p.comments[1] ?? ''); help('勝率テキスト', `Wins${wins}/Losses${losses}`); help('コメントテキスト', p.comments[0] ?? '');
+  const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin');
+  if (frame) { frame.h = h; if (h !== t.h || y !== t.y) frame.parts = { sprites: [], labels: [], swfs: [] }; }
+  const plane = cs.find(c => c.cls === 'CWindowTaskBackPlane' && !c.parent && c.name.includes('背景')); if (plane) plane.h = 36 * Math.max(1, n);
+  for (const c of cs) if (c.cls === 'CWindowTaskTextSwitch' && !c.parent) { c.shown = false; c.parts = undefined; }
+  shown.forEach(([nm, k, key], i) => {
+    const c = cs.find(x => x.cls === 'CWindowTaskTextSwitch' && x.name.trim() === nm); if (!c) return;
+    Object.assign(c, { shown: true, x: 24, y: 148 + 36 * i, w: 288, h: 24, state: 'normal' });
+    b.on(c, { key, click: () => actions[k]?.() });
+  });
+  return b.spec();
+}
+// The lobby's player list (CPlayerListDlg, main's playerlist.js through duelsetup.js): main's capture with a second
+// player (mock/duelsetup-plist.json: 0, 608, 248 x 128, six 16-pixel rows) listing the other players here, each row
+// "Name" at the game's name column (@>40/); a row opens that player's card.
+export function playerList(ctx: BuildContext, open: (pid: number) => void): WindowSpec | null {
+  const lobby = ctx.state.lobby; if (!lobby) return null;
+  const t = playerListMock.windows[0]!, b = new WindowBuilder(ctx.ids, 'plist', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { z: 51153 });
+  const cs = b.fromTemplate(t, true);
+  const others = lobby.avatars.filter(a => !a.self && !a.npc);
+  const list = cs.find(c => c.cls === 'CWindowTaskActiveListbox' && !c.parent);
+  if (list) {
+    Object.assign(list, { items: others.map(a => `@0@>40/${a.name}`), top: 0, topLine: 0, selected: -1, rows: 6 });
+    const bar = cs.find(c => c.parent === list.id && /Scroll$/.test(c.cls)); if (bar) Object.assign(bar, { value: 0, max: Math.max(0, others.length - 6), page: 6 });
+    const win = b.win;
+    b.on(list, { label: 'Players here', click: point => { if (!point) return; const i = Math.floor((point[1] - win.y - list.y) / 16) + Number(list.top || 0); const a = others[i]; if (a) open(a.id); } });
+  }
+  const search = cs.find(c => c.cls === 'CWindowTaskPictureSwitch'); if (search) Object.assign(search, { state: 'disabled', enabled: false });
+  return b.spec();
+}
+
 /** Every window the current state shows through main's screens, back to front. */
 export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const out: WindowSpec[] = [], { state, ui } = ctx;
@@ -288,7 +346,9 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   if (state.scene === 'lobby' && state.connection === 'online') {
     const place = placeBanner(ctx); if (place) out.push(place);
     const chat = chatWindow(ctx); if (chat) out.push(chat);
+    const list = ctx.openPlayer && playerList(ctx, ctx.openPlayer); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
+    const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) out.push(card);
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else ui.comment = null;

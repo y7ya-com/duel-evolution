@@ -48,6 +48,21 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.ctx.ui.comment = ['hello', 'Duelist']; t.find('comment-ok')!.click!();
     expect(t.sent).toEqual([{ type: 'profileAction', action: { type: 'editDraft', field: 'title', value: 'Duelist' } }, { type: 'profileAction', action: { type: 'saveComment', line: 1 } }]);
   });
+  it('a player: the list of the others here, their card with the actions the rewrite has', () => {
+    const lobby = { name: 'A · B', avatars: [{ id: 7, name: 'Me', x: 0, y: 0, self: true }, { id: 9, name: 'Ann Lee', x: 0, y: 0 }], connected: true, channels: [], chat: [] };
+    const profileDetail = { selfPid: 7, selectedPid: 9, details: null, location: null, summary: { name: 'Ann Lee', level: 3, wins: 2, losses: 1 } as never,
+      comments: ['hi', 'Champ'] as [string, string], drafts: { playerId: '', comment: '', title: '' }, loading: false, pending: null, status: '', error: null };
+    const opened: number[] = [], acted: string[] = [];
+    const t = context(view({ scene: 'lobby', lobby, profileDetail }), { openPlayer: pid => opened.push(pid), cardActions: { friend: () => acted.push('friend'), duel: () => acted.push('duel') } });
+    const wins = t.windows(), list = wins.find(s => s.win.cls === 'CPlayerListDlg')!.win.controls.find(c => c.cls === 'CWindowTaskActiveListbox' && !c.parent)!;
+    expect(list.items).toEqual(['@0@>40/Ann Lee']);
+    const plist = wins.find(s => s.win.cls === 'CPlayerListDlg')!; [...plist.handlers.values()][0]!.click!([40, plist.win.y + list.y + 8]); expect(opened).toEqual([9]);
+    const card = wins.find(s => s.win.cls === 'CPlayerListMenu')!.win;
+    expect(card.controls.filter(c => c.cls === 'CWindowTaskTextSwitch' && c.shown).map(c => c.label)).toEqual(['Send Duel Request', 'Send Friend Request']);
+    expect(card.controls.some(c => c.cls === 'CWindowTaskText' && String(c.text).includes('LV03  Ann Lee'))).toBe(true);
+    t.find('card-friend')!.click!(); expect(acted).toEqual(['friend']);
+    expect(wins.some(s => s.win.cls === 'CWindowModelProfile')).toBe(false);
+  });
   it('pointer: hover and pressed looks on the control under the pointer; a modal window takes the point', () => {
     const t = context(view({ scene: 'characters' })), specs = t.windows();
     const back = hitTest(specs, 448 + 380, 256 + 250)!; expect(back.label).toBe('Back');

@@ -149,7 +149,7 @@ describe('UI ownership and semantic interaction', () => {
     // Select Player's name dialog (main's screens, src/ui/htmlui) keeps its draft across updates
     f.update({ scene: 'characters', characters: [] }); await Promise.resolve(); expect(f.mounted.htmlUi.press('character-create:0')).toBe(true); f.mounted.htmlUi.type('character-name', 'Draft');
     f.update({ status: 'Character list refreshed' }); await Promise.resolve();
-    expect(f.mounted.htmlUi.windows().flatMap(w => w.win.controls).find(c => c.name === 'name')?.value).toBe('Draft'); f.mounted.dispose();
+    expect(f.mounted.htmlUi.windows().flatMap(w => w.win.controls).find(c => c.cls === 'CWindowTaskInput')?.value).toBe('Draft'); f.mounted.dispose();
   });
   it('routes registration without retaining the submitted password through a rerender', async () => {
     const f = fixture(); f.update({ accountDetail: { panel: 'register', busy: false, status: 'Account', error: null, errorCode: null, session: null, verification: null, inviteUrl: null, redirectUrl: null, claimedAccount: null } }); await Promise.resolve();

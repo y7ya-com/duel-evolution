@@ -3,7 +3,7 @@ import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click
 import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, stepBoth, backToLobby } from './pvp-helpers';
 
 async function challenge(from:Page,to:Page,name:string) {
-  await playerMenu(from,name,'Duel');
+  await playerMenu(from,name,'Send Duel Request');
   await until(from,requesting,20000);
   await until(to,invitation,20000);
 }
@@ -33,7 +33,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       await until(b,`!${invitation}`,20000); await until(a,`!${requesting}`,20000);
       await until(a,`document.body.innerText.includes('Refused.')`,20000);
       // Right after a refusal the same challenge waits its cooldown; the server's message is shown.
-      await playerMenu(a,names.b,'Duel');
+      await playerMenu(a,names.b,'Send Duel Request');
       await until(a,`document.body.innerText.includes('Wait a moment before challenging that player again.')`,20000);
       expect(await a.ev(`Boolean(${requesting})`)).toBe(false);
       expect(await b.ev(`Boolean(${invitation})`)).toBe(false);
@@ -50,7 +50,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
 
       // Accept (after the cooldown): A challenges B, B accepts, both prepare.
       for (let i = 0; i < 20; i++) {
-        await playerMenu(a,names.b,'Duel');
+        await playerMenu(a,names.b,'Send Duel Request');
         try { await until(b,invitation,8000); break; } catch { await sleep(5000); }
       }
       await reply(b,'Accept Duel');
@@ -76,7 +76,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       let spectated = '';
       const watch = async (turn:number) => {
         if (spectated || turn < 3) return;
-        await playerMenu(c,names.a,'Watch');
+        await playerMenu(c,names.a,'Watch Duel');
         await until(c,onDuel,60000);
         // The stream replays the duel so far: wait until the current turn is reconstructed.
         await until(c,`/Turn [1-9]/.test(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')`,60000);
@@ -131,7 +131,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
         observed:`${result.agreements} turn starts checked with both settled screens mirrored (phase bar, LP, names, per-zone counts, turn clocks within 3 s); final ${ea.ended}/${eb.ended} at turn ${ea.turn}, LP ${ea.lp.join('/')} vs ${eb.lp.join('/')}; e.g. "${log.find(l => / attacks/.test(l)) ?? ''}"` });
       for (const p of [a,b]) await backToLobby(p);
       // Both can challenge again: the lobby is usable after the duel.
-      expect(await menuActions(a,names.b)).toContain('Duel');
+      expect(await menuActions(a,names.b)).toContain('Send Duel Request');
     } finally { closeAll(); }
   },1500000);
 });

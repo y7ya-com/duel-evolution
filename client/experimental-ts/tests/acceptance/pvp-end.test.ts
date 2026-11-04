@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 const rooms = `document.querySelector('[data-key="lobby-duel-rooms"]')`;
@@ -96,13 +96,13 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       let menu:string[] = [];
       for (let i = 0; i < 20; i++) {
         await press(b,`(${avatar(names.a)})`).catch(async () => b.ev(`(${avatar(names.a)}).click()`));
-        await until(b,`document.querySelector('.de-context')`,10000);
-        menu = await b.ev(`[...document.querySelectorAll('.de-context button')].filter(x=>!x.disabled).map(x=>x.textContent)`) as string[];
-        if (menu.includes('Watch')) break;
-        await press(b,`[...document.querySelectorAll('.de-context button')].find(x=>x.textContent==='Close')`); await sleep(1500);
+        await until(b,cardOpen,10000);
+        menu = await b.ev(`[...document.querySelectorAll('#htmlui-host [data-key^="card-"]')].filter(x=>!x.disabled).map(x=>x.textContent.trim())`) as string[];
+        if (menu.includes('Watch Duel')) break;
+        await closeCard(b); await sleep(1500);
       }
-      expect(menu).toContain('Watch');
-      await press(b,`[...document.querySelectorAll('.de-context button')].find(x=>x.textContent==='Watch')`);
+      expect(menu).toContain('Watch Duel');
+      await press(b,cardButton('Watch Duel'));
       await until(b,onDuel,60000);
       await until(b,`/Turn [1-9]/.test(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')`,60000);
       const join = await read(b);

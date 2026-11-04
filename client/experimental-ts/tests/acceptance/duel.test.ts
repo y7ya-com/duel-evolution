@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -153,8 +153,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       const decks = { a:await deckNames(a), b:await deckNames(b) };
       // Challenge: B presses A's avatar → Duel; A accepts.
       await until(b,avatar(names.a),30000);
-      await pressAvatar(b,avatar(names.a)); await until(b,`document.querySelector('.de-context')`,10000);
-      await click(b,'Duel'); await click(a,'Accept Duel',30000);
+      await pressAvatar(b,avatar(names.a)); await until(b,cardButton('Send Duel Request'),10000);
+      await press(b,cardButton('Send Duel Request')); await click(a,'Accept Duel',30000);
       await Promise.all([prepareDuel(a,'Rock'),prepareDuel(b,'Scissors')]);
       for (const p of [a,b]) await until(p,`document.querySelectorAll('.de-field-card[data-side="your"][data-zone="hand"]').length>=5&&document.querySelectorAll('.de-field-card[data-side="opponent"][data-zone="hand"]').length>=5`,60000);
       await screenshot(a,'duel-pvp-a-start'); await screenshot(b,'duel-pvp-b-start');

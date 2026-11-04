@@ -1,6 +1,6 @@
 /** Two- and three-player helpers for the PvP and spectator acceptance tests (see ACCEPTANCE.md). */
 import { expect } from 'vitest';
-import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page } from './harness';
+import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard } from './harness';
 
 export const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 export const invitation = `document.querySelector('[aria-label="Duel Invitation"]')`;
@@ -8,18 +8,19 @@ export const requesting = `document.querySelector('[aria-label="Requesting Duel"
 export const inLobby = `document.querySelector('[data-key="lobby-npcs"]')&&!document.querySelector('.de-duel-board')`;
 export const onDuel = `document.querySelectorAll('.de-field-card').length>0&&document.querySelector('.de-phase-bar')`;
 export const finished = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled)`;
-/** Opens a player's menu from their avatar (the context panel) and presses one of its actions. */
+/** Opens a player's card from their avatar (main's CPlayerListMenu) and presses one of its actions. */
 export async function playerMenu(page:Page,name:string,action:string) {
   await until(page,avatar(name),30000);
   await pressAvatar(page,avatar(name));
-  await until(page,`document.querySelector('.de-context')`,10000);
-  await press(page,`[...document.querySelectorAll('.de-context button')].find(b=>b.textContent===${JSON.stringify(action)}&&!b.disabled)`);
+  await until(page,cardButton(action),10000);
+  await press(page,cardButton(action));
 }
+/** The actions a player's card offers (its enabled buttons' labels), the card closed again. */
 export const menuActions = async (page:Page,name:string) => {
   await until(page,avatar(name),30000); await pressAvatar(page,avatar(name));
-  await until(page,`document.querySelector('.de-context')`,10000);
-  const actions = await page.ev(`[...document.querySelectorAll('.de-context button')].filter(b=>!b.disabled).map(b=>b.textContent)`) as string[];
-  await press(page,`[...document.querySelectorAll('.de-context button')].find(b=>b.textContent==='Close')`);
+  await until(page,cardOpen,10000);
+  const actions = await page.ev(`[...document.querySelectorAll('#htmlui-host [data-key^="card-"]')].filter(b=>!b.disabled).map(b=>b.textContent.trim())`) as string[];
+  await closeCard(page);
   return actions;
 };
 /** The visible message (a status line or error) a player reads, flattened. */

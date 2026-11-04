@@ -23,7 +23,7 @@ import { renderCosmeticsShop, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
-import type { MenuEntry, MenuView } from './htmlui/windows';
+import type { CardActions, MenuEntry, MenuView } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 export type * from './contracts';
 
@@ -76,7 +76,7 @@ interface LocalState {
   logScroll: number | null;
   tradeSearch: string;
   message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
-  target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
+  promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
   sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
 }
 /** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
@@ -90,7 +90,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
   let roomJoin: number | null = null, roomJoinPassword = '';
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -110,17 +110,24 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // main's wardrobe (its cosmetic-shop.js, the Main Menu's Appearance)
       ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => globalThis.dispatchEvent(new CustomEvent('yo2-cosmetics-open', { detail: { tab: 'wardrobe' } })) }] : []),
     ];
-    if (!state.socialDetail) return [];
-    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => send({ type: 'socialAction', action: { type, pid } });
-    return [
-      { label: 'Add Friend', key: 'friend', run: social('inviteFriend') },
-      { label: 'D-Mail', key: 'mail', run: () => { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } },
-      { label: 'Trade', key: 'trade', run: social('inviteTrade') },
-      { label: 'Team', key: 'team', run: social('inviteTeam') },
-      { label: 'Ignore', key: 'ignore', run: social('ignore') },
-    ];
+    return [];
   };
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, profileActions: profileActions() });
+  // another player's card: the rewrite's social and duel commands for that player
+  const cardActions = (): CardActions => {
+    const p = state.profileDetail, lobby = state.lobby; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return {};
+    const pid = p.selectedPid, avatar = lobby?.avatars.find(a => a.id === pid), name = p.summary?.name ?? p.details?.name ?? avatar?.name ?? '';
+    const close = () => send({ type: 'profileAction', action: { type: 'close' } });
+    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
+    const watchable = !!avatar?.duelling && !lobby?.rooms?.some(r => (r.owner === pid || r.opponent === pid) && r.watch === false);
+    return {
+      ...(!avatar?.duelling ? { duel: () => { close(); send({ type: 'duelChallenge', playerId: pid }); } } : {}),
+      ...(watchable ? { watch: () => { close(); send({ type: 'spectate', pid }); } } : {}),
+      ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), team: social('inviteTeam'), ignore: social('ignore'),
+        mail: () => { close(); send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } } : {}),
+      ...(name ? { whisper: () => { htmlUiState.chatDraft = `/w ${name} `; close(); } } : {}),
+    };
+  };
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }) });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
   // 12 Free Duel's lobby, 14 the shop)
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
@@ -344,14 +351,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const mapUrl = safeImageUrl(lobby.mapImage);
     if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    canvas.onclick = e => { if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
+    canvas.onclick = e => { const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
     canvas.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
       const d = delta[e.key]; if (!d) return; e.preventDefault(); send({ type: 'move', x: Math.max(0, Math.min(worldW, self.x + d[0])), y: Math.max(0, Math.min(worldH, self.y + d[1])) });
     };
     for (const avatar of lobby.avatars) {
-      const b = button('', () => { local.target = avatar.id; requestRender(); }, !lobby.connected);
+      const b = button('', () => send({ type: 'interact', playerId: avatar.id }), !lobby.connected);
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
@@ -359,8 +366,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     positionAvatars(lobby);
     showAvatarViews(lobby);
-    const target = lobby.avatars.find(a => a.id === local.target);
-    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => { local.target = null; send({ type: 'duelChallenge', playerId: target.id }); }, !!state.busy || !!target.self || !!target.duelling), ...(target.duelling && !target.self && !lobby.rooms?.some(r => (r.owner === target.id || r.opponent === target.id) && r.watch === false) ? [button('Watch', () => { local.target = null; send({ type: 'spectate', pid: target.id }); }, !!state.busy)] : []), button('Close', () => { local.target = null; requestRender(); })));
+    // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list
     // the chat is main's (src/ui/htmlui: CChatWindow)
     if (lobby.areas?.length || lobby.npcs?.length || lobby.rooms?.length || state.player) {
       const places = el('section', 'de-panel de-lobby-places de-stack');
@@ -1001,7 +1007,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (browserDisplay.state.active) return;
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
-    else if (local.target !== null) { local.target = null; requestRender(); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
     else if (local.inspected && (state.scene === 'duel' || state.scene === 'deck')) { e.preventDefault(); local.inspected = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');

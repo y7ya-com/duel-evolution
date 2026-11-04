@@ -81,7 +81,7 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
       await openRooms(c);
       expect(await c.ev(`Boolean(${inRow(names.a,'Watch')})`)).toBe(false);
       const cActions = await menuActions(c,names.a);
-      expect(cActions).not.toContain('Watch');
+      expect(cActions).not.toContain('Watch Duel');
       // Time limit on: both screens show the turn player's clock.
       const [ha,hb] = await settled(a,b);
       expect(mirrored(ha,hb)).toEqual([]);

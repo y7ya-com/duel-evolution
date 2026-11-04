@@ -19,7 +19,7 @@ describe.skipIf(!enabled)('UI skin tour',() => {
       await sleep(1500); await shot('03-starter');
       await claimStarter(page); await sleep(2500); await shot('04-lobby');
       const self = `document.querySelector('.de-avatar.self')`;
-      if (await page.ev(`Boolean(${self})`)) { await pressAvatar(page,self); await until(page,`document.querySelector('.de-context')`,5000).catch(() => {}); await sleep(300); await shot('05-player-menu'); await click(page,'Close'); }
+      if (await page.ev(`Boolean(${self})`)) { await pressAvatar(page,self); await until(page,byKey('profile-ok'),5000).catch(() => {}); await sleep(300); await shot('05-player-menu'); await click(page,'Close'); }
       await press(page,`document.querySelector('[data-key="lobby-duel-rooms"] summary')`); await sleep(300); await shot('06-duel-rooms');
       await page.ev(`document.querySelector('[data-key="lobby-duel-rooms"]').open=false`); await sleep(200);
       await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`); await sleep(300); await shot('07-npcs');

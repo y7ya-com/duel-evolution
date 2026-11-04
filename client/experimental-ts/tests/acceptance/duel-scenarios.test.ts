@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard } from './harness';
 
 /** Duel cases ordinary play rarely reaches (control changes, tokens, counters, shuffles, declarations, ritual and
  * discard selections, cancellation), forced with tiny decks: a deck of 6 is the whole opening hand plus the first draw,
@@ -134,10 +134,10 @@ const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avat
 async function startDuel(a:Page,b:Page,nameA:string) {
   for (let attempt = 0; ; attempt++) {
     try {
-      await until(b,avatar(nameA),30000); await pressAvatar(b,avatar(nameA)); await until(b,`document.querySelector('.de-context')`,10000);
-      await click(b,'Duel'); await click(a,'Accept Duel',15000);
+      await until(b,avatar(nameA),30000); await pressAvatar(b,avatar(nameA)); await until(b,cardButton('Send Duel Request'),10000);
+      await press(b,cardButton('Send Duel Request')); await click(a,'Accept Duel',15000);
       break;
-    } catch (error) { if (attempt >= 12) throw error; await press(b,`[...document.querySelectorAll('.de-context button')].find(b=>b.textContent==='Close')`).catch(() => {}); await sleep(5000); }
+    } catch (error) { if (attempt >= 12) throw error; await closeCard(b).catch(() => {}); await sleep(5000); }
   }
   await Promise.all([prepareDuel(a,'Rock'),prepareDuel(b,'Scissors')]);
   const refused = await a.ev(`document.body.innerText.includes('The server rejected this deck')`);

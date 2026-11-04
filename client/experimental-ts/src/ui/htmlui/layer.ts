@@ -11,13 +11,15 @@ import select from '@htmlui/screens/select.js';
 import chat from '@htmlui/screens/chat.js';
 import lobby from '@htmlui/screens/lobby.js';
 import social from '@htmlui/screens/social.js';
+import dialog from '@htmlui/screens/dialog.js';
+import duelsetup from '@htmlui/screens/duelsetup.js';
 import { applyPointer, hitTest } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
-const MODULES: HtmlUiScreen[] = [select, lobby, chat, social];
-const EXTRA: Record<string, HtmlUiScreen> = { CWindowModelInput1: social };
+const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, dialog, duelsetup];
+const EXTRA: Record<string, HtmlUiScreen> = {};
 // a window with no module: main's generic controls (bridge.js: syncWindow)
 const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(),
   update: (win, _prev, root, api, st) => api.syncWindow!(root, win, st as Map<number, unknown>),
@@ -64,7 +66,7 @@ export class HtmlUiLayer {
     for (const [cls, mod] of Object.entries(EXTRA)) byClass.set(cls, mod);
     const get = (cls: string) => { let s = this.screens.get(cls); if (!s) this.screens.set(cls, s = this.wrap(byClass.get(cls) ?? GENERIC)); return s; };
     this.api = {
-      click: (id: number) => { this.clicked = true; setTimeout(() => { this.clicked = false; }, 0); const h = this.handlers.get(id); if (h?.text || h?.enter) this.focus = id; h?.click?.(); return Promise.resolve(!!h); },
+      click: (id: number, point?: [number, number]) => { this.clicked = true; setTimeout(() => { this.clicked = false; }, 0); const h = this.handlers.get(id); if (h?.text || h?.enter) this.focus = id; h?.click?.(point); return Promise.resolve(!!h); },
       hover: (id: number) => { if (this.hover !== id) { this.hover = id; this.draw(); } return true; },
       key: () => {},
       char: (code: number) => { if (code === 13) this.handlers.get(this.focus)?.enter?.(); },

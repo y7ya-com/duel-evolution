@@ -20,8 +20,8 @@ export interface HtmlSnapshot { v: 1; frame: number; scene: number; mouse: null;
 
 /** What a control does in the rewrite: the api calls main's screens make, mapped to ClientApp commands. */
 export interface ControlHandlers {
-  /** api.click: a button, a tab, a row. */
-  click?(): void;
+  /** api.click: a button, a tab, a row (a list's row: the game point main's screen presses, its row's centre). */
+  click?(gamePoint?: [number, number]): void;
   /** api.setText: an input's value (every edit). */
   text?(value: string): void;
   /** api.char(13) while it has the focus: an input's Enter. */
