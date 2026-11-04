@@ -69,7 +69,8 @@ bool CPbinDictionary::getInfo(uint32_t pbin, PbinInfo* out) const {
 }
 
 // @yo2 0x00ad5ab0 CPbinDictionary::collect: the owned PBINs in [from, to] of one kind and slot, for one series
-// (common items, series 1, always match), appended to out; true if out is not empty afterwards
+// (common items, series 1, always match), appended to out; true if out is not empty afterwards. As the exe has it;
+// the live client (recomp/ovr/worldparts.c) lists clothes and disks by avatarValidate's rule there.
 bool CPbinDictionary::collect(const CPlayerBinData& owned, uint32_t from, uint32_t to, int32_t kind, int32_t slot,
                               int32_t series, PbinList* out) const {
     YO2_ASSERT(from <= 0x3ff, "GetPbinDetailInfo2() PBIN ERROR(A)");

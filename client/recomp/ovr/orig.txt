@@ -54,3 +54,7 @@
 00763470  # the duel field's plane set (fieldplane.c: an index past the plane loader's array becomes plane 0; crash #19)
 007d8840  # the plane loader's SecretLoad by index (fieldplane.c: the same bound)
 007d8e70  # the plane loader's plane by index (fieldplane.c: the same bound)
+00a58cc0  # avatarValidate (worldparts.c: the series test for clothes and disks; RC_WORLDPARTS=0)
+00ad5ab0  # CPbinDictionary::collect (worldparts.c: the appearance editor's list by the same rule; RC_WORLDPARTS=0)
+00afac40  # CShopAvatarWindow vf10, the avatar shop list (worldparts.c: clothes and disks by the same rule; RC_WORLDPARTS=0)
+008ae060  # CWindowDialogAvatarSwitch::refresh (worldparts.c: no LV gate on the rank uniforms when the server's bits are rank-authored; RC_WORLDPARTS=0)

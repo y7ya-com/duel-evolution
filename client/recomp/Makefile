@@ -71,6 +71,9 @@ $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c 
 fuzzy_test: $(B)/fuzzy_test
 $(B)/fuzzy_test: rt/fuzzy_test.c ovr/fuzzy.h | $(B)
 	$(CC) -O1 -Wall rt/fuzzy_test.c -o $@
+worldparts_test: $(B)/worldparts_test   # ovr/worldparts.c's world rule: build/worldparts_test [rows] (the file says how)
+$(B)/worldparts_test: rt/worldparts_test.c ovr/worldparts.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/worldparts_test.c -o $@
 d3d8_test: $(B)/d3d8_test   # crash #17: a texture that dies bound answers "gone" (ASan reports the use-after-free)
 $(B)/d3d8_test: rt/d3d8_test.cpp rt/d3d8.cpp ../platform/gfx/d3d8.cpp ../platform/com.h | $(B)
 	clang++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DSDL_MAIN_HANDLED $(SDL_CFLAGS) $(PLAT_INC) -I$(OUT) \

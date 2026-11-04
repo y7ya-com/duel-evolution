@@ -190,6 +190,39 @@ balance is pinned at 0x7fffffff after both handlers, so no gate trips whatever t
 DUELPASS entry (the only way into the DUELPASS windows, the only places the balance is shown) is hidden;
 `ovr/audiomenu.c`'s showEntry override does it, and arrange() closes the gap. `RC_DP=1` restores both.
 
+## Disks and outfits in either world
+
+`ovr/worldparts.c`: any duel disk, and the Academy outfits (0x7f and up, series 3), can be worn in both worlds; the
+Domino outfits (the QUALIFIER's Robe included) stay in Domino, as on the server (`avatarRowWorlds`). It overrides
+avatarValidate (0x00a58cc0: the check that reset the whole avatar, run by the chibi renderer, player select and the
+appearance editor), CPbinDictionary::collect (0x00ad5ab0: the appearance editor's part lists) and the avatar shop's list
+(CShopAvatarWindow vf10, 0x00afac40). Every other slot keeps the exe's series rule. Test: `make worldparts_test &&
+build/worldparts_test`. `RC_WORLDPARTS=0` restores the original.
+
+Rank uniforms and graduated students (`server/src/game/ranking.ts`, server/DESIGN.md) are enforced by the server,
+which knows every rating and LV. A rank uniform, once its school is reached, is kept for good; a graduated student
+(LV 20, `GRADUATION_LEVEL`) may wear any owned outfit in the Academy. So:
+- avatarValidate draws any outfit in either world: a graduated student's Domino outfit in the Academy is drawn, not
+  reset to the default on everyone else's screen. Every other slot keeps the exe's series rule, which is the
+  server's too.
+- The editor follows the server's 0x3114 bits. They clear the uniforms of a school never reached, and set two bits
+  that have no item (avatar_pbin kind 0):
+  - 1022 (rank-authored): the refresh override (CWindowDialogAvatarSwitch::refresh, 0x008ae060) makes the active
+    character's LV read 255 for that call, so the exe's LV gate (Ra Yellow at 10, Obelisk Blue at 20) removes
+    nothing.
+  - 1023 (graduated): collect lists every owned outfit in both worlds.
+- Without bit 1022 (an older server, a new character's starter bits) the LV gate stays.
+- The shop list keeps the world rule.
+
+`build/worldparts_test` part 6 checks that the drawing check never resets another player's lawful look: every
+combination of hair, accessory, outfit, disk and glasses rows the server lets anyone wear (a graduated student's, the
+widest), both sexes and both worlds, with the body features and colours cycling alongside, is drawn exactly as sent
+(382,800 looks with the real rows file).
+
+A client without this override still resets a graduated student's Domino outfit in the Academy to the default on its
+screen, and still gates by LV in its editor. The server accepts only what the rank and LV allow, so that client can
+show too little, never too much.
+
 ## Overrides (stage 3)
 
 Recompiled functions are weak symbols. A strong `f_XXXXXXXX` (an ABI shim reading the guest stack, calling the
