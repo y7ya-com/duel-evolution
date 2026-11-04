@@ -15,7 +15,7 @@ import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
 
-const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
+const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 
 // svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
