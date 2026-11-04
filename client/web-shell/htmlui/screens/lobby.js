@@ -77,13 +77,13 @@ const loadIcons = () => loading ||= (async () => {
 })();
 
 // The Main Menu's frame as drawn here: a row per shown ButtonMain, top to bottom as the engine places them (not the
-// controls' order: live, Return to Title came first), plus Appearance and Modern UI, so taller than the window, its
+// controls' order: live, Return to Title came first), plus Modern UI, so taller than the window, its
 // bottom where the window's is (kept above the menu bar); y from the window's top. Also the module's
 // occlusionBox: the bridge cuts its holes and places its pointer catcher where the frame is, not by the engine's rect
 // (live, the frame's bottom 13 px over the chat were outside that rect: a press there went to the chat's DOM)
 export function menuFrame(win) {
   const rows = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown).sort((a, b) => a.y - b.y);
-  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + 2) * pitch + 8;
+  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + 1) * pitch + 8;
   return { rows, h, pitch, height, y: Math.max(4, Math.min(736 - height, win.y + win.h - height)) - win.y };
 }
 export const menuBox = win => { const f = menuFrame(win); return { x: win.x, y: win.y + f.y, w: win.w, h: f.height }; };
@@ -96,8 +96,6 @@ function mainMenu(win, root, st, api) {
   const close = win.controls.find(c => c.cls === 'CWindowTaskIconHide');
   const { rows, h, pitch, height, y } = menuFrame(win);
   const entries = rows.map(c => ({ label: c.label, c }));
-  const profile = entries.findIndex(e => /profile/i.test(e.label || ''));
-  entries.splice(profile < 0 ? entries.length : profile + 1, 0, { label: 'Appearance', action: () => globalThis.dispatchEvent(new CustomEvent('yo2-cosmetics-open', { detail: { tab: 'wardrobe' } })) });
   entries.push({ label: 'Modern UI', action: () => globalThis.yo2Html?.modern(true) });
   const key = JSON.stringify([win.w, y, height, title, entries.map(e => [e.label, e.c?.id])]);
   if (st.key !== key) {
@@ -115,7 +113,7 @@ function mainMenu(win, root, st, api) {
   if (close) st.title.close.dataset.state = close.pressed ? 'pressed' : 'normal';
   entries.forEach((e, i) => {
     st.buttons[i].set({ state: e.c ? look(e.c) : 'normal' });
-    st.buttons[i].disabled = e.c ? e.c.state === 'disabled' : e.label === 'Appearance' && ![10, 11, 12, 14].includes(globalThis.yo2Html?.snapshot?.()?.scene);
+    st.buttons[i].disabled = e.c ? e.c.state === 'disabled' : false;
   });
 }
 

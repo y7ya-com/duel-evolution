@@ -1,12 +1,8 @@
-import { cosmeticShop } from './cosmetic-shop.js';
-import { setNativeAppearanceHeap } from './native-appearance.js';
 import { updateLiveChat } from './live-chat.js';
-import { updateCardRarityOverlay } from './card-rarity.js';
 import { tagLobby } from "./tag-lobby.js";
 import { tagRelayHud } from "./tag-relay.js";
 import { nativeHudInput, dispatchEnabledInput } from './modern-input.js';
 import { controlPoint } from './control-point.js';
-import { htmlDefaults, SHOP_CLASSES } from './shop-classes.js';
 import { passthroughIds } from './passthrough.js';
 import { clip, surfaceOrder, foregroundRects } from './occlusion.js';
 // The HTML UI bridge (CONTRACT.md): at every Present (Module.onYo2Frame, recomp/ovr/htmlui.c) read the game's window
@@ -56,6 +52,9 @@ export function switches(spec, defaults = []) {
   parts.forEach(p => s.delete(p.slice(1)));
   return c => s.has(c);
 }
+// the defaults: htmlui.json's "on", plus the Duel menu (screens/lobby.js draws its Tag Duel entry), which a hosted
+// htmlui.json older than Tag Duel doesn't list
+export const htmlDefaults = (defaults = {}) => [...new Set([...(defaults.on || []), 'CWindowModelDuel'])];
 
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
   pointer-events: none; z-index: 5; }
@@ -278,7 +277,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
 
   const relayHud = tagRelayHud(canvas);
   const tagSetup = tagLobby(canvas);
-  const cosmetics = cosmeticShop(canvas);
   let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null, curHid = false;
   // a scene load: from its "begin" to the first frame the engine presents after its "end" (lazyfs.js / loader.js:
   // assigning adds a listener)
@@ -372,13 +370,12 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
   };
   function frame(tables, heap) {
-    setNativeAppearanceHeap(heap);
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     nativeInput.restore();
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     updateLiveChat(snap, mu.active());
-    const want = c => SHOP_CLASSES.includes(c) && !mu.active() ? false : forced.has(c) ? forced.get(c) : SHOP_CLASSES.includes(c) ? on(c) : (mu.active() && mu.mods.has(c)) || on(c);
+    const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
@@ -388,13 +385,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
     const extraHide = [], extraPass = [];
-    // Hide only shop furniture: the store backdrop and characters stay native.
-    if (mu.active() && snap.scene === 14 && cosmetics.isOpen()) {
-      for (const task of snap.tasks.filter(task => SHOP_CLASSES.includes(task.cls))) {
-        owned.delete(task.id);
-        extraHide.push(...task.hideIds || []);
-      }
-    }
     const iso = isolate && snap.windows.find(w => w.cls === isolate);
     if (iso) {
       let r = iso.id;
@@ -428,10 +418,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
-    updateCardRarityOverlay(snap);
     mu.frame(snap, scene, wait);
     tagSetup.frame(snap, mu.active(), wait);
-    cosmetics.frame(snap, mu.active(), wait, api);
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];

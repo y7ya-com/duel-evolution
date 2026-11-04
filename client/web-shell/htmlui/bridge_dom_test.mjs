@@ -2,7 +2,7 @@
 // game, not to the owned window's DOM under it (htmlui-select: the find menu over the chat took no click). The chat
 // (owned) with the lobby's Main Menu (pass) over its left end, a stand-in #canvas recording what reaches it: a press
 // on the menu reaches the canvas; the chat elsewhere keeps its own; no catcher without an owned window under. The
-// menu's own buttons (screens/lobby.js: data-modern-owned, laid out with Appearance and Modern UI added, so not where the
+// menu's own buttons (screens/lobby.js: data-modern-owned, laid out with Modern UI added, so not where the
 // engine's are: live, the HTML Modern UI sat over the engine's Return to Title) take their press above the catcher and
 // click their control (api.click), the canvas sees no raw press. The catcher covers the menu's frame where it outgrows
 // the window (the module's occlusionBox), so a press there doesn't fall to the chat either.
@@ -42,20 +42,20 @@ const press = async (x, y) => {
 };
 const render = s => b.ev(`window.__render(${JSON.stringify(s)}), document.querySelectorAll('.htmlui-catch').length`);
 
-// the menu over the chat's left end (x 124..260, y 632..760 shared). screens/lobby.js draws it 124 high (Duel,
-// Appearance, Modern UI), its bottom at the bar (y 612..736), the buttons x 32..248: Duel y 644..668
+// the menu over the chat's left end (x 124..260, y 632..760 shared). screens/lobby.js draws it 96 high (Duel,
+// Modern UI), its bottom at the bar (y 640..736), the buttons x 32..248: Duel y 672..696
 assert.equal(await render(snap([chat, menu(20, 600)])), 1);
 const onMenu = await press(254, 690);   // the frame right of the buttons
 assert.equal(onMenu.hit, 'htmlui-catch', 'the menu takes the pointer where it is over the chat');
 assert.deepEqual(onMenu.got.filter(t => t !== 'mousemove'), ['mousedown', 'mouseup'], 'the press reaches the game');
-const logs = b.logs.length, onButton = await press(200, 656);
+const logs = b.logs.length, onButton = await press(200, 684);
 assert.equal(onButton.hit, 'yo2-mbtn', 'a menu button over the chat takes its own press');
 assert.deepEqual(onButton.got, [], 'the button, not the canvas under it, has the press');
 assert.ok(b.logs.slice(logs).some(l => /api\.click 13$/.test(l)), 'the button clicks its control: ' + b.logs.slice(logs));
 b.logs.length = logs;
-// a window 100 high (y 636..736) under a frame 124 high (612..736): over the chat, above the window's rect, the frame
-assert.equal(await render(snap([chat, menu(20, 636, 100)])), 1);
-const onFrame = await press(254, 634);
+// a window 80 high (y 656..736) under a frame 96 high (640..736): over the chat, above the window's rect, the frame
+assert.equal(await render(snap([chat, menu(20, 656, 80)])), 1);
+const onFrame = await press(254, 648);
 assert.equal(onFrame.hit, 'htmlui-catch', 'the catcher covers the frame above the window');
 assert.deepEqual(onFrame.got.filter(t => t !== 'mousemove'), ['mousedown', 'mouseup'], 'that press reaches the game too');
 await render(snap([chat, menu(20, 600)]));

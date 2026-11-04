@@ -3,7 +3,6 @@
 // from the controls' raw parts (screens/deck.js sets parts: true); this adds the state the HTML needs to know what
 // it shows (cards, counts, view, drag) and the true rects of windows that lay out outside their nominal one.
 import { APP } from '../read.js';
-import { rarityForInternalId, subscribeRarities } from '../card-rarity.js';
 
 // The card database for the modern deck editor (globalThis.yo2Deck), read from the exe's own tables, never a data file
 // in git. The yaneSDK CFile globals (src/duel/CardDB.cpp, DuelText.cpp: data at +0x18, a 4-byte header skipped when
@@ -40,7 +39,6 @@ function cardDb({ u8, u32, i32 }) {
       for (let i = 0, n = Math.min(u32(NLIMIT), 0x1000); i < n; i++) if (u32(LIMITS + 12 * i) === id) { limit = u8(LIMITS + 12 * i + 8); break; }
       c = { id, kid: w0 & 0x3fff, name: text(NAME, id), atk: stat((w0 >>> 14) & 0x1ff), def: stat(w0 >>> 23), kind: (w1 >>> 1) & 0x1f,
         attr: (w1 >>> 6) & 0xf, level: (w1 >>> 10) & 0xf, icon: (w1 >>> 14) & 7, race: (w1 >>> 17) & 0x1f, limit };
-      Object.defineProperty(c, 'rarity', { enumerable: true, get: () => rarityForInternalId(id) });
       cache.set(id, c);
       return c;
     },
@@ -65,7 +63,6 @@ function cardDb({ u8, u32, i32 }) {
     },
   };
   globalThis.yo2Deck = out;
-  subscribeRarities(() => out.v++);
   return out;
 }
 

@@ -39,7 +39,6 @@ import Pile from './modern/Pile.svelte';
 import { deck } from './deck/state.svelte.js';
 import { isArt, isSwf, inEditor } from './deck/art.js';
 import { quickInstall } from './deck/quick.js';
-import shopScreen from './modern/shop/screen.js';
 
 theme();
 
@@ -155,7 +154,7 @@ const informationRoster = {
   },
   unmount(root, st) { if (st.other) genericScreen.unmount(root, st.other); else unmount(st.roster.app); },
 };
-const screens = [chatScreen, shopScreen,
+const screens = [chatScreen,
   screen({ CWindowDeckList: Pile }, { mode: 'owned', clip: false, parts: true, passthrough: () => false }),
   // the hovered character's waist-up bust stays the engine's (as svelte/select.js)
   screen({ CWindowPlayerSelect: PlayerSelect }, { mode: 'owned', clip: false, passthrough: x => x.cls === 'CWaistUpAvatar' || x.cls === 'CElement' }),

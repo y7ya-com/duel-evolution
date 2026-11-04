@@ -66,10 +66,10 @@ steps.forEach((_, i) => assert.deepEqual(svelte[i], plain[i], 'step ' + i));
 const has = (i, s) => svelte[i].some(l => l.includes(s));
 assert.ok(has(0, 'Welcome') && has(0, 'Deck Edit') && has(0, 'hover') && !has(1, 'Deck Edit') && !has(1, 'Welcome') && has(1, 'Pier'));
 assert.ok(has(3, 'hover') && has(4, 'pressed') && !has(4, 'hover'));
-assert.ok(has(0, 'Appearance') && has(0, 'Modern UI') && has(5, 'Tag Duel') && has(5, 'Auto Duel'));
-// the Main Menu's rows top to bottom by the engine's y, then Appearance, then Modern UI last
-const order = svelte[0].map(l => [+l.split(',')[1], / (Duel|Deck Edit|Appearance|Modern UI) $/.exec(l)?.[1]]).filter(e => e[1]).sort((a, b) => a[0] - b[0]).map(e => e[1]);
-assert.deepEqual(order, ['Duel', 'Deck Edit', 'Appearance', 'Modern UI']);
+assert.ok(!has(0, 'Appearance') && has(0, 'Modern UI') && has(5, 'Tag Duel') && has(5, 'Auto Duel'));
+// the Main Menu's rows top to bottom by the engine's y, then Modern UI last
+const order = svelte[0].map(l => [+l.split(',')[1], / (Duel|Deck Edit|Modern UI) $/.exec(l)?.[1]]).filter(e => e[1]).sort((a, b) => a[0] - b[0]).map(e => e[1]);
+assert.deepEqual(order, ['Duel', 'Deck Edit', 'Modern UI']);
 assert.equal(svelte[6].length, 0);
 if (b.logs.length) console.log(b.logs.join('\n'));
 assert.ok(!b.logs.some(l => /error|svelte/i.test(l)), 'no page errors');
