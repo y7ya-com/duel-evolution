@@ -255,8 +255,17 @@ export const ROUTES = {
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
   // the lobby's chat: Chat Tester's My Room, the red door held with the right button (its room menu), Lobby, the NPC
   // popup's OK
+  // Free mode (ovr/freemode.c; owner: no chat out of the online world): the title's DECK EDITOR / FREE DUEL, Select
+  // Player, then the deck scene / the Free Duel lobby. --ui=CChatWindow for the legacy HTML chat, MODERN=1 for the Modern UI (on past
+  // Select Player, whose modern cards sit elsewhere)
+  'free-deck': { player: 'Free Tester', steps: [['scene', 4, 90000], ['wait', 8000],
+    ['leave', 512, 552, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ...(process.env.MODERN ? [['js', 'yo2Html.modern(true)']] : []), ['scene', 0x24, 90000], ['wait', 8000], ['snap', 'free-deck'],
+    ['shot', 'free-deck']], flip: [] },
+  'free-duel': { player: 'Free Tester', steps: [['scene', 4, 90000], ['wait', 8000],
+    ['leave', 512, 600, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 560, 342, 7], ...(process.env.MODERN ? [['js', 'yo2Html.modern(true)']] : []), ['window', 'CChatWindow', 90000], ['wait', 10000], ['snap', 'free-duel'],
+    ['shot', 'free-duel']], flip: [] },
   chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
-    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 214, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
     ['say', 636, 720, 'hello lobby'], ['say', 636, 720, 'a longer line to see how the log wraps a message that runs past the width of the chat window, then keeps going for a while'],
     ['wait', 2000]], flip: ['CChatWindow'],
@@ -367,6 +376,16 @@ export const ROUTES = {
   deck: { player: 'Deck Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['click', 140, 422],
     ['window', 'CWindowModelKaban', 90000], ['wait', 4000]], flip: ['CWindowModelDeck', 'CWindowModelKaban', 'CCardDetailViewDlg'] },
+  // the modern chat (svelte/modern/Chat.svelte): the chat route; the engine's △ pressed (its tall chat, as a legacy
+  // player may leave it); Modern UI on (it comes up open: ▽ △); two lines said; Hide (△ ▽); Enter (△) and the line
+  get 'modern-chat'() {
+    return { ...ROUTES.chat, flip: [], steps: [...ROUTES.chat.steps, ['click', 1013, 620], ['wait', 1500], ['snap', 'legacy-tall'],
+      ['shot', 'legacy-tall'], ['js', 'yo2Html.modern(true)'], ['wait', 10000], ['snap', 'open'], ['shot', 'open'],
+      ['say', 700, 714, 'hello from the modern chat'], ['say', 700, 714, 'a second line, grouped under the first'], ['wait', 2000],
+      ['snap', 'said'], ['shot', 'said'], ['js', "document.querySelector('.mu .hide').click()"], ['wait', 8000], ['snap', 'hidden'],
+      ['shot', 'hidden'], ['js', "document.activeElement?.blur(); document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))"],
+      ['wait', 8000], ['snap', 'shown'], ['shot', 'shown']] };
+  },
   // the modern deck editor (svelte/modern/deck/Editor.svelte): the deck route, then Modern UI on. DECK_ID=0 with
   // STACK_PROGRESSION=0 (stack.py): a character with every card and no starter, for a full trunk
   'modern-deck': { player: 'Modern Tester', deck: process.env.DECK_ID != null ? +process.env.DECK_ID : undefined, steps: [['scene', 4, 90000],

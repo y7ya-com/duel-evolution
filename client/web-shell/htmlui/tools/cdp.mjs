@@ -1,39 +1,36 @@
 // A headless Chrome for Testing over CDP, for the htmlui tools (mockshot.mjs, flip.mjs). No visible window; refuses
 // to start with under 25 % memory free (buildslot admits the whole run at 35 %) (the shared Mac's rule). CHROME=<binary> to pick another build.
 import { spawn, execSync } from 'node:child_process';
-import { rmSync, readdirSync, existsSync, readFileSync } from 'node:fs';
+import { rmSync, readdirSync, readFileSync } from 'node:fs';
+import { totalmem } from 'node:os';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;
-  const base = process.platform === 'darwin' ? process.env.HOME + '/Library/Caches/ms-playwright'
-    : (process.env.XDG_CACHE_HOME || process.env.HOME + '/.cache') + '/ms-playwright';
-  const dir = readdirSync(base).filter(d => d.startsWith('chromium-')).sort().pop();
-  const candidates = process.platform === 'darwin'
-    ? ['chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', 'chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing']
-    : ['chrome-linux64/chrome', 'chrome-linux/chrome'];
-  const binary = candidates.map(name => `${base}/${dir}/${name}`).find(existsSync);
-  if (!binary) throw new Error('No cached Chromium binary found; set CHROME to the installed browser.');
-  return binary;
+  const mac = process.platform === 'darwin';
+  const base = process.env.HOME + (mac ? '/Library/Caches/ms-playwright' : '/.cache/ms-playwright');
+  const dir = readdirSync(base).filter(d => /^chromium-\d/.test(d)).sort().pop();
+  return mac ? `${base}/${dir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+    : `${base}/${dir}/chrome-linux64/chrome`;
 }
+
+// the GPU: Metal on macOS; on Linux the Intel GPU through Vulkan (headless Chrome otherwise falls back to SwiftShader,
+// ~50x slower: 1 vs 54 frames/s measured here, its GPU process 90-150 % CPU). YO2_GPU_FLAGS='...' overrides
+const gpuFlags = () => process.env.YO2_GPU_FLAGS != null ? process.env.YO2_GPU_FLAGS.split(/\s+/).filter(Boolean)
+  : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'];
 
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
 export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false } = {}) {
-  let free = 100;
-  if (process.platform === 'darwin') free = +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
-  else if (process.platform === 'linux') {
-    const memory = readFileSync('/proc/meminfo', 'utf8'), value = key => +new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(memory)?.[1];
-    free = value('MemAvailable') / value('MemTotal') * 100;
-  }
-  if (free < 25) throw new Error(`only ${free}% memory free`);
+  const free = process.platform === 'darwin'   // Linux: MemAvailable (page cache counts as free, as memory_pressure's)
+    ? +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100)
+    : Math.round(+/MemAvailable:\s+(\d+)/.exec(readFileSync('/proc/meminfo', 'utf8'))[1] * 1024 / totalmem() * 100);
+  const min = +(process.env.CDP_MIN_FREE || 25);   // CDP_MIN_FREE=15: a big machine where 25 % is still gigabytes
+  if (free < min) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
   const profile = '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run',
-    ...(process.platform === 'darwin' ? ['--use-angle=metal'] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    // Linux: the GPU through Vulkan; the SwiftShader software fallback is ~50x slower (YO2_GPU_FLAGS overrides)
-    ...(process.env.YO2_GPU_FLAGS !== undefined ? process.env.YO2_GPU_FLAGS.split(/\s+/).filter(Boolean) : process.platform === 'linux' ? ['--use-angle=vulkan', '--enable-features=Vulkan'] : []), 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);

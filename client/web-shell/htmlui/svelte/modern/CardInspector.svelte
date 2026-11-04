@@ -1,7 +1,6 @@
 <script>
   import { picture } from './deck/pictures.js';
   import { typeLine, group } from './deck/editor.js';
-  import CardRarity from './CardRarity.svelte';
   let { view } = $props();
   const win = $derived(view.win);
   const cardId = $derived(win.card);
@@ -37,7 +36,7 @@
       {#if !collapsed}
         <div class="body">
           <img use:picture={shown.id} alt={shown.name} draggable="false" />
-          <h3>{shown.name} <CardRarity id={shown.id} /></h3><p class="kind">{typeLine(shown)}</p>
+          <h3>{shown.name}</h3><p class="kind">{typeLine(shown)}</p>
           {#if group(shown) === 'monster'}<p class="stats">ATK <b>{shown.atk < 0 ? '?' : shown.atk}</b> <span>DEF <b>{shown.def < 0 ? '?' : shown.def}</b></span></p>{/if}
           <div class="description mu-scroll">{text}</div>
         </div>

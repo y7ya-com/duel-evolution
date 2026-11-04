@@ -59,31 +59,45 @@ function shadowText(parent, c) {
 const top = c => !c.parent;
 const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 'pressed' : c.state === 'hover' ? 'hover' : 'normal';
 
-// CMainMenu: the frame (FrameMain, the window's size: skin.js panel with the bottom-thick band), the title bar with the
-// × (ShadowText, IconHide), an entry per shown ButtonMain (skin.js menuButton)
-function mainMenu(win, root, st) {
+// The Main Menu's frame as drawn here: a row per shown ButtonMain, top to bottom as the engine places them (not the
+// controls' order: live, Return to Title came first), plus Modern UI, so taller than the window, its
+// bottom where the window's is (kept above the menu bar); y from the window's top. Also the module's
+// occlusionBox: the bridge cuts its holes and places its pointer catcher where the frame is, not by the engine's rect
+// (live, the frame's bottom 13 px over the chat were outside that rect: a press there went to the chat's DOM)
+export function menuFrame(win) {
+  const rows = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown).sort((a, b) => a.y - b.y);
+  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + 1) * pitch + 8;
+  return { rows, h, pitch, height, y: Math.max(4, Math.min(736 - height, win.y + win.h - height)) - win.y };
+}
+export const menuBox = win => { const f = menuFrame(win); return { x: win.x, y: win.y + f.y, w: win.w, h: f.height }; };
+
+// CMainMenu: the frame (FrameMain: skin.js panel with the bottom-thick band, menuFrame), the title bar with the
+// × (ShadowText, IconHide), an entry per shown ButtonMain (skin.js menuButton). The buttons and the × take the pointer
+// (data-modern-owned): an entry's button is not where the engine's is, so it clicks its control (api.click)
+function mainMenu(win, root, st, api) {
   const title = win.controls.find(c => c.cls === 'CWindowTaskShadowText' && top(c))?.text ?? '';
   const close = win.controls.find(c => c.cls === 'CWindowTaskIconHide');
-  const key = [win.w, win.h, title].join();
+  const { rows, h, pitch, height, y } = menuFrame(win);
+  const entries = rows.map(c => ({ label: c.label, c }));
+  entries.push({ label: 'Modern UI', action: () => globalThis.yo2Html?.modern(true) });
+  const key = JSON.stringify([win.w, y, height, title, entries.map(e => [e.label, e.c?.id])]);
   if (st.key !== key) {
-    root.replaceChildren();
-    st.key = key;
-    st.panel = panel(root, { w: win.w, h: win.h, band: 6 });
+    root.replaceChildren(); st.key = key;
+    st.panel = panel(root, { y, w: win.w, h: height, band: 6 });
     st.title = titleBar(st.panel, { w: win.w, title, close: !!close });
-    st.buttons = new Map();
+    st.buttons = entries.map((e, i) => {
+      const b = menuButton(st.panel, { x: rows[0]?.x ?? 12, y: 32 + i * pitch, w: rows[0]?.w ?? win.w - 24, h, label: e.label });
+      b.style.pointerEvents = 'auto'; b.dataset.modernOwned = '';
+      b.onclick = () => e.c ? api.click(e.c.id) : e.action();
+      return b;
+    });
+    if (close) { st.title.close.style.pointerEvents = 'auto'; st.title.close.dataset.modernOwned = ''; st.title.close.onclick = () => api.click(close.id); }
   }
   if (close) st.title.close.dataset.state = close.pressed ? 'pressed' : 'normal';
-  const seen = new Set();
-  for (const c of win.controls) {
-    if (c.cls !== 'CWindowTaskButtonMain' || !c.shown) continue;
-    seen.add(c.id);
-    let b = st.buttons.get(c.id);
-    if (!b) { b = menuButton(st.panel, { x: c.x, y: c.y, w: c.w, h: c.h, label: c.label }); st.buttons.set(c.id, b); }
-    Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px' });
-    if (b.label !== c.label) { b.label = c.label; b.set({ label: c.label }); }
-    b.set({ state: look(c) });
-  }
-  for (const [id, b] of st.buttons) if (!seen.has(id)) { b.remove(); st.buttons.delete(id); }
+  entries.forEach((e, i) => {
+    st.buttons[i].set({ state: e.c ? look(e.c) : 'normal' });
+    st.buttons[i].disabled = e.c ? e.c.state === 'disabled' : false;
+  });
 }
 
 // CWindowModelPlace: the plate (FramePlace's size) and its four ShadowTexts
@@ -421,13 +435,14 @@ export default {
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, the Duel tab over the card
   parts: true,   // the cards' planes: their sprites' drawn colours
-  mount: (win) => { inject(); return { id: win.id }; },
+  mount: (win) => { inject(); return { id: win?.id }; },
+  occlusionBox: win => win.cls === 'CMainMenu' ? menuBox(win) : null,
   // what the engine keeps drawing: the cards' extras (flag, pictures), the bar's notice icons, with their subtrees
   passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),
   update(win, prev, root, api, st) {
     st.win = win;
     st.api = api;
-    DRAW[win.cls](win, root, st);
+    DRAW[win.cls](win, root, st, api);
   },
   unmount(root, st) { kept.delete(st?.id); bars.delete(st); root.replaceChildren(); },
 };

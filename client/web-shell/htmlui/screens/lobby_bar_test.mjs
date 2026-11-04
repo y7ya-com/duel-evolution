@@ -2,8 +2,10 @@
 // player without its buttons (Free Duel's lobby on
 // live: the page's art had no menuicon_02_c01, the bar showed empty, no way out). Headless (mock.html), the live
 // Free Duel bar (mock/menubar-free.json: Main Menu, Duel, Move):
-// - its art missing: the page draws nothing in the bar and every control of it passes to the game, which draws it;
-// - its art there: the page draws the three buttons and passes none.
+// - plain lobby.js: its plates are CSS and its pictograms hand-drawn until the atlas loads (lobby_icons.js glyph), so
+//   with the atlas missing or there it draws the three buttons and passes none;
+// - the Svelte group, its art missing: the page draws nothing in the bar and every control of it passes to the game,
+//   which draws it; its art there: the page draws the three buttons and passes none.
 //   npm run build && node client/web-shell/htmlui/screens/lobby_bar_test.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -23,7 +25,7 @@ const switches = win.controls.filter(c => c.cls === 'CWindowTaskPictureSwitch' &
 assert.equal(switches.length, 3);
 
 // each version: its page query, its module, its buttons' and strip's selectors
-const PLAIN = ['', '/htmlui/screens/lobby.js', '.lb-icon', '.lb-bar'], SVELTE = ['&svelte=lobby', '/htmlui/gen/lobby.js', '.icon', '.bar'];
+const PLAIN = ['', '/htmlui/screens/lobby.js', '.lb-icon', '.lb-bar', true], SVELTE = ['&svelte=lobby', '/htmlui/gen/lobby.js', '.icon', '.bar', false];
 async function bar(missing, [q, mod, icon, strip]) {
   // the bar's atlas missing from the art set: its image fails to load, as a 404 does
   await b.send('Page.enable');
@@ -44,9 +46,15 @@ async function bar(missing, [q, mod, icon, strip]) {
 
 for (const v of [PLAIN, SVELTE]) {
   const without = await bar(true, v);
-  assert.equal(without.icons, 0, v[0] + ' no art: no page buttons');
-  assert.equal(without.strip, 0, 'no art: no page strip over the game\'s buttons');
-  assert.deepEqual(without.pass.sort(), [...ids].sort(), 'no art: the whole bar is the game\'s');
+  if (v[4]) {
+    assert.equal(without.icons, 3, v[0] + ' no art: the page still draws the three buttons (CSS plates, drawn pictograms)');
+    assert.equal(without.strip, 1);
+    assert.deepEqual(without.pass, [], 'no art: nothing of the bar passes');
+  } else {
+    assert.equal(without.icons, 0, v[0] + ' no art: no page buttons');
+    assert.equal(without.strip, 0, 'no art: no page strip over the game\'s buttons');
+    assert.deepEqual(without.pass.sort(), [...ids].sort(), 'no art: the whole bar is the game\'s');
+  }
   const withArt = await bar(false, v);
   assert.equal(withArt.icons, 3, v[0] + ' the art there: the page draws the three buttons');
   assert.equal(withArt.strip, 1);

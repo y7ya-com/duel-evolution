@@ -5,7 +5,6 @@
   // is the snapshot's deck (CWindowTaskDeck grids, read/deck.js) and the trunk's counts (yo2Deck.trunk).
   import { deckCheck } from '../logic.js';
   import Icon from '../Icon.svelte';
-  import CardRarity from '../CardRarity.svelte';
   import GameButton from '../game/GameButton.svelte';
   import GamePanel from '../game/GamePanel.svelte';
   import GameTabs from '../game/GameTabs.svelte';
@@ -330,7 +329,7 @@
   <GamePanel title="Card" class="preview" role="region"><div class="body">
     {#if shown}
       <div class="big">{@render face(shown.id)}</div>
-      <h2 class="preview-name">{shown.name} <CardRarity id={shown.id} /></h2>
+      <h2 class="preview-name">{shown.name}</h2>
       <p class="kind">
         {#if group(shown) === 'monster'}<span>{attrName(shown)}</span><span class="stars" aria-label="Level {shown.level}">Level {shown.level}</span><span>{raceName(shown)}</span>{/if}
         <span>{typeLine(shown)}</span>
@@ -370,7 +369,6 @@
               oncontextmenu={e => { e.preventDefault(); e.shiftKey ? swap(id, key) : take(id, key); }}
               onkeydown={e => deckKey(e, id, key)}>
               {@render face(id)}
-              <span class="card-rarity"><CardRarity {id} /></span>
             </button>
           {:else}
             <p class="none">{key === 'main' ? 'Add 40 to 60 cards from the trunk.' : key === 'extra' ? 'Fusion monsters go here.' : 'Up to 15 cards to switch in between duels.'}</p>
@@ -438,7 +436,6 @@
             oncontextmenu={e => { e.preventDefault(); put(c, e.shiftKey && !isFusion(c) ? 'side' : home(c)); }}
             onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
-            <span class="card-rarity"><CardRarity id={c.id} /></span>
             {#if tc.owned}<span class="n" class:out={tc.out}>×{tc.n}</span>{/if}
             {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
           </button>
@@ -459,7 +456,6 @@
 </div>
 
 <style>
-  .card-rarity { position: absolute; top: 2px; left: 2px; z-index: 2; line-height: 0; pointer-events: none; }
   .deck-sort { width: 114px; height: 28px; font-size: 11px; }
   :global(html.mu-deck-driving .win:is([data-cls=CWindowModelFileList], [data-cls=CWindowModelDialogYesNo])) { visibility: hidden !important; }
   .ed { position: absolute; width: 1024px; height: 736px; overflow: hidden; pointer-events: auto;

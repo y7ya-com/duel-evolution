@@ -327,10 +327,6 @@ modern-ui-coverage.md in the coordinator's notes.
   - Seen live: Duel Log. (Options and Duel Options have their own screens now.)
 - **Never drawn:** CWindowLogin (the 2008 ID / password form must never show), base classes, CDeckCardLoader (no
   controls), CWindowTaskCardArea (trade's drag stays the engine's), CWindowModelTitleConfig.
-- **Shop:** `modern/shop/` wraps the dedicated Legacy HTML renderer with blue/gold game furniture and unobtrusive
-  department/product labels. Native layout, mouse hit regions, Back/Purchase/Exit, selection, paging and confirmation
-  remain the game's own in pass mode. The clerk, player and real pictures remain visible. There is no separate
-  storefront, marketing hero, inferred button routing or second cart. Native foreground dialogs retain their holes.
 - **Still native:** the duel field itself (not windows), Audio settings (its own page, web/audiopage.js).
 - **The title menu's places:** taken from the engine's layout (modern.js TITLE). If the title scene's buttons move,
   update them there.

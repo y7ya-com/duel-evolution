@@ -156,7 +156,7 @@ def snapshot():
         shutil.copytree(os.path.join(src, x), os.path.join(snap, x))
     for x in ("wrangler.jsonc", "package.json", "tsconfig.json"):
         shutil.copy(os.path.join(src, x), snap)
-    for x in ("node_modules", "gamedata", "migrations"):
+    for x in ("node_modules", "gamedata", "migrations", "data"):
         if os.path.exists(os.path.join(SERVER, x)):
             os.symlink(os.path.join(SERVER, x), os.path.join(snap, x))
     return snap

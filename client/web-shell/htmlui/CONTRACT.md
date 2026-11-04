@@ -121,9 +121,8 @@ from `unknown` controls by `name` and geometry.
 Ids are numbers (guest addresses). Strings are already UTF-16 decoded. Every coordinate is in game pixels; the
 bridge scales the whole layer (`--s` CSS variable = canvas CSS px / 1024), so screens lay out at 1x.
 
-The shop's `CShop*` task classes are enabled by the bridge's shipped defaults even when an older hosted `htmlui.json`
-does not list them. `HTML_UI=0`, an explicit class selection/exclusion, or `"shop": false` in that configuration can
-disable them. Native shop input uses drawn control world positions; a task's children can have different element parents.
+The Duel menu (`CWindowModelDuel`, with Tag Duel) is in the bridge's defaults even when an older hosted `htmlui.json`
+does not list it; `HTML_UI=0` or an explicit class selection/exclusion still turns it off.
 
 ## Screen module
 

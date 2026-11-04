@@ -8,20 +8,11 @@
 
 <script>
   import Icon from './Icon.svelte';
-  import { openCosmetics } from '../../cosmetic-shop.js';
   let { view } = $props();
   const win = $derived(view.win);
   const close = $derived(win.controls.find(c => c.cls === 'CWindowTaskIconHide'));
   const title = $derived(win.controls.find(c => c.cls === 'CWindowTaskShadowText' && !c.parent)?.text || 'Main Menu');
-  const list = $derived.by(() => {
-    const groups = menuGroups(win);
-    if (!groups.some(([name]) => name === 'You')) {
-      const before = groups.findIndex(([name]) => name === 'Social' || name === 'System');
-      groups.splice(before < 0 ? groups.length : before, 0, ['You', []]);
-    }
-    return groups;
-  });
-  const appearanceAvailable = () => [10, 11, 12, 14].includes(window.yo2Html?.snapshot?.()?.scene);
+  const list = $derived(menuGroups(win));
   const click = c => c && c.state !== 'disabled' && view.api.click(c.id);
   const modern = () => window.yo2Html?.modern(false);
   let panel;
@@ -54,9 +45,6 @@
                 <span>{nice(b.label)}</span>
               </button>
             {/each}
-            {#if name === 'You'}
-              <button type="button" class="mu-btn tile" disabled={!appearanceAvailable()} onclick={() => openCosmetics('wardrobe')}><Icon name="profile" /><span>Appearance</span></button>
-            {/if}
             {#if name === 'System'}
               <label class="mu-btn tile switch" title="Turn Legacy UI on: the original 2008 interface comes back at once">
                 <Icon name="sparkle" />
