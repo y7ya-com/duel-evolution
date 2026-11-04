@@ -47,10 +47,9 @@ D1 (drizzle): accounts, characters, cards, decks, …  ◀── WorldDO and Mat
   Node. *Changed from the first draft*: no MatchDO per duel. One shared engine needs less memory than one wasm
   instance and one script pack per Durable Object. We can split duels out later if one DO's CPU ever becomes the
   bottleneck.
-- **The NPC AI** (`src/duel/ai`) is Duel Evolution's own NPC player and the code's default one (the deployed Workers
-  still set `NPC_AI=py` in wrangler.jsonc until the owner switches): a heuristic player with
-  per-card rules (generic staples, rules from the card-text tags, an empty per-NPC map for tuning). It has three tiers
-  by the NPC's level in `npc_profiles.json` (1-3 easy, with occasional random lines; 4-6 hard; 7-9 elite), which
+- **The NPC AI** (`src/duel/ai`) is Duel Evolution's own NPC player and the deployed default (`NPC_AI=ai`): a heuristic player with
+  per-card rules (generic staples, rules from the card-text tags, per-NPC plans for the fusion and Destiny HERO decks). It has three tiers
+  by the NPC's level in `npc_profiles.json` (1-3 easy, with occasional main-phase random lines; 4-6 hard; 7-9 elite), which
   `TIER_BY_NPC` can override. The elite tier adds lookahead: it forks the duel (a new duel in the same `DuelCore` with
   the same seed, replaying the recorded commands) and scores each candidate line with a short rollout, within a CPU
   budget per decision. Play is honest by default: the AI uses only the select's `view`, and the elite's rollouts stop
@@ -146,6 +145,14 @@ INTENTIONAL):
   win 250 / loss 100, +300 for the day's first win, nothing for a PvP duel under 3 turns and 2 minutes, at most 5
   rewarded duels a day against the same account, and 25% after 40 rewarded duels a day. Each reward and purchase is
   an `[economia]` log line with the day's totals. Parity runs keep it off.
+- **Starting MP is soulbound.** New-character and progression-reset grants track their promotional balance in
+  `p.mp_wallet`; `rec.mp` remains the native protocol's total. The shop spends bound MP first. Any pack, deck or
+  single-card unit paid partly with bound MP gives soulbound cards; earned-MP purchases stay tradeable. Ordinary
+  accessories consume either balance; cosmetic boxes consume earned MP only. Cart rows are combined before allocation, and an unaffordable
+  cart changes neither balance nor inventory. `GET /api/de/wallet` exposes total/bound/earned to the shop UI.
+  Existing `mp_bound` balances migrate idempotently into the wallet, including archived characters.
+  The ledger persists in D1 `state_extras` without a schema migration. Existing balances with no provenance ledger
+  are grandfathered as unbound: daily economy totals cannot reliably separate earlier grants from earned savings.
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with
@@ -178,9 +185,32 @@ INTENTIONAL):
   0x5205, and the client gets them with the next 0x3114. A prize with nothing left to show is no present (no 0x4237).
   `test/npc-rewards.test.ts` walks every NPC's prizes. No parity scenario reaches an NPC prize, so `parity/run.py`
   needs no mask.
-- **NPC outfit prizes ignore gender.** Completing a famous NPC's chain gives every outfit variant (both of a boy/girl
-  pair, or the only one), not just the player's own as py did. The client stores both, and the avatar editor lists
-  the other gender's after switching gender (`persist.ts` `presentClothes`, test/npc-rewards.test.ts).
+- **Cosmetics come from boxes and player trades.** Outfit, Duel Disk and Hair Boxes cost 1500, 1000 and 500 earned
+  MP. Starter MP cannot fund them. Outfits/disks have Common/Rare/Super/Ultra odds of 60/30/8/2%; hair uses
+  60/30/10/0%. A Super-or-better arrives within ten openings; outfits/disks guarantee an Ultra within twenty.
+  The UI discloses base and next-opening odds, including each item's probability. Server-side cryptographic rolls,
+  per-account pity, monotonic opening tokens and persisted receipts prevent rerolls or duplicate payment on retries.
+  The account wardrobe keeps its first unlock permanently; later copies can be traded through escrow with explicit
+  recipient acceptance. Native PBIN ownership migrates without manufacturing tradable copies. Design families use
+  verified native artwork identities, so all real body variants share ownership. New Outfit Box drops require both
+  male and female artwork; school uniforms and one-body costumes stay outside the paid pool. Yugi/Téa also stay
+  out: sharing an internal artwork index does not establish matching-body versions of the same named costume.
+  Existing owners keep their items. Native wear-location restrictions remain enforced: the shop discloses each
+  reward's supported world and the next opening's chance of a style wearable in the current world before payment.
+  NPC chains retain card, title, recipe and other non-outfit rewards; future outfit rewards are retired.
+- **The HTML shop uses authenticated game APIs.** `/api/de/shop` lists the native catalogue and buys through the
+  same validated purchase path, with persisted retry tokens. `/api/de/cosmetics` handles boxes, wardrobe, appearance
+  and duplicate trades. The Worker verifies the session and mutation Origin; the WorldDO serializes mutations and
+  waits for D1 before acknowledging purchases. Appearance edits update both server world looks and native client
+  caches. The menu provides Appearance and Cosmetic Boxes shortcuts in both UI modes.
+- **Chat is server-wide.** Global and Trade work in rooms and across lobby areas. Whisper and Team recipients are
+  enforced server-side, including ignores and account restrictions. Proximity chat is removed. The HTML chat uses
+  a bounded in-memory stream and adds short-lived public speech bubbles anchored to actual character name labels;
+  private channels never produce public bubbles. It does not persist or write chat polling to D1.
+- **Cards have a visible trading rarity.** `/api/de/card-rarities` supplies N/R/SR/UR design classifications seeded
+  from the owner's DuelForge catalogue, with explicit source/version metadata in `data/card-rarities.json`.
+  These labels are not historical printing grades and do not alter pack drop probabilities. Tokens and unknown
+  cards remain unclassified. Collection, deck, detail and trade views map native IDs and passcodes explicitly.
 
 ## Not ported
 

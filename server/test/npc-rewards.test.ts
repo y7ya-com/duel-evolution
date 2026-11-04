@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import * as PP from "../src/game/persist.ts";
 import { lobbyAfterDuelMsgs, M_CARDPACKLIST, M_NPCPRESENT, RESULT_LOSE, RESULT_WIN } from "../src/duel/duelfin.ts";
-import { CARD_PACKS } from "../src/duel/npcRules.ts";
+import { CARD_PACKS, MID_AVATAR_BITS } from "../src/duel/npcRules.ts";
 import { loadNpcs } from "../src/game/npcs.ts";
 import LD from "../gamedata/lobby.json";
 import SD from "../gamedata/shop.json";
@@ -93,11 +93,56 @@ describe("NPC rewards: every possible gift maps to a real card or item", () => {
         duel(RESULT_LOSE, 25);
       }
       expect(bad).toEqual([]);
-      // the walk reached the prizes: Yugi's 5-win card, his friendship title, the girl/boy present clothes, a recipe
-      expect([`c${pc(365)}`, "b160", "b121", "b374", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
-      // every outfit variant of every famous NPC, boy and girl alike, whatever this player's gender
+      // The walk still reaches cards, friendship titles and recipes; costumes now belong to boxes.
+      expect([`c${pc(365)}`, "b160", `b${PP.NPC_PRIZE_BITS["51"].comp_got}`].filter((k) => !given.has(k))).toEqual([]);
+      // Named costumes moved to Outfit Boxes. Existing owned cosmetics are never removed.
       const outfits = Object.values(PP.PRESENT_CLOTHES).flat().filter((b) => b !== null).map((b) => `b${b}`);
-      expect(outfits.filter((k) => !given.has(k))).toEqual([]);
+      expect(outfits.filter((k) => given.has(k))).toEqual([]);
     });
   }
+});
+
+describe("original NPC five-win cosmetics", () => {
+  it("uses the exact client item rows verified against yo2text_e.bin/.idx", () => {
+    const items: [number, number, number][] = [
+      [7, 1, 3264], // Quiff Lv1
+      [10, 1, 3267], [261, 1, 3267], // Afro Lv1, both genders
+      [80, 9, 3402], [336, 9, 3402], // Sunglasses
+      [116, 6, 3314], [117, 6, 3315], // Tracksuit: Red / Green
+      [119, 6, 3317], [372, 6, 3317], // Black Suit
+      [369, 6, 3381], // Punk: Red
+    ];
+    expect([...new Set(Object.values(MID_AVATAR_BITS).flat())].sort((a, b) => a - b))
+      .toEqual(items.map(([bit]) => bit).sort((a, b) => a - b));
+    for (const [bit, slot, text] of items) {
+      expect(ROWS[String(bit)].slice(3, 5)).toEqual([slot, text]);
+      expect(badBit(bit)).toBeNull();
+    }
+  });
+
+  it.each(Object.entries(MID_AVATAR_BITS))("NPC %s grants its cosmetic once at five wins", (nid, bits) => {
+    const g = harness().game, p = PP.blankProfile("cosmetics");
+    const eligible = bits.filter((bit) => ROWS[String(bit)][3] !== 6);
+    for (let i = 0; i < 4; i++) lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
+    expect(bits.some((bit) => PP.pbinTest(p, bit))).toBe(false);
+    lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
+    expect(eligible.every((bit) => PP.pbinTest(p, bit))).toBe(true);
+    expect(bits.filter((bit) => !eligible.includes(bit)).some((bit) => PP.pbinTest(p, bit))).toBe(false);
+    const [earned, cards] = itemget(PP.onItemget(g, p, 3, 0));
+    expect(eligible.every((bit) => earned.includes(bit))).toBe(true);
+    expect(cards.length).toBeGreaterThan(0);
+    lobbyAfterDuelMsgs(g, p, +nid, RESULT_WIN);
+    expect(itemget(PP.onItemget(g, p, 3, 0))[0]).toEqual([]);
+  });
+
+  it("does not catch up retired outfit prizes and keeps already owned outfits", () => {
+    const g = harness().game, p = PP.blankProfile("catchup");
+    PP.npcbinSet(p, 21, [20, 0, 0, 21]);
+    lobbyAfterDuelMsgs(g, p, 21, RESULT_LOSE);
+    expect(itemget(PP.onItemget(g, p, 3, 0))[0]).not.toContain(117);
+    PP.pbinSet(p, 117);
+    lobbyAfterDuelMsgs(g, p, 21, RESULT_LOSE);
+    expect(itemget(PP.onItemget(g, p, 3, 0))[0]).toEqual([]);
+    expect(PP.pbinTest(p, 117)).toBe(true);
+  });
 });

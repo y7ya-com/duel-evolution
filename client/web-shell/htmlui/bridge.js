@@ -1,3 +1,14 @@
+import { cosmeticShop } from './cosmetic-shop.js';
+import { setNativeAppearanceHeap } from './native-appearance.js';
+import { updateLiveChat } from './live-chat.js';
+import { updateCardRarityOverlay } from './card-rarity.js';
+import { tagLobby } from "./tag-lobby.js";
+import { tagRelayHud } from "./tag-relay.js";
+import { nativeHudInput, dispatchEnabledInput } from './modern-input.js';
+import { controlPoint } from './control-point.js';
+import { htmlDefaults, SHOP_CLASSES } from './shop-classes.js';
+import { passthroughIds } from './passthrough.js';
+import { clip, surfaceOrder, foregroundRects } from './occlusion.js';
 // The HTML UI bridge (CONTRACT.md): at every Present (Module.onYo2Frame, recomp/ovr/htmlui.c) read the game's window
 // tree (read.js), draw the windows it owns in a DOM layer over the canvas (screens/*.js, else controls/basic.js), and
 // tell the game not to draw them (the hide/pass tables htmlui.c reads in CElement::onMain).
@@ -84,31 +95,38 @@ export async function makeLayer(host, screens, art = 'ui/') {
   // root (the mount target) and gives up once the event is stopped, so a stop on the root starved every handler above
   // the focused element (htmlui-select: Esc on a plate <section> never ran)
   for (const t of ['keydown', 'keyup', 'keypress']) layer.addEventListener(t, ev => ev.stopPropagation());
+  // Modern DOM widgets forward deliberate native actions through api; their original
+  // bubbling mouse events must not also reach SDL's window listeners.
+  for (const t of ['mousedown', 'mouseup', 'mousemove', 'dblclick', 'contextmenu', 'wheel']) layer.addEventListener(t, ev => {
+    if (ev.target.closest?.('[data-modern-owned]')) ev.stopPropagation();
+  });
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
     const seen = new Set(), under = [];   // under: where owned-mode roots behind the current window take the pointer
     // windows back to front as the engine draws them (drawOrder), then claimed non-window tasks (the shop). Each root is
     // one stacking context (.win isolation): nothing a screen stacks inside its window (chat.js's z-indexed layers)
     // reaches above another window
-    for (const w of [...drawOrder(snap.windows), ...snap.tasks || []]) {
+    for (const w of surfaceOrder(snap, drawOrder)) {
       if (!owned.has(w.id)) continue;
       seen.add(w.id);
       let e = live.get(w.id);
-      const mod = screens.get(w.cls);
+      const mod = screens.get(w.cls), viewKey = mod?.viewKey?.(w, snap);
       // the address was reused, or another screen took the class (Modern UI switched)
-      if (e && (e.cls !== w.cls || e.mod !== mod)) { unmount(w.id); e = null; }
+      if (e && (e.cls !== w.cls || e.mod !== mod || e.viewKey !== viewKey)) { unmount(w.id); e = null; }
       if (!e) {
         const root = document.createElement('div');
         root.className = 'win';
-        e = { root, mod, cls: w.cls, json: '' };
+        root.dataset.windowClass = w.cls;
+        root.dataset.windowId = String(w.id);
+        e = { root, mod, cls: w.cls, viewKey, json: '' };
         live.set(w.id, e);
       }
       if (layer.children[seen.size - 1] !== e.root) layer.insertBefore(e.root, layer.children[seen.size - 1] || null);   // DOM order = draw order
       Object.assign(e.root.style, {
         left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', opacity: w.alpha ?? 1,
-        visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.mode === 'owned' ? 'auto' : 'none',
+        visibility: w.shown ? '' : 'hidden', pointerEvents: mod?.rootInput ?? (mod?.mode === 'owned' ? 'auto' : 'none'),
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
-        clipPath: holes(w, snap.windows, owned),
+        clipPath: holes(w, snap.windows, owned, mod?.occlusionBox?.(w, snap) || w),
       });
       // A pass window takes no pointer, so over an owned HTML window a click on it went to that window's DOM, not the
       // game (htmlui-select: "Display by name" in the find menu over the chat did nothing). Over one, a catcher under
@@ -188,32 +206,8 @@ const ahead = (o, j, w, i) => o.z !== w.z ? o.z > w.z : o.wz && w.wz && o.wz !==
 export function drawOrder(wins) {
   return wins.map((w, i) => [w, i]).sort(([a, i], [b, j]) => ahead(a, i, b, j) ? 1 : ahead(b, j, a, i) ? -1 : 0).map(([w]) => w);
 }
-function holes(w, wins, owned) {
-  const i = wins.indexOf(w);
-  const front = wins.filter((o, j) => o !== w && o.shown && !owned.has(o.id) && ahead(o, j, w, i))
-    .map(o => o.drawn === undefined ? o : o.drawn).filter(o => o &&
-      o.x < w.x + w.w && o.x + o.w > w.x && o.y < w.y + w.h && o.y + o.h > w.y);
-  return clip(front, w);
-}
-
-// A clip-path for box (its own coordinates from box.x, box.y) with holes where rects lie (game px). Overlapping rects
-// are merged first (into their bounding box, until none overlap): under evenodd two overlapping holes cancel.
-function clip(rects, box) {
-  const rs = rects.map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
-  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  for (let merged = true; merged;) {
-    merged = false;
-    for (let i = 0; i < rs.length && !merged; i++) for (let j = i + 1; j < rs.length; j++) if (hit(rs[i], rs[j])) {
-      const a = rs[i], b = rs.splice(j, 1)[0], x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-      rs[i] = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
-      merged = true;
-      break;
-    }
-  }
-  const inside = rs.filter(o => hit(o, box));
-  if (!inside.length) return '';
-  const r = o => `M${o.x - box.x} ${o.y - box.y}h${o.w}v${o.h}h${-o.w}z`;
-  return `path(evenodd, "M0 0h${box.w}v${box.h}h${-box.w}z${inside.map(r).join('')}")`;
+function holes(w, wins, owned, box = w) {
+  return clip(foregroundRects(w, wins, owned, box, ahead), box, w);
 }
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
@@ -221,7 +215,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle)
   const bd = canvas ? backdrop(canvas) : null;
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
-  let on = switches(spec, defaults.on || []);
+  let on = switches(spec, htmlDefaults(defaults));
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
   let barsOn = defaults.scrollbars !== false && new URLSearchParams(location.search).get('HTML_SCROLL') !== '0';
   const forced = new Map();   // yo2Html.toggle overrides
@@ -279,13 +273,17 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
   place();
+  if (mu.on()) { await mu.ready(); await init(); }
 
+  const relayHud = tagRelayHud(canvas);
+  const tagSetup = tagLobby(canvas);
+  const cosmetics = cosmeticShop(canvas);
   let scene = 0, frameNo = 0, dv = null, H32 = null, last = null, wantParts = new Set(), isolate = null, curHid = false;
   // a scene load: from its "begin" to the first frame the engine presents after its "end" (lazyfs.js / loader.js:
   // assigning adds a listener)
   let switching = false, endFrame = 0;
   Module.onYo2Scene = (kind, from, to) => {
-    scene = to; switching = kind === 'begin';
+    scene = to; relayHud.scene(to); switching = kind === 'begin';
     if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
   };
 
@@ -295,14 +293,15 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const queue = [], waiters = [];
   const frames = n => new Promise(r => waiters.push([frameNo + n, r]));
   const at = id => {   // a control's centre in client pixels
-    for (const w of last?.windows || []) for (const c of w.controls) if (c.id === id) {
-      const r = canvas.getBoundingClientRect(), k = r.width / 1024;
-      return [r.left + (w.x + c.x + c.w / 2) * k, r.top + (w.y + c.y + c.h / 2) * k];
-    }
-    return null;
+    const p = controlPoint(last, id);
+    if (!p) return null;
+    const r = canvas.getBoundingClientRect(), k = r.width / 1024;
+    return [r.left + p[0] * k, r.top + p[1] * k];
   };
   const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
     { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
+  const nativeInput = nativeHudInput();
+  mu.onChange(enabled => { if (!enabled) nativeInput.restore(); });
   const api = {
     // gp: a game point [x, y] inside the control to click instead of its centre (a list's row)
     async click(id, gp) {
@@ -310,9 +309,13 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       if (!p) return false;
       // one game frame between each (the game drops a press in the same frame as its move, and a release in the same
       // frame as its press); two each cost 4 frames, about 130 ms at 30 fps, on every modern button
-      fire('mousemove', p); await frames(1);
-      fire('mousedown', p); await frames(1);
-      fire('mouseup', p); return true;
+      const done = nativeInput.allow(id);
+      try { fire('mousemove', p); await frames(1); fire('mousedown', p); await frames(1); fire('mouseup', p); await frames(1); return true; } finally { done(); }
+    },
+    hoverAt(gp) { const r = canvas.getBoundingClientRect(), k = r.width / 1024; fire('mousemove', [r.left + gp[0] * k, r.top + gp[1] * k]); },
+    async rightClick(gp) {
+      const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = [r.left + gp[0] * k, r.top + gp[1] * k];
+      fire('mousemove', p); await frames(1); fire('mousedown', p, { button: 2, buttons: 2 }); await frames(1); fire('mouseup', p, { button: 2, buttons: 0 });
     },
     hover(id) { const p = at(id); if (p) fire('mousemove', p); return !!p; },
     // gp: a game point [x, y] to aim at instead of the control's centre (a list whose rect reads 0 x 0, the trunk), with a
@@ -325,7 +328,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       return true;
     },
     key(vk, down = true) { queue.push([1, down ? 0x100 : 0x101, vk, 0]); },   // WM_KEYDOWN / WM_KEYUP
-    char(code) { queue.push([1, 0x102, code, 0]); },                         // WM_CHAR
+    char(code, id = last?.focus) {
+      return dispatchEnabledInput(nativeInput, id,
+        () => new Promise(flushed => queue.push([1, 0x102, code, 0, flushed])), () => frames(1));
+    },                                                                  // WM_CHAR
     setText(id, s) { queue.push([2, id, String(s)]); },
     // an engine scroll bar's value (its setValue: the window is told); its vtable rides along: htmlui.c skips a bar
     // freed since this snapshot
@@ -339,13 +345,13 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     const T = new Uint16Array(H.buffer, (t + QBASE + 1 + 4 * QN) * 4, TEXT);
     let n = 0, used = 0;
     while (queue.length && n < QN) {
-      const [kind, a, b, c] = queue[0], o = t + QBASE + 1 + 4 * n;
+      const [kind, a, b, c, flushed] = queue[0], o = t + QBASE + 1 + 4 * n;
       if (kind === 2) {
         if (used + b.length > TEXT) break;
         for (let i = 0; i < b.length; i++) T[used + i] = b.charCodeAt(i);
         H[o] = 2; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
       } else { H[o] = kind; H[o + 1] = a; H[o + 2] = b; H[o + 3] = c; }
-      queue.shift(); n++;
+      queue.shift(); flushed?.(); n++;
     }
     H[t + QBASE] = n;
   }
@@ -365,19 +371,29 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
   };
   function frame(tables, heap) {
+    setNativeAppearanceHeap(heap);
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
+    nativeInput.restore();
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
-    const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
+    updateLiveChat(snap, mu.active());
+    const want = c => SHOP_CLASSES.includes(c) && !mu.active() ? false : forced.has(c) ? forced.get(c) : SHOP_CLASSES.includes(c) ? on(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
-    const owned = new Set(render ? all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id) : []);
+    const owned = new Set(render ? all.filter(w => w.shown && want(w.cls)).slice(-SLOTS).map(w => w.id) : []);
     wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
     // ancestor decides in htmlui.c), an HTML-drawn one stays hidden with the rest.
     const extraHide = [], extraPass = [];
+    // Hide only shop furniture: the store backdrop and characters stay native.
+    if (mu.active() && snap.scene === 14 && cosmetics.isOpen()) {
+      for (const task of snap.tasks.filter(task => SHOP_CLASSES.includes(task.cls))) {
+        owned.delete(task.id);
+        extraHide.push(...task.hideIds || []);
+      }
+    }
     const iso = isolate && snap.windows.find(w => w.cls === isolate);
     if (iso) {
       let r = iso.id;
@@ -399,38 +415,41 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
     // stays hidden through a scene load and while the loader's box (#loading: the boot, a scene's "Loading...") is up,
     // and shows with the first frame the engine presents after the scene's end, as its own windows would
-    const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    const ld = document.getElementById('loading'), loaderVisible = ld && !ld.hidden && getComputedStyle(ld).display !== 'none' && getComputedStyle(ld).visibility !== 'hidden';
+    const wait = switching || frameNo <= endFrame || loaderVisible;
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
     // through a scene load
     const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
+    const t = tables >>> 2, H = H32, ids = [...new Set([...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...(curHid ? [snap.cursor.id] : []), ...barIds])].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
+    updateCardRarityOverlay(snap);
     mu.frame(snap, scene, wait);
+    tagSetup.frame(snap, mu.active(), wait);
+    cosmetics.frame(snap, mu.active(), wait, api);
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
       const mod = screens.get(w.cls);
       if (!owned.has(w.id) || !mod?.passthrough) continue;
-      for (const c of [...w.controls, ...w.extras]) {
-        if (mod.passthrough(c)) pass.push(c.id);
-        for (const q of [...c.parts?.sprites || [], ...c.parts?.labels || [], ...c.parts?.swfs || []]) if (mod.passthrough(q, c)) pass.push(q.id);
-      }
+      pass.push(...passthroughIds(w, (part, control) => mod.passthrough(part, control)));
     }
-    H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
-    pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    const passIds = [...new Set(pass)];
+    H[t + 1 + SLOTS] = Math.min(passIds.length, SLOTS);
+    passIds.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    nativeInput.block(snap, heap, mu.active());
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   }
 
   return window.yo2Html = {
     snapshot: () => last,
     toggle(cls, v) { forced.set(cls, v ?? !(forced.has(cls) ? forced.get(cls) : on(cls))); return forced.get(cls); },
-    set(spec2) { on = switches(spec2, defaults.on || []); forced.clear(); },
+    set(spec2) { on = switches(spec2, htmlDefaults(defaults)); forced.clear(); },
     isolate(cls) { isolate = cls || null; },   // the flip test: only this window drawn (engine or DOM), on an empty canvas
     cursor(v) { cursorOn = v ?? !cursorOn; return cursorOn; },   // the CSS cursor (true) or the engine's (false)
     cursorCss: () => cursorNow,

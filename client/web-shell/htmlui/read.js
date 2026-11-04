@@ -3,6 +3,7 @@
 // a synthetic image. Offsets come from src/System/window/*.h, src/System/yo2Element.h, yo2Task.h and vc6.h, where
 // each is pinned by YO2_AT against the exe; the comments name the field.
 import VT from './vtables.js';
+import { actionableCards } from './read/duel-actions.js';
 
 export const FACTORY = 0x0126fa8c;   // g_windowFactory (CWindowTaskFactory*)
 export const SCENE_MNG = 0x01271790;   // CSceneMng::s_instance: sceneId_ (+0x7c) is the current scene (src/System/yo2SceneManager.h)
@@ -134,7 +135,7 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     CWindowTaskDuelConfigFrame: 'CWindowTaskPictureFrame', CWindowTaskDuellogFrame: 'CWindowTaskPictureFrame',
     CWindowTaskFramePlace: 'CWindowTaskPictureFrame', CWindowTaskDueldiskRearrengeFrame: 'CWindowTaskPictureFrame',
   };
-  const h = { u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, locked, alpha, name, at, spr, label, swf,
+  const h = { scene, u8, u32, i32, f32, ptr, wstr, str, vec, list, cls, outer, shown, vis, locked, alpha, name, at, spr, label, swf,
     textCtl, rectF, rectI, children: t => list(t + 0x0c),
     generic: c => { const k = cls(c), f = F[k] || (k.startsWith('CWindowTaskListbox') ? F.CWindowTaskListbox : F[BASE[k]]); return f ? f(c) : {}; } };
   const exts = EXT.map(e => e(h)), XC = Object.assign({}, ...exts.map(e => e.controls)),
@@ -309,5 +310,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, duel, backdrop, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, duel, backdrop, duelCards: actionableCards(h), ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }

@@ -4,18 +4,21 @@ import vm from "node:vm";
 import assert from "node:assert/strict";
 
 const listeners = {}, events = [], started = [], stopped = [];
-const store = new Map();
+const stores = { slots: new Map(), files: new Map() }, store = stores.slots;
 const req = (result) => ({ result });
 const fakeDB = {
     objectStoreNames: { contains: () => true },
     transaction: () => {
-        const t = { objectStore: () => ({
+        const t = { objectStore: (n) => { const store = stores[n]; return {
             getAll: () => req([...store.values()]), getAllKeys: () => req([...store.keys()]),
-            put: (v, k) => (store.set(k, v), req(k)), delete: (k) => (store.delete(k), req(undefined)) }) };
+            put: (v, k) => (store.set(k, v), req(k)), delete: (k) => (store.delete(k), req(undefined)) }; } };
         setTimeout(() => t.oncomplete(), 0);
         return t;
     },
 };
+// a v2 database: the files inside the slot record
+const legacyFile = { name: "old.mp3", arrayBuffer: async () => new ArrayBuffer(7) };
+stores.slots.set(5, { files: [legacyFile], shuffle: false, loop: true, volume: 1 });
 const param = (v) => ({ value: v, setValueAtTime() {}, linearRampToValueAtTime(x) { this.value = x; },
     cancelScheduledValues() {}, setTargetAtTime(x) { this.value = x; } });
 class AudioContext {
@@ -43,6 +46,11 @@ const last = () => started.at(-1).buffer.id;
 
 await A.ready;
 assert.equal(A.listSlots().length, 46);
+assert.equal(A.listSlots()[5].files[0], legacyFile);    // v2 read, then rewritten with the file stored once
+assert.equal(stores.files.size, 1);
+assert.deepEqual([...stores.slots.get(5).ids], [...stores.files.keys()]);
+await A.set(5, { files: [] });
+assert.equal(stores.files.size, 0);
 assert.equal(A.listSlots()[4].id, "my_room");
 A._game(0, 1, 5);                                       // title, before any gesture: nothing can play yet
 assert.equal(A.current(), 0);
@@ -111,4 +119,28 @@ await tick();
 await A.set("my_room", { files: [] });
 await tick();
 assert.equal(unhandled, null);
+// many slots at once (an audio pack): one shared file is stored once, a broken one is reported, not fatal
+const shared = file("shared.mp3", 60), bad = file("bad.mp3", 0);
+const progress = [];
+const res = await A.setMany({ duel_1: { files: [shared, bad] }, duel_2: { files: [shared] }, 13: { files: [shared] } },
+    { replace: true, progress: (i, n) => progress.push([i, n]) });
+assert.deepEqual([...res.failed.map((f) => f.name)], ["bad.mp3"]);
+assert.deepEqual([...A.listSlots().filter((s) => s.files.length).map((s) => s.id)], ["duel_1", "duel_2", "duel_3"]);
+assert.equal(A.listSlots()[11].files.length, 1);
+assert.equal(stores.files.size, 1);
+assert.deepEqual(progress.at(-1), [2, 2]);
+// slots with the same files: the playlist goes on from one to the next
+A._game(11, 1, 0);
+await tick();
+n = started.length;
+assert.equal(last(), 60);
+A._game(12, 1, 0);
+await tick();
+assert.equal(started.length, n);
+A._game(13, 1, 0);
+await tick();
+assert.equal(started.length, n);
+await A.setMany({ duel_3: { files: [file("other.mp3", 61)] } });   // the slot that plays changed: it restarts
+await tick();
+assert.equal(last(), 61);
 console.log("audio.js: all checks pass");

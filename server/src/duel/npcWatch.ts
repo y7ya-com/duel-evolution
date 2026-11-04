@@ -1,7 +1,7 @@
 // py npc_watch.py (NW): NPC duels seen from outside. The «in a duel» pose for the others of the block when the NPC duel
 // really starts (first 0x61fe), and «Watch» (spectator): 0x4320 -> 0x4321, then the 0x6700 of that peer gets 0x6006,
-// 0x6701 and, at each 0x6702, the next batch of the 0x6202 the player received since the start (without the player's
-// decisions). The player's duel connection gets its own c.send that records each 0x6202 after sending it.
+// 0x6701 and, at each 0x6702, the next batch from an independent public translator (neither hidden hand).
+// The player's send tap records only the terminal command supplied by duelfin.
 // The server-side replay archive (REPLAY_ARCHIVE, rep_archivo.py: files on disk) is not ported.
 import { Conn } from "../net/conn.ts";
 import type { Game } from "../game/game.ts";
@@ -94,8 +94,11 @@ export class NpcWatch {
     const d = c.ext.npcDuel as NpcDuel | undefined;
     if (!d || d.c !== c || d.endT !== null) return;
     if (d.ask && this.confirm().has(hx(data))) return;
-    d.entries.push(data.slice());
     const end = isFinish(data);
+    // Public commands come from the independent public translator; only duelfin's terminal
+    // command is observed on the player's connection. Never replay their private hand.
+    if (!end) return;
+    d.entries.push(data.slice());
     if (end) { d.endT = now(); d.done = true; }
     this.pump(d);
     if (end) {
@@ -121,6 +124,11 @@ export class NpcWatch {
     this.stats.duelos++;
     if (old && !old.done) this.cut(old, "el mismo jugador empieza otro duelo");
     c.ext.npcDuel = d;
+    const session = X(c).ocg;
+    if (session) session.onPublic = (msgs) => {
+      for (const [mid, data] of msgs) if (mid === 0x6202) d.entries.push(data.slice());
+      this.pump(d);
+    };
     if (NPC_WATCH) this.pose(d);
     this.ticker();
     this.log(`[npcmirar] ${s.acct} empieza contra ${name} (${rival}): manos [${hands}], empieza ${first}`);

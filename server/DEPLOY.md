@@ -42,16 +42,24 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
      character select; re-sent every 30 s, since a reload or a new lobby loses it) and a server chat line (lobby only), "Server update in 2 min. You'll be reconnected automatically." (the web client reconnects itself since
      77d9ed6; `DEPLOY_TEXT` changes it);
    - waits 120 s;
-   - runs `wrangler deploy --env production`. A deploy does NOT restart the WorldDO at once: the old instance keeps its
-     sockets, and still gets requests, for minutes (4.5 min seen), running the old code;
-   - so then closes every gateway WebSocket with **4012 "server-update"** through it (the web client reconnects at
-     once; any other close it treats as a network problem unless `GET /__version` changed), and waits until the
-     WorldDO answers `/__admin/version` with the new version;
+   - checks the live duel count after the countdown and aborts if any duel remains;
+   - calls `/__admin/prepare-restart` **before deployment**: unfinished NPC/PvP/tag duels are voided without
+     wins, losses, draws, XP, MP, card rewards or tournament advancement; queued results and disconnect callbacks
+     are suppressed, new gameplay is refused, and prior D1 writes are flushed;
+   - calls `/__admin/shutdown`, which repeats preparation idempotently before closing gateway WebSockets with
+     **4012 "server-update"**. The client reconnects automatically;
+   - runs `wrangler deploy --env production --durable-objects-code-update-mode immediate` (up to three upload attempts) and waits for `/__admin/version` to report the new version. The old
+     WorldDO may remain alive for minutes but is quiescent and cannot charge disconnect losses;
    - then `scripts/post_deploy.sh` (Workers Logs query-string redaction, which
      every deploy resets) and `scripts/prod_check.sh` (both hosts and www).
 
+   **Bootstrap:** a live server predating `prepare-restart` cannot provide this exemption. The deploy script
+   refuses to proceed if preparation fails or lacks the confirmation. Install the first compatible server during
+   a separately coordinated empty-server maintenance window; do not bypass preparation for an active game.
+   Once preparation starts, the old instance stays unavailable for new gameplay until the new instance takes over.
+
    The token is the Worker secret `DEPLOY_TOKEN` (`wrangler secret put DEPLOY_TOKEN --env production`, 32+ chars). It
-   opens only /__admin/{online,announce,maintenance,shutdown}.
+   opens only /__admin/{online,announce,maintenance,prepare-restart,shutdown,version}.
    predeploy.py takes `PREDEPLOY_PORT` / `PARITY_CTL_PORT` when another run holds 8798 / 6999, and must print
    "pre-deploy check passed" (don't pipe it without `set -o pipefail`).
    A deploy restarts the WorldDO, which drops the open game connections. The state is safe: every save is written
@@ -65,7 +73,7 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | the owner's Discord app | secrets (set) |
 | `DEPLOY_ENV` | `production`: the test sign-in is a 404 | `vars` |
 | `PUBLIC_ORIGIN` | `https://original.ygoevolution.com` | `vars` |
-| `NPC_AI` | `py` until the NPC AI's A/B is in | `vars` |
+| `NPC_AI` | `ai` (board-aware server policy) | `vars` |
 | `CLIENT_PREFIX` | `recomp-de/` | `vars` |
 | `PROGRESSION` | `1`: the 2008 card progression (since 2026-10-28; every character before it restarted, after a D1 export to R2 `private/backups/`) | `vars` |
 

@@ -190,6 +190,14 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     await until(() => has(A, 0x6202, (d) => type6202(d) === 0x1b && u32(d, 4) === 0x32));
     await send(A, 0x6423, new W().u32(1).bytes());
     await until(() => m.done);
+    // A spectator must receive the terminal command too, even when the match ends
+    // outside duelcore (surrender / disconnect / server deadline).
+    const terminal = () => seen.some(([mid, data]) => mid === 0x6202 && type6202(data) === 0x4d);
+    for (let i = 0; i < 20 && !terminal(); i++) {
+      m.on(wc, 0x6702, 0, new Uint8Array(0));
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(terminal()).toBe(true);
   }, 120_000);
 
   describe("a duel socket that closes mid-duel (Cloudflare cut every socket at once, 2026-10-31)", () => {

@@ -8,8 +8,8 @@
 //     Mirror Force on a weak poke, no Dark Hole on your own better board...).
 //   - tagRule(card): for a card with no named rule, a generic rule from its text tags (brain_cards.json: draw,
 //     search, nuke, destroy...), so the cards of this game's 2008 decks get sensible timing too.
-//   - NPC_RULES[npcId]: one NPC's game plan, keyed by this game's NPC ids (npc_profiles.json). Empty for now: to be
-//     tuned per deck. NPC rules override staples by card name.
+//   - NPC_RULES[npcId]: one NPC's game plan, keyed by this game's NPC ids (npc_profiles.json).
+//     NPC rules override staples by card name.
 //
 import { TYPE_MONSTER, TYPE_SPELL, TYPE_TRAP, tagMask, type Card } from "../brain/cards.ts";
 
@@ -56,6 +56,10 @@ const hasMon = (m: RuleMon[]): boolean => m.length > 0;
 const attackers = (m: RuleMon[]): number => m.filter((x) => x.attackPos).length;
 /** A threat worth answering — a real attacker, or several of them. */
 const realThreat = (c: RuleCtx): boolean => c.oppMaxAtk >= 1700 || attackers(c.oppMon) >= 2;
+/** Count resources and their current power, including defense walls, before trading a whole board. */
+const boardValue = (mon: RuleMon[]): number => mon.reduce((sum, m) => sum + 1000 + Math.max(m.atk, m.def) * 0.4, 0);
+const worthwhileWipe = (c: RuleCtx): boolean => hasMon(c.oppMon) && boardValue(c.oppMon) > boardValue(c.myMon);
+const worthwhileStorm = (c: RuleCtx): boolean => c.oppBackrow > c.myBackrow;
 
 // ── shared staples (every NPC, unless its own rules override) ──────────────────────
 export const STAPLE_RULES: Record<string, CardRule> = {
@@ -67,7 +71,7 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "e - emergency call": { idleActivate: () => true, idlePriority: 125 },
 
   // Mass / targeted removal — only when there's actually something to remove, and don't self-destruct.
-  "dark hole": { idleActivate: (c) => hasMon(c.oppMon) && (c.oppMon.length > c.myMon.length || c.oppMaxAtk > c.myMaxAtk), idlePriority: 120 },
+  "dark hole": { idleActivate: worthwhileWipe, idlePriority: 120 },
   "raigeki": { idleActivate: (c) => hasMon(c.oppMon), idlePriority: 120 },
   "lightning vortex": { idleActivate: (c) => hasMon(c.oppMon), idlePriority: 115 },
   "smashing ground": { idleActivate: (c) => hasMon(c.oppMon), idlePriority: 110 },
@@ -76,7 +80,7 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "nobleman of crossout": { idleActivate: (c) => c.oppMon.some((m) => m.faceDown), idlePriority: 110 },
 
   // Backrow removal — only with a target, and Heavy Storm only when it nets us cards (don't nuke our own set).
-  "heavy storm": { idleActivate: (c) => c.oppBackrow >= 2 || (c.oppBackrow >= 1 && c.myBackrow === 0), idlePriority: 105 },
+  "heavy storm": { idleActivate: worthwhileStorm, idlePriority: 105 },
   "harpie's feather duster": { idleActivate: (c) => c.oppBackrow >= 1, idlePriority: 110 },
   "mystical space typhoon": { idleActivate: (c) => c.oppBackrow >= 1, idlePriority: 100 },
   "dust tornado": { idleActivate: (c) => c.oppBackrow >= 1, idlePriority: 100 },
@@ -85,6 +89,11 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "snatch steal": { idleActivate: (c) => c.oppMaxAtk >= 1500, idlePriority: 108 },
   "premature burial": { idleActivate: (c) => c.myGraveMaxAtk >= 1700, idlePriority: 90 },
   "monster reborn": { idleActivate: (c) => Math.max(c.myGraveMaxAtk, c.oppGraveMaxAtk) >= 1700, idlePriority: 95 },
+  "call of the haunted": { idleActivate: (c) => c.myGraveMaxAtk >= 1500, chainReact: (c) => c.myGraveMaxAtk >= 1500 },
+  // These spend real cards for marginal healing/self-mill. None of the official decks here has a payoff for
+  // blindly milling three cards and burning its own LP on every available response window.
+  "destruction of destiny": { idleActivate: () => false, chainReact: () => false },
+  "elemental recharge": { idleActivate: (c) => c.myLp <= 1500, chainReact: (c) => c.myLp <= 1500 },
 
   // Fusion spells are only offered by the core when a legal payoff exists. Give them development
   // priority, below draw/removal so those cards can improve the material pool first.
@@ -103,7 +112,7 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "sakuretsu armor": { chainReact: (c) => c.oppMaxAtk >= 1700 },
   "magic cylinder": { chainReact: (c) => c.oppMaxAtk >= 1700 },
   "ring of destruction": { chainReact: (c) => c.oppMaxAtk >= 1700 && c.oppMaxAtk < c.myLp },
-  "torrential tribute": { chainReact: (c) => c.oppMon.length > c.myMon.length || (c.oppMaxAtk > c.myMaxAtk && hasMon(c.oppMon)) },
+  "torrential tribute": { chainReact: worthwhileWipe },
   "solemn judgment": { chainReact: (c) => c.myLp > 4000 },
   "negate attack": { chainReact: (c) => c.oppMaxAtk > 0 && c.oppMaxAtk >= c.myMaxAtk },
   "draining shield": { chainReact: (c) => c.oppMaxAtk >= 1700 },
@@ -124,9 +133,9 @@ export function tagRule(c: Card | undefined): CardRule | undefined {
   if (c.type & TYPE_SPELL) {
     if (c.has("draw")) return { idleActivate: () => true, idlePriority: 130 };
     if (c.has("search") && !c.has("ritual")) return { idleActivate: () => true, idlePriority: 120 };
-    if (c.has("nuke_all")) return { idleActivate: (x) => hasMon(x.oppMon) && (x.oppMon.length > x.myMon.length || x.oppMaxAtk > x.myMaxAtk), idlePriority: 115 };
+    if (c.has("nuke_all")) return { idleActivate: worthwhileWipe, idlePriority: 115 };
     if (c.has("nuke_opp")) return { idleActivate: (x) => hasMon(x.oppMon), idlePriority: 115 };
-    if (c.has("storm_all")) return { idleActivate: (x) => x.oppBackrow >= 2 || (x.oppBackrow >= 1 && x.myBackrow === 0), idlePriority: 105 };
+    if (c.has("storm_all")) return { idleActivate: worthwhileStorm, idlePriority: 105 };
     if (c.has("storm_opp")) return { idleActivate: (x) => x.oppBackrow >= 1, idlePriority: 105 };
     if (c.has("control") || c.has("destroy_monster")) return { idleActivate: (x) => x.oppMaxAtk >= 1000 || x.oppMon.length > 0, idlePriority: 108 };
     if (c.has("destroy_st")) return { idleActivate: (x) => x.oppBackrow >= 1, idlePriority: 100 };
@@ -141,9 +150,21 @@ export function tagRule(c: Card | undefined): CardRule | undefined {
   return undefined;
 }
 
-// ── per-NPC game plans (by NPC id), to be tuned per deck ──────────────────────────────
+// ── per-NPC game plans (by NPC id) ──────────────────────────────────────────────────
 export const NPC_RULES: Record<number, Record<string, CardRule>> = {
-  // 35: { "card name": { summonScore: () => 500 } },
+  84: {
+    "elemental hero stratos": { summonScore: () => 1000 },
+    "reinforcement of the army": { idleActivate: () => true, idlePriority: 145 },
+  },
+  85: {
+    "destiny hero - diamond dude": { summonScore: () => 600 },
+    "clock tower prison": { idleActivate: () => true, idlePriority: 100 },
+    "destiny draw": { idleActivate: () => true, idlePriority: 140 },
+  },
+  86: {
+    "destiny hero - diamond dude": { summonScore: () => 600 },
+    "destiny draw": { idleActivate: () => true, idlePriority: 140 },
+  },
 };
 
 /** The shared staples merged with an NPC's own plan (NPC rules win on name collisions). */

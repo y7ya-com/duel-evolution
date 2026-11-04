@@ -96,6 +96,20 @@ function active(g: Game, userId: string): Session | string {
   return !s ? "not-in-game" : s.slot === null ? "no-character" : isFree(s) ? "free" : s;
 }
 
+/** MMO wallet for the shop UI. Serialize lazy legacy-ledger initialization with the world's other mutations. */
+export function walletInfo(g: Game, userId: string): { total: number; bound: number; earned: number } | { error: string } {
+  const s = active(g, userId);
+  if (typeof s === "string") return { error: s };
+  return g.withCtx(s, () => {
+    const st = g.loadState(), before = JSON.stringify(st.profiles?.[String(s.slot)]);
+    const p = PP.profile(st, s.slot!, false);
+    if (!p) return { error: "no-character" };
+    const wallet = PP.mpBalances(p);
+    if (JSON.stringify(p) !== before) g.saveState(st);
+    return wallet;
+  });
+}
+
 /** A grant made outside a client request (the web claim): the connected client's trunk as the trade trunk table
  *  (0x7125-0x7127, which the 2008 client takes unsolicited and syncs its card DB with; phase2-duel, live-trunk.md) and
  *  its player data (0x4140, MP). No 0x5205 for the recipe bit: a class-5 bit is a blank gift page (persist bitShown);

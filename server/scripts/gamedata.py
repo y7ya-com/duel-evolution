@@ -71,6 +71,10 @@ def main():
         k, ext = os.path.splitext(os.path.basename(f))
         raw = open(f, "rb").read()
         shop[ext[1:]][k] = [x for x in struct.unpack(f"<{len(raw) // 2}H", raw[:len(raw) // 2 * 2]) if x]
+    # The archived packinfo stops at 45; later booster pools still ship in cardpack.
+    for pid in (46, 47, 48):
+        if shop["iid"].get(str(pid)) and not any(row[0] == pid for row in shop["packs"]):
+            shop["packs"].append([pid, 0, None])
     dump("shop", shop)
 
 

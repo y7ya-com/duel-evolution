@@ -266,8 +266,8 @@ export const GENERIC = [
   // the duel's
   'CUDiceDialog', 'CUDiscardDialog', 'CUGHelpManager', 'CULockOnDialog', 'CUOkDialog', 'CUPhaseSelectDialog', 'CUPhaseYesNoDialog',
   'CURitualDialog', 'CUSelectAttributeDialog', 'CUSelectCoinDialog', 'CUSelectDialog', 'CUSelectNumDialog', 'CUSelectStandDialog',
-  'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowDeckList', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
-  'CWindowResultNext', 'CWindowResultNpc',   // CWindowResult: its own screen (ResultCard)
+  'CUSelectTypeDialog', 'CUSummonDialogSp', 'CUYesNoDialog', 'CWindowModelListDuelCmd', 'CWindowPackSelect',
+  'CWindowResultNext',   // CWindowResult: its own screen (ResultCard)
 ];
 
 // the plaque's name for a generic window with no heading of its own
@@ -441,12 +441,16 @@ export function duelCmd(win) {
 // the figures are the window's CTextElm extras, top to bottom (a colour tag and the number: "@90"); winner from the
 // ResultBase's banner picture (result_winner_ / result_loser_), null when it isn't read
 export function result(win) {
+  if (win.cls === 'CWindowResultNpc' && win.resultStats) return {
+    name: win.resultName || '', winner: null,
+    stats: ['wins', 'losses', 'draws'].map(k => ({ label: k.toUpperCase(), value: String(win.resultStats[k]) })),
+  };
   const head = win.controls.find(c => /ShadowText$/.test(c.cls) && !c.parent && c.text) || win.controls.find(c => /Text$/.test(c.cls) && c.text);
   const lines = untag(head?.text || '').split('\n').map(l => l.trim()).filter(Boolean);
   const values = (win.extras || []).filter(e => e.cls === 'CTextElm' && e.shown !== false).sort((a, b) => (a.wy ?? 0) - (b.wy ?? 0)).map(e => untag(e.text || '').trim());
   const banner = win.controls.flatMap(c => c.parts?.sprites || []).find(s => /result_(winner|loser)/.test(s.tex || ''));
   return { name: lines[0] || '', winner: banner ? /winner/.test(banner.tex) : null,
-    stats: lines.slice(1).map((label, i) => ({ label, value: values[i] ?? '' })) };
+    stats: win.resultStats ? ['WIN', 'LOSE', 'SCORE'].map((label, i) => ({ label, value: String(win.resultStats[['wins', 'losses', 'score'][i]]) })) : lines.slice(1).map((label, i) => ({ label, value: values[i] ?? '' })) };
 }
 
 // a text control's shown lines (from firstLine, pageLines of them), colour tags out

@@ -7,11 +7,14 @@ import type { Services } from "../world.ts";
 import { DuelPort } from "./port.ts";
 import { Matches, type PvpMatch } from "./pvpMatch.ts";
 import { NpcWatch } from "./npcWatch.ts";
+import { installTagRelays } from "./tagRelay.ts";
 
 export function installDuel(g: Game): DuelPort {
   const c = g.cfg;
   const port = (g.duel = new DuelPort(g, { pause: c.duelPause, test: c.pvpTest, reserva: c.duelReserva, deckCheck: c.deckCheck ?? (c.progression ? "bloquear" : null) }));
-  g.pvp = new Matches(g, c.duelPause, c.pvpTest);
+  const matches = new Matches(g, c.duelPause, c.pvpTest);
+  g.pvp = matches;
+  installTagRelays(g, matches);
   g.nw = new NpcWatch(g, c.duelPause);
   g.duelBegin = (cc, rival, mode) => port.duelBegin(cc, rival, mode);
   /** py torneos._hook_match: wraps _finish (each client's result) and _close_match (end) of ONE match. */
@@ -19,11 +22,11 @@ export function installDuel(g: Game): DuelPort {
     const m = m0 as PvpMatch;
     const fin = m.finish.bind(m), close = m.closeMatch.bind(m);
     m.finish = (k, wv, ...a) => {
-      try { if (wv === 0) onFinish(m.sess[k].pid!); else if (wv === null) onFinish("draw"); } catch { /* py: pass */ }
+      try { if (g.restarting) return; if (wv === 0) onFinish(m.sess[k].pid!); else if (wv === null) onFinish("draw"); } catch { /* py: pass */ }
       return fin(k, wv, ...a);
     };
     m.closeMatch = () => {
-      try { return close(); } finally { onClose([0, 1].filter((k) => m.c[k] !== null).map((k) => m.sess[k].pid!)); }
+      try { return close(); } finally { if (!g.restarting) onClose([0, 1].filter((k) => m.c[k] !== null).map((k) => m.sess[k].pid!)); }
     };
   };
   const base = g.onConnClosed;

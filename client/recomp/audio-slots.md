@@ -83,4 +83,5 @@ empty summon jingle (21–23) leaves whatever plays alone. Same rules in web/aud
 Title · Login · Patcher · My Room · Yugi area · GX area · Event lobby · Tournament lobby · Event · Deck editor ·
 Card pack · Rock-paper-scissors · Duel (base: 11–20, one slot or per track) · Duel winning · Duel pinch ·
 Field spell (30–45, or one shared) · Duel win · Duel lose · Duel draw · Summon/ritual jingles.
-Default for every slot: silence. Effects (`se\*.wav`) are never routed through slots.
+Default for every slot: silence. Effects (`se\*.wav`) are never routed through slots. Audio packs (AUDIO_PACKS.md) name
+slots by id, by the bgm.txt file name above, or by group.

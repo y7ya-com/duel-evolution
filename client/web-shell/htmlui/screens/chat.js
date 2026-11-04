@@ -182,7 +182,7 @@ export function chatTabs(win) {
       st.n.set(t.id, t.active ? 0 : (st.n.get(t.id) || 0) + (d ? d[1].length : 0));
     }
     const name = (t.label || '').replace(/[@＠]\d/g, '').trim();
-    if (/^duel log$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
+    if (/^(duel log|proximity chat)$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
     const n = st.n.get(t.id) || 0, label = plainCase(name) + (n ? ` (${n > 99 ? '99+' : n})` : '');
     const grow = label === name ? 0 : Math.ceil(textW(label) - textW(name));
     if (label !== t.label || shift || grow) out.set(t.id, { ...t, x: t.x + shift, w: t.w + grow, label });
