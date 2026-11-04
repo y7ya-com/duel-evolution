@@ -393,18 +393,20 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const aDuring = await view(a);
       expect(aDuring.prompt).toBe(null); expect(aDuring.cards.filter(c => c.startsWith('Face-down card, opponent deck')).length).toBe(1);
       expect(await confirmDisabled(b)).toBe(true);
-      const poison = deckCards.findIndex(c => c!.startsWith('Poison of the Old Man')), other = deckCards.findIndex(c => !c!.startsWith('Poison of the Old Man'));
-      expect(poison).toBeGreaterThanOrEqual(0);
-      await press(b,candidate(poison)); if (other >= 0) await press(b,candidate(other)); await sleep(300);
-      expect(await pressed(b)).toEqual(['Poison of the Old Man']);
+      // Three of B's nine cards are left in the Deck; usually a Poison of the Old Man, but the shuffle can leave none.
+      const pick = ['Poison of the Old Man','Gold Sarcophagus','Celtic Guardian'].find(n => deckCards.some(c => c!.startsWith(n)))!;
+      const chosen = deckCards.findIndex(c => c!.startsWith(pick)), other = deckCards.findIndex(c => !c!.startsWith(pick));
+      expect(chosen).toBeGreaterThanOrEqual(0);
+      await press(b,candidate(chosen)); if (other >= 0) await press(b,candidate(other)); await sleep(300);
+      expect(await pressed(b)).toEqual([pick]);
       await press(b,confirmSel);
       await idle(b,a,60000);
       const banished = { a:(await view(a)).cards.filter(c => c.includes('banished')), b:(await view(b)).cards.filter(c => c.includes('banished')) };
-      expect(banished.a).toEqual(['Poison of the Old Man, opponent banished, attack ×1']); expect(banished.b).toEqual(['Poison of the Old Man, your banished, attack ×1']);
+      expect(banished.a).toEqual([`${pick}, opponent banished, attack ×1`]); expect(banished.b).toEqual([`${pick}, your banished, attack ×1`]);
       const shuffled = [(await view(a)).log.includes(`${names.b} shuffles their deck.`),(await view(b)).log.includes(`${names.b} shuffles their deck.`)];
       expect(shuffled).toEqual([true,true]);
       seen.selection.push(`Gold Sarcophagus list of B's ${deckCards.length} Deck cards shown to B only (A had no prompt and one card back for B's Deck); Confirm disabled with none, a second pick refused at max 1`);
-      seen.visibility.push(`Gold Sarcophagus: "${names.b} shuffles their deck." logged on both screens; the chosen Poison of the Old Man face-up in B's banished pile on both screens; B's Deck then counted ${await fieldCount(a,'opponent','deck')} on A's screen, still a card back`);
+      seen.visibility.push(`Gold Sarcophagus: "${names.b} shuffles their deck." logged on both screens; the chosen ${pick} face-up in B's banished pile on both screens; B's Deck then counted ${await fieldCount(a,'opponent','deck')} on A's screen, still a card back`);
       await click(b,'End Turn');
       const result3 = await finish(a,b);
       expect(result3).toEqual(['Defeat','Victory']);
