@@ -11,7 +11,7 @@ export const APP = 0x012711ac;       // g_app (CApp*): its mouseMng_ (+0xc4c) is
 // Read extensions (read/<group>.js, owned by the screen session that needs them): ext(h) -> { controls: {cls: c =>
 // fields}, windows: {cls: w => fields}, snapshot: () => fields }, called each read with the helpers h below.
 const EXT = [];
-export const extend = ext => { EXT.push(ext); };
+export const extend = ext => { if (!EXT.includes(ext)) EXT.push(ext); };   // once each (bridge.js adds read/chat.js early)
 const SJIS = new TextDecoder('shift_jis');   // the game's ANSI code page (cp932): instance names, paths
 
 // opts.parts: window ids whose controls also get `parts` (their raw sprite / text / swf children)
