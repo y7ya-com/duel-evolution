@@ -201,9 +201,10 @@ describe('UI ownership and semantic interaction', () => {
   });
   it('opens player profiles through semantic commands and renders authoritative identity', async () => {
     const f = fixture(), profileDetail: NonNullable<ClientView['profileDetail']> = { selfPid: 1, selectedPid: null, details: null, location: null, summary: null, comments: [null, null], drafts: { playerId: '', comment: '', title: '' }, loading: false, pending: null, status: 'Choose a player.', error: null };
-    f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, profileDetail }); await Promise.resolve();
-    findButton(f.root, 'My Profile').onclick?.({}); expect(f.commands).toEqual([{ type: 'profileAction', action: { type: 'open', pid: 1 } }]); expect(f.root.textContent).not.toContain('Player id: 1');
-    f.update({ profileDetail: { ...profileDetail, selectedPid: 1, comments: ['Received comment', null] } }); await Promise.resolve(); expect(f.root.textContent).toContain('Player id: 1'); expect(f.root.textContent).toContain('Received comment'); f.mounted.dispose();
+    f.update({ scene: 'lobby', connection: 'online', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, profileDetail }); await Promise.resolve();
+    findButton(f.root, 'My Profile').onclick?.({}); expect(f.commands).toEqual([{ type: 'profileAction', action: { type: 'open', pid: 1 } }]); expect(f.mounted.htmlUi.text()).not.toContain('My Profile');
+    // the profile is main's window (CWindowModelProfile): its title and rows
+    f.update({ profileDetail: { ...profileDetail, selectedPid: 1, comments: ['Received comment', null] } }); await Promise.resolve(); expect(f.mounted.htmlUi.text()).toContain('My Profile'); expect(f.mounted.htmlUi.text()).toContain('Received comment'); f.mounted.dispose();
   });
   it('retries missing game data explicitly without pretending it loaded', async () => {
     const f = fixture(); f.update({ scene: 'settings', dataStatus: { loading: false, issues: ['Maps', 'Card names'] } }); await Promise.resolve();

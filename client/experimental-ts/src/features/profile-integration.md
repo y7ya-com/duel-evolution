@@ -1,6 +1,6 @@
 # Profile integration
 
-Owned implementation: `features/profile.ts`, `features/profile-ui.ts`. No assets, HTTP, storage, server edits, original client edits, or dependencies. No AGENTS.md applies in this repository.
+Owned implementation: `features/profile.ts` (its window: main's CWindowModelProfile, `ui/htmlui/windows.ts`). No assets, HTTP, storage, server edits, original client edits, or dependencies. No AGENTS.md applies in this repository.
 
 ## Host contract
 
@@ -53,6 +53,6 @@ No full gameplay parity claim. No account-progression/PDU decoder is duplicated 
 
 ## Verification
 
-`node tools/run.mjs vitest run tests/profile.test.ts tests/profile-ui.test.ts tests/profile-server.test.ts`
+`node tools/run.mjs vitest run tests/profile.test.ts tests/profile-server.test.ts`
 
 Real server tests use existing `server/test/notes-harness.ts` (actual buildServer/world, framed messages through server connections), verifying placeholder identity vs real block summary, location, comment acceptance/readback/peer relay/both lines/clear, title clearing, and actual rejection of unowned title. Unit tests cover all profile field positions, strict length, stale target draining, Latin-1 and length validation, self-only writes, serialized acknowledgments, drafts, malformed replies, send failure, reset/dispose. DOM fixture tests verify literal server text, bounded draft persistence, self-only controls, and routing callbacks. They do not prove browser visual behavior or gameplay parity.

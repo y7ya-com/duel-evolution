@@ -12,8 +12,12 @@ export type HtmlDialog =
   | { kind: 'delete'; slot: number; name: string }
   | { kind: 'ok'; text: string };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
-export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean }
-export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false });
+export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
+  /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
+  comment: [string, string] | null; commentQueue: { line: 0 | 1; text: string }[];
+  /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
+  commentWait: null | 'sent' | 'pending' }
+export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null });
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
@@ -26,6 +30,8 @@ export interface BuildContext {
   rerender(): void;
   confirmDelete?: (name: string) => string;
   menu?: MenuView | null;
+  /** The profile's buttons the rewrite adds (another player's: friend, mail, trade, team, ignore; one's own: comment). */
+  profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
 }
 
 const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name).sort((a, b) => a.y - b.y);
@@ -188,6 +194,75 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
   return b.spec();
 }
 
+// A player's profile (CWindowModelProfile, main's social.js: the duel frame, its rows, the green title, OK). main's My
+// Room capture (tools/flip.mjs sp-profile): 212, 186, 600 x 396; the title 0, 4, 600 wide over its black shadow 1 px
+// down-right; rows 32 high from 14, 32 (557 wide), each a name at 16, y and its value right-aligned 16 px lower; the
+// scroll column 571, 32, 318 long; OK 250, 364, 100 x 24. The values are the rewrite's (the server's player info).
+export function profileWindow(ctx: BuildContext): WindowSpec | null {
+  const p = ctx.state.profileDetail; if (!p || p.selectedPid === null) return null;
+  const s = p.summary, d = p.details, self = p.selfPid === p.selectedPid;
+  const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
+  const rows: [string, string][] = [
+    ['Name', s?.name ?? d?.name ?? ''], ['Title', p.comments[1] ?? ''], ['LV', String(s?.level ?? d?.level ?? '')],
+    ['Tournament Points', d ? String(d.tp) : ''], ['Wins', String(wins)], ['Losses', String(losses)], ['Score', d ? String(d.score) : ''],
+    ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'], ['Miles', d ? String(d.mp) : ''],
+    ...(p.comments[0] ? [['Comment', p.comments[0]] as [string, string]] : []),
+  ];
+  const b = new WindowBuilder(ctx.ids, 'profile', 'CWindowModelProfile', { x: 212, y: 186, w: 600, h: 396 }, { z: 51453, modal: true });
+  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
+  b.add('CWindowTaskScroll', 'scroll', { x: 571, y: 32, w: 16, h: 318 }, { value: 0, max: Math.max(0, rows.length - 10), page: 10, thumb: { pos: 0, len: 318 }, length: 318, horizontal: false });
+  rows.forEach((_, i) => b.add('CWindowTaskBackPlane', `plane${i}`, { x: 14, y: 32 + 32 * i, w: 557, h: 32 }, { shown: i < 10 }));
+  rows.forEach(([name, value], i) => {
+    const t = { align: 0, fontSize: 16, color: [1, 1, 1, 1], shown: i < 10 };
+    b.add('CWindowTaskText', `name${i}`, { x: 16, y: 32 + 32 * i, w: 552, h: 32 }, { ...t, text: name });
+    b.add('CWindowTaskText', `value${i}`, { x: 16, y: 48 + 32 * i, w: 552, h: 32 }, { ...t, text: value, align: 2 });
+  });
+  const title = b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 600, h: 16 }, { text: self ? 'My Profile' : 'Profile', align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1] });
+  b.add('CWindowTaskText', 'titleShadow', { x: 1, y: 5, w: 600, h: 16 }, { parent: title.id, text: title.text, align: 1, fontSize: 16, color: [0, 0, 0, 1] });
+  // OK centred as main's; the rewrite's actions (main has them on the player card and the Main Menu) share its row,
+  // the same duel buttons, 88 wide 4 apart, OK last
+  const actions = ctx.profileActions ?? [], n = actions.length + 1, w = n > 1 ? 88 : 100, x0 = Math.round((600 - (n * w + (n - 1) * 4)) / 2);
+  actions.forEach((a, i) => b.add('CWindowTaskButtonDuel', `action:${a.key}`, { x: x0 + i * (w + 4), y: 364, w, h: 24 }, { label: a.label, align: 1, state: a.disabled ? 'disabled' : 'normal', color: [0, 0, 0, 1] },
+    { key: `profile-${a.key}`, click: () => { if (!a.disabled) a.run(); } }));
+  b.add('CWindowTaskButtonDuel', 'ok', { x: x0 + (n - 1) * (w + 4), y: 364, w, h: 24 }, { label: 'OK', align: 1, state: 'normal', color: [0, 0, 0, 1] },
+    { key: 'profile-ok', label: 'Close the profile', click: () => { ctx.ui.comment = null; ctx.send({ type: 'profileAction', action: { type: 'close' } }); } });
+  return b.spec();
+}
+
+// Create Comment (CWindowModelSetComment, main's social.js: a FramePlane dialog with two real inputs). main's capture
+// (tools/flip.mjs sp-comment): 344, 269, 336 x 230; 'Create Comment' at 103, 8; Greeting 8, 48 over its field 8, 64,
+// Duel Message 8, 112 over 8, 128 (320 x 32); OK 44, 180 and Cancel 212, 180. The rewrite's profile lines: the comment
+// (line 0) and the personal title (line 1), 31 Latin-1 characters each (the server's limit); saved one at a time.
+export function commentDialog(ctx: BuildContext, lines: [string, string]): WindowSpec {
+  const b = new WindowBuilder(ctx.ids, 'comment', 'CWindowModelSetComment', { x: 344, y: 269, w: 336, h: 230 }, { z: 51503, modal: true });
+  const p = ctx.state.profileDetail, saved = [p?.comments[0] ?? '', p?.comments[1] ?? ''];
+  const close = () => { ctx.ui.comment = null; ctx.rerender(); };
+  const ok = () => {
+    ctx.ui.commentQueue = ([0, 1] as const).filter(i => lines[i] !== saved[i]).map(line => ({ line, text: lines[line] }));
+    ctx.ui.comment = null; saveNextComment(ctx); ctx.rerender();
+  };
+  const text = (name: string, x: number, y: number, t: string) => b.add('CWindowTaskText', name, { x, y, w: 256, h: 256 }, { text: t, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskFramePlane', 'frame', { x: 0, y: 0, w: 336, h: 230 }, { style: 1 });
+  text('title', 103, 8, 'Create Comment'); text('greeting', 8, 48, 'Greeting'); text('duel', 8, 112, 'Duel Message');
+  b.add('CWindowTaskTextSwitch', 'cancel', { x: 212, y: 180, w: 80, h: 24 }, { label: 'Cancel', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'comment-cancel', click: close });
+  b.add('CWindowTaskTextSwitch', 'ok', { x: 44, y: 180, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'comment-ok', click: ok });
+  ([[1, 128, 'profile-title', 'Duel Message'], [0, 64, 'profile-comment', 'Greeting']] as const).forEach(([line, y, key, label]) =>
+    b.add('CWindowTaskInput', `line${line}`, { x: 8, y, w: 320, h: 32 }, { focused: line === 0, value: lines[line], password: false, caret: null, caretOn: false, maxLen: 31, multiLine: false },
+      { key, label, text: v => { lines[line] = v; }, enter: ok }));
+  return b.spec();
+}
+/** The next queued comment line, once the profile has no update pending (the server confirms one at a time). */
+export function saveNextComment(ctx: BuildContext): void {
+  const p = ctx.state.profileDetail, ui = ctx.ui;
+  if (ui.commentWait === 'sent') { if (p?.pending) ui.commentWait = 'pending'; else return; }
+  if (ui.commentWait === 'pending') { if (p?.pending) return; ui.commentWait = null; }
+  const next = ui.commentQueue[0];
+  if (!p || !next || p.pending !== null || p.selfPid === null || p.selectedPid !== p.selfPid) return;
+  ui.commentQueue.shift(); ui.commentWait = 'sent';
+  ctx.send({ type: 'profileAction', action: { type: 'editDraft', field: next.line === 0 ? 'comment' : 'title', value: next.text } });
+  ctx.send({ type: 'profileAction', action: { type: 'saveComment', line: next.line } });
+}
+
 /** Every window the current state shows through main's screens, back to front. */
 export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const out: WindowSpec[] = [], { state, ui } = ctx;
@@ -198,7 +273,10 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   if (state.scene === 'lobby' && state.connection === 'online') {
     const place = placeBanner(ctx); if (place) out.push(place);
     const chat = chatWindow(ctx); if (chat) out.push(chat);
-  }
+    const profile = profileWindow(ctx); if (profile) out.push(profile);
+    saveNextComment(ctx);
+    if (ui.comment) out.push(commentDialog(ctx, ui.comment));
+  } else ui.comment = null;
   const menu = ctx.menu;
   if (menu) { out.push(menuBar(ctx, menu)); if (ui.menu && menu.keys) out.push(mainMenu(ctx, menu)); else ui.menu = false; }
   const d = ui.dialog;

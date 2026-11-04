@@ -20,7 +20,6 @@ import { deckProblems, renderDeckCheck, DECK_CHECK_CSS } from './extra/deck-chec
 import { renderCardDetails } from './extra/card-details';
 import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
-import { renderProfileFeature } from '../features/profile-ui';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
@@ -102,7 +101,25 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids();
   let htmlUi: HtmlUiLayer | null = null;
   let menuView: MenuView | null = null;
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView });
+  const profileActions = (): { label: string; key: string; run(): void; disabled?: boolean }[] => {
+    const p = state.profileDetail; if (!p || p.selectedPid === null) return [];
+    const pid = p.selectedPid;
+    if (p.selfPid === pid) return [
+      { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
+      { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
+      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } }] : []),
+    ];
+    if (!state.socialDetail) return [];
+    const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => send({ type: 'socialAction', action: { type, pid } });
+    return [
+      { label: 'Add Friend', key: 'friend', run: social('inviteFriend') },
+      { label: 'D-Mail', key: 'mail', run: () => { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } },
+      { label: 'Trade', key: 'trade', run: social('inviteTrade') },
+      { label: 'Team', key: 'team', run: social('inviteTeam') },
+      { label: 'Ignore', key: 'ignore', run: social('ignore') },
+    ];
+  };
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, profileActions: profileActions() });
   const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene)); };
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
   const htmlDriver: HtmlUiDriver = {
@@ -392,11 +409,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.profileDetail && state.player) places.append(button('My Profile', () => send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }), !!state.busy));
       stage.append(places);
     }
-    if (state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) {
-      const profile = el('section', 'de-panel de-profile-panel'); profile.dataset.key = `profile:${state.profileDetail.selectedPid}`; profile.setAttribute('role', 'dialog'); profile.setAttribute('aria-label', 'Player profile');
-      profile.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); send({ type: 'profileAction', action: { type: 'close' } }); } };
-      profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
-    }
+    // a profile is main's window (src/ui/htmlui: CWindowModelProfile), its actions on its button row
     if (roomJoin !== null && lobby.rooms?.some(r => r.id === roomJoin)) {
       // The original's password input (CWindowModelInput1): the password is sent once and never kept or shown.
       const roomId = roomJoin, form = el('form', 'de-panel de-duel-prompt de-stack'), field = textField('room-join-password', roomJoinPassword, 'Room password'); field.type = 'password'; field.oninput = () => { roomJoinPassword = field.value; }; field.maxLength = 16; field.autocomplete = 'off'; field.setAttribute('aria-label', 'Room password');
@@ -923,7 +936,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const go = (scene: Scene) => () => open(scene);
       const entries: MenuEntry[] = !state.player ? [] : [
         { label: 'Edit Deck', key: 'deck', disabled: blocked || sideboard, run: go('deck') },
-        ...(state.profileDetail && state.mode !== 'free' ? [{ label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } }] : []),
+        ...(state.profileDetail && state.mode !== 'free' ? [
+          { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
+          // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
+          { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
+        ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: go('settings') },
         ...(state.mode !== 'free' ? [
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard, run: go('social') },
