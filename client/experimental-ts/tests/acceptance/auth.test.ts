@@ -23,7 +23,9 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       const refused = await text(page);
       expect(refused).not.toContain('Signed in as');
       expect(await page.ev(`Boolean(${byText('Sign In')})`)).toBe(true);
-      record('auth.invalid',{ actions:'Sign-in form with a wrong password, then the right one', expected:'Actionable failure; retry possible', observed:refused.match(/[^\n]*(?:incorrect|invalid|wrong|password)[^\n]*/i)?.[0] ?? 'error notice shown; form kept' });
+      const alert = (await page.ev(`[...document.querySelectorAll('.de-notice,.de-error,[role=alert]')].map(n=>n.textContent.trim()).filter(Boolean).join(' | ')`) as string);
+      expect(alert.length).toBeGreaterThan(10);
+      record('auth.invalid',{ actions:'Sign-in form with a wrong password, then the right one', expected:'Actionable failure; retry possible', observed:`refusal shown: "${alert}"; the Sign In form stayed available` });
       // auth.login: the right password binds the account; the password is never kept in the page
       await signInForm(page,user,password);
       await until(page,`document.body.innerText.includes('Signed in as ${user}')`,30000);
