@@ -161,7 +161,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       await screenshot(a,'duel-pvp-a-start'); await screenshot(b,'duel-pvp-b-start');
 
       const prompts = tracker();
-      const stats = { checkpoints:0, failed:[] as string[], leaks:[] as string[], artLeaks:[] as string[], bothInput:0, opponentActions:[] as string[], monsters:0, sets:0, ownSetNamed:0, flips:0, positions:0, lp:new Set<string>(), destroyed:0, banished:0, phases:new Set<string>(), log:0, logOrder:[] as string[], chains:0, counters:0, control:0, shuffles:0, secretChecks:0, artRequests:0, piles:new Set<string>() };
+      const stats = { checkpoints:0, failed:[] as string[], leaks:[] as string[], artLeaks:[] as string[], bothInput:0, opponentActions:[] as string[], monsters:0, sets:0, ownSetNamed:0, flips:0, positions:0, lp:new Set<string>(), destroyed:0, banished:0, phases:new Set<string>(), log:0, logOrder:[] as string[], chains:0, counters:0, control:0, shuffles:0, secretChecks:0, artRequests:0, covered:[] as string[], piles:new Set<string>() };
       let previous:{ a:Snap; b:Snap } | null = null, lastTurn = 0, lastBar = '';
       const checkpoint = async (why:string) => {
         const s = await settle(a,b);
@@ -227,7 +227,12 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           const ins = await page.ev(`(()=>{const i=document.querySelector('.de-duel-inspector');return i?[...i.querySelectorAll('button')].map(b=>b.textContent):null})()`) as string[] | null;
           if (c.back && ins) stats.opponentActions.push(`${label}: face-down ${c.zone} opened an inspector`);
           if (ins && ins.some(t => t !== 'Close')) stats.opponentActions.push(`${label}: opponent ${c.zone} offered ${ins.join(', ')}`);
-          if (ins) await press(page,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')`);
+          if (ins) await press(page,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')`).catch(async (error:Error) => {
+            // Gone (a re-render closed it) is fine; covered is a layout defect.
+            const state = await page.ev(`(()=>{const b=[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close');if(!b)return 'gone';const r=b.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return 'covered by '+(h?.closest('section,aside,div')?.className??h?.tagName)})()`) as string;
+            if (state !== 'gone') { stats.covered.push(`${label}: inspector Close ${state}`); await screenshot(page,`duel-covered-${stats.covered.length}`); }
+            void error;
+          });
         }
       };
 
@@ -337,6 +342,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       expect(stats.artLeaks).toEqual([]);
       expect(stats.bothInput).toBe(0);
       expect(stats.opponentActions).toEqual([]);
+      expect(stats.covered).toEqual([]);
       expect(stats.logOrder).toEqual([]);
       expect(prompts.errors).toEqual([]);
       expect(stats.checkpoints).toBeGreaterThan(10);
