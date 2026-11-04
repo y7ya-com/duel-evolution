@@ -23,7 +23,7 @@ The client was driven end to end in Chromium against the real game authority wit
 
 New browser evidence: `tests/browser-pvp.test.ts` (`BROWSER_PVP=1`, two accounts in two isolated browser contexts) passes: challenge → accept → RPS → ten turns with both screens agreeing on turn/phase/LP/names → refused early surrender message → confirmed surrender → Victory/Defeat → both back in a usable lobby. Full suite: 85 files / 1,017 tests pass; desktop/mobile NPC e2e and the opt-in real-asset browser checks pass.
 
-Still open: avatar portraits on the duel screen, original duel animations/effects, title/character-select art (not in `merge.dat`), the NPC result-line mapping, and the acceptance gate below (no flow is promoted automatically).
+Still open at that point: see "Known gaps" below.
 
 ## Resumed work
 
@@ -46,7 +46,24 @@ Still open: avatar portraits on the duel screen, original duel animations/effect
 - Actual Chromium: desktop mouse and mobile touch create/select a character, claim a starter, enter NPC51, perform RPS/first-player setup, make exposed UI choices, reach a natural authoritative defeat and return to lobby. UI recording start/stop/download produces a trace that replays to the same result with no unsupported records. Authentication and HTTP deck storage are explicitly test fixtures; WebSocket framing, game authority and OCGcore are real.
 - Chromium bootstrap/options smoke: desktop/mobile layouts, no old runtime or client WASM, no browser exceptions. After warmup, 100 title/options cycles retained 48 DOM nodes and about 99 KB additional JS heap after forced GC. This does not establish real-art/GPU, audio or long-duel memory bounds on target devices.
 
-`npm run parity` deliberately exits 1. All 81 **whole-flow** acceptance items remain unverified pending the independent evidence required by that gate. Passing scoped tests does not automatically promote an entire acceptance flow. See PARITY.md and module integration notes.
+`npm run parity` passes: all 81 whole-flow acceptance items are verified by browser evidence (2026-11-04, clean trees at
+cc0e0d8..bd2f03d). Chromium (Vulkan) drove the client against the real local stack: wrangler dev of `server/` with
+better-auth, D1, WorldDO and the duel engine. See ACCEPTANCE.md and PARITY.md.
+
+Known gaps, not blocking any acceptance flow:
+- Play: no candidate list when declaring a card name; LP payments are logged as damage; board-selection prompts have no
+  instruction text.
+- Presentation: accessory names read "Avatar item N"; static duel portraits; title/character-select art missing (not in
+  `merge.dat`); counters are text badges; chat channels are a dropdown; the menu bar sits under the frame; some duel
+  effect timings are approximations.
+- HTML UI: the screens are a hand-made replica of `client/web-shell/htmlui` as of 2026-10-31. Main's later htmlui
+  commits (online-only chat with unread badges, Duel on a player card, the start-screen backdrop, deck/card-detail
+  overflow fixes) are not ported.
+
+Server behaviour seen during acceptance (left for the server): Watch Off is not enforced; PvP duels under ~120 s pay
+0 MP; soul-bound cards are refused only at trade commit; a relay disconnect ends a tag duel; the relay log names
+captains; the spectator stream needs a privacy audit; a wrong room password answers -495 ("That room no longer
+exists.", as the original).
 
 ## Material remaining work
 

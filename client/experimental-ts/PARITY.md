@@ -1,6 +1,6 @@
 # Experimental TypeScript client gameplay acceptance
 
-All flows below are **unverified**. The inventory defines acceptance, not a claim that a feature exists or works. Server tests, the reference translator, a successful build, and repeatable reduction of synthetic bytes cannot establish new-client gameplay parity.
+All 81 flows below are **verified** by dated new-client browser evidence (`acceptance-evidence/verified.json`, produced by `tests/acceptance/` against the real local stack; see ACCEPTANCE.md). `npm run parity` passes (81/81). The inventory defines acceptance; evidence counts only from runs on a clean tree. Server tests, the reference translator, a successful build, and repeatable reduction of synthetic bytes cannot establish new-client gameplay parity.
 
 The machine inventory is `src/parity/acceptance.ts`. A verified row needs dated evidence identifying the new client build, setup/account roles, input actions, expected result, actual observation and assertions. Link reproducible tests or a sanitized evidence artifact in that row's `evidence` array. Verify positive, failure and reconnect paths where applicable. Keep this table synchronized when adding evidence. Never put credentials, account tokens or private fixture contents in evidence.
 
@@ -51,91 +51,91 @@ These reference outputs contain legacy card indices and 40-byte commands, rather
 
 ## Acceptance inventory
 
-Every status starts unverified until qualifying new-client evidence is linked.
+A status is verified only while qualifying new-client evidence is linked (`tools/acceptance-evidence.mjs` collects it).
 
 | ID | Area / flow | Required observation | Status |
 | --- | --- | --- | --- |
-| `auth.login` | auth / Password login | Valid credentials bind the correct account; credentials never enter traces or logs. | unverified |
-| `auth.register` | auth / Register account | Create a valid account and handle duplicate/invalid credentials. | unverified |
-| `auth.invalid` | auth / Rejected login | Wrong credentials show an actionable failure and permit retry. | unverified |
-| `auth.session` | auth / Session and logout | Restore an authorized session; logout clears identity and access. | unverified |
-| `auth.binding` | auth / Account binding | An account cannot select another account’s character or reuse a stale session. | unverified |
-| `character.list` | character / Character list | Render every occupied and empty slot with correct identity. | unverified |
-| `character.create` | character / Create character | Create a valid name, report collisions/invalid names, refresh slots. | unverified |
-| `character.select` | character / Select character | Load the selected player and enter the correct world. | unverified |
-| `character.delete` | character / Delete character | Confirm deletion, update slots and reject invalid ownership. | unverified |
-| `character.starter` | character / Starter and progression | Claim eligible starter once; reflect deck, inventory, level and wallet updates. | unverified |
-| `lobby.enter` | lobby / Enter and leave lobby | Load correct world, room, occupants and transition without stale listeners. | unverified |
-| `lobby.move` | lobby / Movement | Send legal coordinates and reconcile authoritative positions. | unverified |
-| `lobby.presence` | lobby / Presence updates | Join, departure and movement update the correct avatar once. | unverified |
-| `lobby.rooms` | lobby / World and room navigation | Change rooms/worlds and refresh player and NPC lists. | unverified |
-| `lobby.interact` | lobby / Player/NPC interaction | Select an occupant, show profile and valid available actions. | unverified |
-| `avatars.appearance` | avatars / Avatar appearance | Render self/others with sex, face, hair, clothing and accessories. | unverified |
-| `avatars.edit` | avatars / Avatar editor | Preview, apply and reload permitted appearance parts. | unverified |
-| `avatars.titles` | avatars / Titles and profile | Read and change owned titles/profile; reject unowned choices. | unverified |
-| `npc.start` | npc / NPC duel start | Choose NPC/deck, validate eligibility, establish correct first turn and initial field. | unverified |
-| `npc.play` | npc / NPC complete duel | Play a full duel with server-issued actions and win/lose/draw result. | unverified |
-| `npc.rewards` | npc / NPC rewards/rematch | Apply correct rewards, unlocks and rematch lifecycle exactly once. | unverified |
-| `pvp.invite` | pvp / PvP invitation | Challenge, accept, decline, cancel and expire invitations without stale state. | unverified |
-| `pvp.matchmaking` | pvp / Auto duel matchmaking | Find/cancel single or match opponents with level filters and correct searching/waiting counts. | unverified |
-| `pvp.host` | pvp / Hosted duel options | Create/join a duel with time, spectator, surrender and password options; never record the password. | unverified |
-| `pvp.match` | pvp / Match and sideboarding | Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result. | unverified |
-| `pvp.start` | pvp / PvP setup | Select legal decks and establish both perspectives with correct hidden information. | unverified |
-| `pvp.play` | pvp / PvP complete duel | Two clients agree on field, LP, phases, timers and final result. | unverified |
-| `pvp.end` | pvp / Surrender/timeout/disconnect | Resolve each termination path and return both players to a usable lobby. | unverified |
-| `tag.party` | tag / Tag formation | Invite, join, leave and validate a four-player team with correct seats. | unverified |
-| `tag.relay` | tag / Tag relay duel | Turn relay, shared field, perspective, prompts and teammate visibility remain correct. | unverified |
-| `tag.end` | tag / Tag termination | Surrender, disconnect and result release all seats and update rewards once. | unverified |
-| `spectate.join` | spectate / Spectator join | Find/join an NPC, PvP or tag duel and reconstruct the current visible state. | unverified |
-| `spectate.visibility` | spectate / Spectator privacy | Hide private cards and prohibit player responses from observers. | unverified |
-| `spectate.leave` | spectate / Spectator lifecycle | Live updates, late join, duel end and leave clean up the view/channel. | unverified |
-| `duel.field` | duel / Field and card movement | Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership. | unverified |
-| `duel.visibility` | duel / Card identities | Reveal/hide cards, tokens, control changes, shuffles and positions match server state. | unverified |
-| `duel.combat` | duel / Turns and combat | Render phases, chains, battle, LP, stats, counters and destruction correctly. | unverified |
-| `duel.actions` | duel / Legal actions | Only current server-issued card/phase actions can generate valid responses. | unverified |
-| `duel.prompts` | duel / Choice prompts | Yes/no, options, position, race, attribute, number and announce-card map to correct bytes. | unverified |
-| `duel.selection` | duel / Selection prompts | Card, field, ritual and discard selection respect bounds, cancellation and hidden identities. | unverified |
-| `duel.stale` | duel / Stale/unsupported prompts | Reject stale input and display unsupported prompts without fabricating a valid action. | unverified |
-| `duel.presentation` | duel / Presentation | Animations, card inspection and logs remain ordered while input waits appropriately. | unverified |
-| `deck.list` | deck / Load/select decks | Show saved decks, active deck and inventory counts from authoritative data. | unverified |
-| `deck.edit` | deck / Deck editing | Add/remove/reorder main, side and extra cards; enforce ownership and card limits. | unverified |
-| `deck.persist` | deck / Deck lifecycle | Create, rename, save, reload and delete decks with correct active selection. | unverified |
-| `deck.test` | deck / Deck test | Start and leave supported deck testing without spending cards or altering the saved deck. | unverified |
-| `deck.validate` | deck / Deck legality | Report size, format and forbidden/limited-card violations before a duel. | unverified |
-| `deck.recipes` | deck / Deck recipes and import/export | Load supported recipes and round-trip supported deck formats without losing identities. | unverified |
-| `cards.collection` | cards / Collection/search | Owned counts, filtering, sorting and pagination match inventory. | unverified |
-| `cards.inspect` | cards / Card details and art | Passcode, text, type, stats, rarity, alternate art and image fallback are correct. | unverified |
-| `cards.hidden` | cards / Hidden/unknown cards | Card backs and unknown assets reveal no private identity and remain usable. | unverified |
-| `shops.catalog` | shops / Shop catalog | Load packs, decks and singles with correct price, availability and ownership. | unverified |
-| `shops.purchase` | shops / Purchase and opening | Purchase/open products, update inventory/wallet once and render acquired cards. | unverified |
-| `shops.constraints` | shops / Purchase failures | Insufficient funds, invalid counts, sold-out items and duplicate submissions fail clearly. | unverified |
-| `cosmetics.catalog` | cosmetics / Cosmetic catalog/preview | Browse categories and preview supported owned/unowned appearances. | unverified |
-| `cosmetics.purchase` | cosmetics / Cosmetic purchase/equip | Spend correct wallet funds, grant once, equip only owned items and persist selection. | unverified |
-| `cosmetics.wallet` | cosmetics / Bound/earned wallet | Balances, eligibility and purchase restrictions match authoritative wallet semantics. | unverified |
-| `trade.invite` | trade / Trade invitation | Invite, accept, decline, cancel and handle busy partners. | unverified |
-| `trade.offers` | trade / Trade offer/confirmation | Both sides see current cards/counts; offer changes invalidate confirmations. | unverified |
-| `trade.commit` | trade / Trade completion | Exchange only eligible owned cards atomically and refresh both inventories. | unverified |
-| `trade.failure` | trade / Trade failures | Disconnect, stale inventory, bound items and cancellation cause no loss or duplication. | unverified |
-| `social.chat` | social / Chat channels | Public, room, private and team messages respect channel, ordering and duplicate suppression. | unverified |
-| `social.chat-policy` | social / Chat restrictions | Length/rate limits, mute/ignore, blocked targets and errors are handled without leaking private messages. | unverified |
-| `social.friends` | social / Friends | List/add/remove friends, online state and invitations persist correctly. | unverified |
-| `social.ignore` | social / Ignore list | Add/remove ignored users and apply visibility/contact rules. | unverified |
-| `social.mail` | social / Mail | List/read/send/delete supported messages and show failure/empty states. | unverified |
-| `social.teams` | social / Team list and membership | List/create/join/leave supported teams with correct membership, presence and team-chat permissions. | unverified |
-| `social.profile` | social / Profiles and player lists | View correct identity, progression, title, status and supported rankings. | unverified |
-| `duel.log` | duel / Duel log/history | Open supported duel logs, retain ordering and card references, and close without affecting active prompts. | unverified |
-| `settings.language-screen` | settings / Language and display mode | Supported language/fullscreen choices apply correctly, persist where promised, and recover if browser access is refused. | unverified |
-| `settings.persist` | settings / Settings persistence | Change supported display/input preferences and restore them after reload. | unverified |
-| `settings.accessibility` | settings / Accessibility | Keyboard focus, modal escape, readable feedback and reduced motion remain usable. | unverified |
-| `audio.volume` | audio / Volume and mute | Sound/music levels and mute persist and affect their respective playback. | unverified |
-| `audio.lifecycle` | audio / Audio lifecycle | User gesture unlock, scene transitions, duel cues and cleanup avoid overlapping/stuck playback. | unverified |
-| `reconnect.resume` | reconnect / Tunnel resume | Resume active channels/sequences without duplicate moves, purchases, chat or duel input. | unverified |
-| `reconnect.expired` | reconnect / Resume expiry | Expired or rejected resume clears stale channels and offers a valid new connection. | unverified |
-| `reconnect.scenes` | reconnect / Scene lifecycle | Reconnect/re-enter/reload during lobby, shop, deck and duel without stale subscriptions. | unverified |
-| `errors.network` | errors / Transport failures | Timeout, refusal, truncated packets, invalid digest and sequence gaps surface actionable errors. | unverified |
-| `errors.protocol` | errors / Protocol failures | Malformed/unsupported payloads fail transactionally without partial board or inventory mutation. | unverified |
-| `errors.api` | errors / API and assets | HTTP/auth failures, unavailable data and missing assets show usable retry/fallback states. | unverified |
-| `errors.concurrency` | errors / Concurrent and stale operations | Busy state, duplicate clicks, navigation and late replies cannot apply to the wrong session. | unverified |
+| `auth.login` | auth / Password login | Valid credentials bind the correct account; credentials never enter traces or logs. | verified 2026-11-04 (auth.test.ts) |
+| `auth.register` | auth / Register account | Create a valid account and handle duplicate/invalid credentials. | verified 2026-11-04 (auth.test.ts) |
+| `auth.invalid` | auth / Rejected login | Wrong credentials show an actionable failure and permit retry. | verified 2026-11-04 (auth.test.ts) |
+| `auth.session` | auth / Session and logout | Restore an authorized session; logout clears identity and access. | verified 2026-11-04 (auth.test.ts) |
+| `auth.binding` | auth / Account binding | An account cannot select another account’s character or reuse a stale session. | verified 2026-11-04 (auth.test.ts) |
+| `character.list` | character / Character list | Render every occupied and empty slot with correct identity. | verified 2026-11-04 (auth.test.ts) |
+| `character.create` | character / Create character | Create a valid name, report collisions/invalid names, refresh slots. | verified 2026-11-04 (auth.test.ts) |
+| `character.select` | character / Select character | Load the selected player and enter the correct world. | verified 2026-11-04 (auth.test.ts) |
+| `character.delete` | character / Delete character | Confirm deletion, update slots and reject invalid ownership. | verified 2026-11-04 (auth.test.ts) |
+| `character.starter` | character / Starter and progression | Claim eligible starter once; reflect deck, inventory, level and wallet updates. | verified 2026-11-04 (auth.test.ts) |
+| `lobby.enter` | lobby / Enter and leave lobby | Load correct world, room, occupants and transition without stale listeners. | verified 2026-11-04 (social.test.ts) |
+| `lobby.move` | lobby / Movement | Send legal coordinates and reconcile authoritative positions. | verified 2026-11-04 (social.test.ts) |
+| `lobby.presence` | lobby / Presence updates | Join, departure and movement update the correct avatar once. | verified 2026-11-04 (social.test.ts) |
+| `lobby.rooms` | lobby / World and room navigation | Change rooms/worlds and refresh player and NPC lists. | verified 2026-11-04 (social.test.ts) |
+| `lobby.interact` | lobby / Player/NPC interaction | Select an occupant, show profile and valid available actions. | verified 2026-11-04 (social.test.ts) |
+| `avatars.appearance` | avatars / Avatar appearance | Render self/others with sex, face, hair, clothing and accessories. | verified 2026-11-04 (social.test.ts) |
+| `avatars.edit` | avatars / Avatar editor | Preview, apply and reload permitted appearance parts. | verified 2026-11-04 (shop.test.ts) |
+| `avatars.titles` | avatars / Titles and profile | Read and change owned titles/profile; reject unowned choices. | verified 2026-11-04 (social.test.ts) |
+| `npc.start` | npc / NPC duel start | Choose NPC/deck, validate eligibility, establish correct first turn and initial field. | verified 2026-11-04 (npc.test.ts) |
+| `npc.play` | npc / NPC complete duel | Play a full duel with server-issued actions and win/lose/draw result. | verified 2026-11-04 (npc.test.ts) |
+| `npc.rewards` | npc / NPC rewards/rematch | Apply correct rewards, unlocks and rematch lifecycle exactly once. | verified 2026-11-04 (npc.test.ts) |
+| `pvp.invite` | pvp / PvP invitation | Challenge, accept, decline, cancel and expire invitations without stale state. | verified 2026-11-04 (pvp.test.ts) |
+| `pvp.matchmaking` | pvp / Auto duel matchmaking | Find/cancel single or match opponents with level filters and correct searching/waiting counts. | verified 2026-11-04 (pvp-end.test.ts) |
+| `pvp.host` | pvp / Hosted duel options | Create/join a duel with time, spectator, surrender and password options; never record the password. | verified 2026-11-04 (pvp-rooms.test.ts) |
+| `pvp.match` | pvp / Match and sideboarding | Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result. | verified 2026-11-04 (pvp-rooms.test.ts) |
+| `pvp.start` | pvp / PvP setup | Select legal decks and establish both perspectives with correct hidden information. | verified 2026-11-04 (pvp.test.ts) |
+| `pvp.play` | pvp / PvP complete duel | Two clients agree on field, LP, phases, timers and final result. | verified 2026-11-04 (pvp.test.ts) |
+| `pvp.end` | pvp / Surrender/timeout/disconnect | Resolve each termination path and return both players to a usable lobby. | verified 2026-11-04 (pvp-end.test.ts, pvp-rooms.test.ts) |
+| `tag.party` | tag / Tag formation | Invite, join, leave and validate a four-player team with correct seats. | verified 2026-11-04 (tag.test.ts) |
+| `tag.relay` | tag / Tag relay duel | Turn relay, shared field, perspective, prompts and teammate visibility remain correct. | verified 2026-11-04 (tag.test.ts) |
+| `tag.end` | tag / Tag termination | Surrender, disconnect and result release all seats and update rewards once. | verified 2026-11-04 (tag.test.ts) |
+| `spectate.join` | spectate / Spectator join | Find/join an NPC, PvP or tag duel and reconstruct the current visible state. | verified 2026-11-04 (pvp-end.test.ts, pvp.test.ts) |
+| `spectate.visibility` | spectate / Spectator privacy | Hide private cards and prohibit player responses from observers. | verified 2026-11-04 (pvp-end.test.ts, pvp.test.ts) |
+| `spectate.leave` | spectate / Spectator lifecycle | Live updates, late join, duel end and leave clean up the view/channel. | verified 2026-11-04 (pvp-end.test.ts, pvp.test.ts) |
+| `duel.field` | duel / Field and card movement | Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership. | verified 2026-11-04 (duel.test.ts) |
+| `duel.visibility` | duel / Card identities | Reveal/hide cards, tokens, control changes, shuffles and positions match server state. | verified 2026-11-04 (duel-scenarios.test.ts, duel.test.ts) |
+| `duel.combat` | duel / Turns and combat | Render phases, chains, battle, LP, stats, counters and destruction correctly. | verified 2026-11-04 (duel.test.ts) |
+| `duel.actions` | duel / Legal actions | Only current server-issued card/phase actions can generate valid responses. | verified 2026-11-04 (duel.test.ts) |
+| `duel.prompts` | duel / Choice prompts | Yes/no, options, position, race, attribute, number and announce-card map to correct bytes. | verified 2026-11-04 (duel-scenarios.test.ts, duel.test.ts) |
+| `duel.selection` | duel / Selection prompts | Card, field, ritual and discard selection respect bounds, cancellation and hidden identities. | verified 2026-11-04 (duel-scenarios.test.ts, duel.test.ts) |
+| `duel.stale` | duel / Stale/unsupported prompts | Reject stale input and display unsupported prompts without fabricating a valid action. | verified 2026-11-04 (duel.test.ts) |
+| `duel.presentation` | duel / Presentation | Animations, card inspection and logs remain ordered while input waits appropriately. | verified 2026-11-04 (duel.test.ts, duelfx.test.ts) |
+| `deck.list` | deck / Load/select decks | Show saved decks, active deck and inventory counts from authoritative data. | verified 2026-11-04 (deck.test.ts) |
+| `deck.edit` | deck / Deck editing | Add/remove/reorder main, side and extra cards; enforce ownership and card limits. | verified 2026-11-04 (deck.test.ts) |
+| `deck.persist` | deck / Deck lifecycle | Create, rename, save, reload and delete decks with correct active selection. | verified 2026-11-04 (deck.test.ts) |
+| `deck.test` | deck / Deck test | Start and leave supported deck testing without spending cards or altering the saved deck. | verified 2026-11-04 (free.test.ts) |
+| `deck.validate` | deck / Deck legality | Report size, format and forbidden/limited-card violations before a duel. | verified 2026-11-04 (deck.test.ts) |
+| `deck.recipes` | deck / Deck recipes and import/export | Load supported recipes and round-trip supported deck formats without losing identities. | verified 2026-11-04 (deck.test.ts) |
+| `cards.collection` | cards / Collection/search | Owned counts, filtering, sorting and pagination match inventory. | verified 2026-11-04 (deck.test.ts) |
+| `cards.inspect` | cards / Card details and art | Passcode, text, type, stats, rarity, alternate art and image fallback are correct. | verified 2026-11-04 (deck.test.ts) |
+| `cards.hidden` | cards / Hidden/unknown cards | Card backs and unknown assets reveal no private identity and remain usable. | verified 2026-11-04 (duel.test.ts) |
+| `shops.catalog` | shops / Shop catalog | Load packs, decks and singles with correct price, availability and ownership. | verified 2026-11-04 (shop.test.ts) |
+| `shops.purchase` | shops / Purchase and opening | Purchase/open products, update inventory/wallet once and render acquired cards. | verified 2026-11-04 (shop.test.ts) |
+| `shops.constraints` | shops / Purchase failures | Insufficient funds, invalid counts, sold-out items and duplicate submissions fail clearly. | verified 2026-11-04 (shop.test.ts) |
+| `cosmetics.catalog` | cosmetics / Cosmetic catalog/preview | Browse categories and preview supported owned/unowned appearances. | verified 2026-11-04 (shop.test.ts) |
+| `cosmetics.purchase` | cosmetics / Cosmetic purchase/equip | Spend correct wallet funds, grant once, equip only owned items and persist selection. | verified 2026-11-04 (shop.test.ts) |
+| `cosmetics.wallet` | cosmetics / Bound/earned wallet | Balances, eligibility and purchase restrictions match authoritative wallet semantics. | verified 2026-11-04 (shop.test.ts) |
+| `trade.invite` | trade / Trade invitation | Invite, accept, decline, cancel and handle busy partners. | verified 2026-11-04 (trade.test.ts) |
+| `trade.offers` | trade / Trade offer/confirmation | Both sides see current cards/counts; offer changes invalidate confirmations. | verified 2026-11-04 (trade.test.ts) |
+| `trade.commit` | trade / Trade completion | Exchange only eligible owned cards atomically and refresh both inventories. | verified 2026-11-04 (trade.test.ts) |
+| `trade.failure` | trade / Trade failures | Disconnect, stale inventory, bound items and cancellation cause no loss or duplication. | verified 2026-11-04 (trade.test.ts) |
+| `social.chat` | social / Chat channels | Public, room, private and team messages respect channel, ordering and duplicate suppression. | verified 2026-11-04 (social.test.ts) |
+| `social.chat-policy` | social / Chat restrictions | Length/rate limits, mute/ignore, blocked targets and errors are handled without leaking private messages. | verified 2026-11-04 (social.test.ts) |
+| `social.friends` | social / Friends | List/add/remove friends, online state and invitations persist correctly. | verified 2026-11-04 (social.test.ts) |
+| `social.ignore` | social / Ignore list | Add/remove ignored users and apply visibility/contact rules. | verified 2026-11-04 (social.test.ts) |
+| `social.mail` | social / Mail | List/read/send/delete supported messages and show failure/empty states. | verified 2026-11-04 (social.test.ts) |
+| `social.teams` | social / Team list and membership | List/create/join/leave supported teams with correct membership, presence and team-chat permissions. | verified 2026-11-04 (social.test.ts) |
+| `social.profile` | social / Profiles and player lists | View correct identity, progression, title, status and supported rankings. | verified 2026-11-04 (social.test.ts) |
+| `duel.log` | duel / Duel log/history | Open supported duel logs, retain ordering and card references, and close without affecting active prompts. | verified 2026-11-04 (duel.test.ts) |
+| `settings.language-screen` | settings / Language and display mode | Supported language/fullscreen choices apply correctly, persist where promised, and recover if browser access is refused. | verified 2026-11-04 (settings.test.ts) |
+| `settings.persist` | settings / Settings persistence | Change supported display/input preferences and restore them after reload. | verified 2026-11-04 (settings.test.ts) |
+| `settings.accessibility` | settings / Accessibility | Keyboard focus, modal escape, readable feedback and reduced motion remain usable. | verified 2026-11-04 (settings.test.ts) |
+| `audio.volume` | audio / Volume and mute | Sound/music levels and mute persist and affect their respective playback. | verified 2026-11-04 (settings.test.ts) |
+| `audio.lifecycle` | audio / Audio lifecycle | User gesture unlock, scene transitions, duel cues and cleanup avoid overlapping/stuck playback. | verified 2026-11-04 (settings.test.ts) |
+| `reconnect.resume` | reconnect / Tunnel resume | Resume active channels/sequences without duplicate moves, purchases, chat or duel input. | verified 2026-11-04 (resilience.test.ts) |
+| `reconnect.expired` | reconnect / Resume expiry | Expired or rejected resume clears stale channels and offers a valid new connection. | verified 2026-11-04 (resilience.test.ts) |
+| `reconnect.scenes` | reconnect / Scene lifecycle | Reconnect/re-enter/reload during lobby, shop, deck and duel without stale subscriptions. | verified 2026-11-04 (resilience.test.ts) |
+| `errors.network` | errors / Transport failures | Timeout, refusal, truncated packets, invalid digest and sequence gaps surface actionable errors. | verified 2026-11-04 (resilience.test.ts) |
+| `errors.protocol` | errors / Protocol failures | Malformed/unsupported payloads fail transactionally without partial board or inventory mutation. | verified 2026-11-04 (resilience.test.ts) |
+| `errors.api` | errors / API and assets | HTTP/auth failures, unavailable data and missing assets show usable retry/fallback states. | verified 2026-11-04 (resilience.test.ts) |
+| `errors.concurrency` | errors / Concurrent and stale operations | Busy state, duplicate clicks, navigation and late replies cannot apply to the wrong session. | verified 2026-11-04 (resilience.test.ts) |
 
 ## Validation record
 
