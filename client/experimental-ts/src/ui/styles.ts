@@ -32,6 +32,7 @@ export const CLIENT_CSS = `
 .de-world-status:empty { display:none; }
 .de-world-status button { pointer-events:auto; }
 .de-stage-layer { position:absolute; inset:0; }
+.de-duel-options { position:absolute; right:8px; top:8px; z-index:9; }
 .de-scene { position:absolute; inset:0; padding:18px; display:flex; flex-direction:column; gap:12px; }
 .de-panel { border:3px solid #87e9ff; outline:1px solid #1268b2; border-radius:4px; background:linear-gradient(#e2fcff,#a9e8fb 45%,#77cff2); box-shadow:0 3px 12px #082f6755; padding:12px; }
 .de-panel-title { margin:-10px -10px 12px!important; padding:5px 8px; color:white; background:linear-gradient(#a1def9,#2585dc 49%,#1761bf); text-shadow:0 1px #114d91; }
