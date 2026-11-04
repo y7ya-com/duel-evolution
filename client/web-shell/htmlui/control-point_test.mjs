@@ -17,6 +17,6 @@ assert.equal(controlPoint(null, 1), null);
 const defaults = htmlDefaults({ on: ['CChatWindow', 'CShopPackWindow'] });
 assert(defaults.includes('CChatWindow'));
 assert(SHOP_CLASSES.every(c => defaults.includes(c)), 'old hosted configs gain all shop screens');
-assert.equal(defaults.length, SHOP_CLASSES.length + 1, 'classes stay unique');
-assert.deepEqual(htmlDefaults({ on: ['CChatWindow'], shop: false }), ['CChatWindow']);
+assert.equal(defaults.length, SHOP_CLASSES.length + 2, 'classes stay unique (the configured chat, the Duel menu, the shop)');
+assert.deepEqual(htmlDefaults({ on: ['CChatWindow'], shop: false }), ['CChatWindow', 'CWindowModelDuel']);
 console.log('control-point_test: ok');
