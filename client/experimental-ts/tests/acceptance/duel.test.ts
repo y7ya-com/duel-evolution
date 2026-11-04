@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -109,10 +109,9 @@ async function deckNames(page:Page):Promise<string[]> {
 /** Go online and create a character; claim the starter deck at `starter` (so the two players hold different decks). */
 async function enterWith(page:Page,name:string,starter:number) {
   await click(page,'Go Online',60000);
-  await until(page,byKey('character-name'),60000);
-  await type(page,byKey('character-name'),name);
-  await click(page,'Create');
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+  await until(page,freeSlot,60000);
+  await createCharacter(page,name,{ wait:false });
+  const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(page,slot,30000); await press(page,slot);
   await until(page,byKey('lobby-npcs'),60000);
   const deck = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelectorAll('button')[${starter}]`;

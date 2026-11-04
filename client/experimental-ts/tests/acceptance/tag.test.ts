@@ -230,7 +230,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       // The disconnected player goes online again with the same character.
       const back = pages[gone]!;
       await click(back,'Go Online',60000);
-      const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(names[gone])})&&!b.disabled)`;
+      const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(names[gone])})&&!b.disabled)`;
       await until(back,slot,60000); await press(back,slot); await until(back,`document.querySelector('[data-key="lobby-npcs"]')`,60000);
       const released2 = await releasedSeats(pages,names);
       const notices2 = await Promise.all(stay.map(p => relayNotices(p)));

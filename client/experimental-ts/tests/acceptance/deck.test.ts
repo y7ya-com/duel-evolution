@@ -26,7 +26,7 @@ async function editDeck(page:Page) { await click(page,'Edit Deck'); await until(
 /** Reload the page and come back to the same character's deck editor: everything shown comes from the server again. */
 async function reload(page:Page,character:string,assets = true) {
   await page.go(`${CLIENT}/?portOffset=1000${assets ? '&assets=/game-assets/' : ''}`,`document.querySelector('.de-client')`);
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
+  const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
   // The previous page's session can take a moment to close; the server then asks to wait and try again, as a player would.
   for (let attempt = 0; attempt < 12 && !(await page.ev(`Boolean(${slot})`)); attempt++) {
     const go = `[...document.querySelectorAll('button')].find(b=>['Go Online','Continue'].includes(b.textContent.trim())&&!b.disabled)`;

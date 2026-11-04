@@ -36,7 +36,7 @@ const total = (m:Map<string,number>) => [...m.values()].reduce((a,b) => a + b,0)
 async function reload(page:Page,character:string) {
   await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
   await click(page,'Go Online',60000);
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
+  const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
   await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
 }
 const cardGet = `document.querySelector('.de-card-get')`;

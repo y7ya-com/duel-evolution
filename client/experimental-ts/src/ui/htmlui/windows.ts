@@ -94,12 +94,12 @@ export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 
 // 8 px over each other along it, the ThinChop frame and its back plane, the log 8, 24, 760 x 80 (5 rows), the input
 // line 0, 96, 776 x 32 (128 characters). Each tab has its own log (the reader's pairs): All Chat every line, the
 // others their channel's, so main's screen counts what arrives on a tab that isn't shown.
-export const CHAT_TABS: readonly { label: string; x: number; w: number; channel: string; shows: (channel: string) => boolean }[] = [
-  { label: 'All Chat', x: 8, w: 81, channel: 'global', shows: () => true },
+export const CHAT_TABS: readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string) => boolean }[] = [
+  { key: 'all', label: 'All Chat', x: 8, w: 81, channel: 'global', shows: () => true },
   // the rewrite's world has no proximity channel (its lines are 'global'): the tab is there, empty, and sends to all
-  { label: 'Proximity Chat', x: 81, w: 134, channel: 'global', shows: c => c === 'local' },
-  { label: 'TRADE', x: 207, w: 72, channel: 'trade', shows: c => c === 'trade' },
-  { label: 'Team ', x: 271, w: 72, channel: 'team', shows: c => c === 'team' },
+  { key: 'proximity', label: 'Proximity Chat', x: 81, w: 134, channel: 'global', shows: c => c === 'local' },
+  { key: 'trade', label: 'TRADE', x: 207, w: 72, channel: 'trade', shows: c => c === 'trade' },
+  { key: 'team', label: 'Team ', x: 271, w: 72, channel: 'team', shows: c => c === 'team' },
 ];
 /** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. */
 export function chatCommand(tab: number, line: string): Extract<ClientCommand, { type: 'chat' }> | null {
@@ -118,7 +118,7 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lines = lobby.chat.slice(-200);
   const pairs = CHAT_TABS.map((t, i) => {
     const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w, h: 24 }, { label: t.label, active: i === tab },
-      { key: `chat-tab:${t.label.trim().toLowerCase()}`, click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
+      { key: `chat-tab:${t.key}`, label: t.label.trim(), click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
     const items = lines.filter(l => t.shows(l.channel)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
     const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: 80 }, { shown: i === tab, items, selected: -1, top: 0, topLine: 0, rows: 5 });
     return { tab: tc.id, log: log.id, visible: true };

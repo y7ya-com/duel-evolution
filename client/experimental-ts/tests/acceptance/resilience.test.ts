@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -29,8 +29,7 @@ async function collection(page:Page):Promise<number> {
   await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-key^="collection-card:"]').length>0`,60000); await sleep(600);
   return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
 }
-const chatLines = (page:Page) => page.ev(`[...document.querySelectorAll('.de-chat-line')].map(l=>l.textContent)`) as Promise<string[]>;
-async function chat(page:Page,message:string) { await type(page,byKey('chat'),message); await click(page,'Send'); }
+async function chat(page:Page,message:string) { await say(page,message); }
 const mp = (page:Page) => page.ev(`Number((/([\\d,]+) MP/.exec(document.querySelector('.de-shop-grid')?.parentElement?.innerText ?? '')?.[1] ?? '-1').replaceAll(',',''))`) as Promise<number>;
 const turn = (page:Page) => page.ev(`Number(/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??0)`) as Promise<number>;
 const board = (page:Page) => page.ev(`JSON.stringify({lp:[...document.querySelectorAll('.de-lp-value')].map(n=>n.textContent),cards:[...document.querySelectorAll('.de-field-card')].map(b=>b.getAttribute('aria-label')).sort()})`) as Promise<string>;
@@ -82,10 +81,10 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // Lobby: one message sent and the socket dropped before the server's echo; another after the resume.
       const first = `before-drop ${RUN}`, second = `after-resume ${RUN}`;
       await type(page,byKey('chat'),first);
-      await page.ev(`(()=>{${byText('Send')}.click();${live}.close();})()`);
+      await page.ev(`(()=>{${byKey('chat')}.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));${live}.close();})()`);   // Enter, then the drop in the same task
       await resumed(page);
       await chat(page,second);
-      await until(page,`[...document.querySelectorAll('.de-chat-line')].some(l=>l.textContent.includes(${JSON.stringify(second)}))`,20000);
+      await until(page,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes(${JSON.stringify(second)}))`,20000);
       await sleep(1500);
       const lines = await chatLines(page);
       const count = (m:string) => lines.filter(l => l.includes(m)).length;
@@ -166,7 +165,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const fresh = await page.ev(`window.__net.urls.slice(${sockets0}).every(u=>!u.includes('resume=1'))`);
       expect(fresh).toBe(true);
       await chat(page,`fresh-after-reject ${RUN}`);
-      await until(page,`[...document.querySelectorAll('.de-chat-line')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length===1`,20000);
+      await until(page,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length===1`,20000);
       // Expired: every retry is refused until the client's 40-second resume window ends.
       await page.ev(`window.__net.rewrite=u=>u.includes('resume=1')?u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:1/'):u`);
       const t = Date.now(); await drop(page);
@@ -178,8 +177,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`window.__net.rewrite=null`);
       t0 = Date.now(); await reenterWorld(page,me); const wait2 = Math.round((Date.now() - t0) / 1000);
       await chat(page,`fresh-after-expiry ${RUN}`);
-      await until(page,`[...document.querySelectorAll('.de-chat-line')].filter(l=>l.textContent.includes('fresh-after-expiry ${RUN}')).length===1`,20000);
-      const stale = await page.ev(`[...document.querySelectorAll('.de-chat-line')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length`) as number;
+      await until(page,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-expiry ${RUN}')).length===1`,20000);
+      const stale = await page.ev(`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length`) as number;
       record('reconnect.expired',{ actions:'Drop the tunnel and answer its resume with an unknown tunnel id; Go Online again and chat. Drop it again and refuse every resume connection; Go Online again and chat',
         expected:'A rejected or expired resume clears stale channels and offers a working new connection',
         observed:`rejected: "${rejected}" on the ${rejectedScene} screen with Go Online, a fresh (non-resume) connection re-entered as ${me} in ${wait1} s (the server's 45 s hold of the old tunnel waited out) and chatted once; expired after ${window_} s and ${retries} refused retries: "${expired}", Go Online re-entered in ${wait2} s and chatted once; old chat lines shown ${stale} times after the new session` });
@@ -368,12 +367,12 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await until(page,byText('Go Online'),60000);
       const sockets0 = await page.ev(`window.__net.sockets.length`) as number;
       await page.ev(`(()=>{const b=${byText('Go Online')};b.click();b.click();})()`);
-      await until(page,byKey('character-name'),60000); await sleep(1000);
+      await until(page,freeSlot,60000); await sleep(1000);
       const goOnline = (await page.ev(`window.__net.sockets.length`) as number) - sockets0;
       expect(goOnline).toBe(1);
       const me = `Con ${RUN}`;
-      await type(page,byKey('character-name'),me); await click(page,'Create');
-      const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(me)})&&!b.disabled)`;
+      await createCharacter(page,me,{ wait:false });
+      const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(me)})&&!b.disabled)`;
       await until(page,slot,30000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
       const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
       for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);

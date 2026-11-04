@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, text, byText, byKey, sleep, screenshot, record, type Page, say, chatLines } from './harness';
 
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 const avatarCount = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].filter(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)}).length`;
 const position = (page:Page,name:string) => page.ev(`(()=>{const a=${avatar(name)};return a?a.style.left+'|'+a.style.top:null})()`) as Promise<string|null>;
-const chatLines = (page:Page) => page.ev(`[...document.querySelectorAll('.de-chat-line')].map(l=>l.textContent)`) as Promise<string[]>;
+/** main's chat: a channel's tab (All Chat for 'global'), or a whisper typed as '/w name text' */
 async function chat(page:Page,channel:string,message:string,target?:string) {
-  await page.ev(`(()=>{const s=document.querySelector('[data-key="chat-channel"]');s.value=${JSON.stringify(channel)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  if (target) await type(page,byKey('chat-target'),target);
-  await type(page,byKey('chat'),message); await click(page,'Send');
+  if (channel === 'whisper') return say(page,message,{ to:target! });
+  await say(page,message,{ tab:channel === 'global' ? 'all' : channel as 'trade' | 'team' });
 }
 async function social(page:Page) { await click(page,'Friends & Mail'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
 /** Find a player by name; the field must hold the name when Find is pressed (the screen refreshes as it opens). */
@@ -84,9 +83,9 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('avatars.titles',{ actions:'Set own comment and personal title; another player opens the profile', expected:'Read and change own profile/title; only owned choices offered', observed:`B read "Hello from ${RUN}" and "Champ ${RUN}" on A's profile; only own-profile edit controls offered` });
       // social.chat: global reaches everyone once; whisper reaches only its target.
       await chat(a,'global',`hi all ${RUN}`);
-      for (const p of [b,c]) await until(p,`[...document.querySelectorAll('.de-chat-line')].filter(l=>l.textContent.includes('hi all ${RUN}')).length===1`,20000);
+      for (const p of [b,c]) await until(p,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('hi all ${RUN}')).length===1`,20000);
       await chat(a,'whisper',`psst ${RUN}`,names.b);
-      await until(b,`[...document.querySelectorAll('.de-chat-line')].some(l=>l.textContent.includes('psst ${RUN}'))`,20000);
+      await until(b,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes('psst ${RUN}'))`,20000);
       await sleep(1500);
       expect((await chatLines(c)).some(l => l.includes(`psst ${RUN}`))).toBe(false);
       record('social.chat',{ actions:'Global message from A; whisper A→B with C present', expected:'Channel, ordering and duplicate suppression respected', observed:'global line shown exactly once to B and C; whisper shown to B, never to C' });
@@ -123,7 +122,7 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await until(a,`[...document.querySelectorAll('.de-social-team .de-social-row')].some(r=>r.textContent.includes(${JSON.stringify(names.b)}))`,30000);
       await click(a,'Lobby'); await click(b,'Lobby');
       await chat(a,'team',`team ${RUN}`);
-      await until(b,`[...document.querySelectorAll('.de-chat-line')].some(l=>l.textContent.includes('team ${RUN}'))`,20000);
+      await until(b,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes('team ${RUN}'))`,20000);
       await sleep(1000); expect((await chatLines(c)).some(l => l.includes(`team ${RUN}`))).toBe(false);
       record('social.teams',{ actions:'Create team, invite by name, join, team chat', expected:'Membership, presence and team-chat permissions correct', observed:`B joined T${RUN}; A's member list shows B; team chat reached B, not C` });
       // social.ignore + chat-policy: B ignores A; A's global messages no longer reach B; unignore restores them.
@@ -132,7 +131,7 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await until(b,`document.querySelector('.de-social-ignored')`,20000);
       await click(b,'Lobby');
       await chat(a,'global',`ignored ${RUN}`);
-      await until(c,`[...document.querySelectorAll('.de-chat-line')].some(l=>l.textContent.includes('ignored ${RUN}'))`,20000);
+      await until(c,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes('ignored ${RUN}'))`,20000);
       await sleep(1500);
       expect((await chatLines(b)).some(l => l.includes(`ignored ${RUN}`))).toBe(false);
       record('social.ignore',{ actions:'B ignores A by name; A sends a global message', expected:'Ignored users hidden by visibility/contact rules', observed:`C saw "ignored ${RUN}", B (ignoring) did not` });

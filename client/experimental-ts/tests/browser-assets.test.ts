@@ -60,12 +60,12 @@ describe.skipIf(!process.env.YO2_ASSET_URL)('optional real original-asset browse
       await browser.send('Page.enable');
       await browser.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{try{localStorage.setItem('de-client-settings-v1',JSON.stringify({reducedMotion:true,sound:0,music:0}));}catch{};window.confirm=()=>true;const audit=window.__assetAudit={created:0,revoked:0,live:new Set(),peak:0,revokedWhileAttached:0,liveBitmaps:0,peakBitmaps:0};const nativeDecode=window.createImageBitmap.bind(window);window.createImageBitmap=(...args)=>nativeDecode(...args).then(bitmap=>{audit.liveBitmaps++;audit.peakBitmaps=Math.max(audit.peakBitmaps,audit.liveBitmaps);const close=bitmap.close.bind(bitmap);let closed=false;bitmap.close=()=>{if(!closed){closed=true;audit.liveBitmaps--;}return close();};return bitmap;});const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL);URL.createObjectURL=value=>{const url=create(value);audit.created++;audit.live.add(url);audit.peak=Math.max(audit.peak,audit.live.size);return url;};URL.revokeObjectURL=url=>{if([...document.images].some(image=>image.getAttribute('src')===url))audit.revokedWhileAttached++;audit.revoked++;audit.live.delete(url);return revoke(url);};})()`});
       await browser.go(fixture.origin+'/?portOffset=0&assets=/game-assets/',`document.querySelector('.de-client')`);
-      await click(browser,'Go Online'); await until(browser,`document.querySelector('[data-key="character-name"]')`);
+      await click(browser,'Go Online'); await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player'); await until(browser,`document.querySelector('[data-key="character-name"]')`);
       await evaluate(browser,`(()=>{const input=document.querySelector('[data-key="character-name"]');input.value='Asset Duelist';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-      await click(browser,'Create');
-      await until(browser,`[...document.querySelectorAll('.de-characters button')].some(b=>b.textContent.includes('Asset Duelist')&&!b.disabled)`);
+      await click(browser,'OK');
+      await until(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes('Asset Duelist')&&!b.disabled)`);
       // A real mouse selects the newly persisted character; no controller dispatch is injected.
-      const character = await evaluate(browser,`(()=>{const b=[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes('Asset Duelist'));const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+      const character = await evaluate(browser,`(()=>{const b=[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Asset Duelist'));const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
       const down = browser.send('Input.dispatchMouseEvent',{type:'mousePressed',...character,button:'left',clickCount:1});
       const up = browser.send('Input.dispatchMouseEvent',{type:'mouseReleased',...character,button:'left',clickCount:1}); await down; await up;
       await until(browser,readyMap);

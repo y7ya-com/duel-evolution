@@ -47,7 +47,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       expect(after).toBeGreaterThan(0);
       // Granted once: reconnecting and reading the collection again gives the same count.
       await click(page,'Disconnect'); await click(page,'Go Online',60000);
-      const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(`Npc ${RUN}`)})&&!b.disabled)`;
+      const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(`Npc ${RUN}`)})&&!b.disabled)`;
       await until(page,slot,60000); await press(page,slot);
       await until(page,byKey('lobby-npcs'),60000);
       const again = await ownedCopies(page,card);

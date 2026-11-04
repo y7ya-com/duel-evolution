@@ -50,11 +50,11 @@ describe('actual headless browser against real game authority',() => {
       await browser.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{localStorage.setItem('de-client-settings-v1',JSON.stringify({reducedMotion:true,sound:0,music:0}));}catch{};window.confirm=()=>true;` });
       await browser.go(fixture.origin+'/?portOffset=0',`document.querySelector('.de-client')`);
       await click(browser,'Go Online',viewport.mobile);
-      await until(browser,`document.querySelector('[data-key="character-name"]')`);
+      await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player',viewport.mobile); await until(browser,`document.querySelector('[data-key="character-name"]')`);
       await browser.ev(`(()=>{const input=document.querySelector('[data-key="character-name"]');input.value='Browser Duelist';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-      await click(browser,'Create',viewport.mobile);
-      await until(browser,`[...document.querySelectorAll('.de-characters button')].some(b=>b.textContent.includes('Browser Duelist')&&!b.disabled)`);
-      await activate(browser,`[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes('Browser Duelist'))`,viewport.mobile);
+      await click(browser,'OK',viewport.mobile);
+      await until(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes('Browser Duelist')&&!b.disabled)`);
+      await activate(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Browser Duelist'))`,viewport.mobile);
       await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
       // Claim through the actual server handler if this character is offered a starter deck.
       await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);

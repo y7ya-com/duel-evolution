@@ -120,24 +120,47 @@ export async function openClient(page:Page,cookies:{ name:string; value:string }
   await page.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{if(!sessionStorage.getItem('acc-init')){sessionStorage.setItem('acc-init','1');localStorage.setItem('de-client-settings-v1',JSON.stringify(${JSON.stringify({ reducedMotion:true,sound:0,music:0,...options.settings })}));}}catch{};window.confirm=()=>true;` });
   await page.go(`${CLIENT}/?portOffset=1000${options.assets === false ? '' : '&assets=/game-assets/'}`,`document.querySelector('.de-client')`);
 }
+/** A character's row in Select Player (main's screen: src/ui/htmlui), by name. */
+export const characterSlot = (name:string) => `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+/** The character names Select Player lists. */
+export const characterNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key^="character-slot:"]')].map(b=>b.textContent.trim())`) as Promise<string[]>;
+/** Select Player's first free row (Create Player). */
+export const freeSlot = `document.querySelector('[data-key^="character-create:"]')`;
+/** Create Player on the first free row, the name typed into the game's name dialog, OK; then (wait) its row. */
+export async function createCharacter(page:Page,name:string,{ wait = true,timeout = 60000 }:{ wait?:boolean; timeout?:number } = {}) {
+  await until(page,freeSlot,timeout); await press(page,freeSlot);
+  await until(page,byKey('character-name'),10000); await type(page,byKey('character-name'),name);
+  await until(page,`!${byKey('character-create-ok')}?.disabled`,5000); await press(page,byKey('character-create-ok'));
+  if (wait) await until(page,characterSlot(name),30000);
+}
+/** Delete on a character's row, Yes in the game's confirmation. */
+export async function deleteCharacter(page:Page,name:string) {
+  const slot = await page.ev(`(${characterSlot(name)})?.dataset.key.split(':')[1]`) as string;
+  await press(page,byKey(`character-delete:${slot}`)); await until(page,byKey('character-delete-yes'),10000); await press(page,byKey('character-delete-yes'));
+}
 /** Go Online, create a character named `name` in the first free slot, select it, claim a starter if offered. */
 export async function enterWorld(page:Page,name:string) {
   await click(page,'Go Online',60000);
-  await until(page,byKey('character-name'),60000);
-  await type(page,byKey('character-name'),name);
-  await click(page,'Create');
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
-  await until(page,slot,30000); await press(page,slot);
+  await createCharacter(page,name);
+  await press(page,characterSlot(name));
   await until(page,byKey('lobby-npcs'),60000);
   await claimStarter(page);
 }
 /** Go Online again with an existing character (after a reload or a dropped connection). */
 export async function reenterWorld(page:Page,name:string) {
   await click(page,'Go Online',60000);
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
-  await until(page,slot,60000); await press(page,slot);
+  await until(page,characterSlot(name),60000); await press(page,characterSlot(name));
   await until(page,byKey('lobby-npcs'),60000);
 }
+/** The lines main's chat window shows on its current tab (CChatWindow's log). */
+export const chatLines = (page:Page) => page.ev(`[...document.querySelectorAll('#htmlui-host [role="log"]')].filter(l=>l.style.display!=='none').flatMap(l=>[...l.children].map(r=>r.textContent))`) as Promise<string[]>;
+/** A line typed into the chat and sent with Enter, on a tab (all, trade, team) or as a whisper ('/w name text'). */
+export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'proximity'|'trade'|'team'; to?:string } = {}) {
+  if (tab) await press(page,byKey(`chat-tab:${tab}`));
+  await type(page,byKey('chat'),to ? `/w ${to} ${message}` : message);
+  for (const t of ['keyDown','keyUp']) await page.send('Input.dispatchKeyEvent',{ type:t,key:'Enter',code:'Enter',windowsVirtualKeyCode:13,...(t === 'keyDown' ? { text:'\r' } : {}) });
+}
+
 export async function claimStarter(page:Page) {
   const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);

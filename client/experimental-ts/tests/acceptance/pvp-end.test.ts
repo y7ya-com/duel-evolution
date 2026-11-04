@@ -13,7 +13,7 @@ const roomRow = (owner:string) => `[...document.querySelectorAll('.de-room-row')
 /** The selected character again after a lost connection: Go Online, pick the slot, lobby. */
 async function reenter(page:Page,name:string) {
   await click(page,'Go Online',60000);
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+  const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(page,slot,60000); await press(page,slot);
   await until(page,byKey('lobby-npcs'),60000);
 }

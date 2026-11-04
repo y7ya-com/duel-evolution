@@ -35,10 +35,10 @@ async function enter(browser:Browser,origin:string,account:string,name:string) {
   await browser.go(`${origin}/api/de/session?as=${account}`,'document.body');
   await browser.go(origin+'/?portOffset=0',`document.querySelector('.de-client')`);
   await click(browser,'Go Online');
-  await until(browser,`document.querySelector('[data-key="character-name"]')`);
+  await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player'); await until(browser,`document.querySelector('[data-key="character-name"]')`);
   await browser.ev(`(()=>{const input=document.querySelector('[data-key="character-name"]');input.value=${JSON.stringify(name)};input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-  await click(browser,'Create');
-  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+  await click(browser,'OK');
+  const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(browser,slot); await activate(browser,slot);
   await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
   await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);

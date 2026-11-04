@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter } from './harness';
 
 const titleSignedOut = `document.body.innerText.includes('Sign In')&&document.querySelector('input[name="password"],[data-key="password"]')`;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
@@ -109,27 +109,27 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       record('character.starter',{ actions:'Fresh character claims the offered starter; open deck editor and shop; return to lobby', expected:'Claimed once; deck, inventory, level and wallet reflect it', observed:`starter claimed; main deck ${mainCount} cards; ${owned} owned collection entries on page 1; wallet ${wallet}; ${level}; not offered again` });
       await click(a,'Disconnect');
       await click(a,'Go Online',60000);
-      await until(a,`[...document.querySelectorAll('.de-characters button')].some(b=>b.textContent.includes(${JSON.stringify(name)}))`,30000);
-      const slots = await a.ev(`[...document.querySelectorAll('.de-characters strong')].map(s=>s.textContent)`) as string[];
+      await until(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes(${JSON.stringify(name)}))`,30000);
+      const slots = await a.ev(`[...document.querySelectorAll('[data-key^="character-slot:"]')].map(s=>s.textContent)`) as string[];
       expect(slots).toEqual([name]);
-      expect(await a.ev(`document.querySelectorAll('[data-key="character-slot"] option').length`)).toBe(3);
+      expect(await a.ev(`document.querySelectorAll('[data-key^="character-create:"]').length`)).toBe(3);
       // character.create collision: B cannot take A's name
-      await click(b,'Go Online',60000); await until(b,byKey('character-name'),60000);
-      await type(b,byKey('character-name'),name); await click(b,'Create');
+      await click(b,'Go Online',60000); await until(b,freeSlot,60000);
+      await createCharacter(b,name,{ wait:false });
       await until(b,`document.body.innerText.includes('This Player Name is already in use.')`,20000);
       const collision = 'This Player Name is already in use. Please create another.';
-      expect(await b.ev(`document.querySelectorAll('.de-characters strong').length`)).toBe(0);
+      expect(await b.ev(`document.querySelectorAll('[data-key^="character-slot:"]').length`)).toBe(0);
       // invalid name
-      await type(b,byKey('character-name'),'Bo'); await click(b,'Create');
+      await createCharacter(b,'Bo',{ wait:false });
       await until(b,`document.body.innerText.includes('at least 4 characters')`,20000);
-      await type(b,byKey('character-name'),'Zoë☃ok'); await click(b,'Create');
+      await createCharacter(b,'Zoë☃ok',{ wait:false });
       await until(b,`document.body.innerText.includes('incompatible characters')`,20000);
       const invalid = 'too short: "Enter a name of at least 4 characters."; non-Latin-1: "There are incompatible characters in this name."';
-      expect(await b.ev(`document.querySelectorAll('.de-characters strong').length`)).toBe(0);
+      expect(await b.ev(`document.querySelectorAll('[data-key^="character-slot:"]').length`)).toBe(0);
       record('character.create',{ actions:'Create a valid name; second account creates the same name; invalid name', expected:'Valid name appears in its slot; collision and invalid name reported; slots refresh', observed:`created "${name}" in slot 1; collision: "${collision}"; invalid: "${invalid}"; neither created` });
       record('character.list',{ actions:'Reconnect and open Select Character', expected:'Occupied and empty slots with correct identity', observed:`occupied: ${slots.join(', ')}; 3 free slots offered` });
       // character.select: enters the lobby as that character
-      await press(a,`[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)}))`);
+      await press(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)}))`);
       await until(a,byKey('lobby-npcs'),60000);
       expect(await text(a)).toContain(name);
       const world = await a.ev(`document.querySelector('.de-lobby-name')?.textContent`) as string;
@@ -137,15 +137,15 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       // starter offered only once: not offered again on re-entry
       expect(await a.ev(`document.body.innerText.includes('Choose your Starter Deck')`)).toBe(false);
       // auth.binding: B's list never shows A's character, and B cannot select A's slot
-      const listB = await b.ev(`[...document.querySelectorAll('.de-characters strong')].map(s=>s.textContent)`) as string[];
+      const listB = await b.ev(`[...document.querySelectorAll('[data-key^="character-slot:"]')].map(s=>s.textContent)`) as string[];
       expect(listB).not.toContain(name);
       record('auth.binding',{ actions:'Second account lists characters', expected:"An account cannot see or select another account's character", observed:`account B sees [${listB.join(', ')}], not "${name}"` , accounts:'2 test users' });
       // character.delete: B creates and deletes its own character
       const doomed = `Temp ${RUN}`;
-      await type(b,byKey('character-name'),doomed); await click(b,'Create');
-      await until(b,`[...document.querySelectorAll('.de-characters strong')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
-      await click(b,`Delete ${doomed}`);
-      await until(b,`![...document.querySelectorAll('.de-characters strong')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
+      await createCharacter(b,doomed,{ wait:false });
+      await until(b,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
+      await deleteCharacter(b,doomed);
+      await until(b,`![...document.querySelectorAll('[data-key^="character-slot:"]')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
       record('character.delete',{ actions:'Create then delete (confirmed) a character', expected:'Slot updates after confirmed deletion', observed:`"${doomed}" removed; slot free again` });
     } finally { closeAll(); }
   },300000);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page, createCharacter, freeSlot } from './harness';
 
 const pressed = (code:string) => `document.querySelector('[data-key="language:${code}"]')?.getAttribute('aria-pressed')==='true'`;
 const collectionNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].slice(0,40).map(b=>b.dataset.key.slice(16)+'='+b.title.split(' · ')[0])`) as Promise<string[]>;
@@ -204,10 +204,10 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
         await until(page,`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()===${JSON.stringify(expect_)}`,20000);
         const now = await playing(page); maxPlaying = Math.max(maxPlaying,now.length); timeline.push(`${label}:${now.join(',')}`);
       };
-      await click(page,'Go Online',60000); await until(page,byKey('character-name'),60000);
+      await click(page,'Go Online',60000); await until(page,freeSlot,60000);
       await sample('characters','login.wav');
-      await type(page,byKey('character-name'),`Audio ${RUN}`); await click(page,'Create');
-      const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes('Audio ${RUN}')&&!b.disabled)`;
+      await createCharacter(page,`Audio ${RUN}`,{ wait:false });
+      const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Audio ${RUN}')&&!b.disabled)`;
       await until(page,slot,30000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000); await claimStarter(page);
       const area = await page.ev(`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()`) as string;
       await sample('lobby',area === 'gx-area.wav' ? 'gx-area.wav' : 'yugi-area.wav');

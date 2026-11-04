@@ -157,7 +157,7 @@ async function seed(pages:[Page,string][]) {
   for (const [page,name] of pages) {
     await page.send('Page.reload',{}); await sleep(1500); await until(page,`document.querySelector('.de-client')`,30000);
     await click(page,'Go Online',60000);
-    const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+    const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
     await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
   }
 }
