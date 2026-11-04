@@ -19,7 +19,8 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   const free = process.platform === 'darwin'   // Linux: MemAvailable (page cache counts as free, as memory_pressure's)
     ? +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100)
     : Math.round(+/MemAvailable:\s+(\d+)/.exec(readFileSync('/proc/meminfo', 'utf8'))[1] * 1024 / totalmem() * 100);
-  if (free < 25) throw new Error(`only ${free}% memory free`);
+  const min = +(process.env.CDP_MIN_FREE || 25);   // CDP_MIN_FREE=15: a big machine where 25 % is still gigabytes
+  if (free < min) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
   const profile = '/tmp/htmlui-chrome-' + process.pid;
