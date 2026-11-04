@@ -32,8 +32,9 @@ const CSS = `
 .lb-icon > i { position: absolute; left: 8px; top: 4px; width: 72px; height: 24px; box-sizing: border-box; border: 1px solid;
   clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
 .lb-icon > svg { position: absolute; left: 0; top: 0; overflow: visible; display: none; }
+.lb-icon > b { position: absolute; left: 0; top: 0; width: 80px; height: 32px; display: none; background: no-repeat 0 0 / 240px 192px; }
 ${['normal', 'hover', 'pressed'].map(k => `.lb-icon[data-look=${k}] > i { border-color: ${PLATE[k].border}; background: ${plateBackground(PLATE[k])}; }
-.lb-icon[data-look=${k}] > svg[data-look=${k}] { display: block; }`).join('\n')}
+.lb-icon[data-look=${k}] > svg[data-look=${k}], .lb-icon[data-look=${k}] > b[data-look=${k}] { display: block; }`).join('\n')}
 .lb-msg { position: absolute; left: 392px; top: 8px; width: 624px; height: 16px; overflow: hidden; }
 .lb-card { position: absolute; left: 0; top: 0; }
 .lb-thin { position: absolute; box-sizing: border-box; border: 3px solid; border-bottom-right-radius: 6px; }
@@ -136,9 +137,30 @@ function icons() {
   img.src = ui.SHEET.window.url.replace(/[^/]*$/, '') + 'menuicon_02_c01.png';
   return null;
 }
+// The pictograms redrawn at 4x (menuicon_hd.png: the atlas's layout, 960 x 768, the plates left out: they are the CSS
+// above; Gemini image from the atlas's own cells, keyed and aligned to them: never in git, beside the atlas in the art
+// folder): sharp at any scale, so they replace the traced ones once loaded; until then (or without it) the traced ones
+let hd = null, hdLoading = false;
+function hdSheet() {
+  if (hd || hdLoading || typeof Image === 'undefined') return hd;
+  hdLoading = true;
+  const url = ui.SHEET.window.url.replace(/[^/]*$/, '') + 'menuicon_hd.png', img = new Image();
+  img.onload = () => { hd = url; for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b); };
+  img.onerror = () => console.warn('htmlui lobby: no HD menu icons');
+  img.src = url;
+  return null;
+}
+const ROW = Object.fromEntries(Object.entries(KIND).map(([v, k]) => [k, +v]));
 function paintIcon(b) {
+  const looks = ['normal', 'hover', 'pressed'], url = hdSheet();
+  if (url) {
+    b.innerHTML = '<i></i>' + looks.map((k, i) =>
+      `<b data-look="${k}" style="background-image: url('${url}'); background-position: ${-80 * i}px ${-ROW[b.kind]}px"></b>`).join('');
+    b.traced = true;
+    return;
+  }
   const t = icons(), svg = (k) => (t?.[b.kind]?.[k] || glyph(b.kind, k)).replace('<svg ', `<svg data-look="${k}" `);
-  b.innerHTML = '<i></i>' + ['normal', 'hover', 'pressed'].map(svg).join('');
+  b.innerHTML = '<i></i>' + looks.map(svg).join('');
   b.traced = !!t;
 }
 // The notice icons draw over the strip (live: the friend notice's 32 x 32 plate and 48 x 48 glow at x 248, y 736, inside
