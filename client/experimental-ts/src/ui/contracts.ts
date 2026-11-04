@@ -1,3 +1,4 @@
+import type { GameLanguage } from '../features/language';
 import type { ProfileAction, ProfileState } from '../features/profile';
 import type { NpcState } from '../features/npc';
 import type { AvatarLoadOptions, AvatarResource } from '../avatars';
@@ -80,6 +81,8 @@ export interface DuelView {
   timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number; at?: number };
   ended?: string;
   waiting?: string;
+  /** The latest duel packet the client rejected whole (the board keeps its last good state). */
+  issue?: string;
   /** Only server-issued commands are offered. */
   actions?: DuelOption[];
   /** The server prompt the actions answer; an action sent for an older prompt is refused. */
@@ -107,13 +110,17 @@ export interface DuelCue {
 }
 export interface SocialEntry { id: number | string; name: string; status?: string; online?: boolean; }
 export interface SocialView { friends: SocialEntry[]; mail?: { id: string; sender: string; subject: string; body: string }[]; loading?: boolean; }
-export interface SettingsView { sound: number; music: number; reducedMotion: boolean; showCardNames: boolean; }
+export interface SettingsView { sound: number; music: number; reducedMotion: boolean; showCardNames: boolean;
+  /** The original game's text language letter (features/language.ts); absent means English. */
+  language?: GameLanguage; }
 export interface ClientView {
   npc?: Readonly<NpcState>;
   npcCardViews?: Readonly<Record<number, CardView>>;
   /** Original pack names by pack id, once the pack tables are read. */
   packNames?: Readonly<Record<number, string>>;
   dataStatus?: { loading: boolean; issues: string[] };
+  /** Options → Language: a switch in progress, its failure (the previous language stays), cards left in English. */
+  languageStatus?: { loading: GameLanguage | null; available: boolean; error?: string; missing?: number };
   mode?: 'world' | 'free';
   profileDetail?: ProfileState;
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };

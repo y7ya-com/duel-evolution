@@ -209,6 +209,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-prompt-options { display:flex; gap:6px; flex-wrap:wrap; }
 .de-prompt-candidates { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; overflow:auto; }
 .de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
+.de-language-flags button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); box-shadow:0 0 0 3px #f4ce46,0 0 0 4px #a36a18; font-weight:700; }
 .de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
 .de-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; flex:1; }
 .de-shop-cosmetics { flex:none; max-height:40%; overflow:auto; background:#effcff; border:1px solid #75a8c5; padding:7px; }
@@ -252,6 +253,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
 .de-duel-actions { max-width:65%; } .de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-context { left:12px; right:12px; width:auto; top:auto; bottom:215px; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-social-grid { grid-template-columns:1fr; } .de-top { padding:7px; } }
 @media(prefers-reduced-motion:reduce) { .de-client * { animation:none!important; transition:none!important; } }
+.de-client[data-motion=reduced] * { animation:none!important; transition:none!important; }
 .de-client:fullscreen { --de-fullscreen-width:min(100%,calc((100vh - 120px)*1.333333)); width:100vw; max-width:none; height:100vh; margin:0; padding:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:auto; background:#093d6a; }
 .de-client:fullscreen>.de-stage,.de-client:fullscreen>.de-top,.de-client:fullscreen>.de-nav { width:var(--de-fullscreen-width); flex:none; }
 .de-client:fullscreen>.de-stage { min-height:0; height:auto; aspect-ratio:4/3; max-height:none; }

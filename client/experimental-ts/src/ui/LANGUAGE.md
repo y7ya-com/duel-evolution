@@ -1,6 +1,8 @@
 # Language selection source audit
 
-No language dropdown is currently offered. The TypeScript interface uses English labels, and the supplied original card-text generator loads only English tables. A selector that changes a numeric setting would not localize the renderer.
+Options → Language offers the original seven languages in the original flag order (日本語, English, Deutsch, Français, Italiano, Español, 한국어; `features/language.ts`). Choosing one reads that language's original tables from merge.dat through the asset bridge, as `CSystemConfigManager::applyLanguage` reloads them: card names and rules (`data/bin#/CARD_Prop`, `CARD_Indx_?`, `CARD_Name_?`, `CARD_Desc_?`, joined to passcodes only through the verified English passcode ↔ internal id mapping) and pack names/descriptions (`data/cardpack/PACK_*_?`, decoded with the language's code page: Shift_JIS, Windows-1252 or EUC-KR). A card missing from a language's tables keeps its English wording (the original's English duel-resource fallback). A failed load keeps the previous language and offers a retry; a late load never replaces a later choice. The choice persists in `de-client-settings-v1` and is applied again after reload. Without configured original assets only English is offered.
+
+Not localized: the TypeScript interface's own labels (the original drew them from `data/common/yo2text_?`), NPC dialogue (`npc-data.json`, generated from `yo2text_e`) and duel dialog strings (`dlg_text_e`). The language byte sent in character selection is unchanged (see below). Browser acceptance: `tests/acceptance/settings.test.ts`. Japanese and Korean need system CJK fonts; a machine without them shows boxes for correctly decoded text.
 
 The original client has two distinct enumerations:
 

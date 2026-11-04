@@ -302,6 +302,9 @@ export class BrowserAudioManager {
       return !this.closed && token === this.musicToken && this.media === media;
     } catch (error) {
       if (token === this.musicToken && this.media === media!) {
+        // An interrupted play() (AbortError: a pause/load by the page or a media-controlling extension, which may play
+        // it again) is not a refusal; the element stays this slot's and the next scene change replaces it.
+        if (error instanceof DOMException && error.name === 'AbortError') return !media!.paused;
         this.report(error);
         if (error instanceof Error && error.name === 'NotSupportedError') return this.advance(token, failures + 1);
         this.releaseMusic();
@@ -359,9 +362,14 @@ export class BrowserAudioManager {
     const work = this.decodeTail.then(async () => {
       if (this.closed) throw new Error('Audio manager disposed');
       if (!this.archive && this.options.soundArchiveUrl) {
-        this.ownedArchive = new ArchiveReader(this.options.soundArchiveUrl, undefined, { maxEntryBytes: 4 * MiB, maxStoredBytes: 4 * MiB }); this.archive = this.ownedArchive;
+        // The directory also lists Sound.dat's long bgm/ entries (about 19 MB); effects are limited per read below.
+        this.ownedArchive = new ArchiveReader(this.options.soundArchiveUrl, undefined, { maxEntryBytes: 32 * MiB, maxStoredBytes: 32 * MiB }); this.archive = this.ownedArchive;
       }
       if (!this.archive) throw new Error('No Sound.dat archive configured');
+      if (this.archive === this.ownedArchive) {
+        const entry = (await this.ownedArchive.directory(this.abort.signal)).get(path);
+        if (entry && (entry.size > 4 * MiB || entry.stored > 4 * MiB)) throw new Error('Encoded effect exceeds limit');
+      }
       const bytes = await this.archive.read(path, this.abort.signal);
       if (this.closed) throw new Error('Audio manager disposed');
       if (bytes.byteLength > 4 * MiB) throw new Error('Encoded effect exceeds limit');

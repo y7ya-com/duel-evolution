@@ -5,7 +5,7 @@ export interface CatalogEntry {
   passcode: number; name: string; description?: string; type?: string; level?: number;
   attack?: number; defense?: number; extra?: boolean; limit?: number; deckAllowed?: boolean; rarity?: string; mergePath?: string;
   race?: string; attribute?: string;
-  descriptionSource?: 'cards.cdb' | 'original-en';
+  descriptionSource?: 'cards.cdb' | 'original-en' | `original-${string}`;
 }
 /** Display metadata only. Legality and card identity are always decided by the server. */
 export class CardCatalog {
@@ -49,6 +49,12 @@ export class CardCatalog {
   installRarities(rarities: Readonly<Record<string, string>>): void {
     const next = new Map(this.cards);
     for (const [pc, c] of next) { const rarity = rarities[String(pc)]; if (rarity) next.set(pc, { ...c, rarity }); }
+    this.cards = next;
+  }
+  /** Another original language's names and wording (Options → Language); cards it lacks keep their current text. */
+  installLocalizedTexts(texts: readonly { passcode: number; name: string; description: string }[], language: string): void {
+    const next = new Map(this.cards), source = `original-${language.toLowerCase()}` as const;
+    for (const c of texts) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:source});
     this.cards = next;
   }
   get size(): number { return this.cards.size; }

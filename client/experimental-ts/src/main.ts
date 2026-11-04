@@ -5,11 +5,13 @@ import { AssetManager } from './assets';
 import { BrowserAudioManager } from './features/audio';
 import { mountClient } from './ui';
 import type { SettingsView } from './ui/contracts';
+import { isGameLanguage } from './features/language';
 const root = document.getElementById('app');
 if (!root) throw new Error('Missing client mount');
 const params = new URLSearchParams(location.search);
 const gateway = new URL('/net', location.href); gateway.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-let settings: Partial<SettingsView> = {};
+// The browser's reduced-motion preference is the default until the player chooses in Options.
+let settings: Partial<SettingsView> = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? { reducedMotion: true } : {};
 try {
   const stored: unknown = JSON.parse(localStorage.getItem('de-client-settings-v1') ?? '{}');
   if (stored && typeof stored === 'object') {
@@ -18,6 +20,7 @@ try {
     if (typeof s.music === 'number' && s.music >= 0 && s.music <= 1) settings.music = s.music;
     if (typeof s.reducedMotion === 'boolean') settings.reducedMotion = s.reducedMotion;
     if (typeof s.showCardNames === 'boolean') settings.showCardNames = s.showCardNames;
+    if (isGameLanguage(s.language)) settings.language = s.language;
   }
 } catch { /* Storage is optional and never contains credentials or game inventory. */ }
 const abort = new AbortController();
@@ -37,9 +40,17 @@ const ui = mountClient(root, app);
 // Development only: browser acceptance runs read the duel model when a duel stalls (tests/acceptance/duel.test.ts).
 if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __deApp?: ClientApp }).__deApp = app;
 void app.initialize();
+// Browsers start audio only from a user gesture: the first press or key that finds audio audible unlocks it, inside
+// that event (the original plays from the first screen). Muted volumes leave it locked until a later gesture.
+const unlock = (): void => {
+  if (audio.isActivated) return;
+  if (Object.values(audio.volumes).some(volume => volume > 0)) void audio.activate();
+};
+for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, unlock, true);
 let closed = false;
 function dispose(): void {
   if (closed) return; closed = true;
+  for (const type of ['pointerdown', 'keydown'] as const) window.removeEventListener(type, unlock, true);
   abort.abort(); ui.dispose(); app.dispose();
   window.removeEventListener('pagehide', pagehide);
 }

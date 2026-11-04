@@ -12,6 +12,7 @@ import { SKIN_CSS } from './skin';
 import { MenuBar } from './menu';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
+import { renderLanguageSettings } from './extra/language';
 import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
@@ -243,7 +244,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (['duelRespond', 'duelAction', 'surrender'].includes(command.type) && controller.getState().relay?.canAct === false) { local.message = 'Your tag partner is playing this turn.'; requestRender(); return; }
     try {
       const result = controller.dispatch(command);
-      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
+      // An aborted command belongs to a session or screen the player already left: nothing to report.
+      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed && !(e instanceof DOMException && e.name === 'AbortError')) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
     } catch (e) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); }
   };
   const available = (scene: Scene) => !state.unavailable?.[scene];
@@ -590,7 +592,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     panel.append(button(side.ready ? 'Deck Submitted · Waiting for Opponent' : 'Submit Sideboard', () => send({ type: 'submitSideboard' }), !exact || side.ready || !!state.busy, true)); n.append(panel);
   }
   function renderShop(): void {
-    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', 'Loading the shop catalogue.');
+    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', state.error && !state.busy ? 'The shop catalogue could not be loaded. Refresh to try again.' : 'Loading the shop catalogue.');
     const n = sceneRoot('Card Shop'), panel = el('section', 'de-panel de-stack de-fill', title('Card Shop'));
     const categories = ['all', ...new Set(shop.items.map(i => i.category ?? 'items')), ...(state.online ? ['cosmetic-boxes', 'wardrobe'] : [])], select = el('select'); select.setAttribute('aria-label', 'Shop department'); select.dataset.key = 'shop-category';
     for (const category of categories) { const o = el('option', '', category === 'all' ? 'All departments' : SHOP_DEPARTMENTS[category] ?? category); o.value = category; select.append(o); }
@@ -750,6 +752,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.append(banner);
     }
     else if (duel.waiting && !inspected) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
+    if (duel.issue && (duel.prompt || duel.ended)) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
   /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
   function sendAction(duel: DuelView, actionId: string): void { send({ type: 'duelAction', actionId, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) }); }
@@ -853,7 +856,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!display.supported) displayGroup.append(note(browserDisplay.unavailableMessage));
     if (display.error) { const error = el('p', 'de-error', display.error); error.setAttribute('role', 'alert'); displayGroup.append(error); }
     panel.append(displayGroup);
-    panel.append(el('div', 'de-settings-row', el('h3', '', 'Language'), note('English'), note('Additional translations are unavailable.')));
+    panel.append(renderLanguageSettings(state, language => send({ type: 'settings', settings: { language } })));
     if (state.dataStatus) {
       const data = state.dataStatus, details = el('details', 'de-audio-details'); details.dataset.key = 'options-data'; details.open = data.issues.length > 0;
       details.append(el('summary', '', 'Game data'), note(data.loading ? 'Loading game data…' : data.issues.length ? 'Some game data is unavailable.' : 'Game data loaded.'));
@@ -902,7 +905,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
-      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene;
+      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
@@ -922,7 +925,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
       for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); menuItems.push(b); }
       if (state.player && state.mode !== 'free') menuItems.push(button('Appearance', () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); }, !!state.busy || state.scene === 'duel' || !!state.sideboarding));
-      if (state.connection === 'online') menuItems.push(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
+      // Disconnect stays available while busy: it is how a player abandons a request that never answers.
+      if (state.connection === 'online') menuItems.push(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }));
       menuBar.render(nav, { items: menuItems, status, ...(state.scene === 'lobby' && state.lobby ? { world: { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } } : {}) });
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
@@ -960,8 +964,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (menuBar.escape()) { e.preventDefault(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (local.target !== null) { local.target = null; requestRender(); }
+    else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
+    else if (local.inspected && (state.scene === 'duel' || state.scene === 'deck')) { e.preventDefault(); local.inspected = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
+  // With nothing focused, keys go to <body>, outside the host: Escape still closes the topmost modal.
+  const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
+  globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

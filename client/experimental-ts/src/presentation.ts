@@ -129,7 +129,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     ...(state.timer ? { timer: { ...state.timer } } : {}),
     log: state.events.slice(-120).map(e => describeEvent(state, catalog, names, e, texts)).filter((line): line is string => line !== null).slice(-60),
     ...(state.result ? { ended: state.result.result === 1 ? 'Victory' : state.result.result === 2 ? 'Defeat' : state.result.result === 3 ? 'Draw' : 'Duel finished' } : {}),
-    ...(latestIssue ? { waiting: `Unsupported gameplay: ${latestIssue}` } : blocked ? { waiting: 'Waiting for the server…' } : {}),
+    ...(latestIssue ? { waiting: `Unsupported gameplay: ${latestIssue}`, issue: `A duel message could not be used (${latestIssue}); the board shows the last good state.` } : blocked ? { waiting: 'Waiting for the server…' } : {}),
   };
 }
 function actionResponse(id: string, state: DuelState): EngineResponse {

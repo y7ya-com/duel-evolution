@@ -79,7 +79,9 @@ export class Channel {
     // Retain before send because a test socket may acknowledge synchronously.
     if (this.retainedLength + bytes.length > MAX_RETAINED) throw new RangeError('Unacknowledged send buffer limit exceeded');
     this.retained.push({ start: this.txBytes, bytes }); this.retainedLength += bytes.length; this.txBytes += bytes.length;
-    try { this.gateway.sendBytes(this.id, bytes); }
+    // While the WebSocket is closing or a tunnel resume is under way the bytes stay retained; resume() sends everything
+    // after the server's acknowledgement (or the failed resume rejects this channel's requests).
+    try { if (this.gateway.writable) this.gateway.sendBytes(this.id, bytes); }
     catch (error) {
       this.retained.pop(); this.retainedLength -= bytes.length; this.txBytes -= bytes.length;
       throw error;
@@ -277,6 +279,11 @@ export class GatewayClient {
         clearTimeout(timer); this.openWaiters.delete(id); this.channels.delete(id); channel.fail(failure); reject(failure);
       }
     });
+  }
+  /** False between a dropped socket and its resume: channel sends are then held for the resume. */
+  get writable(): boolean {
+    if (this.status === 'reconnecting') return false;
+    return !(this.status === 'connected' && this.socket && this.socket.readyState !== OPEN && this.options.reconnect !== false && this.channels.size);
   }
   sendBytes(id: number, bytes: Uint8Array): void {
     if (!this.socket || this.socket.readyState !== OPEN) throw new Error('Gateway is disconnected');
