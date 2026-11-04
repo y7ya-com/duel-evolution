@@ -105,6 +105,8 @@ export class ClientApp implements ClientController {
   private pvpOpponent: string | null = null;
   private chatSeen: SessionState['chat'] | null = null;
   private timerSeen: unknown = null; private timerSeenAt = 0;
+  /** Notice ids only grow (also across the games of a match), so a dismissed notice never hides a later one. */
+  private noticeIds = 0;
   private nextOpponent: string | null = null;
   private duelNotice: { id: number; text: string } | null = null;
   private sideboard: DeckView | null = null;
@@ -260,8 +262,9 @@ export class ClientApp implements ClientController {
     if (state.chat !== this.chatSeen) {
       // The server's own lines (pid 0, e.g. an opponent's lost connection) are not visible on the duel screen otherwise.
       const fresh = this.chatSeen ? state.chat.filter(m => !this.chatSeen!.includes(m)) : []; this.chatSeen = state.chat;
-      const line = fresh.filter(m => m.pid === 0 && m.text.trim()).at(-1);
-      if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: this.duelState.sequence + 0.5, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+      // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
+      const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
+      if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
@@ -360,9 +363,9 @@ export class ClientApp implements ClientController {
     this.duelState = reduceDuelMessage(previous, message);
     const names = this.duelNames();
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: event.sequence, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
+    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: event.sequence, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
+    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
     this.timeline.enqueue(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);

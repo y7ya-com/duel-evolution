@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, duelBot, type Page } from './harness';
-import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
+import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, stepBoth, backToLobby } from './pvp-helpers';
 
 async function challenge(from:Page,to:Page,name:string) {
   await playerMenu(from,name,'Duel');
@@ -96,7 +96,8 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
         if (spectated && !live) {
           // Live: the spectator's screen follows the players' turn and LP.
           const start = await read(c);
-          for (let i = 0; i < 120 && (await read(c)).turn === start.turn; i++) { await Promise.all([duelBot(a),duelBot(b)]); await sleep(150); }
+          const idle = [0,0];
+          for (const t0 = Date.now(); Date.now() - t0 < 120000 && (await read(c)).turn === start.turn && !(await read(a)).ended;) { await stepBoth(a,b,idle); await sleep(150); }
           const [x,now] = [await read(a),await read(c)];
           expect(now.turn).toBeGreaterThan(start.turn);
           expect(new Set(now.lp)).toEqual(new Set(x.lp));

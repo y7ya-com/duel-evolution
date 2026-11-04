@@ -97,17 +97,22 @@ export async function selectOnField(page:Page):Promise<boolean> {
   }
   return false;
 }
+/** One move of each bot; a player left with only field choices (no End Turn, no prompt) picks one on the field. */
+export async function stepBoth(a:Page,b:Page,idle:number[],options:{ attack?:boolean; summon?:boolean } = {}) {
+  const [x,y] = await Promise.all([duelBot(a,options),duelBot(b,options)]);
+  for (const [i,p] of [a,b].entries()) {
+    const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button')].some(b=>/^Inspect:/.test(b.textContent))`);
+    idle[i] = stuck ? idle[i]! + 1 : 0;
+    if (idle[i]! > 8) { idle[i] = 0; await selectOnField(p); }
+  }
+  return [x,y] as const;
+}
 /** Both bots play until `stop` (or the duel ends); at each newly reached turn both settled screens must agree. */
 export async function playBoth(a:Page,b:Page,options:{ stop?:(turn:number) => boolean; attack?:boolean; summon?:boolean; timeout?:number; each?:(turn:number) => Promise<void> } = {}) {
   const start = Date.now(); let checked = 0, agreements = 0, moved = Date.now(), lastBar = '';
   const idle = [0,0];
   while (Date.now() - start < (options.timeout ?? 420000)) {
-    const [x,y] = await Promise.all([duelBot(a,options),duelBot(b,options)]);
-    for (const [i,p] of [a,b].entries()) {
-      const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button')].some(b=>/^Inspect:/.test(b.textContent))`);
-      idle[i] = stuck ? idle[i]! + 1 : 0;
-      if (idle[i]! > 8) { idle[i] = 0; await selectOnField(p); }
-    }
+    const [x,y] = await stepBoth(a,b,idle,options);
     if (x === 'finished' && y === 'finished') break;
     const turn = Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`) as string)?.[1] ?? 0);
     const bar = `${await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`)}|${await a.ev(`document.querySelectorAll('.de-duel-log div').length`)}`;
