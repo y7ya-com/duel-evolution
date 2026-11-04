@@ -35,16 +35,19 @@ const key = async k => {
 
 // Yes / No: No has the focus (the game's setFocus(no_)), lit at rest; Enter presses it; a click on Yes presses Yes
 {
-  const w = mock('dialog-yesno').windows[0], [yes, no] = w.controls.filter(c => c.cls.endsWith('TextSwitch'));
+  // the live game's snapshot (the deck editor's overwrite question): No is listed before Yes
+  const w = mock('dialog-yesno').windows[0], sw = w.controls.filter(c => c.cls.endsWith('TextSwitch') && !c.parent);
+  const yes = sw.find(c => c.label === 'Yes'), no = sw.find(c => c.label === 'No');
+  const looks = `['Yes', 'No'].map(l => [...document.querySelectorAll('button.btn')].find(e => e.textContent === l).dataset.look).join()`;
   await open('dialog-yesno');
   assert.equal(await b.ev('document.activeElement.textContent'), 'No');
-  assert.equal(await b.ev(`[...document.querySelectorAll('button.btn')].map(e => e.dataset.look).join()`), '0,1', 'No lit (focused), Yes not (the game\'s hover is its puppet mouse)');
+  assert.equal(await b.ev(looks), '0,1', 'No lit (focused), Yes not (the game\'s hover is its puppet mouse)');
   await key('Enter');
   await sleep(50);
   assert.deepEqual(await calls(), [['api.click', no.id]]);
   await mouse(w.x + yes.x + 40, w.y + yes.y + 12, false);
   await sleep(30);
-  assert.equal(await b.ev(`document.querySelectorAll('button.btn')[0].dataset.look`), '1', 'the pointer lights Yes');
+  assert.equal((await b.ev(looks)).split(',')[0], '1', 'the pointer lights Yes');
   await mouse(w.x + yes.x + 40, w.y + yes.y + 12);
   await sleep(50);
   assert.deepEqual((await calls()).at(-1), ['api.click', yes.id]);

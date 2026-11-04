@@ -16,8 +16,14 @@ export default h => {
     },
     windows: {
       // CWindowTaskCardArea's updatePos writes only the element's 0x70 / 0x74, never 0x380 (DeckParts.h:237, 0x0091f960):
-      // its own x, y, w, h at 0x464..0x470; mode 0x478 (1 trade mine, 2 trade partner, 3 present, 4 TP)
-      CWindowTaskCardArea: w => ({ x: f32(w + 0x464), y: f32(w + 0x468), w: f32(w + 0x46c), h: f32(w + 0x470), mode: i32(w + 0x478) }),
+      // its own x, y, w, h at 0x464..0x470; mode 0x478 (1 trade mine, 2 trade partner, 3 present, 4 TP). Live (the trade
+      // scene, two players): w, h read 0 there while x, y and mode are right, so a trade area takes its frame's size,
+      // 488 x 288 (its 14 pieces span (248, 0)..(736, 288) and (248, 320)..(736, 608))
+      CWindowTaskCardArea: w => {
+        const mode = i32(w + 0x478), r = { x: f32(w + 0x464), y: f32(w + 0x468), w: f32(w + 0x46c), h: f32(w + 0x470), mode };
+        if (!(r.w > 0 && r.h > 0) && (mode === 1 || mode === 2)) Object.assign(r, { w: 488, h: 288 });
+        return r;
+      },
       // CWindowModelTrade 0x398: the panel (raw pointer, decomp 0x994d60); its two areas (248, 0) and (248, 320), 488 x 288
       CWindowModelTrade: w => u32(w + 0x398) ? { x: 248, y: 0, w: 488, h: 608 } : {},
       // CWindowModelTp 0x398: the panel; guide (248, 0) 488 x 150 over the area (248, 150) 488 x 558 (decomp 0x9884e0)

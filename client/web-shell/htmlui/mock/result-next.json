@@ -1,0 +1,484 @@
+{
+ "v": 1,
+ "frame": 9000,
+ "scene": 42,
+ "_note": "MOCK (hand-made, never seen live: the local NPC duel showed no Next): two CWindowResult boards (blue / pink header), titles engine-drawn (holes), the Next button hovered",
+ "mouse": {
+  "x": 0,
+  "y": 0,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 7428096,
+   "cls": "CWindowResult",
+   "x": 250,
+   "y": 64,
+   "w": 244,
+   "h": 442,
+   "z": 51200,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 7429120,
+     "cls": "CWindowTaskResultBase",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 0,
+     "h": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "unknown": true,
+     "wx": 250,
+     "wy": 64,
+     "wz": 51000,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7430144,
+        "name": "",
+        "tex": "data/result/result_dai_01_c01.png",
+        "src": [
+         0,
+         0,
+         244,
+         442
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 1,
+        "wx": 250,
+        "wy": 64,
+        "wz": 51001,
+        "a": 1,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7431168,
+        "name": "",
+        "tex": "data/result/result_winner_01_?.png",
+        "src": [
+         0,
+         0,
+         214,
+         56
+        ],
+        "x": 15,
+        "y": 11,
+        "z": 2,
+        "wx": 265,
+        "wy": 75,
+        "wz": 51002,
+        "a": 1,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7432192,
+     "cls": "CWindowTaskShadowText",
+     "name": "",
+     "parent": 0,
+     "x": 16,
+     "y": 99,
+     "w": 216,
+     "h": 576,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Duel Tester\n\nWIN\n\nLOSE\n\nSCORE\n",
+     "align": 1,
+     "fontSize": 24,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 13,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "wz": 51010,
+     "wx": 250,
+     "wy": 64
+    },
+    {
+     "id": 7433216,
+     "cls": "CWindowResultScroll",
+     "name": "",
+     "parent": 0,
+     "x": 222,
+     "y": 91,
+     "w": 16,
+     "h": 336,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "value": 0,
+     "max": 0,
+     "page": 1,
+     "thumb": {
+      "pos": 0,
+      "len": 0
+     },
+     "length": 336,
+     "horizontal": false,
+     "wz": 51011,
+     "wx": 472,
+     "wy": 155
+    }
+   ],
+   "extras": [],
+   "side": 0,
+   "kind": 0,
+   "player": "Duel Tester",
+   "record": {
+    "wins": 12,
+    "loses": 3,
+    "score": 1450
+   },
+   "nums": [
+    {
+     "id": 7434240,
+     "name": "CTextElm::m_WinNum",
+     "text": "@912",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 400,
+     "wy": 232,
+     "wz": 51100,
+     "shown": true
+    },
+    {
+     "id": 7435264,
+     "name": "CTextElm::m_LoseNum",
+     "text": "@93",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 400,
+     "wy": 280,
+     "wz": 51100,
+     "shown": true
+    },
+    {
+     "id": 7436288,
+     "name": "CTextElm::m_ScoreNum",
+     "text": "@91450",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 400,
+     "wy": 328,
+     "wz": 51100,
+     "shown": true
+    }
+   ]
+  },
+  {
+   "id": 7437312,
+   "cls": "CWindowResult",
+   "x": 530,
+   "y": 64,
+   "w": 244,
+   "h": 442,
+   "z": 51200,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 7438336,
+     "cls": "CWindowTaskResultBase",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 0,
+     "h": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "unknown": true,
+     "wx": 530,
+     "wy": 64,
+     "wz": 51000,
+     "parts": {
+      "sprites": [
+       {
+        "id": 7439360,
+        "name": "",
+        "tex": "data/result/result_dai_01_c02.png",
+        "src": [
+         0,
+         0,
+         244,
+         442
+        ],
+        "x": 0,
+        "y": 0,
+        "z": 1,
+        "wx": 530,
+        "wy": 64,
+        "wz": 51001,
+        "a": 1,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       },
+       {
+        "id": 7440384,
+        "name": "",
+        "tex": "data/result/result_loser_01_?.png",
+        "src": [
+         0,
+         0,
+         214,
+         56
+        ],
+        "x": 15,
+        "y": 11,
+        "z": 2,
+        "wx": 545,
+        "wy": 75,
+        "wz": 51002,
+        "a": 1,
+        "sx": 1,
+        "sy": 1,
+        "rgba": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "col": [
+         1,
+         1,
+         1,
+         1
+        ],
+        "shown": true
+       }
+      ],
+      "labels": [],
+      "swfs": []
+     }
+    },
+    {
+     "id": 7441408,
+     "cls": "CWindowTaskShadowText",
+     "name": "",
+     "parent": 0,
+     "x": 16,
+     "y": 99,
+     "w": 216,
+     "h": 576,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Rival\n\nWIN\n\nLOSE\n\nSCORE\n",
+     "align": 1,
+     "fontSize": 24,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 13,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "wz": 51010,
+     "wx": 530,
+     "wy": 64
+    },
+    {
+     "id": 7442432,
+     "cls": "CWindowResultScroll",
+     "name": "",
+     "parent": 0,
+     "x": 222,
+     "y": 91,
+     "w": 16,
+     "h": 336,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "value": 0,
+     "max": 0,
+     "page": 1,
+     "thumb": {
+      "pos": 0,
+      "len": 0
+     },
+     "length": 336,
+     "horizontal": false,
+     "wz": 51011,
+     "wx": 752,
+     "wy": 155
+    }
+   ],
+   "extras": [],
+   "side": 1,
+   "kind": 0,
+   "player": "Rival",
+   "record": {
+    "wins": 7,
+    "loses": 9,
+    "score": 980
+   },
+   "nums": [
+    {
+     "id": 7443456,
+     "name": "CTextElm::m_WinNum",
+     "text": "@97",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 680,
+     "wy": 232,
+     "wz": 51100,
+     "shown": true
+    },
+    {
+     "id": 7444480,
+     "name": "CTextElm::m_LoseNum",
+     "text": "@99",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 680,
+     "wy": 280,
+     "wz": 51100,
+     "shown": true
+    },
+    {
+     "id": 7445504,
+     "name": "CTextElm::m_ScoreNum",
+     "text": "@9980",
+     "x": 0,
+     "y": 0,
+     "z": 0,
+     "wx": 680,
+     "wy": 328,
+     "wz": 51100,
+     "shown": true
+    }
+   ]
+  },
+  {
+   "id": 7426048,
+   "cls": "CWindowResultNext",
+   "x": 448,
+   "y": 620,
+   "w": 128,
+   "h": 40,
+   "z": 51300,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 7427072,
+     "cls": "CWindowTaskResultNext",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 128,
+     "h": 40,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "label": "Next",
+     "align": 1,
+     "state": "hover",
+     "checked": false,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null,
+     "wx": 448,
+     "wy": 620,
+     "wz": 51000
+    }
+   ],
+   "extras": []
+  }
+ ],
+ "tasks": []
+}

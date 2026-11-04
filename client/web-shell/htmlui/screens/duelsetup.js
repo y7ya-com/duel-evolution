@@ -69,7 +69,11 @@ export function prep(win) {
     if (f === 'PictureSwitch') { const { state, art, ...b } = k; return { ...b, disabled: state === 'disabled', glow: glow(c) }; }
     if (f === 'ActiveListbox' && win.cls === 'CFindMenu') {
       const stripe = win.controls.find(s => s.parent === c.id && /BackStripe$/.test(s.cls));
-      return { ...k, cls: 'CWindowTaskFindRows', rowAlpha: (stripe?.alpha ?? 0.7) * (c.alpha ?? 1), win: [win.x, win.y] };
+      // the rows' text as the list's own text child lays it out (the line-count text: centred in w - 16, the scroll
+      // bar's column left out)
+      const txt = win.controls.find(s => s.parent === c.id && /Text$/.test(s.cls) && (s.text || '').includes('\n'));
+      return { ...k, cls: 'CWindowTaskFindRows', rowAlpha: (stripe?.alpha ?? 0.7) * (c.alpha ?? 1), win: [win.x, win.y],
+        textW: txt?.w || c.w - 16, textAlign: txt?.align ?? 1 };
     }
     return k;
   }) };
@@ -100,23 +104,53 @@ const MESH = ['#383958', '#3d3e5d', '#414564', '#484d6a', '#4e5572', '#555d7a', 
   '#7988a2', '#7f90a9', '#8596af', '#899cb5', '#8da1b9', '#8ea1b9'];
 const down = (list, last = 118) => `linear-gradient(to bottom, ${list.map((c, i) => `${c} ${Math.min(i * 8, last)}px`).join(', ')}, ${list.at(-1)} 100%)`;
 
+// The duel frames' title bar and edges, texel for texel (rows 0..25 of the atlas column; the 9-slice's top piece is
+// drawn unstretched, so these sit at the same rows in every window): the outer three columns, the middle (column 4, as
+// all of 4..w-5), the right four (w-4..w-1). duel_win_01_c01 (FrameDuel) and duel_win_03_c01 (DuelConfigFrame, darker)
+const TITLE = {
+  '01': { l: ['f8f8f9 eeeef1 dfe0e4 d3d3d9 ccccd4 c6c7d0 c1c1cc bcbcc7 b8b8c3 b5b5c0 b2b2be b0b0bc adadba ababb8 a8a8b6 a6a6b4 a3a3b2 a2a2b1 a0a0af 9e9eae 9c9cab 87879a 64657b 5e6073 f5f6f8 f4f6f7',
+    'f8f9fa f1f2f4 e1e1e6 d0d0d8 c9c9d2 c3c3cd bebec8 b8b8c4 b4b4bf b0b0bc aeaeba ababb8 a8a9b6 a5a5b4 a3a4b2 a1a1b0 9f9fae 9d9dac 9a9baa 9999a9 9596a6 74748a 595b6f 474b5c f5f6f8 f4f6f7',
+    'f7f7f9 eeeef1 dbdbe0 c6c6cf bebec8 b7b7c2 b0b0bc aaaab7 a4a4b2 a0a0af 9d9dac 9999aa 9696a6 9393a4 8f90a1 8d8d9f 8a8a9d 88889b 858598 838397 7f7f93 66667d 4f5164 4c505e f6f6f8 f5f6f7'],
+  m: 'f5f5f7 ebebed d5d5dc bebec8 b4b4c0 acacb9 a4a4b3 9d9dac 9696a6 9191a2 8e8ea0 8a8a9d 878799 838396 7f7f94 7c7c90 79798e 76768c 737389 707087 6d6d84 5f6176 4a4c5e 4b4f5e f3f3f5 f2f2f4',
+  r: ['f5f5f7 ebebee d5d5dc bebec8 acadba a4a5b3 9c9dac 9596a6 8e8fa0 898a9c 86879a 828396 7f8093 7b7b90 77788d 74758a 717288 6e6f86 6b6c83 686981 65667e 575a70 424558 424656 ccd0d7 cbcfd6',
+    'f2f2f5 e5e5e9 ccccd4 a5a7b4 9598a7 8e91a1 878a9a 808395 7a7e90 76798c 737689 707287 6d7084 696c80 66687f 64667b 606379 5f6177 5b5e75 595b73 565971 4a4d64 363b4e 373d4e a2aab6 a1aab6',
+    'e9e9ec d4d4da a1a4b1 7e8494 777d8e 727788 6c7284 676d7f 63687b 606578 5e6276 5b6074 595d71 565b6f 54586d 52566b 505468 4f5267 4c5065 4a4e64 494c62 3f4459 313749 303648 a2aab6 a1aab6',
+    'dddde2 a4a8b4 757e8e 626b7d 5d6678 596173 555d70 525a6c 4f5769 4d5467 4b5265 495063 484e61 464c5f 444b5e 43485b 42475b 40465a 3f4457 3e4256 3c4155 373d50 313749 373d4e a2aab6 a1aab6'] },
+  '03': { l: ['f6f6f7 eaeaed d8d8de c8c8d0 c0c0ca b9b9c4 b2b2bf acacb9 a7a7b4 a3a3b1 a0a0af 9d9dac 9a9aaa 9797a7 9494a5 9191a2 8e8ea0 8c8c9f 8a8a9c 88889b 858598 6b6b82 3f405c 383b52 f5f6f8 f4f6f7',
+    'f7f7f9 eeeff1 dadae0 c5c5ce bcbcc7 b5b5c1 aeaebb a7a7b5 a2a2b0 9d9dac 9b9baa 9797a7 9494a5 9090a2 8e8ea0 8b8b9d 88889b 868699 838396 818195 7d7d91 53536e 32344d 1b2035 f5f6f8 f4f6f7',
+    'f5f5f7 eaeaed d2d2d9 b8b8c3 aeaebb a5a5b3 9d9dac 9595a5 8e8e9f 89899b 858598 818195 7d7d91 79798e 75758b 727288 6e6e85 6c6c83 686880 66667e 61617a 42425e 25283f 212638 f6f6f8 f5f6f7'],
+  m: 'f3f3f5 e6e6e9 cbcbd3 aeaebb a2a2b1 9898a8 8e8ea0 858598 7d7d91 77778c 737389 6e6e85 6a6a81 65657d 61617a 5d5d76 595973 565671 52526d 4f4f6b 4b4b67 3a3c56 1f2238 212638 f3f3f5 f2f2f4',
+  r: ['f3f3f5 e6e6ea cbcbd3 aeaebb a2a2b1 9898a8 8e8ea0 858598 7d7d91 77778c 737389 6e6e85 6a6a81 65657d 61617a 5d5d76 595973 565671 52526d 4f4f6b 4b4b67 3a3c56 1f2238 1f2436 ccd0d7 cbcfd6',
+    'efeff2 dedee3 c0c0ca 9b9dab 9092a2 87899a 7e8092 76788b 6f7185 6a6b80 66687d 62637a 5e6076 5a5b72 565770 53546c 4f5069 4d4e67 494a64 464762 43445f 34364f 1b1f34 1c2234 a2aab6 a1aab6',
+    'e3e3e7 c9c9d1 9699a7 73798a 6a7082 64697b 5d6276 575c70 52566b 4e5267 4c4f65 484c62 46495f 42465c 3f435a 3d4057 3a3d54 393b53 363950 34374f 32344c 262a41 151a2e 14192c a2aab6 a1aab6',
+    'd5d5db 9a9eab 687182 50596d 4a5367 454d61 40485d 3d4458 394054 363d52 343a50 32384d 30364b 2e3348 2c3247 2a2f44 292d43 272c42 252a3f 24283e 22263c 1c2136 151a2e 1c2234 a2aab6 a1aab6'] },
+};
+// a column of texels as hard 1-pixel stops (crisp at any DPR)
+const texels = s => `linear-gradient(to bottom, ${s.split(' ').map((c, i) => `#${c} ${i}px ${i + 1}px`).join(', ')})`;
+const titleBar = k => {
+  const t = TITLE[k], layers = [...t.l.map((s, i) => `${texels(s)} ${i}px 0 / 1px 26px no-repeat`),
+    ...t.r.map((s, i) => `${texels(s)} right ${3 - i}px top 0 / 1px 26px no-repeat`), texels(t.m)];
+  return layers.join(',\n    ');
+};
 const DS_CSS = () => `
 .ds-txt { pointer-events: none; }
-/* CWindowTaskFrameDuel (duel_win_01_c01) and CWindowTaskDuelConfigFrame (duel_win_03_c01): the body #9999a9, its edges
-   (left #b4b5c1 x3 (lighter up top: #c8c9d2) #aaabb8; right #808394 #666b7e x3; bottom #707486 #485064 x3), the title
-   bar rows 0..26 (01: skin.js's FrameDuel rows; 03: darker, #f3f3f5 #e6e6ea #cbcbd3 #aeaebb #a2a2b1 #9898a8 ... #4b4b67
-   (20) #3a3c56 #1f2238 #212638, then #f3f3f5 #f2f2f4) */
-.ds-frame { position: absolute; left: 0; top: 0; box-sizing: border-box; background: #9999a9;
-  box-shadow: inset 0 -3px #485064, inset 0 -4px #707486, inset -3px 0 #666b7e, inset -4px 0 #808394, inset 4px 0 #aaabb8; }
-.ds-frame::before { content: ''; position: absolute; left: 0; top: 27px; width: 3px; bottom: 4px;
-  background: linear-gradient(to bottom, #c8c9d2, #b4b5c1 124px); }
+/* CWindowTaskFrameDuel (duel_win_01_c01) and CWindowTaskDuelConfigFrame (duel_win_03_c01), the same edges in both: the
+   title bar (TITLE above), then the body down the sides, a gradient from row 24 to row 144 in the top piece (texels:
+   left 3 columns #f5f6f8 (24) #e1e1e6 (60) #c8c9d2 (100) #b4b5c1 (146); column 3 #f4f5f7 #dddee3 #c1c2cc #aaabb8; the
+   body #f3f3f5 #d7d7dd #b5b5c1 #9999a9 (144); column w-4 #ccd0d7 #b4b8c2 #989ba9 #808394; the right 3 #a2aab6 #8f97a4
+   #797f8f #666b7e), flat below; the bottom #707486 then #485064 x3, the lower left corner #a5a6b5 / #7f8294 */
+.ds-frame { position: absolute; left: 0; top: 0; box-sizing: border-box;
+  background: linear-gradient(to bottom, #f5f6f8 24px, #e1e1e6 60px, #c8c9d2 100px, #b4b5c1 146px, #b4b5c1 calc(100% - 2px), #a5a6b5 calc(100% - 2px) calc(100% - 1px), #7f8294 calc(100% - 1px)) 0 0 / 1px 100% no-repeat,
+    linear-gradient(to bottom, #f5f6f8 24px, #e1e1e6 60px, #c8c9d2 100px, #b4b5c1 146px, #b4b5c1 calc(100% - 3px), #a5a6b5 calc(100% - 3px) calc(100% - 2px), #5b6175 calc(100% - 1px)) 1px 0 / 2px 100% no-repeat,
+    linear-gradient(to bottom, #f4f5f7 24px, #dddee3 60px, #c1c2cc 100px, #aaabb8 146px) 3px 0 / 1px 100% no-repeat,
+    linear-gradient(to bottom, #a2aab6 24px, #8f97a4 60px, #797f8f 100px, #666b7e 144px) right 0 top 0 / 3px 100% no-repeat,
+    linear-gradient(to bottom, #ccd0d7 24px, #b4b8c2 60px, #989ba9 100px, #808394 144px) right 3px top 0 / 1px 100% no-repeat,
+    linear-gradient(to bottom, #f3f3f5 24px, #d7d7dd 60px, #b5b5c1 100px, #9999a9 144px); }
+.ds-frame::before { content: ''; position: absolute; left: 3px; right: 3px; bottom: 0; height: 4px;
+  background: linear-gradient(to bottom, #707486 1px, #485064 1px); }
 .ds-frame::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 26px;
-  background: linear-gradient(to bottom, #f5f5f7 0.5px, #ebebee 1.5px, #d5d5dc 2.5px, #bebec8 3.5px, #b4b4c0 4.5px, #acacb9 5.5px,
-    #a4a4b3 6.5px, #9d9dac 7.5px, #9696a6 8.5px, #8a8a9d 11.5px, #7f7f94 14.5px, #737389 18.5px, #6d6d84 20.5px, #5f6176 21.5px,
-    #4a4c5e 22.5px, #4b4f5e 23.5px, #f3f3f5 24px 25px, #f2f2f4 25px 26px); }
-.ds-frame.ds-cfg::after { background: linear-gradient(to bottom, #f3f3f5 0.5px, #e6e6ea 1.5px, #cbcbd3 2.5px, #aeaebb 3.5px,
-    #a2a2b1 4.5px, #9898a8 5.5px, #8e8ea0 6.5px, #858598 7.5px, #7d7d91 8.5px, #737389 10.5px, #6a6a81 12.5px, #61617a 14.5px,
-    #595973 16.5px, #52526d 18.5px, #4b4b67 20.5px, #3a3c56 21.5px, #1f2238 22.5px, #212638 23.5px, #f3f3f5 24px 25px, #f2f2f4 25px 26px); }
+  background: ${titleBar('01')}; }
+.ds-frame.ds-cfg::after { background: ${titleBar('03')}; }
 .ds-well { position: absolute; left: 13px; top: 33px; background: ${down(WELL01)}; }
 .ds-cfg > .ds-well { background: ${down(WELL03)}; }
 .ds-well::before { content: ''; position: absolute; inset: 0; background: ${down(MESH, 119)};
@@ -143,25 +177,36 @@ const DS_CSS = () => `
 .ds-sw[data-rest=white] > i, .ds-sw[data-down=white]:active:not(:disabled) > i { background: ${whiteBar()}; }
 .ds-sw[data-rest=pink] > i, .ds-sw[data-down=pink]:active:not(:disabled) > i { top: 1px; bottom: 1px; background: ${pinkBar()}; }
 .ds-sw[data-rest=up] > i, .ds-sw[data-rest=down] > i { background: no-repeat center / 24px 16px var(--arrow); }
-/* CWindowTaskButtonDuel (duel_btn_01_c01, 8 x 8 pieces, columns 0 normal, 24 hover, 48 pressed): a 1-px border, 3 px
-   corners; normal #323232 round #c9c9c9 (top #f5f5f7 #fff #fff #d5d5d5 #cacaca; left #fff #fff #e0e0e0; right #989898
-   #b3b3b3 #c5c5c5; bottom #616161 #818181 #acacac #c4c4c4), hover #e36f08 round #faeaac (top #fff #fff #ffffe8 #fffdba;
-   left #fff #fff #ffffbf; right #f4c778 #f7da94 #f9e7a8; bottom #e39d3d #f2b65f #f6d58d #f9e6a6), pressed #e36f08 round
-   #ffff93, lit from below (top #f7c552 #fad968 #fdf284 #fffe91; left #fad866 #fded7f #fffc8f; right #fff #ffffdb
-   #ffffa3; bottom #fef8f2 #fff #ffffe4 #ffffa9) */
+/* CWindowTaskButtonDuel (duel_btn_01_c01, 8 x 8 pieces, columns 0 normal, 24 hover, 48 pressed; 24 rows, so only the
+   middle column stretches), texel for texel inside a 1-px border with 3-px round corners: normal #323232 round #c9c9c9
+   (top rows 1..3 #fff #fff #e6e6e6; left columns #fff #fff #e0e0e0; right, outside in, #989898 #b3b3b3 #c5c5c5;
+   bottom, outside in, #6c6c6c #929292 #bababa); hover #e36f08 round #faeaac (top #fff #fff #ffffc4; left #fff #fff
+   #ffffbf; right #f4c778 #f7da94 #f9e7a8; bottom #f0a84a #f4c271 #f8df9c); pressed #e36f08 round #ffff93, lit from
+   below (top #f6b63f #fad461 #fef385; left #fad866 #fded7f #fffc8f; right #fff #ffffdb #ffffa3; bottom #fff #fffffd
+   #ffffa8) */
+/* CWindowTaskInputDuel (the Create Duel password; its art sampled from the engine's 2x render, not in an atlas we
+   read): a 1-px #646464 line round a field lit from below, a shadow cast from the top (#3d4453 > #9b9dac in 6 px)
+   and the left (7 px), then #a0a2b1 > #c5cddb down to a bright last rows (#e4e9f0, a #a6a8ab line), the right edge
+   lighter (#c3c6d1, a #8a8b8e line) */
+.ds-in { position: absolute; box-sizing: border-box; border: 1px solid #646464;
+  background: linear-gradient(to left, #8a8b8e 0 1px, rgba(255, 255, 255, .2) 1px, rgba(255, 255, 255, 0) 8px),
+    linear-gradient(to right, rgba(20, 22, 30, .46) 0, rgba(20, 22, 30, .27) 2.5px, rgba(20, 22, 30, .07) 4.5px, rgba(20, 22, 30, 0) 7px),
+    linear-gradient(to bottom, #444954 0, #3d4453 1px, #4b5060 2px, #6d7080 3.5px, #8e91a0 4.5px, #9b9dac 5.5px, #a0a2b1 6.5px,
+      #a5a7b6 8.5px, #aaadbd 11.5px, #b2b6c5 15px, #b9bfcd 18.5px, #c0c8d6 22px, #c7cfdd 25px, #d2dae5 27px, #e4e9f0 29px,
+      #e4e9f0 29.5px, #a6a8ab 29.5px); }
 .ds-btn { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 1px solid #323232; border-radius: 3px;
   background: #c9c9c9; color: #000; cursor: inherit;
-  box-shadow: inset 0 1px #f5f5f5, inset 0 3px #fff, inset 0 4px #d5d5d5, inset 0 5px #cacaca, inset 2px 0 #fff, inset 3px 0 #e0e0e0,
+  box-shadow: inset 0 2px #fff, inset 0 3px #e6e6e6, inset 2px 0 #fff, inset 3px 0 #e0e0e0,
     inset -1px 0 #989898, inset -2px 0 #b3b3b3, inset -3px 0 #c5c5c5,
-    inset 0 -1px #616161, inset 0 -2px #818181, inset 0 -3px #acacac, inset 0 -4px #c4c4c4; }
+    inset 0 -1px #6c6c6c, inset 0 -2px #929292, inset 0 -3px #bababa; }
 .ds-btn:hover:not(:disabled) { border-color: #e36f08; background: #faeaac;
-  box-shadow: inset 0 2px #fff, inset 0 3px #ffffe8, inset 0 4px #fffdba, inset 2px 0 #fff, inset 3px 0 #ffffbf,
+  box-shadow: inset 0 2px #fff, inset 0 3px #ffffc4, inset 2px 0 #fff, inset 3px 0 #ffffbf,
     inset -1px 0 #f4c778, inset -2px 0 #f7da94, inset -3px 0 #f9e7a8,
-    inset 0 -1px #e39d3d, inset 0 -2px #f2b65f, inset 0 -3px #f6d58d, inset 0 -4px #f9e6a6; }
+    inset 0 -1px #f0a84a, inset 0 -2px #f4c271, inset 0 -3px #f8df9c; }
 .ds-btn:active:not(:disabled) { border-color: #e36f08; background: #ffff93;
-  box-shadow: inset 0 1px #f7c552, inset 0 2px #fad968, inset 0 3px #fdf284, inset 0 4px #fffe91, inset 1px 0 #fad866,
-    inset 2px 0 #fded7f, inset 3px 0 #fffc8f, inset -1px 0 #fff, inset -2px 0 #ffffdb, inset -3px 0 #ffffa3,
-    inset 0 -1px #fef8f2, inset 0 -2px #fff, inset 0 -3px #ffffe4, inset 0 -4px #ffffa9; }
+  box-shadow: inset 0 1px #f6b63f, inset 0 2px #fad461, inset 0 3px #fef385, inset 1px 0 #fad866, inset 2px 0 #fded7f,
+    inset 3px 0 #fffc8f, inset -1px 0 #fff, inset -2px 0 #ffffdb, inset -3px 0 #ffffa3,
+    inset 0 -1px #fff, inset 0 -2px #fffffd, inset 0 -3px #ffffa8; }
 .ds-btn:disabled > .txt { opacity: .5; }
 .ds-btn > .txt { position: absolute; }
 /* CWindowTaskFrameMove (move_win_01_c01, 24-pixel cells, BLEND_POINT): green round a light-blue field. The green: a
@@ -232,7 +277,8 @@ const DRAW = {
     f.append(box('ds-well', { x: 13, y: 33, w: c.w - 26, h: c.h - 76 }), box('ds-help', { x: 21, y: 256, w: 451, h: 145 }));
     el.append(f);
   },
-  FrameMove: (el, c) => el.append(box('ds-move', c)),
+  // the frame at its own alpha (0.9: the field lets what is under it show a little, as the engine draws it)
+  FrameMove(el, c) { const f = box('ds-move', c); f.style.opacity = c.alpha ?? 1; el.append(f); },
   FrameThin(el, c) { const f = box('ds-thin', c); f.style.opacity = c.alpha ?? 1; el.append(f); },
   // a white caption over a black copy where the game shows its shadow (its child, off by a pixel or two)
   ShadowText(el, c, api, win) {
@@ -287,7 +333,7 @@ const DRAW = {
       b.style.top = 16 * i + 'px';
       b.style.setProperty('--ra', c.rowAlpha);
       b.append(document.createElement('b'));
-      basic.textBox(b, basic.untag(s), { w: c.w });
+      basic.textBox(b, basic.untag(s), { w: c.textW || c.w, align: c.textAlign ?? 0 });
       b.addEventListener('click', () => api.click(c.id, rowPoint({ x: c.win[0], y: c.win[1] }, c, i)));
       r.append(b);
     });
@@ -298,7 +344,8 @@ DRAW.TextSwitch = DRAW.ButtonDuel;
 
 function draw(c, el, api, win) {
   const f = fam(c);
-  if (/(^|[^i])Input(Duel)?$/.test(f)) return api.renderControl(c, el, { noText: true });   // the text is ownInput's
+  if (f === 'InputDuel') return el.append(box('ds-in', c));   // the text is ownInput's
+  if (/(^|[^i])Input$/.test(f)) return api.renderControl(c, el, { noText: true });
   return DRAW[f] ? DRAW[f](el, c, api, win) : api.renderControl(c, el);
 }
 
@@ -312,6 +359,9 @@ const leave = win => win.controls.find(c => c.shown && top(c) && (c.cls === 'CWi
 
 export default {
   ...base,
+  // the Move list's frame and × lie past its window's rect (CWindowModelMove is 296 wide, its frame the widest place +
+  // 38: 327 with Clock Square's 289-wide button), as the engine draws them
+  clip: false,
   mount(win, root, api) {
     inject();
     const st = base.mount(prep(win), root, api);

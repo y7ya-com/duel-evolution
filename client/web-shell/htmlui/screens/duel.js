@@ -17,6 +17,7 @@
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const scroll = ui && await import('../controls/scroll.js');
+const deck = ui && await import('./deck.js');   // runs(): AtConverter's "@n" colour tags (TAG_RGB, the app's styles)
 
 // ---------------------------------------------------------------- the frame styles (pure: duel_test.mjs)
 // window_base_01_c0<style>.png's 24 x 24 frame cell, sampled at its edges' middles (the stretched pieces), from the
@@ -79,8 +80,32 @@ const isImage = c => /^CWindowTaskImage/.test(c.cls);
 const isButton = c => /Switch$|^CWindowTaskButton|ResultNext$/.test(c.cls);
 const isList = c => c.items !== undefined;
 
-// Where the engine draws through the window (window-local rects): the icons in front (CWindowTaskImage*, 16 x 16 cells),
-// and the sprites a dialog draws itself while open (fade_ 0), from its centre (cx_, cy_) and box (boxW_ x boxH_):
+// The list icons (CWindowTaskImage*: duelcmd_icon_01, icon_zokusei_01, icon_syuzoku_01, 16 x 16 cells) are DOM, drawn
+// from their atlas on the ui/ art set (R2), so the row's stripe shows through their transparent texels as the
+// engine's does (a hole would show the canvas, where the engine's stripe is hidden). Until an atlas has loaded (or if
+// the art set lacks it) the engine keeps drawing that icon under a hole. tex: the game path; state per file:
+// 'ok' | 'missing' | a pending Image
+const ART = new Map();
+const artFile = tex => (tex || '').slice((tex || '').lastIndexOf('/') + 1).toLowerCase();
+export function artOk(tex) {
+  const f = artFile(tex);
+  if (!f || typeof Image === 'undefined') return false;
+  let s = ART.get(f);
+  if (!s) {
+    s = new Image();
+    s.onload = () => ART.set(f, 'ok');
+    s.onerror = () => ART.set(f, 'missing');
+    s.src = 'ui/' + f;
+    ART.set(f, s);
+  }
+  return s === 'ok';
+}
+const domIcon = c => isImage(c) && !!c.texture && artOk(c.texture);
+// loaded with the module (a screen redraws only when its snapshot changes: an atlas arriving later would not show)
+if (ui) for (const f of ['duelcmd_icon_01.png', 'icon_zokusei_01.png', 'icon_syuzoku_01.png']) artOk(f);
+
+// Where the engine draws through the window (window-local rects): the icons in front it still draws (above), and the
+// sprites a dialog draws itself while open (fade_ 0), from its centre (cx_, cy_) and box (boxW_ x boxH_):
 //  - coins (CUSelectCoinDialog::ugSlot23, coin_new.txt sheet 0 duel_ef_coin.png: 14 cells of 50 x 50): two, centred
 //    80 px left and right of cx_, 40 px above the box's bottom; the source rect is one texel bigger (51 x 51)
 //  - dice faces (CUDiceDialog::ugSlot23 / facePos: dice.txt sheets 7..12, dice_decide1..6 32 x 35): six from
@@ -90,7 +115,7 @@ const isList = c => c.items !== undefined;
 export function holes(win) {
   const out = [], d = win.dlg, byId = new Map(win.controls.map(c => [c.id, c]));
   for (const c of win.controls)
-    if (isImage(c) && c.shown && !(c.parent && !byId.get(c.parent)?.shown)) { const p = loc(c, byId, win); out.push({ x: p.x, y: p.y, w: c.w || 16, h: c.h || 16 }); }
+    if (isImage(c) && c.shown && !domIcon(c) && !(c.parent && !byId.get(c.parent)?.shown)) { const p = loc(c, byId, win); out.push({ x: p.x, y: p.y, w: c.w || 16, h: c.h || 16 }); }
   if (!d || d.fade !== 0) return out;
   const L = (x, y, w, h) => out.push({ x: x - win.x, y: y - win.y, w, h }), bottom = d.cy + (d.boxH >> 1);
   if (win.cls === 'CUSelectCoinDialog') for (const off of [0, 160]) L(d.cx - 25 - 80 + off, bottom - 25 - 40, 51, 51);
@@ -129,9 +154,31 @@ function inject() {
   st.textContent = CSS();
   document.head.append(st);
 }
+// The engine's frame at 2x DPR (its 1x canvas as the page scales it, sprites drawn at the D3D half-pixel) sits half a
+// game pixel right of and below the integer layout: measured on the live flips (the command list's and the lock-on
+// dialog's frame edges, the list's first row, 1 device pixel later than the DOM's at 2x). The window's DOM moves with
+// it there (a whole device pixel: still sharp); at 1x the engine's is on the integer grid
+export const nudge = dpr => dpr >= 1.5 ? 'translate(0.5px, 0.5px)' : '';
 const place = (el, x, y, w, h) => Object.assign(el.style, { left: x + 'px', top: y + 'px', ...(w != null && { width: w + 'px' }), ...(h != null && { height: h + 'px' }) });
 const div = cls => { const d = document.createElement('div'); d.className = cls; return d; };
 const LH = 16;
+// A text control's shown lines with their colour tags: the glyphs take the tag's colour (AtConverter's style, @0 black)
+// times the element's own (CTextElm multiplies: a black element is all black, as the lock-on prompt's; a white one
+// shows the tags, as "Do you @3surrender@0?" draws "surrender" green). Laid out by textBox on the untagged text.
+function tagText(parent, c, o) {
+  const f = c.firstLine || 0, raw = (c.text || '').split('\n').slice(f, f + (c.pageLines || Infinity)).join('\n');
+  const rs = deck.runs(raw), t = basic.textBox(parent, rs.map(r => r.s).join(''), o), k = c.color || [0, 0, 0, 1];
+  if (rs.some(r => r.rgb !== deck.TAG_RGB[0])) {
+    const ch = (v, i) => Math.round(((v >> (16 - 8 * i)) & 255) * (k[i] ?? 1));
+    t.firstChild.replaceChildren(...rs.map(r => {
+      const e = document.createElement('span');
+      e.textContent = r.s;
+      e.style.color = `rgba(${ch(r.rgb, 0)}, ${ch(r.rgb, 1)}, ${ch(r.rgb, 2)}, ${k[3] ?? 1})`;
+      return e;
+    }));
+  }
+  return t;
+}
 
 // One drawing per family: (c, p (its place), ctx) -> element | null. ctx: { win, byId, api }
 const DRAW = {
@@ -159,7 +206,7 @@ const DRAW = {
     const plane = div('yo2d-plane');
     Object.assign(plane.style, { position: 'absolute', inset: 0, opacity: (178 / 255).toFixed(3) });
     e.append(plane);
-    basic.textBox(e, basic.shownLines(c), { w: c.w - 16, align: c.align, px: c.fontSize || LH, gap: c.lineGap, color: c.color, wrap: true });
+    tagText(e, c, { w: c.w - 16, align: c.align, px: c.fontSize || LH, gap: c.lineGap, color: c.color, wrap: true });
     return e;
   },
   BackPlane(c, p) {
@@ -172,7 +219,7 @@ const DRAW = {
     if (!s) return null;
     const e = div('yo2d-text');
     place(e, p.x, p.y, c.w || null);
-    basic.textBox(e, s, { w: c.w || undefined, align: c.align, px: c.fontSize || LH, gap: c.lineGap, color: c.color });
+    tagText(e, c, { w: c.w || undefined, align: c.align, px: c.fontSize || LH, gap: c.lineGap, color: c.color });
     return e;
   },
   // a list box (CWindowTaskListbox, its *DuelCmd / *CardAttr / *CardType kinds): the stripes, one 16-px row per item
@@ -194,6 +241,16 @@ const DRAW = {
     }
     return e;
   },
+  // a list icon (CWindowTaskImage*): its 16 x 16 cell of the atlas (src u, v), pixel art kept crisp as the deck
+  // screen keeps its type pictures (screens/deck.js); null while the engine still draws it (artOk)
+  Image(c, p) {
+    if (!domIcon(c)) return null;
+    const e = div('yo2d-icon'), s = c.src || { x: 0, y: 0, w: 16, h: 16 };
+    place(e, p.x, p.y, s.w || c.w || 16, s.h || c.h || 16);
+    Object.assign(e.style, { backgroundImage: `url(ui/${artFile(c.texture)})`, backgroundPosition: `${-s.x}px ${-s.y}px`,
+      backgroundRepeat: 'no-repeat', imageRendering: 'pixelated' });
+    return e;
+  },
   // a button: controls/basic.js's TextSwitch (a <button>, the CSS plate in the snapshot's state, the caption DOM text)
   Button(c, p, { api }) {
     const host = div('yo2d-btn');
@@ -204,6 +261,7 @@ const DRAW = {
 };
 const drawerOf = c => {
   const f = fam(c);
+  if (isImage(c)) return DRAW.Image;
   if (isButton(c)) return DRAW.Button;
   if (isList(c) && /^Listbox|^ActiveListbox|^Textlist/.test(f)) return DRAW.Listbox;
   return DRAW[f] || null;
@@ -213,6 +271,9 @@ const PART_OF = /^(TextField|Listbox|ActiveListbox|Textlist)/;
 function covered(c, byId) {
   if (anc(c, byId, p => isButton(p) || /ShadowText$/.test(p.cls))) return true;
   const up = byId.get(c.parent);
+  // a list kind whose rows are ViewItems (*DuelCmd / *CardAttr / *CardType: items [] in the snapshot) has its rows'
+  // captions as Text children of the list (x 24, one per row, at the row's world place): those are drawn as Texts
+  if (up && /Text$/.test(c.cls) && isList(up) && !up.items?.length) return false;
   return !!up && PART_OF.test(fam(up)) && /BackStripe$|BackPlane$|Text$|Scroll/.test(c.cls);
 }
 
@@ -259,7 +320,7 @@ function sync(win, st, api) {
     }
     const draw = drawerOf(c);
     if (!draw || !c.shown || covered(c, byId) || anc(c, byId, k => !k.shown)) continue;
-    const sig = JSON.stringify([c, p, isList(c) && win.controls.find(k => k.parent === c.id && k.rows !== undefined)]);
+    const sig = JSON.stringify([c, p, isList(c) && win.controls.find(k => k.parent === c.id && k.rows !== undefined), isImage(c) && domIcon(c)]);
     let n = st.els.get(c.id);
     if (!n || n.sig !== sig) {
       const el = draw(c, p, { win, byId, api }) || document.createElement('i');
@@ -280,11 +341,12 @@ function sync(win, st, api) {
 
 export const screen = {
   mode: 'pass',
-  // the icons stay the engine's (detailed 16 x 16 pictures: duelcmd_icon_01, icon_zokusei_01, icon_syuzoku_01)
-  passthrough: x => isImage(x),
+  // an icon whose atlas the ui/ art set lacks (or not loaded yet) stays the engine's, under a hole (artOk)
+  passthrough: x => isImage(x) && !domIcon(x),
   mount(win, root, api) {
     inject();
     const box = div('yo2d-box');
+    box.style.transform = nudge(devicePixelRatio);
     root.append(box);
     const st = { box, els: new Map(), bars: new Map() };
     return st;

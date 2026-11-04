@@ -5,6 +5,7 @@
 // merge.dat; rows / columns named per piece). Real pictures (the category banners' card / pack / avatar art, card art,
 // pack art, avatars) are not here: the engine keeps drawing them.
 import { FONT, spacing } from './basic.js';
+import { frameVars } from '../screens/dialog.js';
 
 // ---------------------------------------------------------------- SVG plumbing
 // One SVG document per look, as a data: URL (cached): ids can't collide, and the browser rasterises it at the device's
@@ -45,9 +46,16 @@ const CSS = `
 .shop-pc { position: absolute; left: 0; top: 0; pointer-events: none; background-repeat: no-repeat; background-size: 100% 100%; }
 .shop-btn { position: absolute; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: inherit; }
 .shop-txt { position: absolute; white-space: pre; font-family: ${FONT}; }
-.shop-banner-t { position: absolute; left: 0; top: 0; width: 256px; height: 35px; line-height: 35px; text-align: center;
-  font-family: ${FONT}; font-weight: bold; font-size: 23px; color: #fff; white-space: nowrap;
-  text-shadow: 2px 0 #000, -2px 0 #000, 0 2px #000, 0 -2px #000, 1.4px 1.4px #000, -1.4px 1.4px #000, 1.4px -1.4px #000, -1.4px -1.4px #000; }
+/* CWindowTaskFrameThin, as screens/dialog.js draws it (its .dlg-frame: the same bevel per style, frameVars) */
+.shop-frame { position: absolute; box-sizing: border-box; border-style: solid; border-width: 3px 2px 2px 3px;
+  border-color: var(--t) var(--r) var(--b) var(--l); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+.shop-frame::before { content: ''; position: absolute; inset: 0; border: 1px solid; border-color: var(--t1) var(--r1) var(--b1) var(--l1); }
+.shop-frame::after { content: ''; position: absolute; inset: 1px; border: 1px solid; border-color: var(--t2) var(--r2) var(--b2) var(--l2);
+  box-shadow: inset 0 0 0 2px var(--body); }
+.shop-frame > i { position: absolute; left: 4px; top: 4px; right: 4px; bottom: 4px; border: 1px solid var(--ringm); box-shadow: inset -1px -1px 0 0 var(--ring); }
+.shop-banner-t { position: absolute; left: 0; top: 0; font-family: ${FONT}; font-weight: bold; color: #fff; white-space: nowrap;
+  text-shadow: 2px 0 #000, -2px 0 #000, 0 2px #000, 0 -2px #000, 1.4px 1.4px #000, -1.4px 1.4px #000, 1.4px -1.4px #000, -1.4px -1.4px #000,
+    2px 1px #000, -2px 1px #000, 2px -1px #000, -2px -1px #000, 1px 2px #000, -1px 2px #000, 1px -2px #000, -1px -2px #000; }
 @keyframes shop-glow { 0% { opacity: .40; } 50% { opacity: .70; } 100% { opacity: .40; } }
 @keyframes shop-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
 @keyframes shop-nudge-r { 0%, 100% { transform: scale(-1, -1) translateX(0); } 50% { transform: scale(-1, -1) translateX(4px); } }
@@ -63,6 +71,18 @@ export function inject() {
   st.textContent = CSS;
   document.head.append(st);
 }
+// CWindowTaskFrameThin (style: window_base_01_c0<style>'s colours, dialog.js FRAME) and CWindowTaskBackPlane (the
+// atlas's white middle), at the control's alpha
+export function thinFrame(parent, { x, y, w, h, style = 1, alpha = 0.7 }) {
+  const f = document.createElement('div');
+  f.className = 'shop-frame';
+  Object.assign(f.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: alpha });
+  for (const [k, v] of Object.entries(frameVars(style, 0))) f.style.setProperty(k, v);
+  f.append(document.createElement('i'));
+  parent.append(f);
+  return f;
+}
+export const backPlane = (parent, { x, y, w, h, alpha = 0.7 }) => piece(parent, x, y, w, h, { background: '#fff', opacity: alpha });
 // a piece: an absolutely placed box with an SVG (or CSS) look
 export function piece(parent, x, y, w, h, look = {}) {
   const d = document.createElement('div');
@@ -73,30 +93,44 @@ export function piece(parent, x, y, w, h, look = {}) {
 }
 
 // ---------------------------------------------------------------- the item panel (shop_win_01_c01, 512 x 512)
-// Texels: x 0 / 504 #c8c8c8, x 1..7 and 505..511 #fff, rows 0..6 and 499..505 #fff, row 7 / 506 #dcdcdc, all at
-// 204/255; the body #dbe4e6 at 179/255 (a faint brushed texture, flat here) with a shade along the top (row 8
-// #b3babc 219/255 > row 14 #d8e1e3) and the right (x 503 #b0b7b9 223/255 > x 497 #d5dee0); a black drop shadow under
-// it (rows 507..511: 134, 116, 92, 61, 37 / 255).
-const W8 = 'rgba(255,255,255,.8)', C8 = 'rgba(200,200,200,.8)', D8 = 'rgba(220,220,220,.8)';
+// Texel for texel (the texture's straight-alpha rows / columns): x 0 #c8c8c8 and x 1..7 #fff (rows 0..505), x 504
+// #c8c8c8 and 505..511 #fff, rows 0..6 and 499..505 #fff, row 506 #dcdcdc (x 0 #c6c6c6), row 7 #dcdcdc, all 204 / 255;
+// the body #dbe4e5 at 179 / 255 (a faint brushed texture, flat here) with a shade along the top (rows 8..14) and
+// the right (x 496..503), the darker of the two where they meet; row 498 one step of it; a black drop shadow under it
+// (rows 507..511: 134, 116, 92, 61, 37 / 255, fading out over x 504..511).
+const PANEL_SHADE = [['#b3babb', 219], ['#b8bdc0', 214], ['#bfc6c9', 206], ['#c7cfd0', 197], ['#cdd7d8', 190], ['#d5dee1', 184], ['#d8e1e3', 181]];
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${(a / 255).toFixed(3)})`;
 export function panel(parent, x, y) {
-  const shadow = [134, 116, 92, 61, 37].map((a, i) => `<rect x='8' y='${507 + i}' width='496' height='1' fill='rgba(0,0,0,${(a / 255).toFixed(3)})'/>`).join('');
-  const u = svgUrl('panel', 512, 512, `
-    <defs>${vgrad('t', [[8, 'rgba(120,128,132,.55)'], [15, 'rgba(120,128,132,0)']])}${vgrad('r', [[497, 'rgba(120,128,132,0)'], [504, 'rgba(120,128,132,.55)']], true)}</defs>
-    <rect x='0' y='0' width='1' height='507' fill='${C8}'/><rect x='1' y='0' width='7' height='507' fill='${W8}'/>
-    <rect x='504' y='0' width='1' height='507' fill='${C8}'/><rect x='505' y='0' width='7' height='507' fill='${W8}'/>
-    <rect x='8' y='0' width='496' height='7' fill='${W8}'/><rect x='8' y='7' width='496' height='1' fill='${D8}'/>
-    <rect x='8' y='499' width='496' height='7' fill='${W8}'/><rect x='8' y='506' width='496' height='1' fill='${D8}'/>
-    <rect x='8' y='8' width='496' height='491' fill='rgba(219,228,230,.702)'/>
-    <rect x='8' y='8' width='496' height='7' fill='url(#t)'/><rect x='497' y='15' width='7' height='484' fill='url(#r)'/>${shadow}`);
-  return piece(parent, x, y, 512, 512, { backgroundImage: u });
+  const r = (x, y, w, h, c) => `<rect x='${x}' y='${y}' width='${w}' height='${h}' fill='${c}'/>`;
+  const W = rgba('#ffffff', 204), out = [];
+  out.push(r(0, 0, 1, 506, rgba('#c8c8c8', 204)), r(0, 506, 1, 1, rgba('#c6c6c6', 204)), r(1, 0, 7, 506, W), r(1, 506, 503, 1, rgba('#dcdcdc', 204)),
+    r(8, 0, 496, 7, W), r(8, 7, 496, 1, rgba('#dcdcdc', 204)), r(8, 499, 496, 7, W),
+    r(504, 0, 1, 7, W), r(504, 7, 1, 1, rgba('#e2e2e2', 204)), r(504, 8, 1, 491, rgba('#c8c8c8', 204)), r(504, 499, 1, 1, rgba('#f6f6f6', 204)), r(504, 500, 1, 6, W),
+    r(505, 0, 7, 506, W), r(504, 506, 8, 1, rgba('#dcdcdc', 204)));
+  // the body, then the shades beside it (each texel once: straight alpha, nothing composed over the body): row i of
+  // the top (8 + i), column j of the right (503 - j), the corner the darker
+  out.push(r(8, 15, 488, 483, rgba('#dbe4e5', 179)));
+  for (let i = 0; i < 7; i++) out.push(r(8, 8 + i, 488, 1, rgba(...PANEL_SHADE[i])));
+  const col = (j, i = 6) => j === 0 ? ['#b0b7b9', 223] : PANEL_SHADE[Math.min(i, j - 1)];   // x 503 - j (at top row 8 + i)
+  for (let j = 0; j < 8; j++) out.push(r(503 - j, 15, 1, 483, rgba(...col(j))));
+  out.push(r(8, 498, 488, 1, rgba(...PANEL_SHADE[6])));
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 8; j++) out.push(r(503 - j, 8 + i, 1, 1, rgba(...col(j, i))));
+  for (let j = 0; j < 8; j++) out.push(r(503 - j, 498, 1, 1, rgba(...col(j))));
+  const fade = [88, 81, 70, 55, 37, 22, 10, 3];
+  [134, 116, 92, 61, 37].forEach((a, i) => {
+    out.push(r(0, 507 + i, 504, 1, `rgba(0,0,0,${(a / 255).toFixed(3)})`));
+    fade.forEach((f, j) => out.push(r(504 + j, 507 + i, 1, 1, `rgba(0,0,0,${(a * f / 92 / 255).toFixed(3)})`)));
+  });
+  return piece(parent, x, y, 512, 512, { backgroundImage: svgUrl('panel', 512, 512, `<g shape-rendering='crispEdges'>${out.join('')}</g>`) });
 }
 
 // ---------------------------------------------------------------- the title band (shop_win_00_01c, 512 x 91)
-// A brushed steel band: x 0..5 / 506..511 #8da4af, the middle #8597a1 (row 0) > #6c828d (20) > #566c77 (48) >
+// A brushed steel band (diagonal brush strokes "/" every 4 px across, +-9 levels: rows 30 / 31 of the texture): x 0..5 / 506..511 #8da4af, the middle #8597a1 (row 0) > #6c828d (20) > #566c77 (48) >
 // #3b525d (84) (column 256, its noise averaged), rows 85..90 #8aa2af.
 export function band(parent, x, y) {
   return piece(parent, x, y, 512, 91, {
     background: `linear-gradient(to right, #8da4af 6px, transparent 6px, transparent 506px, #8da4af 506px),
+      repeating-linear-gradient(135deg, rgba(255,255,255,.045) 0, rgba(0,0,0,.045) 1.414px, rgba(255,255,255,.045) 2.828px) 0 0 / 100% 85px no-repeat,
       linear-gradient(to bottom, #8597a1 0, #7a8e98 10px, #6c828d 20px, #627783 33px, #566c77 48px, #4c626d 60px, #445967 70px, #3b525d 85px, #8aa2af 85px)` });
 }
 
@@ -105,9 +139,14 @@ export function band(parent, x, y) {
 // rows 1 #23b0ed, 2 #a5e2f8, 3..14 #37c3f1 > #64d0f1, 15..21 #3cc3ec > #2fb4dc, 22 #5cffff, 23..25 #2db2d8 #36c3df
 // #29abd1, 26..31 #50feff > #3effff, 32 #1d95ba, 33 #061f28, 34 #126e9f; x 1 / 2 a light edge (#2af4ff, #70ffff);
 // the caption white, outlined black (the art's own lettering: Arial bold here, the owner's Text rule).
-// Captions per texture (the English art's words: the game draws them, there is no text id behind them)
-export const BANNER = { 1: 'Item Selection', 2: 'Single Cards', 3: 'Avatar Parts', 4: 'Booster Packs' };
-export function banner(parent, x, y, text) {
+// Captions per texture (the English art's words: the game draws them, there is no text id behind them), with where
+// the art letters them: [text, outline left, outline right, baseline] (the white capitals 17 px tall, a 2 px black
+// outline): Arial bold at the art's cap height, spaced to the art's width
+export const BANNER = { 1: ['Item Selection', 37, 219, 27], 2: ['Single Cards', 48, 214, 27], 3: ['Avatar Parts', 34, 210, 25],
+  4: ['Booster Packs', 32, 222, 26] };
+const CAP = 16.5, BPX = +(CAP / 0.716).toFixed(2);   // Arial's cap height: 0.716 em
+let bm;
+export function banner(parent, x, y, cap) {
   const u = svgUrl('banner', 256, 36, `
     <defs>${vgrad('g', [[1, '#23b0ed'], [2, '#a5e2f8'], [3, '#37c3f1'], [14, '#64d0f1'], [15, '#3cc3ec'], [22, '#2fb4dc'],
       [22, '#5cffff'], [23, '#5cffff'], [23, '#2db2d8'], [24, '#36c3df'], [25, '#29abd1'], [26, '#29abd1'], [26, '#50feff'],
@@ -115,35 +154,56 @@ export function banner(parent, x, y, text) {
     <rect x='0' y='0' width='256' height='36' fill='#000'/><rect x='1' y='1' width='254' height='34' fill='url(#g)'/>
     <rect x='1' y='1' width='1' height='34' fill='rgba(160,255,255,.55)'/><rect x='254' y='1' width='1' height='34' fill='rgba(160,255,255,.55)'/>`);
   const p = piece(parent, x, y, 256, 36, { backgroundImage: u });
-  if (text) {
-    const t = document.createElement('div');
+  if (cap) {
+    const [text, x0, x1, base] = cap, t = document.createElement('div');
     t.className = 'shop-banner-t';
     t.textContent = text;
-    t.style.letterSpacing = spacing(text, 23) + 'px';
+    // the ink's own box (measureText's bounding box), spaced so its white spans the art's (outline 2 px each side)
+    let ls = 0, left = x0 + 2;
+    if (typeof document !== 'undefined' && document.createElement('canvas').getContext) {
+      bm ||= document.createElement('canvas').getContext('2d');
+      if (bm) {
+        bm.font = `bold ${BPX}px ${FONT}`;
+        const m = bm.measureText(text), ink = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+        ls = +((x1 - x0 - 4 - ink) / Math.max(1, text.length - 1)).toFixed(2);
+        left = x0 + 2 + m.actualBoundingBoxLeft;
+      }
+    }
+    // a line box 1.117 em tall puts the baseline 0.905 em down (Arial's ascent); measured live it sat 1 px high
+    Object.assign(t.style, { left: left + 'px', top: +(base + 1 - 0.905 * BPX).toFixed(2) + 'px', fontSize: BPX + 'px',
+      lineHeight: +(1.117 * BPX).toFixed(2) + 'px', letterSpacing: ls + 'px' });
     p.append(t);
   }
   return p;
 }
 
 // ---------------------------------------------------------------- the MP plate (shop_money_01_c01, 223 x 82)
-// An octagon notched at mid-height on both sides (rows 33..48: the notch 8 px deep at row 40.5): a black edge, a
-// white line in it, a 3-px darker rim (x 2..4 #2c89a7 #30a7ce #33bce8 at row 20), two glossy halves: the top
-// (column 110) #63d3f7 (row 5) > #47cdf7 (19) > #47dcf6 (29) > #7bddf2 (36) #a6e7f6 (37), a dark line #34a9ca (38),
-// the glowing seam #6bfcfd (39..41), #69c0d9 #aae0f1 (42, 43), the bottom #86d3e9 (44) > #56bddb (49) > #2ca5c5 (62) >
-// #1bc2d6 (73) > #1998ad #197a8b (78, 79).
-const MP = [[10, 0], [213, 0], [223, 10], [223, 33.5], [215, 41], [223, 48.5], [223, 73.5], [214.5, 82], [8.5, 82], [0, 73.5], [0, 48.5], [8, 41], [0, 33.5], [0, 10]];
+// An octagon notched at mid-height on both sides (its outline traced from the texture's edge texels: chamfers 10 px,
+// the notches from rows 33 / 50 to 8.5 px deep at rows 40.5..41.5): a black edge, a white line in it, a 3-px darker rim
+// (x 2..4 #2c89a7 #30a7ce #33bce8 at row 20), two glossy halves: the top (column 110) #63d3f7 (row 5) > #47cdf7 (19) >
+// #47dcf6 (29) > #5dd9f2 (35), the edges less red (x 19 #38caf0 where the middle is #47dcf5; the bottom half's more: #28a5c8 / #48b2d1 at row 55); the bottom #6dc9e4 (45) >
+// #56bbd9 (50) > #2ca5c5 (62) > #1bc2d6 (73) > #1998ad #197a8b (78, 79). Between them, x 19..206 only, the glowing seam
+// (rows 36..44: #7bddf2 #a6e7f6, a dark line #24a2c6, #74fcfd #74fcfd #55fafd, #5ab8d4, #aae0f1 #89d4ea), its ends soft;
+// beyond it the halves meet (row 40 #2cb5de / row 41 #58c2e2 at x 14).
+const MP = [[10.5, 0], [212.5, 0], [223, 10], [223, 33], [217, 39], [214.5, 40.5], [214.5, 41.5], [223, 50], [223, 73], [214, 82], [9, 82],
+  [0, 73], [0, 50], [8.5, 41.5], [8.5, 40.5], [6, 39], [0, 33], [0, 10]];
 export function mpPlate(parent, x, y) {
+  const seam = [[36, '#7bddf2'], [37, '#a6e7f6'], [38, '#24a2c6'], [39, '#74fcfd'], [40, '#74fcfd'], [41, '#55fafd'], [42, '#5ab8d4'], [43, '#aae0f1'], [44, '#89d4ea']];
   const u = svgUrl('mp', 223, 82, `
-    <defs>${vgrad('g', [[2, '#4d92a9'], [3, '#59b3cf'], [5, '#65d3f7'], [12, '#5ed2f7'], [19, '#49cdf6'], [29, '#47dcf6'], [33, '#43d7f2'],
-      [35, '#5dd9f2'], [36.5, '#7bddf2'], [37.5, '#a6e7f6'], [38, '#34a9ca'], [39, '#34a9ca'], [39, '#6bfcfd'], [42, '#58fafd'], [42, '#69c0d9'],
-      [43, '#aae0f1'], [44.5, '#86d3e9'], [46, '#6dc9e4'], [50, '#56bbd9'], [56, '#43b0cf'], [62, '#2ca5c5'], [68, '#1bb0ca'], [73, '#1bc2d6'],
-      [76, '#1bc0d5'], [77.5, '#1aafc5'], [78.5, '#1998ad'], [80, '#197a8b']])}
-      ${vgrad('e', [[1, '#2c89a7'], [2, '#30a7ce'], [3, '#33bce8'], [4, 'rgba(53,198,245,0)']], true)}
-      ${vgrad('f', [[219, 'rgba(53,198,245,0)'], [220, '#33bce8'], [221, '#30a7ce'], [222, '#2c89a7']], true)}
+    <defs>${vgrad('g', [[2, '#4d92a9'], [3, '#59b3cf'], [4, '#61c9ea'], [5, '#65d3f7'], [12, '#5ed2f7'], [19, '#49cdf6'], [29, '#47dcf6'], [33, '#43d7f2'],
+      [35, '#4fd8f2'], [37, '#45d0f0'], [40, '#38c4ea'], [41, '#38c4ea'], [41, '#62c8e5'], [44, '#62c4e2'], [46, '#5cc1df'], [50, '#56bbd9'],
+      [56, '#43b0cf'], [62, '#2ca5c5'], [68, '#1bb0ca'], [73, '#1bc2d6'], [76, '#1bc0d5'], [77.5, '#1aafc5'], [78.5, '#1998ad'], [80, '#197a8b']])}
+      ${vgrad('h', [[2, 'rgba(0,165,230,.3)'], [35, 'rgba(0,165,230,.12)'], [80, 'rgba(0,165,230,0)'], [143, 'rgba(0,165,230,0)'], [188, 'rgba(0,165,230,.12)'], [221, 'rgba(0,165,230,.3)']], true)}
+      ${vgrad('k', [[2, 'rgba(0,140,190,.35)'], [50, 'rgba(0,140,190,.12)'], [100, 'rgba(0,140,190,0)'], [123, 'rgba(0,140,190,0)'], [173, 'rgba(0,140,190,.12)'], [221, 'rgba(0,140,190,.35)']], true)}
+      ${vgrad('s', [[16, 'rgba(255,255,255,0)'], [20, '#fff'], [205, '#fff'], [209, 'rgba(255,255,255,0)']], true)}
+      <mask id='m'><rect x='0' y='0' width='223' height='82' fill='url(#s)'/></mask>
       <clipPath id='c'><path d='${path(inset(MP, 2))}'/></clipPath></defs>
     <path d='${path(MP)}' fill='#000'/><path d='${path(inset(MP, 1))}' fill='#fff'/>
-    <g clip-path='url(#c)'><rect width='223' height='82' fill='url(#g)'/><rect x='0' width='5' height='82' fill='url(#e)'/>
-      <rect x='218' width='5' height='82' fill='url(#f)'/><rect x='18' y='39' width='190' height='3' fill='rgba(86,250,252,.9)'/></g>`);
+    <g clip-path='url(#c)'><rect width='223' height='82' fill='url(#g)'/><rect width='223' height='41' fill='url(#h)'/><rect y='41' width='223' height='41' fill='url(#k)'/>
+      <g mask='url(#m)'>${seam.map(([r, c]) => `<rect x='16' y='${r}' width='193' height='1' fill='${c}'/>`).join('')}</g>
+      <path d='${path(inset(MP, 2.5))}' fill='none' stroke='#2c89a7' stroke-opacity='.75' stroke-width='1'/>
+      <path d='${path(inset(MP, 3.5))}' fill='none' stroke='#30a7ce' stroke-opacity='.55' stroke-width='1'/>
+      <path d='${path(inset(MP, 4.5))}' fill='none' stroke='#33bce8' stroke-opacity='.3' stroke-width='1'/></g>`);
   return piece(parent, x, y, 223, 82, { backgroundImage: u });
 }
 
@@ -221,13 +281,16 @@ export function itemRow(parent, x, y, name) {
 // edge, 3 px). Pressed (06): yellow, the strip #face00 > #fac400, the body #ffdc83 > #ffd370 > #fff1bd across.
 // The left ones are the same, mirrored (x 1..28).
 const TRI = [[3, 3.5], [31, 32], [3, 60.5]];
+// The edge band is 3.5 px (5 across); the light strip lies inside it (clipped to the inner triangle), the pressed
+// one's full height, its upper band pale (#fff5d1), the lower #fde062
 const arrowSvg = look => svgUrl('arrow-' + look, 32, 64, look === 'pressed' ? `
     <defs>${vgrad('g', [[7, '#ffdc83'], [12, '#ffd370'], [19, '#ffdb80'], [25, '#fff1bd']], true)}<clipPath id='c'><path d='${path(TRI)}'/></clipPath></defs>
-    <g clip-path='url(#c)'><rect width='32' height='64' fill='#fde062'/><path d='${path(inset(TRI, [3, 3, 0]))}' fill='url(#g)'/>
-      <rect x='3' y='0' width='4' height='64' fill='#fac800'/></g>` : `
-    <defs>${vgrad('s', [[3, '#ffd07e'], [7, '#ffd996']], true)}<clipPath id='c'><path d='${path(TRI)}'/></clipPath></defs>
-    <g clip-path='url(#c)'><rect width='32' height='64' fill='#fa9f00'/><path d='${path(inset(TRI, [4.5, 4.5, 0]))}' fill='#ffb532'/>
-      <rect x='3' y='0' width='4' height='64' fill='url(#s)'/></g>`);
+    <g clip-path='url(#c)'><rect width='32' height='32' fill='#fff5d1'/><rect y='32' width='32' height='32' fill='#fde062'/>
+      <path d='${path(inset(TRI, [3.5, 3.5, 0]))}' fill='url(#g)'/><rect x='3' y='6' width='4' height='54' fill='#facc00'/></g>` : `
+    <defs>${vgrad('s', [[3, '#ffd07e'], [7, '#ffd996']], true)}<clipPath id='c'><path d='${path(TRI)}'/></clipPath>
+      <clipPath id='i'><path d='${path(inset(TRI, [3.5, 3.5, 0]))}'/></clipPath></defs>
+    <g clip-path='url(#c)'><rect width='32' height='64' fill='#fa9f00'/><path d='${path(inset(TRI, [3.5, 3.5, 0]))}' fill='#ffb532'/>
+      <rect x='3' y='0' width='4' height='64' fill='url(#s)' clip-path='url(#i)'/></g>`);
 export const ARROWS = {
   shop_arrow_04_c01: ['normal', 0], shop_arrow_05_c01: ['hover', 0], shop_arrow_06_c01: ['pressed', 0],
   shop_arrow_10_c01: ['normal', 1], shop_arrow_11_c01: ['hover', 1], shop_arrow_12_c01: ['pressed', 1],
@@ -266,7 +329,7 @@ export function key(parent, x, y, name) {
 }
 
 // ---------------------------------------------------------------- the confirm window (shop_win_01_c00, 480 x 256)
-// A gold plate (r 7): #ffc533 with a darker left edge (x 0 #ff9506) and foot (rows 254, 255 #ffb220 #ffa217), a
+// A gold plate, its corners cut 7 / 8 px (white-edged on the left), #ffc533 with a darker left edge (x 0 #ff9506) and foot (rows 254, 255 #ffb220 #ffa217), a
 // light top (rows 0, 1 #ffdc8e #ffd77a) and
 // right (x 477, 478 #ffe399 #fff1ca, 479 #ffc01d); the list well x 16..462, rows 16..207 (edged #7d7d7d on top,
 // #7a6a41 under, light gold x 14, 15 left of it and rows 208, 209 under it): a header (17..46) #6dbcfb > #5d91fc
@@ -279,7 +342,8 @@ export function confirmFrame(parent, x, y) {
   const u = svgUrl('confirm', 480, 256, `
     <defs>${vgrad('h', [[200, '#6dbcfb'], [280, '#69b1fc'], [360, '#63a0fc'], [446, '#5d91fc']], true)}
       ${vgrad('gold', [[0, '#ffdc8e'], [1.5, '#ffd77a'], [3, '#ffc734'], [128, '#ffc433'], [254, '#ffbf2c']])}</defs>
-    <rect width='480' height='256' rx='7' fill='url(#gold)'/>
+    <path d='M7 0H472L480 8V248L472 256H7L0 249V7Z' fill='url(#gold)'/>
+    <path d='M0.8 7.5L7.5 0.8M0.8 248.5L7.5 255.2' stroke='rgba(255,255,255,.39)' stroke-width='1.6'/>
     <path d='M7 0.5H473' stroke='#ffe4a0' stroke-width='1'/>
     <rect x='0' y='6' width='1' height='244' fill='#ff9506'/>
     <path d='M7 254.5H471' stroke='#ffb220' stroke-width='1'/><path d='M8 255.5H469' stroke='#ffa217' stroke-width='1'/>
@@ -302,23 +366,28 @@ export function confirmFrame(parent, x, y) {
 // mirrored at the right); over = the same with shop_btn1_03 (a cyan plate #b9ffff > #08ffff, white-edged, chamfered,
 // a #204a68 shadow) pulsing on it (alpha 102..179 / 256 over 8 frames) and the arrows nudging 4 px; down =
 // shop_btn1_04 (an orange pill, 2 px down-right: #fde0c7 > #ff9f00 (24) > #ffee00 (44), white-edged, yellow arrows).
-const PILL = (ox, oy) => `x='${ox}' y='${oy}' width='223' height='50' rx='18' ry='17'`;
+// the pill's outline (traced from the up state's edge texels): 223 x 50, its ends elliptic arcs 16 px wide, the
+// whole height (rx 16, ry 25); its rims the same shape 1 px in each
+const pillRect = (i, fill, extra = '') => `<rect x='${i}' y='${i}' width='${223 - 2 * i}' height='${50 - 2 * i}' rx='${16 - i}' ry='${25 - i}' fill='${fill}'${extra}/>`;
 const pillUp = () => svgUrl('pill-up', 230, 56, `
-    <defs>${vgrad('b', [[22, '#2fb4dc'], [30, '#36c0e5'], [38, '#4cd6f1'], [42, '#5ae7fa'], [44, '#55e2f9'], [46, '#3dbee0'], [47, '#2c99c2'], [48.5, '#195c96']])}
-      ${vgrad('s', [[4, 'rgba(255,255,255,.80)'], [10, 'rgba(255,255,255,.45)'], [16, 'rgba(255,255,255,.18)'], [22, 'rgba(255,255,255,0)']])}</defs>
-    <rect ${PILL(0, 0)} fill='#000'/>
-    <rect x='1' y='1' width='221' height='48' rx='17' ry='16' fill='#134d83'/>
-    <rect x='2' y='2' width='219' height='46' rx='16' ry='15' fill='#1f77a8'/>
-    <rect x='3' y='3' width='217' height='44' rx='15' ry='14' fill='#2798c4'/>
-    <rect x='4' y='3' width='215' height='44' rx='14' ry='13' fill='#2dadd7'/>
-    <rect x='5' y='3' width='213' height='45' rx='14' ry='13' fill='#30b7e0'/>
-    <rect x='5' y='22' width='213' height='26' rx='13' ry='12' fill='url(#b)'/>
-    <rect x='14' y='4' width='195' height='18' rx='9' fill='url(#s)'/>`);
+    <defs>${vgrad('b', [[22, '#2fb4dc'], [26, '#32b9e3'], [30, '#3ac5ea'], [34, '#43d1f0'], [38, '#51def6'], [42, '#5ae7fa'], [44, '#55e2f9'], [45, '#4cd6f1'], [46, '#3dbee0'], [47, '#2c99c2'], [48, '#195c96'], [49, '#195c96']])}
+      ${vgrad('s', [[4, 'rgba(255,255,255,.75)'], [7, 'rgba(255,255,255,.62)'], [10, 'rgba(255,255,255,.47)'], [13, 'rgba(255,255,255,.33)'], [16, 'rgba(255,255,255,.2)'], [19, 'rgba(255,255,255,.09)'], [22, 'rgba(255,255,255,0)']])}
+      ${vgrad('t', [[1, '#0d4275'], [2, '#146593'], [3, '#1a81aa'], [4, '#1a81aa']])}</defs>
+    ${pillRect(0, '#000')}${pillRect(1, '#134d83')}${pillRect(2, '#1f77a8')}${pillRect(3, '#2798c4')}${pillRect(4, '#2dadd7')}
+    ${pillRect(5, '#30b7e0')}
+    <rect x='14' y='1' width='195' height='3' fill='url(#t)'/>
+    <rect x='5' y='22' width='213' height='27' rx='11' ry='10' fill='url(#b)'/>
+    <rect x='12' y='4' width='199' height='19' rx='10' ry='9' fill='url(#s)'/>`);
+// down: the orange pill 2 px down-right, white-edged; its body #fe841b (row 6) > #fc7e06 (10) > #ff9300 (20) >
+// #ffb000 (30) > #ffd300 (40) > #ffeb35 (48), a gloss inset 20 px from the ends (rows 5..24: #fde0c7 > #fec997 >
+// #feb15a > #ffa325), yellow arrows
 const pillDown = () => svgUrl('pill-down', 230, 56, `
-    <defs>${vgrad('b', [[3, '#ffc571'], [6, '#fde0c7'], [14, '#fec48b'], [24, '#ff9f00'], [34, '#ffcd00'], [44, '#ffee00'], [48, '#fff151'], [50, '#fff77d']])}</defs>
-    <rect x='2' y='2' width='223' height='50' rx='18' ry='17' fill='#fff'/>
-    <rect x='3' y='3' width='221' height='48' rx='17' ry='16' fill='url(#b)'/>
-    <rect x='4' y='3' width='2' height='46' fill='#ff8b22' opacity='.35'/>
+    <defs>${vgrad('b', [[3, '#ffc571'], [4, '#ffa444'], [5, '#ff8b22'], [6, '#fe841b'], [10, '#fc7e06'], [15, '#ff8700'], [20, '#ff9300'], [24, '#ff9f00'],
+      [30, '#ffb000'], [40, '#ffd300'], [44, '#ffe300'], [47, '#ffee0f'], [48, '#ffeb35'], [49, '#fff151'], [50, '#fff77d'], [51, '#fff77d']])}
+      ${vgrad('g', [[6, '#fde0c7'], [10, '#fec997'], [15, '#feb15a'], [20, '#ffa325'], [24, 'rgba(255,159,0,0)']])}</defs>
+    <rect x='2' y='2' width='223' height='50' rx='16' ry='25' fill='#fff'/>
+    <rect x='3' y='3' width='221' height='48' rx='15' ry='24' fill='url(#b)'/>
+    <rect x='20' y='5' width='187' height='20' rx='8' ry='6' fill='url(#g)'/>
     <path d='M22 16L32 26L22 36Z' fill='#ffff00'/><path d='M207 16L197 26L207 36Z' fill='#ffff00'/>`);
 const pillGlow = () => svgUrl('pill-glow', 230, 56, `
     <defs>${vgrad('g', [[1, '#b9ffff'], [10, '#8fffff'], [24, '#5affff'], [40, '#16ffff'], [45, '#08ffff']])}</defs>
@@ -349,21 +418,35 @@ export function pill(parent, x, y, state = 'normal') {
 // #00eaff, bottom mirrored (141..145); a #c7fffe glow round it (181 / 255 at the frame, gone 14 px out).
 export const CATEGORY = /^shop_(card|pack|domino_avatar|akademia_avatar)_0([123])_c01$/;
 export const CAT_PICTURE = { x: 24, y: 29, w: 376, h: 112 };
+// the glow's alpha d px out of the frame (the texture's, top and side averaged): stacked 1-px spread rings, each
+// ring's own alpha such that the rings over a pixel compose to the texel's
+const GLOW = [175, 180, 176, 156, 132, 110, 89, 70, 54, 40, 28, 18, 10, 4, 1].map(a => a / 255);
+const glowRings = GLOW.map((A, i) => 1 - (1 - A) / (1 - (GLOW[i + 1] ?? 0)))
+  .map((a, i) => `0 0 0 ${i + 1}px rgba(199,255,254,${a.toFixed(3)})`).join(', ');
 export function categoryFrame(parent, x, y) {
   return piece(parent, x + 19, y + 24, 386, 122, {
-    boxShadow: `inset 1px 0 rgba(37,55,54,.9), inset -1px 0 rgba(37,55,54,.9), inset 0 1px #000, inset 0 -1px #000,
+    boxShadow: `inset 1px 0 rgba(38,55,54,.906), inset -1px 0 rgba(38,55,54,.906), inset 0 1px #000, inset 0 -1px #000,
       inset 2px 0 #aeabab, inset -2px 0 #aeabab, inset 0 3px #fff, inset 0 -3px #fff, inset 3px 0 #fff, inset -3px 0 #fff,
       inset 4px 0 #ffff1c, inset -4px 0 #ffff1c, inset 0 4px #fcff00, inset 0 -4px #fcff00,
-      inset 5px 0 #19ecd3, inset -5px 0 #19ecd3, inset 0 5px #00eaff, inset 0 -5px #00eaff,
-      0 0 3px 1px rgba(220,255,255,.7), 0 0 13px 3px rgba(199,255,254,.6)` });
+      inset 5px 0 #19ecd3, inset -5px 0 #19ecd3, inset 0 5px #00eaff, inset 0 -5px #00eaff, ${glowRings}` });
 }
 
 // ---------------------------------------------------------------- the no-trade mark (icon_seigen_01, 16 x 16)
-// A yellow (#ffe400) double arrow, black-edged, orange (#fea129) middle, over a red (#ff0000) X.
+// A red (#ff0000) X behind (2 px strokes corner to corner, rows 1..14) a yellow (#ffe400) double arrow: each head a
+// diamond from its tip (x 0, rows 7..8) to its back (x 5), black-edged outside, dark brown (#381616) along the back
+// with an orange (#fea129) mark (x 4, rows 4..5 / 10..11); between them a bar (x 5..10, rows 6..9): brown edges,
+// orange inside (rows 7..8).
 export function noTrade(parent, x, y) {
+  const head = m => {
+    const X = v => m ? 16 - v : v, poly = P => 'M' + P.map(([a, b]) => X(a) + ' ' + b).join('L') + 'Z';
+    return `<path d='${poly([[4, 3], [6, 3], [6, 13], [4, 13], [0, 9], [0, 7]])}' fill='#381616'/>
+      <path d='${poly([[4, 3], [0, 7], [0, 9], [4, 13]])}' fill='none' stroke='#000' stroke-width='1.2'/>
+      <path d='${poly([[3, 5], [4, 5], [6, 7], [6, 9], [4, 11], [3, 11], [1, 9], [1, 7]])}' fill='#ffe400'/>
+      <rect x='${m ? 11 : 4}' y='4' width='1' height='2' fill='#fea129'/><rect x='${m ? 11 : 4}' y='10' width='1' height='2' fill='#fea129'/>`;
+  };
   const u = svgUrl('seigen', 16, 16, `
-    <path d='M1 1.5L4 4.5M15 1.5L12 4.5M1 14.5L4 11.5M15 14.5L12 11.5' stroke='#f00' stroke-width='2' stroke-linecap='square'/>
-    <path d='M0 7V9L5 13.5H6V10H10V13.5H11L16 9V7L11 2.5H10V6H6V2.5H5Z' fill='#000'/>
-    <path d='M1 7.5V8.5L5 12V9H11V12L15 8.5V7.5L11 4V7H5V4Z' fill='#ffe400'/><rect x='6' y='7' width='4' height='2' fill='#fea129'/>`);
+    <path d='M1 1L15 15M15 1L1 15' stroke='#f00' stroke-width='2.2'/>
+    ${head(false)}${head(true)}<rect x='5' y='6' width='6' height='1' fill='#381616'/><rect x='5' y='9' width='6' height='1' fill='#381616'/>
+    <rect x='6' y='7' width='4' height='2' fill='#fea129'/>`);
   return piece(parent, x, y, 16, 16, { backgroundImage: u });
 }

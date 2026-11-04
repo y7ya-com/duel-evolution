@@ -22,17 +22,25 @@ assert.match(corner.clip, /^polygon\(/);
 assert.equal(cornerClip(Array.from({ length: 8 }, () => Array(8).fill(255)), 8, 8), '');
 assert.ok(isSkin('data/skin/window_base_01_c07.png') && !isSkin('data/deck/deck_carddai_01_c04.png'));
 
-// Card Swap: the areas' frames and planes are CSS items, the cards and the lamp are holes, the switches are buttons
+// Card Swap (mock/trade-swap.json: the live scene's snapshot, a card of mine offered): the model's parts hold both
+// areas' frames (28 pieces) and the partner's name; the areas hold their planes and switches, and leave the frames to
+// the model (plan(area, skip)), whose name must stand over them; the cards and the lamp are holes
 const snap = JSON.parse(readFileSync(new URL('../mock/trade-swap.json', import.meta.url)));
-const [, partner, mine, model] = snap.windows;
-const pa = plan(partner), pm = plan(mine), pt = plan(model);
-assert.equal(pa.items.length, 15);   // 14 frame pieces + the plane (its switches hidden)
-assert.equal(pm.items.length, 17);   // + the ready and cancel switches
-assert.ok(pm.items.slice(-2).every(it => it.z === 11.5));   // the switches over the plane
+const [model, partner, mine] = snap.windows;
+assert.deepEqual([model.cls, partner.mode, mine.mode], ['CWindowModelTrade', 2, 1]);
+const pt = plan(model), skip = new Set(pt.items.map(it => it.id));
+assert.equal(pt.items.length, 29);   // 28 frame pieces + the partner's name
+assert.equal(pt.items.at(-1).rect.y, 8);   // the name last: over the pink band
+const pa = plan(partner), pm = plan(mine);
+assert.equal(pa.items.length, 15);   // its 14 frame pieces + the plane (its switches hidden)
+assert.equal(pm.items.length, 16);   // + Ready to Trade. (Cancel hidden)
+const qa = plan(partner, skip), qm = plan(mine, skip);
+assert.equal(qa.items.length, 1);   // the plane only
+assert.equal(qm.items.length, 2);   // the plane and the switch
+assert.ok(qm.items.at(-1).z > qm.items[0].z);   // the switch over the plane
 assert.equal(pa.holes.length, 0);
-assert.equal(pt.holes.length, 6);   // five card faces and the lamp swf (136 x 150)
-assert.deepEqual(pt.holes.find(h => h.rect.w === 136).rect, { x: 600, y: 330, w: 136, h: 150 });
-assert.equal(pt.items.length, 1);   // the partner's name
+assert.deepEqual(pt.holes.find(h => h.rect.w === 100).rect, { x: 262, y: 340, w: 100, h: 145 });   // the offered card
+assert.ok(pt.holes.some(h => h.rect.w === 136 && h.rect.h === 150));   // the lamp (136 x 150)
 // passthrough: card faces and swfs; not the frame pieces
 assert.ok(mod.passthrough({ tex: 'data/CARD/4007.png' }) && mod.passthrough({ id: 9, name: 'x', x: 0, y: 0, wx: 0, wy: 0, shown: true }));
 assert.ok(!mod.passthrough({ id: partner.extras[0].id, cls: 'CSpriteElm', tex: partner.extras[0].tex }));

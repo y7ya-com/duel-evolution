@@ -31,14 +31,23 @@ assert.deepEqual(swfStates(sw, [900, 500, 0]), ['hover', 'normal']);
 assert.deepEqual(swfStates(sw, [900, 542, 1]), ['normal', 'pressed']);
 assert.deepEqual(swfStates(sw, [100, 100, 1]), ['normal', 'normal']);
 
-// the menu: the panel, the banner, the Exit button (hovered), the two picked / hovered banners' frames; the three
-// pictures are holes (the engine's), cut only where the picture is (not the banners' frame and glow)
+// the menu (a live snapshot, tools/flip.mjs's shop-menu: nothing hovered): the panel, the banner, the Exit button; the
+// three pictures are holes (the engine's), cut only where the picture is (not the banners' frame and glow), where the
+// engine lands it (+0.5)
 const menu = mock('shop-menu').windows.find(w => w.cls === 'CShopCategoryWindow');
 let P = plan(menu);
 assert.equal(P.holes.length, 3);
-assert.deepEqual(P.holes[0].rect, { x: 319 + 24, y: 125 + 29, w: 376, h: 112 });
-assert.deepEqual(P.pills.map(p => p.state), ['hover']);
-assert.equal(P.items.filter(it => it.z > 1017 && it.z < 1017.15).length, 2);   // the two frames, over their pictures
+assert.ok(P.holes.some(h => JSON.stringify(h.rect) === JSON.stringify({ x: 319 + 24 + 0.5, y: 125 + 29 + 0.5, w: 376, h: 112 })));
+assert.deepEqual(P.pills.map(p => p.state), ['normal']);
+assert.equal(P.items.filter(it => it.z > 1017 && it.z < 1017.15).length, 0);   // no banner hovered: no frame
+// a hovered banner (its switch's hover art shown): its frame over its picture
+const hov = structuredClone(menu), ps = hov.controls.find(c => c.cls === "CWindowTaskPictureSwitch");
+const up = ps.parts.sprites.find(s => /_01_c01/.test(s.tex));
+const hv = ps.parts.sprites.find(s => /_02_c01/.test(s.tex));   // the hover art (the first _02: its checked art is one too)
+for (const s of ps.parts.sprites) Object.assign(s, s === hv ? { shown: true, wx: up.wx, wy: up.wy, wz: up.wz } : { shown: false });
+const HP = plan(hov), fr = HP.items.filter(it => it.id % 1 === 0.5);   // the frame (its sprite's id + 0.5), over the picture's hole
+assert.equal(fr.length, 1);
+assert.ok(fr[0].z > HP.holes.find(h => h.rect.x === up.wx + 24.5 && h.rect.y === up.wy + 29.5).z);
 assert.ok(P.items.every((it, i) => !i || P.items[i - 1].z <= it.z));   // back to front
 // hide(): its controls and the task's own parts the DOM draws (all of them here: no picture among the task's parts)
 assert.equal(shop.hide(menu).length, menu.controls.length + menu.parts.sprites.length + menu.parts.swfs.length);
@@ -59,5 +68,10 @@ assert.deepEqual(plan(packs).pills.map(p => p.state), ['normal', 'pressed']);
 const conf = mock('shop-confirm').windows.find(w => w.cls === 'CShopConfirmWindow');
 P = plan(conf);
 assert.ok(P.items.some(it => it.id === 'list'));
-assert.equal(P.items.filter(it => typeof it.id === 'number').length, 1 + 2 + 2 + 1);   // frame, 2 keys, 2 captions, message
+assert.equal(P.items.filter(it => typeof it.id === 'number').length, 1 + 2 + 2);   // frame, 2 keys, 2 captions (the message is empty)
+assert.deepEqual(conf.lines, ['Pack 4@>320/x1@>360/200MP']);
+// the NPC profile (a factory window): drawn by its own renderer, nothing hidden by name
+const npc = mock('shop-npc').windows.find(w => w.cls === 'CShopNpcProfile');
+assert.ok(npc.shown && npc.controls.some(c => c.cls === 'CWindowTaskFrameThin' && c.style === 2));
+assert.deepEqual(shop.hide(npc), []);
 console.log('screens/shop_test: ok');

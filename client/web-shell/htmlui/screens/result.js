@@ -19,15 +19,19 @@ const duel = ui && await import('./duel.js');
 //    frame (navy top / left, light #719cd4 bottom / right, pink #fc9ac3) round a 1-px cyan line (#46c0f6, pink
 //    #fe72aa) round the display, #333435 > #142830 to the bottom right (pink #353334 > #331f27)
 //  - body rows 80..441: brushed silver (#dde0f0 > #aec4ea, light / dark hairlines); the screen (scr) inset 4 px dark
-//    on the top / left (#273249 #001337 #00265d #024398, columns #324158 #162c4f #31578a #4b80c3), a 3-px glow on the
-//    right (#5992d7 #6b9edc #7faae0) and the bottom (#c0dcff #c6e0ff #d7e9ff); inside, scan lines: 2 rows #0351b3 >
+//    on the top (#273249 #001337 #00265d #024398) and the left (column 10 #2b3a55, then 11..13 darkening the scan
+//    lines by 80 / 49 / 8 % of #00143c: result_dai_01_c01 rows 100..425), a 3-px glow on the right (columns 214..216 the
+//    scan lines 3 / 12 / 22 % whiter, column 217 a #c8d3ee line) and the bottom (#c0dcff #c6e0ff #d7e9ff); inside, scan lines: 2 rows #0351b3 >
 //    #b1d4fe (linear, rows 97 > 421) and 2 rows of the same 12 % whiter (#2166bb > #bbd9ff), from row 95; the scroll
-//    trough (tr, 16 wide, rows 90..427) #458adf, edged #122c72 #2d5dab / #5997e3 #71a6e7, top #122c72 #1c3d87,
-//    bottom #69a1e5 #9ac0ee; the right edge 4 px #3767b6, the bottom rows 438..441 #3f6eb9 #2457ae
+//    trough (tr, 16 wide from column 221, rows 90..427) #458adf, edged #122c72 #2d5dab / #5997e3 #71a6e7, top #122c72
+//    #1c3d87, bottom #69a1e5 #9ac0ee; the right edge 4 px #3767b6 after a #6b8fd0 column (239), the bottom rows
+//    438..441 #3f6eb9 #2457ae. (Checked against the live flip, 2026-11-04: the earlier glow / trough columns were off.)
 // Per width: the left silver (L), the plate's columns, the screen's (glow included) and the trough's left
 export const BOARDS = {
-  244: { plate: [8, 235], scr: [10, 218], tr: 222 },
-  512: { plate: [14, 497], scr: [13, 482], tr: 488 },
+  // (244: the live engine draws the board's right part ~1 px further right than the atlas has it (its screen's glow, line
+// and trough: columns 215..218 / 222 at x 250, the left edge on 10 as the atlas): the columns are the engine's)
+  244: { plate: [8, 235], scr: [10, 219], tr: 222 },
+  512: { plate: [14, 497], scr: [13, 483], tr: 488 },   // npc_result_dai_01_c01 (not seen live: its glow line is column 482)
 };
 const TINT = {
   blue: { head: '#7392f1', edge: '#3b68d9', line: '#315fb4', plate: '#2165bd', hi: '#6f9bd4', lo: '#08296e', lo2: '#719cd4',
@@ -44,7 +48,7 @@ const CSS = () => `
 .yo2r-board { position: absolute; overflow: hidden;
   background: repeating-linear-gradient(to bottom, rgba(255,255,255,.22) 0 1px, transparent 1px 2px, rgba(40,60,110,.08) 2px 3px, transparent 3px 5px),
     linear-gradient(to bottom, #dce1f3, #b0c4e9);
-  box-shadow: inset -4px 0 #3767b6, inset 0 -3px #2457ae, inset 0 -4px #3f6eb9; }
+  box-shadow: inset -4px 0 #3767b6, inset -5px 0 #6b8fd0, inset 0 -3px #2457ae, inset 0 -4px #3f6eb9; }
 .yo2r-board > i { position: absolute; display: block; box-sizing: border-box; }
 .yo2r-board > .head { left: 0; top: 0; right: 0; height: 80px;
   background: linear-gradient(to bottom, #f8f8fb 0, #dfe4f5 8px, rgba(179,196,246,.7) 20px, rgba(127,152,234,.25) 32px, transparent 40px),
@@ -57,9 +61,10 @@ const CSS = () => `
 .yo2r-board > .scr { top: 90px; height: 337px;
   background: repeating-linear-gradient(to bottom, rgba(255,255,255,.12) 0 2px, transparent 2px 4px) 0 1px,
     linear-gradient(to bottom, #0351b3 7px, #b1d4fe 331px);
-  box-shadow: inset 1px 0 #324158, inset 0 1px #273249, inset 2px 0 #162c4f, inset 0 2px #001337, inset 3px 0 #31578a,
-    inset 0 3px #00265d, inset 4px 0 #4b80c3, inset 0 4px #024398, inset -1px 0 #7faae0, inset -2px 0 #6b9edc,
-    inset -3px 0 #5992d7, inset 0 -1px #d7e9ff, inset 0 -2px #c6e0ff, inset 0 -3px #c0dcff; }
+  box-shadow: inset 1px 0 #2b3a55, inset 0 1px #273249, inset 2px 0 rgba(0,20,60,.61), inset 0 2px #001337,
+    inset 3px 0 rgba(0,20,60,.446), inset 0 3px #00265d, inset 4px 0 rgba(0,20,60,.08), inset 0 4px #024398,
+    inset -1px 0 #c8d3ee, inset -2px 0 rgba(255,255,255,.114), inset -3px 0 rgba(255,255,255,.093), inset -4px 0 rgba(255,255,255,.03),
+    inset 0 -1px #d7e9ff, inset 0 -2px #c6e0ff, inset 0 -3px #c0dcff; }
 .yo2r-board > .tr { top: 90px; width: 16px; height: 338px; background: #458adf;
   box-shadow: inset 1px 0 #122c72, inset 2px 0 #2d5dab, inset -1px 0 #71a6e7, inset -2px 0 #5997e3, inset 0 1px #122c72,
     inset 0 2px #1c3d87, inset 0 -1px #9ac0ee, inset 0 -2px #69a1e5; }
@@ -131,9 +136,11 @@ function plan(win) {
   };
   for (const e of win.extras || []) if (e.tex) sprite(e);   // the NPC record's board_ / title_ (CSpriteElm members)
   const p = c => duel.loc(c, byId, win);
+  // CWindowTaskResultBase's board and title first: the engine draws them under the record's texts (the caption's
+  // ShadowText comes before the base in the control list, so in list order the board would cover it)
+  for (const c of win.controls) if (c.shown) for (const s of c.parts?.sprites || []) sprite(s);
   for (const c of win.controls) {
     if (!c.shown) continue;
-    for (const s of c.parts?.sprites || []) sprite(s);   // CWindowTaskResultBase: the board, the title
     if (c.parent && byId.get(c.parent)?.cls.endsWith('ShadowText')) continue;   // its text / shadow halves: below
     if (/ShadowText$/.test(c.cls)) {
       // CWindowTaskShadowText: the white glyphs tinted (its colour), a shadow where its shadow half shows, offset as
@@ -217,7 +224,7 @@ export default {
     inject();
     const box = document.createElement('div');
     box.className = 'yo2d-box';
-    Object.assign(box.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' });
+    Object.assign(box.style, { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', transform: duel.nudge(devicePixelRatio) });
     root.append(box);
     return { box, els: new Map(), bars: new Map() };
   },

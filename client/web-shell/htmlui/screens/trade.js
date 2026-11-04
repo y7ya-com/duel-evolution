@@ -150,19 +150,23 @@ function drawText(el, text, x, y, alpha, { align = 0, w = 0, px: size = 16, ink 
 // ---------------------------------------------------------------- the drawing list of one window
 // items [{ id, z, rect (screen), draw(el) }] and holes [{ z, rect }], back to front by world z; kept: what the engine
 // draws (unknown textures, extras that aren't sprites); co: the items under a hole in front of them
-export function plan(win) {
+// skip: sprite ids another window draws (a card area's frame pieces are its model's parts too: the model draws them,
+// under its title, in its own world-z order)
+export function plan(win, skip = new Set()) {
   const items = [], holes = [], kept = new Set(), ox = win.x, oy = win.y;
   const add = (id, z, rect, draw) => items.push({ id, z, rect, draw, i: items.length });
   const tree = (P, ctl) => {
     for (const s of P.sprites || []) {
-      if (!s.shown || !s.tex) continue;
+      if (!s.shown || !s.tex || skip.has(s.id)) continue;
       const r = spriteRect(s), z = s.wz ?? 0;
       if (isSkin(s.tex) && s.src[2] <= 64 && s.src[3] <= 64) add(s.id, z, r, (el, w) => drawPiece(el, s, r.x - ox, r.y - oy, w));
       else { if (!isArt(s)) kept.add(s.id); holes.push({ z, rect: r }); }   // a card face, or art this doesn't know
     }
     for (const t of P.labels || []) {
       if (!t.shown || !t.text) continue;
-      const shadow = ctl?.name === 'CWindowTaskShadowTextのテキスト' && ctl.color;
+      // a ShadowText's text half takes its control's colour; so does the partner's name over the pink band (live: white,
+      // CWindowTaskText 'TradeOtherName' colour (1, 1, 1))
+      const shadow = (ctl?.name === 'CWindowTaskShadowTextのテキスト' || ctl?.name === 'TradeOtherName') && ctl.color;
       const ink = shadow ? ctl.color.slice(0, 3).reduce((v, x) => v << 8 | Math.round(x * 255), 0) : null;
       const box = ctl && 'text' in ctl ? { align: ctl.align || 0, w: ctl.cls === 'CWindowTaskTextField' ? ctl.w - 16 : ctl.w,
         px: ctl.fontSize || 16, ink } : { ink };
@@ -197,6 +201,8 @@ export function plan(win) {
 
 // ---------------------------------------------------------------- the live windows, clipped around every hole
 const live = new Map();   // window id -> { win, root, plan, api, deck: the hole stand-in deck.js knows }
+// the sprite ids the live models (Trade / Tp / Present) draw
+const modelDrawn = () => new Set([...live.values()].filter(L => L.win.cls !== 'CWindowTaskCardArea').flatMap(L => L.plan.items.map(it => it.id)));
 const co = new Set(), kept = new Set();
 let foreign = [], foreignKey = '';
 function draw(L) {
@@ -232,6 +238,10 @@ function tick() {
   const snap = globalThis.yo2Html?.snapshot?.();
   if (!snap) return;
   const hs = (snap.windows || []).filter(w => deck.classes.includes(w.cls) && w.shown).flatMap(w => deckPlan(w, false).holes);
+  // any other window in front (its drawn depth): what lies under its drawn box is co-drawn too. The bridge cuts that box
+  // out of these windows, and a box can be wider than what the window paints (live: the card detail's reaches x 256,
+  // 8 px over the areas' left edge, which it leaves bare): there the engine's own pieces show, not the backdrop
+  for (const w of snap.windows || []) if (w.shown && w.drawn && w.wz > 0 && !CLASSES.includes(w.cls)) hs.push({ z: w.wz, rect: w.drawn });
   const key = JSON.stringify(hs);
   if (key !== foreignKey) { foreignKey = key; foreign = hs; reclip(); }
 }
@@ -263,13 +273,18 @@ export default {
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
     const L = live.get(win.id) || { root: st.inner };
-    Object.assign(L, { win, plan: plan(win), api });
+    const area = win.cls === 'CWindowTaskCardArea';
+    Object.assign(L, { win, plan: plan(win, area ? modelDrawn() : undefined), api });
     live.set(win.id, L);
     draw(L);
     tellDeck(L, api);
+    // a model (re)drawn: the areas leave its pieces to it (their roots stand in front of the model's: drawn there, the
+    // pieces would cover its title)
+    if (!area) for (const A of live.values()) if (A.win.cls === 'CWindowTaskCardArea') { A.plan = plan(A.win, modelDrawn()); draw(A); }
   },
   unmount(root, st) {
     for (const [id, L] of live) if (L.root === st.inner) { if (L.deck) deck.unmount(L.deck.root, L.deck.st); live.delete(id); }
+    for (const A of live.values()) if (A.win.cls === 'CWindowTaskCardArea') { A.plan = plan(A.win, modelDrawn()); draw(A); }   // the pieces back
     reclip();
   },
 };
