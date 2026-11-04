@@ -24,4 +24,8 @@ w32(fac + 0x10 + 4, head); w32(fac + 0x10 + 8, 1);
 const W = read(dv).windows[0];
 assert.deepEqual([W.cls, W.x, W.y, W.w, W.h, W.mode], ['CWindowTaskCardArea', 248, 320, 488, 288, 1]);
 assert.deepEqual([W.controls[0].card, W.controls[0].dragging], [4007, true]);
+// live: a trade area's w, h read 0 (x, y and mode right): its frame's 488 x 288
+wf(area + 0x46c, 0); wf(area + 0x470, 0); dv.setInt32(area + 0x478, 2, true);
+const W2 = read(dv).windows[0];
+assert.deepEqual([W2.x, W2.y, W2.w, W2.h, W2.mode], [248, 320, 488, 288, 2]);
 console.log('read/trade_test: ok');

@@ -1,0 +1,162 @@
+{
+ "v": 1,
+ "frame": 4000,
+ "scene": 11,
+ "_note": "MOCK: the Gunslinger join box",
+ "mouse": {
+  "x": 0,
+  "y": 0,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 6778880,
+   "cls": "CWindowModelJoinGunsling",
+   "x": 352,
+   "y": 264,
+   "w": 320,
+   "h": 200,
+   "z": 51403,
+   "wz": 51408,
+   "drawn": {
+    "x": 352,
+    "y": 264,
+    "w": 320,
+    "h": 200
+   },
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 6709248,
+     "cls": "CWindowTaskFrameDuel",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 0,
+     "y": 0,
+     "w": 320,
+     "h": 200
+    },
+    {
+     "id": 6710272,
+     "cls": "CWindowTaskShadowText",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 0,
+     "y": 5,
+     "w": 320,
+     "h": 16,
+     "text": "Gunslinger Event",
+     "align": 1,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 6,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "id": 6711296,
+     "cls": "CWindowTaskShadowText",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 24,
+     "y": 64,
+     "w": 272,
+     "h": 48,
+     "text": "Join the Gunslinger Duel event?",
+     "align": 1,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 6,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "id": 6712320,
+     "cls": "CWindowTaskButtonDuel",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 48,
+     "y": 164,
+     "w": 96,
+     "h": 24,
+     "label": "Join",
+     "state": "normal",
+     "checked": false,
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null
+    },
+    {
+     "id": 6713344,
+     "cls": "CWindowTaskButtonDuel",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 176,
+     "y": 164,
+     "w": 96,
+     "h": 24,
+     "label": "Cancel",
+     "state": "normal",
+     "checked": false,
+     "align": 1,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "shadow": null
+    }
+   ],
+   "extras": [],
+   "_note": "MOCK: CWindowModelJoinGunsling; GEOMETRY AND STRINGS GUESSED (no decomp): check live."
+  }
+ ],
+ "tasks": []
+}

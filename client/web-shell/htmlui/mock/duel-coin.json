@@ -1,0 +1,92 @@
+{
+ "v": 1,
+ "frame": 9000,
+ "scene": 28,
+ "_note": "MOCK: CUSelectCoinDialog: the frame and question in DOM, two holes for the coins",
+ "mouse": {
+  "x": 0,
+  "y": 0,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 7369728,
+   "cls": "CUSelectCoinDialog",
+   "x": 344,
+   "y": 276,
+   "w": 336,
+   "h": 144,
+   "z": 51200,
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 7370752,
+     "cls": "CWindowTaskFrameThin",
+     "name": "",
+     "parent": 0,
+     "x": 0,
+     "y": 0,
+     "w": 336,
+     "h": 144,
+     "z": 0,
+     "alpha": 0.7,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "style": 1,
+     "wx": 344,
+     "wy": 276,
+     "wz": 51000
+    },
+    {
+     "id": 7371776,
+     "cls": "CWindowTaskTextField",
+     "name": "",
+     "parent": 0,
+     "x": 8,
+     "y": 8,
+     "w": 320,
+     "h": 128,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "text": "Call it: heads or tails?",
+     "align": 0,
+     "fontSize": 16,
+     "lineGap": 0,
+     "firstLine": 0,
+     "pageLines": 8,
+     "color": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "wx": 352,
+     "wy": 284,
+     "wz": 51001
+    }
+   ],
+   "extras": [],
+   "dlg": {
+    "fade": 0,
+    "answered": false,
+    "cx": 512,
+    "cy": 348,
+    "boxW": 336,
+    "boxH": 144,
+    "hover": 0,
+    "after": 0
+   }
+  }
+ ],
+ "tasks": []
+}
