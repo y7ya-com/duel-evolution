@@ -16,6 +16,7 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/threading.h>
 void rc_web_sleep(uint32_t ms);
+void rc_web_wait_step(void);
 #endif
 
 pthread_mutex_t rc_sync_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -421,6 +422,11 @@ IMP(KERNEL32, ReleaseMutex) {
     pthread_mutex_unlock(&rc_sync_mu);
     RET(1, ok);
 }
+// The mutex the game's main thread waits on alone (0: none), under rc_sync_mu. Another thread does not take it while
+// the main thread waits: Windows hands a released mutex to its waiters about in order, but here every waiter races
+// and the main thread (polling on web, once per yield) lost to CTextureManager's loader threads until all their
+// file reads were done: FileMutex, waitAt 59dfd0, 2-7 s at lobby entry, longer on 4 cores.
+static uint32_t main_wants;
 // with rc_sync_mu held: is h signaled for this thread? consumes it (auto-reset event, mutex ownership)
 static int try_take(CPU *c, uint32_t h) {
     RcHandle *r = rc_handle(h);
@@ -432,6 +438,7 @@ static int try_take(CPU *c, uint32_t h) {
         return 1;
     case H_MUTEX:
         if (r->count && r->owner != c->thread->id) return 0;
+        if (!r->count && h == main_wants && !rc_is_main_thread(c)) return 0;   // its own recursion still goes
         r->owner = c->thread->id;
         r->count++;
         return 1;
@@ -457,20 +464,23 @@ static uint32_t wait_many(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms)
             }
             if (ok) {
                 for (uint32_t i = 0; i < n; i++) try_take(c, RD32m(hs + 4 * i));
+                if (rc_is_main_thread(c)) main_wants = 0;
                 pthread_mutex_unlock(&rc_sync_mu);
                 return 0;
             }
         } else
             for (uint32_t i = 0; i < n; i++)
                 if (try_take(c, RD32m(hs + 4 * i))) {
+                    if (rc_is_main_thread(c)) main_wants = 0;
                     pthread_mutex_unlock(&rc_sync_mu);
                     return i;
                 }
         if (ms == 0) break;
+        if (n == 1 && rc_is_main_thread(c)) main_wants = RD32m(hs);
 #ifdef __EMSCRIPTEN__
         if (emscripten_is_main_runtime_thread()) {
             pthread_mutex_unlock(&rc_sync_mu);
-            rc_web_sleep(1);
+            rc_web_wait_step();
             pthread_mutex_lock(&rc_sync_mu);
             struct timespec now;
             clock_gettime(CLOCK_REALTIME, &now);
@@ -488,11 +498,13 @@ static uint32_t wait_many(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms)
             pthread_cond_timedwait(&rc_sync_cv, &rc_sync_mu, &sl);
         } else if (pthread_cond_timedwait(&rc_sync_cv, &rc_sync_mu, &dl)) break;
     }
+    if (rc_is_main_thread(c)) main_wants = 0;
     pthread_mutex_unlock(&rc_sync_mu);
     return 0x102;   // WAIT_TIMEOUT
 }
 #ifdef __EMSCRIPTEN__
-extern double rc_waitobj_ms;   // rt/web.c: the main thread's WaitFor* time per frame (web/stall.js)
+extern double rc_waitobj_ms, rc_waitobj_max;   // rt/web.c: the main thread's WaitFor* time per frame (web/stall.js)
+extern uint32_t rc_waitobj_at;                 // and the guest call site of its longest wait
 #endif
 static uint32_t wait_counted(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t ms) {   // idle while blocked
     int idle = ms && !rc_is_main_thread(c);
@@ -502,7 +514,11 @@ static uint32_t wait_counted(CPU *c, uint32_t n, uint32_t hs, int all, uint32_t 
 #endif
     uint32_t r = wait_many(c, n, hs, all, ms);
 #ifdef __EMSCRIPTEN__
-    if (emscripten_is_main_runtime_thread()) rc_waitobj_ms += emscripten_get_now() - t0;
+    if (emscripten_is_main_runtime_thread()) {
+        double d = emscripten_get_now() - t0;
+        rc_waitobj_ms += d;
+        if (d > rc_waitobj_max) rc_waitobj_max = d, rc_waitobj_at = RD32m(c->esp);   // the WaitFor* return address
+    }
 #endif
     if (idle) rc_thread_busy(1);
     return r;

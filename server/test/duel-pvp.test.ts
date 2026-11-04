@@ -13,7 +13,7 @@ import { Reader, W } from "../src/net/proto.ts";
 import { Session } from "../src/game/hub.ts";
 import { createNodeDuelCore } from "../src/duel/engine/node.ts";
 import { NPC_DECKS, setDuelCore } from "../src/duel/data.ts";
-import { AFK, type PvpMatch } from "../src/duel/pvpMatch.ts";
+import { AFK, DUEL_GRACE, type PvpMatch } from "../src/duel/pvpMatch.ts";
 
 const GD = join(import.meta.dirname, "..", "gamedata");
 const have = ["engine/scripts.pack", "translator.json", "brain_cards.json", "duel.json"].every((f) => existsSync(join(GD, f)));
@@ -26,6 +26,7 @@ const type6202 = (d: Uint8Array) => u32(d, 0) & 0xff;
 const deckMsg = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u16(x); return w.bytes(); };
 
 describe.skipIf(!have)("PvP through the duel port", () => {
+  const logs: string[] = [];
   let srv: Server;
   const state = {
     accounts: {
@@ -36,7 +37,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
   beforeAll(async () => {
     setDuelCore(await createNodeDuelCore());
-    srv = buildServer(configFrom({ PARITY_SEED: "1", PVP_TEST: "1", DUEL_PAUSE: "0.0005" }), structuredClone(state), () => {});
+    srv = buildServer(configFrom({ PARITY_SEED: "1", PVP_TEST: "1", DUEL_PAUSE: "0.0005" }), structuredClone(state), (x) => logs.push(x));
   }, 60_000);
   afterAll(() => setDuelCore(null));
 
@@ -103,6 +104,8 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     }
     expect(m.done).toBe(true);
     expect(srv.game.pvp!.byPid(A.s.pid!)).toBeNull();
+    // the surrender says, where Workers Logs keeps it, whom the duel was waiting on (a "frozen" duel's answer)
+    expect(logs.find((l) => l.includes("se rinde el jugador 0"))).toMatch(/^\[AVISO\] \[pvp\] .*el duelo esperaba a player 0 \(SELECT_IDLECMD, mode \w+\) for \d+ s$/);
     // the match was recorded (duels, result) and nothing about duel points was
     const st = srv.game.store.loadRaw();
     for (const acct of ["aaaa", "bbbb"]) {
@@ -144,6 +147,10 @@ describe.skipIf(!have)("PvP through the duel port", () => {
       expect(B.got.duel.find(([x]) => x === 0x649b)?.[1][0]).toBe(3);                    // SVR_TIMEUP
       const st = srv.game.store.loadRaw();
       expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(2);
+      // the duel's kept [pvp] lines, once, as one [AVISO] line (production drops info lines)
+      const tr = logs.filter((x) => x.startsWith("[AVISO] [pvp]") && x.includes(" trace ("));
+      expect(tr.length).toBe(1);
+      expect(tr[0]).toMatch(/aaaa vs bbbb, timeout, \d+ s\): .*arranca.* \| .*se acaba el tiempo/);
     } finally { AFK.s = 600; }
   }, 120_000);
 
@@ -184,4 +191,112 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     await send(A, 0x6423, new W().u32(1).bytes());
     await until(() => m.done);
   }, 120_000);
+
+  describe("a duel socket that closes mid-duel (Cloudflare cut every socket at once, 2026-10-31)", () => {
+    /** A and B in a duel, at A's first decision */
+    async function duelOn(tag: string) {
+      const A = client("Alfa" + tag, "aaaa", 1), B = client("Beta" + tag, "bbbb", 2);
+      const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+      for (const [c, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
+        const d = NPC_DECKS[String(nid)];
+        await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
+        await send(c, 0x6600, new W().u32(d.main.length).u32(0).u32(d.extra.length).bytes());
+        await send(c, 0x6601, deckMsg(d.main));
+        await send(c, 0x6603, deckMsg(d.extra));
+        await send(c, 0x600b);
+      }
+      await until(() => has(A, 0x6005) && has(B, 0x6005));
+      for (const c of [A, B]) await send(c, 0x6100);
+      await send(A, 0x6101, Uint8Array.of(0));
+      await send(B, 0x6101, Uint8Array.of(1));
+      for (const c of [A, B]) await send(c, 0x6102);
+      await send(A, 0x6103, Uint8Array.of(0));
+      await until(() => has(B, 0x6103, (d) => d[0] === 1));
+      const na = A.got.duel.length;
+      for (const c of [A, B]) await send(c, 0x61fe, Uint8Array.of(1));
+      await until(() => has(A, 0x6202, (d) => type6202(d) === 0x1a, na));
+      return { A, B, m };
+    }
+    const rec = () => { const st = srv.game.store.loadRaw(); return ["aaaa", "bbbb"].map((a) => ({ ...st.accounts[a].profiles["0"].rec })); };
+    const drop = (m: PvpMatch, c: Client) => srv.world.run(() => m.onClose(c.duel));
+    beforeAll(() => { DUEL_GRACE.s = 1; });
+    afterAll(() => { DUEL_GRACE.s = 45; });
+
+    it("both drop at once and neither comes back: no result for either", async () => {
+      const { A, B, m } = await duelOn("4");
+      const duels = () => (srv.game.admin.run("online", {}) as { duels: number }).duels;   // deploys wait for 0
+      expect(duels()).toBe(1);
+      const before = rec();
+      await drop(m, A); await drop(m, B);
+      expect(m.done).toBe(false);                                   // the grace first
+      expect(duels(), "a duel in its reconnect grace still counts").toBe(1);
+      await until(() => m.done, 10_000);
+      expect(rec().map((r) => [r.duels, r.wins, r.losses])).toEqual(before.map((r) => [r.duels, r.wins, r.losses]));
+      expect(logs.some((l) => l.includes(`${m.name}: neither player came back`))).toBe(true);
+      expect(duels()).toBe(0);
+    }, 120_000);
+
+    it("one drops and doesn't come back: the other is told to wait, then wins", async () => {
+      const { A, B, m } = await duelOn("5");
+      const before = rec();
+      await drop(m, A);
+      await until(() => m.done, 10_000);
+      expect(B.got.lobby.some(([x, d]) => x === 0x4402 && Buffer.from(d).includes(Buffer.from("Your opponent lost the connection")))).toBe(true);
+      const after = rec();
+      expect([after[0].losses - (before[0].losses ?? 0), after[1].wins - (before[1].wins ?? 0)]).toEqual([1, 1]);
+    }, 120_000);
+
+    it("one drops and comes back on a new duel connection in time: the pending prompt again, the duel goes on", async () => {
+      const { A, m } = await duelOn("6");
+      await drop(m, A);
+      const rd = new Reader(), got2: [number, Uint8Array][] = [];
+      A.duel = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-Alfa6b", (b) => { for (const x of rd.feed(b)) got2.push([x.id, x.data]); return true; }, DUEL_PORT);
+      await send(A, 0x6001, new W().u32(A.s.pid!).bytes());
+      await until(() => got2.some(([x, d]) => x === 0x6202 && type6202(d) === 0x1a));   // A's decision, resent
+      await new Promise((r) => setTimeout(r, 1500));                                       // past the grace
+      expect(m.done).toBe(false);
+      await send(A, 0x6350, new W().u32(0).u32(0xd).u32(0).u32(10).bytes());             // and A can still play: surrender
+      await until(() => got2.some(([x, d]) => x === 0x6202 && type6202(d) === 0x1b && u32(d, 4) === 0x32));
+      await send(A, 0x6423, new W().u32(1).bytes());
+      await until(() => m.done);
+    }, 120_000);
+
+    it("a re-attach that says how many 0x6202 it got (u32 pid + u32 n) gets every later one again, in order", async () => {
+      const { A, m } = await duelOn("8");
+      const seen = A.got.duel.filter(([x]) => x === 0x6202).map(([, d]) => Buffer.from(d).toString("hex"));
+      await drop(m, A);
+      const rd = new Reader(), got2: [number, Uint8Array][] = [];
+      A.duel = new Conn(srv.world, srv.world.seqTable, DUEL_PORT, "peer-Alfa8b", (b) => { for (const x of rd.feed(b)) got2.push([x.id, x.data]); return true; }, DUEL_PORT);
+      await send(A, 0x6001, new W().u32(A.s.pid!).u32(seen.length - 2).bytes());   // as if the last two never arrived
+      await until(() => got2.filter(([x]) => x === 0x6202).length >= 2);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(got2.filter(([x]) => x === 0x6202).map(([, d]) => Buffer.from(d).toString("hex"))).toEqual(seen.slice(-2));
+      await send(A, 0x6350, new W().u32(0).u32(0xd).u32(0).u32(10).bytes());
+      await until(() => got2.some(([x, d]) => x === 0x6202 && type6202(d) === 0x1b && u32(d, 4) === 0x32));
+      await send(A, 0x6423, new W().u32(1).bytes());
+      await until(() => m.done);
+    }, 120_000);
+
+    it("a re-attach with no live duel (u32 pid + u32 n) is refused (0x6007 s32 0); a new duel's 4-byte 0x6001 is booked", async () => {
+      const A = client("Alfa9", "aaaa", 1);
+      await send(A, 0x6001, new W().u32(A.s.pid!).u32(130).bytes());
+      await until(() => has(A, 0x6007));
+      expect(A.got.duel.find(([x]) => x === 0x6007)![1]).toEqual(new W().u32(0).bytes());
+      const B = client("Beta9", "bbbb", 2);
+      await send(B, 0x6001, new W().u32(B.s.pid!).bytes());
+      await until(() => has(B, 0x6007));
+      expect(B.got.duel.find(([x]) => x === 0x6007)![1]).toEqual(new W().u32(1).bytes());
+    }, 30_000);
+
+    it("a deploy's shutdown (g.stopping): the duel ends at once with no result", async () => {
+      const { A, m } = await duelOn("7");
+      const before = rec();
+      srv.game.stopping = true;
+      try {
+        await drop(m, A);
+        await until(() => m.done, 500);                              // well before the 1 s grace
+        expect(rec().map((r) => [r.duels, r.wins, r.losses])).toEqual(before.map((r) => [r.duels, r.wins, r.losses]));
+      } finally { srv.game.stopping = false; }
+    }, 120_000);
+  });
 });

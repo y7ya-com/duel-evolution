@@ -11,6 +11,9 @@
 #include <vector>
 
 #include "d3d8.h"   // platform/win32 (the platform/gfx subset)
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "comobj.h"
 
@@ -156,18 +159,19 @@ void forget(const void* h) {
         }
 }
 
-M(any, Release) {
-    uint32_t g = ARG(0), vt = RD32m(g);
-    const void *self = objs[idx(g)], *also = nullptr;   // the other shell's object that dies with this one
-    if (vt == vt_tex) also = &THIS(IDirect3DTexture8)->level0;
-    else if (vt == vt_surf) also = THIS(IDirect3DSurface8)->owner;   // a texture level: the texture dies with it
-    uint32_t r = host<ComObject>(g)->Release();
-    if (!r) {
-        forget(self);
-        if (also) forget(also);
-    }
-    RET(1, r);
+// Every host object's death forgets its shells, not only the game's last Release: the device holds its own reference
+// to the bound texture, so a card texture the game released while bound died on the next SetTexture and kept its
+// shell, and ovr/decode.c's late card art filled the freed texture (crash #17).
+static void deleted(ComObject* o) {
+    auto* t = dynamic_cast<IDirect3DTexture8*>(o);
+    if (!t && !dynamic_cast<IDirect3DSurface8*>(o) && !dynamic_cast<IDirect3DDevice8*>(o)) return;   // DirectSound's
+    std::lock_guard<std::recursive_mutex> lock(mu);
+    forget(dynamic_cast<void*>(o));
+    if (t) forget(&t->level0);   // its level 0 surface dies with it
 }
+static const bool hooked = (com_deleted = deleted, true);
+
+M(any, Release) { RET(1, host<ComObject>(ARG(0))->Release()); }
 
 // ---------------------------------------------------------------- IDirect3D8
 M(d3d, GetAdapterCount) { RET(1, 1); }
@@ -269,6 +273,7 @@ static IDirect3DDevice8* g_dev;
 extern "C" void rc_present_hook(void);
 extern "C" void rc_ovr_frame(CPU* c);
 extern "C" void rc_scene_present(void);   // ovr/scene.c
+extern "C" int rc_loading_backdrop(void);  // ovr/imgfail.c
 extern "C" void rc_imgfail(const char* what, uint32_t hr, const char* detail, uint32_t data, uint32_t size);   // ovr/imgfail.c
 extern "C" void rc_web_frame(void);
 extern "C" int rc_backbuffer_luma(void) {   // mean of the back buffer's B,G,R bytes, -1 when unreadable (RC_SCENE_LOG)
@@ -310,6 +315,16 @@ extern "C" void dev_Present(CPU* c) {
                                             ARG(2) ? (const RECT*)G(ARG(2)) : nullptr, nullptr, nullptr) : 0;
         rc_present_hook();
         rc_scene_present();
+#ifdef __EMSCRIPTEN__
+        // Module.yo2TransparentTitle or .yo2CssBackdrop (the page, live): it draws the start screens' backdrop
+        // (data/menu/abmake_bg: CBgCommon kinds with bit 0x40, i.e. the title, Change Avatar, the patcher) behind the
+        // canvas, so the game leaves it out wherever it would draw it and the page shows through there; the rest still
+        // draws (platform/gfx backdropByHost). Any scene: a frame without the backdrop stays opaque either way.
+        DEV->backdropByHost = EM_ASM_INT({ return Module.yo2TransparentTitle || Module.yo2CssBackdrop ? 1 : 0; });
+#else
+        static const bool cssBackdrop = getenv("RC_CSS_BACKDROP") != nullptr;   // native tests: as if a page drew it
+        DEV->backdropByHost = cssBackdrop;   // (RC_SHOT's shots keep the alpha: composite them over a colour)
+#endif
     }
     rc_ovr_frame(c);   // outside the lock too: it may run game code (ovr/sedefer.c)
 #ifdef __EMSCRIPTEN__
@@ -333,6 +348,7 @@ M(dev, GetGammaRamp) {
 M(dev, CreateTexture) {
     IDirect3DTexture8* t = nullptr;
     HRESULT hr = DEV->CreateTexture(ARG(1), ARG(2), ARG(3), ARG(4), (D3DFORMAT)ARG(5), (D3DPOOL)ARG(6), &t);
+    if (t) t->backdrop = rc_loading_backdrop();
     WR32m(ARG(7), hr ? 0 : wrap(t, vt_tex));
     RET(8, hr);
 }

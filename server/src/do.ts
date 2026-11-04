@@ -16,6 +16,8 @@ import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
+/** After /__admin/shutdown, how long new game sockets are refused if no deploy replaces this instance. */
+const STOP_S = 120;
 
 export class WorldDO extends DurableObject<Env> {
   private srv!: Server;
@@ -23,7 +25,7 @@ export class WorldDO extends DurableObject<Env> {
   private sink: D1Sink | null = null;
   private nextPeer = 1;
   /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
-  private sockets = new Set<WebSocket>();
+  private sockets = new Map<WebSocket, (hold?: boolean) => void>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -77,10 +79,18 @@ export class WorldDO extends DurableObject<Env> {
       // the version this instance runs: after a deploy the old instance keeps serving its sockets for minutes
       if (url.pathname === "/__admin/version") return Response.json({ v: this.env.CF_VERSION_METADATA?.id ?? "dev" });
       if (url.pathname === "/__admin/shutdown") {
-        // a planned deploy: 4012 "server-update" tells the web client to reconnect at once (not a network loss)
+        // a planned deploy, just before `wrangler deploy` (immediate DO code update, scripts/deploy.sh): 4012
+        // "server-update" tells the web client to wait for the new version; each socket's game side closes now (duels
+        // end with no result, g.stopping); the D1 writes they cause are flushed; new game sockets are refused until the
+        // new code answers (else a client lands here and drops again). A deploy that never comes: back after STOP_S.
         const n = this.sockets.size;
-        for (const ws of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } }
-        return Response.json({ closed: n });
+        const g = this.srv.game;
+        g.stopping = true;
+        setTimeout(() => { g.stopping = false; }, STOP_S * 1000);
+        for (const [ws, bye] of this.sockets) { try { ws.close(4012, "server-update"); } catch { /* closing */ } bye(false); }
+        await new Promise((r) => setTimeout(r, 2000));   // the close handlers' saves (world queue, PvP queues)
+        await this.sink?.flush();
+        return Response.json({ closed: n, flushed: !!this.sink });
       }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
@@ -89,6 +99,27 @@ export class WorldDO extends DurableObject<Env> {
         const [st, r] = await adminDeck(this.env.DB, g.store.peek().accounts, body as Record<string, unknown>);
         if (st === 200) console.warn(`[economia] admin: deck "${(body as any).name}" for ${String((body as any).acct).slice(0, 8)} set as current`);
         return Response.json(r, { status: st });
+      }
+      if (url.pathname === "/__admin/reset-account") {
+        // backup first (the account's state + its deck store, to a private R2 object), then admin.resetAccount, then
+        // the deck store rows (user_decks / user_deck_current, keyed "<acct>/<slot>"); a failed backup changes nothing
+        const acct = String((body as any).acct ?? ""), db = this.env.DB, bucket = this.env.BUCKET;
+        const account = g.store.peek().accounts?.[acct];
+        if (!account) return Response.json({ error: "no_account" }, { status: 404 });
+        if (!db || !bucket) return Response.json({ error: "no D1/R2" }, { status: 503 });
+        const keys = [0, 1, 2, 3].map((slot) => `${acct}/${slot}`);   // every slot: a deleted character's decks too
+        const rows = async (t: string) =>
+          (await db.prepare(`SELECT * FROM ${t} WHERE char_key IN (${keys.map(() => "?").join(",")})`).bind(...keys).all()).results;
+        const decks = await rows("user_decks"), current = await rows("user_deck_current");
+        const tag = String((body as any).tag ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32) || acct.slice(0, 8).replace(/[^A-Za-z0-9]/g, "");
+        const at = new Date().toISOString();
+        const backup = `private/backups/account-${tag}-${at}.json`;
+        await bucket.put(backup, JSON.stringify({ acct, at, account, user_decks: decks, user_deck_current: current }));
+        const r = await new Promise<ReturnType<typeof g.admin.resetAccount>>((res) => this.srv.world.run(() => res(g.admin.resetAccount(acct))));
+        if ("error" in r) return Response.json({ ...r, backup }, { status: 409 });
+        await db.batch(["user_decks", "user_deck_current"].map((t) =>
+          db.prepare(`DELETE FROM ${t} WHERE char_key IN (${keys.map(() => "?").join(",")})`).bind(...keys)));
+        return Response.json({ ...r, backup, user_decks: decks.length, user_deck_current: current.length });
       }
       const out = await new Promise<{ ok: unknown } | { error: string }>((res) => this.srv.world.run(() => {
         try { res({ ok: g.admin.run(url.pathname.slice(9), body as Record<string, unknown>) }); } catch (e) { res({ error: String(e) }); }
@@ -101,6 +132,25 @@ export class WorldDO extends DurableObject<Env> {
       const out = user ? await new Promise<ReturnType<NonNullable<typeof this.srv.game.duel>["prefetchFor"]>>((res) =>
         this.srv.world.run(() => res(this.srv.game.duel?.prefetchFor(user) ?? null))) : null;
       return out ? Response.json(out, { headers: { "Cache-Control": "no-store" } }) : new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/__de/friends") {
+      // the Worker forwards GET /api/de/friends here with x-de-user (a checked session); Lobby.friendsInfo
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(this.srv.game.lp.friendsInfo(user)); } catch (e) { console.error(`[friends] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/duel/challenge") {
+      // the Worker forwards POST /api/de/duel/challenge {pid} here with x-de-user (a checked session); Lobby.duelInvite
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const body = (await request.json().catch(() => ({}))) as { pid?: unknown; name?: unknown };
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(this.srv.game.lp.duelInvite(user, Number(body.pid) || 0, typeof body.name === "string" ? body.name.slice(0, 32) : "")); } catch (e) { console.error(`[duel invite] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
       // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts
@@ -136,6 +186,17 @@ export class WorldDO extends DurableObject<Env> {
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__dev/cut" && this.env.DEV === "1") {
+      // wrangler dev only: the server side cuts one player's virtual socket (POST {acct, port: 5760}), as a duel-socket
+      // drop does: phase2-net's duel re-attach test
+      const b = (await request.json().catch(() => ({}))) as { acct?: string; port?: number };
+      const out = await new Promise<number>((res) => this.srv.world.run(() => {
+        const c = this.srv.game.hub.sessions.get(String(b.acct))?.conns.get(Number(b.port ?? 5760));
+        if (c && !c.closed) this.srv.world.close(c, "cut (dev)");
+        res(c ? 1 : 0);
+      }));
+      return Response.json({ cut: out });
+    }
     if (url.pathname === "/__dev/state" && this.env.DEV === "1") {
       // parity runs: start from the same state.json as py (never enabled outside wrangler dev). With D1 in use, the
       // seeded state replaces what D1 had (the sink diffs it against D1's rows), so D1 always mirrors the server.
@@ -149,6 +210,7 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(this.srv.game.store.loadRaw());
     }
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("expected websocket", { status: 426 });
+    if (this.srv.game.stopping) return new Response("server-update", { status: 503 });
     if (!this.srv.world.canOpen(request.headers.get("x-de-user"))) return new Response("too many game connections", { status: 429 });
     const { 0: client, 1: ws } = new WebSocketPair();
     ws.accept();
@@ -156,8 +218,10 @@ export class WorldDO extends DurableObject<Env> {
     const id = `ws${this.nextPeer++}`;
     const world = this.srv.world;
     // x-de-user: the DE account's user id, set by the Worker after checking the session (null only on the parity bridge)
+    // ?sid= (32 hex, the client's tunnel id) and &resume=1 after a drop: world.ts holds and hands over its sockets
+    const sid = /^[0-9a-f]{32}$/.test(url.searchParams.get("sid") ?? "") ? url.searchParams.get("sid") : null;
     world.openPeer(id, request.headers.get("x-de-user"), (s) => { try { ws.send(s); } catch { /* closing */ } },
-      (b) => { try { ws.send(b); return true; } catch { return false; } });
+      (b) => { try { ws.send(b); return true; } catch { return false; } }, sid, url.searchParams.get("resume") === "1");
     ws.addEventListener("message", (e) => {
       if (typeof e.data === "string") world.onText(id, e.data);
       else world.onBinary(id, new Uint8Array(e.data as ArrayBuffer));
@@ -165,10 +229,11 @@ export class WorldDO extends DurableObject<Env> {
     // keepalive: a text frame every 30 s, so a WebSocket whose client is asleep (a hidden tab sends its 60 s heartbeats
     // late) never sits idle long enough for the edge to close it. The client drops text frames without an "id".
     const ka = setInterval(() => { try { ws.send(KEEPALIVE); } catch { /* closing */ } }, KEEPALIVE_S * 1000);
-    this.sockets.add(ws);
-    const bye = () => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id); };
-    ws.addEventListener("close", bye);
-    ws.addEventListener("error", bye);
+    // hold: a dropped WebSocket's sockets wait for a resume; a deploy's shutdown closes them at once
+    const bye = (hold = true) => { clearInterval(ka); this.sockets.delete(ws); world.closePeer(id, hold); };
+    this.sockets.set(ws, bye);
+    ws.addEventListener("close", () => bye());
+    ws.addEventListener("error", () => bye());
     return new Response(null, { status: 101, webSocket: client });
   }
 }

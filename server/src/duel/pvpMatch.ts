@@ -25,6 +25,14 @@ type Json = Record<string, any>;
 
 const M_TEST_AUTO = 0x7ffe, M_TEST_LOSE = 0x7ffd;
 const ATTACH_TIMEOUT = 90;
+/** A duel socket closed mid-duel: its player has DUEL_GRACE.s to come back on a new duel connection (attach(): the
+ *  pending prompt again) before losing; both still gone then = no result. Cloudflare cut every socket at once,
+ *  2026-10-31, and the first to close lost. A deploy's shutdown (g.stopping) ends the duel with no result at once. */
+export const DUEL_GRACE = { s: 45 };
+const GRACE_TEXT = `Your opponent lost the connection. Waiting up to ${DUEL_GRACE.s} s for them.`;
+/** The [pvp] lines kept per duel; production drops info lines, so an ending by time-out, or by surrender or
+ *  disconnection after TRACE_AFTER s, writes them once at warn level (what stalled it, owner 2026-10-31). */
+const TRACE_LINES = 50, TRACE_AFTER = 180;
 const PVP_SVRINFO = true, PVP_DUELLOG_FINISH = true, PVP_DUELLOG_RECORD = true;
 const SVRINFO_WAIT = 1.5, SVR_DISCONNECT = 1, SVR_SURRENDER = 2, SVR_TIMEUP = 3;
 const DLG_SURRENDER_TURN = 82;
@@ -160,10 +168,12 @@ class PvpTx {
     this.tx.put(out);
     if (PVP_WATCH && this.side === 0) this.m.watchPump();
   }
+  /** Recorded 0x6202s sent again (a re-attached client's missed ones): not recorded twice. */
+  again(msgs: readonly SItem[]): void { this.tx.put(msgs); }
 }
 
 type Item = ["msg", Conn, number, Uint8Array] | ["close", Conn] | ["watch", Conn] | ["timeout"] | ["cancel", string]
-  | ["clock", number, number] | ["tick", number] | ["between", number];
+  | ["clock", number, number] | ["tick", number] | ["between", number] | ["grace", number, number];
 
 export class Matches {
   pids = new Map<number, PvpMatch>();
@@ -194,6 +204,8 @@ export class Matches {
   byPid(pid: number | null | undefined): PvpMatch | null { return pid == null ? null : this.pids.get(pid) ?? null; }
 
   drop(m: PvpMatch): void { for (const p of m.pids) if (this.pids.get(p) === m) this.pids.delete(p); }
+  /** PvP matches not over: reserved, waiting for both, at rock-paper-scissors, dueling, or in a dropped socket's grace. */
+  live(): number { return new Set([...this.pids.values()].filter((m) => !m.done)).size; }
 
   watchRequest(peer: string, pid: number, who: Session | null = null): PvpMatch | null {
     if (!PVP_WATCH) return null;
@@ -281,6 +293,11 @@ export class PvpMatch {
   private xpLv: number[] | null = null;
   /** When the duel started (s), for the economy's minimum PvP length. */
   private t0 = 0;
+  /** Per player: closes mid-duel so far (a grace timer only counts for its own), and a re-attach owing the prompt. */
+  private goneGen = [0, 0];
+  private resume = [false, false];
+  /** Per side: the recorder's 0x6202 count when this game started (a re-attach's count is of this duel's). */
+  private recAt = [0, 0];
   private chain: Promise<void> = Promise.resolve();
 
   constructor(readonly hub: Matches, sa: Session, sb: Session) {
@@ -292,7 +309,15 @@ export class PvpMatch {
     setTimeout(() => this.q(["timeout"]), ATTACH_TIMEOUT * 1000);
   }
 
-  private log(s: string) { this.hub.log(s); }
+  private ring: string[] = [];
+  private log(s: string) { this.note(s); this.hub.log(s); }
+  private note(s: string) { this.ring.push(`${new Date().toISOString().slice(11, 19)} ${s}`); if (this.ring.length > TRACE_LINES) this.ring.shift(); }
+  /** The kept lines as one [AVISO] line (production keeps it), for a duel that ended in a way worth looking at. */
+  private traceDump(why: string): void {
+    const long = now() - this.t0 > TRACE_AFTER;
+    if (!(why === DFM.WHY_TIMEOUT || (long && (why === DFM.WHY_SURRENDER || why === DFM.WHY_DISCONNECT)))) return;
+    this.hub.log(`[AVISO] [pvp] ${this.name} trace (${this.sess.map((x) => x.acct).join(" vs ")}, ${why}, ${Math.round(now() - this.t0)} s): ${this.ring.join(" | ")}`);
+  }
   private asSess<T>(s: Session, fn: () => T): T { return this.g.withCtx(s, fn); }
   bo3(): boolean { return PVP_MATCH === "1" && this.matchStyle === MATCH_STYLE; }
   rec(): DL.Recorder { return (this.recorder ??= new DL.Recorder()); }
@@ -311,6 +336,7 @@ export class PvpMatch {
     this.closed[i] = false;
     this.tx[i] = new PvpTx(new Sender(c, this.g, this.hub.pause), this, i);
     Object.assign(X(c), { pvp: this, pvpI: i });
+    if (this.ps && this.ps.started && !this.ps.over) { this.resume[i] = true; this.log(`[AVISO] [pvp] ${this.name}: el jugador ${i} vuelve al duelo`); }
     this.log(`[pvp] ${this.name}: conexión de duelo del jugador ${i} (${s.acct})` + (old ? " (sustituye a otra)" : ""));
     return true;
   }
@@ -354,6 +380,7 @@ export class PvpMatch {
     if (k === "cancel") { if (!this.done && this.ps === null) { this.log(`[pvp] ${this.name} anulada: ${it[1]}`); this.abort(null); } return; }
     if (k === "clock" || k === "tick") return this.clockItem(it);
     if (k === "between") return this.betweenTimeout(it[1]);
+    if (k === "grace") return this.graceEnd(it[1], it[2]);
   }
 
   private msg(i: number, c: Conn, mid: number, data: Uint8Array): Promise<void> | void {
@@ -366,7 +393,21 @@ export class PvpMatch {
     }
     if (mid === 0x0005) return this.send(i, 0x0004, new W().u32(0).bytes());
     if (mid === 0x0003) return;
-    if (mid === 0x6001) return this.send(i, 0x6007, new W().u32(1).bytes());
+    if (mid === 0x6001) {
+      this.send(i, 0x6007, new W().u32(1).bytes());
+      if (this.resume[i]) {
+        this.resume[i] = false;
+        // u32 pid + u32 n (phase2-net's re-attach): the 0x6202s this duel's client got; everything after them again,
+        // the pending prompt last. A plain 4-byte 0x6001: the pending prompt only
+        if (data.length < 8) this.ps?.resend(i);
+        else {
+          const mine = this.rec().entries.filter((e) => e[0] === i).slice(this.recAt[i] + u32at(data, 4)).map((e) => e[1]);
+          this.log(`[AVISO] [pvp] ${this.name}: el jugador ${i} vuelve con ${u32at(data, 4)} mensajes: ${mine.length} otra vez`);
+          this.tx[i]?.again(mine);
+        }
+      }
+      return;
+    }
     if (mid === 0x6600) return;
     if ((mid === 0x6601 || mid === 0x6603) && data.length >= 4) {
       const n = Math.min(u32at(data), Math.floor((data.length - 4) / 4));
@@ -511,9 +552,11 @@ export class PvpMatch {
     const first = this.first ?? 0;
     const [clock, why] = this.clockCfg();
     this.needStart = false;
+    this.recAt = [0, 1].map((k) => this.rec().entries.filter((e) => e[0] === k).length);
     this.firsts.push(first);
     this.t0 = now();
     this.ps = new PvpSession(this.g, this.c, this.deck, (w, r, t) => this.onEnd(w, r, t), this.tx as unknown as { put(m: readonly SItem[]): void }[], clock);
+    this.ps.trace = (x) => this.note(x);
     this.ps.placeManual = [...this.placeManual] as [boolean, boolean];
     if (PVP_WATCH) this.ps.onPublic = (msgs) => { this.pubRec.note(0, msgs); this.watchPump(); };
     this.statsAttach();
@@ -565,7 +608,7 @@ export class PvpMatch {
 
   private surrender(i: number): void {
     const o = 1 - i;
-    this.log(`[pvp] ${this.name}: se rinde el jugador ${i}`);
+    this.log(`[AVISO] [pvp] ${this.name}: se rinde el jugador ${i} (turno ${this.ps?.turn}); el duelo esperaba a ${this.ps?.pending()}`);
     this.ps!.end();
     this.surr = i;
     this.gameEnd(o, DFM.WHY_SURRENDER, 0, { [o]: SVR_SURRENDER }, SURRENDER_ENDS_MATCH);
@@ -588,6 +631,7 @@ export class PvpMatch {
 
   gameEnd(winner: number | null, why: string, turns = 0, svr: Record<number, number> = {}, close = false): void {
     const wv = (k: number) => (winner === null ? null : winner === k ? 0 : 1);
+    this.traceDump(why);
     this.xpLevels();
     if (!this.bo3()) {
       for (const k of [0, 1]) this.finish(k, wv(k), why, turns, { svr: svr[k] ?? null });
@@ -703,7 +747,7 @@ export class PvpMatch {
   private timeout(i: number): void {
     const o = 1 - i;
     const turns = this.ps?.turn || 0;
-    this.log(`[pvp] ${this.name}: se acaba el tiempo del jugador ${i}: gana ${o}`);
+    this.log(`[AVISO] [pvp] ${this.name}: se acaba el tiempo del jugador ${i}: gana ${o}; el duelo esperaba a ${this.ps?.pending()}`);
     this.ps!.end();
     for (const [k, who] of [[i, 0], [o, 1]]) {
       if (PVP_SVRINFO && this.c[k] && !this.closed[k]) this.put(k, [[0x649b, duelsvrinfomsg(SVR_TIMEUP, who)], { sleep: SVRINFO_WAIT }]);
@@ -724,13 +768,30 @@ export class PvpMatch {
       return this.closeMatch();
     }
     if (this.ps && this.ps.started && !this.ps.over) {
-      this.log(`[pvp] ${this.name}: el jugador ${i} se desconecta en mitad del duelo: gana ${o}`);
-      this.ps.end();
-      this.gameEnd(o, DFM.WHY_DISCONNECT, 0, { [o]: SVR_DISCONNECT }, true);
+      const why = `el jugador ${i} se desconecta en mitad del duelo (turno ${this.ps.turn}); el duelo esperaba a ${this.ps.pending()}`;
+      if (this.g.stopping) { this.log(`[AVISO] [pvp] ${this.name}: ${why}: server update, no result`); return this.abort(null); }
+      const gen = ++this.goneGen[i];
+      this.log(`[AVISO] [pvp] ${this.name}: ${why}: ${DUEL_GRACE.s} s to come back`);
+      if (!this.closed[o]) {
+        const line = new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(GRACE_TEXT, GRACE_TEXT.length + 1).bytes();
+        this.lobby(o)?.post(0x4402, line);
+      }
+      setTimeout(() => this.q(["grace", i, gen]), DUEL_GRACE.s * 1000);
     } else {
       this.log(`[pvp] ${this.name}: el jugador ${i} se desconecta antes del duelo`);
       this.abort(SVR_DISCONNECT);
     }
+  }
+
+  /** DUEL_GRACE over for player i's close number gen: back (or a newer close) = nothing; still gone = loses, unless
+   *  the other one is gone too (no result). */
+  private graceEnd(i: number, gen: number): void {
+    if (this.done || !this.closed[i] || gen !== this.goneGen[i] || !this.ps || this.ps.over) return;
+    const o = 1 - i;
+    if (this.closed[o]) { this.log(`[AVISO] [pvp] ${this.name}: neither player came back in ${DUEL_GRACE.s} s: no result`); this.traceDump(DFM.WHY_DISCONNECT); return this.abort(null); }
+    this.log(`[AVISO] [pvp] ${this.name}: el jugador ${i} no vuelve en ${DUEL_GRACE.s} s: gana ${o}`);
+    this.ps.end();
+    this.gameEnd(o, DFM.WHY_DISCONNECT, 0, { [o]: SVR_DISCONNECT }, true);
   }
 
   private abort(svr: number | null): void {
@@ -828,7 +889,9 @@ export class PvpMatch {
 
   closeMatch(): void {
     this.done = true;
+    for (const s of this.sess) s.ext.pvpEndT = Date.now();   // Lobby.handle's post-duel trace (POST_PVP_MS)
     this.hub.drop(this);
+    try { this.g.lp.pvpOver(this.pids); } catch (e) { this.log(`[pvp] ${this.name}: the host's room after the match: ${errStr(e)}`); }
   }
 
   private svrinfo(code: number): Uint8Array { return duelsvrinfomsg(code, 1); }

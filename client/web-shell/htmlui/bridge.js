@@ -86,7 +86,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
   for (const t of ['keydown', 'keyup', 'keypress']) layer.addEventListener(t, ev => ev.stopPropagation());
   const live = new Map();   // window id -> { root, mod, state, json, prev }
   function render(snap, owned, api) {
-    const seen = new Set();
+    const seen = new Set(), under = [];   // under: where owned-mode roots behind the current window take the pointer
     // windows back to front as the engine draws them (drawOrder), then claimed non-window tasks (the shop). Each root is
     // one stacking context (.win isolation): nothing a screen stacks inside its window (chat.js's z-indexed layers)
     // reaches above another window
@@ -110,6 +110,17 @@ export async function makeLayer(host, screens, art = 'ui/') {
         overflow: mod?.clip === false ? 'visible' : '',   // windows whose controls sit outside their rect (the deck)
         clipPath: holes(w, snap.windows, owned),
       });
+      // A pass window takes no pointer, so over an owned HTML window a click on it went to that window's DOM, not the
+      // game (htmlui-select: "Display by name" in the find menu over the chat did nothing). Over one, a catcher under
+      // its own content, where it draws, hands what its content doesn't take (its inputs and native scrollers do) to
+      // the canvas as the same mouse events.
+      const at = w.drawn || w, over = mod?.mode !== 'owned' && under.some(r => meet(r, at));
+      if (over) {
+        const c = e.catcher ||= catcher();
+        if (e.root.firstChild !== c) e.root.prepend(c);
+        Object.assign(c.style, { left: at.x - w.x + 'px', top: at.y - w.y + 'px', width: at.w + 'px', height: at.h + 'px' });
+      } else if (e.catcher) { e.catcher.remove(); e.catcher = null; }
+      if (mod?.mode === 'owned') under.push(w, ...w.drawn ? [w.drawn] : []);
       // the whole window, not its controls only: its extras fade (the deck's file-list header: 0.8 then 1) and a read
       // extension's fields change with no control changing
       const json = JSON.stringify(w);
@@ -122,6 +133,7 @@ export async function makeLayer(host, screens, art = 'ui/') {
         if (!e.mounted) { e.state = mod.mount(w, e.root, a); e.mounted = true; }
         mod.update?.(w, e.prev, e.root, a, e.state);
       } else syncWindow(e.root, w, e.st ||= new Map(), a);
+      if (e.catcher && e.root.firstChild !== e.catcher) e.root.prepend(e.catcher);   // a screen that rebuilds its root took it
       e.prev = w;
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
@@ -144,6 +156,24 @@ export async function makeLayer(host, screens, art = 'ui/') {
     live.delete(id);
   }
   return { layer, render };
+}
+
+const meet = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// a transparent box that takes the pointer and hands it to the canvas as the game's mouse (the trunk scroller's way:
+// pointer capture keeps a press going outside it); the wheel too
+function catcher() {
+  const c = document.createElement('div'), canvas = () => document.getElementById('canvas');
+  c.className = 'htmlui-catch';
+  Object.assign(c.style, { position: 'absolute', pointerEvents: 'auto' });
+  const fwd = (type, e) => canvas()?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons }));
+  c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); fwd('mousedown', e); });
+  c.addEventListener('pointermove', e => fwd('mousemove', e));
+  c.addEventListener('pointerup', e => { fwd('mouseup', e); if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId); });
+  for (const t of ['contextmenu', 'dblclick']) c.addEventListener(t, e => { e.preventDefault(); fwd(t, e); });
+  c.addEventListener('wheel', e => { e.preventDefault(); canvas()?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+    clientX: e.clientX, clientY: e.clientY, deltaX: e.deltaX, deltaY: e.deltaY, deltaMode: e.deltaMode })); }, { passive: false });
+  return c;
 }
 
 // An engine-drawn window in front of an HTML one shows through a hole in it (the DOM is always over the canvas).
@@ -188,6 +218,8 @@ function clip(rects, box) {
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
+  // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle)
+  const bd = canvas ? backdrop(canvas) : null;
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, defaults.on || []);
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
@@ -200,7 +232,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
   // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
   const mu = modernUi({ defaults, canvas });
-  const bd = backdrop(canvas);   // the start screens' backdrop, both UIs
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   const init = () => loading ||= (async () => {
@@ -380,7 +411,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
-    bd.frame(snap);
+    bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

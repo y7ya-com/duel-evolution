@@ -71,6 +71,13 @@ $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c 
 fuzzy_test: $(B)/fuzzy_test
 $(B)/fuzzy_test: rt/fuzzy_test.c ovr/fuzzy.h | $(B)
 	$(CC) -O1 -Wall rt/fuzzy_test.c -o $@
+d3d8_test: $(B)/d3d8_test   # crash #17: a texture that dies bound answers "gone" (ASan reports the use-after-free)
+$(B)/d3d8_test: rt/d3d8_test.cpp rt/d3d8.cpp ../platform/gfx/d3d8.cpp ../platform/com.h | $(B)
+	clang++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DSDL_MAIN_HANDLED $(SDL_CFLAGS) $(PLAT_INC) -I$(OUT) \
+	  rt/d3d8_test.cpp ../platform/gfx/d3d8.cpp -framework OpenGL -o $@ && $@
+k32sync_test: $(B)/k32sync_test   # the main thread's mutex wait wins over other threads (CTextureManager's FileMutex)
+$(B)/k32sync_test: rt/k32sync_test.c rt/k32io.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -w -pthread -fsanitize=address,undefined -Irt -I$(OUT) rt/k32sync_test.c -o $@ && $@
 winmm_test: $(B)/winmm_test
 $(B)/winmm_test: rt/winmm_test.c rt/winmm.c $(RT_HDRS) | $(B)
 	$(CC) $(RT_CFLAGS) -pthread rt/winmm_test.c rt/winmm.c -o $@
