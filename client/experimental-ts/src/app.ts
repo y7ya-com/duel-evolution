@@ -103,6 +103,7 @@ export class ClientApp implements ClientController {
   private localized: LocalizedGameText | null = null;
   private languageToken = 0;
   private lastShop: ShopCatalog | null = null;
+  private connectionLostAt = 0;
   /** The other duelist of a player-versus-player duel, from the challenge either side made. */
   private duelIsPvp = false;
   private pvpOpponent: string | null = null;
@@ -295,6 +296,12 @@ export class ClientApp implements ClientController {
   }
   private updateSession(state: SessionState): void {
     if (this.disposed) return;
+    // A connection that was in play and is now lost for good (refused or expired resume, a failed transport): the old
+    // channels are gone, so leave the dead scene for the title with the reason and Go Online.
+    if (state.connection === 'error' && this.game && ['online', 'reconnecting'].includes(this.view.connection)) {
+      const game = this.game, reason = state.error ?? 'The connection was lost.';
+      queueMicrotask(() => { if (this.disposed || this.game !== game) return; this.disconnect(); this.connectionLostAt = Date.now(); this.patch({ error: `${reason.replace(/[.!]?$/, '.')} Go Online to connect again.`, status: 'Connection lost.' }); });
+    }
     if (state.challenge) this.nextOpponent = state.challenge.name;
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
@@ -552,6 +559,23 @@ export class ClientApp implements ClientController {
     this.game = game;
     try { await game.start(); } catch (e) { if (this.game === game) { this.game = null; game.dispose(); } throw e; }
   }
+  /** The server holds a dropped tunnel's sockets for a resume (world.ts RESUME_HOLD_MS, 45 s) and refuses another login
+   * of that user meanwhile. Going online again soon after a lost connection waits for that hold instead of failing. */
+  private async connectAfterLoss(freeMode?: boolean): Promise<void> {
+    for (;;) {
+      try { await this.connect(freeMode); return; }
+      catch (error) {
+        if (!this.game && !this.disposed) this.patch({ connection: 'offline' });
+        const signal = this.connectionScope.signal;
+        if (Date.now() - this.connectionLostAt > 50000 || !(error instanceof Error) || !/already logged in/.test(error.message) || signal.aborted) throw error;
+        this.patch({ status: 'Waiting for the previous connection to close…', error: undefined });
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 3000);
+          signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Session changed', 'AbortError')); }, { once: true });
+        });
+      }
+    }
+  }
   private disconnect(): void {
     ++this.epoch;this.eligibilityDue=false;this.eligibilityQueued=false;this.lockToken = null; this.stopWorld(); this.worldArea = null; this.worldSpawnContext = null;this.worldTransition=false;this.arrivalFrom=null;this.resetWorldRuntime();
     this.connectionScope.dispose(); this.connectionScope = this.scope.child();
@@ -612,7 +636,7 @@ export class ClientApp implements ClientController {
     const epoch = this.epoch;
     try {
       switch (command.type) {
-        case 'connect': await this.connect(command.freeMode); break;
+        case 'connect': await this.connectAfterLoss(command.freeMode); break;
         case 'disconnect': this.disconnect(); break;
         case 'signIn': {
           const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal });
