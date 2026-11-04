@@ -11,6 +11,7 @@ import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
+import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderProfileFeature } from '../features/profile-ui';
 export type * from './contracts';
 
@@ -71,7 +72,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let queueSimilarLevel: boolean | null = null;
   const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
@@ -158,7 +159,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
-    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
+    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.tagLobby !== next.tagLobby || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
     return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
   };
@@ -350,6 +351,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         rooms.append(panel);
       }
       rooms.append(button('Create Duel', () => { const options = { ...local.roomOptions, ...(local.roomPassword ? { password: local.roomPassword } : {}) }; send(Object.keys(options).length ? { type: 'createDuelRoom', options } : { type: 'createDuelRoom' }); local.roomPassword = ''; }, !lobby.connected || !!state.busy));
+      if (state.tagLobby) { const tag = button('Tag Duel', () => send({ type: 'tagAction', action: { type: 'open' } }), !lobby.connected || !!state.busy); tag.dataset.key = 'lobby-tag'; rooms.append(tag); }
       const roomSettings = el('details'); roomSettings.dataset.key = 'lobby-room-options'; roomSettings.append(el('summary', '', 'Room Options'));
       const style = el('select'); style.dataset.key = 'room-style'; style.setAttribute('aria-label', 'Duel format');
       for (const [value, label] of [[3, 'Single Duel'], [4, 'Match']] as const) { const option = el('option', '', label); option.value = String(value); style.append(option); } style.value = String(local.roomOptions.style ?? 3); style.onchange = () => { local.roomOptions.style = Number(style.value) as 3 | 4; };
@@ -362,7 +364,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         if (room.owner === state.player?.id) row.append(button('Close Your Duel Room', () => { if (confirmAction('Close your duel room?')) send({ type: 'deleteDuelRoom' }); }, !!state.busy));
         rooms.append(row);
       }
-      if (state.online) { const tag = el('details'); tag.dataset.key = 'lobby-tag'; tag.append(el('summary', '', 'Tag Duel'), renderOnlineFeature(state.online, action => send({ type: 'onlineAction', action }), 'tag')); rooms.append(tag); }
       places.append(rooms);
       if (state.profileDetail && state.player) places.append(button('My Profile', () => send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }), !!state.busy));
       stage.append(places);
@@ -846,6 +847,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); } });
         if (trade) stage.append(trade);
       }
+      if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }

@@ -13,6 +13,7 @@ import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
 import { SocialController } from './features/social';
 import { OnlineController } from './features/online';
+import { TagLobbyController } from './features/tag';
 import type { GameplayCommand } from './gameplay/binary';
 import { CardCatalog } from './catalog';
 import { projectDuel, interpretResponse, interpretAction, applyTimeline, describeEvent } from './presentation';
@@ -86,6 +87,7 @@ export class ClientApp implements ClientController {
   readonly services: GameplayService;
   readonly social: SocialController;
   readonly online: OnlineController;
+  readonly tagLobby: TagLobbyController;
   readonly account: AccountController;
   readonly profile: ProfileController;
   readonly npc: NpcController;
@@ -162,6 +164,7 @@ export class ClientApp implements ClientController {
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
     this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }) });
     this.online = new OnlineController({ http: this.services.api.http, onChange: online => this.patch({ online }) });
+    this.tagLobby = new TagLobbyController({ http: this.services.api.http, onChange: tagLobby => this.patch({ tagLobby }) });
     if (options.assets) this.loadArchiveImage = (path, signal) => this.readArchiveImage(path, signal);
     this.profile = new ProfileController({send:command=>this.sendGameplay(command),onChange:profileDetail=>this.patch({profileDetail})});
     this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>{ if (npc.packs.length) this.loadPackNames(); this.patch({npc,
@@ -261,6 +264,8 @@ export class ClientApp implements ClientController {
     }
     const selected = state.characters.find(c => c.slot === state.selectedSlot);
     const profile = state.profile;
+    // The Tag Duel lobby polls only while this character stands in a lobby; a duel owns the seats.
+    const tagPolling = state.phase === 'lobby' && !!profile && state.connection === 'connected'; queueMicrotask(() => { if (this.disposed) return; if (tagPolling) this.tagLobby.start(); else this.tagLobby.stop(); });
     const npcPlayer=profile ? `${profile.pid}:${state.selectedSlot}` : null;
     if (npcPlayer !== this.npcPlayer) {this.npcPlayer=npcPlayer;this.npc.reset();}
     if (state.connection !== 'connected' && this.view.connection === 'online') this.npc.disconnected();
@@ -315,7 +320,7 @@ export class ClientApp implements ClientController {
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      preparation: duelPreparing ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase, opponentHand: state.opponentHand } : undefined,
+      preparation: duelPreparing ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase, opponentHand: state.opponentHand } : undefined,
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),
       match: state.match ? { round:state.match.round, scores:[...state.match.scores], complete:state.match.complete } : undefined,
@@ -420,6 +425,9 @@ export class ClientApp implements ClientController {
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   private duelNames(): [string, string] {
+    // A tag relay shares each captain's field: each side is named by the partner piloting it (TAG1 order: own team first).
+    const relay = this.game?.state.relay;
+    if (relay) return [relay.players[relay.active[0]]?.name ?? 'Your team', relay.players[2 + relay.active[1]]?.name ?? 'Opponents'];
     const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
     return [this.view.player?.name ?? 'You', opponent ?? 'Opponent'];
   }
@@ -440,7 +448,7 @@ export class ClientApp implements ClientController {
     if (!this.settledDuel || this.disposed) return;
     const sample = this.timeline.sample(), duel = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
     for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
-    this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
+    this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
   private scheduleAnimation(): void {
@@ -513,13 +521,13 @@ export class ClientApp implements ClientController {
   private disconnect(): void {
     ++this.epoch;this.eligibilityDue=false;this.eligibilityQueued=false;this.lockToken = null; this.stopWorld(); this.worldArea = null; this.worldSpawnContext = null;this.worldTransition=false;this.arrivalFrom=null;this.resetWorldRuntime();
     this.connectionScope.dispose(); this.connectionScope = this.scope.child();
-    this.services.reset(); this.social.reset(); this.profile.reset(); this.profileContext = null; this.npc.reset(); this.npcPlayer=null; this.online.reset(); this.account.reset(); this.capture.sessionBoundary();
+    this.services.reset(); this.social.reset(); this.profile.reset(); this.profileContext = null; this.npc.reset(); this.npcPlayer=null; this.online.reset(); this.tagLobby.reset(); this.account.reset(); this.capture.sessionBoundary();
     this.game?.dispose(); this.game = null;
     this.collectionRef = null; this.collection = []; this.editor = null; this.projections.clear();
     this.sideboard = null; this.sideboardRound = null;
     this.resetDuel(); this.attachingOffer = false;
     this.view = { ...initial(this.view.settings), mode:this.deckMode, auth:this.view.auth,
-      accountDetail:this.account.state, profileDetail:this.profile.state, npc:this.npc.state, online:this.online.state, socialDetail:this.social.state,
+      accountDetail:this.account.state, profileDetail:this.profile.state, npc:this.npc.state, online:this.online.state, tagLobby:this.tagLobby.state, socialDetail:this.social.state,
       ...(this.options.reloadData ? {dataStatus:{loading:false,issues:[...(this.options.dataIssues ?? [])]}} : {}),
       ...(this.options.audio ? {audio:this.options.audio.getState()} : {}), status:'Disconnected.' }; this.emit();
   }
@@ -563,8 +571,9 @@ export class ClientApp implements ClientController {
   async dispatch(command: ClientCommand): Promise<void> {
     if (this.disposed) throw new Error('Client is disposed.');
     // Reject rather than queue stale prompt actions behind an unrelated request.
-    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard'].includes(command.type)) throw new Error('Wait for the current action to finish.');
-    const locking = !['move', 'settings', 'inspectCard', 'disconnect'].includes(command.type);
+    // The Tag Duel window serializes its own requests (TagLobbyController.busy); picking seats never waits on the lobby.
+    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction'].includes(command.type)) throw new Error('Wait for the current action to finish.');
+    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction'].includes(command.type);
     const token = {};
     if (locking) { this.lockToken = token; this.patch({ busy: true, error: undefined }); }
     const epoch = this.epoch;
@@ -763,6 +772,7 @@ export class ClientApp implements ClientController {
         case 'socialAction': this.social.dispatch(command.action); break;
         case 'profileAction': this.profile.dispatch(command.action); break;
         case 'onlineAction': await this.online.dispatch(command.action); break;
+        case 'tagAction': await this.tagLobby.dispatch(command.action); break;
         case 'reloadData': {
           if (!this.options.reloadData) throw new Error('Game data cannot be reloaded in this configuration.');
           this.patch({dataStatus:{loading:true,issues:this.view.dataStatus?.issues ?? []}});
@@ -804,7 +814,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return;
     this.disposed = true; ++this.epoch; this.cancelAnimation(); this.stopWorld(); this.world.dispose();this.worldRuntime?.dispose(); this.duelAudio.dispose();
     const game = this.game;
-    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.capture.dispose(), () => this.online.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
+    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.capture.dispose(), () => this.online.dispose(), () => this.tagLobby.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
     this.game = null; this.listeners.clear(); this.projections.clear();
     const errors: unknown[] = [];
     for (const close of cleanup) try { close(); } catch (e) { errors.push(e); }

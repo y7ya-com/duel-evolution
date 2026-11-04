@@ -53,7 +53,7 @@ export interface SessionState {
   pbin?:Uint8Array; npcbin?:Uint8Array;
   players: Player[]; areas: Area[]; npcs: Npc[]; rooms: DuelRoom[]; chat: SessionChat[]; area: number; areaBlock: number;
   duelOffer: DuelOffer | null; challenge: DuelChallenge | null; outgoingChallengeRoom: number | null; spectating: boolean;
-  matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; error: string | null;
+  matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
 export interface SessionOptions extends Omit<GatewayOptions, 'onMessage' | 'onStatus' | 'onChannelClose'> {
@@ -133,7 +133,7 @@ export class GameSession {
     phase: 'idle', connection: 'idle', characters: [], servers: [], selectedSlot: null, profile: null,
     collection: new Map(), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 0, areaBlock: 0,
     duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false,
-    matchmaking:{ status:'idle',style:3,similarLevel:true,opponent:null,counts:{ single:0,match:0,either:0 },matchSupported:false }, relay:null, duelRole:'player', match: null, duelFirst: null, opponentHand: null, error: null,
+    matchmaking:{ status:'idle',style:3,similarLevel:true,opponent:null,counts:{ single:0,match:0,either:0 },matchSupported:false }, relay:null, duelRole:'player', match: null, duelFirst: null, rpsLost: false, opponentHand: null, error: null,
   };
   account: Channel | null = null;
   lobby: Channel | null = null;
@@ -531,9 +531,10 @@ export class GameSession {
     if (new BinaryReader(booked.data).i32() !== 1) throw new Error('Duel reservation refused');
     this.uploadDeck(deck);
     this.duel.send(0x600b); await prepared;
-    this.state.duelFirst = null; this.state.opponentHand = null;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
     // Relay partners share the captain's preparation but do not participate in RPS.
-    if ((this.state.duelRole as string) === 'partner') { this.phase('preparing-duel'); return; }
+    // The relay starts once all four seats are ready (tagRelay.ts READY); the captain's placement choice is the team's.
+    if ((this.state.duelRole as string) === 'partner') { this.sendDuel(0x61fe, Uint8Array.of(1)); this.phase('preparing-duel'); return; }
     await this.duel.request(0x6100, EMPTY(), 0x6100); this.phase('rock-paper-scissors');
   }
   private uploadDeck(deck: DuelDeck): void {
@@ -548,7 +549,7 @@ export class GameSession {
     if (this.gateway.status !== 'connected') throw new Error('Wait for the connection to resume before submitting the sideboard');
     validateSideboard(match.original,deck);
     this.submittingSideboard = true;
-    this.state.duelFirst = null; this.state.opponentHand = null; this.state.error = null;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false; this.state.error = null;
     try {
       this.uploadDeck(deck);
       await duel.request(0x6100,EMPTY(),0x6100);
@@ -571,6 +572,8 @@ export class GameSession {
     if (result.data.length < 2) throw new Error('Invalid rock-paper-scissors result');
     const rival = result.data[1], delta = (rival - hand + 3) % 3;
     this.state.opponentHand = rival;
+    // The loser waits for the winner's turn-order choice; another hand would be a request the server never answers.
+    this.state.rpsLost = delta === 2;
     if (delta === 0) { this.emit(); return 'draw'; }
     this.duel.send(0x6102);
     if (delta === 1) this.phase('choose-first'); else this.emit();
@@ -585,7 +588,7 @@ export class GameSession {
     if (this.state.match && !this.state.match.complete) throw new Error('Complete the match before returning to the lobby');
     this.stopWatchPolling(); this.state.spectating = false; this.state.relay = null; this.state.duelRole = 'player'; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null;
     const duel = this.duel; this.duel = null; duel?.close();
-    this.state.duelFirst = null; this.state.opponentHand = null;
+    this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
     this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null };
     const lobby = this.requireLobby();
     await lobby.request(0x4210, EMPTY(), 0x4213); await lobby.request(0x4214, EMPTY(), 0x4217); await this.refreshRooms(); this.phase('lobby');
@@ -685,6 +688,8 @@ export class GameSession {
       const r = new BinaryReader(data); r.u8(); const channel = r.u8(), pid = r.u32(); r.u32(); const name = r.s(16), text = latin1(r.bytes(r.remaining));
       if (channel === 10 && pid === 0) {
         const relay = decodeRelayIdentity(text); if (!relay) return; this.state.relay = relay; this.state.match = null;
+        // Identities go out when all four seats are ready: the partner's duel has begun.
+        if (this.state.duelRole === 'partner' && this.state.phase === 'preparing-duel' && this.duel && !this.duel.closed) this.state.phase = 'duel';
       } else this.state.chat = [...this.state.chat.slice(-199), { channel, pid, name, text }];
     } else if (channel === this.duel && id === 0x6701 && data.length >= 3) {
       this.state.duelFirst = data[2];
