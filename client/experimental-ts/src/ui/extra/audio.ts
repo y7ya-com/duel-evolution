@@ -31,7 +31,7 @@ export function renderAudioFeature(source: AudioState | BrowserAudioManager, dis
   };
   root.append(button('Enable audio', () => act({ type: 'activate' })), button('Stop audio', () => act({ type: 'stop' })));
   for (const kind of ['music', 'sound'] as const) {
-    const label = document.createElement('label'); label.textContent = kind === 'music' ? 'Music volume ' : 'Sound effects volume ';
+    const label = document.createElement('label'); label.textContent = kind === 'music' ? 'Background audio volume ' : 'Sound effects volume ';
     const input = document.createElement('input'); input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.01'; input.value = String(state[kind]);
     input.oninput = () => act({ type: 'set-volumes', [kind]: Number(input.value) }); label.append(input); root.append(label);
   }

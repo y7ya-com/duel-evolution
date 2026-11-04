@@ -41,6 +41,7 @@ import { SceneLoader } from './world/scene';
 import type { WorldMaps } from './world';
 import { LiveCapture, captureDownload } from './parity/live';
 import { BrowserAudioManager } from './features/audio';
+import { gameLanguage, isGameLanguage, loadGameLanguage, type GameLanguage, type LocalizedGameText } from './features/language';
 import type { ClientController, ClientView, ClientCommand, Scene, CardView, SettingsView, DuelView } from './ui/contracts';
 import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
@@ -99,6 +100,9 @@ export class ClientApp implements ClientController {
   private game: GameSession | null = null;
   private editor: DeckEditor | null = null;
   private packCatalog: Promise<Map<number, PackInfo>> | null = null;
+  private localized: LocalizedGameText | null = null;
+  private languageToken = 0;
+  private lastShop: ShopCatalog | null = null;
   /** The other duelist of a player-versus-player duel, from the challenge either side made. */
   private duelIsPvp = false;
   private pvpOpponent: string | null = null;
@@ -174,9 +178,46 @@ export class ClientApp implements ClientController {
       this.patch({ accountDetail, ...(changed && accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) });
     } });
     this.view = { ...this.view, accountDetail: this.account.state, profileDetail:this.profile.state, npc:this.npc.state, capture: this.capture.status,
-      ...(options.reloadData ? {dataStatus:{loading:false,issues:[...(options.dataIssues ?? [])]}} : {}) };
+      ...(options.reloadData ? {dataStatus:{loading:false,issues:[...(options.dataIssues ?? [])]}} : {}),
+      languageStatus:{ loading:null, available:!!options.assets && !!options.cardTexts?.size } };
+    const language = this.view.settings.language;
+    if (language && language !== 'E') { this.view = { ...this.view, settings:{ ...this.view.settings, language:'E' } }; void this.applyLanguage(language); }
   }
   getState(): ClientView { return this.view; }
+  /** Options → Language (COptionDlg flags → CSystemConfigManager::applyLanguage): card names/rules and pack names and
+   * descriptions are read again from the original tables of that language. A late or failed load never replaces the
+   * text of a later choice; on failure the previous language stays and the error offers another try. */
+  private async applyLanguage(language: GameLanguage): Promise<void> {
+    const token = ++this.languageToken, previous = this.view.settings.language ?? 'E';
+    const done = (localized: LocalizedGameText | null) => {
+      this.localized = localized; this.installLanguageTexts();
+      this.packCatalog = localized ? Promise.resolve(new Map(localized.packs)) : null;
+      this.catalogCards = null; this.collectionRef = null; this.projections.clear();
+      const settings = { ...this.view.settings, language }; this.options.persistSettings?.(settings);
+      this.view = { ...this.view, settings, languageStatus:{ loading:null, available:true, ...(localized?.missing ? { missing:localized.missing } : {}) } };
+      if (this.game) this.updateSession(this.game.state);
+      if (this.settledDuel) this.syncDuel();
+      if (this.view.packNames) { this.view = { ...this.view, packNames:undefined }; this.loadPackNames(); }
+      const shop = this.lastShop;
+      if (shop && this.view.shop) void this.shopView(shop).then(view => { if (token === this.languageToken && !this.disposed && this.view.shop) this.patch({ shop:{ ...this.view.shop, ...view } }); }).catch(() => {});
+      this.emit();
+    };
+    if (language === 'E') { done(null); return; }
+    const name = gameLanguage(language).english;
+    if (!this.options.assets || !this.options.cardTexts?.size) { this.patch({ languageStatus:{ loading:null, available:false, error:`${name} needs the original game data, which is not available here.` } }); return; }
+    this.patch({ languageStatus:{ loading:language, available:true } });
+    try {
+      const localized = await loadGameLanguage(this.options.assets, language, this.options.cardTexts.entries, this.scope.signal);
+      if (token === this.languageToken && !this.disposed) done(localized);
+    } catch (error) {
+      if (token !== this.languageToken || this.disposed || error instanceof DOMException && error.name === 'AbortError') return;
+      this.patch({ languageStatus:{ loading:null, available:true, error:`Could not load the ${name} game text (${error instanceof Error ? error.message : String(error)}). Still showing ${gameLanguage(previous).english}; choose ${gameLanguage(language).name} again to retry.` } });
+    }
+  }
+  private installLanguageTexts(): void {
+    if (this.options.cardTexts) this.catalog.installOriginalTexts(this.options.cardTexts);
+    if (this.localized) this.catalog.installLocalizedTexts(this.localized.cards, this.localized.language);
+  }
   get diagnostics(): { duel: DuelState; assetBytes: number; resources: number } {
     return { duel: structuredClone(this.duelState), assetBytes: this.options.assets?.cacheBytes ?? 0, resources: this.scope.size };
   }
@@ -216,6 +257,7 @@ export class ClientApp implements ClientController {
   }
   /** Names, descriptions and art from the original pack tables and card catalogue; the server only sends ids. */
   private async shopView(shop: ShopCatalog): Promise<ClientView['shop'] & object> {
+    this.lastShop = shop;
     const view = toShopView(shop), assets = this.options.assets;
     let packs: Map<number, PackInfo> | null = null;
     if (assets) {
@@ -223,11 +265,11 @@ export class ClientApp implements ClientController {
     }
     view.items = view.items.map((item, i) => {
       const product = shop.items[i]!;
-      if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param); return { ...item, name: product.name || card.name, card, ...(card.description ? { description: card.description } : {}) }; }
+      if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param); return { ...item, name: (this.localized && card.name) || product.name || card.name, card, ...(card.description ? { description: card.description } : {}) }; }
       const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
       if (!pack) return item;
       const imagePath = packImagePath(pack.image);
-      return { ...item, name: product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
+      return { ...item, name: (this.localized && pack.name) || product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
     });
     return view;
   }
@@ -519,7 +561,7 @@ export class ClientApp implements ClientController {
     this.sideboard = null; this.sideboardRound = null;
     this.resetDuel(); this.attachingOffer = false;
     this.view = { ...initial(this.view.settings), mode:this.deckMode, auth:this.view.auth,
-      accountDetail:this.account.state, profileDetail:this.profile.state, npc:this.npc.state, online:this.online.state, socialDetail:this.social.state,
+      accountDetail:this.account.state, profileDetail:this.profile.state, npc:this.npc.state, online:this.online.state, socialDetail:this.social.state, languageStatus:this.view.languageStatus,
       ...(this.options.reloadData ? {dataStatus:{loading:false,issues:[...(this.options.dataIssues ?? [])]}} : {}),
       ...(this.options.audio ? {audio:this.options.audio.getState()} : {}), status:'Disconnected.' }; this.emit();
   }
@@ -771,7 +813,7 @@ export class ClientApp implements ClientController {
             if(data.catalog) this.catalog.install(data.catalog.allCards());
             for(const key of ['cardDetails','cardTexts','npcDialogue','duelTexts','worldMaps','recipes'] as const) if(data[key]) Object.assign(this.options,{[key]:data[key]});
             if(this.options.cardDetails) this.catalog.installDetails(this.options.cardDetails);
-            if(this.options.cardTexts) this.catalog.installOriginalTexts(this.options.cardTexts);
+            this.installLanguageTexts();
             this.options.dataIssues=[...data.issues]; this.catalogCards=null;this.collectionRef=null;this.projections.clear();
             if(data.worldMaps) {this.stopWorld();this.worldArea=null;this.runtimeMap=null;}
             if(this.game) this.updateSession(this.game.state);
@@ -781,7 +823,10 @@ export class ClientApp implements ClientController {
           break;
         }
         case 'settings': {
-          const next = { ...this.view.settings, ...command.settings };
+          const { language, ...changes } = command.settings;
+          if (language !== undefined && !isGameLanguage(language)) throw new Error('Unsupported language.');
+          if (language !== undefined && (language !== (this.view.settings.language ?? 'E') || this.view.languageStatus?.error)) void this.applyLanguage(language);
+          const next = { ...this.view.settings, ...changes };
           for (const key of ['sound', 'music'] as const) if (!Number.isFinite(next[key]) || next[key] < 0 || next[key] > 1) throw new Error('Invalid volume.');
           if (typeof next.reducedMotion !== 'boolean' || typeof next.showCardNames !== 'boolean') throw new Error('Invalid settings.');
           this.options.persistSettings?.(next); this.options.audio?.setVolumes(next);

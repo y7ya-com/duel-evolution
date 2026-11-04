@@ -9,6 +9,7 @@ import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-bro
 import { CLIENT_CSS } from './styles';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
+import { renderLanguageSettings } from './extra/language';
 import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderProfileFeature } from '../features/profile-ui';
@@ -790,14 +791,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!display.supported) displayGroup.append(note(browserDisplay.unavailableMessage));
     if (display.error) { const error = el('p', 'de-error', display.error); error.setAttribute('role', 'alert'); displayGroup.append(error); }
     panel.append(displayGroup);
-    panel.append(el('div', 'de-settings-row', el('h3', '', 'Language'), note('English'), note('Additional translations are unavailable.')));
+    panel.append(renderLanguageSettings(state, language => send({ type: 'settings', settings: { language } })));
     if (state.dataStatus) {
       const data = state.dataStatus, details = el('details', 'de-audio-details'); details.dataset.key = 'options-data'; details.open = data.issues.length > 0;
       details.append(el('summary', '', 'Game data'), note(data.loading ? 'Loading game data…' : data.issues.length ? 'Some game data is unavailable.' : 'Game data loaded.'));
       if (data.issues.length) details.append(el('ul', '', ...data.issues.slice(0, 16).map(issue => el('li', '', issue))));
       details.append(button(data.loading ? 'Loading Game Data…' : 'Retry loading game data', () => send({ type: 'reloadData' }), data.loading || !!state.busy)); panel.append(details);
     }
-    for (const [key, name] of [['sound', 'Sound effects'], ['music', 'Music']] as const) {
+    for (const [key, name] of [['sound', 'Sound effects'], ['music', 'Background audio']] as const) {
       const input = el('input'); input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.05'; input.value = String(state.settings[key]); input.setAttribute('aria-label', name);
       input.onchange = () => send({ type: 'settings', settings: { [key]: Number(input.value) } }); panel.append(labelled(`${name} · ${Math.round(state.settings[key] * 100)}%`, input));
     }
@@ -838,7 +839,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status'); header.append(status);
-      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene;
+      stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
@@ -891,8 +892,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (browserDisplay.state.active) return;
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (local.target !== null) { local.target = null; requestRender(); }
+    else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
+    else if (local.inspected && (state.scene === 'duel' || state.scene === 'deck')) { e.preventDefault(); local.inspected = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
+  // With nothing focused, keys go to <body>, outside the host: Escape still closes the topmost modal.
+  const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
+  globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

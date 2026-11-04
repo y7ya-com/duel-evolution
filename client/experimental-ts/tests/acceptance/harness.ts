@@ -119,6 +119,13 @@ export async function enterWorld(page:Page,name:string) {
   await until(page,byKey('lobby-npcs'),60000);
   await claimStarter(page);
 }
+/** Go Online again with an existing character (after a reload or a dropped connection). */
+export async function reenterWorld(page:Page,name:string) {
+  await click(page,'Go Online',60000);
+  const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
+  await until(page,slot,60000); await press(page,slot);
+  await until(page,byKey('lobby-npcs'),60000);
+}
 export async function claimStarter(page:Page) {
   const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
