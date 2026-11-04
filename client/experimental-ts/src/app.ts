@@ -573,8 +573,9 @@ export class ClientApp implements ClientController {
         if (Date.now() - this.connectionLostAt > 50000 || !(error instanceof Error) || !/already logged in/.test(error.message) || signal.aborted) throw error;
         this.patch({ status: 'Waiting for the previous connection to close…', error: undefined });
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 3000);
-          signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Session changed', 'AbortError')); }, { once: true });
+          const abort = () => { clearTimeout(timer); reject(new DOMException('Session changed', 'AbortError')); };
+          const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, 3000);
+          signal.addEventListener('abort', abort, { once: true });
         });
       }
     }
