@@ -49,3 +49,34 @@ void f_00a75760(CPU *restrict c) {
     for (int ch = 0; ch < 6; ch++)
         WR32m(self + 0x464 + 4 * ch, 0);
 }
+
+// - My Room: the lobby's CHATNOTICE (0x006bb780) drops every line while the player's rank byte (+0x9ed) reads 12, My
+//   Room's. The room is part of the one server-wide chat now (server/src/game/chat.ts): the stock decoder runs with
+//   the rank cleared, and the real rank goes back before it returns.
+void o_006bb780(CPU *restrict c);
+void f_006bb780(CPU *restrict c) {
+    uint32_t self = c->ecx;
+    uint8_t *rank = (uint8_t *)G(self + 0x9ed), saved = *rank;
+    if (saved == 12) *rank = 0;
+    o_006bb780(c);
+    *rank = saved;
+}
+
+// - Proximity Chat: the server has no proximity channel (a line sent there goes to Global), so its tab (the stock
+//   window's tab 1: All Chat | Proximity Chat | TRADE | Team) is hidden by its index through setTabVisible
+//   (0x005f4800), once each time the game shows it. CChatWindow's tabs_: a VC6 vector of Tab (0x1c: visible u8 first)
+//   with _First at +0x3e4 and _Last at +0x3e8 (src/System/window/yo2WindowChat.h).
+void o_00a770a0(CPU *restrict c);
+static void hide_proximity(CPU *c, uint32_t self) {
+    uint32_t first = RD32m(self + 0x3e4), last = RD32m(self + 0x3e8);
+    if (!first || last < first || last - first < 2 * 0x1c) return;
+    if (*(uint8_t *)G(first + 0x1c)) {
+        CPU call = *c; uint32_t args[2] = {1, 0}; call.ecx = self;
+        rc_call(&call, 0x005f4800, 2, args);   // setTabVisible(1, false)
+    }
+}
+// CChatWindow vf05, the per-frame chat pump (thiscall)
+void f_00a770a0(CPU *restrict c) {
+    hide_proximity(c, c->ecx);
+    o_00a770a0(c);
+}
