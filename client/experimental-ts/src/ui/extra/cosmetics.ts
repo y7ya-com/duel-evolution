@@ -138,48 +138,7 @@ export function renderCosmeticsShop(online: OnlineState, tab: CosmeticsTab, deps
   root.append(body); return root;
 }
 
-/** The Main Menu's Appearance window: body type, each part the character owns, a live preview, Apply and Revert. */
-export const appearanceOpen = () => ui.open;
-export function openAppearance(open: boolean): void { ui.open = open; ui.draft = null; ui.draftWorld = null; }
-export function renderAppearanceEditor(online: OnlineState, deps: CosmeticsDeps & { close(): void }): HTMLElement {
-  const root = el('div', 'de-appearance'); root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'Appearance'); root.dataset.key = 'appearance';
-  const panel = el('section', 'de-panel de-stack'); root.append(panel);
-  const head = el('div', 'de-row de-spread'); head.append(el('h2', 'de-panel-title', 'Appearance'), button('Close', deps.close)); panel.append(head);
-  const data = online.cosmetics;
-  if (!data) { panel.append(el('p', 'de-note', online.loading ? 'Loading your appearance…' : 'Your appearance has not loaded.'), button('Refresh', () => deps.dispatch({ type: 'refresh' }), online.loading)); status(panel, online, deps); return root; }
-  status(panel, online, deps);
-  if (online.receipt?.action === 'appearance' && online.receipt.cosmetics?.appearanceUpdated) panel.append(Object.assign(el('p', 'de-note', 'Appearance saved on the server.'), { role: 'status' }));
-  const world = ui.draftWorld ?? world01(data.appearance.world), saved = data.appearance.looks[String(world) as '0' | '1'];
-  if (ui.draft && ui.draft[0] !== saved[0]) ui.draft = null; // a body change from the server replaces the draft
-  const draft = ui.draft ?? [...saved], changed = draft.some((v, i) => v !== saved[i]);
-  const columns = el('div', 'de-appearance-columns');
-  const preview = el('div', 'de-cosmetic-avatar'); const art = deps.avatar?.(draft, world, 'appearance'); if (art) preview.append(art); else preview.append(el('p', 'de-note', 'Avatar art is unavailable.'));
-  const form = el('form', 'de-appearance-form');
-  const worldSelect = el('select'); worldSelect.dataset.key = 'appearance-world'; worldSelect.setAttribute('aria-label', 'Look for');
-  WORLD_NAMES.forEach((name, i) => { const o = el('option', '', `${name} look`); o.value = String(i); worldSelect.append(o); });
-  worldSelect.value = String(world); worldSelect.onchange = () => { ui.draftWorld = world01(Number(worldSelect.value)); ui.draft = null; deps.rerender(); };
-  form.append(labelled('Look for', worldSelect));
-  const body = el('div', 'de-row'); body.append(el('span', '', `Body type: ${data.appearance.gender === 'male' ? 'Male' : 'Female'}`));
-  body.append(button(data.appearance.gender === 'male' ? 'Use female body' : 'Use male body', () => deps.dispatch({ type: 'appearance', gender: data.appearance.gender === 'male' ? 'female' : 'male' }), !!online.pending));
-  form.append(body);
-  for (const option of data.appearanceOptionsByWorld[String(world) as '0' | '1']) {
-    if (option.choices.length < 2 && option.choices[0]?.value === draft[option.index]) continue;
-    const select = el('select'); select.dataset.key = `appearance-part:${option.index}`; select.setAttribute('aria-label', option.label);
-    for (const c of option.choices) { const o = el('option', '', c.label); o.value = String(c.value); select.append(o); }
-    if (!option.choices.some(c => c.value === draft[option.index])) { const o = el('option', '', 'Current'); o.value = String(draft[option.index]); select.prepend(o); }
-    select.value = String(draft[option.index]);
-    select.onchange = () => { const next = [...draft]; next[option.index] = Number(select.value); ui.draft = next; ui.draftWorld = world; deps.rerender(); };
-    form.append(labelled(option.label, select));
-  }
-  const apply = el('button', 'gold', 'Save appearance'); apply.type = 'submit'; apply.disabled = !changed || !!online.pending;
-  form.onsubmit = e => { e.preventDefault(); if (changed) { deps.dispatch({ type: 'appearance', world, parts: draft }); ui.draft = null; } };
-  const actions = el('div', 'de-row'); actions.append(apply, button('Revert', () => { ui.draft = null; deps.rerender(); }, !changed)); form.append(actions);
-  form.append(el('p', 'de-note', 'Only parts you own are offered. New hair, duel disks and outfits come from the Cosmetic Boxes in the Shop.'));
-  columns.append(preview, form); panel.append(columns);
-  return root;
-}
-function labelled(text: string, input: HTMLElement): HTMLLabelElement { const l = el('label'); l.append(el('span', '', text), input); return l; }
-
+// The Main Menu's Appearance is main's wardrobe (client/web-shell/htmlui/cosmetic-shop.js, mounted by src/ui/htmlui).
 export const COSMETICS_CSS = `
 .de-cosmetics { display:flex; flex-direction:column; gap:8px; min-height:0; flex:1; }
 .de-cosmetic-wallet { margin:0; color:#123f70; }

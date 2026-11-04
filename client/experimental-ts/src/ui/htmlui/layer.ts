@@ -6,6 +6,7 @@
 // <input>s. A module main runs in pass mode draws buttons the engine clicks; their clicks are hit-tested here.
 import { makeLayer } from '@htmlui/bridge.js';
 import { backdrop } from '@htmlui/backdrop.js';
+import { cosmeticShop } from '@htmlui/cosmetic-shop.js';
 import select from '@htmlui/screens/select.js';
 import chat from '@htmlui/screens/chat.js';
 import lobby from '@htmlui/screens/lobby.js';
@@ -33,12 +34,18 @@ export class HtmlUiLayer {
   private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
   private declared = new Map<string, 'pass' | 'owned'>();
   private screens = new Map<string, HtmlUiScreen>();
-  private back: { el: HTMLElement; bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } } | null = null;
-  private wantBackdrop = false;
+  // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
+  private box: HTMLElement;
+  private bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } | null = null;
+  private cosmetics: { frame(snap: unknown, modern: boolean, wait: boolean, api: HtmlUiApi): void; destroy(): void } | null = null;
+  private wantBackdrop = false; private scene = 0; private last: HtmlSnapshot | null = null; private tick: ReturnType<typeof setInterval> | null = null;
   private observer: ResizeObserver | null = null;
   private readonly api: HtmlUiApi;
 
   constructor(private options: HtmlUiLayerOptions) {
+    this.box = document.createElement('div');
+    this.box.className = 'htmlui-stagebox';
+    document.body.prepend(this.box);
     this.host = document.createElement('div');
     this.host.id = 'htmlui-host';
     this.host.dataset.rewrite = '';
@@ -58,6 +65,13 @@ export class HtmlUiLayer {
       setValue: () => {}, wheel: () => true, scroll: () => {}, text: () => '',
       art: (path: string) => this.options.art + path,
     };
+    // main's Main Menu asks the page's yo2Html for the scene (its Appearance entry) and a Modern UI switch: the
+    // rewrite's snapshot, and Legacy UI only
+    const g = globalThis as { yo2Html?: unknown };
+    if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false };
+    this.place();
+    try { this.cosmetics = cosmeticShop(this.box); } catch (e) { console.warn('htmlui cosmetics', e); }
+    this.tick = setInterval(() => this.pageModules(), 1000);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })
       .catch((e: unknown) => console.warn('htmlui', e));
     this.host.addEventListener('pointermove', this.onMove, true);
@@ -70,7 +84,8 @@ export class HtmlUiLayer {
   }
 
   /** The windows to show now (back to front) and whether the scene has the 2008 backdrop (backdrop.js). */
-  show(specs: WindowSpec[], withBackdrop: boolean): void {
+  show(specs: WindowSpec[], withBackdrop: boolean, scene = 0): void {
+    this.scene = scene;
     this.specs = specs;
     this.handlers = new Map(specs.flatMap(s => [...s.handlers]));
     if (!this.handlers.has(this.hover)) this.hover = 0;
@@ -88,26 +103,26 @@ export class HtmlUiLayer {
     // redraws a control whose snapshot changes, which would replace a button between its press and its release
     applyPointer(this.specs, this.hover, this.pressed, w => this.declared.get(w.cls) !== 'owned');
     const windows: HtmlWindow[] = this.specs.map(s => s.win);
-    const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: 0, mouse: null, focus: this.focus, windows, tasks: [], cursor: null };
+    const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: this.scene, mouse: null, focus: this.focus, windows, tasks: [], cursor: null };
+    this.last = snap;
     this.render(snap, new Set(windows.map(w => w.id)), this.api);
     this.host.hidden = !windows.length;
+    this.pageModules();
+  }
+  // main's page-level modules, as bridge.js runs them each frame: the cosmetic shop (Appearance, the wardrobe)
+  private pageModules(): void {
+    if (this.disposed) return;
+    const snap = this.last ?? { v: 1, frame: this.frame, scene: this.scene, mouse: null, focus: 0, windows: [], tasks: [], cursor: null };
+    try { this.cosmetics?.frame({ ...snap, scene: this.scene }, false, false, this.api); } catch (e) { console.warn('htmlui cosmetics', e); }
   }
 
   // main's backdrop.js under the stage: it places itself over a "canvas", here an invisible box kept over the stage
   private backdrop(): void {
-    if (!this.wantBackdrop && !this.back) return;
-    if (!this.back) {
-      const el = document.createElement('div');
-      el.className = 'htmlui-stagebox';
-      document.body.prepend(el);
-      const bd = backdrop(el);
-      Object.assign(el.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden' });
-      this.back = { el, bd };
-      this.place();
-    }
+    if (!this.wantBackdrop && !this.bd) return;
+    if (!this.bd) { this.bd = backdrop(this.box); this.place(); }
     const layer = document.getElementById('mu-titlebg');
     if (layer) layer.style.display = this.wantBackdrop ? '' : 'none';
-    if (this.wantBackdrop) this.back.bd.frame({ backdrop: { shown: true } });
+    if (this.wantBackdrop) this.bd.frame({ backdrop: { shown: true } });
   }
 
   private place = (): void => {
@@ -115,7 +130,7 @@ export class HtmlUiLayer {
     const r = stage.getBoundingClientRect(), s = r.width / 1024 || 1;
     this.scale = s;
     Object.assign(this.host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
-    if (this.back) Object.assign(this.back.el.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
+    Object.assign(this.box.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
   };
 
   private point(e: MouseEvent): [number, number] {
@@ -159,7 +174,10 @@ export class HtmlUiLayer {
     for (const c of win.controls) {
       const h = spec.handlers.get(c.id); if (!h) continue;
       const input = !!(h.text || h.enter);
-      const at = els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
+      // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
+      const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
+      const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
+      const at = tab ?? els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
         e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el;
       if (!at) continue;
       this.elementIds.set(at, c.id);
@@ -174,6 +192,8 @@ export class HtmlUiLayer {
     this.disposed = true;
     this.observer?.disconnect();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
-    this.host.remove(); this.back?.el.remove(); document.getElementById('mu-titlebg')?.remove();
+    if (this.tick) clearInterval(this.tick);
+    this.cosmetics?.destroy();
+    this.host.remove(); this.box.remove(); document.getElementById('mu-titlebg')?.remove();
   }
 }

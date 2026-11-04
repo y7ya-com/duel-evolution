@@ -29,11 +29,13 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const lobby = { name: 'Duel Academy · Area 1', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: 'A', text: 'hi', channel: 'global' }, { id: '2', sender: 'B', text: 'wts', channel: 'trade' }] };
     const t = context(view({ scene: 'lobby', lobby }));
     const chat = t.windows().find(s => s.win.cls === 'CChatWindow')!.win, logs = chat.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], [], ['@0B:wts'], []]);
-    expect(chat.controls.filter(c => c.cls === 'CWindowTaskTab').map(c => c.label)).toEqual(['All Chat', 'Proximity Chat', 'TRADE', 'Team ']);
+    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], []]);
+    expect(chat.controls.filter(c => c.cls === 'CWindowTaskTab').map(c => c.label)).toEqual(['All Chat', 'TRADE', 'Team ']);
     t.find('chat-tab:trade')!.click!(); t.find('chat')!.text!('selling'); t.find('chat')!.enter!();
     expect(t.sent.at(-1)).toEqual({ type: 'chat', channel: 'trade', text: 'selling' });
     expect(chatCommand(0, '/w Bob  hello there')).toEqual({ type: 'chat', channel: 'whisper', target: 'Bob', text: 'hello there' });
+    expect(chatCommand(0, '/w Ann Lee psst', ['Ann', 'Ann Lee'])).toEqual({ type: 'chat', channel: 'whisper', target: 'Ann Lee', text: 'psst' });
+    expect(chatCommand(0, '/w "Ann Lee" psst')).toEqual({ type: 'chat', channel: 'whisper', target: 'Ann Lee', text: 'psst' });
   });
   it('profile: main\'s rows with the server\'s values; one\'s own comment saved line by line', () => {
     const profileDetail = { selfPid: 7, selectedPid: 7, details: { tp: 2, score: 30, mp: 5000 } as never, location: null, summary: { name: 'Me', level: 4, wins: 3, losses: 1 } as never,

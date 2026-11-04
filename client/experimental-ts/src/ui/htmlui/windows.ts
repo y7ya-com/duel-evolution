@@ -107,16 +107,25 @@ export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 
 // others their channel's, so main's screen counts what arrives on a tab that isn't shown.
 export const CHAT_TABS: readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string) => boolean }[] = [
   { key: 'all', label: 'All Chat', x: 8, w: 81, channel: 'global', shows: () => true },
-  // the rewrite's world has no proximity channel (its lines are 'global'): the tab is there, empty, and sends to all
-  { key: 'proximity', label: 'Proximity Chat', x: 81, w: 134, channel: 'global', shows: c => c === 'local' },
-  { key: 'trade', label: 'TRADE', x: 207, w: 72, channel: 'trade', shows: c => c === 'trade' },
-  { key: 'team', label: 'Team ', x: 271, w: 72, channel: 'team', shows: c => c === 'team' },
+  // the released chat has no proximity channel (main's chat-policy.js): its tab is left out, as main's chat.js hides it,
+  // and the tabs after it stand where the engine moves them (8 px over each other)
+  { key: 'trade', label: 'TRADE', x: 81, w: 72, channel: 'trade', shows: c => c === 'trade' },
+  { key: 'team', label: 'Team ', x: 145, w: 72, channel: 'team', shows: c => c === 'team' },
 ];
-/** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. */
-export function chatCommand(tab: number, line: string): Extract<ClientCommand, { type: 'chat' }> | null {
+/** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. A name may have spaces:
+ * the longest name of a player the client knows wins, or the name in quotes ('/w "Ann Lee" hi'). */
+export function chatCommand(tab: number, line: string, names: readonly string[] = []): Extract<ClientCommand, { type: 'chat' }> | null {
   const text = line.trim(); if (!text) return null;
-  const whisper = /^\/(?:w|whisper|t)\s+(\S+)\s+([\s\S]+)$/i.exec(text);
-  if (whisper) return { type: 'chat', channel: 'whisper', target: whisper[1], text: whisper[2] };
+  const w = /^\/(?:w|whisper|t)\s+([\s\S]+)$/i.exec(text);
+  if (w) {
+    const rest = w[1]!, quoted = /^"([^"]+)"\s+([\s\S]+)$/.exec(rest);
+    if (quoted) return { type: 'chat', channel: 'whisper', target: quoted[1]!, text: quoted[2]! };
+    const known = [...names].sort((a, b) => b.length - a.length).find(n => rest.toLowerCase().startsWith(n.toLowerCase() + ' '));
+    if (known) return { type: 'chat', channel: 'whisper', target: rest.slice(0, known.length), text: rest.slice(known.length).trim() };
+    const plain = /^(\S+)\s+([\s\S]+)$/.exec(rest);
+    if (plain) return { type: 'chat', channel: 'whisper', target: plain[1]!, text: plain[2]! };
+    return null;
+  }
   return { type: 'chat', channel: CHAT_TABS[tab]?.channel ?? 'global', text };
 }
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
@@ -136,7 +145,7 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
   });
   b.win.pairs = pairs;
   b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
-  const send = () => { const command = chatCommand(tab, ctx.ui.chatDraft); if (!command || !lobby.connected) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
+  const send = () => { const command = chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
   b.add('CWindowTaskInput', 'input', { x: 0, y: 96, w: 776, h: 32 }, { focused: true, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
     { key: 'chat', label: 'Chat message', text: v => { ctx.ui.chatDraft = v; }, enter: send });
   return b.spec();

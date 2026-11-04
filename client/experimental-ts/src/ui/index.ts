@@ -19,7 +19,7 @@ import { renderCardGet, CARD_GET_CSS } from './extra/card-get';
 import { deckProblems, renderDeckCheck, DECK_CHECK_CSS } from './extra/deck-check';
 import { renderCardDetails } from './extra/card-details';
 import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
-import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
+import { renderCosmeticsShop, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
@@ -107,7 +107,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (p.selfPid === pid) return [
       { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
       { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
-      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } }] : []),
+      // main's wardrobe (its cosmetic-shop.js, the Main Menu's Appearance)
+      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => globalThis.dispatchEvent(new CustomEvent('yo2-cosmetics-open', { detail: { tab: 'wardrobe' } })) }] : []),
     ];
     if (!state.socialDetail) return [];
     const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => send({ type: 'socialAction', action: { type, pid } });
@@ -120,7 +121,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     ];
   };
   const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, profileActions: profileActions() });
-  const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene)); };
+  // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
+  // 12 Free Duel's lobby, 14 the shop)
+  const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
+  const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene), engineScene()); };
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
   const htmlDriver: HtmlUiDriver = {
     windows: buildHtml,
@@ -919,7 +923,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
-      if (appearanceOpen() && state.player && state.online && !['title', 'characters', 'duel'].includes(state.scene)) stage.append(renderAppearanceEditor(state.online, { ...cosmeticsDeps(), close: () => { openAppearance(false); requestRender(); } }));
       if (state.socialDetail && state.socialDetail.trade.phase !== 'idle' && !['title', 'characters'].includes(state.scene)) {
         const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, ...(tradeReason() ? { reason: tradeReason()! } : {}) });
         if (trade) stage.append(trade);
@@ -949,7 +952,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'Friend List', key: 'friends', disabled: blocked || sideboard, run: go('social') },
           { label: 'Team List', key: 'teams', disabled: blocked || sideboard, run: go('social') },
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
-          { label: 'Appearance', key: 'appearance', disabled: blocked || state.scene === 'duel' || sideboard, run: () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),

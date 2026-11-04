@@ -34,6 +34,10 @@ declare module '@htmlui/bridge.js' {
 declare module '@htmlui/backdrop.js' {
   export function backdrop(canvas: HTMLElement): { frame(snap: { backdrop?: { shown: boolean } } | null): void };
 }
+declare module '@htmlui/cosmetic-shop.js' {
+  export function cosmeticShop(canvas: HTMLElement): { frame(snap: unknown, modern: boolean, wait: boolean, api: HtmlUiApi): void; destroy(): void; open(tab?: string): Promise<void>; isOpen(): boolean };
+  export function openCosmetics(tab?: string): void;
+}
 declare module '@htmlui/screens/chat.js' {
   const screen: HtmlUiScreen; export default screen;
   export function owned(classes: string[], draw: (c: unknown, el: HTMLElement, api: HtmlUiApi, win: unknown) => unknown, background?: (win: unknown, el: HTMLElement) => void): HtmlUiScreen;
