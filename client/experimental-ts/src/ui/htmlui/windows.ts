@@ -42,6 +42,9 @@ const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name)
 export function playerSelect(ctx: BuildContext): WindowSpec {
   const t = playerSelectLive.windows[0], b = new WindowBuilder(ctx.ids, 'select', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51153 });
   const cs = b.fromTemplate(t);
+  // top to bottom, left to right: the DOM (and Tab) order main's generic controls follow; nothing in it overlaps
+  // but the frame and the help text, which stay first
+  b.win.controls.sort((p, q) => p.y - q.y || p.x - q.x);
   const idle = () => !ctx.ui.dialog && !ctx.state.busy;
   const rows = byY(cs, 'プレイヤ選択ボタン'), dels = byY(cs, '削除ボタン'), levels = byY(cs, 'プレイヤ選択ボタンのLV表示文字');
   rows.forEach((row, slot) => {
@@ -175,12 +178,14 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
 // capture: 0, 386, 282 x 350 for 12 entries, the title 'Main Menu' 8, 0, 264 x 24, the close box 263, 0, the entries
 // 12, 27 + 26 n, 258 x 24; the window stands on the menu bar (its bottom at 736).
 export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
-  const h = 27 + 26 * menu.entries.length + 11, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
+  // main's lobby.js lays the entries out itself (a 28 px pitch from 32, plus its own Appearance and Modern UI) and
+  // stands the panel on the bar: the window is that box, so the panel sits at the window's top
+  const h = 32 + 28 * (menu.entries.length + 2) + 8, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
   const close = () => { ctx.ui.menu = false; ctx.rerender(); };
   b.add('CWindowTaskFrameMain', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   b.add('CWindowTaskShadowText', 'title', { x: 8, y: 0, w: 264, h: 24 }, { text: 'Main Menu', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   b.add('CWindowTaskIconHide', 'close', { x: 263, y: 0, w: 16, h: 24 }, { pressed: false }, { key: 'main-menu-close', label: 'Close the Main Menu', click: close });
-  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 27 + 26 * i, w: 258, h: 24 },
+  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 32 + 28 * i, w: 258, h: 24 },
     { label: e.label, state: e.disabled ? 'disabled' : 'normal', checked: false, align: 1, color: [1, 1, 1, 1] },
     { key: `menu:${e.key}`, click: () => { if (e.disabled) return; ctx.ui.menu = false; ctx.rerender(); e.run(); } }));
   return b.spec();
@@ -229,8 +234,8 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   const title = b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 600, h: 16 }, { text: self ? 'My Profile' : 'Profile', align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1] });
   b.add('CWindowTaskText', 'titleShadow', { x: 1, y: 5, w: 600, h: 16 }, { parent: title.id, text: title.text, align: 1, fontSize: 16, color: [0, 0, 0, 1] });
   // OK centred as main's; the rewrite's actions (main has them on the player card and the Main Menu) share its row,
-  // the same duel buttons, 88 wide 4 apart, OK last
-  const actions = ctx.profileActions ?? [], n = actions.length + 1, w = n > 1 ? 88 : 100, x0 = Math.round((600 - (n * w + (n - 1) * 4)) / 2);
+  // the same duel buttons, 4 apart (100 wide as OK while the row fits, else 88), OK last
+  const actions = ctx.profileActions ?? [], n = actions.length + 1, w = n * 104 <= 572 ? 100 : 88, x0 = Math.round((600 - (n * w + (n - 1) * 4)) / 2);
   actions.forEach((a, i) => b.add('CWindowTaskButtonDuel', `action:${a.key}`, { x: x0 + i * (w + 4), y: 364, w, h: 24 }, { label: a.label, align: 1, state: a.disabled ? 'disabled' : 'normal', color: [0, 0, 0, 1] },
     { key: `profile-${a.key}`, click: () => { if (!a.disabled) a.run(); } }));
   b.add('CWindowTaskButtonDuel', 'ok', { x: x0 + (n - 1) * (w + 4), y: 364, w, h: 24 }, { label: 'OK', align: 1, state: 'normal', color: [0, 0, 0, 1] },

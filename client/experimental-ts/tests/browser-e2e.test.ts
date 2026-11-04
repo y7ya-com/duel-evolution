@@ -34,7 +34,8 @@ async function activate(browser:Browser,selector:string,touch = false) {
 async function click(browser:Browser,text:string,touch = false) {
   const literal = JSON.stringify(text), selector = `[...document.querySelectorAll('button,summary')].find(b=>b.textContent.trim()===${literal}&&!b.disabled&&b.getClientRects().length)`;
   // Main Menu entries (Lobby, Edit Deck, Options...) are reached through the menu bar's Menu key, as a player would.
-  const entry = `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${literal}&&!b.disabled))`;
+  // main's Main Menu (src/ui/htmlui: CMainMenu) behind the menu bar's MAIN key
+  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${literal})&&!!document.querySelector('[data-key="main-menu"]'))`;
   await until(browser,`${selector}||${entry}`);
   if (!await browser.ev(`Boolean(${selector})`)) { await activate(browser,`document.querySelector('[data-key="main-menu"]')`,touch); await until(browser,selector); }
   return activate(browser,selector,touch);
@@ -64,7 +65,7 @@ describe('actual headless browser against real game authority',() => {
         await until(browser,`!document.body.innerText.includes('Choose your Starter Deck')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
-      await click(browser,'Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
+      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Start Recording',viewport.mobile);
       await until(browser,`document.querySelector('[data-key="options-capture"]')?.textContent.includes('recording ·')`);
       await click(browser,'Back',viewport.mobile);
@@ -124,7 +125,7 @@ describe('actual headless browser against real game authority',() => {
       expect(profile.last_npc_end).toMatchObject({ npc:51,result:'lose' });
       await click(browser,'Return to Lobby',viewport.mobile); await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
-      await click(browser,'Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
+      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Stop Recording',viewport.mobile);
       await until(browser,`/stopped *· *[1-9][0-9]* records/.test(document.querySelector('[data-key="options-capture"]')?.textContent ?? '')`);
       const downloadDir = await mkdtemp(join(tmpdir(),`duel-ts-capture-${viewport.name}-`));

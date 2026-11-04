@@ -26,7 +26,8 @@ async function until(browser:Browser,condition:string,timeout=60000) {
 async function click(browser:Browser,text:string) {
   const selector = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
   // Main Menu entries (Lobby, Disconnect...) are reached through the menu bar's Menu key, as a player would.
-  const entry = `(document.querySelector('.de-main-menu')?.hidden&&[...document.querySelectorAll('.de-main-menu button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled))`;
+  // main's Main Menu (src/ui/htmlui: CMainMenu) behind the menu bar's MAIN key
+  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
   await until(browser,`${selector}||${entry}`);
   if (!await evaluate(browser,`Boolean(${selector})`)) { await evaluate(browser,`document.querySelector('[data-key="main-menu"]').click()`); await until(browser,selector); }
   const point = await evaluate(browser,`(async()=>{let b=${selector};b.scrollIntoView({block:'center',behavior:'instant'});await new Promise(requestAnimationFrame);b=${selector};if(!b)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===b||b.contains(hit))?{x,y}:null})()`);
@@ -137,7 +138,7 @@ describe.skipIf(!process.env.YO2_ASSET_URL)('optional real original-asset browse
       await verifyMovement(); evidence.movement.after = position();
       await writeFile('/tmp/duel-ts-original-assets-evidence.json',JSON.stringify(evidence,null,2));
       await until(browser,`document.querySelector('canvas[data-avatar-ready="true"][data-avatar-painted="true"]')`,30000); evidence.avatarDecoded = true;
-      await click(browser,'Disconnect'); await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Go Online')`);
+      await click(browser,'Return to Title'); await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Go Online')`);
       // A synchronous same-origin storage witness survives destruction of the old CDP context.
       // Register after the app's listener, then reload to require a real non-BFCache pagehide.
       await evaluate(browser,`sessionStorage.removeItem('de-asset-disposal');window.addEventListener('pagehide',event=>sessionStorage.setItem('de-asset-disposal',JSON.stringify({live:window.__assetAudit.live.size,liveBitmaps:window.__assetAudit.liveBitmaps,revokedWhileAttached:window.__assetAudit.revokedWhileAttached,persisted:event.persisted})));true`);

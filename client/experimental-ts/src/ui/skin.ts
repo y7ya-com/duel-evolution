@@ -29,6 +29,9 @@ export const SKIN_CSS = `
 .de-stage { border:0; background:radial-gradient(ellipse at 48% 20%,#8ce8ff 0%,#41a9e5 44%,#1167b3 100%); }
 /* main's 2008 backdrop (its backdrop.js, src/ui/htmlui) shows through on the screens that have it */
 .de-client[data-scene=characters] .de-stage { background:transparent; }
+/* main's menu bar (CWindowModelMenu) stands on the stage's bottom 32 of 768 px outside the title and the duel, as in
+   the game: the rewrite's own scenes end above it */
+.de-client:not([data-scene=title]):not([data-scene=duel]) .de-stage>.de-scene { bottom:4.1667%; overflow:auto; }
 
 /* Keys: the original's blue bevelled key; gold for the primary. Metrics stay the layout's. */
 .de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;

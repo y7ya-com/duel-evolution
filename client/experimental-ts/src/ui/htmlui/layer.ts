@@ -114,6 +114,8 @@ export class HtmlUiLayer {
     if (this.disposed) return;
     const snap = this.last ?? { v: 1, frame: this.frame, scene: this.scene, mouse: null, focus: 0, windows: [], tasks: [], cursor: null };
     try { this.cosmetics?.frame({ ...snap, scene: this.scene }, false, false, this.api); } catch (e) { console.warn('htmlui cosmetics', e); }
+    // a screen may draw later than its update (lobby.js: the bar's keys once its atlas has loaded): tag again
+    for (const spec of this.specs) { const root = this.roots.get(spec.win.id); if (root) this.tag(spec.win, root); }
   }
 
   // main's backdrop.js under the stage: it places itself over a "canvas", here an invisible box kept over the stage

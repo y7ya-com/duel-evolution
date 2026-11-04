@@ -14,7 +14,8 @@ import { starterInfo, starterClaim, walletInfo } from '../../../server/src/game/
 import { deckOwner, deckIn } from '../../../server/src/game/decks';
 import { shopView, shopPurchaseApi } from '../../../server/src/game/shop-api';
 import { chatGet, chatSend } from '../../../server/src/game/chat';
-import { createRemoteAssetMiddleware } from '../tools/remote-assets.mjs';
+import { createRemoteAssetMiddleware, DEFAULT_REMOTE_ASSET_URL } from '../tools/remote-assets.mjs';
+import { createHtmlUiArtMiddleware, uiBase } from '../tools/htmlui-art.mjs';
 
 const requireServer = createRequire(new URL('../../../server/package.json',import.meta.url));
 const requireWrangler = createRequire(requireServer.resolve('wrangler'));
@@ -40,6 +41,8 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
   const assetRequests:BrowserAssetRequest[] = [];
   let activeAssetRequests = 0, lastAssetActivity = Date.now();
   const remoteAssets = options.assetBaseUrl ? createRemoteAssetMiddleware({baseUrl:options.assetBaseUrl,forwardValidators:true}) : null;
+  // main's Legacy HTML UI art (its ui/ atlases and glyph metrics), which its screens (src/ui/htmlui) need to draw
+  const htmlUiArt = createHtmlUiArtMiddleware({ baseUrl:uiBase(options.assetBaseUrl ?? DEFAULT_REMOTE_ASSET_URL) });
   const logs:string[] = [], packets:{ id:string; bytes:number }[] = [];
   // One account per browser: the cookie names it ('1' is the default account). Tests sign a second browser in with
   // GET /api/de/session?as=<name> before loading the client.
@@ -55,6 +58,7 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
   const peers = new Set<string>(), websockets = new Set<any>();
   const wss = new WebSocketServer({ noServer:true,maxPayload:1024 * 1024 });
   const server = createServer((req,res) => {
+    if ((req.url ?? '').startsWith('/ui/')) { htmlUiArt(req,res,() => json(res,{ error:'Art not found' },404)); return; }
     if (remoteAssets && (req.url ?? '').startsWith('/game-assets/')) {
       activeAssetRequests++; lastAssetActivity = Date.now(); let released = false;
       const release = () => { if (!released) { released = true; activeAssetRequests--; lastAssetActivity = Date.now(); } };
