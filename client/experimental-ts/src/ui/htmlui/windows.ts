@@ -24,10 +24,12 @@ export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatD
   /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
   commentWait: null | 'sent' | 'pending';
   /** The Main Menu's list window open (Friend / Ignore / Team List) and the row chosen in it. */
-  lists: { kind: 'friends' | 'ignore' | 'team'; selected: number } | null;
+  lists: { kind: 'friends' | 'ignore' | 'team'; selected: number; pick?: boolean } | null;
+  /** Write Mail open: its recipient and what has been typed. */
+  compose: { toPid: number | null; toName: string; subject: string; body: string } | null;
   /** D-Mail open: the first row shown, the mail chosen. */
   mail: { top: number; selected: number } | null }
-export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null, lists: null, mail: null });
+export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null, lists: null, mail: null, compose: null });
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
@@ -191,14 +193,12 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
 // capture: 0, 386, 282 x 350 for 12 entries, the title 'Main Menu' 8, 0, 264 x 24, the close box 263, 0, the entries
 // 12, 27 + 26 n, 258 x 24; the window stands on the menu bar (its bottom at 736).
 export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
-  // main's lobby.js lays the entries out itself (a 28 px pitch from 32, plus its own Appearance and Modern UI) and
-  // stands the panel on the bar: the window is that box, so the panel sits at the window's top
-  const h = 32 + 28 * (menu.entries.length + 2) + 8, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
+  const h = 27 + 26 * menu.entries.length + 11, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
   const close = () => { ctx.ui.menu = false; ctx.rerender(); };
   b.add('CWindowTaskFrameMain', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   b.add('CWindowTaskShadowText', 'title', { x: 8, y: 0, w: 264, h: 24 }, { text: 'Main Menu', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   b.add('CWindowTaskIconHide', 'close', { x: 263, y: 0, w: 16, h: 24 }, { pressed: false }, { key: 'main-menu-close', label: 'Close the Main Menu', click: close });
-  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 32 + 28 * i, w: 258, h: 24 },
+  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 27 + 26 * i, w: 258, h: 24 },
     { label: e.label, state: e.disabled ? 'disabled' : 'normal', checked: false, align: 1, color: [1, 1, 1, 1] },
     { key: `menu:${e.key}`, click: () => { if (e.disabled) return; ctx.ui.menu = false; ctx.rerender(); e.run(); } }));
   return b.spec();
@@ -371,7 +371,8 @@ export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
   const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null) =>
     b.add('CWindowTaskButtonDuel', name, { x, y: 173, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
   const chosen = rows[open.selected];
-  if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', null);
+  if (open.kind === 'friends' && open.pick) button('remove', 125, 200, 'Send D-mail', 'list-pick', chosen && ctx.ui.compose ? () => { ctx.ui.compose!.toPid = chosen.pid; ctx.ui.compose!.toName = chosen.name; ctx.ui.lists = null; ctx.rerender(); } : null);
+  else if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', null);
   if (open.kind === 'ignore') button('remove', 125, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
   if (open.kind === 'team') {
     if (!lists.team) button('form', 403.5, 93, 'Form Team', 'team-form', () => { ctx.ui.dialog = { kind: 'team', name: '' }; ctx.rerender(); });
@@ -395,7 +396,7 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
 }
 
 /** D-Mail's content (the rewrite's mail) and what its buttons do. */
-export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; write(toPid?: number): void }
+export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; send(toPid: number, subject: string, body: string): void }
 // D-Mail (CWindowModelDMail, main's social.js: one 512 x 512 mail picture, skin.mailWindow). main's My Room capture
 // (tools/flip.mjs sp-dmail): 256, 128; the title 0, 4, 512 wide; Write Mail 16, 40, Send Mail 132, 40 (a reply: on the
 // chosen mail), Delete 395, 40 (100 x 24; the rewrite's protocol has no delete: disabled), Close 206, 481; five subject
@@ -408,8 +409,9 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
   b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   const button = (name: string, x: number, y: number, label: string, key: string, run: (() => void) | null) =>
     b.add('CWindowTaskTextSwitch', name, { x, y, w: 100, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', checked: false, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
-  button('write', 16, 40, 'Write Mail', 'mail-write', () => box.write());
-  button('reply', 132, 40, 'Send Mail', 'mail-reply', chosen ? () => box.write(chosen.fromPid) : null);
+  const write = (to?: { pid: number; name: string }) => { ctx.ui.compose = { toPid: to?.pid ?? null, toName: to?.name ?? '', subject: '', body: '' }; ctx.rerender(); };
+  button('write', 16, 40, 'Write Mail', 'mail-write', () => write());
+  button('reply', 132, 40, 'Send Mail', 'mail-reply', chosen ? () => write({ pid: chosen.fromPid, name: chosen.from }) : null);
   button('delete', 395, 40, 'Delete', 'mail-delete', null);
   mail.forEach((m, i) => {
     const row = b.add('CWindowTaskTextSwitch', `row${i}`, { x: 16, y: 72 + 36 * i, w: 464, h: 32 }, { label: `${m.from}: ${m.subject}`, align: 0, state: 'normal', checked: open.top + i === open.selected, color: [0, 0, 0, 1] },
@@ -418,6 +420,30 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
   });
   b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : box.mail.length ? '' : 'No mail.', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
   button('close', 206, 481, 'Close', 'mail-close', () => { ctx.ui.mail = null; ctx.rerender(); });
+  return b.spec();
+}
+
+// Write Mail (CWindowModelDMailSend, main's social.js: the mail picture, real inputs). main's capture (tools/flip.mjs
+// sp-dmail, typed): 256, 128; 'To:' 16, 48 and the recipient's name 40, 48; 'Subject:' 16, 72 and its field 73, 64 (32
+// characters); the body a MultiInput 8, 96 holding its 464 x 272 multi-line Input (512); Friend List 395, 44 (the
+// recipient picked from the Friend List), Send D-mail 206, 440 (103 wide, red), Close 395, 480.
+export function composeWindow(ctx: BuildContext, send: (toPid: number, subject: string, body: string) => void): WindowSpec | null {
+  const c = ctx.ui.compose; if (!c) return null;
+  const b = new WindowBuilder(ctx.ids, 'dmailsend', 'CWindowModelDMailSend', { x: 256, y: 128, w: 512, h: 512 }, { z: 51503, modal: true });
+  const text = (name: string, x: number, y: number, t: string, color = [0, 0, 0, 1]) => b.add('CWindowTaskShadowText', name, { x, y, w: 512, h: 32 }, { text: t, align: 0, fontSize: 16, color });
+  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  text('to', 40, 48, c.toName); text('toLabel', 16, 48, 'To:'); text('subjectLabel', 16, 72, 'Subject:');
+  const ready = c.toPid !== null && c.subject.trim() !== '' && c.body.trim() !== '';
+  const button = (name: string, x: number, y: number, w: number, label: string, key: string, run: () => void, enabled = true, color = [0, 0, 0, 1]) =>
+    b.add('CWindowTaskTextSwitch', name, { x, y, w, h: 24 }, { label, align: 1, state: enabled ? 'normal' : 'disabled', checked: false, color }, { key, click: () => { if (enabled) run(); } });
+  button('close', 395, 480, 100, 'Close', 'compose-close', () => { ctx.ui.compose = null; ctx.rerender(); });
+  button('send', 206, 440, 103, 'Send D-mail', 'compose-send', () => { if (c.toPid === null) return; send(c.toPid, c.subject, c.body); ctx.ui.compose = null; ctx.rerender(); }, ready, [1, 0, 0, 1]);
+  button('friends', 395, 44, 100, 'Friend List', 'compose-friends', () => { ctx.ui.lists = { kind: 'friends', selected: -1, pick: true }; ctx.rerender(); });
+  const multi = b.add('CWindowTaskMultiInput', 'bodyBox', { x: 8, y: 96, w: 0, h: 0 });
+  b.add('CWindowTaskInput', 'body', { x: 0, y: 0, w: 464, h: 272 }, { parent: multi.id, value: c.body, password: false, caret: null, caretOn: false, maxLen: 512, multiLine: true },
+    { key: 'compose-body', label: 'Mail text', text: v => { c.body = v; ctx.rerender(); } });
+  b.add('CWindowTaskInput', 'subject', { x: 73, y: 64, w: 496, h: 32 }, { value: c.subject, focused: true, password: false, caret: null, caretOn: false, maxLen: 32, multiLine: false },
+    { key: 'compose-subject', label: 'Subject', text: v => { c.subject = v; ctx.rerender(); } });
   return b.spec();
 }
 
@@ -437,8 +463,10 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else ui.comment = null;
-  const lists = ctx.social ? listWindow(ctx, ctx.social) : null; if (lists) out.push(lists); else if (!ctx.social) ui.lists = null;
   const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
+  const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
+  // the Friend List over Write Mail when it picks the recipient
+  const lists = ctx.social ? listWindow(ctx, ctx.social) : null; if (lists) out.push(lists); else if (!ctx.social) ui.lists = null;
   const menu = ctx.menu;
   if (menu) { out.push(menuBar(ctx, menu)); if (ui.menu && menu.keys) out.push(mainMenu(ctx, menu)); else ui.menu = false; }
   const d = ui.dialog;

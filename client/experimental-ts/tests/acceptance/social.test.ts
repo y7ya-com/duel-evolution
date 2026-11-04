@@ -9,7 +9,7 @@ async function chat(page:Page,channel:string,message:string,target?:string) {
   if (channel === 'whisper') return say(page,message,{ to:target! });
   await say(page,message,{ tab:channel === 'global' ? 'all' : channel as 'trade' | 'team' });
 }
-async function social(page:Page) { await click(page,'Friend List'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
+async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
 /** Find a player by name; the field must hold the name when Find is pressed (the screen refreshes as it opens). */
 async function find(page:Page,name:string) {
   const input = `document.querySelector('[data-key="social-Player name"]')`;

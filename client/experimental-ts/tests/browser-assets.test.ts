@@ -27,7 +27,7 @@ async function click(browser:Browser,text:string) {
   const selector = `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
   // Main Menu entries (Lobby, Disconnect...) are reached through the menu bar's Menu key, as a player would.
   // main's Main Menu (src/ui/htmlui: CMainMenu) behind the menu bar's MAIN key
-  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
+  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Find Player','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
   await until(browser,`${selector}||${entry}`);
   if (!await evaluate(browser,`Boolean(${selector})`)) { await evaluate(browser,`document.querySelector('[data-key="main-menu"]').click()`); await until(browser,selector); }
   const point = await evaluate(browser,`(async()=>{let b=${selector};b.scrollIntoView({block:'center',behavior:'instant'});await new Promise(requestAnimationFrame);b=${selector};if(!b)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);return hit&&(hit===b||b.contains(hit))?{x,y}:null})()`);

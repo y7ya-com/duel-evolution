@@ -23,7 +23,7 @@ const buttonText = (text:string) => `[...document.querySelectorAll('button,summa
 async function click(browser:Browser,text:string) {
   // Main Menu entries (Lobby, Edit Deck, Options...) are reached through the menu bar's Menu key, as a player would.
   // main's Main Menu (src/ui/htmlui: CMainMenu) behind the menu bar's MAIN key
-  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
+  const entry = `(['Edit Deck','My Profile','Appearance','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Find Player','Shop','Return to Duel','Return to Lobby','Return to Title','Modern UI'].includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
   await until(browser,`${buttonText(text)}||${entry}`);
   if (!await browser.ev(`Boolean(${buttonText(text)})`) && !await activate(browser,`document.querySelector('[data-key="main-menu"]')`)) throw new Error('Main Menu key is covered');
   await until(browser,buttonText(text));

@@ -3,7 +3,7 @@ import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click
 
 const tradeWindow = `document.querySelector('.de-trade-window')`;
 const inTrade = (page:Page,selector:string) => press(page,`[...document.querySelectorAll('.de-trade-window button')].find(b=>${selector})`);
-async function social(page:Page) { await click(page,'Friend List'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
+async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
 async function find(page:Page,name:string) {
   const input = `document.querySelector('[data-key="social-Player name"]')`;
   for (let attempt = 0; attempt < 3; attempt++) {

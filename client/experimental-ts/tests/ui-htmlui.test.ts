@@ -67,7 +67,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const calls: string[] = [];
     const social = { friends: [{ pid: 2, name: 'Bo' }], ignored: [{ pid: 3, name: 'Cy' }], team: null,
       unignore: (pid: number) => calls.push(`unignore ${pid}`), formTeam: (n: string) => calls.push(`team ${n}`), leaveTeam: () => {}, disbandTeam: () => {} };
-    const mailBox = { mail: [{ from: 'Bo', fromPid: 2, subject: 'Hi', body: 'Duel later?' }], write: (pid?: number) => calls.push(`write ${pid}`) };
+    const mailBox = { mail: [{ from: 'Bo', fromPid: 2, subject: 'Hi', body: 'Duel later?' }], send: (pid: number, subject: string, body: string) => calls.push(`mail ${pid} ${subject} ${body}`) };
     const t = context(view({ scene: 'lobby' }), { social, mailBox });
     t.ctx.ui.lists = { kind: 'ignore', selected: -1 };
     const win = () => t.windows().find(s => s.win.cls === 'CWindowModelBlacklist')!;
@@ -78,7 +78,8 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     expect(calls.at(-1)).toBe('team Aces');
     t.ctx.ui.mail = { top: 0, selected: -1 }; t.find('mail-row:0')!.click!();
     expect(t.windows().find(s => s.win.cls === 'CWindowModelDMail')!.win.controls.find(c => c.name === 'body')!.text).toBe('Duel later?');
-    t.find('mail-reply')!.click!(); expect(calls.at(-1)).toBe('write 2');
+    t.find('mail-reply')!.click!(); t.find('compose-subject')!.text!('Re: Hi'); t.find('compose-body')!.text!('Sure'); t.find('compose-send')!.click!();
+    expect(calls.at(-1)).toBe('mail 2 Re: Hi Sure');
   });
   it('pointer: hover and pressed looks on the control under the pointer; a modal window takes the point', () => {
     const t = context(view({ scene: 'characters' })), specs = t.windows();

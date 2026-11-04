@@ -6,7 +6,6 @@
 // <input>s. A module main runs in pass mode draws buttons the engine clicks; their clicks are hit-tested here.
 import { makeLayer } from '@htmlui/bridge.js';
 import { backdrop } from '@htmlui/backdrop.js';
-import { cosmeticShop } from '@htmlui/cosmetic-shop.js';
 import select from '@htmlui/screens/select.js';
 import chat from '@htmlui/screens/chat.js';
 import lobby from '@htmlui/screens/lobby.js';
@@ -39,7 +38,6 @@ export class HtmlUiLayer {
   // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
   private box: HTMLElement;
   private bd: { frame(snap: { backdrop?: { shown: boolean } } | null): void } | null = null;
-  private cosmetics: { frame(snap: unknown, modern: boolean, wait: boolean, api: HtmlUiApi): void; destroy(): void } | null = null;
   private wantBackdrop = false; private scene = 0; private last: HtmlSnapshot | null = null; private tick: ReturnType<typeof setInterval> | null = null;
   private observer: ResizeObserver | null = null;
   private readonly api: HtmlUiApi;
@@ -79,7 +77,6 @@ export class HtmlUiLayer {
     const g = globalThis as { yo2Html?: unknown };
     if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false };
     this.place();
-    try { this.cosmetics = cosmeticShop(this.box); } catch (e) { console.warn('htmlui cosmetics', e); }
     this.tick = setInterval(() => this.pageModules(), 1000);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })
       .catch((e: unknown) => console.warn('htmlui', e));
@@ -118,11 +115,9 @@ export class HtmlUiLayer {
     this.host.hidden = !windows.length;
     this.pageModules();
   }
-  // main's page-level modules, as bridge.js runs them each frame: the cosmetic shop (Appearance, the wardrobe)
+  // each draw and each second: what main's screens drew late gets its tags
   private pageModules(): void {
     if (this.disposed) return;
-    const snap = this.last ?? { v: 1, frame: this.frame, scene: this.scene, mouse: null, focus: 0, windows: [], tasks: [], cursor: null };
-    try { this.cosmetics?.frame({ ...snap, scene: this.scene }, false, false, this.api); } catch (e) { console.warn('htmlui cosmetics', e); }
     // a screen may draw later than its update (lobby.js: the bar's keys once its atlas has loaded): tag again
     for (const spec of this.specs) { const root = this.roots.get(spec.win.id); if (root) this.tag(spec.win, root); }
   }
@@ -205,7 +200,6 @@ export class HtmlUiLayer {
     this.observer?.disconnect();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
     if (this.tick) clearInterval(this.tick);
-    this.cosmetics?.destroy();
     this.host.remove(); this.box.remove(); document.getElementById('mu-titlebg')?.remove();
   }
 }
