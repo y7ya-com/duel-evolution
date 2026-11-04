@@ -18,7 +18,12 @@ const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
 /** A swap never leaves either side with fewer cards than a deck needs (the owner's rule, 2026-10-30: below 40 the
  *  client keeps the player in Edit Deck); the trunk is the whole collection, decks only point into it. */
 export const TRADE_MIN_CARDS = 40;
-const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: soul-bound cards (your starter deck, or bought with your starting MP) can't be traded." };
+const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: soul-bound cards (your starter deck, or bought with your starting MP) can't be traded.",
+  fresh: `Trade cancelled: a character can give cards after ${PP.TRADE_GIVE_MIN_DUELS} rewarded duels.`,
+  cap: `Trade cancelled: an account can take in at most ${PP.TRADE_IN_DAY_MAX} more cards than it gives a day through trades.` };
+export type TradeResult = "done" | "missing" | "min" | "bound" | "fresh" | "cap";
+/** One trade that reached both confirmations, done or refused (the D1 ledger, db/audit.ts). */
+export interface TradeEntry { at: number; result: TradeResult; a: { acct: string; slot: number; name: string; gave: number[] }; b: { acct: string; slot: number; name: string; gave: number[] } }
 const s32 = (v: number) => new W().u32(v).bytes();
 const EMPTY: Uint8Array = new Uint8Array(0);
 const name16 = (t: string) => { const raw = Buffer.from([...String(t || "Duelista")].map((ch) => (ch.charCodeAt(0) > 255 ? "?" : ch)).join(""), "latin1").subarray(0, 15); const o = new Uint8Array(16); o.set(raw); return o; };
@@ -50,6 +55,8 @@ class Trade {
 
 export class Trades {
   private trades = new Map<number, Trade>();
+  /** Every confirmed trade, done or refused (do.ts writes it to D1's trade_log). */
+  ledger: ((e: TradeEntry) => void) | null = null;
   constructor(private g: Game) {}
 
   isTrading(s: Session): boolean { return s.pid !== null && this.trades.has(s.pid); }
@@ -66,11 +73,11 @@ export class Trades {
     else this.g.log(`[intercambio] 0x${mid.toString(16)} for pid ${pid}: no connection`);
   }
 
-  private withProfile<T>(s: Session, fn: (p: any) => T, save = false): T {
+  private withProfile<T>(s: Session, fn: (p: any, st: any) => T, save = false): T {
     return this.g.withCtx(s, () => {
       const st = this.g.loadState();
       const p = PP.profile(st, s.slot ?? PP.activeSlot(st))!;
-      const r = fn(p);
+      const r = fn(p, st);
       if (save) this.g.saveState(st);
       return r;
     });
@@ -83,21 +90,40 @@ export class Trades {
     try { return PP.cardOk(cid) ? this.withProfile(s, (p) => PP.int(p.trunk?.[String(cid)] ?? 0)) : 0; } catch { return 0; }
   }
 
-  /** The swap, checked and applied in one synchronous step (the WorldDO is single-threaded): true when done, false
-   *  when the cards aren't there, "bound" when a side offers soul-bound copies (PP.bindCards: only owned - bound move),
-   *  "min" when a side would be left with fewer than TRADE_MIN_CARDS. */
-  private execute(t: Trade): boolean | "min" | "bound" {
+  /** The swap, checked and applied in one synchronous step (the WorldDO is single-threaded), then put in the ledger.
+   *  "missing" when the cards aren't there, "bound" when a side offers soul-bound copies (PP.bindCards: only owned −
+   *  bound move), "fresh" when a giving character has fewer than TRADE_GIVE_MIN_DUELS rewarded duels, "cap" when an
+   *  account would take in more than TRADE_IN_DAY_MAX net cards today, "min" when a side would keep fewer than
+   *  TRADE_MIN_CARDS. The gate and the cap are the economy's (progression only). */
+  private execute(t: Trade): TradeResult {
+    const r = this.check(t);
+    const side = (s: Session, gave: number[]) => ({ acct: s.acct ?? "", slot: s.slot ?? -1, name: s.name ?? "", gave });
+    try { this.ledger?.({ at: this.g.clock.time(), result: r, a: side(t.a, t.offer.get(t.a.pid!)!), b: side(t.b, t.offer.get(t.b.pid!)!) }); }
+    catch (e) { this.g.log(`[intercambio] ledger: ${e}`); }
+    return r;
+  }
+  private check(t: Trade): TradeResult {
     const { a, b } = t;
     const giveA = [...t.offer.get(a.pid!)!], giveB = [...t.offer.get(b.pid!)!];
+    const econ = PP.progression();
     try {
       for (const [s, give, take] of [[a, giveA, giveB], [b, giveB, giveA]] as [Session, number[], number[]][]) {
         const need = new Map<number, number>();
         for (const x of give) need.set(x, (need.get(x) ?? 0) + 1);
-        const [have, bound] = this.withProfile(s, (p) => [{ ...(p.trunk ?? {}) }, { ...boundOf(p) }]);
-        for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return false;
+        const [have, bound, earned, tin] = this.withProfile(s, (p, st) =>
+          [{ ...(p.trunk ?? {}) }, { ...boundOf(p) }, PP.earnedDuels(p), PP.tradeInToday(this.g, st)] as const);
+        for (const [cid, n] of need) if (!PP.cardOk(cid) || PP.int(have[String(cid)] ?? 0) < n) return "missing";
         for (const [cid, n] of need) if (n > PP.int(have[String(cid)] ?? 0) - PP.int(bound[String(cid)] ?? 0)) {
           this.g.log(`[AVISO] [intercambio] pid ${s.pid} offers ${n} of ${cid}, ${bound[String(cid)]} of them soul-bound: cancelled`);
           return "bound";
+        }
+        if (econ && give.length && earned < PP.TRADE_GIVE_MIN_DUELS) {
+          this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) gives ${give.length} cards after ${earned} rewarded duels (< ${PP.TRADE_GIVE_MIN_DUELS}): cancelled`);
+          return "fresh";
+        }
+        if (econ && take.length > give.length && tin + take.length - give.length > PP.TRADE_IN_DAY_MAX) {
+          this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) would take in ${tin + take.length - give.length} net cards today (> ${PP.TRADE_IN_DAY_MAX}): cancelled`);
+          return "cap";
         }
         const after = Object.values(have).reduce((n: number, v) => n + PP.int(v), 0) - give.length + take.length;
         if (after < TRADE_MIN_CARDS) {
@@ -105,11 +131,14 @@ export class Trades {
           return "min";
         }
       }
-      const apply = (give: number[], take: number[]) => (p: any) => { PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio"); };
+      const apply = (give: number[], take: number[]) => (p: any) => {
+        PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio");
+        PP.tradeInAdd(this.g, p, take.length - give.length);
+      };
       this.withProfile(a, apply(giveA, giveB), true);
       this.withProfile(b, apply(giveB, giveA), true);
-    } catch (e) { this.g.log(`[intercambio] error moving the cards: ${e}`); return false; }
-    return true;
+    } catch (e) { this.g.log(`[intercambio] error moving the cards: ${e}`); return "missing"; }
+    return "done";
   }
 
   /** Offers are locked once either side pressed ready: what the other confirms is what it gets (LASTCONFIRM no unlocks). */
@@ -228,14 +257,14 @@ export class Trades {
       return;
     }
     if ([...t.confirm.values()].includes(null)) return;
-    const r = this.execute(t), done = r === true;
+    const r = this.execute(t), done = r === "done";
     t.phase = "done";
     for (const p of [a, b]) {
       this.to(t, p, M.LASTCONFIRMRESULT, Uint8Array.of(RESULT_DONE), c);
       this.to(t, p, M.TRADEEND, Uint8Array.of(done ? 1 : 0), c);
       if (done) this.sendTrunk(t, p, c);
       // why, as a server line in the chat (the trade screen has no text of its own for it)
-      if (r === "min" || r === "bound") { const x = CANCEL_TEXT[r]; this.to(t, p, 0x4402, new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(x, x.length + 1).bytes(), c); }
+      if (r !== "done" && r !== "missing") { const x = CANCEL_TEXT[r]; this.to(t, p, 0x4402, new W().u8(0).u8(1).u32(0).u32(2).s("Duel Evolution", 16).s(x, x.length + 1).bytes(), c); }
     }
   }
 

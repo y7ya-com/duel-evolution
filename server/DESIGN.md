@@ -153,6 +153,18 @@ INTENTIONAL):
   Existing `mp_bound` balances migrate idempotently into the wallet, including archived characters.
   The ledger persists in D1 `state_extras` without a schema migration. Existing balances with no provenance ledger
   are grandfathered as unbound: daily economy totals cannot reliably separate earlier grants from earned savings.
+- **Alt accounts can't feed a main** (owner, 2026-11-04: alts on VPN accounts moved 261 cards onto one main in four
+  days, relayed through a second account). `p.earned.duels` counts the duels that paid MP (estimated once for older
+  characters from their PvP games and NPC results). A character gives cards in a trade only from 20 rewarded duels
+  (`TRADE_GIVE_MIN_DUELS`; receiving needs none), and an account takes in at most 30 net cards a day through trades
+  (`TRADE_IN_DAY_MAX`; balanced swaps don't count). A one-off bind (`legacyBind`, `p.bind_v` 1) soul-binds the whole
+  trunk of every character under 20 rewarded duels at its first load: cards its free grant bought before soul-bound MP
+  were otherwise tradeable. Each refusal has its own chat line. Every confirmed trade, done or refused, goes to D1
+  `trade_log`; each game connection records the user's IP (an IPv6 /64), network and country in `login_ip` (90 days).
+  A daily cron (04:17 UTC, `db/audit.ts`) flags relays (A → B → C within 2 h), one-way flows (20+ net cards at 4:1),
+  accounts sharing an IP that trade, and repeated refusals, marks accounts seen only on hosting/VPN networks, keeps
+  the report in R2 (`GET /__trade-report`, admin) and posts a summary to `REPORT_WEBHOOK` when set. It flags; a
+  person decides.
 - **Login is the web session, not 0x3003** (see Auth).
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with

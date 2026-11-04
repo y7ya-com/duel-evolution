@@ -11,6 +11,7 @@ import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo, walletInfo } from "./game/starter.ts";
 import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
+import { recordTrade } from "./db/audit.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
@@ -51,6 +52,8 @@ export class WorldDO extends DurableObject<Env> {
         const up = upgradeCards(st);
         this.srv = buildServer(cfg, st, log);
         this.sink = attach(this.srv.game.store, db, { baseline: convert ? loaded : this.srv.game.store.peek() });
+        // the trade ledger (db/audit.ts): every confirmed trade, done or refused, as it happens
+        if (this.srv.game.tp) this.srv.game.tp.ledger = (e) => { void recordTrade(db, e).catch((err) => console.error(`[trade_log] ${err}`)); };
         loaded = null;
         if (up) {
           console.warn(`[d1] card ids to passcodes: ${up.already ? "already passcodes, marked" : `${up.profiles} profiles`}` +
