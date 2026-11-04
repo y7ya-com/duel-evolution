@@ -119,16 +119,17 @@ describe("bound-funded shop output", () => {
     expect(p.trunk[single.prm] - boundOf(p)[single.prm]).toBe(1);
   });
 
-  it("cosmetics consume bound MP without tainting subsequent purchases paid entirely with earned MP", async () => {
+  it("a withdrawn cosmetic id in the cart consumes no bound MP; the bound MP pays (and binds) the card", async () => {
     const { h, items, buy } = await setup();
-    const cosmetic = items.find((item) => item.kind === 2 && item.cost === 200)!;
+    // Wearables left the shop (cosmetic boxes only); their old catalogue ids stay reserved and unlisted.
+    expect(items.some((item) => item.kind === 2)).toBe(false);
+    const withdrawn = Math.max(...items.map((item) => item.iid)) + 9; // the old Plaster row
     const single = items.find((item) => item.kind === 0)!;
     mutate(h, (p) => { p.rec.mp = 500; p.mp_wallet.bound = 150; });
-    expect(await buy([cosmetic.iid, 1], [single.iid, 1])).toBe(0);
+    expect(await buy([withdrawn, 1], [single.iid, 1])).toBe(0);
     const p = prof(h);
-    expect(PP.pbinTest(p, cosmetic.prm)).toBe(true);
-    expect(count(boundOf(p))).toBe(0);
-    expect(PP.mpBalances(p)).toEqual({ total: 200, bound: 0, earned: 200 });
+    expect(boundOf(p)[single.prm]).toBe(1);
+    expect(PP.mpBalances(p)).toEqual({ total: 500 - single.cost, bound: 150 - single.cost, earned: 350 });
   });
 
   it("does not bind older earned copies when the inventory cap discards a bound-funded copy", async () => {

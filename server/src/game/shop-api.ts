@@ -9,6 +9,8 @@ import { shopCatalog, shopBuy } from "./shop.ts";
 import { STARTER_DECKS } from "./starter.ts";
 import { DECK_CARDS } from "../duel/data.ts";
 import { cardInternalId, cardRarity } from "./card-rarity.ts";
+import { BOXES, boxDisclosure } from "./cosmetics-catalog.ts";
+import { rankView } from "./ranking.ts";
 
 type Fail = { error: string; status: number };
 const fail = (error: string, status = 409): Fail => ({ error, status });
@@ -42,7 +44,14 @@ export function shopView(g: Game, user: string): Record<string, any> | Fail {
         name: kind === 0 ? DECK_CARDS[String(param)]?.[2] ?? `Card ${param}` : deck?.[0] ?? "",
         owned: kind === 2 && PP.pbinTest(p, param) };
     });
-    return { available: true, wallet, items, nextRequestId: ledger(g, s).token };
+    // Wearables are only obtained from cosmetic boxes: publish each box's pool per rarity (each item with
+    // its `bodies` and, if one body is missing, its notice) and its effective odds (renormalised over
+    // rarities with eligible items). The pool is the same for every body. Pity is per account: /__de/cosmetics.
+    const cosmeticBoxes = BOXES.map((box) => {
+      const { pool: _pool, ...odds } = boxDisclosure(box);
+      return { id: box.id, name: box.name, kinds: box.kinds, price: box.price, superAt: box.superAt, ultraAt: box.ultraAt, ...odds };
+    });
+    return { available: true, wallet, items, cosmeticBoxes, nextRequestId: ledger(g, s).token };
   });
 }
 export function shopPurchaseApi(g: Game, user: string, body: unknown): Record<string, any> | Fail {
@@ -100,7 +109,7 @@ export function shopPurchaseApi(g: Game, user: string, body: unknown): Record<st
         if (account && !account.closed) {
           const p = PP.profile(g.loadState(), s.slot!, false)!;
           for (const [id, data] of PP.trunkMessages(p)) account.post(id, data);
-          account.post(0x3114, PP.pbinBytes(p));
+          account.post(0x3114, PP.pbinBytes(p, rankView(p)));
         }
       }
     }

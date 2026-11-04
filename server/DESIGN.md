@@ -198,6 +198,101 @@ INTENTIONAL):
   Existing owners keep their items. Native wear-location restrictions remain enforced: the shop discloses each
   reward's supported world and the next opening's chance of a style wearable in the current world before payment.
   NPC chains retain card, title, recipe and other non-outfit rewards; future outfit rewards are retired.
+- **Rank uniforms follow a PvP rating, not LV** (`game/ranking.ts`, after duelforge's `ranking.ts`/`glicko2.ts`
+  and its world-protocol tier table). 2008 gated Ra Yellow at LV 10 and Obelisk Blue at LV 20. Now every finished
+  PvP match is one Glicko-2 rating period: a single duel, or a Bo3 as a whole. Players start at 1500/350/0.06, the
+  floor is 100, and they are placed after 5 rated results. Thresholds are duelforge's: Slifer Red below 1550, Ra
+  Yellow from 1550, Obelisk Blue from 1850, Master from 2150 (it wears what Obelisk wears).
+  - A higher school also unlocks the lower uniforms, as duelforge's `unlockedUniforms` does.
+  - Slifer Red is everyone's, unplaced Beginners included. It is the client's default Academy outfit: avatarValidate
+    resets to it.
+  - **Uniforms are kept for good** (owner, 2026-11-04). They follow `best`, the best school ever reached while
+    placed, not the current one: a demotion takes nothing back and re-dresses nobody. The rating, school and division
+    shown still go up and down; the school shown is demoted only 50 points below its threshold, so the badge does not
+    flicker.
+  - The "2" variants (Red/Yellow/Blue 2) follow the same schools and still have to be owned.
+  - Both worlds: a rated match is any finished PvP match (room, autoduel, direct invite, tournament) wherever it was
+    made, and the rank is the same in both. Rank uniforms are Academy outfits, worn in both worlds.
+  - Rating is per character slot (`p.rank`), not per account.
+  - NPC duels, free mode and server-restart voids are never rated.
+  - Draws count 0.5.
+  - Leaving costs the leaver rating: a surrender, a time-out, a disconnection past the grace period or leaving a
+    Bo3. If the match was also short (under 3 turns and 2 minutes), only the leaver is rated.
+  - After 5 rated results in one UTC day between the same two accounts, nothing more is rated that day.
+
+  **Graduated students** may wear any owned outfit in the Academy, Domino outfits included. It is a placeholder until
+  a story lets players finish the GX story and graduate. Owner, 2026-11-04: "it needs to be wins but not abusable
+  win trading with alts etc." A character graduates once it has **both** (`ranking.ts` "graduation", every number
+  a named constant there):
+  - **character LV 20** (`GRADUATION_LEVEL`): where the 2008 editor gave the last school's uniform. On the XP curve
+    (cap LV 30) it is 40,000 score, about 1,000 PvP wins. The LV XP is guarded like MP and the rating
+    (`persist.ts` `xpBlocked`, per game, with `ECON`'s numbers):
+    - a short game (under `PVP_MIN_TURNS` 3 turns and `PVP_MIN_S` 120 seconds: an instant surrender, disconnect or
+      time-out) gives the winner, or a draw, nothing. The loser still takes its normal penalty (0 to -16, never a
+      gain): leaving at once still costs, and costs only the leaver, as with the rating. A short game doesn't count
+      toward the pair cap;
+    - after `PAIR_DAY_MAX` (5) full-XP games in one UTC day against the same account, nobody gets XP from that pair
+      that day (`p.xp_pairs`, per character: LV is a character's);
+    - the same account on both sides gets no XP.
+  - **25 distinct qualifying opponents** (`GRAD_OPPONENTS`). A qualifying win (`gradQualifies`) is a rated match
+    win (so the rating's guards hold: not the same account, at most `RATED_PAIR_DAY_MAX` 5 a day per pair) that
+    isn't short, over an opponent who:
+    - was placed before the match (`GRAD_OPP_MIN_GAMES` = 5 rated results);
+    - has a DE account at least 7 days old (`GRAD_OPP_MIN_AGE_MS`). The age is better-auth's `user.createdAt` in D1,
+      which the Worker reads with the session check at the game WebSocket upgrade (`auth/binding.ts`
+      `CREATED_HEADER`). A game account claimed from 2008 counts from the DE user that claimed it. Unknown: no;
+    - shares none of the winner's network tags. The Worker sends the WorldDO an HMAC-SHA-256 (keyed with
+      `BETTER_AUTH_SECRET`, 16 hex) of the connection's IP bucket (`auth.ts` `ipBucketTag`: the IPv4 address, or
+      the IPv6 /64), `IPB_HEADER`. Each login adds it to the session (`hub.ts` `Session.ipbs`, the last 8, in
+      memory only). Unknown (the DEV parity bridge): no.
+    At most 3 qualifying wins count per opponent, ever (`GRAD_WINS_PER_OPP`). A new opponent counts only from a
+    network no counted opponent was on, so a ring of alts behind one IP is one opponent wherever the winner plays
+    from. The record is `p.grad = { opp: {key: wins}, net: [key], n }` per character (`state_extras`, no
+    migration). The keys are truncated SHA-256 of the account (12 hex) and of the network tag (8 hex): no account
+    id, IP or reusable tag is stored. New opponents stop at 25, so the record stays small.
+
+  Graduation is for good (`p.graduated = 1`, set by `gradUpdate` from `pvpXp` and from a counted win): LV can fall
+  back with lost score. An admin-set LV no longer graduates anyone. On 2026-11-04 production had 152 characters, the
+  highest LV 9, none at LV 20 and no `graduated` mark, so there were no graduates to carry over. It replaced a
+  "top 1%" ladder.
+
+  What this does **not** stop, and what could come next (not implemented):
+  - Many alts, each on its own network (VPNs, mobile data), each at least 7 days old and placed with 5 rated
+    games, each beaten up to 3 times. It costs 25 such accounts plus the main's ~1,000 guarded wins, but it is
+    possible.
+  - Account sharing or a bought/boosted account: the rules see accounts and networks, not people.
+  - Real friends throwing games for each other on their own networks.
+  - Legitimate opponents behind one carrier-grade NAT or household IP count as one network; such a player needs
+    other opponents.
+  Next steps could be: a minimum Discord account age, or a linked Discord account, for an opponent to count; requiring
+  that an opponent's own rated games be against several other accounts (not only the winner, or a closed ring);
+  weighting by the opponent's rating or RD; keeping a few network tags per account across sessions (today only the
+  match's sessions are compared); and an admin report of the opponents behind each graduation.
+
+  The record is `p.rank` per character, kept in D1 `state_extras` like `p.econ`, so it needs no migration. The
+  server enforces both rules wherever a look is accepted: the wardrobe API, the native 0x4170 and character select.
+  A look a player may not wear is not refused. Its outfit is replaced by the world's default, kept and shown that
+  way, and the player's own client gets a 0x4181. As unlocks and graduation are for good, a look accepted once is
+  never taken back. `/api/de/cosmetics` returns `rank`: rating, rd, games, wins, losses, draws, peak, placed,
+  school, division, label, placementLeft, `bestSchool`, `uniforms` (unlocked by `bestSchool`), `graduated`,
+  `graduationLevel` and `graduation: { level, levelRequired, opponents, opponentsRequired }` (progress). The 0x3114 bits tell the recompiled client the rank (`client/recomp/README.md`).
+- **Every look change reaches everyone in the block** (`test/look-visibility.test.ts`). The native 0x4170 (after the
+  world/rank check), the wardrobe's equip and appearance edits, character select and a world switch all update the
+  session's per-world looks (`partsW`, `parts`), the saved look (the duel, watch and log screens read it) and the
+  other players: a 0x4181 for each changed world, since the client keeps every player's look per world and draws its
+  own world's. The 2008 client never redraws a chibi already on screen from a 0x4181 (seen live 2026-11-04: the other
+  player kept the old look until it left and came back), so a changed look in the world the player is in also goes
+  to everyone in that world as a leave and a join (0x3112 op 0, op 1: new parts, same position and state;
+  `Hub.redraw`), which the client draws anew. An unchanged 0x4170 (room entry) sends neither. A 0x3112 join carries
+  the joiner's look for the receiver's world, as LIST2 does: one block lists both worlds' areas, and the client files
+  the parts under its own world.
+- **Afro I, II and III are one item, Afro** (owner, 2026-11-04): three sizes of one design, so they read as one
+  hairstyle in-game. Afro IV (with horns) stays its own item. Afro is common. It equips Afro I's row (male 10,
+  female 5) and owns all six rows, so a saved look with any size still validates. The ledger migrates once
+  (`merged: 1`): the old ids' ownership, copies, receipts and offer lines become Afro's and add up. Owning two or
+  three sizes was owning that many items, so each one past the first becomes a tradable copy. Legacy PBIN bits count
+  as ownership only, as before. In production on 2026-11-04 no ledger held an Afro and one character had the Afro I
+  bit.
 - **The HTML shop uses authenticated game APIs.** `/api/de/shop` lists the native catalogue and buys through the
   same validated purchase path, with persisted retry tokens. `/api/de/cosmetics` handles boxes, wardrobe, appearance
   and duplicate trades. The Worker verifies the session and mutation Origin; the WorldDO serializes mutations and

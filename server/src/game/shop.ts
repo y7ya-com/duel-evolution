@@ -30,6 +30,11 @@ const shopPrices = (g: Game): Record<string, number> =>
 const SHOP_AVATAR_TYPE = 2;
 const AVATAR_PRICES: Record<number, number> = { 1: 300, 2: 200, 3: 100, 4: 200, 5: 100, 6: 1000, 7: 300, 8: 1500, 9: 500 };
 const PRESENT_TEXT_IDS = new Set([3318, 3319, 3327, 3530, 3532, 3328, 3329, 3531, 3533, 3535, 3384, 3326, 3534]);
+/** avatar_pbin slots (column 4, names from yo2text_e): 1 hair, 2 face mark (None / Cheeks / Plaster), 3 nose, 4 eyes,
+ *  5 mouth, 6 outfit (Academy uniforms and character garms included), 7 back hair, 8 duel disk, 9 glasses. Wearables
+ *  come only from cosmetic boxes (and Academy outfits later from ranked play), so the shop sells none of them. Slots
+ *  3-5 are body features of the free appearance editor: every row is a default item, so nothing of theirs is listed. */
+export const WEARABLE_AVATAR_SLOTS: ReadonlySet<number> = new Set([1, 2, 6, 7, 8, 9]);
 function avatarShopItems(firstIid: number): Uint8Array[] {
   const items: Uint8Array[] = [];
   let iid = firstIid;
@@ -38,9 +43,11 @@ function avatarShopItems(firstIid: number): Uint8Array[] {
     if (!(kind === 1 || kind === 2) || !(slot >= 1 && slot <= 9)) continue;
     if (dflt) continue;
     if ((slot === 2 || slot === 9) && val === 0x20) continue;
-    // Preserve old IDs so a stale native cart can never buy a different item after the boxed categories retire.
+    // Every 2008 catalogue row keeps its item id (iid) even when withdrawn: a stale native or HTML cart naming it finds
+    // no row (skipped, never charged) and can never buy whatever item would otherwise have shifted into its id.
+    // Anything appended to the catalogue later must start after this reserved range.
     const itemId = iid++;
-    if ([1, 6, 7, 8].includes(slot)) continue;
+    if (WEARABLE_AVATAR_SLOTS.has(slot)) continue;
     const cost = (AVATAR_PRICES[slot] ?? 500) * (PRESENT_TEXT_IDS.has(text) ? 3 : 1);
     items.push(new W().u32(itemId).u8(SHOP_AVATAR_TYPE).u32(idx).u32(cost).u8(0).u8(0).u8(0).u8(0).bytes());
   }

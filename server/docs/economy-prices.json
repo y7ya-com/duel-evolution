@@ -1,0 +1,513 @@
+{
+  "version": 1,
+  "as_of": "2026-11-04",
+  "doc": "server/docs/ECONOMY.md",
+  "live_version": "4424274d (origin/t3/prepare-cosmetics-release, deployed 2026-11-03T23:35Z)",
+  "currency": "MP",
+  "benchmarks": {
+    "median_mp_per_duel_day": 525,
+    "p75_mp_per_duel_day": 1100,
+    "p90_mp_per_duel_day": 1975,
+    "source": "p.econ day counters, latest complete day per active account, n=44, 2026-10-29..11-03; lifetime model cross-check median 700/active day (upper bound)"
+  },
+  "admin_overrides_live": {
+    "shop_prices": {},
+    "admin_start": null
+  },
+  "packs": {
+    "sobre": {
+      "what": "booster, 5 cards drawn uniformly from the pack pool",
+      "ids": "1-45, 46-48",
+      "count": 48,
+      "current": 200,
+      "proposed": 200,
+      "median_days": 0.38,
+      "how": "admin price key `sobre` (or per pack id); no change needed"
+    },
+    "principiante": {
+      "what": "beginner pack, 5 cards",
+      "ids": [
+        1001,
+        1002,
+        1003
+      ],
+      "current": 100,
+      "proposed": 100,
+      "median_days": 0.19,
+      "how": "admin price key `principiante`; no change needed"
+    },
+    "estructura": {
+      "what": "structure deck, fixed 40-45 card list + recipe right (one free per character as the starter)",
+      "ids": [
+        7001,
+        7003,
+        7005,
+        8001,
+        8002,
+        8003,
+        8004,
+        8005,
+        8006
+      ],
+      "current": 1000,
+      "proposed": 1000,
+      "median_days": 1.9,
+      "how": "admin price key `estructura`; no change needed"
+    }
+  },
+  "single_cards": {
+    "what": "46 chosen cards (the 2008 list's first 40 + 6 pack-less singles): 31 N, 9 R, 5 SR, 1 UR",
+    "current": {
+      "all": 100
+    },
+    "proposed": {
+      "N": 100,
+      "R": 200,
+      "SR": 400,
+      "UR": 800
+    },
+    "priority": "optional, low",
+    "how": "code change: shop.ts single-card cost by card-rarity.ts cardRarity (the admin `carta` key is one flat price)"
+  },
+  "avatar_shop_items": {
+    "current": [
+      {
+        "slot": 2,
+        "what": "face mark (male bit 33)",
+        "count": 1,
+        "price": 200
+      },
+      {
+        "slot": 9,
+        "what": "glasses",
+        "count": 10,
+        "price": 500
+      },
+      {
+        "slot": 9,
+        "what": "glasses, x3 'present' design (text 3534, male bit 84 / female bit 342)",
+        "count": 2,
+        "price": 1500
+      }
+    ],
+    "proposed": "withdrawn from the native shop (as the in-progress shop.ts change does); the 3 glasses designs with both a male and a female row (text 3402, 3404, 3534) join the Head & Hair box; single-body rows stay owned where granted but are not sold"
+  },
+  "boxes": {
+    "hair": {
+      "id": {
+        "deployed": "hair",
+        "reworked": "head (alias hair)"
+      },
+      "name": {
+        "deployed": "Hair Box",
+        "reworked": "Head & Hair Accessory Box"
+      },
+      "price": {
+        "current": 500,
+        "reworked_placeholder": 500,
+        "proposed": 500
+      },
+      "odds": {
+        "current": {
+          "weights": {
+            "common": 60,
+            "rare": 30,
+            "super": 10,
+            "ultra": 0
+          },
+          "superAt": 10,
+          "ultraAt": null
+        },
+        "reworked_placeholder": {
+          "weights": {
+            "common": 79,
+            "rare": 15,
+            "super": 5,
+            "ultra": 1
+          },
+          "superAt": 10,
+          "ultraAt": null
+        },
+        "proposed": {
+          "weights": {
+            "common": 55,
+            "rare": 30,
+            "super": 11,
+            "ultra": 4
+          },
+          "superAt": 8,
+          "ultraAt": 15,
+          "note": "empty tiers renormalise away; ultra pity only when the pool has an ultra"
+        }
+      },
+      "pool": {
+        "deployed_live": {
+          "male": 8,
+          "female": 5
+        },
+        "reworked": {
+          "size": 7,
+          "common": 3,
+          "rare": 2,
+          "super": 1,
+          "ultra": 1,
+          "items": [
+            "hair:afro-1 c",
+            "hair:afro-2 c",
+            "hair:afro-3 r",
+            "hair:afro-4 s",
+            "accessory:green-specs c",
+            "accessory:sunglasses r",
+            "accessory:bakura u"
+          ]
+        },
+        "deployed_projected": {
+          "size": 7,
+          "common": 3,
+          "rare": 2,
+          "super": 2,
+          "ultra": 0,
+          "note": "accessory rarities assumed"
+        }
+      },
+      "expected_reworked_pool": {
+        "reworked_placeholder": {
+          "boxes_to_first_ultra": 46.3,
+          "boxes_to_complete": 51.8,
+          "boxes_to_complete_p90": 103,
+          "mp_to_complete": 25904,
+          "mp_per_new_item": 3701
+        },
+        "proposed": {
+          "boxes_to_complete": 16.7,
+          "mp_to_complete": 8346,
+          "mp_per_new_item": 1192
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_first_ultra": 10.9,
+          "boxes_to_complete": 13.6,
+          "boxes_to_complete_p90": 16,
+          "mp_to_complete": 6787,
+          "mp_per_new_item": 970,
+          "median_days_to_complete": 12.9,
+          "p75_days_to_complete": 6.2
+        }
+      },
+      "expected_deployed_projection": {
+        "live_box": {
+          "boxes_to_complete": 22.0,
+          "mp_to_complete": 10994
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_complete": 12.1,
+          "mp_to_complete": 6053
+        }
+      },
+      "median_days_per_box": 0.95
+    },
+    "dueldisk": {
+      "id": {
+        "deployed": "dueldisk",
+        "reworked": "dueldisk"
+      },
+      "name": {
+        "deployed": "Duel Disk Box",
+        "reworked": "Duel Disk Box"
+      },
+      "price": {
+        "current": 1000,
+        "reworked_placeholder": 1000,
+        "proposed": 1000
+      },
+      "odds": {
+        "current": {
+          "weights": {
+            "common": 60,
+            "rare": 30,
+            "super": 8,
+            "ultra": 2
+          },
+          "superAt": 10,
+          "ultraAt": 20
+        },
+        "reworked_placeholder": {
+          "weights": {
+            "common": 79,
+            "rare": 15,
+            "super": 5,
+            "ultra": 1
+          },
+          "superAt": 10,
+          "ultraAt": 20
+        },
+        "proposed": {
+          "weights": {
+            "common": 55,
+            "rare": 30,
+            "super": 11,
+            "ultra": 4
+          },
+          "superAt": 8,
+          "ultraAt": 15,
+          "note": "empty tiers renormalise away; ultra pity only when the pool has an ultra"
+        },
+        "proposed_if_seven_ultras_kept": {
+          "weights": {
+            "common": 55,
+            "rare": 30,
+            "super": 11,
+            "ultra": 4
+          },
+          "superAt": 8,
+          "ultraAt": 10
+        }
+      },
+      "rarity": {
+        "proposed": "at most 4 ultras: the Gold colourways (3417, 3451, 3455, 3459); Battle City Alpha / Alpha Silver / Alpha Black (3416, 3418, 3419) become super",
+        "reworked_pool": {
+          "size": 27,
+          "common": 11,
+          "rare": 6,
+          "super": 3,
+          "ultra": 7
+        },
+        "proposed_pool": {
+          "size": 27,
+          "common": 11,
+          "rare": 6,
+          "super": 6,
+          "ultra": 4
+        },
+        "deployed_pool": {
+          "size": 27,
+          "common": 8,
+          "rare": 11,
+          "super": 4,
+          "ultra": 4
+        }
+      },
+      "worlds_note": "12 disks equip only in Domino, 15 only in Academy",
+      "expected_reworked_pool": {
+        "reworked_placeholder": {
+          "boxes_to_first_ultra": 17.2,
+          "boxes_to_complete": 313.5,
+          "boxes_to_complete_p90": 482,
+          "mp_to_complete": 313468,
+          "mp_per_new_item": 11610
+        },
+        "proposed": {
+          "boxes_to_complete": 198.2,
+          "mp_to_complete": 198163
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_complete": 76.1,
+          "mp_to_complete": 76094
+        },
+        "proposed_golds_only_ultra_with_tier_dupe_protection": {
+          "boxes_to_first_ultra": 10.9,
+          "boxes_to_complete": 50.8,
+          "boxes_to_complete_p90": 61,
+          "mp_to_complete": 50801,
+          "mp_per_new_item": 1882,
+          "median_days_to_complete": 96.8,
+          "p75_days_to_complete": 46.2
+        }
+      },
+      "expected_deployed_projection": {
+        "live_box": {
+          "boxes_to_complete": 159.2,
+          "mp_to_complete": 159158
+        },
+        "proposed": {
+          "boxes_to_complete": 136.4,
+          "mp_to_complete": 136430
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_complete": 48.6,
+          "mp_to_complete": 48601
+        }
+      },
+      "median_days_per_box": 1.9,
+      "fallback_without_protection": "one disk box per world (Domino 12 / Academy 15)"
+    },
+    "outfit": {
+      "id": {
+        "deployed": "outfit",
+        "reworked": "outfit"
+      },
+      "name": {
+        "deployed": "Outfit Box",
+        "reworked": "Outfit Box"
+      },
+      "price": {
+        "current": 1500,
+        "reworked_placeholder": 1500,
+        "proposed": 1200
+      },
+      "odds": {
+        "current": {
+          "weights": {
+            "common": 60,
+            "rare": 30,
+            "super": 8,
+            "ultra": 2
+          },
+          "superAt": 10,
+          "ultraAt": 20
+        },
+        "reworked_placeholder": {
+          "weights": {
+            "common": 79,
+            "rare": 15,
+            "super": 5,
+            "ultra": 1
+          },
+          "superAt": 10,
+          "ultraAt": 20
+        },
+        "proposed": {
+          "weights": {
+            "common": 55,
+            "rare": 30,
+            "super": 11,
+            "ultra": 4
+          },
+          "superAt": 8,
+          "ultraAt": 15,
+          "note": "empty tiers renormalise away; ultra pity only when the pool has an ultra"
+        }
+      },
+      "pool": {
+        "reworked": {
+          "size": 6,
+          "common": 4,
+          "rare": 0,
+          "super": 1,
+          "ultra": 1,
+          "items": [
+            "outfit:street-red c",
+            "outfit:street-2 c",
+            "outfit:street-3 c",
+            "outfit:black-suit c",
+            "outfit:qualifier-robe s",
+            "outfit:marik u"
+          ]
+        },
+        "deployed_projected": {
+          "size": 6,
+          "common": 3,
+          "rare": 1,
+          "super": 1,
+          "ultra": 1
+        }
+      },
+      "expected_reworked_pool": {
+        "reworked_placeholder": {
+          "boxes_to_first_ultra": 17.0,
+          "boxes_to_complete": 18.9,
+          "mp_to_complete": 28341,
+          "mp_per_new_item": 4723
+        },
+        "proposed": {
+          "boxes_to_complete": 14.1,
+          "mp_to_complete": 16956
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_first_ultra": 9.9,
+          "boxes_to_complete": 11.8,
+          "boxes_to_complete_p90": 15,
+          "mp_to_complete": 14147,
+          "mp_per_new_item": 2358,
+          "median_days_to_complete": 26.9,
+          "p75_days_to_complete": 12.9
+        }
+      },
+      "expected_deployed_projection": {
+        "live_box": {
+          "boxes_to_complete": 18.3,
+          "mp_to_complete": 27411
+        },
+        "proposed_with_tier_dupe_protection": {
+          "boxes_to_complete": 13.1,
+          "mp_to_complete": 15718
+        }
+      },
+      "median_days_per_box": 2.3
+    }
+  },
+  "box_rules": {
+    "duplicates": {
+      "current": "item drawn uniformly within the rolled tier; a duplicate becomes a tradeable copy (no refund)",
+      "proposed": "draw among the rolled tier's UNOWNED items while any remain, else as now (tradeable copy)"
+    },
+    "currency": {
+      "current": "earned MP only",
+      "proposed": "earned MP only"
+    },
+    "avoid": "superAt == ultraAt (the counters collide: outfit p90 31-42 boxes)",
+    "full_wardrobe_mp": {
+      "deployed_live_boxes_projected_pools": 197563,
+      "reworked_placeholders": 367713,
+      "proposed_reworked_pools_protection_golds_only": 71735,
+      "proposed_deployed_projection_protection": 70372
+    }
+  },
+  "faucets": {
+    "START_MP": {
+      "current": 5000,
+      "proposed": 5000,
+      "note": "soul-bound for characters created since 2026-11-02 only"
+    },
+    "NPC_WIN": {
+      "current": 150,
+      "proposed": 150
+    },
+    "NPC_LOSS": {
+      "current": 50,
+      "proposed": 50
+    },
+    "PVP_WIN": {
+      "current": 250,
+      "proposed": 250
+    },
+    "PVP_LOSS": {
+      "current": 100,
+      "proposed": 100
+    },
+    "FIRST_WIN": {
+      "current": 300,
+      "proposed": 300
+    },
+    "SOFT_CAP": {
+      "current": 40,
+      "proposed": 40
+    },
+    "SOFT_RATE": {
+      "current": 0.25,
+      "proposed": 0.25
+    },
+    "PAIR_DAY_MAX": {
+      "current": 5,
+      "proposed": 5
+    }
+  },
+  "other": {
+    "trades": {
+      "current": "no MP changes hands (cards, cosmetic copies)",
+      "proposed": "unchanged"
+    },
+    "soulbound_migration": {
+      "proposed": "one-off: mp_wallet.bound = mp for characters with rec.duels == 0, nothing bound and 0 < mp <= 5000",
+      "affects": {
+        "characters": 69,
+        "mp": 330750,
+        "accounts": 64
+      },
+      "decision": "owner"
+    }
+  },
+  "catalog_snapshots": {
+    "deployed": "HEAD 5d9295a (origin/t3/prepare-cosmetics-release)",
+    "reworked": "working-tree src/game/cosmetics-catalog.ts, 2026-11-04 ~10:50Z, mid-edit"
+  }
+}

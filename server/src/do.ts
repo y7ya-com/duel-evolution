@@ -17,6 +17,8 @@ import type { State } from "./game/store.ts";
 import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel } from "./game/cosmetics.ts";
 import { shopView, shopPurchaseApi } from "./game/shop-api.ts";
 import { chatGet, chatSend } from "./game/chat.ts";
+import { rankLookup, RANK_MAX_AGE } from "./game/rank-api.ts";
+import { CREATED_HEADER, IPB_HEADER } from "./auth/binding.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -133,6 +135,15 @@ export class WorldDO extends DurableObject<Env> {
       return "error" in out ? Response.json(out, { status: 400 }) : Response.json(out.ok);
     }
     if (this.srv.game.restarting) return new Response("server restarting", { status: 503, headers: { "Retry-After": "10" } });
+    if (url.pathname === "/__de/rank") {
+      // GET /api/de/rank?pid=|name=|self=1 (game/rank-api.ts): public ranked standings; the browser may keep one briefly
+      if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+      const r = await new Promise<ReturnType<typeof rankLookup>>((res) =>
+        this.srv.world.run(() => { try { res(rankLookup(this.srv.game, request.headers.get("x-de-user"), url.searchParams)); } catch (e) { console.error(`[rank] ${e}`); res({ error: "server error", status: 500 }); } }));
+      const failed = "error" in r, body = failed ? { error: r.error, ...(r.retryAfter ? { retryAfter: r.retryAfter } : {}) } : r;
+      return Response.json(body, { status: failed ? r.status : 200, headers: failed && r.status === 429
+        ? { "Cache-Control": "no-store", "Retry-After": String(r.retryAfter ?? 1) } : { "Cache-Control": failed ? "no-store" : `private, max-age=${RANK_MAX_AGE}` } });
+    }
     if (/^\/__de\/(cosmetics|shop|chat)(?:\/|$)/.test(url.pathname)) {
       const user = request.headers.get("x-de-user");
       if (!user) return Response.json({ error: "signed out" }, { status: 401 });
@@ -279,8 +290,11 @@ export class WorldDO extends DurableObject<Env> {
     // x-de-user: the DE account's user id, set by the Worker after checking the session (null only on the parity bridge)
     // ?sid= (32 hex, the client's tunnel id) and &resume=1 after a drop: world.ts holds and hands over its sockets
     const sid = /^[0-9a-f]{32}$/.test(url.searchParams.get("sid") ?? "") ? url.searchParams.get("sid") : null;
+    // x-de-ipb / x-de-user-created (auth/binding.ts, always the Worker's): the keyed IP-bucket tag and the user's age, for graduation
+    const made = Number(request.headers.get(CREATED_HEADER) ?? NaN);
     world.openPeer(id, request.headers.get("x-de-user"), (s) => { try { ws.send(s); } catch { /* closing */ } },
-      (b) => { try { ws.send(b); return true; } catch { return false; } }, sid, url.searchParams.get("resume") === "1");
+      (b) => { try { ws.send(b); return true; } catch { return false; } }, sid, url.searchParams.get("resume") === "1",
+      { ipb: request.headers.get(IPB_HEADER), userCreated: Number.isFinite(made) && made > 0 ? made : null });
     ws.addEventListener("message", (e) => {
       if (this.srv.game.restarting) return;
       if (typeof e.data === "string") world.onText(id, e.data);

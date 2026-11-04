@@ -10,6 +10,7 @@ import { connBlockKey, roomOfPort } from "./gate.ts";
 import { baseKey, keyPort, PID_BASE, type BlockKey, type Session } from "./hub.ts";
 import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
+import { lawfulLook } from "./cosmetics.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
 import { channelFor, sendChat } from "./chat.ts";
@@ -366,7 +367,7 @@ export class Lobby {
     const inv: Invite = { room: r, a, b };
     this.mem.invites.set(a.pid, inv);
     this.post(aConn, 0x3113, this.roomEntry(r));
-    this.post(aConn, 0x3112, this.g.hub.stateMsgAs(b, ROOM_STATE));
+    this.post(aConn, 0x3112, this.g.hub.stateMsgAs(b, ROOM_STATE, a));
     this.log(`[lobby] duel invite: ${a.acct} -> ${b.acct} (private room ${r.id})`);
     this.later(INVITE_TTL, () => { if (this.mem.invites.get(a.pid!) === inv && !this.mem.challenges.has(r.id)) this.dropInvite(inv); });
     return [200, { ok: true, room: r.id }];
@@ -384,7 +385,7 @@ export class Lobby {
     const aConn = inv.a.lobby;
     if (!aConn || aConn.closed) return;
     this.post(aConn, 0x3113, this.roomEntry({ ...inv.room, p1: 0, p2: 0 }));
-    if (inv.b.lobby && !inv.b.lobby.closed && this.g.hub.others(inv.a).includes(inv.b)) this.post(aConn, 0x3112, this.g.hub.stateMsg(inv.b, false));
+    if (inv.b.lobby && !inv.b.lobby.closed && this.g.hub.others(inv.a).includes(inv.b)) this.post(aConn, 0x3112, this.g.hub.stateMsg(inv.b, false, inv.a));
   }
   /** a challenge ended: an invite's room dropped; declined or unanswered, a cooldown before the same challenge */
   private inviteEnded(ch: Challenge, cool: boolean) {
@@ -1025,9 +1026,12 @@ function avatarInfo(g: Game, pid: number): Uint8Array {
   return new W().u32(0).u32(pid).s(myName(g), 16).u16(400).u16(300).u8(0).bytes();
 }
 
-function avatarOk(g: Game, parts: Uint8Array): boolean {
-  try { const st = g.loadState(); const p = PP.profile(st, PP.activeSlot(st), false); return !p || PP.avatarOwned(p, parts); }
-  catch { return true; }
+/** 0x4170's look against this character: ownership, then the world and rank rules (cosmetics.ts lawfulLook). */
+function avatarCheck(g: Game, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
+  try {
+    const st = g.loadState(), p = PP.profile(st, PP.activeSlot(st), false);
+    return p ? lawfulLook(p, world, parts) : { owned: true, changed: false, parts };
+  } catch { return { owned: true, changed: false, parts }; }
 }
 
 function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
@@ -1040,11 +1044,22 @@ function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
 export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data: Uint8Array): void {
   if (msgId === 0x3001 || msgId === 0x3003) return g.gameReply(c, msgId, param, data);
   if (FREE.refuse(g, c, msgId, data)) return;
-  if (msgId === 0x4170 && data.length >= 20 && c.sess && !avatarOk(g, data.subarray(4, 20))) {   // before anyone sees it
-    // answered like a stored look (an error might cut the client's room entry): nothing is kept or shown to others
-    g.log(`[avatar] 0x4170 with items this character doesn't own: not kept`);
-    c.send(0x4171, new W().u32(0).bytes());
-    return;
+  let corrected: Uint8Array | null = null;
+  if (msgId === 0x4170 && data.length >= 20 && c.sess) {   // before anyone sees it
+    const look = avatarCheck(g, u32(data) & 0xff, data.subarray(4, 20));
+    if (!look.owned) {
+      // answered like a stored look (an error might cut the client's room entry): nothing is kept or shown to others
+      g.log(`[avatar] 0x4170 with items this character doesn't own: not kept`);
+      c.send(0x4171, new W().u32(0).bytes());
+      return;
+    }
+    if (look.changed) {
+      // a part the world or rank rule forbids (a Domino outfit in the Academy for a student not graduated, a school
+      // uniform never reached): the slot's default is kept and shown instead, and the player's client told so below
+      g.log(`[avatar] 0x4170 with parts the world or rank rule forbids: kept with the defaults`);
+      data = cat(data.subarray(0, 4), look.parts, data.subarray(20));
+      corrected = look.parts;
+    }
   }
   try {
     if (msgId === 0x4100 && c.sess) {
@@ -1054,6 +1069,7 @@ export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data:
     }
     g.hub.onLobbyMsg(c, msgId, data);
   } catch (e) { g.log(`[hub] 0x${msgId.toString(16)}: ${e}`); }
+  if (corrected) c.send(0x4181, cat(new W().u32(myPid(g)).u32(u32(data)).bytes(), corrected));   // its own look, as kept
   if (g.lp.handle(c, msgId, param, data)) return;
   if (msgId === 0x4170 && data.length >= 4) g.avState.world = u32(data);
   if (g.ph && g.phLobby.has(msgId)) {

@@ -3,6 +3,7 @@ import { harness } from "./notes-harness.ts";
 import { shopView, shopPurchaseApi } from "../src/game/shop-api.ts";
 import * as PP from "../src/game/persist.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
+import { BODY_WIP_NOTICE, BOX_BODY_NOTICE } from "../src/game/cosmetics-catalog.ts";
 
 afterEach(() => PP.setProgression(false));
 async function setup() {
@@ -21,6 +22,44 @@ describe("authenticated HTML card shop", () => {
     expect(v.items.find((i: any) => i.kind === 1 && i.param === 1).price).toBe(200);
     expect(v.items.some((i: any) => i.category === "singles" && i.internalId > 0 && i.rarity)).toBe(true);
     expect(v.items.filter((i: any) => i.kind === 2).every((i: any) => i.category === "accessories")).toBe(true);
+  });
+  it("discloses every cosmetic box's pool per rarity and its effective, renormalised odds", async () => {
+    const boxes = (await setup()).view().cosmeticBoxes;
+    expect(boxes.map((b: any) => b.id)).toEqual(["head", "dueldisk", "outfit"]);
+    for (const box of boxes) {
+      expect(box.available).toBe(true);
+      expect(Object.values(box.baseOdds as Record<string, number>).reduce((a, b) => a + b, 0)).toBeCloseTo(100);
+      for (const [tier, row] of Object.entries(box.poolByRarity as Record<string, any>)) {
+        expect(row.ids).toHaveLength(row.count);
+        expect(row.odds).toBe(row.count ? box.baseOdds[tier] : 0);
+      }
+    }
+    const outfit = boxes.find((b: any) => b.id === "outfit");
+    expect(outfit.poolByRarity.rare.ids).toEqual(["outfit:black-suit", "outfit:joey"]);
+    expect(outfit.poolByRarity.ultra.ids).toEqual(["outfit:yugi", "outfit:marik", "outfit:tea"]);
+    expect(boxes.find((b: any) => b.id === "head").poolByRarity.common.ids).toContain("accessory:green-specs");
+  });
+  it("discloses which bodies can wear each pool item, with the work-in-progress notices", async () => {
+    const boxes = (await setup()).view().cosmeticBoxes;
+    const items = (box: any) => Object.values(box.poolByRarity as Record<string, any>).flatMap((row: any) => row.items);
+    for (const box of boxes) {
+      for (const row of Object.values(box.poolByRarity as Record<string, any>)) {
+        expect(row.items.map((i: any) => i.id)).toEqual(row.ids);
+        expect(row.singleBody).toBe(row.items.filter((i: any) => i.bodies.length === 1).length);
+      }
+      for (const item of items(box)) {
+        expect(item.bodies.length).toBeGreaterThan(0);
+        if (item.bodies.length === 2) expect(item.notice).toBeUndefined();
+        else expect(item.notice).toBe(BODY_WIP_NOTICE[item.bodies[0] === "male" ? "female" : "male"]);
+      }
+      expect(box.notice).toBe(box.singleBody ? BOX_BODY_NOTICE : undefined);
+    }
+    const outfit = boxes.find((b: any) => b.id === "outfit");
+    expect(items(outfit).find((i: any) => i.id === "outfit:kaiba")).toMatchObject({ bodies: ["male"], notice: BODY_WIP_NOTICE.female });
+    expect(items(outfit).find((i: any) => i.id === "outfit:punk-red")).toMatchObject({ bodies: ["female"], notice: BODY_WIP_NOTICE.male });
+    expect(items(outfit).find((i: any) => i.id === "outfit:marik")).toMatchObject({ name: "Rare Hunter Cloak", bodies: ["male", "female"] });
+    expect(boxes.find((b: any) => b.id === "dueldisk")).toMatchObject({ singleBody: 0 });
+    expect(boxes.find((b: any) => b.id === "dueldisk").notice).toBeUndefined();
   });
   it("retries a purchase across a D1 roundtrip without charging or granting twice", async () => {
     const f = await setup(), v = f.view(), item = v.items.find((i: any) => i.kind === 1 && i.param === 1);

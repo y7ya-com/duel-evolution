@@ -9,6 +9,7 @@ import { buildServer, type Server } from "../src/server.ts";
 import { pack, Reader, xor, type Msg } from "../src/net/proto.ts";
 import { encrypt } from "../src/util/cifrado.ts";
 import type { State } from "../src/game/store.ts";
+import type { PeerMeta } from "../src/world.ts";
 
 export const u32 = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at);
 export const i32 = (d: Uint8Array, at = 0) => new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(at);
@@ -154,7 +155,7 @@ export class Harness {
   }
   get game() { return this.srv.game; }
   /** A client on its own WebSocket; userId null = the DEV legacy login with the 32 B blob of (user, pw). */
-  client(name: string, user = name, pw = "pw", userId: string | null = null): Client {
+  client(name: string, user = name, pw = "pw", userId: string | null = null, meta: PeerMeta = {}): Client {
     const id = `ws${++this.n}`;
     const c = new Client(this, name, id, encrypt(user, pw));
     this.srv.world.openPeer(id, userId,
@@ -163,7 +164,7 @@ export class Harness {
         if (m.type === "open") c.openStatus.set(m.id, m.status);
         if (m.type === "close") { const l = c.links.get(m.id); if (l) l.closedByServer = true; }
       },
-      (b) => { const sock = u32(b, 1); c.links.get(sock)?.rx(b.subarray(5)); return true; });
+      (b) => { const sock = u32(b, 1); c.links.get(sock)?.rx(b.subarray(5)); return true; }, null, false, meta);
     return c;
   }
   async tick(ms = 50) { await vi.advanceTimersByTimeAsync(ms); }

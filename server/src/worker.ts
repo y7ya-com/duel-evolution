@@ -187,7 +187,7 @@ routes.post("/api/de/duel/challenge", async (c) => {
 // Shared card classifications contain no account data and are independent of random box rarities.
 routes.get("/api/de/card-rarities", (c) => c.json(cardRarityCatalog(), 200, { "Cache-Control": "public, max-age=1800" }));
 
-// Game shop, wardrobe and chat are authenticated here; mutations additionally require our Origin.
+// Game shop, wardrobe, chat and rank lookups (game/rank-api.ts) are authenticated here; mutations additionally require our Origin.
 const gameFeature = async (c: Context<E>) => {
   if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
@@ -196,7 +196,7 @@ const gameFeature = async (c: Context<E>) => {
   const url = new URL(c.req.url);
   return toWorld(c.env, c.req.raw, "/__de/" + url.pathname.slice("/api/de/".length) + url.search, fwd);
 };
-for (const feature of ["cosmetics", "shop", "chat"]) {
+for (const feature of ["cosmetics", "shop", "chat", "rank"]) {
   routes.on(["GET", "POST"], `/api/de/${feature}`, gameFeature);
   routes.on(["GET", "POST"], `/api/de/${feature}/*`, gameFeature);
 }

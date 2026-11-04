@@ -157,6 +157,14 @@ export function ipBucket(ip: string): string {
   return all.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 
+/** A keyed hash of a request's ipBucket (HMAC-SHA-256 under `key`, 16 hex), for the game session (hub.ts Session.ipbs):
+ *  never the IP itself, never stored, and not reversible by hashing the IPv4 space without the key. */
+export async function ipBucketTag(ip: string, key: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`de-ipb|${key}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const d = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(ipBucket(ip))));
+  return [...d.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function sha256hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -168,12 +176,15 @@ export async function rolesOf(db: D1Database, userId: string): Promise<Role[]> {
   return results.map((r) => r.role);
 }
 
-export interface Verified { userId: string; roles: Role[]; /** the sign-in name as shown (username plugin), else the display name */ name: string }
+export interface Verified { userId: string; roles: Role[]; /** the sign-in name as shown (username plugin), else the display name */ name: string;
+  /** user.createdAt (ms): when the DE account was made (graduation's opponent age, ranking.ts GRAD_OPP_MIN_AGE_MS) */ createdAt: number | null }
 
 /** The signed-in DE user behind this request's session cookie, or null. */
 export async function verifySession(request: Request, env: AuthEnv): Promise<Verified | null> {
   const s = await makeAuth(env).api.getSession({ headers: request.headers }).catch(() => null);
   if (!s) return null;
   const u = s.user as { displayUsername?: string | null; username?: string | null; name: string };
-  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id), name: u.displayUsername || u.username || u.name };
+  const made = new Date(s.user.createdAt as unknown as string | number | Date).getTime();
+  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id), name: u.displayUsername || u.username || u.name,
+    createdAt: Number.isFinite(made) ? made : null };
 }

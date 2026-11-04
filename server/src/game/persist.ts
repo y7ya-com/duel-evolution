@@ -11,6 +11,7 @@ import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 import { freeTrunk, isFree } from "./freemode.ts";
 import { expandCosmeticBits } from "./cosmetics-catalog.ts";
+import { gradUpdate, PBIN_GRADUATED, PBIN_RANKED, RANK_UNIFORM_BY_BIT, rankView, uniformAllowed, type RankSchool } from "./ranking.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
@@ -405,9 +406,19 @@ export const pbinType = (bit: number) => PBIN_TYPES[String(int(bit))] ?? 0;
 export const defaultPbinBits = () => (GD.default_pbin_bits as number[]).slice();
 export const NPC_PRIZE_BITS = GD.npc_prize_bits as Record<string, Record<string, number>>;
 
-export function pbinBytes(p: P): Uint8Array {
+/** The 0x3114 bytes. With `rank` (the character's rankView), as the live client gets them: the rank uniforms of a
+ *  school never reached are cleared (the stored bits stay), PBIN_RANKED is set (the recompiled editor then lists
+ *  uniforms by these bits instead of by LV) and PBIN_GRADUATED for a graduated student (any owned outfit in the
+ *  Academy). */
+export function pbinBytes(p: P, rank?: { bestSchool: RankSchool; graduated: boolean }): Uint8Array {
   const arr = new Uint8Array(PBIN_SIZE);
   for (const b of p.pbin ?? []) if (b >= 0 && b < PBIN_SIZE * 8) arr[b >> 3] |= 1 << (b & 7);
+  if (rank) {
+    for (const b of RANK_UNIFORM_BY_BIT.keys()) if (!uniformAllowed(b, rank.bestSchool)) arr[b >> 3] &= ~(1 << (b & 7));
+    for (const b of [PBIN_RANKED, PBIN_GRADUATED]) arr[b >> 3] &= ~(1 << (b & 7));
+    arr[PBIN_RANKED >> 3] |= 1 << (PBIN_RANKED & 7);
+    if (rank.graduated) arr[PBIN_GRADUATED >> 3] |= 1 << (PBIN_GRADUATED & 7);
+  }
   return arr;
 }
 export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit));
@@ -903,9 +914,38 @@ export function xpNewLevel(oldLv: number, oldScore: number, newScore: number, du
   return byNew;
 }
 
-export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matchResult: string | null = null, last = true, myLv: number | null = null): P | null {
+/** The XP guard (owner, 2026-11-04: "wins but not abusable win trading"), the MP rule (mpReward) applied to LV, per
+ *  PvP game. `me`/`opp`: the two game accounts; `turns`/`secs`: the game's length; `now`: ms.
+ *  - the same account on both sides: no XP either way ("self");
+ *  - past ECON.PAIR_DAY_MAX full-XP games this UTC day against the same account: no XP either way ("pair cap"). The
+ *    count is the character's (p.xp_pairs, D1 state_extras): LV is a character's;
+ *  - a short game (under ECON.PVP_MIN_TURNS turns AND ECON.PVP_MIN_S seconds: an instant surrender, a disconnect, a
+ *    time-out at once): nothing for the winner or a draw ("short"). The loser keeps its normal penalty (0 to -16, never
+ *    a gain), as the rating rates a short forfeit's leaver: quitting at once still costs, and costs only the quitter.
+ *    A short game doesn't count toward the pair cap. */
+export type XpGuard = { me: string | null; opp: string | null; turns: number; secs: number; now: number };
+const xpDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+function xpPairs(p: P, day: string): Record<string, number> {
+  if (p.xp_pairs?.day !== day || !p.xp_pairs?.n || typeof p.xp_pairs.n !== "object") p.xp_pairs = { day, n: {} };
+  return p.xp_pairs.n;
+}
+/** Why this game gives `result`'s side no XP ("self", "pair cap", "short"), or null for the normal delta. */
+export function xpBlocked(p: P, guard: XpGuard, result: string): string | null {
+  if (guard.me !== null && guard.me === guard.opp) return "self";
+  if (guard.opp && int0(xpPairs(p, xpDay(guard.now))[guard.opp]) >= ECON.PAIR_DAY_MAX) return "pair cap";
+  if (guard.turns < ECON.PVP_MIN_TURNS && guard.secs < ECON.PVP_MIN_S) return result === "lose" ? null : "short";
+  return null;
+}
+
+export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matchResult: string | null = null, last = true, myLv: number | null = null,
+  guard: XpGuard | null = null): P | null {
   if (!XP_ON) return null;
   const r = (p.rec ??= {});
+  const why = guard ? xpBlocked(p, guard, result) : null;
+  if (why) { const lv = int((r.lv ?? 1) || 1); return { delta: 0, score: int(r.score ?? 0), lv_old: lv, lv, why }; }
+  if (guard?.opp && !(guard.turns < ECON.PVP_MIN_TURNS && guard.secs < ECON.PVP_MIN_S)) {
+    const n = xpPairs(p, xpDay(guard.now)); n[guard.opp] = int0(n[guard.opp]) + 1;
+  }
   const pv = (p.pvp ??= {});
   const nBefore = "n" in pv ? int(pv.n) : int(r.duels ?? 0);
   pv.n = nBefore + 1;
@@ -915,6 +955,7 @@ export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matc
   const sNew = Math.max(0, Math.min(sOld + delta, 0xffffffff));
   r.score = sNew;
   r.lv = Math.max(1, Math.min(255, xpNewLevel(lvOld, sOld, sNew, pv.n)));
+  gradUpdate(p);   // ranking.ts: LV GRADUATION_LEVEL and enough qualifying opponents; for good, though LV can fall back
   return { delta, score: sNew, lv_old: lvOld, lv: r.lv };
 }
 
@@ -997,7 +1038,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       pendingClear(p);
       starterRecipeFix(g, p);
       g.saveState(st);
-      c.send(0x3114, pbinBytes(p));
+      c.send(0x3114, pbinBytes(p, rankView(p)));
       c.send(0x4234, npcbinBytes(p));
     },
     h_pselect(c: Conn, data: Uint8Array) {

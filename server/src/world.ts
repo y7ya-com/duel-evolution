@@ -21,9 +21,12 @@ export interface Services {
   onControl?(c: Conn, msgId: number, data: Uint8Array): void;
 }
 
+/** What the Worker knows of a WebSocket beyond its user (auth/binding.ts): the keyed IP-bucket tag, the user's creation time. */
+export type PeerMeta = { ipb?: string | null; userCreated?: number | null };
 interface Peer {
   id: string;
   userId: string | null;
+  meta: PeerMeta;
   sendText(s: string): void;
   sendBinary(b: Uint8Array): boolean;
   socks: Map<number, VSock>;
@@ -84,8 +87,8 @@ export class World implements ConnHost {
   /** userId: the signed-in DE user the Worker bound to this WebSocket (null only on the DEV parity bridge). sid: the
    *  client's tunnel id, for a resume after a drop; a resume (resume=true) only takes it over once it succeeds. */
   openPeer(id: string, userId: string | null, sendText: (s: string) => void, sendBinary: (b: Uint8Array) => boolean,
-    sid: string | null = null, resume = false): void {
-    const p: Peer = { id, userId, sendText, sendBinary, socks: new Map(), sid, held: null };
+    sid: string | null = null, resume = false, meta: PeerMeta = {}): void {
+    const p: Peer = { id, userId, meta, sendText, sendBinary, socks: new Map(), sid, held: null };
     this.peers.set(id, p);
     if (sid && !resume) this.sids.set(sid, p);
   }
@@ -140,6 +143,7 @@ export class World implements ConnHost {
       const kept = rx === undefined ? null : this.after(vs, rx);
       if (!kept || p.socks.has(vs.id)) { this.enqueue(old, vs, { eof: true }); continue; }
       vs.peer = p;
+      this.netOf(vs.conn, p);
       p.socks.set(vs.id, vs);
       back.push({ id: vs.id, rx: vs.rx });
       again.push([vs, kept]);
@@ -147,6 +151,12 @@ export class World implements ConnHost {
     p.sendText(JSON.stringify({ type: "resumed", socks: back }));
     for (const [vs, b] of again) if (b.length) p.sendBinary(dataFrame(vs.id, b));
     this.log(`[srv] ${p.id}: resumed ${old.id}: ${back.length} sockets`);
+  }
+  /** The peer's network facts onto a connection (a resumed one may come from another network: its session learns it). */
+  private netOf(c: Conn, p: Peer): void {
+    c.ipb = p.meta.ipb ?? null;
+    c.userCreated = p.meta.userCreated ?? null;
+    (c.sess as { noteNet?: (x: Conn) => void } | null)?.noteNet?.(c);
   }
   /** What the client hasn't got of vs's output after its rx, or null if those bytes are gone. */
   private after(vs: VSock, rx: number): Uint8Array | null {
@@ -195,6 +205,7 @@ export class World implements ConnHost {
       let vs: VSock;
       const conn = new Conn(this, this.seqTable, port, peerId, (b) => this.sendOut(vs, b), PORTS.duel, this.cfg.sendPace);
       conn.userId = p.userId;
+      this.netOf(conn, p);
       vs = { id, conn, reader: new Reader(), closed: false, inq: [], busy: false, dead: false,
         wire: this.cfg.cardWire ? "wait" : "ok", peer: p, rx: 0, out: [], outBase: 0, outLen: 0, ackT: 0, ackTimer: null };
       p.socks.set(id, vs);
