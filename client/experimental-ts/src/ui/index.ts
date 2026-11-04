@@ -36,6 +36,8 @@ function textField(key: string, value: string, placeholder = ''): HTMLInputEleme
 }
 const CARD_BACK = 'data/card/0000.png', FIELD_SHEET = 'data/y/duel/field/duelfield_01_c01.png';
 const lpWidth = (lp: number) => `${Math.max(0, Math.min(100, lp / 80))}%`;
+/** A face-down card on the player's own field whose identity the server gave its owner. */
+const isOwnSetCard = (c: DuelCardView) => !c.faceUp && c.controller === 0 && c.passcode !== undefined && ['monster', 'spell', 'field'].includes(c.zone);
 function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: CardView, image: HTMLImageElement) => void, back?: (image: HTMLImageElement) => void): HTMLElement {
   const tile = el('div', 'de-card' + (faceUp ? '' : ' de-card-back'));
   if (!faceUp && back) { const image = el('img'); image.alt = ''; image.decoding = 'async'; image.draggable = false; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; tile.append(image); back(image); }
@@ -648,28 +650,32 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone) && c.index !== pileTop.get(`${c.controller}/${c.zone}`)) continue;
       visibleCardIds.add(c.id);
       const handCount = handCounts[c.controller];
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (c.faceUp || (duel.actions ?? []).some(a => a.cardId === c.id)) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
-      b.dataset.key = `field-card:${c.id}`;
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}`; b.append(...Array.from(tile.childNodes));
+      // The player's own set cards stay card backs on the field but remain readable to their owner (never the opponent's).
+      const ownSet = isOwnSetCard(c);
+      // A board selection (an attack target, a card to choose on either side) is made on the card itself, as in the original.
+      const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && cardActions[0]!.label.startsWith('Select:') ? cardActions[0]! : null;
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (c.faceUp || ownSet || (duel.actions ?? []).some(a => a.cardId === c.id)) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${selection ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (selection) b.title = selection.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
       if (counters.length) b.append(el('span', 'de-card-counter', counters.map(counter => counter.kind === 0 ? String(counter.count) : `${counter.kind}:${counter.count}`).join(' · ')));
       if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
-      b.setAttribute('aria-label', c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`);
+      b.setAttribute('aria-label', (c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : ownSet ? `${c.name} (set face-down), your ${c.zone}${c.zone === 'monster' ? `, ${c.position ?? ''}` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`) + (selection ? `, ${selection.label}` : ''));
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }
     // Zone selections (where to summon or set): the empty zones themselves are the controls, as in the original.
     for (const action of (duel.actions ?? []).filter(a => a.place && !a.cardId)) {
       const p = fieldCardPosition({ id: action.id, name: '', controller: action.place!.controller, zone: action.place!.zone, index: action.place!.index, faceUp: false }, 0);
-      const zone = button('', () => send({ type: 'duelAction', actionId: action.id }), !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
+      const zone = button('', () => sendAction(duel, action.id), !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
       zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
       cards.append(zone);
     }
     board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
     const actions = el('div', 'de-duel-actions');
-    for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => send({ type: 'duelAction', actionId: a.id }), !!a.disabled || !!state.busy, true));
+    for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
     else if (!duel.ended) actions.append(button('Surrender', () => { if (confirmAction('Surrender this duel?')) send({ type: 'surrender' }); }, !!state.busy || state.relay?.canAct === false));
     else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
@@ -685,10 +691,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     if (duel.prompt) renderPrompt(duel.prompt);
     if (local.inspected && local.inspectedFrom === 'duel') {
-      const inspected = duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || (duel.actions ?? []).some(a => a.cardId === c.id)));
+      const inspected = duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id)));
       if (inspected) {
-        const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(inspected.faceUp ? inspected.name : 'Face-down card'), drawCard(inspected, inspected.faceUp, inspected.faceUp), ...(inspected.faceUp ? [note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-        for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { send({ type: 'duelAction', actionId: action.id }); local.inspected = null; }, !!action.disabled || !!state.busy, true));
+        const readable = inspected.faceUp || isOwnSetCard(inspected);
+        const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
+        for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
         panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
       } else local.inspected = null;
     }
@@ -704,6 +711,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
   }
+  /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
+  function sendAction(duel: DuelView, actionId: string): void { send({ type: 'duelAction', actionId, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) }); }
   function respondToPrompt(promptId: string, response: DuelResponse): void {
     const currentState = controller.getState(), current = currentState.duel?.prompt;
     if (!current || current.id !== promptId) { local.message = 'This choice has expired.'; requestRender(); return; }
@@ -714,7 +723,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderPrompt(prompt: DuelPromptView): void {
     if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; }
     for (const id of local.selected) if (!(prompt.kind === 'attributes' ? prompt.options.some(o => o.id === id && !o.disabled) : prompt.candidates?.some(c => c.id === id && !c.disabled))) local.selected.delete(id);
-    const panel = el('section', 'de-panel de-duel-prompt'); if (prompt.kind === 'place' || prompt.options.some(o => o.cardId)) panel.className += ' de-target-prompt'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', prompt.text); panel.append(title(prompt.text));
+    const panel = el('section', 'de-panel de-duel-prompt'); if (prompt.kind === 'place' || prompt.options.some(o => o.cardId)) panel.className += ' de-target-prompt'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', prompt.text); panel.dataset.kind = prompt.kind; panel.dataset.prompt = prompt.id; panel.append(title(prompt.text));
     const respond = (response: DuelResponse) => respondToPrompt(prompt.id, response);
     if (prompt.kind === 'attributes') {
       const options = el('div', 'de-prompt-options');

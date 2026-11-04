@@ -41,7 +41,7 @@ function harness(server = setup().server, user = 'app-test', deckId = '51', opti
 function promptCommand(app: ClientApp): ClientCommand {
   const duel = app.getState().duel!;
   const endTurn = duel.actions?.find(a => a.id === 'phase:5');
-  if (endTurn && !duel.prompt) return { type: 'duelAction', actionId: endTurn.id };
+  if (endTurn && !duel.prompt) return { type: 'duelAction', actionId: endTurn.id, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) };
   const p = duel.prompt;
   if (!p) throw new Error('No actionable projected prompt');
   let response: DuelResponse;
@@ -122,6 +122,8 @@ describe('ClientApp with actual server and GameSession', () => {
     await a.send({ type: 'replyChallenge', accept: true }); await vi.advanceTimersByTimeAsync(1000);
     expect(a.app.getState().preparation?.phase).toBe('rock-paper-scissors'); expect(b.app.getState().preparation?.phase).toBe('rock-paper-scissors');
     await drive(Promise.all([a.app.dispatch({ type: 'chooseHand', hand: 0 }), b.app.dispatch({ type: 'chooseHand', hand: 1 })]));
+    // The loser is not offered another hand while the winner chooses.
+    expect(b.app.getState().preparation?.phase).toBe('preparing-duel');
     await a.send({ type: 'chooseFirst', first: true }); await vi.advanceTimersByTimeAsync(100);
     await a.send({ type: 'beginDuel' }); await b.send({ type: 'beginDuel' }); await vi.advanceTimersByTimeAsync(4000);
     expect(a.app.diagnostics.duel.sequence).toBeGreaterThan(0); expect(b.app.diagnostics.duel.sequence).toBeGreaterThan(0);
@@ -168,7 +170,7 @@ describe('ClientApp with actual server and GameSession', () => {
   });
   it('plays projected NPC prompts to a natural result and rejects stale/double responses', async () => {
     setDuelCore(await createNodeDuelCore()); const f = harness(); await f.enter(); await beginNpc(f);
-    let answered = 0, choices = 0, checkedDuplicate = false, checkedDialog = false, oldPrompt: ClientCommand | null = null;
+    let answered = 0, choices = 0, checkedDuplicate = false, checkedDialog = false, oldPrompt: ClientCommand | null = null, oldAction: ClientCommand | null = null, checkedStaleAction = false;
     for (let step = 0; step < 4000 && !f.app.getState().duel?.ended; step++) {
       await vi.advanceTimersByTimeAsync(100); const state = f.app.diagnostics.duel;
       expect(state.errors).toEqual([]); expect(state.unsupported).toEqual([]);
@@ -180,13 +182,19 @@ describe('ClientApp with actual server and GameSession', () => {
       }
       const command = promptCommand(f.app);
       if (oldPrompt) { await expect(f.app.dispatch(oldPrompt)).rejects.toThrow(/no longer active/); oldPrompt = null; }
+      // An action rendered for an earlier prompt (same zone/index id) is refused rather than applied to the new prompt.
+      if (command.type === 'duelAction' && !checkedStaleAction) {
+        expect(command.promptId).toBe(String(state.prompt.id));
+        if (oldAction?.type === 'duelAction' && oldAction.promptId !== command.promptId) { await expect(f.app.dispatch({ ...oldAction, actionId: command.actionId })).rejects.toThrow(/expired/); checkedStaleAction = true; }
+        else oldAction = command;
+      }
       if (command.type === 'duelRespond' && !checkedDuplicate) {
         const pending = f.app.dispatch(command); await expect(f.app.dispatch(command)).rejects.toThrow(/Wait|already been sent/); await pending;
         await expect(f.app.dispatch(command)).rejects.toThrow(/already been sent/); oldPrompt = command; checkedDuplicate = true;
       } else { try { await f.app.dispatch(command); } catch (error) { throw new Error(JSON.stringify({ error: String(error), command, promptKind: state.prompt?.kind, buttons: state.buttons, turn: state.turn, phase: state.phase, sequence: state.sequence })); } }
       choices++;
     }
-    expect(f.app.getState().duel?.ended).toBe('Defeat'); expect(choices).toBeGreaterThan(0); expect(checkedDuplicate).toBe(true);
+    expect(f.app.getState().duel?.ended).toBe('Defeat'); expect(choices).toBeGreaterThan(0); expect(checkedDuplicate).toBe(true); expect(checkedStaleAction).toBe(true);
     expect(f.app.getState().duel!.turn).toBeGreaterThan(1);
     await f.send({ type: 'leaveDuel' }); expect(f.app.getState()).toMatchObject({ scene: 'lobby', duel: null });
   }, 20000);

@@ -762,6 +762,8 @@ export class ClientApp implements ClientController {
         }
         case 'duelAction': {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');
+          // Action ids name a zone and index, so one rendered for an earlier prompt could act on a different card now.
+          if (command.promptId !== undefined && command.promptId !== String(this.duelState.prompt?.id)) throw new Error('This choice has expired.');
           const response = interpretAction(this.duelState, command.actionId), messages = encodeDuelResponse(this.duelState, response);
           this.submittedPrompt = this.duelState.prompt?.id ?? null;
           for (const m of messages) this.requireGame().sendDuel(m.id, m.data);

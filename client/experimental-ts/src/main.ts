@@ -34,6 +34,8 @@ const app = new ClientApp({ ...data, audio, dataIssues:data.issues, reloadData:s
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 const ui = mountClient(root, app);
+// Development only: browser acceptance runs read the duel model when a duel stalls (tests/acceptance/duel.test.ts).
+if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __deApp?: ClientApp }).__deApp = app;
 void app.initialize();
 let closed = false;
 function dispose(): void {

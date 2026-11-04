@@ -75,6 +75,8 @@ export interface DuelView {
   waiting?: string;
   /** Only server-issued commands are offered. */
   actions?: DuelOption[];
+  /** The server prompt the actions answer; an action sent for an older prompt is refused. */
+  actionsFor?: string;
   effects?: { type: 'attack' | 'chain' | 'damage' | 'recover' | 'flash'; player: 0 | 1; progress: number; cardId?: string; value?: number }[];
   /** Presentation cues for the original duel effects (src/duel/cues.ts), oldest first; ids only grow. */
   cues?: readonly DuelCue[];
@@ -196,7 +198,7 @@ export type ClientCommand =
   | { type: 'buy'; itemId: number; count: number }
   | { type: 'refresh'; scene: Scene }
   | { type: 'duelRespond'; promptId: string; response: DuelResponse }
-  | { type: 'duelAction'; actionId: string }
+  | { type: 'duelAction'; actionId: string; promptId?: string }
   | { type: 'inspectCard'; cardId: string }
   | { type: 'surrender' }
   | { type: 'settings'; settings: Partial<SettingsView> };

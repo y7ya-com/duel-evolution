@@ -152,3 +152,13 @@ describe('server information boxes', () => {
     expect(describeEvent(s, cat, ['You', 'Rival'], notice, texts)).toBe('Original wording.');
   });
 });
+
+describe('duel log wording', () => {
+  it('tells a summon from hand apart from a set by the face-up bit', () => {
+    const s = initial(), at = (params: number[]) => ({ sequence: 1, type: 'engine:4f', player: 0 as const, params });
+    expect(describeEvent(s, cat, ['You', 'Rival'], at([0, 0x4000 | 2 << 1, 0]))).toBe('You summons a monster.');
+    expect(describeEvent(s, cat, ['You', 'Rival'], at([0, 0x8000 | 2 << 1, 0]))).toBe('You sets a monster.');
+    expect(describeEvent(s, cat, ['You', 'Rival'], { ...at([0, 0x4000 | 6 << 1, 0]), type: 'engine:50' })).toBe('You plays a card.');
+    expect(describeEvent(s, cat, ['You', 'Rival'], { ...at([0, 6 << 1, 0]), type: 'engine:50' })).toBe('You sets a card.');
+  });
+});
