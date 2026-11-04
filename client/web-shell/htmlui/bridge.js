@@ -52,7 +52,7 @@ export function switches(spec, defaults = []) {
   parts.forEach(p => s.delete(p.slice(1)));
   return c => s.has(c);
 }
-// the defaults: htmlui.json's "on", plus the Duel menu (screens/lobby.js draws its Tag Duel entry), which a hosted
+// the defaults: htmlui.json's "on", plus the Duel menu (screens/duelsetup.js, with its Tag Duel row), which a hosted
 // htmlui.json older than Tag Duel doesn't list
 export const htmlDefaults = (defaults = {}) => [...new Set([...(defaults.on || []), 'CWindowModelDuel'])];
 

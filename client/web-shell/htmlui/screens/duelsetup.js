@@ -63,7 +63,7 @@ export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 
 export function prep(win) {
   if (win.cls === plist.CLS) return plist.prepList(win);
   const frame = /Move$/.test(win.cls) ? moveFrame(win) : null;
-  return { ...win, controls: win.controls.map(c => {
+  const out = { ...win, controls: win.controls.map(c => {
     const f = fam(c), { wx, wy, wz, focused, ...k } = c;
     if (f === 'FrameDuel' || f === 'DuelConfigFrame') return { ...k, x: 0, y: 0, w: win.w, h: win.h };
     if (f === 'FrameMove') return { ...k, x: 0, y: 0, ...frame };
@@ -79,6 +79,29 @@ export function prep(win) {
     }
     return k;
   }) };
+  return win.cls === 'CWindowModelDuel' ? tagRow(out) : out;
+}
+
+// The Duel menu's Tag Duel (CONTRACT.md: inside the Duel menu, beside Auto Duel and Create Duel; ../tag-lobby.js opens
+// on yo2-tag-lobby-open). The game's menu has no third choice, so the page adds one: a row under the two choice
+// switches, the same switch and caption centred in it; the frame grows by the row (TAG_ROW) and what sat below the
+// switches (Cancel) moves down with it. Its controls are the page's own (ids 'tag-duel*'), never the game's
+export const TAG_ROW = 40;
+export const tagBox = win => ({ x: win.x, y: win.y, w: win.w, h: win.h + TAG_ROW });
+function tagRow(win) {
+  const cs = win.controls, choices = cs.filter(c => top(c) && c.shown && fam(c) === 'PictureSwitch');
+  if (!choices.length) return win;
+  const sw = choices[0], bottom = Math.max(...choices.map(c => c.y + c.h));
+  const at = { x: Math.round((win.w - sw.w) / 2), y: bottom + TAG_ROW - sw.h };
+  const cap = cs.find(c => top(c) && c.shown && fam(c) === 'ShadowText' && c.x >= sw.x - 2 && c.x < sw.x + sw.w && c.y >= sw.y && c.y < sw.y + sw.h);
+  const move = c => ({ ...c, x: c.x - sw.x + at.x, y: c.y - sw.y + at.y });
+  const tag = [{ ...move(sw), id: 'tag-duel', cls: 'CWindowTaskTagDuel', label: 'Tag Duel', checked: false, disabled: false,
+    glow: { ...sw.glow, rest: 'white', down: 'pink' } }];
+  if (cap) tag.push({ ...move(cap), id: 'tag-duel-text', text: 'Tag Duel' });
+  // its texts (the shadow copy the caption draws under itself: shadowOf)
+  if (cap) cs.filter(c => c.parent === cap.id).forEach((c, i) => tag.push({ ...move(c), id: 'tag-duel-text' + i, parent: 'tag-duel-text', text: 'Tag Duel' }));
+  return { ...win, h: win.h + TAG_ROW, controls: [...cs.map(c => fam(c) === 'FrameDuel' ? { ...c, h: c.h + TAG_ROW }
+    : top(c) && c.y >= bottom ? { ...c, y: c.y + TAG_ROW } : c), ...tag] };
 }
 
 const A = (r, a) => `rgb(${r} / ${a})`;
@@ -307,6 +330,10 @@ const DRAW = {
     b.addEventListener('click', () => api.click(c.id));
     el.append(b);
   },
+  // the Duel menu's Tag Duel (tagRow): a choice switch that opens the page's tag lobby, not a game control
+  TagDuel(el, c, api) {
+    DRAW.PictureSwitch(el, c, { hover() {}, click() { globalThis.dispatchEvent(new CustomEvent('yo2-tag-lobby-open')); } });
+  },
   // the duel button, its caption in the game's colour (Move's places: white over a black shadow)
   ButtonDuel(el, c, api) {
     const b = box('ds-btn', c, 'button');
@@ -372,6 +399,8 @@ export default {
   // the Move list's frame and × lie past its window's rect (CWindowModelMove is 296 wide, its frame the widest place +
   // 38: 327 with Clock Square's 289-wide button), as the engine draws them
   clip: false,
+  // the Duel menu drawn a row taller than its window (tagRow): the bridge's holes and pointer catcher follow the frame
+  occlusionBox: win => win.cls === 'CWindowModelDuel' ? tagBox(win) : null,
   mount(win, root, api) {
     inject();
     const st = base.mount(prep(win), root, api);

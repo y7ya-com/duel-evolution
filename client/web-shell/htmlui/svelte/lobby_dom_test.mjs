@@ -33,7 +33,7 @@ const avatar = (chosen, arrow, col) => [win(40, 'CWindowDialogAvatarSwitch', { w
     art: art('x/abmake_btn_01_c01.png', 324 * (i === chosen ? 2 : col), 324, 44) })),
   ctl(45, 'CWindowTaskPictureSwitch', { x: 960, y: 600, w: 32, h: 64, art: art(`x/shop_arrow_${arrow}_c01.png`, 0, 32, 64) }),
   ctl(46, 'CWindowTaskText', { text: 'Hair', x: 340, y: 66, w: 324, align: 1, fontSize: 32 })])];
-// the Duel menu (CWindowModelDuel, Tag Duel added): plain screens/lobby.js's in both, the Svelte group doesn't claim it
+// the Duel menu (CWindowModelDuel, Tag Duel added): screens/duelsetup.js's in both, the Svelte group doesn't claim it
 const duel = [win(50, 'CWindowModelDuel', { x: 340, y: 200, w: 340, h: 300 }, [
   ctl(51, 'CWindowTaskShadowText', { text: 'Duel', x: 10, y: 0, w: 200, h: 24 }),
   ctl(52, 'CWindowTaskPictureSwitch', { name: 'Auto', x: 16, y: 100, w: 130, h: 48 }),

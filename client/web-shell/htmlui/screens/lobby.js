@@ -100,40 +100,6 @@ function mainMenu(win, root, st, api) {
   });
 }
 
-// Extend the original Duel menu itself. Native actions keep their own IDs;
-// the added team action uses the same plates and lives before Cancel.
-function duelMenu(win, root, st, api) {
-  const controls = win.controls.filter(c => c.shown && !c.parent);
-  const choices = controls.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a,b) => a.x-b.x);
-  const title = controls.find(c => /ShadowText$/.test(c.cls) && c.y < 24)?.text || 'Duel';
-  const cancel = controls.find(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label);
-  const inside = (t,c) => t.x >= c.x-2 && t.x < c.x+c.w && t.y >= c.y && t.y < c.y+c.h;
-  const signature = JSON.stringify(win);
-  if (signature === st.duelSignature) return;
-  st.duelSignature = signature; root.replaceChildren();
-  const height = Math.max(win.h, 260) + 32;
-  const base = panel(root, { w: win.w, h: height, band: 6 });
-  const head = titleBar(base, { w: win.w, title, close: !!cancel });
-  const act = (button, action) => { button.style.pointerEvents = 'auto'; button.dataset.modernOwned = ''; button.onclick = action; };
-  if (cancel) act(head.close, () => api.click(cancel.id));
-  for (const c of controls.filter(c => /ShadowText$/.test(c.cls) && c.y >= 24 && !choices.some(w => inside(c,w)))) {
-    textBox(base, c.text, { x:c.x,y:c.y,w:c.w,px:c.fontSize||16,align:c.align,color:c.color });
-  }
-  const rows = choices.map(c => ({ c, label: controls.find(t => /ShadowText$/.test(t.cls) && inside(t,c))?.text || c.label || c.name }));
-  const y0 = Math.max(90, ...controls.filter(c => /ShadowText$/.test(c.cls) && c.y >=24 && !choices.some(w => inside(c,w))).map(c => c.y + (c.h||16))) + 12;
-  for (let i=0;i<rows.length;i++) {
-    const {c,label}=rows[i]; const b=menuButton(base,{x:16,y:y0+i*34,w:win.w-32,h:26,label,state:look(c)});
-    b.disabled=c.enabled===false||c.state==='disabled'; act(b,()=>api.click(c.id));
-  }
-  const tag=menuButton(base,{x:16,y:y0+rows.length*34,w:win.w-32,h:26,label:'Tag Duel',state:null});
-  act(tag,()=>globalThis.dispatchEvent(new CustomEvent('yo2-tag-lobby-open')));
-  if (cancel) {
-    const b=menuButton(base,{x:(win.w-120)/2,y:y0+(rows.length+1)*34+4,w:120,h:24,label:cancel.label,state:look(cancel)});
-    act(b,()=>api.click(cancel.id));
-  }
-  base.style.height=Math.max(height,y0+(rows.length+2)*34+16)+'px';
-}
-
 // CWindowModelPlace: the plate (FramePlace's size) and its four ShadowTexts
 function place(win, root, st) {
   const f = win.controls.find(c => c.cls === 'CWindowTaskFramePlace');
@@ -463,7 +429,7 @@ function duelTab(win, root, st) {
   };
 }
 
-const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CWindowModelDuel: duelMenu, CPlayerListMenu: card, CNpcListMenu: card };
+const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CPlayerListMenu: card, CNpcListMenu: card };
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
