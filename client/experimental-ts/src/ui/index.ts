@@ -990,7 +990,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       ];
       const world = state.scene === 'lobby' && state.lobby;
       menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player,
-        message: `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}`,
+        message: state.player ? `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
         ...(world ? { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.

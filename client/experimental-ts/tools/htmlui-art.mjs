@@ -27,8 +27,16 @@ export function createHtmlUiArtMiddleware({ baseUrl, fetch: fetcher = globalThis
     timer.unref?.();
     void (async () => {
       try {
-        const upstream = await fetcher(new URL(name, base).href, { redirect:'manual', credentials:'omit', referrerPolicy:'no-referrer', signal:controller.signal });
-        if (upstream.status !== 200) return end(upstream.status === 404 ? 404 : 502, 'Art not available');
+        // the host now and then drops a request: a few tries (main's ui.js keeps a failed glyph load for the page)
+        let upstream;
+        for (let attempt = 0; ; attempt++) {
+          try { upstream = await fetcher(new URL(name, base).href, { redirect:'manual', credentials:'omit', referrerPolicy:'no-referrer', signal:controller.signal }); }
+          catch (e) { if (attempt >= 3 || controller.signal.aborted) throw e; upstream = null; }
+          if (upstream && (upstream.status === 200 || upstream.status === 404)) break;
+          if (attempt >= 3) break;
+          await new Promise(r => setTimeout(r, 250 * (attempt + 1)));
+        }
+        if (upstream?.status !== 200) return end(upstream?.status === 404 ? 404 : 502, 'Art not available');
         const body = Buffer.from(await upstream.arrayBuffer());
         res.writeHead(200, { 'Content-Type':TYPES[name.split('.').pop()], 'Content-Length':body.length, 'Cache-Control':'max-age=3600',
           'X-Content-Type-Options':'nosniff' });

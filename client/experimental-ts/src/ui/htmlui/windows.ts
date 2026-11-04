@@ -94,6 +94,10 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
   const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'createCharacter', slot: dialog.slot, name }); ctx.rerender(); };
   const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  // the mock is hand-made; the live game's prompt (main's create capture): its text centred at 0, 8, 336 wide, the
+  // field 8, 56, 320 x 32
+  const prompt = named(cs, 'CWindowTaskText'); if (prompt) Object.assign(prompt, { x: 0, y: 8, w: 336, align: 1 });
+  if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
   if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16, caretOn: false }); b.on(input, { key: 'character-name', label: 'Player name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
   if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'character-create-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'character-create-cancel', click: close });
@@ -387,8 +391,9 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
   const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'team-name', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
   const cs = b.fromTemplate(t, true);
   const ok = () => { const name = dialog.name.trim(); if (!name) return; ctx.ui.dialog = null; lists.formTeam(name); ctx.rerender(); };
-  const text = named(cs, 'CWindowTaskText'); if (text) text.text = 'Enter your Team Name';
-  const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: 'Enter your Team Name', x: 0, y: 8, w: 336, align: 1 });
+  const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
+  const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
   if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16 }); b.on(input, { key: 'team-name', label: 'Team name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
   if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'team-name-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'team-name-cancel', click: () => { ctx.ui.dialog = null; ctx.rerender(); } });
