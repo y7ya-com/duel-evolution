@@ -151,6 +151,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       const opts=[...prompt.querySelectorAll('button')].filter(ok);
       const no=opts.find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='No');if(no)return {kind:'key',key:no.dataset.key};
       const cands=opts.filter(b=>b.dataset.key?.startsWith('prompt-candidate:')),sel=cands.filter(b=>b.getAttribute('aria-pressed')==='true');
+      const close=opts.find(b=>b.textContent==='Close Card List');if(close)return {kind:'key',key:close.dataset.key};
       const conf=opts.find(b=>b.textContent==='Confirm Selection');if(conf&&sel.length)return {kind:'key',key:conf.dataset.key};
       if(cands.length&&!sel.length)return {kind:'key',key:cands[0].dataset.key};
       const opt=opts.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(opt)return {kind:'key',key:opt.dataset.key};

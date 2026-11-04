@@ -279,13 +279,13 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             expect(after.bar).toBe(s.bar);
           }
           // duel.log: scroll the log while a prompt waits; the prompt stays and is then answered normally.
-          if (!logProbe && s.prompt && s.log.length > 6) {
-            const box = await page.ev(`(()=>{const l=document.querySelector('.de-duel-log');const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number };
+          const box = !logProbe && s.prompt ? await page.ev(`(()=>{const l=document.querySelector('.de-duel-log');const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number } : null;
+          if (box && s.prompt && box.max > 20) {
             await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',x:box.x,y:box.y,deltaX:0,deltaY:-400 }); await sleep(400);
             const scrolled = await page.ev(`document.querySelector('.de-duel-log').scrollTop`) as number;
             const after = await snap(page);
             logProbe = `${who}: log of ${s.log.length} lines scrolled ${box.top}→${scrolled} (of ${box.max}) under "${s.prompt.text}"; prompt ${after.prompt?.id === s.prompt.id ? 'unchanged' : 'changed'}`;
-            if (box.max > 0) expect(scrolled).toBeLessThan(box.top);
+            expect(scrolled).toBeLessThan(box.top);
             expect(after.prompt?.id).toBe(s.prompt.id);
           }
         }
