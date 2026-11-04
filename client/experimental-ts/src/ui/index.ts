@@ -80,6 +80,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
+  let roomJoin: number | null = null, roomJoinPassword = '';
   const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
@@ -94,6 +95,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
   let sideboardClock: ReturnType<typeof setInterval> | null = null;
+  // The turn clock runs down between the server's readings; only its text changes each second.
+  let duelClock: ReturnType<typeof setInterval> | null = null, duelClockNode: HTMLElement | null = null;
+  const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
@@ -180,8 +184,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
     if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.tagLobby !== next.tagLobby || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
-    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
-    return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
+    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.outgoing !== b.outgoing || a.avatars.length !== b.avatars.length) return false;
+    return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image && p.duelling === n.duelling; });
   };
   const presentLobby = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) { const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
@@ -191,7 +195,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
     if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
-    if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.cards.length !== b.cards.length) return false;
+    if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.notice !== b.notice || a.cards.length !== b.cards.length) return false;
     if (a.players.some((p, i) => p.name !== b.players[i].name || p.turnCounters !== b.players[i].turnCounters)) return false;
     return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense && c.counters === n.counters && c.turnCounter === n.turnCounter; });
   };
@@ -324,7 +328,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     positionAvatars(lobby);
     showAvatarViews(lobby);
     const target = lobby.avatars.find(a => a.id === local.target);
-    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self), button('Close', () => { local.target = null; requestRender(); })));
+    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => { local.target = null; send({ type: 'duelChallenge', playerId: target.id }); }, !!state.busy || !!target.self || !!target.duelling), ...(target.duelling && !target.self && !lobby.rooms?.some(r => (r.owner === target.id || r.opponent === target.id) && r.watch === false) ? [button('Watch', () => { local.target = null; send({ type: 'spectate', pid: target.id }); }, !!state.busy)] : []), button('Close', () => { local.target = null; requestRender(); })));
     const chat = el('section', 'de-panel de-chat'); chat.setAttribute('aria-label', 'Chat');
     const lines = el('div', 'de-chat-log'); lines.setAttribute('role', 'log'); lines.setAttribute('aria-live', 'polite');
     for (const line of lobby.chat.slice(-200)) lines.append(line.sender.trim() ? el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text) : el('div', 'de-chat-line de-chat-system', line.text));
@@ -381,7 +385,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const roomPassword = textField('room-password', local.roomPassword, 'Optional room password'); roomPassword.type = 'password'; roomPassword.maxLength = 16; roomPassword.autocomplete = 'off'; roomPassword.oninput = () => { local.roomPassword = roomPassword.value; }; roomSettings.append(labelled('Password', roomPassword)); rooms.append(roomSettings);
       for (const room of lobby.rooms ?? []) {
         const row = el('div', 'de-room-row', el('strong', '', room.name || `Room ${room.id}`));
-        row.append(button('Challenge', () => { if (room.password) { const password = typeof window.prompt === 'function' ? window.prompt('Room password:') : null; if (password !== null) send({ type: 'challengeRoom', roomId: room.id, password }); } else send({ type: 'challengeRoom', roomId: room.id }); }, !lobby.connected || !!state.busy || room.owner === state.player?.id), button('Watch', () => send({ type: 'spectate', pid: room.owner }), !lobby.connected || !!state.busy || room.owner === state.player?.id));
+        row.append(button('Challenge', () => { if (room.password) { roomJoin = room.id; requestRender(); } else send({ type: 'challengeRoom', roomId: room.id }); }, !lobby.connected || !!state.busy || room.owner === state.player?.id || !!room.opponent), ...(room.opponent && room.watch !== false && room.owner !== state.player?.id && room.opponent !== state.player?.id ? [button('Watch', () => send({ type: 'spectate', pid: room.owner }), !lobby.connected || !!state.busy)] : []));
         if (room.owner === state.player?.id) row.append(button('Close Your Duel Room', () => { if (confirmAction('Close your duel room?')) send({ type: 'deleteDuelRoom' }); }, !!state.busy));
         rooms.append(row);
       }
@@ -393,6 +397,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const profile = el('section', 'de-panel de-profile-panel'); profile.dataset.key = `profile:${state.profileDetail.selectedPid}`; profile.setAttribute('role', 'dialog'); profile.setAttribute('aria-label', 'Player profile');
       profile.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); send({ type: 'profileAction', action: { type: 'close' } }); } };
       profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
+    }
+    if (roomJoin !== null && lobby.rooms?.some(r => r.id === roomJoin)) {
+      // The original's password input (CWindowModelInput1): the password is sent once and never kept or shown.
+      const roomId = roomJoin, form = el('form', 'de-panel de-duel-prompt de-stack'), field = textField('room-join-password', roomJoinPassword, 'Room password'); field.type = 'password'; field.oninput = () => { roomJoinPassword = field.value; }; field.maxLength = 16; field.autocomplete = 'off'; field.setAttribute('aria-label', 'Room password');
+      const ok = el('button', 'gold', 'OK'); ok.type = 'submit'; ok.disabled = !!state.busy;
+      form.onsubmit = e => { e.preventDefault(); const password = field.value; field.value = roomJoinPassword = ''; roomJoin = null; send({ type: 'challengeRoom', roomId, password }); };
+      form.append(title('Duel Request'), labelled('This duel has a password.', field), el('div', 'de-row', ok, button('Cancel', () => { roomJoin = null; roomJoinPassword = ''; requestRender(); })));
+      form.setAttribute('role', 'dialog'); form.setAttribute('aria-label', 'Room password'); stage.append(form);
+    } else { roomJoin = null; roomJoinPassword = ''; }
+    if (lobby.outgoing) {
+      const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Request'), el('p', '', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`), button('Cancel', () => send({ type: 'cancelChallenge' }), !!state.busy));
+      panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Requesting Duel'); stage.append(panel);
     }
     if (lobby.invitation) {
       const invitation = lobby.invitation;
@@ -630,13 +646,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const [half, top] of [[1, 50], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
     }
     const hud = el('div', 'de-duel-hud');
+    duelClockNode = null;
     const match = state.match ? `Match ${state.match.round} · ${state.match.scores[0]}–${state.match.scores[1]}${state.match.scores[2] ? ` · ${state.match.scores[2]} drawn` : ''}` : '';
-    const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? `${duel.timer.paused ? 'Paused · ' : ''}${Math.floor(Math.max(0, duel.timer.seconds) / 60)}:${String(Math.max(0, duel.timer.seconds) % 60).padStart(2, '0')}` : '';
+    const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? clockText(duel.timer) : '';
     const duelist = (index: 0 | 1) => {
       const player = duel.players[index], lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
       const panel = el('div', `de-duelist${duel.turnPlayer === index ? ' active' : ''}`, el('div', 'de-duelist-name', player.name), el('div', 'de-lp', el('span', 'de-lp-label', 'LP'), el('span', 'de-lp-bar', bar), lp));
       panel.setAttribute('aria-label', `${player.name}: ${player.lp} life points${duel.turnPlayer === index ? ', their turn' : ''}`);
-      if (clock(index)) panel.append(el('div', 'de-duel-clock', `Time ${clock(index)}`));
+      if (clock(index)) { const node = el('div', 'de-duel-clock', `Time ${clock(index)}`); panel.append(node); duelClockNode = node; }
       if (index === 0 && match) panel.append(el('div', 'de-duel-clock', match));
       for (const counter of (player.turnCounters ?? []).filter(c => c.turns > 0)) panel.append(note(`${counter.name}: ${counter.turns} turns`));
       return panel;
@@ -706,26 +723,28 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
     }
     if (duel.prompt) renderPrompt(duel.prompt);
-    if (local.inspected && local.inspectedFrom === 'duel') {
-      const inspected = duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id)));
-      if (inspected) {
-        const readable = inspected.faceUp || isOwnSetCard(inspected);
-        const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-        for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
-        panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
-      } else local.inspected = null;
+    // A stale inspection (the card moved or its action is gone) is dropped and the result or waiting banner shown instead.
+    const inspected = local.inspected && local.inspectedFrom === 'duel' ? duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id))) : undefined;
+    if (local.inspected && local.inspectedFrom === 'duel' && !inspected) local.inspected = null;
+    if (inspected) {
+      const readable = inspected.faceUp || isOwnSetCard(inspected);
+      const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
+      for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
+      panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
     }
-    else if (duel.ended) {
+    if (duel.ended) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
-      const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : duel.ended === 'Draw' ? 'drow' : null;
-      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', duel.ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', duel.ended);
+      // A spectator is neither side: the banner names the winner instead of Victory/Defeat.
+      const ended = duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended;
+      const kind = ended === 'Victory' ? 'win' : ended === 'Defeat' ? 'lose' : ended === 'Draw' ? 'drow' : null;
+      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', ended);
       if (kind && controller.loadArchiveImage) for (const layer of ['m02', 'm01']) {
         const image = el('img', `de-duel-end-${layer}`); image.alt = ''; image.style.visibility = 'hidden';
         image.onload = () => { image.style.visibility = ''; banner.classList.add('has-art'); }; loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image);
       }
       stage.append(banner);
     }
-    else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
+    else if (duel.waiting && !inspected) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
   }
   /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
   function sendAction(duel: DuelView, actionId: string): void { send({ type: 'duelAction', actionId, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) }); }
@@ -857,6 +876,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       state = controller.getState();
       if (state.scene !== 'lobby') { worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
+      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; }, 1000); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
       if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
@@ -938,5 +958,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

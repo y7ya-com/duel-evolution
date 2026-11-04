@@ -1,3 +1,4 @@
+import { serverInfoText } from './duel/server-info';
 import { ResourceScope } from './core/scope';
 import { GameSession } from './network/session';
 import type { SessionState, SessionOptions } from './network/session';
@@ -107,6 +108,10 @@ export class ClientApp implements ClientController {
   /** The other duelist of a player-versus-player duel, from the challenge either side made. */
   private duelIsPvp = false;
   private pvpOpponent: string | null = null;
+  private chatSeen: SessionState['chat'] | null = null;
+  private timerSeen: unknown = null; private timerSeenAt = 0;
+  /** Notice ids only grow (also across the games of a match), so a dismissed notice never hides a later one. */
+  private noticeIds = 0;
   private nextOpponent: string | null = null;
   private duelNotice: { id: number; text: string } | null = null;
   private sideboard: DeckView | null = null;
@@ -286,6 +291,13 @@ export class ClientApp implements ClientController {
   private updateSession(state: SessionState): void {
     if (this.disposed) return;
     if (state.challenge) this.nextOpponent = state.challenge.name;
+    if (state.chat !== this.chatSeen) {
+      // The server's own lines (pid 0, e.g. an opponent's lost connection) are not visible on the duel screen otherwise.
+      const fresh = this.chatSeen ? state.chat.filter(m => !this.chatSeen!.includes(m)) : []; this.chatSeen = state.chat;
+      // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
+      const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
+      if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+    }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
       this.collection = [...state.collection].map(([pc, n]) => this.catalog.card(pc, n));
@@ -342,10 +354,11 @@ export class ClientApp implements ClientController {
         mapId:state.area, name: `Duel Academy · Area ${state.area}`, width: worldMap?.width ?? 1600, height: worldMap?.height ?? 1200, connected: connection === 'online',
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
         npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
-        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password }))),
+        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
+        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -385,8 +398,9 @@ export class ClientApp implements ClientController {
     const npcResult = this.npcResult; try { this.npcResult = reduceNpcResultContext(npcResult, this.duelState, message); } catch { /* malformed packet: keep the last context */ }
     const names = this.duelNames();
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: event.sequence, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
+    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
+    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
     this.timeline.enqueue(previous, this.duelState); this.duelCues.collect(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
@@ -452,7 +466,7 @@ export class ClientApp implements ClientController {
   private syncDuel(): void {
     const background = this.duelBackground();
     this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
-      spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer } } : {}) };
+      spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer, at: this.timerAt() } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   /** Each duelist's avatar bytes for the waist-up portraits, kept from the first time they are known in this duel. */
@@ -464,7 +478,10 @@ export class ClientApp implements ClientController {
       theirs ?? (this.duelIsPvp ? state.players.find(p => p.name === opponent && p.pid !== self)?.parts : state.npcs.find(n => n.id === this.npc.state.npc?.id)?.parts)];
     return this.duelPortraits;
   }
+  /** When the duel's current clock reading arrived. */
+  private timerAt(): number { if (this.duelState.timer !== this.timerSeen) { this.timerSeen = this.duelState.timer; this.timerSeenAt = Date.now(); } return this.timerSeenAt; }
   private duelNames(): [string, string] {
+    const watched = this.game?.state.spectating ? this.game.state.watchNames : null; if (watched) return [...watched];
     // A tag relay shares each captain's field: each side is named by the partner piloting it (TAG1 order: own team first).
     const relay = this.game?.state.relay;
     if (relay) return [relay.players[relay.active[0]]?.name ?? 'Your team', relay.players[2 + relay.active[1]]?.name ?? 'Opponents'];
@@ -696,6 +713,7 @@ export class ClientApp implements ClientController {
         case 'refreshMatchmaking': await this.requireGame().refreshMatchmaking(); break;
         case 'retryMatchmaking': await this.requireGame().retryMatchmaking(); break;
         case 'challengeRoom': if (!this.services.decks.state.data) await this.refresh('deck'); this.requireGame().challengeRoom(command.roomId, command.password); break;
+        case 'cancelChallenge': await this.requireGame().cancelChallenge(); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
         case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
@@ -740,7 +758,8 @@ export class ClientApp implements ClientController {
           const match = this.requireGame().state.match;
           if (!this.sideboard || match?.stage !== 'sideboarding' || match.complete || this.sideboard.main.length !== match.original.main.length || this.sideboard.side.length !== (match.original.side?.length ?? 0)) throw new Error('Restore the original Main and Side counts before continuing.');
           const deck = structuredClone(this.sideboard);
-          this.resetDuel(); this.patch({ duel:null }); await this.requireGame().submitSideboard(deck); break;
+          // The next game of the same match: still player versus player, against the same opponent.
+          const pvp = this.duelIsPvp; this.resetDuel(); this.duelIsPvp = pvp; this.patch({ duel:null }); await this.requireGame().submitSideboard(deck); break;
         }
         case 'deckReorder': { const result = this.editor?.reorder(command.zone, command.fromIndex, command.toIndex); if (!result?.ok) throw new Error(result && !result.ok ? result.reason : 'Choose a deck first.'); this.syncEditor(); this.emit(); break; }
         case 'replaceDeck': {
