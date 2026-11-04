@@ -40,6 +40,12 @@ export interface SocialState {
 const freshTrade = (): SocialTrade => ({ phase: 'idle', partner: null, ownOffer: [], pendingMove: null, view: initialTradeView() });
 const initial = (): SocialState => ({ status: 'Ready', error: null, drafts: {}, mail: [], mailLoading: false, lookup: null, friendOffers: [], friends: [], ignored: [], teamInvites: [], team: null, teamMembers: [], teamLoading: false, trade: freshTrade() });
 const bounded = <T>(items: readonly T[], limit = 100): T[] => items.slice(-limit);
+/** Copies of a card that may still be offered: the trade's trunk count, less the soul-bound copies in its limit table
+ * (0x7129..0x7131, the original TradeEntry card box's "not tradeable" counts) and the copies already offered. */
+export function tradeableCopies(trade: Pick<SocialTrade, 'view' | 'ownOffer'>, passcode: number): number {
+  const count = (rows: readonly { passcode: number; count: number }[]) => rows.filter(r => r.passcode === passcode).reduce((n, r) => n + r.count, 0);
+  return Math.max(0, count(trade.view.trunk) - count(trade.view.limit) - trade.ownOffer.filter(p => p === passcode).length);
+}
 function pid(value: number): number { if (!Number.isInteger(value) || value <= 0 || value > 0xffffffff) throw new Error('Enter a valid positive player/card id.'); return value; }
 function text(value: string, max: number): string {
   if (!value.trim() || value.length > max || /[^\x20-\xff\n\r]/.test(value)) throw new Error(`Enter 1–${max} Latin-1 characters.`);
@@ -114,6 +120,7 @@ export class SocialController {
           if (t.phase !== 'offered') throw new Error('No trade invitation to answer.');
           this.decliningTrade = !action.accept; command = action.accept ? tradeCommands.accept() : tradeCommands.reject(); this.trade({ phase: 'waiting' }); break;
         case 'addTradeCard': editable(); if (t.ownOffer.length >= 10) throw new Error('At most ten cards may be offered.');
+          if (tradeableCopies(t, action.passcode) < 1) throw new Error(t.view.limit.some(r => r.passcode === action.passcode && r.count > 0) ? 'Soul-bound copies cannot be traded.' : 'No copy of that card is left to offer.');
           command = tradeCommands.addCard(pid(action.passcode)); this.trade({ pendingMove: { type: 'add', passcode: action.passcode } }); break;
         case 'removeTradeCard': editable();
           if (!Number.isInteger(action.index) || action.index < 0 || action.index >= t.ownOffer.length) throw new Error('Invalid offer index.');
@@ -194,6 +201,8 @@ export class SocialController {
       }
       this.update({ status: `Trade ${event.operation}: ${event.code}`, error: event.code !== 0 ? `Trade request failed (${event.code}).` : null });
       if (event.operation === 'request') this.trade({ phase: event.code === 0 ? 'waiting' : 'idle' });
+      // A refused add/remove gets no 0x7122 arrival: the offer is unchanged and editable again.
+      if ((event.operation === 'addCard' || event.operation === 'removeCard') && event.code !== 0) this.trade({ pendingMove: null });
       if (event.operation === 'offerReply') {
         // The decliner has nothing left to show; the inviter sees the ended trade until it closes it.
         if (this.decliningTrade) { this.decliningTrade = false; this.trade(freshTrade()); this.update({ status: 'Trade invitation declined.' }); return; }
