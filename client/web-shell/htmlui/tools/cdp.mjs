@@ -26,14 +26,16 @@ function freeMemoryPercent() {
   } catch { return 100; }
 }
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
-export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false } = {}) {
+// args: more Chrome flags (warm.mjs: no background throttling for its second player's window); profile: the profile
+// directory (warm.mjs: on disk, not the RAM-backed /tmp)
+export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false, args = [], profile: dir } = {}) {
   const free = freeMemoryPercent();
   if (free < 25) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
-  const profile = '/tmp/htmlui-chrome-' + process.pid;
+  const profile = dir || '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...GPU_FLAGS, 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...GPU_FLAGS, ...args, 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
