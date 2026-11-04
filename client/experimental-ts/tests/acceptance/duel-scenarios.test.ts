@@ -343,12 +343,17 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const adRace = await awaitPrompt(b,a,'choice');
       expect(adRace.buttons.filter(x => x.startsWith('prompt-option:')).length).toBe(20);
       await opt(b,'Machine');
-      for (let i = 0; i < 100 && !(await view(a)).zones.length; i++) { const o = await view(b); if (o.prompt?.kind === 'yes-no') await opt(b,'No'); await sleep(200); }
-      const send = (await view(a)).zones, hidden = (await view(b)).cards.filter(c => c.includes('opponent hand'));
-      expect(send.length).toBeGreaterThan(0); expect(send.every(z => z.startsWith('Card Trooper, your hand'))).toBe(true);
+      // Abyssal Designator sends from the hand or the Deck: with a Card Trooper still in A's Deck (the shuffle decides) the
+      // server opens a card list of the qualifying cards instead of the hand targets.
+      for (let i = 0; i < 100 && !(await view(a)).zones.length && (await view(a)).prompt?.kind !== 'cards'; i++) { const o = await view(b); if (o.prompt?.kind === 'yes-no') await opt(b,'No'); await sleep(200); }
+      const aView = await view(a), hidden = (await view(b)).cards.filter(c => c.includes('opponent hand'));
+      const fromList = aView.prompt?.kind === 'cards', send = fromList ? aView.prompt!.buttons.filter(x => x.startsWith('prompt-candidate:')).map(x => x.split('|')[1]!) : aView.zones;
+      expect(send.length).toBeGreaterThan(0);
+      expect(send.every(z => fromList ? z.startsWith('Card Trooper') : z.startsWith('Card Trooper, your hand'))).toBe(true);
       expect(hidden.every(c => c === 'Face-down card, opponent hand')).toBe(true);
       const graveBefore = await fieldCount(a,'your','graveyard');
-      await target(a,b,/^Card Trooper, your hand/);
+      if (fromList) { await press(a,candidate(0)); await sleep(300); await press(a,confirmSel); }
+      else await target(a,b,/^Card Trooper, your hand/);
       await idle(b,a);
       expect(await fieldCount(a,'your','graveyard')).toBe(graveBefore + 1); expect(await fieldCount(b,'opponent','graveyard')).toBe(graveBefore + 1);
       const lpAfter = (await view(b)).players[0];
@@ -358,8 +363,8 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const [, before, after] = /\(LP (\d+) -> (\d+)\)/.exec(paid.a[0]!)!; expect(Number(before) - Number(after)).toBe(1000);
       expect((await view(b)).log.some(l => l.startsWith(`${names.b} took 1000 damage`))).toBe(false);
       seen.prompts.push(`LP payment: Abyssal Designator's 1000 LP cost logged "${paid.a[0]}" on both screens (no damage line)`);
-      seen.prompts.push(`attribute + type: Abyssal Designator (${lp} → ${lpAfter}) offered all 6 attributes, then "${first(adRace.text)}" with 20 types; EARTH + Machine made A choose among ${send.length} Card Trooper(s) in hand only (not Celtic Guardian, EARTH Warrior): A's Graveyard ${graveBefore}→${graveBefore + 1} on both screens`);
-      seen.selection.push(`A's forced choice from its own hand: its candidates were named on A's screen while B's screen showed A's hand as ${hidden.length} card backs`);
+      seen.prompts.push(`attribute + type: Abyssal Designator (${lp} → ${lpAfter}) offered all 6 attributes, then "${first(adRace.text)}" with 20 types; EARTH + Machine made A choose among ${send.length} Card Trooper(s) ${fromList ? 'in a list of its hand and Deck' : 'in hand'} only (not Celtic Guardian, EARTH Warrior): A's Graveyard ${graveBefore}→${graveBefore + 1} on both screens`);
+      seen.selection.push(`A's forced choice from its own ${fromList ? 'hand and Deck (a list)' : 'hand'}: its candidates were named on A's screen while B's screen showed A's hand as ${hidden.length} card backs`);
       // Monster Reborn: a Graveyard list with max 1, a refused cancel, then the summon position.
       await act(b,a,'Monster Reborn','your hand','Activate');
       const list = await awaitPrompt(b,a,'cards');
