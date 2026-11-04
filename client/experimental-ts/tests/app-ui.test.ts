@@ -104,7 +104,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
     findButton(f.root, 'Accept Duel').onclick?.({}); await flush(); expect(f.game.replyToChallenge).toHaveBeenCalledWith(true); expect(f.app.getState().lobby?.invitation).toBeUndefined(); f.dispose();
   });
   it('enters and leaves a server-owned spectator stream without a surrender command', async () => {
-    const f = harness(); await f.enter(); f.session.rooms = [{ id: 9, owner: 88, opponent: 99, state: 1, style: 3, mode: 0, password: false, options: [1, 1, 1] }]; f.emit(); await flush();
+    const f = harness(); await f.enter(); f.session.rooms = [{ id: 9, owner: 88, opponent: 99, state: 1, style: 3, mode: 1, password: false, options: [1, 1, 0] }]; f.emit(); await flush();
     findButton(f.root, 'Watch').onclick?.({}); await flush(); expect(f.game.watchDuel).toHaveBeenCalledWith(88); expect(f.app.getState().duel?.spectating).toBe(true);
     findButton(f.root, 'Leave Duel').onclick?.({}); await flush(); expect(f.game.finishDuel).toHaveBeenCalledTimes(1); expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.app.getState().scene).toBe('lobby');
     await f.app.dispatch({ type: 'settings', settings: { reducedMotion: true } });

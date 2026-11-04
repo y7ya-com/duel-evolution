@@ -232,7 +232,7 @@ describe('independent client against actual server/World', () => {
       await drive(a.session.lobby!.request(0x4288,payload,0x428a)); await drive(a.session.refreshRooms());
       room = a.session.state.rooms.find(r => r.owner === a.session.state.profile!.pid)!;
       b.session.challengeRoom(room.id,'wrong'); await vi.advanceTimersByTimeAsync(100);
-      expect(a.session.state.challenge).toBeNull(); expect(b.session.state.error).toContain('refused');
+      expect(a.session.state.challenge).toBeNull(); expect(b.session.state.error).toBe('That room no longer exists.(-495)');
       b.session.challengeRoom(room.id,password); await vi.advanceTimersByTimeAsync(100);
       expect(a.session.state.challenge?.pid).toBe(b.session.state.profile!.pid);
       a.session.replyToChallenge(false); await vi.advanceTimersByTimeAsync(100);

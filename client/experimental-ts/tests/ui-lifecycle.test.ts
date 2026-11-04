@@ -116,9 +116,9 @@ describe('UI ownership and semantic interaction', () => {
     expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: 'target', response: { optionId: 'server-target' } }); f.mounted.dispose();
   });
   it('routes duel-room invitations and spectator exit through semantic commands', async () => {
-    const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [{ id: 9, owner: 2, name: 'B room', state: 0 }], invitation: { name: 'B', pid: 2 } } }); await Promise.resolve();
+    const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [{ id: 9, owner: 2, name: 'B room', state: 0 }, { id: 10, owner: 3, name: 'C room', state: 1, opponent: 4, watch: true }], invitation: { name: 'B', pid: 2 } } }); await Promise.resolve();
     findButton(f.root, 'Create Duel').onclick?.({}); findButton(f.root, 'Challenge').onclick?.({}); findButton(f.root, 'Watch').onclick?.({}); findButton(f.root, 'Accept Duel').onclick?.({}); findButton(f.root, 'Decline').onclick?.({});
-    expect(f.commands).toEqual([{ type: 'createDuelRoom' }, { type: 'challengeRoom', roomId: 9 }, { type: 'spectate', pid: 2 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
+    expect(f.commands).toEqual([{ type: 'createDuelRoom' }, { type: 'challengeRoom', roomId: 9 }, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
     f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], spectating: true } }); await Promise.resolve();
     expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Surrender')).toBe(false); findButton(f.root, 'Leave Duel').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'leaveDuel' }); f.mounted.dispose();
   });

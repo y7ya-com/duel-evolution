@@ -69,6 +69,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
+  let roomJoin: number | null = null, roomJoinPassword = '';
   const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS;
@@ -159,8 +160,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
     if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
-    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
-    return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
+    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.outgoing !== b.outgoing || a.avatars.length !== b.avatars.length) return false;
+    return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image && p.duelling === n.duelling; });
   };
   const presentLobby = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) { const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
@@ -302,7 +303,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     positionAvatars(lobby);
     showAvatarViews(lobby);
     const target = lobby.avatars.find(a => a.id === local.target);
-    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self), button('Close', () => { local.target = null; requestRender(); })));
+    if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => { local.target = null; send({ type: 'interact', playerId: target.id }); }, !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self || !!target.duelling), ...(target.duelling && !target.self && !lobby.rooms?.some(r => (r.owner === target.id || r.opponent === target.id) && r.watch === false) ? [button('Watch', () => { local.target = null; send({ type: 'spectate', pid: target.id }); }, !!state.busy)] : []), button('Close', () => { local.target = null; requestRender(); })));
     const chat = el('section', 'de-panel de-chat'); chat.setAttribute('aria-label', 'Chat');
     const lines = el('div', 'de-chat-log'); lines.setAttribute('role', 'log'); lines.setAttribute('aria-live', 'polite');
     for (const line of lobby.chat.slice(-200)) lines.append(line.sender.trim() ? el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text) : el('div', 'de-chat-line de-chat-system', line.text));
@@ -358,7 +359,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const roomPassword = textField('room-password', local.roomPassword, 'Optional room password'); roomPassword.type = 'password'; roomPassword.maxLength = 16; roomPassword.autocomplete = 'off'; roomPassword.oninput = () => { local.roomPassword = roomPassword.value; }; roomSettings.append(labelled('Password', roomPassword)); rooms.append(roomSettings);
       for (const room of lobby.rooms ?? []) {
         const row = el('div', 'de-room-row', el('strong', '', room.name || `Room ${room.id}`));
-        row.append(button('Challenge', () => { if (room.password) { const password = typeof window.prompt === 'function' ? window.prompt('Room password:') : null; if (password !== null) send({ type: 'challengeRoom', roomId: room.id, password }); } else send({ type: 'challengeRoom', roomId: room.id }); }, !lobby.connected || !!state.busy || room.owner === state.player?.id), button('Watch', () => send({ type: 'spectate', pid: room.owner }), !lobby.connected || !!state.busy || room.owner === state.player?.id));
+        row.append(button('Challenge', () => { if (room.password) { roomJoin = room.id; requestRender(); } else send({ type: 'challengeRoom', roomId: room.id }); }, !lobby.connected || !!state.busy || room.owner === state.player?.id || !!room.opponent), ...(room.opponent && room.watch !== false && room.owner !== state.player?.id && room.opponent !== state.player?.id ? [button('Watch', () => send({ type: 'spectate', pid: room.owner }), !lobby.connected || !!state.busy)] : []));
         if (room.owner === state.player?.id) row.append(button('Close Your Duel Room', () => { if (confirmAction('Close your duel room?')) send({ type: 'deleteDuelRoom' }); }, !!state.busy));
         rooms.append(row);
       }
@@ -371,6 +372,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const profile = el('section', 'de-panel de-profile-panel'); profile.dataset.key = `profile:${state.profileDetail.selectedPid}`; profile.setAttribute('role', 'dialog'); profile.setAttribute('aria-label', 'Player profile');
       profile.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); send({ type: 'profileAction', action: { type: 'close' } }); } };
       profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => open('shop') } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
+    }
+    if (roomJoin !== null && lobby.rooms?.some(r => r.id === roomJoin)) {
+      // The original's password input (CWindowModelInput1): the password is sent once and never kept or shown.
+      const roomId = roomJoin, form = el('form', 'de-panel de-duel-prompt de-stack'), field = textField('room-join-password', roomJoinPassword, 'Room password'); field.type = 'password'; field.oninput = () => { roomJoinPassword = field.value; }; field.maxLength = 16; field.autocomplete = 'off'; field.setAttribute('aria-label', 'Room password');
+      const ok = el('button', 'gold', 'OK'); ok.type = 'submit'; ok.disabled = !!state.busy;
+      form.onsubmit = e => { e.preventDefault(); const password = field.value; field.value = roomJoinPassword = ''; roomJoin = null; send({ type: 'challengeRoom', roomId, password }); };
+      form.append(title('Duel Request'), labelled('This duel has a password.', field), el('div', 'de-row', ok, button('Cancel', () => { roomJoin = null; roomJoinPassword = ''; requestRender(); })));
+      form.setAttribute('role', 'dialog'); form.setAttribute('aria-label', 'Room password'); stage.append(form);
+    } else { roomJoin = null; roomJoinPassword = ''; }
+    if (lobby.outgoing) {
+      const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Request'), el('p', '', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`), button('Cancel', () => send({ type: 'cancelChallenge' }), !!state.busy));
+      panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Requesting Duel'); stage.append(panel);
     }
     if (lobby.invitation) {
       const invitation = lobby.invitation;

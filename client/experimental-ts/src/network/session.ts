@@ -85,6 +85,13 @@ const RESULT_TEXT: Record<string, Record<number, string>> = {
     [-263]: 'Inappropriate name. Please create another.',
   },
 };
+/** lobbyErrorMessage (client/src/Lobby/yo2LobbyError.cpp): what the challenger reads when a duel request fails. */
+const LOBBY_ERROR_TEXT: Record<number, [string, boolean]> = {
+  [-618]: ['Refused.', false], [-616]: ['There is no response from your opponent.', false], [-608]: ['This Player is now Duelling.', false],
+  [-602]: ['This Player is looking for Auto Duels.', true], [-600]: ['The opponent has left the lobby.', false],
+  [-495]: ['That room no longer exists.', true], [-492]: ['The Lobby is full!', true],
+};
+export function lobbyErrorText(code: number): string { const [text, withCode] = LOBBY_ERROR_TEXT[code] ?? ['An error occurred.', true]; return withCode ? `${text}(${code})` : text; }
 const checkResult = (message: WireMessage, label: string): void => {
   const result = new BinaryReader(message.data).i32();
   if (result !== 0) throw new Error(RESULT_TEXT[label]?.[result] ?? `${label} refused (${result})`);
@@ -426,8 +433,10 @@ export class GameSession {
     if (password.length > 16 || password.includes('\0') || [...password].some(c => c.charCodeAt(0) > 255)) throw new Error('Room password must contain at most 16 Latin-1 characters');
     const style = options.style ?? 3, mode = options.mode ?? 0;
     if (![3,4].includes(style) || !Number.isInteger(mode) || mode < 0 || mode > 255) throw new Error('Invalid duel room settings');
-    const payload = new BinaryWriter().u8(style).u8(mode).u8(0).u8(password ? 1 : 0).raw(password ? md5(new BinaryWriter().s(password,password.length).bytes()) : new Uint8Array(16)).u8(0)
-      .u8(options.allowSurrender === false ? 0 : 1).u8(options.timeLimit === false ? 0 : 1).u8(options.allowWatch === false ? 0 : 1).u32(0).bytes();
+    // CNetLobby::reqCreateRoom: style, watch mode, state, lock, digest, 0, then surrender, time limit and level limit
+    // (the player menu reads them back as Watch On/Off, Surrender, Time Limit and Level Limit).
+    const payload = new BinaryWriter().u8(style).u8(options.allowWatch === false ? 0 : mode || 1).u8(0).u8(password ? 1 : 0).raw(password ? md5(new BinaryWriter().s(password,password.length).bytes()) : new Uint8Array(16)).u8(0)
+      .u8(options.allowSurrender === false ? 0 : 1).u8(options.timeLimit === false ? 0 : 1).u8(0).u32(0).bytes();
     checkResult(await this.requireLobby().request(0x4288,payload,0x428a),'Duel room'); this.roomStyle = style; await this.refreshRooms();
   }
   async startMatchmaking(options: MatchmakingOptions = {}): Promise<void> {
@@ -610,7 +619,7 @@ export class GameSession {
     } else if (channel === this.lobby && [0x4305,0x4308].includes(id)) this.state.challenge = null;
     else if (channel === this.lobby && id === 0x4301) {
       const code = new BinaryReader(data).i32();
-      if (code !== 0) { this.state.outgoingChallengeRoom = null; this.state.error = `Duel challenge refused (${code})`; }
+      if (code !== 0) { this.state.outgoingChallengeRoom = null; this.state.error = lobbyErrorText(code); }
     } else if (channel === this.account && id === 0x3114) {
       if (data.length !== 128) throw new Error('Invalid 128-byte player ownership snapshot');
       if (!this.acceptsRightsSnapshot(channel)) return; this.state.pbin = data.slice();

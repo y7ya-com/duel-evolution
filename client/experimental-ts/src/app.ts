@@ -308,10 +308,11 @@ export class ClientApp implements ClientController {
         mapId:state.area, name: `Duel Academy · Area ${state.area}`, width: worldMap?.width ?? 1600, height: worldMap?.height ?? 1200, connected: connection === 'online',
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
         npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
-        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password }))),
+        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
+        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -644,6 +645,7 @@ export class ClientApp implements ClientController {
         case 'refreshMatchmaking': await this.requireGame().refreshMatchmaking(); break;
         case 'retryMatchmaking': await this.requireGame().retryMatchmaking(); break;
         case 'challengeRoom': if (!this.services.decks.state.data) await this.refresh('deck'); this.requireGame().challengeRoom(command.roomId, command.password); break;
+        case 'cancelChallenge': await this.requireGame().cancelChallenge(); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
         case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
