@@ -1,0 +1,142 @@
+{
+ "v": 1,
+ "frame": 4000,
+ "scene": 11,
+ "_note": "MOCK: the pick list",
+ "mouse": {
+  "x": 0,
+  "y": 0,
+  "l": false,
+  "r": false
+ },
+ "focus": 0,
+ "windows": [
+  {
+   "id": 6637568,
+   "cls": "CWindowModelList",
+   "x": 420,
+   "y": 300,
+   "w": 248,
+   "h": 128,
+   "z": 51403,
+   "wz": 51408,
+   "drawn": {
+    "x": 420,
+    "y": 300,
+    "w": 248,
+    "h": 128
+   },
+   "alpha": 1,
+   "shown": true,
+   "modal": true,
+   "topmost": false,
+   "active": true,
+   "controls": [
+    {
+     "id": 6568960,
+     "cls": "CWindowTaskIconbar",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 0,
+     "y": 0,
+     "w": 248,
+     "h": 24,
+     "active": true
+    },
+    {
+     "id": 6569984,
+     "cls": "CWindowTaskThinChop",
+     "name": "",
+     "parent": 0,
+     "z": 0,
+     "alpha": 0.7,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 0,
+     "y": 24,
+     "w": 248,
+     "h": 104
+    },
+    {
+     "id": 6567936,
+     "cls": "CWindowTaskActiveListbox",
+     "name": "",
+     "parent": 0,
+     "z": 1,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 8,
+     "y": 24,
+     "w": 232,
+     "h": 96,
+     "items": [
+      "@0Alexis Rhodes",
+      "@0Kain",
+      "@0raMon",
+      "@0Duelist B",
+      "@0Chazz",
+      "@0Syrus",
+      "@0Bastion",
+      "@0Jaden"
+     ],
+     "selected": 1,
+     "marks": [],
+     "top": 0,
+     "topLine": 0,
+     "rows": 6
+    },
+    {
+     "id": 6571008,
+     "cls": "CWindowTaskScroll",
+     "name": "",
+     "parent": 6567936,
+     "z": 0,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 224,
+     "y": 24,
+     "w": 16,
+     "h": 96,
+     "value": 0,
+     "max": 2,
+     "page": 6,
+     "thumb": {
+      "pos": 16,
+      "len": 48
+     },
+     "length": 96,
+     "horizontal": false
+    },
+    {
+     "id": 6572032,
+     "cls": "CWindowTaskIconHide",
+     "name": "",
+     "parent": 0,
+     "z": 1,
+     "alpha": 1,
+     "shown": true,
+     "enabled": true,
+     "focused": false,
+     "x": 229,
+     "y": 0,
+     "w": 16,
+     "h": 24,
+     "pressed": false
+    }
+   ],
+   "extras": [],
+   "_note": "MOCK: CWindowModelList (yo2WindowDialogs.cpp onInit/layout); names made up; Kain hovered (the game selects the row under its mouse)."
+  }
+ ],
+ "tasks": []
+}

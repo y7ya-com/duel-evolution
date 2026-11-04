@@ -1,33 +1,77 @@
+// screens/shop.js without a browser: which parts are whose (the DOM's recipes, the engine's pictures), the swf
+// buttons' state from the game's mouse, the draw plan of the mock shop snapshots.   node screens/shop_test.mjs
 import assert from 'node:assert/strict';
-import { shopPlan, picture } from './shop-plan.js';
-const sprite = (id, file, x, y, w, h, z = 10) => ({ id, tex: `data/shop/${file}`, src: [0, 0, w, h], wx: x, wy: y, wz: z, shown: true });
-const window = (cls, sprites = []) => ({ id: 99, cls, x: 270, y: 70, w: 754, h: 530, controls: [], parts: { sprites, labels: [], swfs: [] } });
-const category = window('CShopCategoryWindow', [
-  sprite(1, 'shop_win_01_c01.png', 280, 84, 512, 512),
-  sprite(2, 'shop_introduction_01_e.png', 270, 54, 256, 64, 12),
-  sprite(3, 'shop_card_01_c01.png', 320, 109, 512, 256, 11),
-]);
-let p = shopPlan(category);
-assert.deepEqual(p.items.map(i => i.kind), ['frame', 'title']);
-assert.equal(p.items[1].text, 'Item Selection');
-assert.deepEqual(p.items[0].rect, { x: 280, y: 84, w: 512, h: 512 });
-assert.deepEqual(p.holes, [{ z: 11, rect: { x: 344, y: 138, w: 376, h: 112 } }], 'only real category picture punches through the crisp HTML panel');
-assert.equal(picture(category.parts.sprites[2]), true);
-assert.equal(picture(category.parts.sprites[0]), false);
-const price = window('CShopPricePlate', [sprite(4, 'shop_pricetag_06_c01.png', 301, 120, 99, 256)]);
-price.controls.push({ id: 8, cls: 'CWindowTaskText', shown: true, x: 10, y: 216, wx: 311, wy: 336, wz: 14, text: '1000MP', fontSize: 16 });
-p = shopPlan(price);
-assert.deepEqual(p.items[0].rect, { x: 301, y: 332, w: 99, h: 42 });
-assert.equal(p.items[1].text, '1000MP');
-assert.equal(p.items[1].rect.y, 336, 'leaf labels use drawn world coordinates, not task-local guesses');
-const mileage = { ...window('CShopMileagePlate', [sprite(9, 'shop_money_01_c01.png', 795, 390, 256, 128)]), x: 795, y: 390, mp: 10000, total: 600 };
-p = shopPlan(mileage);
-assert.deepEqual(p.items.filter(i => i.kind === 'label').map(i => i.text), ['10000MP', '600MP']);
-const cards = { ...window('CShopCardWindow'), x: 264, y: 0, holes: [{ x: 37, y: 140, w: 80, h: 116 }] };
-assert.deepEqual(shopPlan(cards).holes[0].rect, { x: 301, y: 140, w: 80, h: 116 });
-const digits = window('CShopPackWindow', [sprite(10, 'shop_number_01_c01.png', 800, 20, 16, 16)]);
-digits.parts.sprites[0].src = [16, 16, 16, 16];
-assert.equal(shopPlan(digits).items[0].text, '9', 'shop bitmap glyphs become DOM text');
-const hidden = window('CShopCategoryWindow', [{ ...sprite(11, 'shop_btn1_01_c01.png', 795, 540, 256, 64), shown: false }]);
-assert.equal(shopPlan(hidden).items.length, 0);
-console.log('screens/shop_test: category/product/price/wallet/hidden geometry and native input pass');
+import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+// web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there)
+registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
+  ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
+const { default: shop, texName, recipe, mine, passthrough, swfStates, plan } = await import('./shop.js');
+const mock = n => JSON.parse(readFileSync(new URL(`../mock/${n}.json`, import.meta.url), 'utf8'));
+
+// texture names: no folder, no extension, the language letter as English
+assert.equal(texName('data/shop/shop_Introduction_02_?.png'), 'shop_introduction_02_e');
+assert.equal(recipe('shop_introduction_03_e'), 'banner');
+assert.equal(recipe('shop_pricetag_05_c01'), 'tag');
+assert.equal(recipe('shop_arrow_11_c01'), 'arrow');
+assert.equal(recipe('shop_card_02_c01'), null);   // a category banner: a picture
+// the DOM's: recipes, texts, swf buttons, the game's scroll bar art; the engine's: pictures
+const spr = tex => ({ id: 1, tex });
+assert.ok(mine(spr('data/shop/shop_win_01_c01.png')) && mine({ id: 2, text: 'x' }) && mine({ id: 3, name: '', wx: 0, wy: 0 }));
+assert.ok(mine(spr('data/common/window/scroll_bar_01_c00.png')));
+assert.ok(!mine(spr('data/cardpack/pack_100.png')) && !mine(spr('data/shop/shop_pack_02_c01.png')));
+assert.ok(passthrough(spr('data/shop/shop_card_01_c01.png'), { id: 9 }) && !passthrough(spr('data/shop/shop_money_01_c01.png'), { id: 9 }));
+assert.ok(!passthrough({ id: 9, cls: 'CWindowTaskPictureSwitch' }));   // a control itself: hidden (its pictures pass)
+
+// the swf buttons: the 256 x 64 shape under the mouse, the last one listed winning where two overlap; pressed with
+// the left button down
+const sw = [{ wx: 795, wy: 480 }, { wx: 795, wy: 540 }];
+assert.deepEqual(swfStates(sw, null), ['normal', 'normal']);
+assert.deepEqual(swfStates(sw, [900, 500, 0]), ['hover', 'normal']);
+assert.deepEqual(swfStates(sw, [900, 542, 1]), ['normal', 'pressed']);
+assert.deepEqual(swfStates(sw, [100, 100, 1]), ['normal', 'normal']);
+
+// the menu (a live snapshot, tools/flip.mjs's shop-menu: nothing hovered): the panel, the banner, the Exit button; the
+// three pictures are holes (the engine's), cut only where the picture is (not the banners' frame and glow), where the
+// engine lands it (+0.5)
+const menu = mock('shop-menu').windows.find(w => w.cls === 'CShopCategoryWindow');
+let P = plan(menu);
+assert.equal(P.holes.length, 3);
+assert.ok(P.holes.some(h => JSON.stringify(h.rect) === JSON.stringify({ x: 319 + 24 + 0.5, y: 125 + 29 + 0.5, w: 376, h: 112 })));
+assert.deepEqual(P.pills.map(p => p.state), ['normal']);
+assert.equal(P.items.filter(it => it.z > 1017 && it.z < 1017.15).length, 0);   // no banner hovered: no frame
+// a hovered banner (its switch's hover art shown): its frame over its picture
+const hov = structuredClone(menu), ps = hov.controls.find(c => c.cls === "CWindowTaskPictureSwitch");
+const up = ps.parts.sprites.find(s => /_01_c01/.test(s.tex));
+const hv = ps.parts.sprites.find(s => /_02_c01/.test(s.tex));   // the hover art (the first _02: its checked art is one too)
+for (const s of ps.parts.sprites) Object.assign(s, s === hv ? { shown: true, wx: up.wx, wy: up.wy, wz: up.wz } : { shown: false });
+const HP = plan(hov), fr = HP.items.filter(it => it.id % 1 === 0.5);   // the frame (its sprite's id + 0.5), over the picture's hole
+assert.equal(fr.length, 1);
+assert.ok(fr[0].z > HP.holes.find(h => h.rect.x === up.wx + 24.5 && h.rect.y === up.wy + 29.5).z);
+assert.ok(P.items.every((it, i) => !i || P.items[i - 1].z <= it.z));   // back to front
+// hide(): its controls and the task's own parts the DOM draws (all of them here: no picture among the task's parts)
+assert.equal(shop.hide(menu).length, menu.controls.length + menu.parts.sprites.length + menu.parts.swfs.length);
+
+// the card window: the card faces' holes sit over the panel (1011) and under the confirm window (51003)
+const cards = mock('shop-cards').windows.find(w => w.cls === 'CShopCardWindow');
+P = plan(cards);
+const faces = P.holes.filter(h => h.z === 1020);
+assert.equal(faces.length, 10);
+assert.ok(faces[0].z > 1011 && faces[0].z < 51003);
+// the pack window: the pack art (data/cardpack, the engine's) is a hole and stays out of hide()
+const packs = mock('shop-packs').windows.find(w => w.cls === 'CShopPackWindow');
+assert.equal(plan(packs).holes.length, 10);
+assert.ok(!shop.hide(packs).some(id => packs.parts.sprites.find(s => s.id === id && /cardpack/.test(s.tex))));
+assert.deepEqual(plan(packs).pills.map(p => p.state), ['normal', 'pressed']);
+
+// the confirm window: its ten line texts give way to the native list (every cart line), the frame and buttons stay
+const conf = mock('shop-confirm').windows.find(w => w.cls === 'CShopConfirmWindow');
+P = plan(conf);
+assert.ok(P.items.some(it => it.id === 'list'));
+assert.equal(P.items.filter(it => typeof it.id === 'number').length, 1 + 2 + 2);   // frame, 2 keys, 2 captions (the message is empty)
+assert.deepEqual(conf.lines, ['Pack 4@>320/x1@>360/200MP']);
+// the NPC profile (a factory window): drawn by its own renderer, nothing hidden by name
+const npc = mock('shop-npc').windows.find(w => w.cls === 'CShopNpcProfile');
+assert.ok(npc.shown && npc.controls.some(c => c.cls === 'CWindowTaskFrameThin' && c.style === 2));
+assert.deepEqual(shop.hide(npc), []);
+console.log('screens/shop_test: ok');
