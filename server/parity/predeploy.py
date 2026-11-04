@@ -198,7 +198,8 @@ def shutdown_check(cookie):
                                  headers={"x-de-deploy": DEPLOY_TOKEN, "Content-Type": "application/json", "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=30) as r:
         out = json.load(r)
-    step(out.get("closed", 0) >= 1 and out.get("flushed") is True, f"shutdown: game sockets closed with 4012 and D1 flushed ({out})")
+    # do.ts answers {closed, duelsVoided} once the restart was prepared and D1 flushed (deploy.sh checks duelsVoided)
+    step(out.get("closed", 0) >= 1 and out.get("duelsVoided") is True, f"shutdown: game sockets closed with 4012, duels voided, D1 flushed ({out})")
     import base64, http.client
     h = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
     h.request("GET", "/net", headers={"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13",

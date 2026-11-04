@@ -152,8 +152,9 @@ def snapshot():
     snap = os.path.join(OUT, "snap")
     shutil.rmtree(snap, ignore_errors=True)
     os.makedirs(snap)
-    for x in ("src", "static"):
-        shutil.copytree(os.path.join(src, x), os.path.join(snap, x))
+    for x in ("src", "static", "data"):   # data/: tracked tables src/ imports (card-rarities.json)
+        if os.path.exists(os.path.join(src, x)):
+            shutil.copytree(os.path.join(src, x), os.path.join(snap, x))
     for x in ("wrangler.jsonc", "package.json", "tsconfig.json"):
         shutil.copy(os.path.join(src, x), snap)
     for x in ("node_modules", "gamedata", "migrations"):
