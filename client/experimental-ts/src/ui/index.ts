@@ -984,7 +984,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
-        ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
+        { label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') },
         // Return to Title stays available while busy: it is how a player abandons a request that never answers
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); } }] : []),
       ];

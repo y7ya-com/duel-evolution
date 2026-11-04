@@ -33,6 +33,7 @@ export class HtmlUiLayer {
   private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false;
   private roots = new Map<number, HTMLElement>(); private scale = 1; private disposed = false;
   private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
+  private tagged = new WeakMap<HTMLElement, Set<HTMLElement>>();   // per window root: the elements tag() keyed
   private declared = new Map<string, 'pass' | 'owned'>();
   private screens = new Map<string, HtmlUiScreen>();
   // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
@@ -178,8 +179,9 @@ export class HtmlUiLayer {
       const r = el.getBoundingClientRect();
       return { el, x: (r.left + r.width / 2 - rr.left) / k, y: (r.top + r.height / 2 - rr.top) / k, area: r.width * r.height };
     }).filter(e => e.area > 0);
+    const now = new Set<HTMLElement>();
     for (const c of win.controls) {
-      const h = spec.handlers.get(c.id); if (!h) continue;
+      const h = spec.handlers.get(c.id); if (!h || !c.shown) continue;   // a hidden control's element keeps no key
       const input = !!(h.text || h.enter);
       // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
       const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
@@ -192,7 +194,11 @@ export class HtmlUiLayer {
       if (at instanceof HTMLButtonElement && c.state !== undefined) at.disabled = c.state === 'disabled' || !c.enabled;
       if (h.key && at.dataset.key !== h.key) at.dataset.key = h.key;
       if (h.label && at.getAttribute('aria-label') !== h.label) at.setAttribute('aria-label', h.label);
+      now.add(at);
     }
+    // an element keyed before whose control is gone or hidden (main's screens keep the element): its key goes
+    for (const el of this.tagged.get(root) ?? []) if (!now.has(el)) { delete el.dataset.key; this.elementIds.delete(el); }
+    this.tagged.set(root, now);
   }
 
   dispose(): void {
