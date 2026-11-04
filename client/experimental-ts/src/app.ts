@@ -48,6 +48,7 @@ import type { OriginalCardTextCatalog } from './cards/original-text';
 import type { DeckView } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
+import { createNpcResultContext, npcResultLine, reduceNpcResultContext } from './npcs/result';
 
 export interface AppOptions {
   gatewayUrl: string;
@@ -107,6 +108,8 @@ export class ClientApp implements ClientController {
   private sideboard: DeckView | null = null;
   private sideboardRound: number | null = null;
   private duelState: DuelState = createDuelState();
+  /** Process-lifetime, like the original's never-cleared result category global; never reset with a session. */
+  private npcResult = createNpcResultContext();
   private timeline = new DuelTimeline(this.duelState);
   private duelAudio = new DuelAudioDirector();
   private animationFrame: number | null = null;
@@ -168,7 +171,8 @@ export class ClientApp implements ClientController {
       npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}); },
       onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
       onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
-      resolveLine:(id,line)=>this.options.npcDialogue?.resolve(id,line),resolvePresentText:id=>this.options.npcDialogue?.resolveText(id)});
+      resolveLine:(id,line)=>this.options.npcDialogue?.resolve(id,line),resolvePresentText:id=>this.options.npcDialogue?.resolveText(id),
+      resultLine:()=>npcResultLine(this.npcResult)});
     this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => {
       const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;
       this.patch({ accountDetail, ...(changed && accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) });
@@ -348,6 +352,7 @@ export class ClientApp implements ClientController {
     const previousPrompt = this.duelState.prompt?.id;
     const previous = this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
+    const npcResult = this.npcResult; try { this.npcResult = reduceNpcResultContext(npcResult, this.duelState, message); } catch { /* malformed packet: keep the last context */ }
     const names = this.duelNames();
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
     for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: event.sequence, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
@@ -355,6 +360,7 @@ export class ClientApp implements ClientController {
     this.timeline.enqueue(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
+    if (this.npcResult.complete && !npcResult.complete) this.npc.refreshResultLine();
     if (this.duelState.prompt?.id !== previousPrompt) this.submittedPrompt = null;
     this.syncDuel();
   }

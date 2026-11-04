@@ -71,3 +71,17 @@ it('does not strand inventory refreshes when a new NPC opens after an eligibilit
 it('ordinary close retains contact history while hard reset clears it',async()=>{
  const send=vi.fn();const c=new NpcController({send,onStartDuel:vi.fn()});c.open({id:9,name:'NPC'},0,{npcRank:0});expect(c.close()).toBe(false);c.receive(packet(0x5205,new W().u16(0).u16(0).bytes()));c.advance();await c.answer(false);c.advance();expect(c.close()).toBe(true);c.open({id:9,name:'NPC'},0,{npcRank:0});expect(c.state.dialogue?.line).toBe(5);expect(send).toHaveBeenCalledTimes(1);c.reset();c.open({id:9,name:'NPC'},0,{npcRank:0});expect(send).toHaveBeenCalledTimes(2);
 });
+it('after-duel line resolves once the duel result inputs complete and is never rewritten',async()=>{
+ let line:number|null=null; const resultLine=vi.fn(()=>line);
+ const c=new NpcController({send:vi.fn(),onStartDuel:vi.fn(),resultLine,resolveLine:(npc,l)=>`npc${npc}:${l}`}); c.open({id:51,name:'NPC'});
+ c.refreshResultLine(); expect(resultLine).not.toHaveBeenCalled();
+ await c.answer(true); c.afterDuel(2); expect(resultLine).toHaveBeenLastCalledWith(2); expect(c.state.dialogue).toMatchObject({line:null,known:false});
+ c.refreshResultLine(); expect(c.state.dialogue?.line).toBeNull();
+ line=39; c.refreshResultLine(); expect(c.state.dialogue).toEqual({npcId:51,line:39,text:'npc51:39',known:true});
+ line=64; c.refreshResultLine(); expect(c.state.dialogue?.line).toBe(39);
+ c.receive(packet(0x4800,new Uint8Array())); c.advance(); expect(c.state.stage).toBe('done'); c.refreshResultLine(); expect(c.state.dialogue).toBeNull();
+});
+it('a result line known at C_DUEL_END is used directly',async()=>{
+ const c=new NpcController({send:vi.fn(),onStartDuel:vi.fn(),resultLine:()=>49}); c.open({id:51,name:'NPC'}); await c.answer(true); c.afterDuel(3);
+ expect(c.state.dialogue).toMatchObject({line:49,known:false,text:'[Original NPC dialogue unavailable]'});
+});

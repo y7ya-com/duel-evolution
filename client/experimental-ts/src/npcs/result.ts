@@ -70,6 +70,9 @@ export function reduceNpcResultContext(previous: NpcResultContext, state: DuelSt
 }
 
 function known(n: number | null): n is number { return n !== null && Number.isSafeInteger(n) && n >= 0 && n <= 0x7fffffff; }
+/** The snapshot is the LP gauge value (CDuelScene+0xa9c+side*0x44, +0x28), which 0x007cef90 clamps at zero;
+ * a wire u32 with the sign bit set reads as negative there. */
+function gauge(lp: number | null): number | null { return lp !== null && Number.isSafeInteger(lp) && lp > 0x7fffffff && lp <= 0xffffffff ? 0 : lp; }
 function normalWin(lp: number | null): number | null { return !known(lp) ? null : lp >= 5000 ? 64 : lp < 1000 ? 54 : 59; }
 function normalLoss(lp: number | null): number | null { return !known(lp) ? null : lp >= 5000 ? 34 : lp < 1000 ? 44 : 39; }
 
@@ -78,7 +81,7 @@ function normalLoss(lp: number | null): number | null { return !known(lp) ? null
  * Unknown inputs required by the selected branch stay explicitly unavailable. */
 export function npcResultLine(context: NpcResultContext): number | null {
   if (!context.complete) return null;
-  const { result, category, turn, lp, deck } = context;
+  const { result, category, turn, deck } = context, lp = [gauge(context.lp[0]), gauge(context.lp[1])] as const;
   if (result === 3) return 49;
   if (result !== 1 && result !== 2 || category === null) return null;
   if (category === 1) return result === 1 ? normalWin(lp[0]) : normalLoss(lp[1]);
