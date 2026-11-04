@@ -137,8 +137,9 @@ export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/accept
 
 /** One move of a playing bot on the duel screen, through the same controls a player uses. On its own turn it inspects
  * each hand card once for a summon or set, enters the Battle Phase and attacks with each monster once, then ends the
- * turn. Prompts: never chains (No), first candidates, first options. */
-export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boolean } = {}):Promise<'finished'|'acted'|'idle'> {
+ * turn. Prompts: never chains (No), first candidates, first options. `set` prefers setting cards face-down, `activate`
+ * also activates cards from the hand and field. */
+export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boolean; set?:boolean; activate?:boolean } = {}):Promise<'finished'|'acted'|'idle'> {
   const next = await page.ev(`(()=>{
     const ok=b=>b&&!b.disabled&&b.getClientRects().length, all=[...document.querySelectorAll('button')].filter(ok);
     const find=(t,scope=document)=>[...scope.querySelectorAll('button')].filter(ok).find(b=>b.textContent===t);
@@ -162,8 +163,8 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     const ins=document.querySelector('.de-duel-inspector');
     if(ins){
       const acts=[...ins.querySelectorAll('button')].filter(ok).filter(b=>b.textContent!=='Close');
-      const want=${JSON.stringify([...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
-      const pick=acts.find(b=>want.some(w=>b.textContent.startsWith(w+':')));
+      const want=${JSON.stringify([...(options.set ? ['Set monster','Set spell/trap'] : []),...(options.activate ? ['Activate'] : []),...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
+      const pick=want.map(w=>acts.find(b=>b.textContent.startsWith(w+':'))).find(Boolean);
       if(pick)return {kind:'text',text:pick.textContent,scope:'.de-duel-inspector'};
       return {kind:'text',text:'Close',scope:'.de-duel-inspector'};
     }

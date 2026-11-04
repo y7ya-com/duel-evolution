@@ -234,7 +234,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       let staleAction:{ page:Page; who:'A'|'B'; turn:number; label:string } | null = null, staleActionResult = '';
       let logProbe = '', inspectProbe = '', animationProbe = '';
       const start = Date.now(), stalls:string[] = [];
-      let result = '', idleSince = Date.now(), lastSignature = '';
+      let result = '', ended = 'natural result', idleSince = Date.now(), lastSignature = '';
       while (Date.now() - start < 540000) {
         const [sa,sb] = await Promise.all([snap(a),snap(b)]);
         prompts.before('A',sa); prompts.before('B',sb);
@@ -312,13 +312,14 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           idleSince = Date.now();
           if (stalls.length >= 2) break;
         }
-        const step = async (page:Page,s:Snap,who:'A'|'B') => { const r = await duelBot(page); if (r === 'acted') prompts.answered(who,s); return r; };
+        // A sets its cards face-down (hidden identities, flips when attacked); B activates what it can (chains, targets).
+        const step = async (page:Page,s:Snap,who:'A'|'B') => { const r = await duelBot(page,who === 'A' ? { set:true } : { activate:true }); if (r === 'acted') prompts.answered(who,s); return r; };
         await Promise.all([step(a,sa,'A'),step(b,sb,'B')]);
         await sleep(120);
         if (turnOf(sa) >= 14 && !result) {
           // A long duel: B surrenders (the server confirms from turn 10).
           await checkpoint('before surrender');
-          await surrender(b); await until(a,`document.querySelector('.de-duel-end')`,60000);
+          await surrender(b); await until(a,`document.querySelector('.de-duel-end')`,60000); ended = `B surrendered on turn ${turnOf(sa)}`;
           result = `${await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)}/${await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)}`;
           break;
         }
@@ -338,9 +339,9 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       expect(prompts.errors).toEqual([]);
       expect(stats.checkpoints).toBeGreaterThan(10);
       const turns = turnOf(final[0]) || lastTurn;
-      record('duel.field',{ actions:`PvP ${names.a} vs ${names.b}, both bots summon/set/attack; ${stats.checkpoints} settled checkpoints`, expected:'Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership.', observed:`at every checkpoint A's own zones (per index), hand count and deck/grave/banish/extra counts equalled B's mirrored opponent side and vice versa; up to ${stats.monsters} monsters on the field; piles seen: ${[...stats.piles].join(', ')}; ${turns} turns; result ${result}` });
+      record('duel.field',{ actions:`PvP ${names.a} vs ${names.b}, both bots summon/set/attack; ${stats.checkpoints} settled checkpoints`, expected:'Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership.', observed:`at every checkpoint A's own zones (per index), hand count and deck/grave/banish/extra counts equalled B's mirrored opponent side and vice versa; up to ${stats.monsters} monsters on the field; piles seen: ${[...stats.piles].join(', ')}; ${turns} turns; result ${result} (${ended})` });
       record('duel.visibility',{ actions:'Both players set and summon cards; each checkpoint compares face, position and names across the two screens', expected:'Reveal/hide cards, tokens, control changes, shuffles and positions match server state.', observed:`face-up/face-down and attack/defense agreed per zone index at all ${stats.checkpoints} checkpoints; ${stats.flips} flips, ${stats.positions} position changes, ${stats.control} control changes, ${stats.shuffles} shuffle checkpoints observed; own set cards named to their owner ${stats.ownSetNamed} times and never to the opponent` });
-      record('duel.combat',{ actions:'Bots enter the Battle Phase and attack each turn', expected:'Render phases, chains, battle, LP, stats, counters and destruction correctly.', observed:`phases ${[...stats.phases].join(' / ')}; LP and turn/phase bar equal on both screens throughout (last: ${[...stats.lp].at(-1)}); ${stats.destroyed} graveyard increases; ${stats.chains} checkpoints with activations; result ${result}` });
+      record('duel.combat',{ actions:'Bots enter the Battle Phase and attack each turn', expected:'Render phases, chains, battle, LP, stats, counters and destruction correctly.', observed:`phases ${[...stats.phases].join(' / ')}; LP and turn/phase bar equal on both screens throughout (last: ${[...stats.lp].at(-1)}); ${stats.destroyed} graveyard increases; ${stats.chains} checkpoints with activations; result ${result} (${ended})` });
       record('duel.actions',{ actions:"Each checkpoint checks which screen holds input; opponent cards pressed on both the waiting and the acting screen", expected:'Only current server-issued card/phase actions can generate valid responses.', observed:`never both screens offered input at once (${stats.checkpoints} checkpoints); opponent cards offered no actions and face-down opponent cards opened nothing` });
       record('duel.stale',{ actions:'A captured prompt answer pressed after a newer prompt arrived; a phase button from an earlier turn pressed on a later turn', expected:'Reject stale input and display unsupported prompts without fabricating a valid action.', observed:`${staleResult || 'no second prompt arrived for the captured one'}; ${staleActionResult || 'stale phase button not exercised'}; no "Unsupported gameplay" state seen` });
       record('duel.log',{ actions:'Scroll the duel log while a prompt waits; compare log order between screens and over time', expected:'Open supported duel logs, retain ordering and card references, and close without affecting active prompts.', observed:`${logProbe || 'no prompt with a long log'}; logs of both screens agreed line by line (hidden names replaced by "a card/a monster"); earlier lines kept their order in later logs; ${stats.log} lines shown` });
@@ -366,7 +367,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         while (Date.now() - start < 300000) {
           const s = await snap(page); prompts.before('N',s);
           if (s.ended) { results.push(`${npc}: ${s.ended}`); break; }
-          const r = await duelBot(page); if (r === 'acted') prompts.answered('N',s);
+          const r = await duelBot(page,{ activate:true }); if (r === 'acted') prompts.answered('N',s);
           await sleep(120);
         }
         if (!(await snap(page)).ended) { await surrender(page).catch(() => {}); results.push(`${npc}: surrendered after timeout`); }

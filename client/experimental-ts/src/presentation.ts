@@ -36,8 +36,9 @@ export function describeEvent(state: DuelState, catalog: CardCatalog, names: [st
     case 0x55: return p[1] ? `${who} draws ${count(p[1], 'card')}.` : null;
     case 0x2d: return p[0]! & 0x4000 ? `${who} summons ${card('a monster')}.` : `${who} summons a monster face-down.`;
     case 0x48: return `${who} summons a token.`;
-    case 0x4f: return `${who} sets a monster.`;
-    case 0x50: return `${who} sets a card.`;
+    // Hand to monster / spell zone: P1 bit 14 is face-up (a summon or a face-up play), otherwise a set.
+    case 0x4f: return p[1]! & 0x4000 ? `${who} summons ${card('a monster')}.` : `${who} sets a monster.`;
+    case 0x50: return p[1]! & 0x4000 ? `${who} plays ${card('a card')}.` : `${who} sets a card.`;
     case 0x12: return `${who} activates ${card('a card')}.`;
     case 0x19: return `${who}'s ${card('monster')} attacks!`;
     case 0x1a: return `${who}'s ${card('monster')} attacks directly!`;
