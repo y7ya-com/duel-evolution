@@ -23,7 +23,7 @@ import { renderCosmeticsShop, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
-import type { CardActions, MenuEntry, MenuView } from './htmlui/windows';
+import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 export type * from './contracts';
 
@@ -127,7 +127,25 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       ...(name ? { whisper: () => { htmlUiState.chatDraft = `/w ${name} `; close(); } } : {}),
     };
   };
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }) });
+  // the list windows' content: the rewrite's social state (an ignored player's name from the players the client sees)
+  const socialLists = (): SocialLists | null => {
+    const sd = state.socialDetail; if (!sd) return null;
+    const known = (pid: number) => state.lobby?.avatars.find(a => a.id === pid)?.name ?? sd.friends.find(f => f.pid === pid)?.name ?? `Player ${pid}`;
+    const social = (action: import('../features/social').SocialAction) => send({ type: 'socialAction', action });
+    return {
+      friends: [...sd.friends], ignored: sd.ignored.map(pid => ({ pid, name: known(pid) })),
+      team: sd.team ? { name: sd.team.name, members: sd.teamMembers.map(m => ({ pid: m.pid, name: m.name })), leader: sd.teamMembers.some(m => m.pid === state.player?.id && (m.authority & 2) !== 0) } : null,
+      unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
+      leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
+    };
+  };
+  // D-Mail: the rewrite's mail; Write Mail (and a reply) is the rewrite's compose form for now
+  const mailBox = (): MailBox | null => {
+    const sd = state.socialDetail; if (!sd) return null;
+    return { mail: sd.mail.map(m => ({ from: m.fromName, fromPid: m.fromPid, subject: m.subject, body: m.body })),
+      write: toPid => { htmlUiState.mail = null; if (toPid !== undefined) send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(toPid) } }); open('social'); } };
+  };
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }) });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
   // 12 Free Duel's lobby, 14 the shop)
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
@@ -954,11 +972,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ] : []),
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: go('settings') },
         ...(state.mode !== 'free' ? [
-          { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard, run: go('social') },
+          { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           { label: 'Audio', key: 'audio', disabled: blocked, run: go('settings') },
-          { label: 'Ignore List', key: 'ignore', disabled: blocked || sideboard, run: go('social') },
-          { label: 'Friend List', key: 'friends', disabled: blocked || sideboard, run: go('social') },
-          { label: 'Team List', key: 'teams', disabled: blocked || sideboard, run: go('social') },
+          // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
+          ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
+            disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } })) : []),
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),

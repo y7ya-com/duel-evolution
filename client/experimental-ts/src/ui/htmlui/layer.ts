@@ -163,7 +163,8 @@ export class HtmlUiLayer {
     const [x, y] = this.point(e), c = byEl !== undefined ? this.specs.flatMap(s => s.win.controls).find(k => k.id === byEl) ?? null : hitTest(this.specs, x, y, h => !!h.click);
     if (!c || !this.handlers.get(c.id)?.click) return;
     const win = this.specs.find(s => s.win.controls.includes(c))?.win;
-    if (win && this.declared.get(win.cls) === 'owned') return;   // an owned screen clicks its own controls
+    // an owned screen clicks its own controls, but its lists' rows are text (chat.js ownList): a row picks its row
+    if (win && this.declared.get(win.cls) === 'owned' && !/Listbox$/.test(c.cls)) return;
     void this.api.click(c.id);
   };
 

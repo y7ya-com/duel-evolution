@@ -15,14 +15,19 @@ import playerListMock from '@htmlui/mock/duelsetup-plist.json';
 export type HtmlDialog =
   | { kind: 'create'; slot: number; name: string }
   | { kind: 'delete'; slot: number; name: string }
-  | { kind: 'ok'; text: string };
+  | { kind: 'ok'; text: string }
+  | { kind: 'team'; name: string };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
   comment: [string, string] | null; commentQueue: { line: 0 | 1; text: string }[];
   /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
-  commentWait: null | 'sent' | 'pending' }
-export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null });
+  commentWait: null | 'sent' | 'pending';
+  /** The Main Menu's list window open (Friend / Ignore / Team List) and the row chosen in it. */
+  lists: { kind: 'friends' | 'ignore' | 'team'; selected: number } | null;
+  /** D-Mail open: the first row shown, the mail chosen. */
+  mail: { top: number; selected: number } | null }
+export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null, lists: null, mail: null });
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
@@ -35,6 +40,9 @@ export interface BuildContext {
   rerender(): void;
   confirmDelete?: (name: string) => string;
   menu?: MenuView | null;
+  /** The list windows' rows and commands (the rewrite's social state). */
+  social?: SocialLists | null;
+  mailBox?: MailBox | null;
   /** Another player's card's actions (the rewrite's social and duel commands); opening a player's card. */
   cardActions?: CardActions; openPlayer?: (pid: number) => void;
   /** The profile's buttons the rewrite adds (one's own: comment, title, appearance). */
@@ -336,6 +344,83 @@ export function playerList(ctx: BuildContext, open: (pid: number) => void): Wind
   return b.spec();
 }
 
+/** The Friend / Ignore / Team List windows' content (the rewrite's social state). */
+export interface SocialLists {
+  friends: { pid: number; name: string }[]; ignored: { pid: number; name: string }[];
+  team: { name: string; members: { pid: number; name: string }[]; leader: boolean } | null;
+  unignore(pid: number): void; formTeam(name: string): void; leaveTeam(): void; disbandTeam(): void;
+}
+// The Main Menu's list windows (CWindowModelFriendlist / Blacklist / Teamlist, main's social.js: the duel frame, the
+// list's rows a native scroller, the duel buttons). main's My Room captures (tools/flip.mjs sp-friends, sp-teams):
+// 62, 282, 900 x 204; the title 0, 4, 900 wide; the list 13, 32, 874 x 128 (8 rows); Close 625, 173 (100 x 24) and the
+// window's action left of the centre (Remove from Friend List 125, 173, 200 wide; the Team List's Form Team 403.5, 93
+// wide, Disband Team 391, 118 wide, Leave Team 400.5, 99 wide). The Friend List has no remove in the rewrite's protocol:
+// its button stays disabled. A team is formed by name (the name prompt, main's dialog.js).
+export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
+  const open = ctx.ui.lists; if (!open) return null;
+  const cls = { friends: 'CWindowModelFriendlist', ignore: 'CWindowModelBlacklist', team: 'CWindowModelTeamlist' }[open.kind];
+  const b = new WindowBuilder(ctx.ids, `list:${open.kind}`, cls, { x: 62, y: 282, w: 900, h: 204 }, { z: 51453, modal: true });
+  const close = () => { ctx.ui.lists = null; ctx.rerender(); };
+  const rows = open.kind === 'friends' ? lists.friends : open.kind === 'ignore' ? lists.ignored : lists.team?.members ?? [];
+  if (open.selected >= rows.length) open.selected = -1;
+  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
+  const title = { friends: 'Friend List', ignore: 'Ignore List', team: lists.team ? `Team List: ${lists.team.name}` : 'Team List' }[open.kind];
+  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 900, h: 204 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: 874, h: 128 }, { items: rows.map((r, i) => `${i === open.selected ? '> ' : ''}${r.name}`), selected: open.selected, top: 0, topLine: 0, rows: 8 });
+  b.on(list, { label: title, click: point => { if (!point) return; const i = Math.floor((point[1] - 282 - 32) / 16); if (i >= 0 && i < rows.length) { open.selected = i; ctx.rerender(); } } });
+  const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null) =>
+    b.add('CWindowTaskButtonDuel', name, { x, y: 173, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
+  const chosen = rows[open.selected];
+  if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', null);
+  if (open.kind === 'ignore') button('remove', 125, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
+  if (open.kind === 'team') {
+    if (!lists.team) button('form', 403.5, 93, 'Form Team', 'team-form', () => { ctx.ui.dialog = { kind: 'team', name: '' }; ctx.rerender(); });
+    else if (lists.team.leader) button('disband', 391, 118, 'Disband Team', 'team-disband', () => lists.disbandTeam());
+    else button('leave', 400.5, 99, 'Leave Team', 'team-leave', () => lists.leaveTeam());
+  }
+  button('close', 625, 100, 'Close', 'list-close', close);
+  return b.spec();
+}
+// The team's name, asked in main's name prompt (mock/dialog-input1.json), as the game asks for one
+export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'team' }>, lists: SocialLists): WindowSpec {
+  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'team-name', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
+  const cs = b.fromTemplate(t, true);
+  const ok = () => { const name = dialog.name.trim(); if (!name) return; ctx.ui.dialog = null; lists.formTeam(name); ctx.rerender(); };
+  const text = named(cs, 'CWindowTaskText'); if (text) text.text = 'Enter your Team Name';
+  const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  if (input) { Object.assign(input, { value: dialog.name, focused: true, maxLen: 16 }); b.on(input, { key: 'team-name', label: 'Team name', text: v => { dialog.name = v; ctx.rerender(); }, enter: ok }); }
+  if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'team-name-ok', click: ok }); }
+  if (cancel) b.on(cancel, { key: 'team-name-cancel', click: () => { ctx.ui.dialog = null; ctx.rerender(); } });
+  return b.spec();
+}
+
+/** D-Mail's content (the rewrite's mail) and what its buttons do. */
+export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; write(toPid?: number): void }
+// D-Mail (CWindowModelDMail, main's social.js: one 512 x 512 mail picture, skin.mailWindow). main's My Room capture
+// (tools/flip.mjs sp-dmail): 256, 128; the title 0, 4, 512 wide; Write Mail 16, 40, Send Mail 132, 40 (a reply: on the
+// chosen mail), Delete 395, 40 (100 x 24; the rewrite's protocol has no delete: disabled), Close 206, 481; five subject
+// rows (DMailItem) at 16, 72 + 36 n, the body 16, 272, 464 x 192. A row's sender and subject are main's generic text
+// in the row's place; the chosen one's body below.
+export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
+  const open = ctx.ui.mail; if (!open) return null;
+  const b = new WindowBuilder(ctx.ids, 'dmail', 'CWindowModelDMail', { x: 256, y: 128, w: 512, h: 512 }, { z: 51453, modal: true });
+  const mail = box.mail.slice(open.top, open.top + 5), chosen = box.mail[open.selected];
+  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 512, h: 32 }, { text: 'D-Mail', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  const button = (name: string, x: number, y: number, label: string, key: string, run: (() => void) | null) =>
+    b.add('CWindowTaskTextSwitch', name, { x, y, w: 100, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', checked: false, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
+  button('write', 16, 40, 'Write Mail', 'mail-write', () => box.write());
+  button('reply', 132, 40, 'Send Mail', 'mail-reply', chosen ? () => box.write(chosen.fromPid) : null);
+  button('delete', 395, 40, 'Delete', 'mail-delete', null);
+  mail.forEach((m, i) => {
+    const row = b.add('CWindowTaskTextSwitch', `row${i}`, { x: 16, y: 72 + 36 * i, w: 464, h: 32 }, { label: `${m.from}: ${m.subject}`, align: 0, state: 'normal', checked: open.top + i === open.selected, color: [0, 0, 0, 1] },
+      { key: `mail-row:${open.top + i}`, click: () => { open.selected = open.top + i; ctx.rerender(); } });
+    row.alpha = 1;
+  });
+  b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : box.mail.length ? '' : 'No mail.', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
+  button('close', 206, 481, 'Close', 'mail-close', () => { ctx.ui.mail = null; ctx.rerender(); });
+  return b.spec();
+}
+
 /** Every window the current state shows through main's screens, back to front. */
 export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const out: WindowSpec[] = [], { state, ui } = ctx;
@@ -352,11 +437,14 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else ui.comment = null;
+  const lists = ctx.social ? listWindow(ctx, ctx.social) : null; if (lists) out.push(lists); else if (!ctx.social) ui.lists = null;
+  const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
   const menu = ctx.menu;
   if (menu) { out.push(menuBar(ctx, menu)); if (ui.menu && menu.keys) out.push(mainMenu(ctx, menu)); else ui.menu = false; }
   const d = ui.dialog;
   if (d?.kind === 'create') out.push(nameDialog(ctx, d));
   else if (d?.kind === 'delete') out.push(deleteDialog(ctx, d));
   else if (d?.kind === 'ok') out.push(okDialog(ctx, d));
+  else if (d?.kind === 'team' && ctx.social) out.push(teamNameDialog(ctx, d, ctx.social));
   return out;
 }
