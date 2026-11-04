@@ -15,6 +15,11 @@ import { renderAudioFeature } from './extra/audio';
 import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
+import { renderCardGet, CARD_GET_CSS } from './extra/card-get';
+import { deckProblems, renderDeckCheck, DECK_CHECK_CSS } from './extra/deck-check';
+import { renderCardDetails } from './extra/card-details';
+import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
+import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { renderProfileFeature } from '../features/profile-ui';
 export type * from './contracts';
 
@@ -79,7 +84,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
-  host.append(css, header, stage, nav); root.append(host);
+  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + DECK_CHECK_CSS + WALLET_CSS + COSMETICS_CSS;
+  host.append(css, extraCss, header, stage, nav); root.append(host);
   const menuBar = new MenuBar(host, controller.loadArchiveImage?.bind(controller));
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
@@ -146,6 +152,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (observer) { imageEntries.set(image, entry); observer.observe(image); }
     else startArt(entry);
   };
+  // The wardrobe and Appearance previews: the player's own avatar wearing a draft look.
+  const previewAvatars = new Map<string, AvatarView>();
+  const avatarPreview = controller.loadAvatar ? (parts: number[], world: 0 | 1, key: string): HTMLElement | null => {
+    let view = previewAvatars.get(key); if (!view) { view = new AvatarView({ sourceOrigin: true, loadAvatar: (p, o) => controller.loadAvatar!(p, o), reducedMotion: () => controller.getState().settings.reducedMotion }); previewAvatars.set(key, view); }
+    try { view.show(Uint8Array.from(parts), world, 'stand', 0); } catch { return null; } return view.element;
+  } : null;
+  const cosmeticsDeps = () => ({ dispatch: (action: import('../features/online').OnlineAction) => send({ type: 'onlineAction', action }), avatar: avatarPreview, rerender: requestRender });
   const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
@@ -379,7 +392,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) {
       const profile = el('section', 'de-panel de-profile-panel'); profile.dataset.key = `profile:${state.profileDetail.selectedPid}`; profile.setAttribute('role', 'dialog'); profile.setAttribute('aria-label', 'Player profile');
       profile.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); send({ type: 'profileAction', action: { type: 'close' } }); } };
-      profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => open('shop') } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
+      profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => { openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
     }
     if (lobby.invitation) {
       const invitation = lobby.invitation;
@@ -407,6 +420,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const toolbar = el('div', 'de-row'); const deckSelect = el('select'); deckSelect.setAttribute('aria-label', 'Saved deck'); deckSelect.dataset.key = 'deck-select';
     const blank = el('option', '', 'Choose a deck'); blank.value = ''; deckSelect.append(blank);
     for (const deck of editor.decks) { const o = el('option', '', deck.name); o.value = deck.name; deckSelect.append(o); }
+    if (editor.current && !editor.decks.some(d => d.name === editor.current!.name)) { const o = el('option', '', `${editor.current.name} · not saved`); o.value = editor.current.name; deckSelect.append(o); }
     deckSelect.value = editor.current?.name ?? ''; deckSelect.onchange = () => { if (deckSelect.value) send({ type: 'selectDeck', name: deckSelect.value }); };
     const name = textField(`deck-name:${editor.current?.name ?? 'new'}`, editor.current?.name ?? local.deckName, 'Deck name'); name.maxLength = 40; name.setAttribute('aria-label', 'Deck name'); name.oninput = () => { local.deckName = name.value; };
     toolbar.append(deckSelect, name, button('New', () => send({ type: 'newDeck', name: name.value.trim() || 'New Deck' }), !!state.busy), button('Save', () => { if (name.value.trim() && name.value !== editor.current?.name) send({ type: 'renameDeck', name: name.value.trim() }); send({ type: 'saveDeck' }); }, !editor.current || !!state.busy || !!editor.loading, true), button('Delete', () => { if (editor.current && confirmAction(`Delete deck “${editor.current.name}”?`)) send({ type: 'deleteDeck', name: editor.current.name }); }, !editor.current || !!state.busy));
@@ -437,18 +451,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     tools.append(note('Imported decks and recipes may include missing cards. Ownership and legality are checked by the server when you enter a duel.')); panel.append(tools);
     if (editor.error) panel.append(el('p', 'de-error', editor.error));
+    if (editor.current) { const known = new Map([...(editor.allCards ?? []), ...editor.collection].map(c => [c.passcode, c])), owned = new Map(editor.collection.map(c => [c.passcode, c.owned ?? 0])); panel.append(renderDeckCheck(deckProblems(editor.current, pc => { const c = known.get(pc); return c && { ...c, owned: owned.get(pc) ?? 0 }; }))); }
     if (local.inspected && ['main', 'side', 'extra'].includes(local.inspectedFrom)) {
       const ids = editor.current?.[local.inspectedFrom as DeckZone] ?? [], passcode = local.inspected.passcode;
       if (local.inspectedIndex === null || ids[local.inspectedIndex] !== passcode) { const index = ids.findIndex(id => id === passcode); if (index < 0) { local.inspectedFrom = 'collection'; local.inspectedIndex = null; } else local.inspectedIndex = index; }
     }
     const cols = el('div', 'de-deck-columns');
     const inspector = el('aside', 'de-card-inspector de-stack'); const card = local.inspected;
-    if (card) { inspector.append(drawCard(card), el('h3', '', card.name), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`), el('p', '', card.description ?? 'Card description unavailable.')); }
-    else inspector.append(note('Select a card to inspect its details.'));
+    if (!card) inspector.append(note('Select a card to inspect its details.'));
     const deckColumn = el('section', 'de-scroll');
     const owned = new Map(editor.collection.map(c => [c.passcode, c.owned ?? 0]));
     const pool = (editor.allCards?.length ? editor.allCards : editor.collection).map(c => ({ ...c, owned: owned.get(c.passcode) ?? c.owned ?? 0 }));
     const lookup = new Map(pool.map(c => [c.passcode, c]));
+    if (card) { const shown = (card.passcode !== undefined ? lookup.get(card.passcode) : undefined) ?? card; inspector.append(...renderCardDetails(shown, { drawCard: c => drawCard(c), alternates: pool.filter(c => c.name === shown.name), inspect: c => inspect(c) })); }
     for (const zone of ['main', 'extra', 'side'] as const) {
       const ids = editor.current?.[zone] ?? [], zoneNode = el('section', 'de-deck-zone'), heading = el('div', 'de-zone-title', `${zone === 'extra' ? 'Fusion' : zone === 'main' ? 'Main' : 'Side'} Deck`, el('span', '', String(ids.length)));
       const grid = el('div', 'de-card-grid');
@@ -492,7 +507,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       } else collection.append(button(`Add ${card.name}`, () => addCard(card), !editor.current || !!state.busy));
     }
     if (card) {
-      const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
+      const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), ...(/spell|trap/i.test(card.type ?? '') ? [] : [note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`)]), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
     }
     cols.append(inspector, deckColumn, collection); panel.append(cols, note('Double-click or drag cards to move them. Select a deck card and press Delete to remove it, or Alt + Left/Right to reorder it. Server validation applies when saving and entering a duel.')); n.append(panel);
     function addCard(c: CardView): void {
@@ -559,25 +574,26 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderShop(): void {
     const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', 'Loading the shop catalogue.');
     const n = sceneRoot('Card Shop'), panel = el('section', 'de-panel de-stack de-fill', title('Card Shop'));
-    const categories = ['all', ...new Set(shop.items.map(i => i.category ?? 'items'))], select = el('select'); select.setAttribute('aria-label', 'Shop department'); select.dataset.key = 'shop-category';
-    for (const category of categories) { const o = el('option', '', category === 'all' ? 'All departments' : category); o.value = category; select.append(o); }
+    const categories = ['all', ...new Set(shop.items.map(i => i.category ?? 'items')), ...(state.online ? ['cosmetic-boxes', 'wardrobe'] : [])], select = el('select'); select.setAttribute('aria-label', 'Shop department'); select.dataset.key = 'shop-category';
+    for (const category of categories) { const o = el('option', '', category === 'all' ? 'All departments' : SHOP_DEPARTMENTS[category] ?? category); o.value = category; select.append(o); }
     select.value = local.shopCategory; select.onchange = () => { local.shopCategory = select.value; requestRender(); };
-    panel.append(el('div', 'de-row de-spread', select, el('strong', '', `${shop.mp.toLocaleString()} MP${shop.earnedMp !== undefined ? ` · ${shop.earnedMp.toLocaleString()} earned` : ''}`)));
+    panel.append(el('div', 'de-row de-spread', select, renderWallet(shop)));
     if (shop.error) panel.append(el('p', 'de-error', shop.error));
+    const cosmeticTab = local.shopCategory === 'cosmetic-boxes' ? 'boxes' as const : local.shopCategory === 'wardrobe' ? 'wardrobe' as const : null;
     const grid = el('div', 'de-shop-grid de-scroll de-fill');
-    for (const item of shop.items.filter(i => local.shopCategory === 'all' || (i.category ?? 'items') === local.shopCategory).slice(0, 240)) {
+    for (const item of cosmeticTab ? [] : shop.items.filter(i => local.shopCategory === 'all' || (i.category ?? 'items') === local.shopCategory).slice(0, 240)) {
       const product = el('article', 'de-shop-item'), image = safeImageUrl(item.image);
       if (item.card) product.append(el('div', 'de-shop-art', drawCard(item.card, false)));
       else if (item.imagePath && controller.loadArchiveImage) { const img = el('img'); img.alt = ''; img.className = 'de-shop-art'; product.append(img); loadArchiveArt(item.imagePath, img); }
       else if (image) { const img = el('img'); img.src = image; img.alt = ''; img.loading = 'lazy'; img.className = 'de-shop-art'; product.append(img); }
-      product.append(el('h3', '', item.name), el('strong', '', `${item.price.toLocaleString()} MP`));
+      product.append(el('h3', '', accessoryName(item, state.online?.cosmetics ?? null)), el('strong', '', `${item.price.toLocaleString()} MP`));
       if (item.description) { const about = el('p', 'de-note de-shop-about', item.description); about.title = item.description; product.append(about); }
       const count = textField(`buy-count-${item.id}`, '1'); count.type = 'number'; count.min = '1'; count.max = '50'; count.setAttribute('aria-label', `${item.name} quantity`);
-      const buy = button(item.owned ? 'Owned' : 'Purchase', () => { const quantity = Number(count.value); if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) { local.message = 'Choose a quantity from 1 to 50.'; requestRender(); return; } if (confirmAction(`Purchase ${quantity} × ${item.name} for ${(item.price * quantity).toLocaleString()} MP?`)) send({ type: 'buy', itemId: item.id, count: quantity }); }, !!item.owned || shop.available === false || !!shop.loading || !!state.busy || item.price > shop.mp, true);
+      const buy = button(item.owned ? 'Owned' : 'Purchase', () => { const quantity = Number(count.value); if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) { local.message = 'Choose a quantity from 1 to 50.'; requestRender(); return; } if (item.price * quantity > shop.mp) { local.message = `Not enough MP: ${quantity} × ${item.price.toLocaleString()} MP is ${(item.price * quantity).toLocaleString()} MP and you have ${shop.mp.toLocaleString()} MP.`; requestRender(); return; } if (confirmAction(`Purchase ${quantity} × ${item.name} for ${(item.price * quantity).toLocaleString()} MP?`)) send({ type: 'buy', itemId: item.id, count: quantity }); }, !!item.owned || shop.available === false || !!shop.loading || !!state.busy || item.price > shop.mp, true);
       product.append(count, buy); grid.append(product);
     }
     if (!shop.items.length) grid.append(note('No products have been received from the server.'));
-    panel.append(grid);
+    panel.append(cosmeticTab && state.online ? renderCosmeticsShop(state.online, cosmeticTab, cosmeticsDeps()) : grid);
     if (shop.purchased?.length) {
       const receipt = el('details', 'de-shop-receipt'); receipt.dataset.key = 'shop-receipt'; receipt.open = true;
       receipt.append(el('summary', '', `Acquired Cards (${shop.purchased.length})${shop.replayed ? ' · Previous receipt' : ''}`)); const cards = el('div', 'de-receipt-cards');
@@ -585,7 +601,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (local.inspected && shop.purchased.some(card => card.id === local.inspected!.id && card.passcode === local.inspected!.passcode)) receipt.append(note(`${local.inspected.name}: ${local.inspected.description ?? 'Card description unavailable.'}`));
       receipt.append(cards); if (shop.purchased.length > 80) receipt.append(note(`Showing 80 of ${shop.purchased.length} cards.`)); panel.append(receipt);
     }
-    if (state.online) { const cosmetics = el('details', 'de-shop-cosmetics'); cosmetics.dataset.key = 'shop-cosmetics'; cosmetics.append(el('summary', '', 'Cosmetic Boxes & Wardrobe'), renderOnlineFeature(state.online, action => send({ type: 'onlineAction', action }), 'cosmetics')); panel.append(cosmetics); }
+    if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
     n.append(panel);
   }
   /** Fallback field without original art: the same zone geometry as the original sheet. */
@@ -865,6 +881,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
+      if (appearanceOpen() && state.player && state.online && !['title', 'characters', 'duel'].includes(state.scene)) stage.append(renderAppearanceEditor(state.online, { ...cosmeticsDeps(), close: () => { openAppearance(false); requestRender(); } }));
       if (state.socialDetail && state.socialDetail.trade.phase !== 'idle' && !['title', 'characters'].includes(state.scene)) {
         const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, ...(tradeReason() ? { reason: tradeReason()! } : {}) });
         if (trade) stage.append(trade);
@@ -879,6 +896,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
       if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
       for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); menuItems.push(b); }
+      if (state.player && state.mode !== 'free') menuItems.push(button('Appearance', () => { openAppearance(!appearanceOpen()); if (appearanceOpen()) send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); }, !!state.busy || state.scene === 'duel' || !!state.sideboarding));
       if (state.connection === 'online') menuItems.push(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
       menuBar.render(nav, { items: menuItems, status, ...(state.scene === 'lobby' && state.lobby ? { world: { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } } : {}) });
       // Extension panels also get stable keyboard focus when their data changes.
@@ -920,5 +938,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); menuBar.dispose(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

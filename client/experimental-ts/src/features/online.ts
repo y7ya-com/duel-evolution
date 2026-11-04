@@ -1,4 +1,5 @@
 import { ApiError, HttpClient, ResponseError } from '../services/http';
+import { serverMessage } from '../shop/errors';
 
 export type BoxId = 'hair' | 'dueldisk' | 'outfit';
 export type Rarity = 'common' | 'rare' | 'super' | 'ultra';
@@ -134,7 +135,7 @@ export class OnlineController {
     this.publish({ loading: false, error: errors.length ? errors.join('; ') : null,
       ...(cosmetics.status === 'fulfilled' ? { cosmetics: cosmetics.value } : {}), ...(tag.status === 'fulfilled' ? { tag: tag.value } : {}) });
   }
-  private message(e: unknown): string { return e instanceof Error ? e.message.slice(0, 512) : 'Online request failed'; }
+  private message(e: unknown): string { return e instanceof Error ? serverMessage(e).slice(0, 512) : 'Online request failed'; }
   async dispatch(input: OnlineAction): Promise<void> {
     if (this.disposed || this.current.pending) return;
     if (input.type === 'refresh') return this.refresh();

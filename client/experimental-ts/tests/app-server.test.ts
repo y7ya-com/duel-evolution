@@ -27,6 +27,11 @@ function harness(server = setup().server, user = 'app-test', deckId = '51', opti
       decks = { ...decks, decks: [{ name: body.name, main: body.main, side: body.side, extra: body.extra, updated: 2 }], current: { ...decks.current, world: body.name } };
       return Response.json({ updated: 2 });
     }
+    if (path.startsWith('/api/de/decks/') && method === 'DELETE') {
+      const name = decodeURIComponent(path.slice('/api/de/decks/'.length));
+      decks = { ...decks, decks: decks.decks.filter(d => d.name !== name), current: { world: decks.current.world === name ? null : decks.current.world, free: decks.current.free === name ? null : decks.current.free } };
+      return Response.json({ updated: 3 });
+    }
     if (path === '/api/de/starter') return Response.json(starterInfo(server.game, user));
     if (path === '/api/de/starter/claim') { const [status, out] = starterClaim(server.game, user, body.id); return Response.json(out, { status }); }
     if (path === '/api/de/friends') { const [status, out] = server.game.lp.friendsInfo(user); return Response.json(out, { status }); }
@@ -108,6 +113,9 @@ describe('ClientApp with actual server and GameSession', () => {
     await f.send({ type: 'renameDeck', name: 'Saved by App' }); await f.send({ type: 'saveDeck' });
     expect(f.requests.find(r => r.method === 'PUT')?.body).toMatchObject({ name: 'Saved by App', main: NPC_DECKS['51'].main, current: true, mode: 'world' });
     expect(f.app.getState().deckEditor?.dirty).toBe(false);
+    // Saved under a new name, the deck is renamed: the old name is deleted after the new one is written.
+    expect(f.requests.filter(r => r.method === 'DELETE').map(r => r.path)).toEqual(['/api/de/decks/Fixture']);
+    expect(f.app.getState().deckEditor?.decks.map(d => d.name)).toEqual(['Saved by App']);
     await f.send({ type: 'openScene', scene: 'social' }); expect(f.app.getState().social?.friends).toEqual([]);
     expect(f.server.game.hub.sessions.size).toBe(1);
   });

@@ -20,6 +20,9 @@ export type ChatChannel = 'global' | 'trade' | 'whisper' | 'team';
 export interface ChatMessage { id: number; at: number; channel: ChatChannel; pid: number; name: string; text: string; targetPid?: number; }
 export interface ChatFeed { ok: { cursor: number; reset: boolean; pid: number; name: string; players: { pid: number; name: string }[]; messages: ChatMessage[] }; }
 
+export const CARD_RARITIES = ['N', 'R', 'SR', 'UR'] as const;
+export type CardRarity = typeof CARD_RARITIES[number];
+
 // Decode the actual route envelopes at the boundary; no unchecked generic casts enter gameplay state.
 const bad = (): never => { throw new ResponseError('Unexpected API response shape'); };
 const obj = (x: unknown): Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : bad();
@@ -68,6 +71,10 @@ export class GameApi {
   deleteDeck(name: string, options?: RequestOptions): Promise<{ updated: number }> {
     return this.http.request('DELETE', `/api/de/decks/${encodeURIComponent(name)}`, stamp, undefined, options);
   }
+  /** The game-wide rarity of each card (server/src/game/card-rarity.ts): Common, Rare, Super Rare, Ultra Rare. */
+  cardRarities(options?: RequestOptions): Promise<Record<string, CardRarity>> {
+    return this.http.request('GET', '/api/de/card-rarities', x => Object.fromEntries(Object.entries(obj(obj(x).byPasscode)).map(([pc, r]) => [pc, oneOf(r, CARD_RARITIES)])), undefined, options);
+  }
   wallet(options?: RequestOptions): Promise<Wallet> { return this.http.request('GET', '/api/de/wallet', wallet, undefined, options); }
   shop(options?: RequestOptions): Promise<ShopCatalog> { return this.http.request('GET', '/api/de/shop', shop, undefined, options); }
   purchase(body: PurchaseRequest, options?: RequestOptions): Promise<Purchase> {
@@ -101,7 +108,7 @@ export class GameApi {
   }
   dispose(): void { this.http.dispose(); }
 }
-export const toShopView = (s: ShopCatalog): ShopView => ({ items: s.items.map(i => ({ id: i.id, name: i.name || `Item ${i.id}`, price: i.price, category: i.category, owned: i.owned })), mp: s.wallet.total, earnedMp: s.wallet.earned, available: s.available });
+export const toShopView = (s: ShopCatalog): ShopView => ({ items: s.items.map(i => ({ id: i.id, name: i.name || (i.kind === 2 ? `Avatar item ${i.param}` : `Item ${i.id}`), price: i.price, category: i.category, owned: i.owned, ...(i.kind === 2 ? { avatarBit: i.param } : {}) })), mp: s.wallet.total, earnedMp: s.wallet.earned, available: s.available });
 export const toSocialView = (f: Friends): SocialView => ({ friends: f.friends.map(p => ({ id: p.pid, name: p.name, online: p.online, status: p.place })) });
 export const toChatLine = (m: ChatMessage): ChatLine => ({ id: String(m.id), sender: m.name, text: m.text, channel: m.channel });
 export function expandStarterDeck(d: StarterDeck): DeckView {
