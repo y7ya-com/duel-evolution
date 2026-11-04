@@ -69,7 +69,8 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
   const boardPrompt = p && ['actions', 'field-selection', 'discard', 'ritual'].includes(p.kind);
   const actions: DuelOption[] = p && boardPrompt && state.acceptingInput && !blocked ? p.actions.map(a => {
     const uid = uidFor(state, a), card = uid === null ? null : state.cards[uid];
-    return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }) };
+    const place = uid === null && a.zone <= 10 ? { controller: (a.player === 0 ? 0 : 1) as 0 | 1, zone: (a.zone <= 4 ? 'monster' : 'spell') as 'monster' | 'spell', index: a.zone <= 4 ? a.zone : a.zone - 5 } : null;
+    return { id: actionId(a), label: actionLabel(state, catalog, a), ...(uid === null ? {} : { cardId: String(uid) }), ...(place ? { place } : {}) };
   }) : [];
   if (p?.kind === 'actions' && state.acceptingInput && !blocked) for (const b of p.buttons) actions.push({ id: `phase:${b}`, label: phases[b] ?? `Phase ${b}` });
   let prompt: DuelPromptView | null = null;

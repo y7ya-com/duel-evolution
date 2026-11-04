@@ -647,6 +647,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }
+    // Zone selections (where to summon or set): the empty zones themselves are the controls, as in the original.
+    for (const action of (duel.actions ?? []).filter(a => a.place && !a.cardId)) {
+      const p = fieldCardPosition({ id: action.id, name: '', controller: action.place!.controller, zone: action.place!.zone, index: action.place!.index, faceUp: false }, 0);
+      const zone = button('', () => send({ type: 'duelAction', actionId: action.id }), !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
+      zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
+      cards.append(zone);
+    }
     board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel);
     const actions = el('div', 'de-duel-actions');
     for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => send({ type: 'duelAction', actionId: a.id }), !!a.disabled || !!state.busy, true));

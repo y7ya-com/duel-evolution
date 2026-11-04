@@ -134,3 +134,121 @@ export function record(flow:string,observation:{ actions:string; expected:string
 }
 function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
 export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/acceptance',{ recursive:true }); writeFileSync(`/tmp/acceptance/${name}.png`,await page.shot()); }
+
+/** One move of a playing bot on the duel screen, through the same controls a player uses. On its own turn it inspects
+ * each hand card once for a summon or set, enters the Battle Phase and attacks with each monster once, then ends the
+ * turn. Prompts: never chains (No), first candidates, first options. */
+export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boolean } = {}):Promise<'finished'|'acted'|'idle'> {
+  const next = await page.ev(`(()=>{
+    const ok=b=>b&&!b.disabled&&b.getClientRects().length, all=[...document.querySelectorAll('button')].filter(ok);
+    const find=(t,scope=document)=>[...scope.querySelectorAll('button')].filter(ok).find(b=>b.textContent===t);
+    if(find('Return to Lobby'))return {kind:'finished'};
+    const turn=/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??'0';
+    if(window.__botTurn!==turn){window.__botTurn=turn;window.__tried=new Set();window.__battled=false;}
+    const notice=document.querySelector('.de-duel-notice button');if(ok(notice))return {kind:'press',sel:'.de-duel-notice button'};
+    const prompt=document.querySelector('.de-duel-prompt[role=dialog]');
+    if(prompt){
+      const opts=[...prompt.querySelectorAll('button')].filter(ok);
+      const no=opts.find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='No');if(no)return {kind:'key',key:no.dataset.key};
+      const cands=opts.filter(b=>b.dataset.key?.startsWith('prompt-candidate:')),sel=cands.filter(b=>b.getAttribute('aria-pressed')==='true');
+      const conf=opts.find(b=>b.textContent==='Confirm Selection');if(conf&&sel.length)return {kind:'key',key:conf.dataset.key};
+      if(cands.length&&!sel.length)return {kind:'key',key:cands[0].dataset.key};
+      const opt=opts.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(opt)return {kind:'key',key:opt.dataset.key};
+      const target=all.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(target)return {kind:'key',key:target.dataset.key};
+      const confirm=opts.find(b=>b.dataset.key?.startsWith('prompt-confirm:'));if(confirm)return {kind:'key',key:confirm.dataset.key};
+    }
+    const zone=[...document.querySelectorAll('.de-zone-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
+    const ins=document.querySelector('.de-duel-inspector');
+    if(ins){
+      const acts=[...ins.querySelectorAll('button')].filter(ok).filter(b=>b.textContent!=='Close');
+      const want=${JSON.stringify([...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
+      const pick=acts.find(b=>want.some(w=>b.textContent.startsWith(w+':')));
+      if(pick)return {kind:'text',text:pick.textContent,scope:'.de-duel-inspector'};
+      return {kind:'text',text:'Close',scope:'.de-duel-inspector'};
+    }
+    const end=find('End Turn');
+    if(end){
+      const phase=document.querySelector('.de-phase.current')?.title??'';
+      const mine=[...document.querySelectorAll('.de-field-card')].filter(b=>ok(b)&&!window.__tried.has(b.dataset.key)&&/, your (hand|monster)/.test(b.getAttribute('aria-label')??''));
+      const hand=mine.filter(b=>/your hand/.test(b.getAttribute('aria-label')));
+      const field=mine.filter(b=>/your monster/.test(b.getAttribute('aria-label')));
+      if(!phase.includes('Battle')&&hand.length&&${options.summon !== false}){window.__tried.add(hand[0].dataset.key);return {kind:'key',key:hand[0].dataset.key};}
+      if(${options.attack !== false}&&!window.__battled&&find('Battle Phase')&&field.length){window.__battled=true;return {kind:'text',text:'Battle Phase'};}
+      if(phase.includes('Battle')&&field.length&&${options.attack !== false}){window.__tried.add(field[0].dataset.key);return {kind:'key',key:field[0].dataset.key};}
+      return {kind:'text',text:'End Turn'};
+    }
+    return null;})()`) as { kind:string; key?:string; text?:string; scope?:string; sel?:string } | null;
+  if (!next) return 'idle';
+  if (next.kind === 'finished') return 'finished';
+  const selector = next.kind === 'key' ? `[...document.querySelectorAll('button')].find(b=>b.dataset.key===${JSON.stringify(next.key)})`
+    : next.kind === 'press' ? `document.querySelector(${JSON.stringify(next.sel)})`
+    : `[...document.querySelectorAll('${next.scope ?? ''} button')].find(b=>b.textContent===${JSON.stringify(next.text)}&&!b.disabled)`;
+  try { await press(page,selector); return 'acted'; } catch { await page.ev(`(${selector})?.click()`).catch(() => {}); return 'acted'; }
+}
+/** Play until the duel ends (or the time runs out); returns the result banner text. */
+export async function playDuel(page:Page,options:{ attack?:boolean; summon?:boolean; timeout?:number } = {}):Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < (options.timeout ?? 240000)) {
+    if (await duelBot(page,options) === 'finished') break;
+    await sleep(150);
+  }
+  return page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
+}
+/** NPC list → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
+export async function startNpcDuel(page:Page,npc:string) {
+  await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`).catch(() => {});
+  await until(page,`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].some(b=>b.textContent===${JSON.stringify(npc)}&&!b.disabled)`,30000);
+  await press(page,`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].find(b=>b.textContent===${JSON.stringify(npc)})`);
+  const confirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
+  const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
+  for (let i = 0; i < 6 && !(await page.ev(`Boolean(${confirm})`)); i++) { await until(page,`${confirm}||${next}`,20000); if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(300); }
+  await press(page,confirm);
+  await prepareDuel(page);
+}
+/** Rock-paper-scissors until decided, then go first if offered, and start. */
+export async function prepareDuel(page:Page,hand:'Rock'|'Scissors'|'Paper' = 'Rock') {
+  await until(page,`[...document.querySelectorAll('button')].some(b=>['Rock','Go First','Go Second','Start Duel'].includes(b.textContent.trim())&&!b.disabled)||document.querySelectorAll('.de-field-card').length>0`,60000);
+  for (let round = 0; round < 20; round++) {
+    if (await page.ev(`document.querySelectorAll('.de-field-card').length>0&&!document.querySelector('.de-duel-prompt')`)) return;
+    for (const label of ['Go First','Start Duel']) if (await page.ev(`Boolean(${byText(label)})`)) { await press(page,byText(label)); await sleep(300); }
+    if (await page.ev(`Boolean(${byText(hand)})`)) { await press(page,byText(hand)); hand = hand === 'Rock' ? 'Scissors' : hand === 'Scissors' ? 'Paper' : 'Rock'; }
+    await sleep(500);
+  }
+  await until(page,`document.querySelectorAll('.de-field-card').length>0`,60000);
+}
+/** The owned copies of a card, read from the deck editor's collection search. */
+export async function ownedCopies(page:Page,name:string):Promise<number> {
+  await click(page,'Edit Deck');
+  await until(page,byKey('collection-search'),60000);
+  await type(page,byKey('collection-search'),name);
+  await sleep(600);
+  return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].filter(b=>b.title.startsWith(${JSON.stringify(name + ' ·')})).reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
+}
+/** Surrender the current duel (confirming the server's question) and wait for the result. */
+export async function surrender(page:Page) {
+  await click(page,'Surrender',60000);
+  const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
+  await until(page,`${yes}||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
+  if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
+  await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
+}
+/** After an NPC duel: back to the lobby, through the NPC's result dialogue, choose the offered reward pack, close. */
+export async function claimNpcReward(page:Page):Promise<string|null> {
+  const panel = `document.querySelector('[aria-label="NPC interaction"]')`;
+  await click(page,'Return to Lobby');
+  let pack:string|null = null;
+  for (let i = 0; i < 30 && (await page.ev(`Boolean(${panel})`) || i < 5); i++) {
+    const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
+    const other = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>['Continue','Receive Gift','Close NPC'].includes(b.textContent)&&!b.disabled)`;
+    if (await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
+    else if (await page.ev(`Boolean(${other})`)) await press(page,other);
+    await sleep(800);
+  }
+  return pack;
+}
+/** Earn tradeable (not soul-bound) cards: lose an NPC duel at once and take its reward pack. */
+export async function earnCards(page:Page,npc = 'Yami Yugi') {
+  await startNpcDuel(page,npc);
+  await surrender(page);
+  return claimNpcReward(page);
+}
