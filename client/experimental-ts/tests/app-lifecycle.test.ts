@@ -43,6 +43,12 @@ function harness(env: Record<string, unknown> = {}) {
 async function flush() { for (let i = 0; i < 40; i++) await Promise.resolve(); }
 
 describe('ClientApp lifecycle and late completion regressions', () => {
+  it('keeps registration and recovery controls available after disconnect', async () => {
+    const f = harness(); await f.enter(); await f.send({type:'disconnect'});
+    expect(f.app.getState().accountDetail).toBeDefined(); expect(f.app.getState().profileDetail).toBeDefined();
+    await f.send({type:'accountAction',action:{type:'show',panel:'register'}});
+    expect(f.app.getState().accountDetail?.panel).toBe('register');
+  });
   it('blocks reconnect while sign-out is pending and retires the old connection', async () => {
     const f = harness(); await f.enter(); const wait = f.hold('POST /api/auth/sign-out');
     const logout = f.app.dispatch({ type: 'signOut' }); await flush();

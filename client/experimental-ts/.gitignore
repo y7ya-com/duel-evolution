@@ -5,3 +5,8 @@ parity-report.json
 public/card-catalog.json
 public/world-maps.json
 public/duel-texts.json
+public/card-details.json
+public/card-texts.json
+public/avatar-data.json
+public/npc-data.json
+public/deck-recipes.json

@@ -35,6 +35,23 @@ export class DeckEditor {
     if (!validName(name)) return { ok: false, reason: 'Use a nonempty, file-safe name of at most 40 characters.', hints: this.hints() };
     this.value.name = name; return { ok: true, hints: this.hints() };
   }
+  /** Replace the draft atomically while retaining the last saved baseline. */
+  replace(deck: DeckView): EditResult {
+    const reject = (reason: string): EditResult => ({ ok: false, reason, hints: this.hints() });
+    if (!deck || typeof deck !== 'object' || typeof deck.name !== 'string' || !validName(deck.name)) return reject('Invalid deck name.');
+    for (const zone of zones) {
+      if (!Array.isArray(deck[zone]) || deck[zone].length > DECK_CAPACITY[zone]
+        || !deck[zone].every(pc => Number.isSafeInteger(pc) && pc > 0 && pc < 0xffffff00)) return reject(`Invalid ${zone} card list or storage capacity.`);
+    }
+    this.value = clone(deck); return { ok: true, hints: this.hints() };
+  }
+  reorder(zone: DeckZone, fromIndex: number, toIndex: number): EditResult {
+    if (!zones.includes(zone) || ![fromIndex, toIndex].every(i => Number.isSafeInteger(i) && i >= 0 && i < this.value[zone].length))
+      return { ok: false, reason: 'That card position is no longer available.', hints: this.hints() };
+    const next = clone(this.value), [card] = next[zone].splice(fromIndex, 1);
+    next[zone].splice(toIndex, 0, card); this.value = next;
+    return { ok: true, hints: this.hints() };
+  }
   count(passcode: number): number { return zones.reduce((n, z) => n + this.value[z].filter(pc => pc === passcode).length, 0); }
   available(passcode: number): number | undefined {
     const owned = this.cards.get(passcode)?.owned; return owned === undefined ? undefined : Math.max(0, owned - this.count(passcode));
@@ -55,7 +72,7 @@ export class DeckEditor {
       // Only additions consume an owned copy. Moving/removing legacy cards remains possible.
       if (from === 'collection' && c?.owned !== undefined && this.count(passcode) >= c.owned) return reject('No unused owned copies.');
       if (from === 'collection' && c?.limit !== undefined && this.count(passcode) >= c.limit) return reject('Card copy-limit hint reached.');
-      if (c?.extra === true && to === 'main' || c?.extra === false && to === 'extra') return reject('Card belongs in a different zone.');
+      if (c?.extra === true && to !== 'extra' || c?.extra === false && to === 'extra') return reject('Card belongs in a different zone.');
       next[to].push(passcode);
     }
     this.value = next; return { ok: true, hints: this.hints() };

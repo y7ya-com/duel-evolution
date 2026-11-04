@@ -62,28 +62,34 @@ export function validatePromptResponse(prompt: DuelPromptView, response: DuelRes
 }
 export interface CardPosition { x: number; y: number; width: number; height: number; rotate: boolean; }
 /** Field geometry is presentational; controller and zone come only from authoritative state. */
+/** Zone centres on the original 1024x768 duel screen, measured from its zone sheet: the opponent's half is drawn at
+ * (256,50), the player's at (256,282). Monster and spell cells are 76x104 from x=320; piles sit in the side columns. */
+export const FIELD_LAYOUT = {
+  cellX: (index: number) => 358 + 76 * index,
+  rows: { monster: [368, 217], spell: [473, 113] } as const,
+  piles: {
+    deck: [[736, 488], [288, 98]], graveyard: [[736, 406], [288, 180]], banished: [[736, 324], [288, 262]],
+    field: [[288, 406], [736, 180]], extra: [[288, 488], [736, 98]],
+  } as const,
+};
 export function fieldCardPosition(card: DuelCardView, handCount: number): CardPosition {
-  const opponent = card.controller === 1;
-  const zoneX = 288 + card.index * 112;
-  let x: number, y: number;
+  const side = card.controller === 1 ? 1 : 0;
+  let x: number, y: number, width = 58, height = 84;
+  const pile = (zone: keyof typeof FIELD_LAYOUT.piles) => { [x, y] = FIELD_LAYOUT.piles[zone][side]; width = 48; height = 70; };
   switch (card.zone) {
     case 'hand': {
-      const span = Math.min(610, Math.max(0, handCount - 1) * 78);
+      const span = Math.min(560, Math.max(0, handCount - 1) * 76);
       x = 512 - span / 2 + (handCount > 1 ? card.index * span / (handCount - 1) : 0);
-      y = opponent ? 90 : 663;
+      y = side ? 24 : 604; width = 72; height = 104;
       break;
     }
-    case 'monster': x = zoneX; y = opponent ? 282 : 417; break;
-    case 'spell': x = card.index === 5 ? 902 : zoneX; y = opponent ? 180 : 523; break;
-    case 'field': x = opponent ? 122 : 902; y = opponent ? 180 : 523; break;
-    case 'deck': x = opponent ? 122 : 902; y = opponent ? 282 : 417; break;
-    case 'extra': x = opponent ? 902 : 122; y = opponent ? 180 : 523; break;
-    case 'graveyard': x = opponent ? 122 : 902; y = opponent ? 417 : 282; break;
-    case 'banished': x = opponent ? 122 : 902; y = opponent ? 523 : 180; break;
+    case 'monster': x = FIELD_LAYOUT.cellX(card.index); y = FIELD_LAYOUT.rows.monster[side]; break;
+    case 'spell': if (card.index === 5) pile('field'); else { x = FIELD_LAYOUT.cellX(card.index); y = FIELD_LAYOUT.rows.spell[side]; } break;
+    default: pile(card.zone);
   }
-  // The opponent's indexed field is mirrored, while their hand remains readable left-to-right.
-  if (opponent && (card.zone === 'monster' || card.zone === 'spell')) x = 1024 - x;
-  return { x, y, width: 67, height: 95, rotate: card.position === 'defense' && card.zone === 'monster' };
+  // The opponent's indexed rows are mirrored, while their hand remains readable left-to-right.
+  if (side && (card.zone === 'monster' || card.zone === 'spell' && card.index !== 5)) x = 1024 - x!;
+  return { x: x!, y: y!, width, height, rotate: card.position === 'defense' && card.zone === 'monster' };
 }
 export function safeImageUrl(url: string | undefined): string | null {
   if (!url || /[\u0000-\u0020]/.test(url)) return null;

@@ -17,14 +17,17 @@ async function until(browser:Browser,condition:string,timeout = 20000) {
   throw new Error(`Browser condition timed out: ${condition}\n${await browser.ev('document.body.innerText')}\n${browser.logs.join('\n')}`);
 }
 async function activate(browser:Browser,selector:string,touch = false) {
-  const point = await browser.ev(`(()=>{const b=${selector};if(!b||b.disabled)return null;b.scrollIntoView({block:'center',inline:'center'});const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+  const point = await browser.ev(`(async()=>{let b=${selector};if(!b||b.disabled)return null;b.scrollIntoView({block:'center',inline:'center',behavior:'instant'});for(let frame=0;frame<10;frame++){await new Promise(requestAnimationFrame);b=${selector};if(!b||b.disabled)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);if(hit&&(hit===b||b.contains(hit)))return{x,y};}return null})()`);
   if (!point) return false;
   if (touch) {
     await browser.send('Input.dispatchTouchEvent',{ type:'touchStart',touchPoints:[{ x:point.x,y:point.y }] });
     await browser.send('Input.dispatchTouchEvent',{ type:'touchEnd',touchPoints:[] });
   } else {
-    await browser.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
-    await browser.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
+    // Queue both ordered input events before awaiting CDP acknowledgements. A repaint between
+    // separate round trips can replace this renderer's button after mouse-down.
+    const pressed = browser.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
+    const released = browser.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
+    await pressed; await released;
   }
   return true;
 }
@@ -39,6 +42,7 @@ describe('actual headless browser against real game authority',() => {
     let browser:Browser | undefined;
     try {
       browser = await launch({ port:20000 + process.pid % 20000,width:viewport.width,height:viewport.height,mobile:viewport.mobile });
+      await browser.send('Page.enable');
       await browser.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{localStorage.setItem('de-client-settings-v1',JSON.stringify({reducedMotion:true,sound:0,music:0}));}catch{};window.confirm=()=>true;` });
       await browser.go(fixture.origin+'/?portOffset=0',`document.querySelector('.de-client')`);
       await click(browser,'Go Online',viewport.mobile);
@@ -61,6 +65,15 @@ describe('actual headless browser against real game authority',() => {
       await until(browser,`document.querySelector('[data-key="options-capture"]')?.textContent.includes('recording ·')`);
       await click(browser,'Back',viewport.mobile);
       await click(browser,'NPC Duelists',viewport.mobile); await click(browser,fixture.npcName,viewport.mobile);
+      const npcConfirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
+      const npcContinue = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
+      // Known NPCBIN context can introduce source opening dialogue before the actual duel confirmation.
+      for (let opening=0;opening<4;opening++) {
+        await until(browser,`${npcConfirm}||${npcContinue}`);
+        if (await browser.ev(`Boolean(${npcConfirm})`)) break;
+        await activate(browser,npcContinue,viewport.mobile);
+      }
+      await until(browser,npcConfirm); await activate(browser,npcConfirm,viewport.mobile);
       await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Rock'&&!b.disabled)`);
       for (let round = 0; round < 20; round++) {
         await click(browser,['Rock','Scissors','Paper'][round % 3],viewport.mobile);
@@ -109,7 +122,7 @@ describe('actual headless browser against real game authority',() => {
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
       await click(browser,'Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Stop Recording',viewport.mobile);
-      expect(await browser.ev(`(()=>{const text=document.querySelector('[data-key="options-capture"]').textContent;const m=/stopped *· *([0-9]+) records/.exec(text);return m?Number(m[1]):0})()`)).toBeGreaterThan(0);
+      await until(browser,`/stopped *· *[1-9][0-9]* records/.test(document.querySelector('[data-key="options-capture"]')?.textContent ?? '')`);
       const downloadDir = await mkdtemp(join(tmpdir(),`duel-ts-capture-${viewport.name}-`));
       const behavior = await browser.send('Browser.setDownloadBehavior',{ behavior:'allow',downloadPath:downloadDir });
       expect(behavior.error).toBeUndefined(); await click(browser,'Download Recording',viewport.mobile);

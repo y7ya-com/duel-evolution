@@ -60,9 +60,15 @@ export function encodeDuelResponse(state: DuelState, response: DuelResponse): Wi
       return [packet(0x6423, value)];
     }
     case 'cards': {
-      requireChoice(prompt.kind === 'cards' && (prompt.listMode >= 6 && prompt.listMode <= 0x26 ||
-        prompt.listMode >= 0x28 && prompt.listMode <= 0x48), 'Prompt is not a selectable card list');
       const indices = response.indices;
+      requireChoice(prompt.kind === 'cards' && Array.isArray(indices), 'Prompt is not a card list');
+      const selectable = prompt.listMode >= 6 && prompt.listMode <= 0x26 || prompt.listMode >= 0x28 && prompt.listMode <= 0x48;
+      if (!selectable) {
+        // Pile inspection is a read-only view: confirming it dismisses the view,
+        // rather than answering the underlying duel choice or selecting a row.
+        requireChoice(indices.length === 0, 'Inspection lists do not accept card selections');
+        return [packet(0x6423, 0)];
+      }
       requireChoice(Array.isArray(indices) && indices.length >= prompt.min &&
         indices.length <= prompt.max && new Set(indices).size === indices.length, 'Invalid selection count or duplicate indices');
       requireChoice(indices.every(i => Number.isInteger(i) && i >= 0 && i < prompt.items.length), 'Card index is outside the prompt list');

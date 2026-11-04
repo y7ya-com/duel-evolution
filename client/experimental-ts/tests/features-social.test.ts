@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SocialController } from '../src/features/social';
+import type { SocialAction } from '../src/features/social';
 import type { GameplayCommand } from '../src/gameplay/binary';
 import { W } from '../../../server/src/net/proto';
 
@@ -7,6 +8,18 @@ function setup() { const sent: GameplayCommand[] = [], changed = vi.fn(); const 
 const result = (code = 0) => new W().u32(code).bytes();
 const receive = (c: SocialController, id: number, data = new Uint8Array()) => c.receive({ id, data });
 describe('social controller authority and lifecycle', () => {
+  it.each<SocialAction>([{type:'refreshMail'},{type:'refreshTeam'},{type:'ignore',pid:1004},{type:'inviteTrade',pid:1004},{type:'sendMail',toPid:1004,subject:'Hello',body:'Body'}])('allows explicit retry after an unsent $type request', action => {
+    let blocked=true; const sent:GameplayCommand[]=[];
+    const c=new SocialController({send:command=>{if(blocked)throw new Error('Backpressure');sent.push(command);},onChange:()=>{}});
+    c.dispatch(action); expect(c.state.error).toBe('Backpressure'); expect(c.state.mailLoading).toBe(false); expect(c.state.teamLoading).toBe(false); expect(c.state.trade.phase).toBe('idle');
+    blocked=false; c.dispatch(action); expect(sent).toHaveLength(1); expect(c.state.error).toBeNull();
+  });
+  it('retains an invitation when its reply could not be sent',()=>{
+    let blocked=true; const send=vi.fn(()=>{if(blocked)throw new Error('Backpressure');});
+    const c=new SocialController({send,onChange:()=>{}}); receive(c,0x4512,new W().u32(1004).s('Bob',16).u8(4).bytes());
+    c.dispatch({type:'replyFriend',pid:1004,accept:true}); expect(c.state.friendOffers).toHaveLength(1);
+    blocked=false; c.dispatch({type:'replyFriend',pid:1004,accept:true}); expect(c.state.friendOffers).toHaveLength(0); expect(send).toHaveBeenCalledTimes(2);
+  });
   it('sends only real social commands, waits for ignore replies and bounds drafts', () => {
     const { controller: c, sent } = setup();
     c.dispatch({ type: 'ignore', pid: 1004 }); expect(sent[0]).toMatchObject({ id: 0x4530, data: result(1004) }); expect(c.state.ignored).toEqual([]);

@@ -14,6 +14,7 @@ import { starterInfo, starterClaim, walletInfo } from '../../../server/src/game/
 import { deckOwner, deckIn } from '../../../server/src/game/decks';
 import { shopView, shopPurchaseApi } from '../../../server/src/game/shop-api';
 import { chatGet, chatSend } from '../../../server/src/game/chat';
+import { createRemoteAssetMiddleware } from '../tools/remote-assets.mjs';
 
 const requireServer = createRequire(new URL('../../../server/package.json',import.meta.url));
 const requireWrangler = createRequire(requireServer.resolve('wrangler'));
@@ -27,19 +28,44 @@ async function body(req:IncomingMessage):Promise<unknown> {
   for await (const part of req) { total += part.length; if (total > 65536) throw new Error('Fixture request too large'); chunks.push(part); }
   return JSON.parse(Buffer.concat(chunks).toString() || '{}');
 }
-export async function browserServerFixture() {
+export interface BrowserFixtureOptions {
+  /** Explicit opt-in only. Ordinary browser gameplay tests never request original media. */
+  assetBaseUrl?:string;
+  /** Bounded editor-only preview workload; default remains the full NPC51 gameplay deck. */
+  initialDeck?:{main:readonly number[];side?:readonly number[];extra:readonly number[]};
+}
+export interface BrowserAssetRequest { path:string; range:string|null; status:number; bytes:number }
+export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
   const core = await createNodeDuelCore(); setDuelCore(core);
+  const assetRequests:BrowserAssetRequest[] = [];
+  let activeAssetRequests = 0, lastAssetActivity = Date.now();
+  const remoteAssets = options.assetBaseUrl ? createRemoteAssetMiddleware({baseUrl:options.assetBaseUrl,forwardValidators:true}) : null;
   const logs:string[] = [], packets:{ id:string; bytes:number }[] = [], user = 'browser-fixture-user';
   const gameServer = buildServer(configFrom({ DEV:'1',PARITY_SEED:'1',SEND_PACE:'0',DUEL_PAUSE:'0.001',OWNER_ACCT:'' }),{ players:{} },line => {
     logs.push(line); if (logs.length > 5000) logs.shift();
   });
   const decks = new Map<string,{ name:string; main:number[]; side:number[]; extra:number[]; updated:number }>();
-  decks.set('Fixture Deck',{ name:'Fixture Deck',main:[...NPC_DECKS['51'].main],side:[],extra:[...NPC_DECKS['51'].extra],updated:1 });
+  const initialDeck = options.initialDeck ?? NPC_DECKS['51'];
+  decks.set('Fixture Deck',{ name:'Fixture Deck',main:[...initialDeck.main],side:[...('side' in initialDeck ? initialDeck.side ?? [] : [])],extra:[...initialDeck.extra],updated:1 });
   const current:{ world:string|null; free:string|null } = { world:'Fixture Deck',free:null };
   let origin = '', peerN = 0;
   const peers = new Set<string>(), websockets = new Set<any>();
   const wss = new WebSocketServer({ noServer:true,maxPayload:1024 * 1024 });
-  const server = createServer((req,res) => { void (async () => {
+  const server = createServer((req,res) => {
+    if (remoteAssets && (req.url ?? '').startsWith('/game-assets/')) {
+      activeAssetRequests++; lastAssetActivity = Date.now(); let released = false;
+      const release = () => { if (!released) { released = true; activeAssetRequests--; lastAssetActivity = Date.now(); } };
+      res.once('close',release); res.once('finish',release);
+      res.once('finish',() => {
+        const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '');
+        // The middleware validates and finishes exactly this range; writeHead headers are not getHeader values.
+        const bytes = res.statusCode === 206 && range ? Number(range[2])-Number(range[1])+1 : Number(res.getHeader('Content-Length') ?? 0);
+        assetRequests.push({path:req.url!,range:req.headers.range ?? null,status:res.statusCode,bytes});
+        if (assetRequests.length > 10000) assetRequests.shift();
+      });
+      remoteAssets(req,res,() => json(res,{error:'Asset not found'},404)); return;
+    }
+    void (async () => {
     const url = new URL(req.url ?? '/',origin || 'http://localhost');
     if (url.pathname === '/api/de/session') {
       res.setHeader('Set-Cookie','de_browser_fixture=1; Path=/; HttpOnly; SameSite=Lax');
@@ -54,7 +80,9 @@ export async function browserServerFixture() {
         else if (url.pathname === '/api/de/wallet') result = walletInfo(gameServer.game,user);
         else if (url.pathname === '/api/de/shop' && req.method === 'GET') result = shopView(gameServer.game,user);
         else if (url.pathname === '/api/de/chat' && req.method === 'GET') result = chatGet(gameServer.game,user,Number(url.searchParams.get('after') ?? 0));
+        else if (url.pathname === '/api/de/friends' && req.method === 'GET') { const [status,out] = gameServer.game.lp.friendsInfo(user); result = status === 200 ? out : { __status:status,...out }; }
       });
+      if (result && typeof result === 'object' && '__status' in result) { const { __status,...out } = result as { __status:number }; return json(res,out,__status); }
       if (result !== undefined) return json(res,result);
       if (url.pathname === '/api/de/starter/claim') {
         const data = await body(req) as { id:number }; let response:[number,Record<string,unknown>] | undefined;
@@ -80,7 +108,7 @@ export async function browserServerFixture() {
     }
     const path = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
     const file = resolve(DIST,path), rel = relative(DIST,file);
-    if (rel.startsWith('..') || !['index.html','card-catalog.json'].includes(path) && !path.startsWith('assets/')) { res.writeHead(404); res.end(); return; }
+    if (rel.startsWith('..') || !['index.html','card-catalog.json','world-maps.json','duel-texts.json','card-details.json','card-texts.json','npc-data.json'].includes(path) && !path.startsWith('assets/')) { res.writeHead(404); res.end(); return; }
     const info = await stat(file);
     res.writeHead(200,{ 'Content-Type':({ '.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json' } as Record<string,string>)[extname(file)] ?? 'application/octet-stream','Content-Length':info.size,'Cache-Control':'no-store' });
     createReadStream(file).pipe(res);
@@ -103,7 +131,7 @@ export async function browserServerFixture() {
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No fixture port');
   origin = `http://127.0.0.1:${address.port}`;
   let closed = false;
-  return { origin,gameServer,logs,packets,npcName:gameServer.game.npcs.find(n => n[0] === 51)![1],
+  return { origin,gameServer,logs,packets,assetRequests,get activeAssetRequests(){return activeAssetRequests;},get lastAssetActivity(){return lastAssetActivity;},npcName:gameServer.game.npcs.find(n => n[0] === 51)![1],
     async close() {
       if (closed) return; closed = true;
       gameServer.game.stopping = true;

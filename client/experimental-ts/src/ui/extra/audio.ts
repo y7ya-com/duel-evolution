@@ -12,8 +12,13 @@ export function renderAudioFeature(source: AudioState | BrowserAudioManager, dis
   const root = document.createElement('section'); root.setAttribute('aria-label', 'Audio settings');
   const title = document.createElement('h2'); title.textContent = 'Audio'; root.append(title);
   const note = document.createElement('p');
-  note.textContent = 'Choose local audio for each scene. Files stay on this device and must be selected again after reload. Up to 8 files per slot, played in order.';
+  note.textContent = 'Choose local audio for each scene. Files stay on this device, with up to 8 files per slot. Saved choices return after reload when browser storage is available.';
   root.append(note);
+  if (state.persistence) {
+    const saved = document.createElement('p'); saved.setAttribute('role','status');
+    saved.textContent = state.persistence.status === 'ready' ? 'Audio choices saved on this device.' : state.persistence.status === 'saving' ? 'Saving audio choices…' : state.persistence.status === 'restoring' ? 'Restoring audio choices…' : state.persistence.status === 'error' ? `Audio choices could not be saved: ${state.persistence.error ?? 'Storage unavailable.'}` : state.persistence.status === 'disabled' ? 'Audio choices will need to be selected again after reload.' : '';
+    root.append(saved);
+  }
   const status = document.createElement('p'); status.setAttribute('role', 'status');
   const act = (action: AudioAction): void => {
     try {
@@ -45,6 +50,13 @@ export function renderAudioFeature(source: AudioState | BrowserAudioManager, dis
     label.append(input); row.append(legend, label, names,
       button('Play', () => act({ type: 'play-slot', slot: slot.slot })),
       button('Clear', () => { act({ type: 'set-slot-files', slot: slot.slot, files: [] }); if (manager) names.textContent = 'No files selected'; }));
+    for (const kind of ['shuffle','loop'] as const) {
+      const mode = document.createElement('label'), choice = document.createElement('input'); choice.type='checkbox'; choice.checked=!!slot[kind]; choice.dataset.key=`audio:${slot.slot}:${kind}`;
+      choice.onchange=()=>act({type:'set-slot-mode',slot:slot.slot,[kind]:choice.checked});
+      mode.append(choice,document.createTextNode(kind === 'shuffle' ? ' Shuffle' : ' Repeat')); row.append(mode);
+    }
+    const volumeLabel=document.createElement('label'),volume=document.createElement('input'); volumeLabel.textContent='Scene volume '; volume.type='range'; volume.min='0'; volume.max='1'; volume.step='0.01'; volume.value=String(slot.volume ?? 1); volume.dataset.key=`audio:${slot.slot}:volume`;
+    volume.oninput=()=>act({type:'set-slot-mode',slot:slot.slot,volume:Number(volume.value)}); volumeLabel.append(volume); row.append(volumeLabel);
     root.append(row);
   }
   root.append(status); return root;

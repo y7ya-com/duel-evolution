@@ -42,11 +42,13 @@ describe('browser UI geometry and authoritative choices', () => {
   });
   it('mirrors opponent zones without mirroring player input coordinates', () => {
     const card: DuelCardView = { id: 'a', name: 'A', controller: 0, zone: 'monster', index: 0, faceUp: true };
-    expect(fieldCardPosition(card, 0).x).toBe(288);
-    expect(fieldCardPosition({ ...card, controller: 1 }, 0).x).toBe(736);
+    expect(fieldCardPosition(card, 0).x).toBe(358);
+    expect(fieldCardPosition({ ...card, controller: 1 }, 0).x).toBe(666);
     expect(fieldCardPosition({ ...card, position: 'defense' }, 0).rotate).toBe(true);
-    expect(fieldCardPosition({ ...card, zone: 'spell', index: 5 }, 0).x).toBe(902);
-    expect(fieldCardPosition({ ...card, zone: 'spell', index: 5, controller: 1 }, 0).x).toBe(122);
+    // Field-spell slot 5 is the field zone pile, not a mirrored sixth spell cell.
+    expect(fieldCardPosition({ ...card, zone: 'spell', index: 5 }, 0)).toMatchObject({ x: 288, y: 406 });
+    expect(fieldCardPosition({ ...card, zone: 'spell', index: 5, controller: 1 }, 0)).toMatchObject({ x: 736, y: 180 });
+    expect(fieldCardPosition({ ...card, zone: 'deck', controller: 1 }, 0)).toMatchObject({ x: 288, y: 98 });
   });
   it('rejects executable asset URL schemes', () => {
     expect(safeImageUrl('javascript:alert(1)')).toBeNull();

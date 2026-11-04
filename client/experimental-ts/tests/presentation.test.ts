@@ -3,7 +3,8 @@ import { CardCatalog } from '../src/catalog';
 import { projectDuel, interpretAction, interpretResponse } from '../src/presentation';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
 import { encodeDuelResponse } from '../src/duel/responses';
-import { engine, set_card, setcommand, comid_field, comid_hand, request_input } from '../../../server/src/duel/translator/lockstep';
+import { engine, set_card, setcommand, comid_field, comid_hand, request_input, listItem } from '../../../server/src/duel/translator/lockstep';
+import { concat, packBIIII } from '../../../server/src/duel/translator/py';
 import { CardMap } from '../../../server/src/duel/translator/cardmap';
 import { norm, YO2Duel } from '../../../server/src/duel/translator/translator';
 import type { DuelState } from '../src/duel/types';
@@ -92,5 +93,48 @@ describe('duel presentation adapter preserves server choices', () => {
     expect(view(s).actions?.some(a => a.id === 'phase:5')).toBe(true);
     s = reduce(s, setcommand(0x1b, 0x32, [2, 0, 0]));
     expect(view(s).prompt?.kind).toBe('yes-no'); expect(view(s).actions).toEqual([]);
+  });
+  it('projects pile inspection as a read-only list with a working empty confirmation', () => {
+    let s = reduceDuelMessage(initial(), { id: 0x6610, data: concat(packBIIII(0, 1, 0, 1, 0), listItem(123, 1, 0)) });
+    s = reduce(s, setcommand(0x1b, 0x33, [0, 1, 0]));
+    const p = view(s).prompt!;
+    expect(p.readOnly).toBe(true);
+    expect([p.min, p.max]).toEqual([0, 0]); expect(p.candidates?.[0].disabled).toBe(true);
+    const response = interpretResponse(s, p.id, { cardIds: [] });
+    expect(encodeDuelResponse(s, response)).toEqual([{ id: 0x6423, data: new Uint8Array(4) }]);
+  });
+  it('exposes public counter and turn badges without leaking face-down card state', () => {
+    let s = reduce(initial(), set_card(0, 0, 0, 123, 1));
+    s.cards[2].faceUp = true; s.cards[2].counters = { 0: 3, 2: 0 }; s.cards[2].turns = 2;
+    expect(view(s).cards[0]).toMatchObject({ counters: [{ kind: 0, count: 3 }], turnCounter: 2 });
+    s.cards[2].faceUp = false;
+    expect(view(s).cards[0].counters).toBeUndefined(); expect(view(s).cards[0].turnCounter).toBeUndefined();
+  });
+  it('shows active public player effect turn counts using card names', () => {
+    const s = initial(); s.sides[0].turnCounters = { 123: 2, 456: 0 };
+    expect(view(s).players[0].turnCounters).toEqual([{ passcode: 123, name: 'Reference card', turns: 2 }]);
+    expect(view(s).players[1].turnCounters).toEqual([]);
+  });
+});
+
+describe('duel log', () => {
+  it('describes server events in words, names only visible cards and drops bookkeeping', () => {
+    const s = createDuelState();
+    s.cards[7] = { ...(s.cards[7] ?? {}), uid: 7, passcode: 123, owner: 1, faceUp: true } as DuelState['cards'][number];
+    s.cards[8] = { uid: 8, passcode: 123, owner: 1, faceUp: false } as DuelState['cards'][number];
+    s.events = [
+      { sequence: 1, type: 'engine:e', player: 0, params: [] },
+      { sequence: 2, type: 'engine:55', player: 1, params: [0xffff, 2] },
+      { sequence: 3, type: 'engine:2d', player: 1, params: [0x4000], card: 7 },
+      { sequence: 4, type: 'engine:1a', player: 1, params: [0], card: 7 },
+      { sequence: 5, type: 'engine:25', player: 0, params: [1200, 0, 0] },
+      { sequence: 6, type: 'engine:12', player: 1, params: [0, 8, 1], card: 8 },
+      { sequence: 7, type: 'engine:11', player: 0, params: [] },
+      { sequence: 8, type: 'view:32', player: 0, params: [] },
+    ];
+    expect(projectDuel(s, cat, ['You', 'Rival']).log).toEqual([
+      'You: Main Phase 1', 'Rival draws 2 cards.', 'Rival summons Reference card.', "Rival's Reference card attacks directly!",
+      'You takes 1,200 damage.', 'Rival activates a card.',
+    ]);
   });
 });

@@ -1,0 +1,115 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { httpWorkerFixture, HTTP_ORIGIN } from './http-worker-fixture';
+import { loadState } from '../../../server/src/db/d1';
+
+let fixture: Awaited<ReturnType<typeof httpWorkerFixture>>;
+beforeAll(async () => { fixture = await httpWorkerFixture(); }, 60_000);
+afterAll(async () => { await fixture?.close(); }, 30_000);
+const PW = crypto.randomUUID();
+const identity = (value: unknown) => value as Record<string, unknown>;
+
+describe('real Worker/auth/WorldDO HTTP handlers with Miniflare D1', () => {
+  it('registers, verifies through the signed bot route, logs in by username and binds the game to the cookie user', async () => {
+    const b = fixture.browser();
+    expect(await b.api.session()).toEqual({ signedIn: false });
+    const registered = await b.http.request('POST', '/api/de/register', identity, { username: 'HttpDuelist', password: PW });
+    expect(registered.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+    expect(await fixture.DB.prepare("SELECT email_verified FROM user WHERE username = 'httpduelist'").first('email_verified')).toBe(0);
+    await expect(b.api.signIn('HttpDuelist', PW)).rejects.toMatchObject({ status: 403, code: 'EMAIL_NOT_VERIFIED' });
+    const verified = await fixture.verify(String(registered.code), '300000000000000001');
+    expect(verified.status).toBe(200); expect(await verified.json()).toMatchObject({ ok: true, grantVerified: true });
+    await expect(b.api.signIn('HttpDuelist', 'wrong password 123')).rejects.toMatchObject({ status: 401 });
+    await b.api.signIn('HttpDuelist', PW);
+    const signedIn = await b.api.session();
+    expect(signedIn).toMatchObject({ signedIn: true, name: 'HttpDuelist', discord: true, password: true });
+    if (!signedIn.signedIn) throw new Error('Expected session');
+    const userId = signedIn.userId;
+    expect(await fixture.DB.prepare("SELECT id FROM user WHERE username = 'httpduelist'").first('id')).toBe(userId);
+    expect(b.cookie()).toContain('__Secure-de.session_token=');
+    const authRow = await fixture.DB.prepare('SELECT count(*) AS n FROM session WHERE user_id = ?').bind(userId).first('n');
+    expect(authRow).toBe(1);
+    const getSession = await b.http.request('GET', '/api/auth/get-session', identity);
+    expect(getSession.user).toMatchObject({ id: userId });
+    await expect(b.api.decks()).rejects.toMatchObject({ status: 409, code: 'not-in-game' });
+    const session = b.session('forged-other-user');
+    expect(await session.start()).toEqual([]);
+    expect(fixture.bindings.at(-1)).toMatchObject({ user: userId, path: '/boxedwine-network' });
+    await expect(b.api.decks()).rejects.toMatchObject({ status: 409, code: 'no-character' });
+    await session.createCharacter(0, 'HttpCharacter');
+    await session.selectCharacter(0);
+    expect(session.state.phase).toBe('lobby');
+    expect(session.state.selectedSlot).toBe(0);
+    const account = fixture.game.game.store.accountOfUser(userId);
+    expect(account).toBeTruthy();
+    const d = { name: 'HTTP Deck é', main: [89631139], side: [], extra: [] };
+    const saved = await b.api.saveDeck(d, 'world'); expect(saved.updated).toBeGreaterThan(0);
+    expect(await b.api.decks()).toMatchObject({ decks: [d], current: { world: d.name, free: null } });
+    expect(await fixture.DB.prepare('SELECT main FROM user_decks WHERE char_key = ? AND name = ?').bind(`${account}/0`, d.name).first('main')).toBe('[89631139]');
+    await b.api.saveDeck({ ...d, main: [89631139, 89631139] });
+    await b.api.selectDeck(d.name, 'free');
+    expect(await b.api.decks()).toMatchObject({ decks: [{ ...d, main: [89631139, 89631139] }], current: { world: d.name, free: d.name } });
+    const shop = await b.api.shop();
+    expect(shop.available).toBe(true); expect(shop.items.length).toBeGreaterThan(0); expect(shop.nextRequestId).toBeTypeOf('string');
+    await expect(b.api.purchase({ itemId: shop.items[0]!.itemId, count: 1, requestId: 'stale-fixture-request' })).rejects.toMatchObject({ status: 409, code: 'stale-request' });
+    const pack = shop.items.find(i=>i.kind===1 && i.param===1)!;
+    const order = {itemId:pack.itemId,count:2,requestId:shop.nextRequestId};
+    const purchase = await b.api.purchase(order);
+    expect(purchase.replayed).toBe(false); expect(purchase.purchased).toHaveLength(10);
+    expect(purchase.wallet.total).toBe(shop.wallet.total - pack.price * order.count);
+    const replay = await b.api.purchase(order);
+    expect(replay.replayed).toBe(true); expect(replay.purchased).toEqual(purchase.purchased); expect(replay.wallet).toEqual(purchase.wallet);
+    await expect(b.api.purchase({...order,count:1})).rejects.toMatchObject({status:409,code:'request-id-conflict'});
+    expect((await b.api.wallet()).total).toBe(purchase.wallet.total);
+    await b.api.deleteDeck(d.name);
+    expect(await b.api.decks()).toMatchObject({ decks: [], deleted: [{ name: d.name }], current: { world: null, free: null } });
+    expect(await fixture.DB.prepare('SELECT deleted FROM user_decks WHERE char_key = ? AND name = ?').bind(`${account}/0`, d.name).first('deleted')).toBe(1);
+    await expect(b.api.selectDeck(d.name)).rejects.toMatchObject({ status: 404 });
+    await fixture.sink.flush();
+    const persisted = await loadState(fixture.DB);
+    expect(persisted.accounts[account!].user_id).toBe(userId);
+    expect(persisted.accounts[account!].profiles['0'].name).toBe('HttpCharacter');
+    const oldCookie = [...b.jar];
+    await b.api.signOut(); expect(await b.api.session()).toEqual({ signedIn: false });
+    // Replay the formerly valid signed cookie after real sign-out deleted its session.
+    b.jar.clear(); for (const [k, v] of oldCookie) b.jar.set(k, v);
+    expect(await b.api.session()).toEqual({ signedIn: false });
+    await expect(b.api.decks()).rejects.toMatchObject({ status: 401 });
+    const bindingCount = fixture.bindings.length;
+    const staleSession = b.session();
+    await expect(staleSession.start()).rejects.toThrow();
+    expect(fixture.bindings).toHaveLength(bindingCount); staleSession.dispose();
+    expect(await fixture.DB.prepare('SELECT count(*) AS n FROM session WHERE user_id = ?').bind(userId).first('n')).toBe(0);
+    session.dispose(); b.api.dispose();
+  }, 60_000);
+
+  it('uses the real staging test-sign-in route and isolates a second user and character', async () => {
+    const b = fixture.browser();
+    const response = await b.fetch(HTTP_ORIGIN + '/api/de/test-sign-in', { method: 'POST', headers: { 'content-type': 'application/json', 'x-test-signin': fixture.testSecret }, body: JSON.stringify({ name: 'TestHttpSecond' }) });
+    expect(response.status).toBe(200);
+    const s = await b.api.session(); if (!s.signedIn) throw new Error('Expected test sign-in');
+    const session = b.session(); await session.start(); await session.createCharacter(0, 'SecondChar'); await session.selectCharacter(0);
+    expect(fixture.bindings.at(-1)?.user).toBe(s.userId);
+    expect(await b.api.decks()).toMatchObject({ decks: [], deleted: [] });
+    await b.api.saveDeck({ name: 'Second Only', main: [89631139], side: [], extra: [] }, 'world');
+    const account = fixture.game.game.store.accountOfUser(s.userId);
+    expect(await fixture.DB.prepare('SELECT char_key FROM user_decks WHERE name = ?').bind('Second Only').first('char_key')).toBe(`${account}/0`);
+    // Character scope is independent even inside the same authenticated account.
+    session.dispose();
+    const next = b.session(); await next.start(); await next.createCharacter(1, 'ThirdChar'); await next.selectCharacter(1);
+    expect(await b.api.decks()).toMatchObject({ decks: [], current: { world: null, free: null } });
+    next.dispose(); await b.api.signOut();
+  }, 60_000);
+
+  it('refuses forged cookies at HTTP and WebSocket boundaries without reaching the world', async () => {
+    const b = fixture.browser(); b.jar.set('__Secure-de.session_token', 'forged.signature');
+    expect(await b.api.session()).toEqual({ signedIn: false });
+    await expect(b.api.decks()).rejects.toMatchObject({ status: 401 });
+    const forgedIdentity = await b.fetch(HTTP_ORIGIN + '/api/de/decks', { headers: { 'x-de-user': 'someone-else' } });
+    expect(forgedIdentity.status).toBe(401);
+    const count = fixture.bindings.length;
+    const session = b.session();
+    await expect(session.start()).rejects.toThrow();
+    expect(fixture.bindings).toHaveLength(count);
+    session.dispose();
+  }, 15_000);
+});

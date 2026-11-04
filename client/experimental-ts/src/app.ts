@@ -8,28 +8,62 @@ import type { DuelState } from './duel/types';
 import { encodeDuelResponse } from './duel/responses';
 import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
 import { AssetManager } from './assets';
+import { loadPackCatalog, packImagePath } from './shop/packs';
+import type { PackInfo } from './shop/packs';
+import type { ShopCatalog } from './services/api';
 import { SocialController } from './features/social';
 import { OnlineController } from './features/online';
 import type { GameplayCommand } from './gameplay/binary';
 import { CardCatalog } from './catalog';
-import { projectDuel, interpretResponse, interpretAction, applyTimeline } from './presentation';
+import { projectDuel, interpretResponse, interpretAction, applyTimeline, describeEvent } from './presentation';
+import { fieldThemeKindForPasscode } from './duel/theme';
 import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
+import { DuelAudioDirector } from './duel/audio';
+import { fieldAudioSlotForPasscode } from './duel/theme';
 import { AccountController } from './features/account';
+import { ProfileController } from './features/profile';
+import { NpcController,npcOpeningPresent } from './features/npc';
+import type { NpcDialogueCatalog } from './npcs/dialogue';
+import { AvatarLoader } from './avatars';
+import type { AvatarLoadOptions } from './avatars';
+import type { AvatarResource } from './avatars';
+import type { WorldScene } from './world/scene';
 import { WorldNavigator } from './world';
+import { chooseInitialArrival } from './world/arrival';
+import { isWalkable } from './world/pathfinding';
+import { WorldRuntime } from './world/runtime';
+import { chooseArrival } from './world/exits';
+import type { ExitTrigger } from './world/exits';
+import type { WorldMap, WorldPosition } from './world/maps';
+import { SceneLoader } from './world/scene';
 import type { WorldMaps } from './world';
 import { LiveCapture, captureDownload } from './parity/live';
 import { BrowserAudioManager } from './features/audio';
 import type { ClientController, ClientView, ClientCommand, Scene, CardView, SettingsView, DuelView } from './ui/contracts';
+import { serializeDeck } from './ui/deck';
+import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
+import type { OriginalCardTextCatalog } from './cards/original-text';
+import type { DeckView } from './ui/contracts';
+import type { ClientData } from './data';
+import type {RecipeCatalog} from './recipes';
 
 export interface AppOptions {
   gatewayUrl: string;
   portOffset?: number;
+  freeMode?: boolean;
   api?: GameApi;
   catalog?: CardCatalog;
+  cardDetails?: CardDetailsCatalog;
+  cardTexts?: OriginalCardTextCatalog;
+  npcDialogue?: NpcDialogueCatalog;
+  dataIssues?: string[];
+  reloadData?: (signal:AbortSignal)=>Promise<ClientData>;
+  recipes?:RecipeCatalog;
   assets?: AssetManager;
   audio?: BrowserAudioManager;
   worldMaps?: WorldMaps;
+  random?: () => number;
   duelTexts?: DuelTextCatalog;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (id: number) => void;
@@ -52,6 +86,10 @@ export class ClientApp implements ClientController {
   readonly social: SocialController;
   readonly online: OnlineController;
   readonly account: AccountController;
+  readonly profile: ProfileController;
+  readonly npc: NpcController;
+  readonly loadWorldScene?: (mapId:number,signal:AbortSignal)=>Promise<WorldScene>;
+  readonly loadAvatar?: (parts:Uint8Array,options:AvatarLoadOptions)=>Promise<AvatarResource>;
   readonly capture = new LiveCapture();
   private scope = new ResourceScope();
   private connectionScope = this.scope.child();
@@ -59,39 +97,78 @@ export class ClientApp implements ClientController {
   private listeners = new Set<(state: ClientView) => void>();
   private game: GameSession | null = null;
   private editor: DeckEditor | null = null;
+  private packCatalog: Promise<Map<number, PackInfo>> | null = null;
+  private sideboard: DeckView | null = null;
+  private sideboardRound: number | null = null;
   private duelState: DuelState = createDuelState();
   private timeline = new DuelTimeline(this.duelState);
+  private duelAudio = new DuelAudioDirector();
   private animationFrame: number | null = null;
   private lastFrame: number | null = null;
   private settledDuel: DuelView | null = null;
   private duelLog: string[] = [];
   private audioSlot = -1;
+  private fieldPasscode = 0;
+  private fieldAudioSlot = 11;
   private world = new WorldNavigator({ send: p => this.requireGame().move(p.x, p.y, p.direction) });
+  private worldRuntime: WorldRuntime | null = null;
+  private runtimeMap: number | null = null;
+  private runtimeLoad: Promise<void> | null = null;
+  private worldTransition = false;
+  private arrivalFrom: {from:number;to:number} | null = null;
+  private scenes: SceneLoader | null = null;
+  private avatars: AvatarLoader | null = null;
   private worldArea: number | null = null;
+  private worldSpawnContext: string | null = null;
   private worldFrame: number | null = null;
   private worldLastFrame: number | null = null;
   private submittedPrompt: number | null = null;
   private collectionRef: ReadonlyMap<number, number> | null = null;
   private collection: CardView[] = [];
+  private catalogCards: CardView[] | null = null;
   private projections = new Map<string, { source: unknown; result: unknown }>();
   private disposed = false;
   private epoch = 0;
   private lockToken: object | null = null;
   private attachingOffer = false;
   private observedAccountSession: unknown = null;
+  private profileContext: string | null = null;
+  private npcPlayer: string | null = null;
+  private eligibilityDue=false;
+  private eligibilityQueued=false;
+  private freeMode: boolean;
   constructor(private options: AppOptions) {
+    this.freeMode = options.freeMode ?? false;
     this.catalog = options.catalog ?? new CardCatalog();
+    if (options.cardDetails) this.catalog.installDetails(options.cardDetails);
+    if (options.cardTexts) this.catalog.installOriginalTexts(options.cardTexts);
+    if (options.assets) {
+      this.scenes = new SceneLoader({assets:options.assets}); this.avatars = new AvatarLoader(options.assets);
+      this.loadWorldScene = (mapId,signal)=>this.scenes!.load(mapId,signal);
+      this.loadAvatar = (parts,options)=>this.avatars!.load(parts,options);
+    }
+    this.resetWorldRuntime();
     this.services = new GameplayService(options.api ?? new GameApi());
-    this.view = initial(options.settings);
+    this.view = { ...initial(options.settings), mode:this.freeMode ? 'free' : 'world' };
     this.timeline.setReducedMotion(this.view.settings.reducedMotion || !this.frameRequest);
+    this.duelAudio.setReducedMotion(this.view.settings.reducedMotion || !this.frameRequest);
+    this.duelAudio.setMuted(!options.audio || this.view.settings.sound === 0);
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
     this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }) });
     this.online = new OnlineController({ http: this.services.api.http, onChange: online => this.patch({ online }) });
+    if (options.assets) this.loadArchiveImage = (path, signal) => this.readArchiveImage(path, signal);
+    this.profile = new ProfileController({send:command=>this.sendGameplay(command),onChange:profileDetail=>this.patch({profileDetail})});
+    this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>this.patch({npc,
+      npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}),
+      onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
+      onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
+      resolveLine:(id,line)=>this.options.npcDialogue?.resolve(id,line),resolvePresentText:id=>this.options.npcDialogue?.resolveText(id)});
     this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => {
       const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;
       this.patch({ accountDetail, ...(changed && accountDetail.session ? { auth: { signedIn: accountDetail.session.signedIn, ...(accountDetail.session.signedIn && accountDetail.session.name ? { name: accountDetail.session.name } : {}) } } : {}) });
     } });
-    this.view = { ...this.view, accountDetail: this.account.state, capture: this.capture.status };
+    this.view = { ...this.view, accountDetail: this.account.state, profileDetail:this.profile.state, npc:this.npc.state, capture: this.capture.status,
+      ...(options.reloadData ? {dataStatus:{loading:false,issues:[...(options.dataIssues ?? [])]}} : {}) };
   }
   getState(): ClientView { return this.view; }
   get diagnostics(): { duel: DuelState; assetBytes: number; resources: number } {
@@ -101,7 +178,15 @@ export class ClientApp implements ClientController {
     if (this.disposed) return () => {};
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view); } }
+  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
+  private scheduleNpcEligibility():void {
+    const game=this.game,state=this.npc?.state;
+    if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
+      !['idle','done'].includes(state.stage) || state.eligibility.refreshing || [state.eligibility.status,state.firstContactStatus,state.giftStatus].some(s=>s==='pending'||s==='uncertain') || state.packStatus==='pending' || state.packs.length>0&&state.packStatus==='idle')return;
+    const epoch=this.epoch;this.eligibilityQueued=true;
+    queueMicrotask(()=>{this.eligibilityQueued=false;if(this.disposed || epoch!==this.epoch || this.game!==game || this.view.busy || !this.eligibilityDue)return;
+      this.eligibilityDue=false;if(!this.npc.checkEligibility())this.eligibilityDue=true;});
+  }
   private patch(patch: Partial<ClientView>): void { this.view = { ...this.view, ...patch }; this.emit(); }
   async initialize(): Promise<void> {
     try { const auth = await this.services.refreshSession({ signal: this.scope.signal });
@@ -111,6 +196,33 @@ export class ClientApp implements ClientController {
   async loadCardImage(passcode: number, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original card art is not configured.');
     const lease = await this.options.assets.loadCard(passcode, signal);
+    return { url: lease.value.url, release: () => lease.release() };
+  }
+  /** Names, descriptions and art from the original pack tables and card catalogue; the server only sends ids. */
+  private async shopView(shop: ShopCatalog): Promise<ClientView['shop'] & object> {
+    const view = toShopView(shop), assets = this.options.assets;
+    let packs: Map<number, PackInfo> | null = null;
+    if (assets) {
+      this.packCatalog ??= loadPackCatalog(assets, this.scope.signal).catch(error => { this.packCatalog = null; throw error; });
+      try { packs = await this.packCatalog; } catch { packs = null; }
+    }
+    view.items = view.items.map((item, i) => {
+      const product = shop.items[i]!;
+      if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param); return { ...item, name: product.name || card.name, card, ...(card.description ? { description: card.description } : {}) }; }
+      const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
+      if (!pack) return item;
+      const imagePath = packImagePath(pack.image);
+      return { ...item, name: product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
+    });
+    return view;
+  }
+  /** Original artwork by archive path, limited to the pack, duel and card-back folders the UI draws from.
+   * Absent without configured assets, so the UI draws its own fallbacks instead of broken images. */
+  readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
+  private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
+    if (!this.options.assets) throw new Error('Original artwork is not configured.');
+    if (!/^data\/(?:cardpack|y\/duel|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
   private failure(e: unknown): void {
@@ -133,10 +245,33 @@ export class ClientApp implements ClientController {
     }
     const selected = state.characters.find(c => c.slot === state.selectedSlot);
     const profile = state.profile;
+    const npcPlayer=profile ? `${profile.pid}:${state.selectedSlot}` : null;
+    if (npcPlayer !== this.npcPlayer) {this.npcPlayer=npcPlayer;this.npc.reset();}
+    if (state.connection !== 'connected' && this.view.connection === 'online') this.npc.disconnected();
+    const context = profile ? `${profile.pid}:${state.areaBlock}` : null;
+    if (context !== this.profileContext) {
+      this.profileContext = context;this.eligibilityDue=profile!==null;this.profile.reset(); this.profile.dispatch({type:'setSelf',pid:profile?.pid ?? null});
+    }
     const worldMap = this.options.worldMaps?.maps.find(m => m.id === state.area);
     const self = state.players.find(p => p.pid === profile?.pid);
+    const spawnContext = self && profile ? `${profile.pid}:${state.areaBlock}:${state.area}` : null;
+    let spawn: ReturnType<typeof chooseInitialArrival> | null = null;
+    if (worldMap && self?.x !== undefined && self.y !== undefined && spawnContext !== this.worldSpawnContext) {
+      this.worldSpawnContext = spawnContext;
+      // A fresh server presence uses (0,0) until the client sends its initial move.
+      if (this.arrivalFrom?.to===state.area || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
+        spawn = this.arrivalFrom?.to===state.area ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
+        this.arrivalFrom=null;
+        const game = this.game, epoch = this.epoch, position = spawn;
+        queueMicrotask(()=> {
+          if (this.disposed || this.game !== game || epoch !== this.epoch || this.worldSpawnContext !== spawnContext) return;
+          try { game!.move(position.x,position.y,position.direction); this.updateSession(game!.state); } catch(error) { this.failure(error); }
+        });
+      }
+    }
     if (worldMap && self?.x !== undefined && self.y !== undefined && (this.worldArea !== state.area || !this.world.moving)) {
-      this.world.reset(worldMap, { x: self.x, y: self.y, direction: (self.direction ?? 0) & 7 }); this.worldArea = state.area;
+      this.world.reset(worldMap, spawn ?? { x:self.x,y:self.y,direction:(self.direction ?? 0)&7 }); this.worldArea = state.area;
+      if(this.worldRuntime && this.runtimeMap!==state.area) this.loadWorldRuntime(worldMap,this.world.position!);
     }
     const connection = state.connection === 'connected' ? 'online' : state.connection === 'connecting' ? 'connecting'
       : state.connection === 'reconnecting' ? 'reconnecting' : state.connection === 'error' ? 'error' : 'offline';
@@ -144,21 +279,34 @@ export class ClientApp implements ClientController {
     let scene = this.view.scene;
     if (state.phase === 'characters' && !profile) scene = 'characters';
     if (state.phase === 'lobby' && ['title', 'characters', 'duel'].includes(scene)) scene = 'lobby';
-    if ((duelPreparing || state.phase === 'duel') && scene !== 'settings') scene = 'duel';
+    if ((duelPreparing || state.phase === 'duel' || state.phase === 'sideboarding') && scene !== 'settings') scene = 'duel';
+    if (state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboardRound !== state.match.round) {
+      this.sideboard = { name:'Match Deck', main:[...state.match.deck.main], side:[...(state.match.deck.side ?? [])], extra:[...state.match.deck.extra] };
+      this.sideboardRound = state.match.round;
+    }
+    if (!state.match || state.match.complete) { this.sideboard = null; this.sideboardRound = null; }
     this.view = { ...this.view, connection, scene,
       characters: state.characters.map(c => ({ slot: c.slot, name: c.name, level: c.level, selected: c.slot === state.selectedSlot })),
       player: profile ? { id: profile.pid, name: selected?.name ?? this.view.auth?.name ?? 'Duelist', level: profile.level, mp: profile.mp } : null,
       lobby: profile ? {
-        name: `Duel Academy · Area ${state.area}`, width: worldMap?.width ?? 1600, height: worldMap?.height ?? 1200, connected: connection === 'online',
+        mapId:state.area, name: `Duel Academy · Area ${state.area}`, width: worldMap?.width ?? 1600, height: worldMap?.height ?? 1200, connected: connection === 'online',
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
-        npcs: this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
+        npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
         rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password }))),
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
-        avatars: state.players.map(p => ({ id: p.pid, name: p.name, x: p.x ?? 0, y: p.y ?? 0, self: p.pid === profile.pid })),
+        avatars: state.players.map(p => ({ id:p.pid,name:p.name,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      preparation: duelPreparing ? { phase: state.duelFirst !== null ? 'ready' : state.phase, opponentHand: state.opponentHand } : undefined,
+      preparation: duelPreparing ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase, opponentHand: state.opponentHand } : undefined,
+      relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
+      matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),
+      match: state.match ? { round:state.match.round, scores:[...state.match.scores], complete:state.match.complete } : undefined,
+      sideboarding: state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboard ? {
+        deck:structuredClone(this.sideboard), original:{ name:'Match Deck', main:[...state.match.original.main], side:[...(state.match.original.side ?? [])], extra:[...state.match.original.extra] },
+        round:state.match.round, scores:[...state.match.scores], deadline:state.match.sideboardDeadline,
+        ready:false,
+      } : undefined,
       status: state.phase === 'lobby' ? 'Online in Duel Academy.' : state.phase.replaceAll('-', ' '),
       ...(state.error ? { error: state.error } : {}),
     };
@@ -166,7 +314,8 @@ export class ClientApp implements ClientController {
       this.view = { ...this.view, duel: { ...this.view.duel, spectating: state.spectating } };
       if (this.settledDuel) this.settledDuel = { ...this.settledDuel, spectating: state.spectating };
     }
-    this.syncEditor(); this.emit();
+    this.syncEditor();
+    if (this.settledDuel) this.renderDuelFrame(); else this.emit();
   }
   private sendGameplay(command: GameplayCommand): void {
     const game = this.requireGame();
@@ -177,13 +326,17 @@ export class ClientApp implements ClientController {
   private receive(channel: Channel, message: WireMessage): void {
     if (this.disposed) return;
     this.capture.receive(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account');
-    if (channel === this.game?.lobby) this.social.receive(message);
+    if (channel === this.game?.lobby) { this.social.receive(message); this.profile.receive(message); this.npc.receive(message); }
     if ( !duelIds.has(message.id) || channel !== this.game?.duel) return;
     const previousPrompt = this.duelState.prompt?.id;
     const previous = this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
-    this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => `${e.sequence}: ${e.type}`)].slice(-100);
+    const names = this.duelNames();
+    this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e)).filter((line): line is string => line !== null)].slice(-100);
+    for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
     this.timeline.enqueue(previous, this.duelState);
+    if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
+    if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
     if (this.duelState.prompt?.id !== previousPrompt) this.submittedPrompt = null;
     this.syncDuel();
   }
@@ -191,6 +344,24 @@ export class ClientApp implements ClientController {
     this.world.cancel();
     if (this.worldFrame !== null) (this.options.cancelFrame ?? globalThis.cancelAnimationFrame)?.(this.worldFrame);
     this.worldFrame = null; this.worldLastFrame = null;
+  }
+  private resetWorldRuntime(): void {
+    this.world.dispose();this.worldRuntime?.dispose();this.runtimeMap=null;this.runtimeLoad=null;
+    this.worldRuntime=this.options.assets ? new WorldRuntime({assets:this.options.assets,crossings:true}) : null;
+    this.world=new WorldNavigator({send:p=>this.requireGame().move(p.x,p.y,p.direction),...(this.worldRuntime ? {physics:this.worldRuntime} : {}),
+      onExit:exit=>this.enterWorldExit(exit),onError:error=>{this.stopWorld();this.failure(error);}});
+  }
+  private loadWorldRuntime(map:WorldMap,position:WorldPosition): void {
+    const runtime=this.worldRuntime;if(!runtime)return;const epoch=this.epoch;
+    this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;
+    void load.catch(error=>{if(this.worldRuntime===runtime && epoch===this.epoch)this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
+  }
+  private async enterWorldExit(exit:ExitTrigger): Promise<void> {
+    if(this.worldTransition || !this.game || this.game.state.phase!=='lobby')return;
+    const game=this.game,epoch=this.epoch,from=game.state.area;this.worldTransition=true;this.arrivalFrom={from,to:exit.destination};this.stopWorld();
+    try {await game.enterArea(exit.destination);this.assertEpoch(epoch);}
+    catch(error) {if(epoch===this.epoch){this.arrivalFrom=null;throw error;}}
+    finally {if(epoch===this.epoch)this.worldTransition=false;}
   }
   private scheduleWorld(): void {
     const request = this.frameRequest;
@@ -200,8 +371,9 @@ export class ClientApp implements ClientController {
       const delta = this.worldLastFrame === null ? 1000 / 30 : time - this.worldLastFrame; this.worldLastFrame = time;
       try {
         this.world.update(delta);
+        if(this.worldRuntime?.status.error)throw new Error(this.worldRuntime.status.error);
         const position = this.world.position, lobby = this.view.lobby;
-        if (position && lobby) this.patch({ lobby: { ...lobby, avatars: lobby.avatars.map(a => a.self ? { ...a, x: position.x, y: position.y } : a) } });
+        if (position && lobby) this.patch({ lobby: { ...lobby, avatars: lobby.avatars.map(a => a.self ? { ...a,x:position.x,y:position.y,direction:position.direction,motion:this.world.walking ? 'walk' : 'stand' } : a) } });
         if (this.world.moving) this.scheduleWorld(); else this.worldLastFrame = null;
       } catch (e) { this.stopWorld(); this.failure(e); }
     });
@@ -219,17 +391,31 @@ export class ClientApp implements ClientController {
   private resetDuel(): void {
     this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
+    this.duelAudio.reset(this.duelState.sequence);
     this.settledDuel = null;
+    this.fieldPasscode=0;this.fieldAudioSlot=11;
   }
   private syncDuel(): void {
-    const name = this.view.player?.name ?? 'You';
-    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, [name, 'Opponent'], this.submittedPrompt, this.options.duelTexts), log: this.duelLog,
+    const background = this.duelBackground();
+    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}),
       spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
+  private duelNames(): [string, string] {
+    return [this.view.player?.name ?? 'You', this.npc.state.npc?.name ?? 'Opponent'];
+  }
+  /** data/y/duel/field/duel_field.txt: line 1 is the Academy hall, line k+1 the backdrop of field theme k. */
+  private duelBackground(): string | null {
+    if (!this.options.assets) return null;
+    let kind: number | null = 0;
+    try { kind = fieldThemeKindForPasscode(this.fieldPasscode, pc => this.options.cardDetails?.get(pc)?.internalId); } catch { kind = 0; }
+    return kind && kind <= 28 ? `data/y/duel/field/duel_filed_${String(kind).padStart(2, '0')}.png` : 'data/y/duel/field/duelbg_a_03.png';
+  }
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;
-    this.patch({ duel: applyTimeline(this.settledDuel, this.timeline.sample(), this.catalog) });
+    const sample = this.timeline.sample(), duel = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
+    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
+    this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
   private scheduleAnimation(): void {
@@ -248,11 +434,15 @@ export class ClientApp implements ClientController {
     const audio = this.options.audio;
     if (!audio) return;
     const scene = this.view.scene;
+    if(scene==='duel') {
+      const field=fieldAudioSlotForPasscode(this.fieldPasscode,11,pc=>this.options.cardDetails?.get(pc)?.internalId);
+      if(field!==null) this.fieldAudioSlot=field;
+    }
     // Scene slots have source evidence in recomp/audio-slots.md; duel base selection is provisional.
     const slot = scene === 'title' ? 0 : scene === 'characters' ? 3 : scene === 'deck' ? 1
       : scene === 'duel' ? this.duelState.result ? this.duelState.result.result === 1 ? 28 : this.duelState.result.result === 2 ? 27 : 26
       : this.view.preparation ? 10 : this.duelState.sides[0].lp - this.duelState.sides[1].lp >= 3000 ? 24
-      : this.duelState.sides[1].lp - this.duelState.sides[0].lp >= 3000 ? 25 : 11
+      : this.duelState.sides[1].lp - this.duelState.sides[0].lp >= 3000 ? 25 : this.fieldAudioSlot
       : scene === 'settings' ? this.audioSlot : [4,5,6,7].includes(this.game?.state.area ?? 4) ? 6 : 5;
     if (slot >= 0 && slot !== this.audioSlot) {
       this.audioSlot = slot;
@@ -263,14 +453,21 @@ export class ClientApp implements ClientController {
   private syncEditor(): void {
     if (!this.editor && !this.view.deckEditor) return;
     this.view = { ...this.view, deckEditor: { decks: this.services.decks.state.data?.decks ?? [], current: this.editor?.deck ?? null,
-      collection: this.collection, dirty: this.editor?.dirty ?? false, loading: this.services.decks.state.loading } };
+      collection: this.collection, allCards: this.catalogCards ??= this.catalog.allCards(),
+      recipes:this.project('recipes',this.game?.state.pbin,pbin=>this.options.recipes?.available(pbin ?? null,this.freeMode) ?? []),
+      dirty: this.editor?.dirty ?? false, loading: this.services.decks.state.loading } };
   }
-  private async connect(): Promise<void> {
+  private get deckMode(): 'world' | 'free' { return this.freeMode ? 'free' : 'world'; }
+  private async connect(freeMode = this.freeMode): Promise<void> {
     if (!this.view.auth?.signedIn) throw new Error('Sign in before going online.');
-    if (this.game) { this.patch({ scene: this.view.player ? 'lobby' : 'characters' }); return; }
+    if (this.game) {
+      if (this.freeMode !== freeMode) throw new Error('Disconnect before changing game modes.');
+      this.patch({ scene: this.view.player ? 'lobby' : 'characters' }); return;
+    }
+    this.freeMode = freeMode; this.patch({ mode:this.deckMode, unavailable:this.freeMode ? {shop:'Card purchases are available in World mode.'} : undefined });
     const epoch = ++this.epoch;
     const make = this.options.sessionFactory ?? (o => new GameSession(o));
-    const game = make({ url: this.options.gatewayUrl, portOffset: this.options.portOffset ?? 1000,
+    const game = make({ url: this.options.gatewayUrl, portOffset: this.options.portOffset ?? 1000, freeMode:this.freeMode,
       onState: state => { if (this.game === game && epoch === this.epoch) this.updateSession(state); },
       onMessage: (channel, message) => this.receive(channel, message),
       onOutgoing: (channel, message) => this.capture.outgoing(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account'),
@@ -279,6 +476,7 @@ export class ClientApp implements ClientController {
         this.attachingOffer = true;
         queueMicrotask(() => {
           if (this.disposed || this.game !== game) { this.attachingOffer = false; return; }
+          this.stopWorld();if (this.npc.state.stage === 'ask' || this.npc.state.stage === 'greeting') this.npc.reset();
           this.resetDuel(); this.syncDuel();
           void (async () => game.acceptDuelOffer(this.currentDeck()))().catch(e => this.failure(e)).finally(() => { this.attachingOffer = false; });
         });
@@ -288,32 +486,38 @@ export class ClientApp implements ClientController {
     try { await game.start(); } catch (e) { if (this.game === game) { this.game = null; game.dispose(); } throw e; }
   }
   private disconnect(): void {
-    ++this.epoch; this.lockToken = null; this.stopWorld(); this.worldArea = null;
+    ++this.epoch;this.eligibilityDue=false;this.eligibilityQueued=false;this.lockToken = null; this.stopWorld(); this.worldArea = null; this.worldSpawnContext = null;this.worldTransition=false;this.arrivalFrom=null;this.resetWorldRuntime();
     this.connectionScope.dispose(); this.connectionScope = this.scope.child();
-    this.services.reset(); this.social.reset(); this.online.reset(); this.account.reset(); this.capture.sessionBoundary();
+    this.services.reset(); this.social.reset(); this.profile.reset(); this.profileContext = null; this.npc.reset(); this.npcPlayer=null; this.online.reset(); this.account.reset(); this.capture.sessionBoundary();
     this.game?.dispose(); this.game = null;
     this.collectionRef = null; this.collection = []; this.editor = null; this.projections.clear();
+    this.sideboard = null; this.sideboardRound = null;
     this.resetDuel(); this.attachingOffer = false;
-    this.view = { ...initial(this.view.settings), auth: this.view.auth, status: 'Disconnected.' }; this.emit();
+    this.view = { ...initial(this.view.settings), mode:this.deckMode, auth:this.view.auth,
+      accountDetail:this.account.state, profileDetail:this.profile.state, npc:this.npc.state, online:this.online.state, socialDetail:this.social.state,
+      ...(this.options.reloadData ? {dataStatus:{loading:false,issues:[...(this.options.dataIssues ?? [])]}} : {}),
+      ...(this.options.audio ? {audio:this.options.audio.getState()} : {}), status:'Disconnected.' }; this.emit();
   }
   private async refresh(scene: Scene): Promise<void> {
     const options = { signal: this.connectionScope.signal }, epoch = this.epoch;
     if (scene === 'deck') {
       await this.requireGame().refreshCollection();
+      await this.requireGame().refreshPlayerBits();
       const data = await this.services.refreshDecks(options);
       if (epoch !== this.epoch || this.disposed) throw new DOMException('Session changed', 'AbortError');
       if (!this.editor) {
-        const deck = data.decks.find(d => d.name === data.current.world) ?? data.decks[0];
+        const deck = data.decks.find(d => d.name === data.current[this.deckMode]) ?? data.decks[0];
         if (deck) this.editor = new DeckEditor(deck, this.collection);
       }
       this.syncEditor(); this.emit();
     } else if (scene === 'shop') {
       const shop = await this.services.refreshShop(options);
-      if (epoch === this.epoch && !this.disposed) { this.patch({ shop: toShopView(shop) }); await this.online.refresh(); }
+      if (epoch === this.epoch && !this.disposed) { const view = await this.shopView(shop); if (epoch === this.epoch && !this.disposed) { this.patch({ shop: view }); await this.online.refresh(); } }
     } else if (scene === 'social') {
       const friends = await this.services.refreshFriends(options);
       if (epoch === this.epoch && !this.disposed) { this.patch({ social: toSocialView(friends) }); this.social.dispatch({ type: 'refreshMail' }); this.social.dispatch({ type: 'refreshTeam' }); }
     } else if (scene === 'lobby') {
+      if (this.freeMode) { this.patch({starter:undefined}); return; }
       await this.requireGame().refreshNpcs();
       const starter = await this.services.refreshStarter(options);
       if (epoch === this.epoch && !this.disposed) this.patch({ starter: { claimable: starter.claimable, decks: starter.claimable ? starter.decks.map(d => ({ id: d.id, name: d.name, mainCount: d.cards.filter(c => c.type !== 'extra').reduce((n, c) => n + c.n, 0), extraCount: d.cards.filter(c => c.type === 'extra').reduce((n, c) => n + c.n, 0) })) : [] } });
@@ -321,9 +525,15 @@ export class ClientApp implements ClientController {
   }
   private currentDeck(): { main: number[]; side: number[]; extra: number[] } {
     const data = this.services.decks.state.data;
-    const deck = data?.decks.find(d => d.name === data.current.world) ?? this.editor?.deck;
+    const deck = data?.decks.find(d => d.name === data.current[this.deckMode]) ?? this.editor?.deck;
     if (!deck) throw new Error('Save and select a deck before starting a duel.');
     return { main: [...deck.main], side: [...deck.side], extra: [...deck.extra] };
+  }
+  private async startNpcDuel(id:number): Promise<void> {
+    if (this.freeMode) throw new Error('NPC duels are available in World mode.');
+    if (!this.services.decks.state.data) await this.refresh('deck');
+    this.stopWorld(); this.resetDuel(); this.syncDuel();
+    await this.requireGame().startNpcDuel(id,this.currentDeck());
   }
   async dispatch(command: ClientCommand): Promise<void> {
     if (this.disposed) throw new Error('Client is disposed.');
@@ -335,7 +545,7 @@ export class ClientApp implements ClientController {
     const epoch = this.epoch;
     try {
       switch (command.type) {
-        case 'connect': await this.connect(); break;
+        case 'connect': await this.connect(command.freeMode); break;
         case 'disconnect': this.disconnect(); break;
         case 'signIn': {
           const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal });
@@ -347,15 +557,16 @@ export class ClientApp implements ClientController {
         case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
         case 'claimStarter': {
           const claim = await this.services.claimStarter(command.id, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
-          const deck = expandStarterDeck(claim.deck); await this.services.saveDeck(deck, 'world', { signal: this.connectionScope.signal });
+          await this.requireGame().refreshPlayerBits();this.assertEpoch(epoch);
+          const deck = expandStarterDeck(claim.deck); await this.services.saveDeck(deck, this.deckMode, { signal: this.connectionScope.signal });
           this.editor = new DeckEditor(deck, this.collection); await this.refresh('deck'); await this.refresh('lobby'); break;
         }
         case 'openScene':
           if (command.scene !== 'lobby') this.stopWorld();
           if (this.view.unavailable?.[command.scene]) throw new Error(this.view.unavailable[command.scene]);
           if (!['title', 'settings', 'characters'].includes(command.scene) && !this.view.player) throw new Error('Select a character first.');
-          if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel'].includes(this.game?.state.phase ?? '')) && this.duelState.status !== 'finished' && !['duel', 'settings'].includes(command.scene)) throw new Error('Finish or surrender the duel first.');
-          if (command.scene === 'lobby' && this.duelState.status === 'finished') await this.requireGame().finishDuel();
+          if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel', 'sideboarding'].includes(this.game?.state.phase ?? '')) && (this.duelState.status !== 'finished' || this.game?.state.match && !this.game.state.match.complete) && !['duel', 'settings'].includes(command.scene)) throw new Error('Finish or surrender the duel first.');
+          if (command.scene === 'lobby' && this.duelState.status === 'finished') {this.eligibilityDue=true;await this.requireGame().finishDuel();}
           this.patch({ scene: command.scene });
           if (['deck', 'shop', 'social'].includes(command.scene)) await this.refresh(command.scene); break;
         case 'refresh': await this.refresh(command.scene); break;
@@ -363,9 +574,10 @@ export class ClientApp implements ClientController {
           this.requireGame();
           if (!this.options.worldMaps || !this.world.position) throw new Error('Original collision data is unavailable. Generate the world maps before walking.');
           if (!this.frameRequest) throw new Error('Animated movement is unavailable.');
+          if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
           this.scheduleWorld(); break;
-        case 'moveArea': this.stopWorld(); await this.requireGame().enterArea(command.area); break;
+        case 'moveArea': this.stopWorld();this.arrivalFrom=null;await this.requireGame().enterArea(command.area);break;
         case 'chat': {
           if (!['global', 'trade', 'whisper', 'team'].includes(command.channel)) throw new Error('Unknown chat channel.');
           let targetPid: number | undefined;
@@ -377,11 +589,20 @@ export class ClientApp implements ClientController {
         }
         case 'interact':
           if (command.playerId < 0) {
-            if (!this.services.decks.state.data) await this.refresh('deck');
-            this.stopWorld(); this.resetDuel(); this.syncDuel();
-            await this.requireGame().startNpcDuel(-command.playerId, this.currentDeck());
-          } else this.patch({ status: `Selected ${this.requireGame().state.players.find(p => p.pid === command.playerId)?.name ?? 'player'}.` });
+            if (this.freeMode) throw new Error('NPC duels are available in World mode.');
+            const npc=this.requireGame().state.npcs.find(n=>n.id===-command.playerId); if (!npc) throw new Error('That NPC is unavailable.');
+            this.stopWorld();
+            const state=this.requireGame().state, special=npcOpeningPresent(npc.id);
+            this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
+              ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
+          } else this.profile.dispatch({type:'open',pid:command.playerId});
           break;
+        case 'npcAnswer': await this.npc.answer(command.accept); break;
+        case 'npcAdvance': this.npc.advance(); break;
+        case 'npcSelectPack': this.npc.selectPack(command.pack); break;
+        case 'npcRefreshInventory': await this.npc.refreshCollection(); break;
+        case 'npcClose':
+          if(!this.npc.close())throw new Error('Finish this NPC interaction and reward selection first.');break;
         case 'duelChallenge': {
           if (!this.services.decks.state.data) await this.refresh('deck');
           const result = await this.services.api.http.request('POST', '/api/de/duel/challenge', value => {
@@ -392,17 +613,21 @@ export class ClientApp implements ClientController {
         }
         case 'createDuelRoom': if (!this.services.decks.state.data) await this.refresh('deck'); await this.requireGame().createDuelRoom(command.options); break;
         case 'deleteDuelRoom': await this.requireGame().deleteDuelRoom(); break;
+        case 'startMatchmaking': if (!this.services.decks.state.data) await this.refresh('deck'); await this.requireGame().startMatchmaking(command); break;
+        case 'cancelMatchmaking': await this.requireGame().cancelMatchmaking(); break;
+        case 'refreshMatchmaking': await this.requireGame().refreshMatchmaking(); break;
+        case 'retryMatchmaking': await this.requireGame().retryMatchmaking(); break;
         case 'challengeRoom': if (!this.services.decks.state.data) await this.refresh('deck'); this.requireGame().challengeRoom(command.roomId, command.password); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
-        case 'spectate': this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
-        case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.'); this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
+        case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
+        case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
         case 'chooseHand': await this.requireGame().chooseHand(command.hand); break;
         case 'chooseFirst': await this.requireGame().chooseFirst(command.first); break;
         case 'beginDuel': this.requireGame().beginDuel(); break;
         case 'selectDeck': {
           const deck = this.services.decks.state.data?.decks.find(d => d.name === command.name);
           if (!deck) throw new Error('Deck no longer exists.');
-          await this.services.selectDeck(command.name, 'world', { signal: this.connectionScope.signal });
+          await this.services.selectDeck(command.name, this.deckMode, { signal: this.connectionScope.signal });
           this.editor = new DeckEditor(deck, this.collection); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
         }
         case 'newDeck': {
@@ -414,13 +639,60 @@ export class ClientApp implements ClientController {
         }
         case 'renameDeck': { const result = this.editor?.rename(command.name); if (!result?.ok) throw new Error(result && !result.ok ? result.reason : 'Choose a deck first.'); this.syncEditor(); this.emit(); break; }
         case 'deckCard': { const result = this.editor?.move(command.passcode, command.from, command.to, command.index); if (!result?.ok) throw new Error(result && !result.ok ? result.reason : 'Choose a deck first.'); this.syncEditor(); this.emit(); break; }
-        case 'saveDeck': if (!this.editor) throw new Error('Choose a deck first.'); await this.services.saveEditor(this.editor, 'world', { signal: this.connectionScope.signal }); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
+        case 'sideboardMove': {
+          const match = this.requireGame().state.match, deck = this.sideboard;
+          if (!deck || match?.stage !== 'sideboarding' || match.complete) throw new Error('Sideboarding is unavailable.');
+          if (!['main','side'].includes(command.from) || !['main','side'].includes(command.to) || command.from === command.to) throw new Error('Only Main and Side cards may be exchanged.');
+          const from = command.from as 'main' | 'side', to = command.to as 'main' | 'side', index = command.index ?? deck[from].indexOf(command.passcode);
+          if (!Number.isSafeInteger(index) || index < 0 || deck[from][index] !== command.passcode) throw new Error('That card is no longer at the selected position.');
+          const capacity = to === 'main' ? 95 : 30;
+          if (deck[to].length >= capacity) throw new Error('Temporary sideboarding capacity reached.');
+          this.sideboard = structuredClone(deck); this.sideboard[from].splice(index,1); this.sideboard[to].push(command.passcode);
+          this.updateSession(this.requireGame().state); break;
+        }
+        case 'sideboardSwap': {
+          const match = this.requireGame().state.match, deck = this.sideboard;
+          if (!deck || match?.stage !== 'sideboarding' || match.complete) throw new Error('Sideboarding is unavailable.');
+          if (![command.mainIndex,command.sideIndex].every(Number.isSafeInteger) || command.mainIndex < 0 || command.mainIndex >= deck.main.length || command.sideIndex < 0 || command.sideIndex >= deck.side.length) throw new Error('That card is no longer at the selected position.');
+          this.sideboard = structuredClone(deck);
+          [this.sideboard.main[command.mainIndex],this.sideboard.side[command.sideIndex]] = [deck.side[command.sideIndex],deck.main[command.mainIndex]];
+          this.updateSession(this.requireGame().state); break;
+        }
+        case 'submitSideboard': {
+          const match = this.requireGame().state.match;
+          if (!this.sideboard || match?.stage !== 'sideboarding' || match.complete || this.sideboard.main.length !== match.original.main.length || this.sideboard.side.length !== (match.original.side?.length ?? 0)) throw new Error('Restore the original Main and Side counts before continuing.');
+          const deck = structuredClone(this.sideboard);
+          this.resetDuel(); this.patch({ duel:null }); await this.requireGame().submitSideboard(deck); break;
+        }
+        case 'deckReorder': { const result = this.editor?.reorder(command.zone, command.fromIndex, command.toIndex); if (!result?.ok) throw new Error(result && !result.ok ? result.reason : 'Choose a deck first.'); this.syncEditor(); this.emit(); break; }
+        case 'replaceDeck': {
+          const editor = this.editor ?? new DeckEditor({ name: command.deck.name, main: [], side: [], extra: [] }, this.collection);
+          const result = editor.replace(command.deck); if (!result.ok) throw new Error(result.reason);
+          this.editor = editor; this.syncEditor(); this.patch({ status: 'Deck draft updated. Save to use it in a duel.' }); break;
+        }
+        case 'importLegacyDeck': {
+          const deck = { name:command.name, ...decodeLegacyDeck(command.bytes, this.options.cardDetails ?? new CardDetailsCatalog()) };
+          const editor = this.editor ?? new DeckEditor({ name:deck.name,main:[],side:[],extra:[] },this.collection);
+          const result = editor.replace(deck); if (!result.ok) throw new Error(result.reason);
+          this.editor = editor; this.syncEditor(); this.patch({ status:'Native deck imported. Save to use it in a duel.' }); break;
+        }
+        case 'exportDeck': {
+          if (!this.editor) throw new Error('Choose a deck first.');
+          const deck = this.editor.deck;
+          if (command.format === 'ydc') {
+            const bytes = encodeLegacyDeck(deck,this.options.cardDetails ?? new CardDetailsCatalog());
+            this.download(new Blob([bytes.slice().buffer], { type:'application/octet-stream' }),`${deck.name}.ydc`);
+          } else this.download(new Blob([serializeDeck(deck,command.format)], { type:command.format === 'json' ? 'application/json' : 'text/plain;charset=utf-8' }),`${deck.name}.${command.format}`);
+          break;
+        }
+        case 'saveDeck': if (!this.editor) throw new Error('Choose a deck first.'); await this.services.saveEditor(this.editor, this.deckMode, { signal: this.connectionScope.signal }); await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
         case 'deleteDeck': await this.services.deleteDeck(command.name, { signal: this.connectionScope.signal }); if (this.editor?.deck.name === command.name) this.editor = null; await this.refresh('deck'); break;
         case 'buy': {
           const pending = this.services.pendingPurchase;
           if (pending && (pending.itemId !== command.itemId || pending.count !== command.count)) throw new Error('Retry your pending purchase first.');
           const result = pending ? await this.services.retryPurchase({ signal: this.connectionScope.signal }) : await this.services.buy(command.itemId, command.count, { signal: this.connectionScope.signal }); this.assertEpoch(epoch);
-          this.patch({ shop: toShopView(result), status: 'Purchase confirmed.' }); await this.requireGame().refreshCollection(); break;
+          const view = await this.shopView(result); this.assertEpoch(epoch);
+          this.patch({ shop: { ...view, purchased:result.purchased.filter(c=>c.passcode>0).map(c=>this.catalog.card(c.passcode)),replayed:result.replayed }, status: 'Purchase confirmed.' }); await this.requireGame().refreshCollection();await this.requireGame().refreshPlayerBits();break;
         }
         case 'duelRespond': {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');
@@ -448,26 +720,47 @@ export class ClientApp implements ClientController {
         case 'captureStart': this.capture.start(); this.emit(); break;
         case 'captureStop': this.capture.stop(); this.emit(); break;
         case 'captureDownload': {
-          const output = captureDownload(this.capture), url = URL.createObjectURL(output.blob);
-          const release = this.scope.own(() => URL.revokeObjectURL(url));
-          try { const anchor = document.createElement('a'); anchor.href = url; anchor.download = output.filename; anchor.click(); }
-          finally { this.scope.timeout(release, 1000); }
+          const output = captureDownload(this.capture); this.download(output.blob, output.filename);
           break;
         }
         case 'audioAction': {
           if (!this.options.audio) throw new Error('Audio is unavailable.');
           // Dispatch starts synchronously to preserve browser gesture activation.
           await this.options.audio.dispatch(command.action);
-          this.patch({ audio: this.options.audio.getState() }); break;
+          if (command.action.type === 'set-volumes' || command.action.type === 'restore') {
+            const settings = {...this.view.settings,...this.options.audio.volumes}; this.options.persistSettings?.(settings); this.patch({settings});
+            this.duelAudio.setMuted(settings.sound === 0);
+          }
+          this.patch({ audio:this.options.audio.getState() });
+          void this.options.audio.flushPersistence().then(()=>{if (!this.disposed) this.patch({audio:this.options.audio!.getState()});}).catch(error=>this.failure(error)); break;
         }
         case 'socialAction': this.social.dispatch(command.action); break;
+        case 'profileAction': this.profile.dispatch(command.action); break;
         case 'onlineAction': await this.online.dispatch(command.action); break;
+        case 'reloadData': {
+          if (!this.options.reloadData) throw new Error('Game data cannot be reloaded in this configuration.');
+          this.patch({dataStatus:{loading:true,issues:this.view.dataStatus?.issues ?? []}});
+          try {
+            const data=await this.options.reloadData(this.connectionScope.signal); this.assertEpoch(epoch);
+            if(data.catalog) this.catalog.install(data.catalog.allCards());
+            for(const key of ['cardDetails','cardTexts','npcDialogue','duelTexts','worldMaps','recipes'] as const) if(data[key]) Object.assign(this.options,{[key]:data[key]});
+            if(this.options.cardDetails) this.catalog.installDetails(this.options.cardDetails);
+            if(this.options.cardTexts) this.catalog.installOriginalTexts(this.options.cardTexts);
+            this.options.dataIssues=[...data.issues]; this.catalogCards=null;this.collectionRef=null;this.projections.clear();
+            if(data.worldMaps) {this.stopWorld();this.worldArea=null;this.runtimeMap=null;}
+            if(this.game) this.updateSession(this.game.state);
+            if(this.settledDuel) this.syncDuel();
+            this.patch({dataStatus:{loading:false,issues:[...data.issues]},status:data.issues.length ? 'Some game data is still unavailable.' : 'Game data loaded.'});
+          } catch(error) {if(epoch===this.epoch) this.patch({dataStatus:{loading:false,issues:this.view.dataStatus?.issues ?? []}});throw error;}
+          break;
+        }
         case 'settings': {
           const next = { ...this.view.settings, ...command.settings };
           for (const key of ['sound', 'music'] as const) if (!Number.isFinite(next[key]) || next[key] < 0 || next[key] > 1) throw new Error('Invalid volume.');
           if (typeof next.reducedMotion !== 'boolean' || typeof next.showCardNames !== 'boolean') throw new Error('Invalid settings.');
           this.options.persistSettings?.(next); this.options.audio?.setVolumes(next);
           this.timeline.setReducedMotion(next.reducedMotion || !this.frameRequest);
+          this.duelAudio.setReducedMotion(next.reducedMotion || !this.frameRequest); this.duelAudio.setMuted(!this.options.audio || next.sound === 0);
           this.patch({ settings: next, ...(this.options.audio ? { audio: this.options.audio.getState() } : {}) });
           if (this.settledDuel) this.renderDuelFrame(); break;
         }
@@ -476,11 +769,16 @@ export class ClientApp implements ClientController {
     } catch (e) { if (epoch === this.epoch || command.type === 'connect') this.failure(e); throw e; }
     finally { if (locking && this.lockToken === token) { this.lockToken = null; if (!this.disposed) this.patch({ busy: false }); } }
   }
+  private download(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob), release = this.scope.own(() => URL.revokeObjectURL(url));
+    try { const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); }
+    finally { this.scope.timeout(release, 1000); }
+  }
   dispose(): void {
     if (this.disposed) return;
-    this.disposed = true; ++this.epoch; this.cancelAnimation(); this.stopWorld(); this.world.dispose();
+    this.disposed = true; ++this.epoch; this.cancelAnimation(); this.stopWorld(); this.world.dispose();this.worldRuntime?.dispose(); this.duelAudio.dispose();
     const game = this.game;
-    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.account.dispose(), () => this.capture.dispose(), () => this.online.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
+    const cleanup = [() => game?.dispose(), () => this.social.dispose(), () => this.profile.dispose(), () => this.npc.dispose(), () => this.account.dispose(), () => this.capture.dispose(), () => this.online.dispose(), () => this.services.dispose(), () => this.scope.dispose(), () => this.avatars?.dispose(), () => this.scenes?.dispose(), () => this.options.assets?.dispose(), () => this.options.audio?.dispose()];
     this.game = null; this.listeners.clear(); this.projections.clear();
     const errors: unknown[] = [];
     for (const close of cleanup) try { close(); } catch (e) { errors.push(e); }

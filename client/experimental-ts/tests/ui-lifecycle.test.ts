@@ -3,8 +3,9 @@ import { mountClient } from '../src/ui';
 import type { ClientCommand, ClientController, ClientView } from '../src/ui/contracts';
 import { findButton, TestDocument, TestNode } from './ui-dom-fixture';
 
-function fixture(loadCardImage?: ClientController['loadCardImage']) {
+function fixture(loadCardImage?: ClientController['loadCardImage'], configureDocument?: (document: TestDocument) => void) {
   const document = new TestDocument();
+  configureDocument?.(document);
   vi.stubGlobal('document', document); vi.stubGlobal('window', { confirm: () => true });
   const root = document.createElement('div');
   let state: ClientView = { scene: 'title', connection: 'offline', status: 'Offline', auth: { signedIn: false }, player: null, characters: [], lobby: null, deckEditor: null, shop: null, duel: null, social: null, settings: { sound: 1, music: 1, reducedMotion: false, showCardNames: true } };
@@ -34,8 +35,28 @@ describe('UI ownership and semantic interaction', () => {
   it('does not invent online readiness and invokes connect explicitly', async () => {
     const f = fixture(); f.update({ auth: { signedIn: true, name: 'Duelist' } }); await Promise.resolve();
     findButton(f.root, 'Go Online').onclick?.({});
-    expect(f.commands).toEqual([{ type: 'connect' }]);
+    expect(f.commands).toEqual([{ type: 'connect', freeMode: false }]);
     expect(f.root.textContent).toContain('Offline'); f.mounted.dispose();
+  });
+  it('enters free-duel mode explicitly and hides paid-world controls', async () => {
+    const f = fixture(); f.update({ auth: { signedIn: true } }); await Promise.resolve(); findButton(f.root, 'Free Duel & Deck Editor').onclick?.({});
+    expect(f.commands).toEqual([{ type: 'connect', freeMode: true }]);
+    f.update({ scene: 'lobby', mode: 'free', player: { id: 1, name: 'A' }, lobby: { name: 'Free Duel', avatars: [], channels: [], chat: [], connected: true, npcs: [{ id: 1, name: 'NPC A' }] }, starter: { claimable: true, decks: [{ id: 1, name: 'Starter A' }] } }); await Promise.resolve();
+    expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Shop' || b.textContent === 'NPC A')).toBe(false); expect(f.root.textContent).not.toContain('Choose your Starter Deck'); expect(f.root.textContent).toContain('Free Duel'); f.mounted.dispose();
+  });
+  it('starts matchmaking with exact preferences and updates queue controls authoritatively', async () => {
+    const f = fixture(), matchmaking: NonNullable<ClientView['matchmaking']> = { status: 'idle', style: 3, similarLevel: false, opponent: null, counts: { single: 2, match: 1, either: 3 }, matchSupported: false };
+    f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, matchmaking }); await Promise.resolve();
+    f.root.querySelectorAll('select').find(n => n.dataset.key === 'matchmaking-style')!.value = '6'; const preference = f.root.querySelectorAll('input').find(n => n.dataset.key === 'matchmaking-similar')!; preference.checked = true; preference.onchange?.({});
+    f.update({ status: 'Unrelated world update' }); await Promise.resolve(); expect(f.root.querySelectorAll('input').find(n => n.dataset.key === 'matchmaking-similar')!.checked).toBe(true);
+    findButton(f.root, 'Find Opponent').onclick?.({}); expect(f.commands).toEqual([{ type: 'startMatchmaking', style: 6, similarLevel: true }]); expect(f.root.textContent).not.toContain('Searching for an opponent');
+    f.update({ matchmaking: { ...matchmaking, status: 'searching' } }); await Promise.resolve(); findButton(f.root, 'Cancel Search').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'cancelMatchmaking' }); expect(f.root.textContent).toContain('Room counts include all queued rooms'); f.mounted.dispose();
+  });
+  it('renders server purchase receipts with bounded artwork and preserves replay labels', async () => {
+    const release = vi.fn(), loader = vi.fn(async () => ({ url: 'blob:https://game.test/card1', release })), f = fixture(loader);
+    f.update({ scene: 'shop', shop: { items: [], mp: 100, purchased: [{ id: '1', passcode: 1, name: 'Actual reward', description: 'A real effect' }], replayed: true } }); await Promise.resolve(); await Promise.resolve();
+    expect(f.root.textContent).toContain('Acquired Cards (1) · Previous receipt'); const preview = f.root.querySelectorAll('button').find(n => n.getAttribute('aria-label') === 'Inspect Actual reward')!; preview.onclick?.({}); await Promise.resolve(); expect(f.root.textContent).toContain('A real effect');
+    expect(loader).toHaveBeenCalledOnce(); f.update({ scene: 'title' }); await Promise.resolve(); expect(release).toHaveBeenCalledOnce(); f.mounted.dispose();
   });
   it('disposes its subscription, mounted nodes and queued renders; detached actions do nothing', async () => {
     const f = fixture(), oldButton = findButton(f.root, 'Options'), oldHost = f.root.childNodes[0];
@@ -119,7 +140,7 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ scene: 'duel', duel }); await Promise.resolve(); const node = f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:c1')!;
     f.update({ duel: { ...duel, players: [{ name: 'A', lp: 7500 }, { name: 'B', lp: 8000 }], cards: [{ ...card, motion: { x: 512, y: 384, rotation: 45, scaleX: 0.5 } }] } }); await Promise.resolve();
     expect(f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:c1')).toBe(node);
-    expect(node.style.left).toBe('50%'); expect(node.style.top).toBe('50%'); expect(node.style.transform).toContain('rotate(45deg) scaleX(0.5)'); expect(f.root.textContent).toContain('LP 7,500'); f.mounted.dispose();
+    expect(node.style.left).toBe('50%'); expect(node.style.top).toBe('50%'); expect(node.style.transform).toContain('rotate(45deg) scaleX(0.5)'); expect(f.root.textContent).toContain('LP7,500'); f.mounted.dispose();
   });
   it('preserves open game-menu disclosures and nonfocused form drafts across updates', async () => {
     const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [] } }); await Promise.resolve();
@@ -155,6 +176,49 @@ describe('UI ownership and semantic interaction', () => {
     const loader = vi.fn((_code: number, passed: AbortSignal) => { signal = passed; return new Promise<{ url: string; release(): void }>(r => { resolve = r; }); }); const release = vi.fn(), f = fixture(loader);
     f.update({ scene: 'deck', deckEditor: { decks: [], current: null, collection: [{ id: '1', passcode: 1, name: 'Card One', owned: 1 }] } }); await Promise.resolve(); f.update({ scene: 'title' }); await Promise.resolve();
     expect(signal?.aborted).toBe(true); resolve({ url: 'blob:https://game.test/card1', release }); await Promise.resolve(); expect(release).toHaveBeenCalledTimes(1); f.mounted.dispose();
+  });
+  it('unpins failed decoded artwork without retrying it on every rerender', async () => {
+    const release = vi.fn(), loader = vi.fn(async () => ({ url: 'blob:https://game.test/card1', release })), f = fixture(loader);
+    const deckEditor: NonNullable<ClientView['deckEditor']> = { decks: [], current: null, collection: [{ id: '1', passcode: 1, name: 'Card One', owned: 1 }] };
+    f.update({ scene: 'deck', deckEditor }); await Promise.resolve(); await Promise.resolve(); const image = f.root.querySelectorAll('img')[0]; image.onerror?.();
+    expect(release).toHaveBeenCalledOnce(); expect((image as unknown as { src: string }).src).toBe(''); expect(image.parentNode).toBeNull();
+    f.update({ status: 'Updated' }); await Promise.resolve(); expect(loader).toHaveBeenCalledOnce(); f.mounted.dispose(); expect(release).toHaveBeenCalledOnce();
+  });
+  it('clears detached image sources on same-card rerenders while retaining a shared lease', async () => {
+    const release = vi.fn(), loader = vi.fn(async () => ({ url: 'blob:https://game.test/card1', release })), f = fixture(loader);
+    f.update({ scene: 'deck', deckEditor: { decks: [], current: null, collection: [{ id: '1', passcode: 1, name: 'Card One', owned: 1 }] } }); await Promise.resolve(); await Promise.resolve(); const image = f.root.querySelectorAll('img')[0];
+    f.update({ status: 'Updated' }); await Promise.resolve(); expect((image as unknown as { src: string }).src).toBe(''); expect(image.onerror).toBeNull(); expect(release).not.toHaveBeenCalled(); expect(loader).toHaveBeenCalledOnce();
+    f.mounted.dispose(); expect(release).toHaveBeenCalledOnce();
+  });
+  it('tracks a selected deck card after authoritative reordering', async () => {
+    const f = fixture(), deckEditor: NonNullable<ClientView['deckEditor']> = { decks: [], current: { name: 'Deck', main: [1, 2], side: [], extra: [] }, collection: [{ id: '1', passcode: 1, name: 'One', owned: 1 }, { id: '2', passcode: 2, name: 'Two', owned: 1 }] };
+    f.update({ scene: 'deck', deckEditor }); await Promise.resolve(); f.root.querySelectorAll('button').find(n => n.dataset.key === 'deck-card:main:1')!.onclick?.({}); await Promise.resolve();
+    findButton(f.root, 'Move earlier').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'deckReorder', zone: 'main', fromIndex: 1, toIndex: 0 });
+    f.update({ deckEditor: { ...deckEditor, current: { ...deckEditor.current!, main: [2, 1] } } }); await Promise.resolve(); findButton(f.root, 'Remove selected card').onclick?.({});
+    expect(f.commands.at(-1)).toEqual({ type: 'deckCard', passcode: 2, from: 'main', to: 'collection', index: 0 }); f.mounted.dispose();
+  });
+  it('opens player profiles through semantic commands and renders authoritative identity', async () => {
+    const f = fixture(), profileDetail: NonNullable<ClientView['profileDetail']> = { selfPid: 1, selectedPid: null, details: null, location: null, summary: null, comments: [null, null], drafts: { playerId: '', comment: '', title: '' }, loading: false, pending: null, status: 'Choose a player.', error: null };
+    f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, profileDetail }); await Promise.resolve();
+    findButton(f.root, 'My Profile').onclick?.({}); expect(f.commands).toEqual([{ type: 'profileAction', action: { type: 'open', pid: 1 } }]); expect(f.root.textContent).not.toContain('Player id: 1');
+    f.update({ profileDetail: { ...profileDetail, selectedPid: 1, comments: ['Received comment', null] } }); await Promise.resolve(); expect(f.root.textContent).toContain('Player id: 1'); expect(f.root.textContent).toContain('Received comment'); f.mounted.dispose();
+  });
+  it('retries missing game data explicitly without pretending it loaded', async () => {
+    const f = fixture(); f.update({ scene: 'settings', dataStatus: { loading: false, issues: ['Maps', 'Card names'] } }); await Promise.resolve();
+    findButton(f.root, 'Retry loading game data').onclick?.({}); expect(f.commands).toEqual([{ type: 'reloadData' }]); expect(f.root.textContent).toContain('Maps'); expect(f.root.textContent).toContain('Some game data is unavailable.');
+    f.update({ dataStatus: { loading: true, issues: ['Maps'] } }); await Promise.resolve(); expect(findButton(f.root, 'Loading Game Data…').disabled).toBe(true); f.mounted.dispose();
+  });
+  it('reflects actual fullscreen entry and Escape in Options without game commands', async () => {
+    const listeners = new Map<string, () => void>(); let current: TestNode | null = null;
+    const f = fixture(undefined, document => {
+      Object.defineProperty(document, 'fullscreenElement', { get: () => current });
+      Object.assign(document, { fullscreenEnabled: true, exitFullscreen: async () => { current = null; listeners.get('fullscreenchange')?.(); }, addEventListener: (name: string, fn: () => void) => listeners.set(name, fn), removeEventListener: (name: string) => listeners.delete(name) });
+      const create = document.createElement.bind(document); document.createElement = tag => { const node = create(tag); Object.assign(node, { requestFullscreen: async () => { current = node; listeners.get('fullscreenchange')?.(); } }); return node; };
+    });
+    expect(current).toBeNull(); f.update({ scene: 'settings' }); await Promise.resolve(); const enter = findButton(f.root, 'Enter Fullscreen'); enter.focus(); enter.onclick?.({}); for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(current).toBe(f.root.childNodes[0]); const exit = findButton(f.root, 'Exit Fullscreen'); expect(f.document.activeElement).toBe(exit); expect(exit.getAttribute('aria-pressed')).toBe('true'); expect(f.commands).toEqual([]);
+    current = null; listeners.get('fullscreenchange')?.(); await Promise.resolve(); expect(findButton(f.root, 'Enter Fullscreen').getAttribute('aria-pressed')).toBe('false');
+    f.mounted.dispose(); expect(listeners.size).toBe(0);
   });
   it('renders user messages as text nodes rather than markup', async () => {
     const f = fixture(); f.update({ scene: 'lobby', lobby: { name: 'Academy', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: '<script>', text: '<img src=x onerror=alert(1)>', channel: 'global' }] } }); await Promise.resolve();

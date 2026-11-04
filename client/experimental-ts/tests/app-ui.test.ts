@@ -26,13 +26,13 @@ function harness() {
     dispose: vi.fn(() => http.dispose()),
   };
   let options!: SessionOptions;
-  const session: SessionState = { phase: 'idle', connection: 'idle', characters: [{ slot: 0, name: 'Alice', level: 1, score: 0, mp: 1000, wins: 0, losses: 0, avatarA: new Uint8Array(), avatarB: new Uint8Array() }], servers: [], selectedSlot: null, profile: null, collection: new Map([[1, 3], [2, 1]]), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 1, areaBlock: 1, duelFirst: null, opponentHand: null, duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false, error: null };
+  const session: SessionState = { phase: 'idle', connection: 'idle', characters: [{ slot: 0, name: 'Alice', level: 1, score: 0, mp: 1000, wins: 0, losses: 0, avatarA: new Uint8Array(), avatarB: new Uint8Array() }], servers: [], selectedSlot: null, profile: null, collection: new Map([[1, 3], [2, 1]]), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 1, areaBlock: 1, duelFirst: null, opponentHand: null, matchmaking: { status: 'idle', style: 3, similarLevel: false, opponent: null, counts: { single: 0, match: 0, either: 0 }, matchSupported: false }, relay: null, duelRole: 'player', match: null, duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false, error: null };
   const emit = () => options.onState?.(session);
   const game = {
     state: session, duel: null as unknown,
     start: vi.fn(async () => { session.phase = 'characters'; session.connection = 'connected'; emit(); }),
     selectCharacter: vi.fn(async (slot: number) => { session.selectedSlot = slot; session.profile = { pid: 77, level: 1, score: 0, mp: 1000 }; session.phase = 'lobby'; session.players = [{ pid: 77, name: 'Alice', level: 1, wins: 0, losses: 0, country: 'GB', areaBlock: 1, x: 500, y: 500 }, { pid: 88, name: 'Bob', level: 1, wins: 0, losses: 0, country: 'GB', areaBlock: 1, x: 550, y: 500 }]; emit(); }),
-    refreshNpcs: vi.fn(async () => {}), refreshCollection: vi.fn(async () => {}), refreshCharacters: vi.fn(async () => {}),
+    refreshNpcs: vi.fn(async () => {}), refreshCollection: vi.fn(async () => {}), refreshPlayerBits: vi.fn(async () => {}), refreshCharacters: vi.fn(async () => {}),
     enterArea: vi.fn(async (area: number) => { session.area = area; emit(); }), createDuelRoom: vi.fn(async () => {}), deleteDuelRoom: vi.fn(async () => {}), challengeRoom: vi.fn(), replyToChallenge: vi.fn((accept: boolean) => { session.challenge = null; emit(); }), watchDuel: vi.fn(async () => { game.duel = {}; session.phase = 'duel'; session.spectating = true; emit(); }), move: vi.fn(), dispose: vi.fn(), sendDuel: vi.fn(),
     beginDuel: vi.fn(() => { session.phase = 'duel'; emit(); }),
     chooseHand: vi.fn(async () => { session.phase = 'choose-first'; emit(); return 'win' as const; }),
@@ -45,7 +45,8 @@ function harness() {
     sessionFactory: o => { options = o; return game as unknown as GameSession; } });
   const root = document.createElement('div'), mounted = mountClient(root as unknown as HTMLElement, app);
   const enter = async () => { await app.initialize(); await flush(); findButton(root, 'Go Online').onclick?.({}); await flush(); root.querySelectorAll('button').find(b => b.textContent.startsWith('Alice'))!.onclick?.({}); await flush(); };
-  return { app, game, api, session, root, mounted, enter, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
+  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); findButton(root, 'Test NPC').onclick?.({}); await flush(); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
+  return { app, game, api, session, root, mounted, enter, startNpc, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
 }
 afterEach(() => vi.unstubAllGlobals());
 
@@ -88,10 +89,11 @@ describe('actual ClientApp mounted through semantic UI', () => {
   it('starts the selected NPC from the explicit server NPC list without invented coordinates', async () => {
     const f = harness(); await f.enter(); f.session.npcs = [{ id: 5, name: 'A-lien', parts: new Uint8Array(), threshold: 0, spot: 42, previous: 0 }]; f.emit(); await flush();
     findButton(f.root, 'A-lien').onclick?.({}); await flush();
+    expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); findButton(f.root, 'Duel NPC').onclick?.({}); await flush();
     expect(f.game.startNpcDuel).toHaveBeenCalledWith(5, { main: [1], side: [], extra: [] }); f.dispose();
   });
   it('shows and submits every duel-preparation step through the session controller', async () => {
-    const f = harness(); await f.enter(); await f.app.dispatch({ type: 'interact', playerId: -1 }); await flush();
+    const f = harness(); await f.enter(); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
     findButton(f.root, 'Start Duel').onclick?.({}); await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1);
@@ -118,7 +120,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.app.getState().connection).toBe('offline'); expect(f.app.getState().player).toBeNull(); expect(f.app.getState().scene).toBe('title'); f.dispose();
   });
   it('sends surrender as a server request and never asserts local victory or defeat', async () => {
-    const f = harness(); await f.enter(); await f.app.dispatch({ type: 'interact', playerId: -1 }); await f.app.dispatch({ type: 'beginDuel' }); await flush();
+    const f = harness(); await f.enter(); await f.startNpc(); await f.app.dispatch({ type: 'beginDuel' }); await flush();
     findButton(f.root, 'Surrender').onclick?.({}); await flush();
     const [id, bytes] = f.game.sendDuel.mock.calls[0] as unknown as [number, Uint8Array];
     expect(id).toBe(0x6350); expect(bytes).toHaveLength(16); expect(new DataView(bytes.buffer).getUint32(12)).toBe(10);

@@ -11,14 +11,14 @@ function fixture(withMaps = true) {
   const cancelFrame = vi.fn((id: number) => { frames.delete(id); });
   const http = new HttpClient({ origin: 'https://game.test', timeoutMs: 0, fetch: vi.fn(async () => new Response(JSON.stringify({ signedIn: true, userId: 'user', name: 'Walker', roles: [], discord: false, password: true }), { headers: { 'content-type': 'application/json' } })) });
   const api = { http, session: vi.fn(async () => ({ signedIn: true as const, userId: 'user', name: 'Walker', roles: [], discord: false, password: true })), starter: vi.fn(async () => ({ claimable: false, reason: 'already-claimed' })), decks: vi.fn(async () => ({ current: { world: null, free: null }, decks: [], deleted: [] })), dispose: () => http.dispose() };
-  const state: SessionState = { phase: 'idle', connection: 'idle', characters: [{ slot: 0, name: 'Walker', level: 1, score: 0, mp: 0, wins: 0, losses: 0, avatarA: new Uint8Array(16), avatarB: new Uint8Array(16) }], servers: [], selectedSlot: null, profile: null, collection: new Map(), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 0, areaBlock: 1, duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false, duelFirst: null, opponentHand: null, error: null };
+  const state: SessionState = { phase: 'idle', connection: 'idle', characters: [{ slot: 0, name: 'Walker', level: 1, score: 0, mp: 0, wins: 0, losses: 0, avatarA: new Uint8Array(16), avatarB: new Uint8Array(16) }], servers: [], selectedSlot: null, profile: null, collection: new Map(), players: [], areas: [], npcs: [], rooms: [], chat: [], area: 0, areaBlock: 1, matchmaking: { status: 'idle', style: 3, similarLevel: false, opponent: null, counts: { single: 0, match: 0, either: 0 }, matchSupported: false }, relay: null, duelRole: 'player', match: null, duelOffer: null, challenge: null, outgoingChallengeRoom: null, spectating: false, duelFirst: null, opponentHand: null, error: null };
   let sessionOptions!: SessionOptions;
   const emit = () => sessionOptions.onState?.(state);
   const game = {
     state, duel: null,
     start: vi.fn(async () => { state.phase = 'characters'; state.connection = 'connected'; emit(); }),
     selectCharacter: vi.fn(async () => { state.selectedSlot = 0; state.profile = { pid: 77, level: 1, score: 0, mp: 0 }; state.players = [{ pid: 77, name: 'Walker', level: 1, wins: 0, losses: 0, country: 'GB', areaBlock: 1, x: 30, y: 30, direction: 0 }]; state.phase = 'lobby'; emit(); }),
-    refreshCollection: vi.fn(async () => {}), refreshNpcs: vi.fn(async () => {}),
+    refreshCollection: vi.fn(async () => {}), refreshPlayerBits: vi.fn(async () => {}), refreshNpcs: vi.fn(async () => {}),
     // The real session keeps its local own coordinates after a successful movement send.
     move: vi.fn((x: number, y: number, direction: number) => { state.players = state.players.map(p => p.pid === 77 ? { ...p, x, y, direction } : p); }),
     dispose: vi.fn(),

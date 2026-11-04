@@ -168,4 +168,24 @@ describe('deterministic client duel model', () => {
     expect(Object.keys(state.variables)).toHaveLength(0); expect(state.chain.length).toBeLessThanOrEqual(256);
     expect(state.unsupported.length).toBeLessThanOrEqual(64); expect(state.events.length).toBeLessThanOrEqual(256);
   });
+  it('updates signed per-card counters and clears the turn badge when the server disables it', () => {
+    let state = cmd(deck(), engine(0x55, 0, 0xffff, 1));
+    state = cmd(state, engine(0x2d, 0, 0x4000, 2));
+    state = cmd(state, engine(0x3c, 0, 0, 3, 0));
+    state = cmd(state, engine(0x3c, 0, 0, 0xffff, 0));
+    expect(state.cards[2].counters[0]).toBe(2);
+    state = cmd(state, engine(0x3a, 0, 0, 2)); state = cmd(state, engine(0x3b, 0, 0, 1));
+    expect(state.cards[2].turns).toBe(3);
+    state = cmd(state, engine(0x3b, 0, 0, 0)); expect(state.cards[2].turns).toBe(0);
+  });
+  it('accepts the server global sideboard clock without inventing a third board player', () => {
+    let state = start();
+    const sides = structuredClone(state.sides);
+    state = reduceDuelMessage(state, { id: 0x6461, data: new W().u8(3).u32(180).u8(0).u32(0xffffffff).bytes() });
+    expect(state.matchTimer).toEqual({ seconds: 180, paused: false, otherSeconds: -1 });
+    expect(state.timer).toBe(null); expect(state.sides).toEqual(sides);
+    expect(state.errors).toEqual([]); expect(state.unsupported).toEqual([]);
+    state = reduceDuelMessage(state, { id: 0x6461, data: new W().u8(3).u32(0).u8(1).u32(0xffffffff).bytes() });
+    expect(state.matchTimer).toEqual({ seconds: 0, paused: true, otherSeconds: -1 });
+  });
 });

@@ -1,0 +1,58 @@
+import { expect, it, vi } from 'vitest';
+import { decodeProfileDetails, ProfileController } from '../src/features/profile';
+import { payload } from '../src/gameplay/binary';
+const info = (pid: number) => payload().u32(0).u32(pid).text('Player', 16).raw(new Uint8Array(113)).build();
+it('decodes all 137 bytes in legacy order, including the displaced counter and signed field', () => {
+  const w = payload().u32(0).u32(22).text('Identity', 16).u8(3).u32(4).u32(5);
+  for (let i = 0; i < 15; i++) w.u16(100 + i);
+  w.u32(6).u16(7).u16(8).u32(9).u32(10);
+  for (let i = 0; i < 6; i++) w.u16(200 + i);
+  for (let i = 0; i < 6; i++) w.u32(300 + i);
+  w.u16(11).u16(12).u16(13).u32(0xffffffff).u16(14).u16(15).u16(16).u32(17).u16(18);
+  expect(w.build()).toHaveLength(137);
+  const d = decodeProfileDetails(w.build()).details!;
+  expect(d).toMatchObject({ pid: 22, level: 3, score: 4, mp: 5, turns: 6, surrenderMe: 7, surrenderOpponent: 8, lpTotal: 9, sideSwaps: 10, comebackWins: 11, comebackLosses: 12, unk108: 13, unk10c: -1, unk110: 14, titleId: 15, unk116: 16, tp: 17 });
+  expect(d.w0b0).toEqual([100,101,102,103,104,105,106,107,108,109,110,18,111,112,113,114]);
+  expect(d.w0e0).toEqual([200,201,202,203,204,205]); expect(d.u0ec).toEqual([300,301,302,303,304,305]);
+  expect(() => decodeProfileDetails(w.build().slice(0, -1))).toThrow();
+  expect(() => decodeProfileDetails(new Uint8Array(138))).toThrow();
+});
+it('serializes uncorrelated replies, drops old selected identity, bounds drafts and guards mutations', () => {
+  const send = vi.fn(), c = new ProfileController({ send, onChange: vi.fn() });
+  c.dispatch({ type: 'open', pid: 10 }); c.dispatch({ type: 'open', pid: 20 });
+  expect(send.mock.calls.filter(([cmd]) => cmd.id === 0x4150)).toHaveLength(1);
+  c.receive({ id: 0x4160, data: info(10) }); expect(c.state.details).toBeNull();
+  expect(send.mock.calls.filter(([cmd]) => cmd.id === 0x4150)).toHaveLength(2);
+  c.receive({ id: 0x4160, data: info(10) }); expect(c.state.details).toBeNull();
+  c.receive({ id: 0x4160, data: info(20) }); expect(c.state.details?.pid).toBe(20);
+  c.dispatch({ type: 'editDraft', field: 'comment', value: 'Keep me' });
+  c.dispatch({ type: 'editDraft', field: 'comment', value: 'x'.repeat(32) }); expect(c.state.drafts.comment).toBe('Keep me');
+  send.mockClear(); c.dispatch({ type: 'saveComment', line: 0 }); expect(send).not.toHaveBeenCalled();
+  c.dispatch({ type: 'setSelf', pid: 20 }); c.dispatch({ type: 'editDraft', field: 'comment', value: '😀' }); c.dispatch({ type: 'saveComment', line: 0 }); expect(send).not.toHaveBeenCalled();
+  c.dispatch({ type: 'editDraft', field: 'comment', value: 'Keep me' }); c.dispatch({ type: 'saveComment', line: 0 });
+  expect(c.state.comments[0]).toBeNull(); c.dispatch({ type: 'setTitle', bit: 224 }); expect(send).toHaveBeenCalledTimes(1);
+  c.receive({ id: 0x4175, data: new Uint8Array(4) }); expect(c.state.pending).toBe('comment');
+  c.receive({ id: 0x4173, data: new Uint8Array(4) }); expect(c.state.comments[0]).toBe('Keep me'); expect(c.state.drafts.comment).toBe('Keep me');
+  c.reset(); expect(c.state.selectedPid).toBeNull(); expect(c.state.drafts.comment).toBe('');
+  c.dispose(); send.mockClear(); c.dispatch({ type: 'open', pid: 20 }); c.receive({ id: 0x4160, data: info(20) }); expect(send).not.toHaveBeenCalled(); expect(c.state.selectedPid).toBeNull();
+});
+it('drains an old avatar reply before requesting the latest target and ignores unrelated comments', () => {
+  const send = vi.fn(), c = new ProfileController({ send, onChange: vi.fn() });
+  const location = (pid: number) => payload().u32(0).u32(pid).text('Place',16).u16(400).u16(300).u8(2).build();
+  c.dispatch({ type: 'open', pid: 10 }); c.dispatch({ type: 'open', pid: 20 });
+  c.receive({ id: 0x5340, data: location(10) }); expect(c.state.location).toBeNull();
+  expect(send.mock.calls.filter(([cmd]) => cmd.id === 0x5320)).toHaveLength(2);
+  c.receive({ id: 0x5340, data: location(20) }); expect(c.state.location?.pid).toBe(20);
+  c.receive({ id: 0x421a, data: payload().u32(10).text('old',32).build() }); expect(c.state.comments[0]).toBeNull();
+  c.receive({ id: 0x4180, data: payload().u32(20).u8(1).text('current',32).build() }); expect(c.state.comments[1]).toBe('current');
+  c.receive({ id: 0x4160, data: new Uint8Array(2) }); expect(c.state.error).toContain('Truncated'); expect(c.state.details).toBeNull();
+  c.receive({ id: 0x4160, data: info(10) }); c.receive({ id: 0x4160, data: info(20) }); expect(c.state.details?.pid).toBe(20);
+});
+it('does not confirm rejected mutations or send failures and leaves drafts intact', () => {
+  const send = vi.fn(), c = new ProfileController({ send, onChange: vi.fn() });
+  c.dispatch({ type: 'setSelf', pid: 10 }); c.dispatch({ type: 'open', pid: 10 });
+  c.dispatch({ type: 'editDraft', field: 'comment', value: 'Draft' }); c.dispatch({ type: 'saveComment', line: 0 });
+  c.receive({ id: 0x4173, data: payload().u32(1).build() }); expect(c.state.comments[0]).toBeNull(); expect(c.state.pending).toBeNull();
+  send.mockImplementation(() => { throw new Error('Disconnected'); }); c.dispatch({ type: 'saveComment', line: 0 });
+  expect(c.state.error).toBe('Disconnected'); expect(c.state.pending).toBeNull(); expect(c.state.drafts.comment).toBe('Draft');
+});

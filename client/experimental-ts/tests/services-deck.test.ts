@@ -17,11 +17,21 @@ describe('deterministic passcode deck editor', () => {
     const before = e.deck; expect(e.move(1, 'main', 'side', 5).ok).toBe(false); expect(e.deck).toEqual(before);
     expect(e.move(1, 'main', 'collection', 0).ok).toBe(true); expect(e.available(1)).toBe(1);
   });
-  it('uses metadata zone hints while allowing extra cards in side', () => {
+  it('rejects new Fusion cards in Main/Side while preserving imported legacy Side entries', () => {
     const e = new DeckEditor(blank(), collection);
     expect(e.move(2, 'collection', 'main').ok).toBe(false); expect(e.move(1, 'collection', 'extra').ok).toBe(false);
-    expect(e.move(2, 'collection', 'side').ok).toBe(true); expect(e.move(2, 'side', 'extra').ok).toBe(true);
+    expect(e.move(2, 'collection', 'side').ok).toBe(false);
+    e.load({ ...blank(), side:[2] }); expect(e.deck.side).toEqual([2]); expect(e.move(2, 'side', 'extra').ok).toBe(true);
     expect(e.deck.extra).toEqual([2]);
+  });
+  it('replaces and reorders drafts atomically without overwriting the saved baseline', () => {
+    const e = new DeckEditor({ ...blank(), main:[1,2,1] }, collection);
+    expect(e.reorder('main',0,2).ok).toBe(true); expect(e.deck.main).toEqual([2,1,1]); expect(e.dirty).toBe(true);
+    const before = e.deck; expect(e.reorder('main',4,0).ok).toBe(false); expect(e.deck).toEqual(before);
+    expect(e.replace({ ...blank(), side:[NaN] }).ok).toBe(false); expect(e.deck).toEqual(before);
+    const replacement = { ...blank(), name:'Imported',main:[999] }; expect(e.replace(replacement).ok).toBe(true);
+    replacement.main.push(1); expect(e.deck.main).toEqual([999]); expect(e.dirty).toBe(true);
+    e.reset(); expect(e.deck).toEqual({ ...blank(),main:[1,2,1] });
   });
   it('preserves legacy 80 main/30 extra cards, order, unknown cards and excess copies at load', () => {
     const legacy = { name: 'Legacy', main: Array(80).fill(1), side: [], extra: Array(30).fill(2) };

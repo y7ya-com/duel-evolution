@@ -6,6 +6,7 @@ import { NPC_DECKS, setDuelCore } from '../../../server/src/duel/data';
 import { BinaryReader, BinaryWriter } from '../src/network/codec';
 
 import { createDuelState, reduceDuelMessage, encodeDuelResponse, type DuelResponse, type DuelState } from '../src/duel';
+import { defaultAvatar } from '../src/avatars/appearance';
 import { setup, drive } from './network-server-fixture';
 
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
@@ -39,6 +40,31 @@ describe('independent client against actual server/World', () => {
     expect(session.gateway.diagnostics.bufferedBytes).toBe(0);
     session.dispose(); expect(session.gateway.diagnostics.channels).toBe(0);
     expect(session.state.collection.size).toBe(0);
+  });
+
+  it('uploads source-default new-character appearances for each world and preserves every nonempty custom byte', async () => {
+    const { session,server,logs } = setup(undefined,'native-avatar-default');
+    const uploads:Uint8Array[] = [];
+    session.gateway.options.onOutgoing = (_,message) => { if (message.id === 0x4170) uploads.push(message.data.slice()); };
+    try {
+      await drive(session.start()); await drive(session.createCharacter(0,'Native Look'));
+      expect([...session.state.characters[0].avatarA,...session.state.characters[0].avatarB].every(byte => byte === 0)).toBe(true);
+      await drive(session.selectCharacter(0));
+      const world = new BinaryReader(uploads[0]).u32() as 0|1;
+      expect(uploads[0].slice(4,20)).toEqual(defaultAvatar(0,world));
+      const player = [...server.game.hub.sessions.values()][0];
+      expect(player.partsW.get(world)).toEqual(defaultAvatar(0,world));
+      expect(session.state.players.find(p=>p.pid===player.pid)?.parts).toEqual(defaultAvatar(0,world));
+      await drive(session.enterArea(0));
+      expect(uploads.at(-1)!.slice(4,20)).toEqual(defaultAvatar(0,0));
+      expect(player.partsW.get(0)).toEqual(defaultAvatar(0,0));
+      expect(logs.some(line=>line.includes("items this character doesn't own"))).toBe(false);
+      const state = server.game.store.loadRaw(), account = server.game.store.accountOfUser('native-avatar-default')!;
+      state.accounts[account].profiles['0'].avatar.b = '01000000000000000000000000000000'; server.game.store.saveRaw(state);
+      await drive(session.refreshCharacters()); await drive(session.enterArea(5));
+      // A partial/unknown custom look remains unchanged; the server owns its validation.
+      expect(uploads.at(-1)!.slice(4,20)).toEqual(Uint8Array.of(1,...Array(15).fill(0)));
+    } finally { session.dispose(); }
   });
 
   it('resumes an interrupted WebSocket without replacing the session or repeating packet sequence numbers', async () => {
@@ -183,6 +209,7 @@ describe('independent client against actual server/World', () => {
       expect(actions).toBeGreaterThan(0); expect(board.turn).toBeGreaterThan(1);
       expect(board.errors).toEqual([]); expect(board.unsupported).toEqual([]);
       await drive(session.finishDuel()); expect(session.state.phase).toBe('lobby');
+      expect(session.state.players.find(player=>player.pid===session.state.profile!.pid)?.parts).toHaveLength(16);
     } finally { session.dispose(); setDuelCore(null); }
   },15000);
 

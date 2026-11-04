@@ -1,0 +1,136 @@
+import type { DuelState, Player, PresentationEvent } from './types';
+import type { TimelineSample } from './timeline';
+
+/** IDs are source playSe calls; filenames are matching zero-based data/etc/se.txt lines. */
+export const DUEL_SOUND_EVIDENCE = {
+  attack: { id: 0x10000006, path: 'se/attack.wav', source: 'SceneBattleManager.cpp draw: SE_ATTACK_SWING, counter == 0x90' },
+  impact: { id: 0x10000009, path: 'se/damage.wav', source: 'SceneBattleManager.cpp update: conditional SE_ATTACK_HIT after battle flags/damage' },
+  summon: { id: 0x1000000e, path: 'se/reborn.wav', source: 'EngineCmd6.cpp engCmdSummon (0x2d), RUN_SUMMON view 0x35 / reborn.wav' },
+  damage: { id: 0x10000009, path: 'se/damage.wav', source: 'LP gauge 0x007cefc0, signed amount negative, sound call0x007cf004' },
+  recover: { id: 0x1000001b, path: 'se/life_up.wav', source: 'LP gauge 0x007cefc0, signed amount nonnegative, sound call0x007cf004' },
+  turn: { id: 0x10000005, path: 'se/turn_change.wav', source: 'View6→0x007d46c0→0x007d4720 player changed→sound call0x007d4762' },
+  battlePhase: { id: 0x10000011, path: 'se/battle_turn.wav', source: 'View5 phase3→0x007d3d90→sound call0x007d3dea' },
+} as const;
+export interface DuelSoundCue {
+  readonly sequence: number; readonly ordinal: number; readonly player: Player;
+  readonly kind: keyof typeof DUEL_SOUND_EVIDENCE;
+  readonly id: number; readonly path: string;
+}
+export interface DuelAudioOptions { maxQueuedCues?: number; maxCuesPerSample?: number; muted?: boolean; reducedMotion?: boolean; }
+export interface DuelAudioCounters { enqueued: number; emitted: number; muted: number; dropped: number; skipped: number; }
+function limit(n: number | undefined, fallback: number, max: number): number {
+  const value = n ?? fallback;
+  if (!Number.isInteger(value) || value < 1 || value > max) throw new Error('Invalid duel audio budget');
+  return value;
+}
+function sequence(n: number): number {
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error('Invalid duel audio sequence'); return n;
+}
+function hitFlag(n: number): boolean { return !!(n & 2) || (n & 0x1c) === 4; }
+
+/** Pure cue director. Feed packet states once, then consume each displayed timeline
+ * sample. Returned cues are already consumed, including muted/unavailable playback;
+ * never retry them after a late browser audio activation. Owns no audio manager,
+ * timers, media elements, asset leases, or unbounded event history. */
+export class DuelAudioDirector {
+  private queue: DuelSoundCue[] = [];
+  private enqueuedThrough: number;
+  private acknowledged: number;
+  private skippedEvents = 0;
+  private attack: { player: Player; targetPlayer: Player; targetField: boolean } | null = null;
+  private battleGauge: [number, number] = [0, 0];
+  private muted: boolean;
+  private reducedMotion: boolean;
+  private closed = false;
+  private readonly maxQueued: number;
+  private readonly maxSample: number;
+  private counts: DuelAudioCounters = { enqueued: 0, emitted: 0, muted: 0, dropped: 0, skipped: 0 };
+  constructor(initialSequence = 0, options: DuelAudioOptions = {}) {
+    this.enqueuedThrough = this.acknowledged = sequence(initialSequence);
+    this.maxQueued = limit(options.maxQueuedCues, 64, 1024); this.maxSample = limit(options.maxCuesPerSample, 8, 16);
+    this.muted = options.muted ?? false; this.reducedMotion = options.reducedMotion ?? false;
+  }
+  get pendingCues(): number { return this.queue.length; }
+  get counters(): Readonly<DuelAudioCounters> { return { ...this.counts }; }
+  enqueue(previous: DuelState, next: DuelState): void {
+    if (this.closed) return;
+    if (previous.sequence !== this.enqueuedThrough || next.sequence <= previous.sequence) throw new Error('Duel audio states must be enqueued once in packet order');
+    const events = next.events.filter(e => e.sequence > previous.sequence);
+    for (let ordinal = 0; ordinal < events.length; ordinal++) {
+      const event = events[ordinal];
+      for (const { kind, player = event.player } of this.cues(event)) {
+        this.counts.enqueued++;
+        if (this.queue.length >= this.maxQueued) { this.queue.shift(); this.counts.dropped++; }
+        this.queue.push({ sequence: event.sequence, ordinal, player, kind,
+          id: DUEL_SOUND_EVIDENCE[kind].id, path: DUEL_SOUND_EVIDENCE[kind].path });
+      }
+    }
+    this.enqueuedThrough = next.sequence;
+  }
+  private cues(event: PresentationEvent): { kind: DuelSoundCue['kind']; player?: Player }[] {
+    const p = event.params;
+    if (event.type === 'engine:19' || event.type === 'engine:1a') {
+      this.attack = { player: event.player, targetPlayer: (event.type === 'engine:19' ? p[1] & 1 : event.player ^ 1) as Player,
+        targetField: event.type === 'engine:19' && ((p[1] >>> 8) & 255) < 5 };
+      this.battleGauge = [0, 0]; return [{ kind: 'attack' }];
+    }
+    if (event.type === 'engine:17') {
+      if (!this.attack || this.attack.player !== event.player) return [];
+      const flags = p[2] ?? 0, attacker = (flags >>> (8 * event.player)) & 255, defender = (flags >>> (8 * (event.player ^ 1))) & 255;
+      // The battle manager starts the same LP gauge used by commands24/25.
+      // Subsequent equal-amount LP commands finish that gauge without a second sound.
+      this.battleGauge = [0, 0]; const result: { kind: DuelSoundCue['kind']; player: Player }[] = [];
+      for (const i of [0, 1] as const) if (p[i] > 0) {
+        let player = i === this.attack.player ? i : this.attack.targetPlayer;
+        if ((flags >>> (8 * i)) & 8) player = (player ^ 1) as Player;
+        this.battleGauge[player] = p[i]; result.push({ kind: 'damage', player });
+      }
+      if (result.length) return result;
+      return hitFlag(attacker) || this.attack.targetField && hitFlag(defender) ? [{ kind: 'impact' }] : [];
+    }
+    if (event.type === 'engine:24' || event.type === 'engine:25') {
+      const alreadyPlayed = event.type === 'engine:25' && p[0] > 0 && this.battleGauge[event.player] === p[0];
+      this.battleGauge[event.player] = 0;
+      return alreadyPlayed ? [] : [{ kind: event.type === 'engine:24' || p[0] === 0 ? 'recover' : 'damage' }];
+    }
+    if (['engine:1', 'engine:4', 'engine:5', 'engine:15', 'engine:1c'].includes(event.type)) { this.attack = null; this.battleGauge = [0, 0]; }
+    return event.type === 'engine:2d' ? [{ kind: 'summon' }] : event.type === 'engine:4' ? [{ kind: 'turn', player: (event.player ^ 1) as Player }]
+      : event.type === 'engine:f' ? [{ kind: 'battlePhase' }] : [];
+  }
+  consumeSample(sample: Pick<TimelineSample, 'effects' | 'acknowledgedThrough' | 'skippedEvents'>): DuelSoundCue[] {
+    if (this.closed) return [];
+    const ack = sequence(sample.acknowledgedThrough), skipped = sequence(sample.skippedEvents);
+    if (ack < this.acknowledged || ack > this.enqueuedThrough || skipped < this.skippedEvents) throw new Error('Duel audio timeline sample is out of order');
+    const skip = skipped > this.skippedEvents && !this.reducedMotion;
+    const visible = new Set(sample.effects.map(e => e.event.sequence)), output: DuelSoundCue[] = [], future: DuelSoundCue[] = [];
+    for (const cue of this.queue) {
+      const started = visible.has(cue.sequence), completed = cue.sequence <= ack;
+      if (!started && !completed) { future.push(cue); continue; }
+      if (skip && completed && !started) { this.counts.skipped++; continue; }
+      if (this.muted) { this.counts.muted++; continue; }
+      if (output.length >= this.maxSample) { this.counts.dropped++; continue; }
+      output.push(cue); this.counts.emitted++;
+    }
+    this.queue = future; this.acknowledged = ack; this.skippedEvents = skipped;
+    return output;
+  }
+  setMuted(value: boolean): void { this.muted = value; }
+  /** Reduced motion changes cue compression at acknowledgements, independently of mute. */
+  setReducedMotion(value: boolean): void { this.reducedMotion = value; }
+  reset(initialSequence = 0): void {
+    if (this.closed) return;
+    this.enqueuedThrough = this.acknowledged = sequence(initialSequence); this.skippedEvents = 0;
+    this.queue = []; this.attack = null; this.battleGauge = [0, 0]; this.counts = { enqueued: 0, emitted: 0, muted: 0, dropped: 0, skipped: 0 };
+  }
+  dispose(): void { this.closed = true; this.queue = []; this.attack = null; this.battleGauge = [0, 0]; }
+}
+
+/** Source result constants: 1 won, 2 lost, 3 draw. Unknown results have no guessed music. */
+export function resultAudioSlot(result: number): 26 | 27 | 28 | null { return result === 1 ? 28 : result === 2 ? 27 : result === 3 ? 26 : null; }
+/** SceneDuelScene.cpp fieldBgm kind switch. This accepts the original scene's kind,
+ * not a passcode/internal ID; deriving kind from a card is deliberately separate. */
+export function fieldAudioSlot(kind: number, baseSlot: number): number {
+  if (!Number.isInteger(kind) || kind < 0 || !Number.isInteger(baseSlot) || baseSlot < 11 || baseSlot > 20) throw new Error('Invalid duel field audio selection');
+  const slots = [baseSlot, 34, 35, 32, 33, 31, 30, 43, 37, 38, 42, 41, 39, 40, 36];
+  return kind === 0x16 ? 44 : slots[kind] ?? 45;
+}

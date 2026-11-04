@@ -1,7 +1,11 @@
 import type { CardView } from './ui/contracts';
+import type { CardDetailsCatalog } from './cards';
+import type { OriginalCardTextCatalog } from './cards/original-text';
 export interface CatalogEntry {
   passcode: number; name: string; description?: string; type?: string; level?: number;
   attack?: number; defense?: number; extra?: boolean; limit?: number; mergePath?: string;
+  race?: string; attribute?: string;
+  descriptionSource?: 'cards.cdb' | 'original-en';
 }
 /** Display metadata only. Legality and card identity are always decided by the server. */
 export class CardCatalog {
@@ -25,7 +29,24 @@ export class CardCatalog {
     const c = this.cards.get(passcode);
     return { id: String(passcode), passcode, name: c?.name ?? `Card ${passcode}`, ...(c ?? {}), ...(owned === undefined ? {} : { owned }) };
   }
+  installDetails(details: CardDetailsCatalog): void {
+    const next = new Map(this.cards);
+    for (const c of details.entries) {
+      const old = next.get(c.passcode), entry: CatalogEntry = { ...old, passcode:c.passcode, name:c.name };
+      for (const key of ['description','type','race','attribute','level','attack','defense','extra','limit'] as const) {
+        if (c[key] !== undefined) Object.assign(entry, { [key]:c[key] });
+      }
+      next.set(c.passcode,entry);
+    }
+    this.cards = next;
+  }
+  installOriginalTexts(texts: OriginalCardTextCatalog): void {
+    const next = new Map(this.cards);
+    for (const c of texts.entries) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:'original-en'});
+    this.cards = next;
+  }
   get size(): number { return this.cards.size; }
+  allCards(): CardView[] { return [...this.cards.keys()].map(pc => this.card(pc)); }
   get mergePaths(): Record<string, string> { return Object.fromEntries([...this.cards.values()].filter(c => c.mergePath).map(c => [String(c.passcode), c.mergePath!])); }
 }
 

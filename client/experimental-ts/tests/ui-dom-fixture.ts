@@ -28,6 +28,7 @@ export class TestNode {
   remove(): void { if (this.parentNode) { this.parentNode.childNodes = this.parentNode.childNodes.filter(n => n !== this); this.parentNode = null; } }
   contains(node: TestNode | null): boolean { return node === this || this.childNodes.some(n => n.contains(node)); }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+  removeAttribute(name: string): void { this.attributes.delete(name); if (name === 'src') (this as unknown as { src: string }).src = ''; }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   get textContent(): string { return this.nodeText + this.childNodes.map(c => c.textContent).join(''); }
   set textContent(text: string) { this.nodeText = text; this.replaceChildren(); }

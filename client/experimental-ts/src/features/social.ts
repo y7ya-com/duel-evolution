@@ -62,6 +62,7 @@ export class SocialController {
   dispose(): void { this.disposed = true; this.ignorePending.clear(); }
   dispatch(action: SocialAction): void {
     if (this.disposed) return;
+    const before = {state:this.current,ignorePending:new Map(this.ignorePending),decliningTrade:this.decliningTrade,mailSending:this.mailSending};
     try {
       if (action.type === 'editDraft') {
         if (action.key.length > 64 || action.value.length > 512 || (!Object.hasOwn(this.current.drafts, action.key) && Object.keys(this.current.drafts).length >= 32)) throw new Error('Draft limit exceeded.');
@@ -119,7 +120,14 @@ export class SocialController {
           this.trade({ phase: 'closing' }); break;
       }
       this.update({ status: `Request sent: ${action.type}; awaiting server.`, error: null });
-      this.send(command);
+      try { this.send(command); }
+      catch (error) {
+        // A synchronous transport rejection did not queue this intent. Retain
+        // confirmed state and allow an explicit retry after backpressure clears.
+        this.current = before.state; this.ignorePending = before.ignorePending;
+        this.decliningTrade = before.decliningTrade; this.mailSending = before.mailSending;
+        throw error;
+      }
     } catch (error) { this.update({ error: error instanceof Error ? error.message : String(error) }); }
   }
   receive(message: { id: number; data: Uint8Array }): void {

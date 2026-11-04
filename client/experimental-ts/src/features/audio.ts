@@ -1,4 +1,7 @@
 import { ArchiveReader, normalizeAssetPath } from '../assets/archive';
+import { AUDIO_FILE_LIMITS, IndexedDBAudioStorage, validateStoredAudio, type AudioStorage, type AudioSlotMode, type StoredAudio } from './audio-storage';
+export { AUDIO_FILE_LIMITS } from './audio-storage';
+export type { AudioStorage, AudioSlotMode } from './audio-storage';
 const rows: readonly (readonly [string, string, boolean])[] = [
   ['title', 'Title', true], ['deck_editor', 'Deck editor', true], ['card_pack', 'Card pack opening', false],
   ['login', 'Login', true], ['my_room', 'My Room', true], ['yugi_area', 'Yugi area', true], ['gx_area', 'GX area', true],
@@ -16,15 +19,19 @@ const rows: readonly (readonly [string, string, boolean])[] = [
 ];
 export const AUDIO_SLOTS = Object.freeze(rows.map(([id, label, loop], slot) => Object.freeze({ slot, id, label, loop })));
 export interface AudioState {
+  persistence?: { status: 'disabled' | 'idle' | 'restoring' | 'saving' | 'ready' | 'error'; error?: string };
   activated: boolean;
   currentSlot: number;
   music: number;
   sound: number;
-  slots: readonly { slot: number; id: string; label: string; loop: boolean; files: readonly string[] }[];
+  slots: readonly { slot: number; id: string; label: string; loop: boolean; shuffle?: boolean; volume?: number; files: readonly string[] }[];
 }
-export type AudioAction = { type: 'activate' } | { type: 'stop' } | { type: 'play-slot'; slot: number }
+export type AudioAction = { type: 'restore' } | { type: 'set-slot-mode'; slot: number; shuffle?: boolean; loop?: boolean; volume?: number } | { type: 'activate' } | { type: 'stop' } | { type: 'play-slot'; slot: number }
   | { type: 'set-slot-files'; slot: number; files: File[] } | { type: 'set-volumes'; music?: number; sound?: number };
 export interface BrowserAudioOptions {
+  /** false disables persistence; otherwise manager owns adapter lifetime. */
+  storage?: AudioStorage | false;
+  random?: () => number;
   soundArchiveUrl?: string;
   /** Remains caller-owned. */
   archive?: Pick<ArchiveReader, 'read'>;
@@ -42,6 +49,16 @@ const layer = (slot: number): boolean => slot === 24 || slot === 25 || slot >= 3
 export class BrowserAudioManager {
   private readonly files = new Map<number, File[]>();
   private readonly budget: number;
+  private readonly modes = new Map<number, AudioSlotMode>();
+  private readonly storage?: AudioStorage;
+  private persistence: NonNullable<AudioState['persistence']>;
+  private revision = 0;
+  private restoreTask?: Promise<boolean>;
+  private restored = false;
+  private saveTask?: Promise<void>;
+  private dirty = false;
+  private playlist: File[] = [];
+
   private archive?: Pick<ArchiveReader, 'read'>;
   private ownedArchive?: ArchiveReader;
   private readonly abort = new AbortController();
@@ -57,6 +74,7 @@ export class BrowserAudioManager {
   private item = 0;
   private musicToken = 0;
   private effectToken = 0;
+  private activationToken = 0;
   private musicVolume = 1;
   private soundVolume = 1;
   private readonly decoded = new Map<string, Decoded>();
@@ -68,18 +86,29 @@ export class BrowserAudioManager {
     this.budget = options.maxDecodedBytes ?? 16 * MiB;
     if (!Number.isSafeInteger(this.budget) || this.budget < 1 || this.budget > 64 * MiB) throw new RangeError('Invalid decoded audio budget');
     this.archive = options.archive;
+    let storage: AudioStorage | undefined;
+    try {
+      storage = options.storage === false ? undefined : options.storage ?? (globalThis.indexedDB ? new IndexedDBAudioStorage() : undefined);
+      this.persistence = { status: storage ? 'idle' : 'disabled' };
+    } catch (error) {
+      this.persistence = { status: 'error', error: error instanceof Error ? error.message : String(error) };
+      this.report(error);
+    }
+    this.storage = storage;
   }
   get currentSlot(): number { return this.requested; }
   get isActivated(): boolean { return this.activated && !this.closed; }
   get volumes(): Readonly<{ music: number; sound: number }> { return { music: this.musicVolume, sound: this.soundVolume }; }
   get decodedBytes(): number { return this.decodedSize; }
   getState(): AudioState {
-    return { activated: this.isActivated, currentSlot: this.requested, ...this.volumes,
-      slots: AUDIO_SLOTS.map(slot => ({ ...slot, files: (this.files.get(slot.slot) ?? []).map(file => file.name) })) };
+    return { persistence: { ...this.persistence }, activated: this.isActivated, currentSlot: this.requested, ...this.volumes,
+      slots: AUDIO_SLOTS.map(slot => ({ ...slot, ...this.mode(slot.slot), files: (this.files.get(slot.slot) ?? []).map(file => file.name) })) };
   }
   /** Call in the originating event handler so activate keeps browser user activation. */
   async dispatch(action: AudioAction): Promise<void> {
     switch (action.type) {
+      case 'restore': await this.restore(); break;
+      case 'set-slot-mode': this.setSlotMode(action.slot, action); break;
       case 'activate': await this.activate(); break;
       case 'stop': this.stop(); break;
       case 'play-slot': {
@@ -92,6 +121,91 @@ export class BrowserAudioManager {
       case 'set-volumes': this.setVolumes(action); break;
     }
   }
+  private mode(slot: number): AudioSlotMode {
+    return this.modes.get(slot) ?? { shuffle: false, loop: AUDIO_SLOTS[slot].loop, volume: 1 };
+  }
+  setSlotMode(slot: number, changes: Partial<AudioSlotMode>): void {
+    this.check(); this.checkSlot(slot);
+    const old = this.mode(slot), mode = { ...old };
+    for (const key of ['shuffle', 'loop'] as const) {
+      if (changes[key] !== undefined) {
+        if (typeof changes[key] !== 'boolean') throw new TypeError('Invalid audio mode');
+        mode[key] = changes[key];
+      }
+    }
+    if (changes.volume !== undefined) {
+      if (!Number.isFinite(changes.volume) || changes.volume < 0 || changes.volume > 1) throw new RangeError('Invalid slot volume');
+      mode.volume = changes.volume;
+    }
+    this.modes.set(slot, mode); this.changed();
+    if (slot === this.playing && (old.shuffle !== mode.shuffle || old.loop !== mode.loop)) { this.releaseMusic(); void this.updateMusic(); }
+    else this.applyMusicVolume();
+  }
+  /** Explicit boot step. Never activates or resumes audio. Concurrent local edits win. */
+  restore(): Promise<boolean> {
+    this.check();
+    if (!this.storage) return Promise.resolve(false);
+    if (this.restoreTask) return this.restoreTask;
+    if (this.restored) return Promise.resolve(true);
+    if (this.revision > 0) return Promise.resolve(false);
+    const revision = this.revision;
+    this.persistence = { status: 'restoring' };
+    const task = (async () => {
+      try {
+        const raw = await this.storage!.read(this.abort.signal);
+        if (this.closed || this.revision !== revision) return false;
+        const state = validateStoredAudio(raw, AUDIO_SLOTS.length);
+        if (state) {
+          this.files.clear(); this.modes.clear();
+          for (const slot of state.slots) {
+            if (slot.files.length) this.files.set(slot.slot, slot.files);
+            this.modes.set(slot.slot, { shuffle: slot.shuffle, loop: slot.loop, volume: slot.volume });
+          }
+          this.musicVolume = state.music; this.soundVolume = state.sound;
+          if (this.output) this.output.gain.value = this.soundVolume;
+          this.releaseMusic();
+          // Do not attempt autoplay, even if an earlier gesture unlocked audio.
+        }
+        this.restored = true; this.persistence = { status: 'ready' }; return true;
+      } catch (error) {
+        if (!this.closed && this.revision === revision) this.storageError(error);
+        return false;
+      }
+    })();
+    this.restoreTask = task;
+    void task.finally(() => { if (this.restoreTask === task) this.restoreTask = undefined; }).catch(() => {});
+    return task;
+  }
+  private snapshot(): StoredAudio {
+    return { version: 1, ...this.volumes, slots: AUDIO_SLOTS.map(slot => ({ slot: slot.slot, ...this.mode(slot.slot), files: [...(this.files.get(slot.slot) ?? [])] })) };
+  }
+  private storageError(error: unknown): void {
+    this.persistence = { status: 'error', error: error instanceof Error ? error.message : String(error) }; this.report(error);
+  }
+  private changed(): void {
+    ++this.revision;
+    if (!this.storage) return;
+    this.dirty = true;
+    this.scheduleSave();
+  }
+  private scheduleSave(): void {
+    if (this.saveTask) return;
+    // One in-flight snapshot plus one coalesced latest revision, without a write queue.
+    const task = Promise.resolve().then(async () => {
+      while (this.dirty && !this.closed) {
+        this.dirty = false; this.persistence = { status: 'saving' };
+        try { await this.storage!.write(this.snapshot(), this.abort.signal); if (!this.closed) this.persistence = { status: 'ready' }; }
+        catch (error) { if (!this.closed) this.storageError(error); }
+      }
+    });
+    this.saveTask = task;
+    void task.finally(() => {
+      if (this.saveTask === task) this.saveTask = undefined;
+      if (this.dirty && !this.closed) this.scheduleSave();
+    }).catch(() => {});
+  }
+  /** Failures are exposed in state/onError and never undo local edits. */
+  async flushPersistence(): Promise<void> { while (this.saveTask) await this.saveTask; }
   getSlotFiles(slot: number): readonly File[] { this.checkSlot(slot); return [...(this.files.get(slot) ?? [])]; }
   private check(): void { if (this.closed) throw new Error('Audio manager disposed'); }
   private checkSlot(slot: number): void {
@@ -101,6 +215,7 @@ export class BrowserAudioManager {
   /** Invoke directly inside a trusted event handler. No context or playback exists before activation. */
   async activate(): Promise<boolean> {
     this.check();
+    const token = ++this.activationToken;
     try {
       if (!this.context) {
         this.context = this.options.contextFactory?.() ?? new AudioContext();
@@ -113,22 +228,29 @@ export class BrowserAudioManager {
       this.activated = true;
       const started = this.updateMusic();
       await resumed;
-      if (this.closed) return false;
+      if (this.closed || token !== this.activationToken) return false;
       this.activated = this.context.state === 'running';
       await started;
+      if (this.closed || token !== this.activationToken) return false;
       if (!this.activated) this.releaseMusic();
       return this.activated;
-    } catch (error) { this.activated = false; this.releaseMusic(); this.report(error); return false; }
+    } catch (error) {
+      if (!this.closed && token === this.activationToken) { this.activated = false; this.releaseMusic(); this.report(error); }
+      return false;
+    }
   }
   setSlotFiles(slot: number, files: File[]): void {
     this.check(); this.checkSlot(slot);
-    if (files.length > 8 || files.some(file => !Number.isSafeInteger(file.size) || file.size < 0 || file.size > 64 * MiB)) throw new RangeError('Audio playlist limit exceeded');
+    if (files.length > AUDIO_FILE_LIMITS.perSlot || files.some(file => !(file instanceof Blob) || typeof file.name !== 'string' || file.name.length > 4096 || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > AUDIO_FILE_LIMITS.perFileBytes)) throw new RangeError('Audio playlist limit exceeded');
     let count = files.length, bytes = files.reduce((n, file) => n + file.size, 0);
     for (const [other, list] of this.files) if (other !== slot) { count += list.length; bytes += list.reduce((n, file) => n + file.size, 0); }
-    if (count > 256 || bytes > 256 * MiB) throw new RangeError('Total audio file limit exceeded');
+    if (count > AUDIO_FILE_LIMITS.totalFiles || bytes > AUDIO_FILE_LIMITS.totalBytes) throw new RangeError('Total audio file limit exceeded');
+    const previous = this.resolve();
     if (files.length) this.files.set(slot, [...files]); else this.files.delete(slot);
+    this.changed();
+    const relevant = slot === this.playing || slot === this.requested || previous !== this.resolve();
     if (slot === this.playing) this.releaseMusic();
-    void this.updateMusic();
+    if (relevant) void this.updateMusic();
   }
   async playSlot(slot: number): Promise<boolean> {
     this.check(); this.checkSlot(slot);
@@ -147,19 +269,28 @@ export class BrowserAudioManager {
     if (slot === this.playing && this.media) return !this.media.paused;
     this.releaseMusic();
     if (!this.activated || slot < 0) return false;
-    this.playing = slot; this.item = 0;
+    this.playing = slot; this.item = 0; this.playlist = [...(this.files.get(slot) ?? [])];
+    this.shuffle();
     return this.startTrack(this.musicToken, 0);
+  }
+  private shuffle(): void {
+    if (!this.mode(this.playing).shuffle) return;
+    for (let i = this.playlist.length - 1; i > 0; i--) {
+      const random = (this.options.random ?? Math.random)();
+      const j = Math.floor(Math.max(0, Math.min(0.9999999999999999, Number.isFinite(random) ? random : 0)) * (i + 1));
+      [this.playlist[i], this.playlist[j]] = [this.playlist[j], this.playlist[i]];
+    }
   }
   private async startTrack(token: number, failures: number): Promise<boolean> {
     if (this.closed || token !== this.musicToken) return false;
-    const list = this.files.get(this.playing);
+    const list = this.playlist;
     if (!list?.length || failures >= list.length) { this.releaseMusic(); return false; }
     this.releaseMedia();
     let media: HTMLAudioElement;
     try {
       media = this.options.audioFactory?.() ?? new Audio(); this.media = media;
       this.url = (this.options.createObjectURL ?? (file => URL.createObjectURL(file)))(list[this.item]);
-      media.preload = 'none'; media.src = this.url; media.loop = AUDIO_SLOTS[this.playing].loop && list.length === 1;
+      media.preload = 'none'; media.src = this.url; media.loop = this.mode(this.playing).loop && list.length === 1;
       this.applyMusicVolume();
       media.onended = () => { if (this.media === media) void this.advance(token, 0); };
       media.onerror = () => {
@@ -170,17 +301,21 @@ export class BrowserAudioManager {
       await media.play();
       return !this.closed && token === this.musicToken && this.media === media;
     } catch (error) {
-      if (token === this.musicToken && this.media === media!) { this.report(error); this.releaseMusic(); }
+      if (token === this.musicToken && this.media === media!) {
+        this.report(error);
+        if (error instanceof Error && error.name === 'NotSupportedError') return this.advance(token, failures + 1);
+        this.releaseMusic();
+      }
       return false;
     }
   }
   private advance(token: number, failures: number): Promise<boolean> {
     if (token !== this.musicToken || this.closed) return Promise.resolve(false);
-    const list = this.files.get(this.playing)!;
+    const list = this.playlist;
     this.item++;
     if (this.item >= list.length) {
-      if (!AUDIO_SLOTS[this.playing].loop) { this.releaseMusic(); return Promise.resolve(false); }
-      this.item = 0;
+      if (!this.mode(this.playing).loop) { this.releaseMusic(); return Promise.resolve(false); }
+      this.item = 0; this.shuffle();
     }
     return this.startTrack(token, failures);
   }
@@ -191,16 +326,16 @@ export class BrowserAudioManager {
     }
     if (this.url) { (this.options.revokeObjectURL ?? (url => URL.revokeObjectURL(url)))(this.url); this.url = undefined; }
   }
-  private releaseMusic(): void { ++this.musicToken; this.releaseMedia(); this.playing = -1; }
+  private releaseMusic(): void { ++this.musicToken; this.releaseMedia(); this.playing = -1; this.playlist = []; }
   setVolumes(volumes: { music?: number; sound?: number }): void {
     this.check();
     for (const value of [volumes.music, volumes.sound]) if (value !== undefined && (!Number.isFinite(value) || value < 0 || value > 1)) throw new RangeError('Audio volume must be between 0 and 1');
     if (volumes.music !== undefined) this.musicVolume = volumes.music;
     if (volumes.sound !== undefined) this.soundVolume = volumes.sound;
     if (this.output) this.output.gain.value = this.soundVolume;
-    this.applyMusicVolume();
+    this.applyMusicVolume(); this.changed();
   }
-  private applyMusicVolume(): void { if (this.media) this.media.volume = this.musicVolume * (this.voices.size && this.soundVolume > 0 ? 0.35 : 1); }
+  private applyMusicVolume(): void { if (this.media) this.media.volume = this.musicVolume * this.mode(this.playing).volume * (this.voices.size && this.soundVolume > 0 ? 0.35 : 1); }
   async playEffect(path: string): Promise<boolean> {
     this.check(); path = normalizeAssetPath(path);
     if (!/^se\/.+\.wav$/.test(path)) throw new Error('Expected an SE/*.wav effect path');
@@ -254,13 +389,15 @@ export class BrowserAudioManager {
   }
   stop(): void {
     if (this.closed) return;
-    this.requested = -1; this.base = -1; ++this.effectToken; this.releaseMusic();
+    ++this.activationToken; this.requested = -1; this.base = -1; ++this.effectToken; this.releaseMusic();
     for (const voice of [...this.voices]) { try { voice.source.stop(); } catch { /* Already ended. */ } this.releaseVoice(voice); }
   }
   dispose(): void {
     if (this.closed) return;
-    this.stop(); this.closed = true; this.activated = false; this.abort.abort(); this.ownedArchive?.dispose();
-    this.files.clear(); this.decoded.clear(); this.decodedSize = 0; this.output?.disconnect();
+    this.stop(); this.closed = true; this.activated = false; this.abort.abort();
+    try { this.storage?.close(); } catch (error) { this.report(error); }
+    this.dirty = false; this.ownedArchive?.dispose();
+    this.files.clear(); this.modes.clear(); this.decoded.clear(); this.decodedSize = 0; this.output?.disconnect();
     if (this.context) void this.context.close().catch(error => this.report(error));
     this.context = undefined; this.output = undefined; this.archive = undefined; this.ownedArchive = undefined;
     this.pending.clear();

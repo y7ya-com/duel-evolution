@@ -16,7 +16,7 @@ export function createDuelState(lp = 8000): DuelState {
   return { version: 1, sequence: 0, status: 'idle', sides: [side(lp), side(lp)], cards: {}, turnPlayer: 0, turn: 0,
     phase: null, chain: [], prompt: null, promptSequence: 0, fieldMasks: [Array<number>(16).fill(0), Array<number>(16).fill(0)],
     handMasks: [{}, {}], buttons: [[], []], inputKind: 0, acceptingInput: false,
-    list: { mode: 0, items: [], owner: 0 }, dialog: { expected: 0, items: [] }, variables: {}, timer: null,
+    list: { mode: 0, items: [], owner: 0 }, dialog: { expected: 0, items: [] }, variables: {}, timer: null, matchTimer: null,
     result: null, events: [], droppedPresentationEvents: 0, unsupported: [], errors: [] };
 }
 
@@ -202,6 +202,7 @@ function execute(state: DuelState, record: CommandRecord): void {
     case 0x10: state.phase = 'main2'; state.turnPlayer = who; state.turn = Math.max(1, state.turn); break;
     case 0x12:
       if (p[2] < 1 || p[2] > 256) { missing('Chain link exceeds the client presentation limit'); break; }
+      card = state.cards[p[1]] ?? null;
       state.chain = state.chain.filter((c) => c.link < p[2]);
       state.chain.push({ player: who, zone: p[0], uid: state.cards[p[1]] ? p[1] : null, link: p[2], resolving: false }); break;
     case 0x13: { const link = state.chain.find((c) => c.link === p[2]); if (link) link.resolving = true; break; }
@@ -249,7 +250,7 @@ function execute(state: DuelState, record: CommandRecord): void {
         if (!(p[0] in counters) && Object.keys(counters).length >= 64) missing('Player turn-counter cache exceeds its limit');
         else counters[p[0]] = p[2];
       }
-      else { card = getAt(state, who, p[0]); if (card) card.turns = p[2] || card.value + 1; }
+      else { card = getAt(state, who, p[0]); if (card) card.turns = p[1] ? p[2] || card.value + 1 : 0; }
       break;
     case 0x3c:
       if (p[2] > 63) { missing('Unknown counter kind exceeds the client presentation limit'); break; }
@@ -314,7 +315,9 @@ function execute(state: DuelState, record: CommandRecord): void {
       break;
     }
     // Server-issued presentation commands. Retained in the bounded event queue, never used to run local rules.
-    case 3: case 9: case 0x14: case 0x15: case 0x17: case 0x19: case 0x1a: case 0x1c: case 0x29: case 0x2c:
+    // The attacker, so the duel log can name it before it moves or leaves the field.
+    case 0x19: case 0x1a: try { card = getAt(state, who, p[0]); } catch { card = null; } break;
+    case 3: case 9: case 0x14: case 0x15: case 0x17: case 0x1c: case 0x29: case 0x2c:
     case 0x2e: case 0x2f: case 0x30: case 0x42: case 0x45: case 0x4a: case 0x4b: case 0x4c: case 0x4d:
     case 0x5c: case 0x5d: case 0x60: case 0x62: break;
     default: missing('Unknown engine command; gameplay parity is not established');
@@ -407,7 +410,11 @@ export function reduceDuelMessage(previous: DuelState, message: WireMessage): Du
         r.done(); break;
       }
       case 0x6461: {
-        const r = new Bytes(message.data); state.timer = { player: player(r.u8()), seconds: r.i32(), paused: !!r.u8(), otherSeconds: r.i32() }; r.done(); break;
+        const r = new Bytes(message.data), who = r.u8(), seconds = r.i32(), paused = !!r.u8(), otherSeconds = r.i32(); r.done();
+        // pvpMatch.ts sends GLOBAL_CLOCK=3 for the sideboard deadline/start-stop pair.
+        if (who === 3) state.matchTimer = { seconds, paused, otherSeconds };
+        else state.timer = { player: player(who), seconds, paused, otherSeconds };
+        break;
       }
       case 0x6613: {
         const r = new Bytes(message.data); const scores = Array.from({ length: 9 }, () => r.u32()); r.done(); event(state, 'score', 0, scores); break;

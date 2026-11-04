@@ -3,6 +3,9 @@ import { ArchiveReader, AssetManager, AssetNotFoundError, decodeLzss } from '../
 import { WorkQueue } from '../src/assets/async';
 
 type Item = { name: string; data: number[]; size?: number };
+// Structurally valid 3x2 JPEG headers; pixel decoding is a separate browser concern.
+const jpeg = (width = 3, height = 2): number[] => [255,216,255,192,0,11,8,height >> 8,height & 255,width >> 8,width & 255,1,1,17,0,255,218,0,8,1,1,0,0,63,0];
+const png = Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=', 'base64'));
 function archive(items: Item[]): Uint8Array {
   const size = 12 + items.length * 268 + items.reduce((n, e) => n + e.data.length, 0);
   const bytes = new Uint8Array(size), view = new DataView(bytes.buffer);
@@ -126,12 +129,14 @@ describe('range archive reader', () => {
 
 describe('asset lifetime', () => {
   it('shares art, pins live leases, evicts released URLs, and disposes idempotently', async () => {
-    const fetcher = server(archive([{ name:'123.jpg',data:[1,2,3] },{ name:'456.jpg',data:[4,5,6] }]));
+    const fetcher = server(archive([{ name:'123.jpg',data:jpeg() },{ name:'456.jpg',data:jpeg() }]));
     const revoke = vi.spyOn(URL,'revokeObjectURL');
-    const manager = new AssetManager({ baseUrl:'/assets',fetch:fetcher,cacheBytes:6 });
+    const charge = jpeg().length * 2 + 3 * 2 * 4;
+    const manager = new AssetManager({ baseUrl:'/assets',fetch:fetcher,cacheBytes:charge });
     const [a,b] = await Promise.all([manager.loadCard('00000123'),manager.loadCard(123)]);
     expect(a.value).toBe(b.value); expect(a.value.mimeType).toBe('image/jpeg');
-    expect(fetcher).toHaveBeenCalledTimes(3); expect(manager.cacheBytes).toBe(6);
+    expect(fetcher).toHaveBeenCalledTimes(3); expect(manager.cacheBytes).toBe(charge);
+    expect(a.value).toMatchObject({ width:3,height:2 });
     await expect(manager.loadCard(456)).rejects.toThrow('live leases');
     a.release(); a.release();
     await expect(manager.loadCard(456)).rejects.toThrow('live leases');
@@ -143,17 +148,24 @@ describe('asset lifetime', () => {
     await expect(manager.loadCard(123)).rejects.toThrow('disposed');
   });
   it('supports scene assets, mini art, and explicit merge fallback', async () => {
-    const bytes = archive([{ name:'data/test.png',data:[1] },{ name:'123.jpg',data:[2] }]);
+    const bytes = archive([{ name:'data/test.png',data:png },{ name:'123.jpg',data:jpeg() }]);
     const source = server(bytes);
     const fetcher = vi.fn(async (...args: Parameters<typeof fetch>) => String(args[0]).endsWith('card.dat') ? new Response(null,{status:404}) : source(...args));
     const manager = new AssetManager({baseUrl:'/base/',fetch:fetcher,mergeCardPaths:{123:'data/test.png'}});
     const art = await manager.loadCard(123), scene = await manager.readScene('DATA\\TEST.PNG'), mini = await manager.loadMini(123);
-    expect(art.value.mimeType).toBe('image/png'); expect(scene.value.bytes[0]).toBe(1); expect(mini.value.bytes[0]).toBe(2);
+    expect(art.value.mimeType).toBe('image/png'); expect(scene.value.width).toBe(1); expect(mini.value.width).toBe(3);
     art.release(); scene.release(); mini.release(); manager.dispose();
   });
   it('rejects oversized cache allocations without creating object URLs', async () => {
-    const create = vi.spyOn(URL,'createObjectURL'), manager = new AssetManager({baseUrl:'/',fetch:server(one()),cacheBytes:5});
+    const create = vi.spyOn(URL,'createObjectURL'), manager = new AssetManager({baseUrl:'/',fetch:server(archive([{ name:'123.jpg',data:jpeg() }])),cacheBytes:jpeg().length * 2});
     await expect(manager.loadCard(123)).rejects.toThrow('budget'); expect(create).not.toHaveBeenCalled(); manager.dispose();
+  });
+  it('rejects malformed and oversized image headers before allocating URLs', async () => {
+    const create = vi.spyOn(URL,'createObjectURL');
+    for (const data of [[1,2,3],jpeg(9000,9000)]) {
+      const manager = new AssetManager({baseUrl:'/',fetch:server(archive([{name:'123.jpg',data}]))});
+      await expect(manager.loadCard(123)).rejects.toThrow(); expect(create).not.toHaveBeenCalled(); expect(manager.cacheBytes).toBe(0); manager.dispose();
+    }
   });
   it('aborts one subscriber independently, and cancels the network after the last leaves', async () => {
     let networkSignal: AbortSignal | undefined;

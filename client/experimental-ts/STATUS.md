@@ -1,6 +1,15 @@
 # Experimental checkpoint — 2026-11-04
 
-The requested completion condition is **not achieved**. The independent TypeScript client is implemented and playable for the exercised paths, but full parity with the current client plus improvements is not established. The one-hour work window ends at 2026-11-04 08:13:48 UTC; no automatic continuation is authorized after that pause.
+The requested completion condition is **not achieved**. The independent TypeScript client is implemented and playable for the exercised paths, but full parity with the current client plus improvements is not established. The original one-hour work window paused at 2026-11-04 08:13:48 UTC. The user resumed work and explicitly removed the time limit. The checkpoint results below are historical; resumed integration is in progress.
+
+## Resumed work
+
+- Independent response oracle now compares new encoder packets through isolated copies of the actual translator: 72 recordings, 5,791 logical decisions / 5,914 new packets, including 5,235 successful core choices. It found and fixed read-only pile inspection confirmation. Remaining rejected requests are checked for hidden semantic progress rather than credited as successful choices. See `src/duel/README.md` for exact boundaries.
+- Actual engine scenarios cover natural deckout victory and a Wall payment / Self-Destruct Button draw, both perspectives and repeated settlement cleanup. See DUEL_OUTCOMES.md.
+- Worker/auth/WorldDO routes now have integration evidence using Miniflare D1, the real GameApi and network character selection. Browser cookie enforcement and Cloudflare host lifecycle remain outside that evidence. See HTTP_EVIDENCE.md.
+- Multi-game matches, sideboarding, tag relay, richer deck editing, native .ydc files, generated card details and original scene loading are being integrated and verified. Their presence does not establish whole-flow parity.
+- Asset cache admission now validates supported image headers before URL creation and charges estimated RGBA storage plus encoded/Blob bytes. This is an admission estimate, not a measured browser/GPU bound. Focused asset/cache tests pass.
+- Original scene tables and paths were checked with bounded reads from the project's configured original asset host. No archive is downloaded whole or committed. Real scene rendering and browser media validation remain pending.
 
 ## Latest verification
 

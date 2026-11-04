@@ -57,6 +57,16 @@ describe('duel text display catalog', () => {
     expect(v.prompt?.options).toEqual([{ id: 'answer:0', label: 'Synthetic monster choice' }]);
     expect(v.prompt?.id).toBe('1'); expect(s.prompt.options[0].label).toBe('Option 1');
   });
+  it('does not attribute a new yes/no question to an already resolved cached chain', () => {
+    const texts = new DuelTextCatalog(); texts.install(data());
+    let s = reduceDuelMessage(createDuelState(), { id: 0x6202, data: engine(1) });
+    s.cards[2] = { uid: 2, passcode: 123 } as typeof s.cards[number];
+    s.chain = [{ player: 0, zone: 0, uid: 2, link: 1, resolving: true }];
+    s.prompt = { ...prompt(), kind: 'yesno', text: [{ value: 250, kind: 0 }], items: [] };
+    expect(projectDuel(s, new CardCatalog(), ['You', 'Rival'], null, texts).prompt?.text).toBe('Activate this card’s effect?');
+    s.prompt.listMode = 0xff; s.prompt.items = [{ passcode: 123, rawId: 123, owner: 0, serial: 0 }];
+    expect(projectDuel(s, new CardCatalog(), ['You', 'Rival'], null, texts).prompt?.text).toBe('Synthetic card: Activate this card’s effect?');
+  });
 });
 
 const gd = resolve(import.meta.dirname, '../../../server/gamedata');

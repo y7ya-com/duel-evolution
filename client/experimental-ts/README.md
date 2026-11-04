@@ -12,6 +12,7 @@ Use a current Node release supported by Vite (the implementation was checked wit
 cd client/experimental-ts
 npm install
 npm run catalog
+npm run cards
 npm run texts
 npm run world
 YO2_GAME=/path/to/your/game npm run dev
@@ -19,9 +20,11 @@ YO2_GAME=/path/to/your/game npm run dev
 
 Open `http://localhost:5174/`. Sign in with your local server account, go online, create/select a character, claim a starter if eligible, and choose a saved deck before challenging an NPC. Development tools can reuse already-installed server/htmlui tools when run through `node tools/run.mjs`; an isolated dependency installation is preferred for reproducibility.
 
-For original card images, add `?assets=/game-assets/`. The development server reads only allowlisted archives from `YO2_GAME` (and optionally `YO2_CARDS`) through bounded Range requests. It never copies or commits game files. See `tools/DEV.md` for Origin, cookie, archive-path and upstream settings. `DE_SERVER` defaults to `http://127.0.0.1:8787`; `DE_PUBLIC_ORIGIN` must match the local Worker's `PUBLIC_ORIGIN`.
+For original maps, avatars and card images, add `?assets=/game-assets/`. The development server reads only allowlisted archives from `YO2_GAME` (and optionally `YO2_CARDS`) through bounded Range requests. Alternatively, explicitly enable the bounded remote bridge with `YO2_ASSET_URL=https://original.ygoevolution.com/game/ npm run dev`; it reads individual ranges and never saves a whole archive. See [REMOTE_ASSETS.md](REMOTE_ASSETS.md) and `tools/DEV.md`. `DE_SERVER` defaults to `http://127.0.0.1:8787`; `DE_PUBLIC_ORIGIN` must match the local Worker's `PUBLIC_ORIGIN`.
 
-`npm run catalog` creates ignored `public/card-catalog.json` from the local server's generated tables. Card names fall back explicitly to passcodes when it is absent. This initial catalog does not supply all original effect descriptions, dialogue text or alternate-art metadata. Generated display data must never be committed. `npm run world` also generates ignored collision grids from the existing source; movement is disabled when collision data is unavailable. Grid-based routing does not yet reproduce the original pixel probes, height scaling or exit triggers.
+`npm run catalog` creates ignored `public/card-catalog.json`; `npm run cards` supplies validated statistics and native deck-file identities. Original rules text can be generated with `npm run card-texts -- --url https://original.ygoevolution.com/game/merge.dat` (bounded ranges), producing ignored `public/card-texts.json`: 3,243 original English descriptions and 16 explicitly missing extension identities in the inspected inputs. Names fall back to explicit passcodes when metadata is absent. Generated game data must never be committed. `npm run world` generates ignored collision grids from source; movement is disabled without them. Source-backed initial arrivals avoid an uninitialized `(0,0)` position. Grid routing still does not reproduce original pixel probes, height scaling or exit triggers.
+
+The title offers World mode and Free Duel & Deck Editor. Free mode uses the existing isolated server protocol and free active-deck pointer; it does not offer NPC progression or purchases. Manual Match rooms support sideboarding. Automatic Single/Either searches are supported; the current server does not implement automatic Match pairing.
 
 ## Verification
 
@@ -37,7 +40,7 @@ npm run parity
 
 Tests that use the actual server/OCGcore and recorded private fixtures require the generated game data. A visible skip is not a pass for that behavior. The standalone asset/resource tests use synthetic files. `smoke` uses installed cached Chromium through the repository CDP helper, explicitly fixture-backed HTTP, and checks desktop/mobile bootstrap and Options; it is not a production-authentication or gameplay-parity test.
 
-The current recorded-duel tests regenerate v2 output from existing reference recordings and compare the new client model's board, piles, LP, identity/ownership/location, face/position, and check that successful recorded choices are representable by the semantic encoder. Corpus byte equality covers action/phase packets only; selection, answer, announcement and cancellation categories have focused roundtrip tests, not complete recorded-response equivalence. The latest full run exercised 72 recordings, 24,802 state boundaries, 66,966 packets and 5,235 successful decisions. This is scoped evidence, not a claim that every card or original-client behavior is covered.
+The recorded-duel oracle exercises 72 recordings, 24,802 state boundaries and 66,966 incoming packets. It independently runs 5,791 new encoded decisions / 5,914 outgoing packets through isolated translator states and compares core commands and complete v2 outputs, including 5,235 successful core choices. Another 135 rejected requests are checked for hidden semantic progress and receive no successful-choice credit. It also compares board/piles, LP, identity/ownership/location and face/position. This found and fixed read-only pile inspection confirmation. See `src/duel/README.md` for the exact oracle boundaries; it does not cover every card or original-client behavior.
 
 ## Design and resource ownership
 
@@ -48,9 +51,9 @@ The current recorded-duel tests regenerate v2 output from existing reference rec
 - `assets/` and `core/`: bounded archive reads/decompression, leased image URLs, byte-budgeted caches, and explicit resource lifetimes.
 - `parity/`: opt-in credential-redacting captures, deterministic replay and an acceptance gate that cannot silently claim missing coverage.
 
-The UI releases image leases when their final use disappears; disposal aborts pending work, stops audio/animation, closes game channels and clears listeners/caches. The asset cache budget excludes browser decoded-image/GPU allocation, which still needs real-device measurement. Audio files remain local and currently must be selected again after reload.
+The UI releases image leases when their final use disappears; disposal aborts pending work, stops audio/animation, closes game channels and clears listeners/caches. Image admission validates dimensions and charges an RGBA estimate plus encoded/Blob storage. Avatar resources have a separate bounded bitmap budget. These estimates do not measure browser/GPU allocation. User-selected audio files and slot playback modes persist locally when browser storage is available; audio activation still requires a gesture.
 
-A real Chromium desktop/mobile test also exercises a complete NPC51 natural loss through mouse/touch controls and downloads a capture that replays to the same result. Its cookie/auth and HTTP deck persistence are test fixtures; gameplay WebSockets, starter handling, World and OCGcore are real. A separate 100-cycle title/options smoke checks retained heap/DOM behavior, without claiming real-asset or whole-session memory parity.
+A real Chromium desktop/mobile test exercises a complete NPC51 natural loss through mouse/touch controls and downloads a capture that replays to the same result. Its cookie/auth and HTTP deck persistence are test fixtures; gameplay WebSockets, starter handling, World and OCGcore are real. Separate [authenticated HTTP/D1](HTTP_EVIDENCE.md) and [natural victory/draw](DUEL_OUTCOMES.md) tests state their fixture boundaries. The opt-in original-media browser test requires `YO2_ASSET_URL` and checks real image decoding and repeated scene/resource lifecycles; ordinary tests do not fetch original archives.
 
 No production deployment, replacement of the existing client, or server migration is part of this experiment. Existing uncommitted work outside this directory was preserved.
 

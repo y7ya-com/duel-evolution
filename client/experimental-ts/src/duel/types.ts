@@ -47,6 +47,8 @@ export interface DuelState {
   list: { mode: number; items: ListItem[]; owner: number };
   dialog: { expected: number; items: DialogItem[] }; variables: Record<number, number>;
   timer: { player: Player; seconds: number; paused: boolean; otherSeconds: number } | null;
+  /** Match sideboarding uses GLOBAL_CLOCK=3; it is not a third board player. */
+  matchTimer: { seconds: number; paused: boolean; otherSeconds: number } | null;
   result: { result: number; mode: number } | null;
   /** A bounded presentation queue, separate from authoritative state. Consumers acknowledge events. */
   events: PresentationEvent[]; droppedPresentationEvents: number;

@@ -1,11 +1,17 @@
 import type { DuelCardView, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
-import type { CollectionSort } from './helpers';
-import { deckPlacementReason, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { deckCollection, sideboardDifference, defaultDeckFilters, parseDeckImport, MAX_DECK_IMPORT_BYTES } from './deck';
+import type { DeckCardType, DeckFilters, DeckSort } from './deck';
+import { deckPlacementReason, FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { WorldRenderer } from './world';
+import { AvatarView } from './avatar';
+import { renderNpcFeature } from './npc';
+import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
 import { CLIENT_CSS } from './styles';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderSocialFeature } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
+import { renderProfileFeature } from '../features/profile-ui';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -24,8 +30,11 @@ function button(text: string, action: () => void, disabled = false, gold = false
 function textField(key: string, value: string, placeholder = ''): HTMLInputElement {
   const i = el('input'); i.dataset.key = key; i.name = key; i.value = value; i.placeholder = placeholder; return i;
 }
-function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: CardView, image: HTMLImageElement) => void): HTMLElement {
+const CARD_BACK = 'data/card/0000.png', FIELD_SHEET = 'data/y/duel/field/duelfield_01_c01.png';
+const lpWidth = (lp: number) => `${Math.max(0, Math.min(100, lp / 80))}%`;
+function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: CardView, image: HTMLImageElement) => void, back?: (image: HTMLImageElement) => void): HTMLElement {
   const tile = el('div', 'de-card' + (faceUp ? '' : ' de-card-back'));
+  if (!faceUp && back) { const image = el('img'); image.alt = ''; image.decoding = 'async'; image.draggable = false; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; tile.append(image); back(image); }
   tile.setAttribute('aria-label', faceUp ? card.name : 'Face-down card');
   if (faceUp) {
     const url = safeImageUrl(card.image);
@@ -46,36 +55,59 @@ function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: 
   return tile;
 }
 interface LocalState {
-  message: string; search: string; collectionType: string; collectionSort: CollectionSort; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
-  channel: string; chat: string; whisperTarget: string; target: number | null; promptId: string | null; selected: Set<string>;
-  roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
+  message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
+  channel: string; chat: string; whisperTarget: string; target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
+  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
 }
 export interface MountedClient { dispose(): void; render(): void; }
 
 /** A fully disposable view. Networking, game rules and persistence are injected by the controller. */
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
-  let disposed = false, rendering = false, queued = false;
+  let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
   let state = controller.getState();
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'collection', collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptId: null, selected: new Set(), roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all' };
+  let queueSimilarLevel: boolean | null = null;
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all' };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
-  interface ArtEntry { code: number; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
+  interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
   const avatarNodes = new Map<number, HTMLElement>();
+  const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
-  const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {};
+  let sideboardClock: ReturnType<typeof setInterval> | null = null;
+  const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {};
+  const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
+    for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
+      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; }
+      else { node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
+    }
+  };
+  const worldRenderer = controller.loadWorldScene ? new WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal), onViewport: () => { const current = controller.getState(); if (current.scene === 'lobby' && current.lobby) positionAvatars(current.lobby); } }) : null;
+  const showAvatarViews = (lobby: NonNullable<ClientView['lobby']>) => {
+    const self = lobby.avatars.find(a => a.self), origin = self ?? { x: 512, y: 384 }, viewport = worldRenderer?.viewport;
+    const candidates = controller.loadAvatar ? lobby.avatars.filter(a => a.parts?.length === 16 && (!viewport || a.x >= viewport.x - 128 && a.x <= viewport.x + viewport.width + 128 && a.y >= viewport.y - 160 && a.y <= viewport.y + viewport.height + 160)).sort((a, b) => Number(!!b.self) - Number(!!a.self) || Math.hypot(a.x - origin.x, a.y - origin.y) - Math.hypot(b.x - origin.x, b.y - origin.y) || a.id - b.id).slice(0, 24) : [];
+    const retained = new Set(candidates.map(a => a.id));
+    for (const [id, view] of avatarViews) if (!retained.has(id)) { view.dispose(); avatarViews.delete(id); const button = avatarNodes.get(id); if (button) button.className = button.className.replace(' has-original', ''); }
+    for (const actor of candidates) {
+      const button = avatarNodes.get(actor.id); if (!button) continue;
+      let view = avatarViews.get(actor.id); if (!view) { view = new AvatarView({ sourceOrigin: true, loadAvatar: (parts, options) => controller.loadAvatar!(parts, options), reducedMotion: () => controller.getState().settings.reducedMotion }); avatarViews.set(actor.id, view); }
+      button.className = button.className.replace(' has-original', '') + ' has-original'; button.prepend(view.element);
+      try { view.show(actor.parts!, actor.world ?? 0, actor.motion ?? 'stand', actor.direction ?? 0); } catch (error) { view.element.dataset.avatarError = error instanceof Error ? error.message.slice(0, 256) : 'Invalid avatar appearance'; }
+    }
+  };
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
   let renderedIdentity = '';
-  const art = new Map<number, ArtEntry>();
+  let renderedNpcIdentity = '';
+  const art = new Map<string, ArtEntry>();
   const imageEntries = new WeakMap<Element, ArtEntry>();
   const startArt = (entry: ArtEntry) => {
-    if (disposed || entry.pending || entry.failed || entry.lease || !controller.loadCardImage) return;
+    if (disposed || entry.pending || entry.failed || entry.lease) return;
     entry.pending = true;
     let pending: Promise<{ url: string; release(): void }>;
-    try { pending = controller.loadCardImage(entry.code, entry.abort.signal); } catch { entry.pending = false; entry.failed = true; return; }
+    try { pending = entry.load(entry.abort.signal); } catch { entry.pending = false; entry.failed = true; return; }
     void pending.then(lease => {
       if (disposed || entry.abort.signal.aborted || art.get(entry.code) !== entry) { lease.release(); return; }
       const url = safeImageUrl(lease.url); if (!url) { lease.release(); entry.failed = true; return; }
@@ -87,15 +119,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const observed of entries) if (observed.isIntersecting) { const entry = imageEntries.get(observed.target); if (entry) startArt(entry); observer?.unobserve(observed.target); }
   }, { root: stage, rootMargin: '120px' }) : null;
   const loadArt = (card: CardView, image: HTMLImageElement) => {
-    if (!controller.loadCardImage || card.passcode === undefined || !Number.isSafeInteger(card.passcode) || card.passcode <= 0) return;
-    let entry = art.get(card.passcode);
-    if (!entry) { entry = { code: card.passcode, abort: new AbortController(), images: new Set(), used: true, pending: false, failed: false, lease: null }; art.set(card.passcode, entry); }
+    const passcode = card.passcode, load = controller.loadCardImage?.bind(controller);
+    if (!load || passcode === undefined || !Number.isSafeInteger(passcode) || passcode <= 0) return;
+    attachArt(`card:${passcode}`, signal => load(passcode, signal), image);
+  };
+  const loadArchiveArt = (path: string, image: HTMLImageElement) => {
+    const load = controller.loadArchiveImage?.bind(controller); if (load) attachArt(`shop:${path}`, signal => load(path, signal), image);
+  };
+  const attachArt = (code: string, load: ArtEntry['load'], image: HTMLImageElement) => {
+    let entry = art.get(code);
+    if (!entry) { entry = { code, load, abort: new AbortController(), images: new Set(), used: true, pending: false, failed: false, lease: null }; art.set(code, entry); }
     entry.used = true; entry.images.add(image);
+    const previousError = image.onerror; image.onerror = event => { previousError?.call(image, event); observer?.unobserve(image); entry!.images.delete(image); entry!.failed = true; image.remove(); image.removeAttribute('src'); if (!entry!.images.size) { entry!.lease?.release(); entry!.lease = null; } };
     if (entry.lease) image.src = entry.lease.url;
     else if (observer) { imageEntries.set(image, entry); observer.observe(image); }
     else startArt(entry);
   };
-  const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined);
+  const drawCard = (card: CardView, showName = true, faceUp = true) => cardTile(card, showName, faceUp, controller.loadCardImage ? loadArt : undefined, controller.loadArchiveImage ? image => loadArchiveArt(CARD_BACK, image) : undefined);
   const placeFieldCard = (node: HTMLElement, card: DuelCardView, handCount: number) => {
     const p = fieldCardPosition(card, handCount), motion = card.motion;
     node.style.left = `${(motion?.x ?? p.x) / 1024 * 100}%`; node.style.top = `${(motion?.y ?? p.y) / 768 * 100}%`;
@@ -105,29 +145,31 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     node.style.opacity = motion?.opacity === undefined ? '' : String(Math.max(0, Math.min(1, motion.opacity)));
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
-    if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
+    if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level) return false;
     // Unrelated world packets must not replace open mail/trade confirmations or audio controls.
     if (next.scene === 'social') return previous.social === next.social && previous.socialDetail === next.socialDetail;
     if (next.scene === 'shop') return previous.shop === next.shop && previous.online === next.online;
-    if (next.scene === 'settings') return previous.audio === next.audio && previous.capture === next.capture;
+    if (next.scene === 'settings') return previous.audio === next.audio && previous.capture === next.capture && previous.dataStatus === next.dataStatus;
     return false;
   };
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
-    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online) return false;
-    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
+    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews) return false;
+    if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
     return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
   };
   const presentLobby = (lobby: NonNullable<ClientView['lobby']>) => {
-    for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (node) { node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; } }
+    if (worldRenderer && lobby.mapId !== undefined) { const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
+    positionAvatars(lobby);
+    showAvatarViews(lobby);
   };
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
-    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.preparation !== next.preparation) return false;
+    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews) return false;
     if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.cards.length !== b.cards.length) return false;
-    if (a.players.some((p, i) => p.name !== b.players[i].name)) return false;
-    return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense; });
+    if (a.players.some((p, i) => p.name !== b.players[i].name || p.turnCounters !== b.players[i].turnCounters)) return false;
+    return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense && c.counters === n.counters && c.turnCounter === n.turnCounter; });
   };
   const presentEffects = (duel: DuelView) => {
     for (const node of fieldNodes.values()) delete node.dataset.effect;
@@ -148,16 +190,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const present = (duel: DuelView) => {
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
-    for (const i of [0, 1] as const) if (lpNodes[i]) lpNodes[i]!.textContent = `LP ${duel.players[i].lp.toLocaleString()}`;
+    for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); }
     presentEffects(duel);
   };
   const pruneArt = () => {
-    for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); entry.lease?.release(); entry.images.clear(); art.delete(code); }
+    for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
   };
   const requestRender = () => { if (!queued && !disposed) { queued = true; queueMicrotask(() => { queued = false; if (!disposed) render(); }); } };
+  const browserDisplay = new BrowserDisplaySettings(browserFullscreenAdapter(host), () => { if (!disposed && controller.getState().scene === 'settings') requestRender(); });
   const send = (command: ClientCommand) => {
     if (disposed) return;
     local.message = '';
+    if (command.type === 'move') { const current = controller.getState(); if (current.scene !== 'lobby') return; if (current.npc && !['idle', 'done'].includes(current.npc.stage)) { local.message = 'Finish the NPC interaction before moving.'; requestRender(); return; } }
+    if (['duelRespond', 'duelAction', 'surrender'].includes(command.type) && controller.getState().relay?.canAct === false) { local.message = 'Your tag partner is playing this turn.'; requestRender(); return; }
     try {
       const result = controller.dispatch(command);
       if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
@@ -177,7 +222,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const n = sceneRoot('Title'), panel = el('section', 'de-panel de-center de-stack');
     panel.append(title('Duel Evolution'), el('p', '', 'Welcome to Duel Academy.'));
     if (state.auth?.signedIn) {
-      panel.append(el('p', '', `Signed in${state.auth.name ? ` as ${state.auth.name}` : ''}.`), button(state.connection === 'online' ? 'Continue' : 'Go Online', () => state.connection === 'online' ? open('characters') : send({ type: 'connect' }), !!state.busy, true), button('Sign Out', () => send({ type: 'signOut' }), !!state.busy));
+      panel.append(el('p', '', `Signed in${state.auth.name ? ` as ${state.auth.name}` : ''}.`), button(state.connection === 'online' ? 'Continue' : 'Go Online', () => state.connection === 'online' ? open('characters') : send({ type: 'connect', freeMode: false }), !!state.busy, true), button('Sign Out', () => send({ type: 'signOut' }), !!state.busy));
     } else if (state.auth) {
       const form = el('form', 'de-stack'), username = textField('username', local.username, 'Username'), password = textField('password', '', 'Password');
       username.autocomplete = 'username'; username.maxLength = 64; password.type = 'password'; password.autocomplete = 'current-password'; password.maxLength = 128;
@@ -187,7 +232,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       form.onsubmit = e => { e.preventDefault(); if (!username.value.trim() || !password.value) return; send({ type: 'signIn', username: username.value.trim(), password: password.value }); password.value = ''; };
       const discord = el('a', '', 'Sign in with Discord'); discord.href = '/api/auth/sign-in/discord?return=/';
       panel.append(form, discord);
-    } else panel.append(button('Go Online', () => send({ type: 'connect' }), !!state.busy, true));
+    } else panel.append(button('Go Online', () => send({ type: 'connect', freeMode: false }), !!state.busy, true));
+    if (!state.auth || state.auth.signedIn) panel.append(button('Free Duel & Deck Editor', () => send({ type: 'connect', freeMode: true }), !!state.busy || state.connection === 'online'));
     if (state.accountDetail) { const account = el('details', 'de-account-details'); account.dataset.key = `title-account:${state.accountDetail.panel}`; account.open = state.accountDetail.panel !== 'overview'; account.append(el('summary', '', 'Registration, password recovery & account options'), renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action }))); panel.append(account); }
     panel.append(button('Options', () => open('settings')), note(state.status)); n.append(panel);
   }
@@ -224,10 +270,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const lobby = state.lobby;
     const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Lobby map'); canvas.tabIndex = 0; canvas.dataset.key = 'lobby-map';
     stage.append(canvas); drawLobby(canvas);
+    const useScene = worldRenderer && lobby.mapId !== undefined;
+    if (useScene) { stage.append(worldRenderer.element); worldRenderer.avatars.replaceChildren(); const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId!, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
     const mapUrl = safeImageUrl(lobby.mapImage);
-    if (mapUrl) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
+    if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    canvas.onclick = e => { if (lobby.connected && !state.busy) { const p = gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) send({ type: 'move', ...p }); } };
+    canvas.onclick = e => { if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
     canvas.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
@@ -239,13 +287,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
-      b.append(el('span', 'de-avatar-name', avatar.name)); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); stage.append(b);
+      b.append(el('span', 'de-avatar-name', avatar.name)); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
     }
+    positionAvatars(lobby);
+    showAvatarViews(lobby);
     const target = lobby.avatars.find(a => a.id === local.target);
     if (target) stage.append(el('section', 'de-panel de-context de-stack', title(target.name), button('Talk / Interact', () => send({ type: 'interact', playerId: target.id }), !!state.busy), button('Duel', () => send({ type: 'duelChallenge', playerId: target.id }), !!state.busy || !!target.self), button('Close', () => { local.target = null; requestRender(); })));
     const chat = el('section', 'de-panel de-chat'); chat.setAttribute('aria-label', 'Chat');
     const lines = el('div', 'de-chat-log'); lines.setAttribute('role', 'log'); lines.setAttribute('aria-live', 'polite');
-    for (const line of lobby.chat.slice(-200)) lines.append(el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text));
+    for (const line of lobby.chat.slice(-200)) lines.append(line.sender.trim() ? el('div', 'de-chat-line', el('strong', '', `${line.sender}: `), line.text) : el('div', 'de-chat-line de-chat-system', line.text));
     const form = el('form'), channel = el('select'); channel.setAttribute('aria-label', 'Chat channel'); channel.dataset.key = 'chat-channel';
     for (const value of lobby.channels.length ? lobby.channels : ['lobby']) { const o = el('option', '', value); o.value = value; channel.append(o); }
     if (!Array.from(channel.options).some(o => o.value === local.channel)) local.channel = channel.options[0]?.value ?? 'lobby';
@@ -265,12 +315,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         select.onchange = () => { const area = lobby.areas?.find(a => `${a.area}/${a.block}` === select.value); if (area) send({ type: 'moveArea', area: area.area, block: area.block }); };
         places.append(select);
       }
-      if (lobby.npcs?.length) {
+      if (state.mode !== 'free' && lobby.npcs?.length) {
         const list = el('details'); list.dataset.key = 'lobby-npcs'; list.append(el('summary', '', 'NPC Duelists'));
-        for (const npc of lobby.npcs) list.append(button(npc.name, () => send({ type: 'interact', playerId: -Math.abs(npc.id) }), !lobby.connected || !!state.busy));
+        const eligibility = state.npc?.eligibility, checking = eligibility?.status === 'pending' || eligibility?.refreshing;
+        if (checking) list.append(note('Checking NPC eligibility…'));
+        if (eligibility?.status === 'uncertain') list.append(note('NPC eligibility could not be confirmed. Disconnect and reconnect to refresh progress.'));
+        if (!state.npc?.npc && state.npc?.error) list.append(el('p', 'de-error', state.npc.error));
+        if (eligibility?.status === 'confirmed' && eligibility.bits.length + eligibility.cards.length > 0) list.append(note(`World rewards received: ${eligibility.bits.length} items · ${eligibility.cards.length} cards.`));
+        for (const npc of lobby.npcs) list.append(button(npc.name, () => send({ type: 'interact', playerId: -Math.abs(npc.id) }), !lobby.connected || !!state.busy || !!checking || eligibility?.status === 'uncertain'));
         places.append(list);
       }
       const rooms = el('details'); rooms.dataset.key = 'lobby-duel-rooms'; rooms.append(el('summary', '', `Duel Rooms (${lobby.rooms?.length ?? 0})`));
+      if (state.matchmaking) {
+        const queue = state.matchmaking, panel = el('section', 'de-stack', title('Automatic Matchmaking'));
+        panel.append(note(`${queue.counts.single} single · ${queue.counts.match} match · ${queue.counts.either} either rooms waiting`), note('Room counts include all queued rooms; opponent eligibility is determined by the server.'));
+        if (queue.status === 'searching') panel.append(note('Searching for an opponent…'), button('Cancel Search', () => send({ type: 'cancelMatchmaking' }), !!state.busy), button('Refresh Queue', () => send({ type: 'refreshMatchmaking' }), !!state.busy), button('Retry Pairing', () => send({ type: 'retryMatchmaking' }), !!state.busy));
+        else if (queue.status === 'matched') panel.append(note(queue.opponent ? `Matched with ${queue.opponent.name}` : 'Opponent matched. Preparing duel.'));
+        else {
+          const format = el('select'); format.dataset.key = 'matchmaking-style'; format.setAttribute('aria-label', 'Automatic matchmaking format');
+          for (const [value, label] of [[3, 'Single Duel'], [6, 'Either (server currently pairs single duels)']] as const) { const option = el('option', '', label); option.value = String(value); format.append(option); } format.value = String(queue.style);
+          const similar = el('input'); similar.type = 'checkbox'; if (queueSimilarLevel === null) queueSimilarLevel = queue.similarLevel; similar.checked = queueSimilarLevel; similar.dataset.key = 'matchmaking-similar'; similar.onchange = () => { queueSimilarLevel = similar.checked; };
+          panel.append(labelled('Format', format), labelled('Prefer similar level', similar), button('Find Opponent', () => send({ type: 'startMatchmaking', style: Number(format.value) as 3 | 6, similarLevel: similar.checked }), !lobby.connected || !!state.busy), note('Automatic match-format pairing is unavailable on this server. Create a Match room manually.'));
+        }
+        rooms.append(panel);
+      }
       rooms.append(button('Create Duel', () => { const options = { ...local.roomOptions, ...(local.roomPassword ? { password: local.roomPassword } : {}) }; send(Object.keys(options).length ? { type: 'createDuelRoom', options } : { type: 'createDuelRoom' }); local.roomPassword = ''; }, !lobby.connected || !!state.busy));
       const roomSettings = el('details'); roomSettings.dataset.key = 'lobby-room-options'; roomSettings.append(el('summary', '', 'Room Options'));
       const style = el('select'); style.dataset.key = 'room-style'; style.setAttribute('aria-label', 'Duel format');
@@ -285,14 +353,21 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         rooms.append(row);
       }
       if (state.online) { const tag = el('details'); tag.dataset.key = 'lobby-tag'; tag.append(el('summary', '', 'Tag Duel'), renderOnlineFeature(state.online, action => send({ type: 'onlineAction', action }), 'tag')); rooms.append(tag); }
-      places.append(rooms); stage.append(places);
+      places.append(rooms);
+      if (state.profileDetail && state.player) places.append(button('My Profile', () => send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }), !!state.busy));
+      stage.append(places);
+    }
+    if (state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) {
+      const profile = el('section', 'de-panel de-profile-panel'); profile.dataset.key = `profile:${state.profileDetail.selectedPid}`; profile.setAttribute('role', 'dialog'); profile.setAttribute('aria-label', 'Player profile');
+      profile.onkeydown = event => { if (event.key === 'Escape') { event.stopPropagation(); send({ type: 'profileAction', action: { type: 'close' } }); } };
+      profile.append(renderProfileFeature(state.profileDetail, action => send({ type: 'profileAction', action }), { ...(state.mode !== 'free' ? { onCosmetics: () => open('shop') } : {}), ...(state.socialDetail ? { onInteraction: (action, pid) => { if (action === 'mail') { send({ type: 'socialAction', action: { type: 'editDraft', key: 'Recipient player id', value: String(pid) } }); open('social'); } else { const type = { friend: 'inviteFriend', trade: 'inviteTrade', team: 'inviteTeam', ignore: 'ignore' }[action] as 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore'; send({ type: 'socialAction', action: { type, pid } }); } } } : {}) })); stage.append(profile);
     }
     if (lobby.invitation) {
       const invitation = lobby.invitation;
       const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Invitation'), el('p', '', `${invitation.name} challenges you to a duel.`), el('div', 'de-row', button('Accept Duel', () => send({ type: 'replyChallenge', accept: true }), !!state.busy, true), button('Decline', () => send({ type: 'replyChallenge', accept: false }), !!state.busy)));
       panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Duel Invitation'); stage.append(panel);
     }
-    if (state.starter?.claimable) renderStarter();
+    if (state.mode !== 'free' && state.starter?.claimable) renderStarter();
   }
   function renderStarter(): void {
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Choose your Starter Deck'), el('p', '', 'Choose one free structure deck for this character.'));
@@ -308,16 +383,47 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const blank = el('option', '', 'Choose a deck'); blank.value = ''; deckSelect.append(blank);
     for (const deck of editor.decks) { const o = el('option', '', deck.name); o.value = deck.name; deckSelect.append(o); }
     deckSelect.value = editor.current?.name ?? ''; deckSelect.onchange = () => { if (deckSelect.value) send({ type: 'selectDeck', name: deckSelect.value }); };
-    const name = textField('deck-name', editor.current?.name ?? local.deckName, 'Deck name'); name.maxLength = 40; name.setAttribute('aria-label', 'Deck name'); name.oninput = () => { local.deckName = name.value; };
+    const name = textField(`deck-name:${editor.current?.name ?? 'new'}`, editor.current?.name ?? local.deckName, 'Deck name'); name.maxLength = 40; name.setAttribute('aria-label', 'Deck name'); name.oninput = () => { local.deckName = name.value; };
     toolbar.append(deckSelect, name, button('New', () => send({ type: 'newDeck', name: name.value.trim() || 'New Deck' }), !!state.busy), button('Save', () => { if (name.value.trim() && name.value !== editor.current?.name) send({ type: 'renameDeck', name: name.value.trim() }); send({ type: 'saveDeck' }); }, !editor.current || !!state.busy || !!editor.loading, true), button('Delete', () => { if (editor.current && confirmAction(`Delete deck “${editor.current.name}”?`)) send({ type: 'deleteDeck', name: editor.current.name }); }, !editor.current || !!state.busy));
     panel.append(toolbar);
+    const tools = el('details', 'de-deck-tools'); tools.dataset.key = 'deck-file-tools'; tools.append(el('summary', '', 'Deck files & recipes'));
+    const importFile = el('input'); importFile.type = 'file'; importFile.accept = '.ydc,.ydk,.json,.txt'; importFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck'); importFile.disabled = !!state.busy;
+    importFile.onchange = () => {
+      const file = importFile.files?.[0], generation = ++importGeneration, player = state.player?.id, currentName = editor.current?.name; importFile.value = '';
+      if (!file) return;
+      const legacy = /\.ydc$/i.test(file.name);
+      if (legacy && file.size !== 250) { local.message = 'A native YDC deck must contain exactly 250 bytes.'; requestRender(); return; }
+      if (file.size > MAX_DECK_IMPORT_BYTES) { local.message = 'Deck file exceeds 64 KiB.'; requestRender(); return; }
+      const hint = [...file.name.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '')].slice(0, 40).join('') || 'Imported Deck';
+      const live = () => { const current = controller.getState(); return !disposed && generation === importGeneration && current.scene === 'deck' && current.player?.id === player && current.deckEditor?.current?.name === currentName ? current.deckEditor : null; };
+      const failed = (error: unknown) => { if (live()) { local.message = error instanceof Error ? error.message : 'Could not read the deck file.'; requestRender(); } };
+      if (legacy) {
+        void file.arrayBuffer().then(buffer => { const current = live(); if (!current) return; if (buffer.byteLength !== 250) throw new Error('A native YDC deck must contain exactly 250 bytes.'); if (!current.dirty || confirmAction('Replace the current unsaved deck with this imported deck?')) send({ type: 'importLegacyDeck', bytes: new Uint8Array(buffer), name: hint }); }).catch(failed);
+      } else {
+        void file.text().then(text => { const current = live(); if (!current) return; const deck = parseDeckImport(text, hint); if (!current.dirty || confirmAction('Replace the current unsaved deck with this imported deck?')) send({ type: 'replaceDeck', deck, source: 'import' }); }).catch(failed);
+      }
+    };
+    const fileActions = el('div', 'de-row', labelled('Import YDC / YDK / JSON', importFile), button('Export YDC', () => send({ type: 'exportDeck', format: 'ydc' }), !editor.current || !!state.busy), button('Export YDK', () => send({ type: 'exportDeck', format: 'ydk' }), !editor.current || !!state.busy), button('Export JSON', () => send({ type: 'exportDeck', format: 'json' }), !editor.current || !!state.busy), button('Clear Deck', () => { if (editor.current && confirmAction('Remove every card from the current deck? Save to persist this change.')) send({ type: 'replaceDeck', deck: { name: editor.current.name, main: [], side: [], extra: [] }, source: 'clear' }); }, !editor.current || !!state.busy));
+    tools.append(fileActions);
+    if (editor.recipes?.length) {
+      const recipes = el('select'); recipes.dataset.key = 'deck-recipe'; recipes.setAttribute('aria-label', 'Deck recipe'); const blank = el('option', '', 'Choose a recipe'); blank.value = ''; recipes.append(blank);
+      for (const recipe of editor.recipes) { const o = el('option', '', recipe.name); o.value = recipe.id; recipes.append(o); }
+      tools.append(el('div', 'de-row', recipes, button('Use Recipe', () => { const recipe = editor.recipes?.find(r => r.id === recipes.value); if (recipe && (!editor.dirty || confirmAction('Replace the current unsaved deck with this recipe?'))) send({ type: 'replaceDeck', deck: { name: editor.current?.name ?? recipe.name, main: [...recipe.main], side: [...recipe.side], extra: [...recipe.extra] }, source: 'recipe' }); }, !!state.busy)));
+    }
+    tools.append(note('Imported decks and recipes may include missing cards. Ownership and legality are checked by the server when you enter a duel.')); panel.append(tools);
     if (editor.error) panel.append(el('p', 'de-error', editor.error));
+    if (local.inspected && ['main', 'side', 'extra'].includes(local.inspectedFrom)) {
+      const ids = editor.current?.[local.inspectedFrom as DeckZone] ?? [], passcode = local.inspected.passcode;
+      if (local.inspectedIndex === null || ids[local.inspectedIndex] !== passcode) { const index = ids.findIndex(id => id === passcode); if (index < 0) { local.inspectedFrom = 'collection'; local.inspectedIndex = null; } else local.inspectedIndex = index; }
+    }
     const cols = el('div', 'de-deck-columns');
     const inspector = el('aside', 'de-card-inspector de-stack'); const card = local.inspected;
     if (card) { inspector.append(drawCard(card), el('h3', '', card.name), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`), el('p', '', card.description ?? 'Card description unavailable.')); }
     else inspector.append(note('Select a card to inspect its details.'));
     const deckColumn = el('section', 'de-scroll');
-    const lookup = new Map(editor.collection.map(c => [c.passcode, c]));
+    const owned = new Map(editor.collection.map(c => [c.passcode, c.owned ?? 0]));
+    const pool = (editor.allCards?.length ? editor.allCards : editor.collection).map(c => ({ ...c, owned: owned.get(c.passcode) ?? c.owned ?? 0 }));
+    const lookup = new Map(pool.map(c => [c.passcode, c]));
     for (const zone of ['main', 'extra', 'side'] as const) {
       const ids = editor.current?.[zone] ?? [], zoneNode = el('section', 'de-deck-zone'), heading = el('div', 'de-zone-title', `${zone === 'extra' ? 'Fusion' : zone === 'main' ? 'Main' : 'Side'} Deck`, el('span', '', String(ids.length)));
       const grid = el('div', 'de-card-grid');
@@ -326,7 +432,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const tile = drawCard(current, state.settings.showCardNames), b = button('', () => inspect(current, zone, index));
         b.className = tile.className; b.dataset.key = `deck-card:${zone}:${index}`; b.append(...Array.from(tile.childNodes)); b.title = `${current.name} · double-click to remove`; b.ondblclick = () => send({ type: 'deckCard', passcode, from: zone, to: 'collection', index });
         b.draggable = true; b.ondragstart = e => { e.dataTransfer?.setData('application/x-duel-card', JSON.stringify({ passcode, from: zone, index })); };
-        b.onkeydown = e => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); send({ type: 'deckCard', passcode, from: zone, to: 'collection', index }); } };
+        b.onkeydown = e => { if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); const toIndex = index + (e.key === 'ArrowLeft' ? -1 : 1); if (toIndex >= 0 && toIndex < ids.length) send({ type: 'deckReorder', zone, fromIndex: index, toIndex }); return; } if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); send({ type: 'deckCard', passcode, from: zone, to: 'collection', index }); } };
+        b.ondragover = e => e.preventDefault(); b.ondrop = e => { e.preventDefault(); e.stopPropagation(); try { const drag = JSON.parse(e.dataTransfer?.getData('application/x-duel-card') || 'null') as { from?: unknown; index?: unknown; passcode?: unknown } | null; if (drag?.from === zone && Number.isSafeInteger(drag.index) && ids[Number(drag.index)] === drag.passcode) send({ type: 'deckReorder', zone, fromIndex: Number(drag.index), toIndex: index }); else dropCard(e, zone); } catch { local.message = 'This card could not be reordered.'; requestRender(); } };
         grid.append(b);
       }
       zoneNode.append(heading, grid); zoneNode.ondragover = e => e.preventDefault(); zoneNode.ondrop = e => dropCard(e, zone); deckColumn.append(zoneNode);
@@ -336,11 +443,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const z of ['main', 'extra', 'side'] as const) { const o = el('option', '', z === 'extra' ? 'Fusion Deck' : `${z === 'main' ? 'Main' : 'Side'} Deck`); o.value = z; zoneSelect.append(o); }
     zoneSelect.value = local.deckZone; zoneSelect.onchange = () => { local.deckZone = zoneSelect.value as DeckZone; };
     const typeFilter = el('select'); typeFilter.dataset.key = 'collection-type'; typeFilter.setAttribute('aria-label', 'Card type filter');
-    for (const type of ['all', ...new Set(editor.collection.map(c => c.type).filter((t): t is string => !!t))]) { const o = el('option', '', type === 'all' ? 'All card types' : type); o.value = type; typeFilter.append(o); } typeFilter.value = local.collectionType; typeFilter.onchange = () => { local.collectionType = typeFilter.value; local.collectionPage = 0; requestRender(); };
+    for (const [type, label] of [['all', 'All card types'], ['monster', 'Monsters'], ['spell', 'Spells'], ['trap', 'Traps'], ['fusion', 'Fusion'], ['ritual', 'Ritual'], ['normal', 'Normal'], ['effect', 'Effect']] as const) { const o = el('option', '', label); o.value = type; typeFilter.append(o); } typeFilter.value = local.collectionType; typeFilter.onchange = () => { local.collectionType = typeFilter.value as DeckCardType; local.collectionPage = 0; requestRender(); };
     const sort = el('select'); sort.dataset.key = 'collection-sort'; sort.setAttribute('aria-label', 'Collection order');
-    for (const [value, label] of [['collection', 'Collection order'], ['name', 'Name'], ['level', 'Level'], ['attack', 'ATK'], ['defense', 'DEF'], ['passcode', 'Passcode']] as const) { const o = el('option', '', label); o.value = value; sort.append(o); } sort.value = local.collectionSort; sort.onchange = () => { local.collectionSort = sort.value as CollectionSort; local.collectionPage = 0; requestRender(); };
-    const cards = sortCollection(filterCollection(editor.collection, local.search, local.collectionType), local.collectionSort), pageSize = 80, pages = Math.max(1, Math.ceil(cards.length / pageSize)); local.collectionPage = Math.min(local.collectionPage, pages - 1);
-    const count = note(`${cards.length} owned cards · Page ${local.collectionPage + 1}/${pages}`), grid = el('div', 'de-card-grid de-scroll de-fill');
+    for (const [value, label] of [['type', 'Type'], ['collection', 'Collection order'], ['name', 'Name'], ['level', 'Level'], ['attack', 'ATK'], ['defense', 'DEF'], ['passcode', 'Passcode']] as const) { const o = el('option', '', label); o.value = value; sort.append(o); } sort.value = local.collectionSort; sort.onchange = () => { local.collectionSort = sort.value as DeckSort; local.collectionPage = 0; requestRender(); };
+    const filters = renderDeckFilters(pool, !!editor.allCards?.length);
+    const cards = deckCollection(pool, { ...local.deckFilters, query: local.search, type: local.collectionType, sort: local.collectionSort }), pageSize = 80, pages = Math.max(1, Math.ceil(cards.length / pageSize)); local.collectionPage = Math.min(local.collectionPage, pages - 1);
+    const count = note(`${cards.length} matching cards · Page ${local.collectionPage + 1}/${pages}`), grid = el('div', 'de-card-grid'), gridScroll = el('div', 'de-scroll de-fill', grid);
     for (const current of cards.slice(local.collectionPage * pageSize, (local.collectionPage + 1) * pageSize)) {
       const tile = drawCard(current, state.settings.showCardNames), b = button('', () => inspect(current)); b.className = tile.className; b.dataset.key = `collection-card:${current.id}`; b.append(...Array.from(tile.childNodes), el('span', 'de-card-count', `×${current.owned ?? 0}`));
       b.title = `${current.name} · double-click to add`;
@@ -350,18 +458,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     collection.ondragover = e => e.preventDefault(); collection.ondrop = e => dropCard(e, 'collection');
     const paging = el('div', 'de-row de-spread', button('Previous', () => { local.collectionPage--; requestRender(); }, local.collectionPage === 0), button('Next', () => { local.collectionPage++; requestRender(); }, local.collectionPage + 1 >= pages));
-    collection.append(search, el('div', 'de-row', typeFilter, sort), zoneSelect, count, grid, paging);
+    collection.append(search, el('div', 'de-row', typeFilter, sort), filters, zoneSelect, count, gridScroll, paging);
     if (card && card.passcode !== undefined) {
       if (['main', 'side', 'extra'].includes(local.inspectedFrom)) {
         const from = local.inspectedFrom as DeckZone, passcode = card.passcode;
-        collection.append(note(card.name), button('Remove selected card', () => send({ type: 'deckCard', passcode, from, to: 'collection', ...(local.inspectedIndex === null ? {} : { index: local.inspectedIndex }) }), !editor.current || !!state.busy));
+        collection.append(note(card.name), button('Move earlier', () => { if (local.inspectedIndex !== null && local.inspectedIndex > 0) send({ type: 'deckReorder', zone: from, fromIndex: local.inspectedIndex, toIndex: local.inspectedIndex - 1 }); }, local.inspectedIndex === null || local.inspectedIndex <= 0 || !!state.busy), button('Move later', () => { if (local.inspectedIndex !== null && editor.current && local.inspectedIndex + 1 < editor.current[from].length) send({ type: 'deckReorder', zone: from, fromIndex: local.inspectedIndex, toIndex: local.inspectedIndex + 1 }); }, local.inspectedIndex === null || !editor.current || local.inspectedIndex + 1 >= editor.current[from].length || !!state.busy), button('Remove selected card', () => send({ type: 'deckCard', passcode, from, to: 'collection', ...(local.inspectedIndex === null ? {} : { index: local.inspectedIndex }) }), !editor.current || !!state.busy));
         if (from !== 'extra') collection.append(button(`Move to ${from === 'main' ? 'Side' : 'Main'} Deck`, () => send({ type: 'deckCard', passcode, from, to: from === 'main' ? 'side' : 'main', ...(local.inspectedIndex === null ? {} : { index: local.inspectedIndex }) }), !editor.current || !!state.busy));
       } else collection.append(button(`Add ${card.name}`, () => addCard(card), !editor.current || !!state.busy));
     }
     if (card) {
       const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
     }
-    cols.append(inspector, deckColumn, collection); panel.append(cols, note('Double-click or drag cards to move them. Select a deck card and press Delete to remove it. Server validation applies when saving and entering a duel.')); n.append(panel);
+    cols.append(inspector, deckColumn, collection); panel.append(cols, note('Double-click or drag cards to move them. Select a deck card and press Delete to remove it, or Alt + Left/Right to reorder it. Server validation applies when saving and entering a duel.')); n.append(panel);
     function addCard(c: CardView): void {
       if (!editor?.current || c.passcode === undefined) return;
       const reason = deckPlacementReason(c, local.deckZone, editor.current);
@@ -373,11 +481,55 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       try {
         const p = JSON.parse(e.dataTransfer?.getData('application/x-duel-card') || 'null') as { passcode?: unknown; from?: unknown; index?: unknown } | null;
         if (!p || !Number.isSafeInteger(p.passcode) || !['collection', 'main', 'side', 'extra'].includes(String(p.from))) return;
+        if (p.from === to) return;
         const c = lookup.get(Number(p.passcode));
         if (p.from === 'collection' && to !== 'collection' && c && editor?.current) { const reason = deckPlacementReason(c, to, editor.current); if (reason) { local.message = reason; requestRender(); return; } }
         send({ type: 'deckCard', passcode: Number(p.passcode), from: p.from as DeckZone | 'collection', to, ...(Number.isSafeInteger(p.index) ? { index: Number(p.index) } : {}) });
       } catch { local.message = 'This card could not be moved.'; requestRender(); }
     }
+  }
+  function renderDeckFilters(cards: readonly CardView[], hasAllCards: boolean): HTMLElement {
+    const details = el('details', 'de-deck-filters'); details.dataset.key = 'deck-filters'; details.append(el('summary', '', 'Filters'));
+    const update = () => { local.collectionPage = 0; requestRender(); };
+    const owned = el('input'); owned.type = 'checkbox'; owned.checked = local.deckFilters.ownedOnly; owned.disabled = !hasAllCards; owned.onchange = () => { local.deckFilters.ownedOnly = owned.checked; update(); }; details.append(labelled('Owned only', owned));
+    const attrs = [...new Set(cards.map(c => c.attribute).filter(v => v !== undefined).map(String))].sort().slice(0, 64);
+    if (attrs.length) { const row = el('div', 'de-row'); for (const attr of attrs) { const check = el('input'); check.type = 'checkbox'; check.checked = local.deckFilters.attributes.includes(attr); check.dataset.key = `deck-attribute:${attr}`; check.onchange = () => { local.deckFilters.attributes = check.checked ? [...local.deckFilters.attributes, attr] : local.deckFilters.attributes.filter(a => a !== attr); update(); }; row.append(labelled(attr, check)); } details.append(el('strong', '', 'Attributes'), row); }
+    const races = [...new Set(cards.map(c => c.race).filter(v => v !== undefined).map(String))].sort().slice(0, 64);
+    if (races.length) { const select = el('select'); select.dataset.key = 'deck-race'; select.setAttribute('aria-label', 'Monster race'); const all = el('option', '', 'All races'); all.value = ''; select.append(all); for (const race of races) { const o = el('option', '', race); o.value = race; select.append(o); } select.value = local.deckFilters.race; select.onchange = () => { local.deckFilters.race = select.value; update(); }; details.append(select); }
+    for (const [key, label] of [['level', 'Level'], ['attack', 'ATK'], ['defense', 'DEF']] as const) {
+      const row = el('div', 'de-row');
+      for (const index of [0, 1] as const) { const input = textField(`deck-filter:${key}:${index}`, String(local.deckFilters[key][index]), index ? 'Maximum' : 'Minimum'); input.type = 'number'; input.min = key === 'level' ? '0' : '-1'; if (key === 'level') input.max = '12'; input.setAttribute('aria-label', `${label} ${index ? 'maximum' : 'minimum'}`); input.onchange = () => { if (key === 'level') local.deckFilters.level[index] = input.value === '' ? index ? 12 : 0 : Number(input.value); else local.deckFilters[key][index] = input.value; update(); }; row.append(input); } details.append(el('span', '', label), row);
+    }
+    details.append(button('Reset Filters', () => { local.deckFilters = defaultDeckFilters(); local.search = ''; local.collectionType = 'all'; local.collectionSort = 'type'; resetDraftsNextRender = true; update(); }));
+    return details;
+  }
+  function renderSideboarding(): void {
+    const side = state.sideboarding; if (!side) return;
+    if (local.sideboardRound !== side.round) { local.sideboardRound = side.round; local.sideboardMain = null; local.sideboardSide = null; }
+    const n = sceneRoot('Match Sideboarding'), panel = el('section', 'de-panel de-stack de-fill', title(`Match · Sideboard for Game ${side.round}`));
+    panel.append(el('p', '', `Match score: ${side.scores[0]} wins · ${side.scores[1]} losses · ${side.scores[2]} draws`));
+    if (side.deadline) { const seconds = Math.max(0, Math.ceil((side.deadline - Date.now()) / 1000)); panel.append(note(`Sideboarding clock: ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)); }
+    if (side.error) panel.append(el('p', 'de-error', side.error));
+    const sideboardIssue = sideboardDifference(side.deck, side.original), exact = sideboardIssue === null;
+    const pool = state.deckEditor?.allCards ?? state.deckEditor?.collection ?? [], lookup = new Map(pool.map(c => [c.passcode, c]));
+    const columns = el('div', 'de-sideboard-columns de-fill');
+    for (const zone of ['main', 'side', 'extra'] as const) {
+      const section = el('section', 'de-deck-zone de-scroll'), grid = el('div', 'de-card-grid'); section.append(el('h3', 'de-zone-title', `${zone === 'extra' ? 'Fusion' : zone === 'main' ? 'Main' : 'Side'} Deck · ${side.deck[zone].length}/${side.original[zone].length}`));
+      for (const [index, passcode] of side.deck[zone].entries()) {
+        const card = lookup.get(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` }, tile = drawCard(card, state.settings.showCardNames);
+        const selected = zone === 'main' ? local.sideboardMain === index : zone === 'side' && local.sideboardSide === index;
+        const b = button('', () => { local.inspected = card; if (zone === 'main') local.sideboardMain = index; else if (zone === 'side') local.sideboardSide = index; requestRender(); }, side.ready || !!state.busy);
+        b.className = tile.className; b.dataset.key = `sideboard:${side.round}:${zone}:${index}`; b.setAttribute('aria-label', `${card.name}, ${zone} deck`); b.setAttribute('aria-pressed', String(selected)); b.append(...Array.from(tile.childNodes)); grid.append(b);
+      }
+      section.append(grid); columns.append(section);
+    }
+    panel.append(columns);
+    const move = (from: 'main' | 'side') => { const index = from === 'main' ? local.sideboardMain : local.sideboardSide; if (index === null || side.deck[from][index] === undefined) return; send({ type: 'sideboardMove', passcode: side.deck[from][index], from, to: from === 'main' ? 'side' : 'main', index }); local.sideboardMain = null; local.sideboardSide = null; };
+    panel.append(el('div', 'de-row', button('Main → Side', () => move('main'), local.sideboardMain === null || side.ready || !!state.busy), button('Side → Main', () => move('side'), local.sideboardSide === null || side.ready || !!state.busy), button('Swap Selected Cards', () => { if (local.sideboardMain !== null && local.sideboardSide !== null) { send({ type: 'sideboardSwap', mainIndex: local.sideboardMain, sideIndex: local.sideboardSide }); local.sideboardMain = null; local.sideboardSide = null; } }, local.sideboardMain === null || local.sideboardSide === null || side.ready || !!state.busy, true)));
+    panel.append(note('Only Main and Side cards may be exchanged. The original card pool and each section size must be restored before submitting. Fusion cards stay in the Fusion Deck.'));
+    if (sideboardIssue) panel.append(el('p', 'de-error', sideboardIssue));
+    if (local.inspected) panel.append(el('p', '', `${local.inspected.name}: ${local.inspected.description ?? 'Card description unavailable.'}`));
+    panel.append(button(side.ready ? 'Deck Submitted · Waiting for Opponent' : 'Submit Sideboard', () => send({ type: 'submitSideboard' }), !exact || side.ready || !!state.busy, true)); n.append(panel);
   }
   function renderShop(): void {
     const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', 'Loading the shop catalogue.');
@@ -389,34 +541,80 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (shop.error) panel.append(el('p', 'de-error', shop.error));
     const grid = el('div', 'de-shop-grid de-scroll de-fill');
     for (const item of shop.items.filter(i => local.shopCategory === 'all' || (i.category ?? 'items') === local.shopCategory).slice(0, 240)) {
-      const product = el('article', 'de-shop-item'), image = safeImageUrl(item.image); if (image) { const img = el('img'); img.src = image; img.alt = ''; img.loading = 'lazy'; product.append(img); }
+      const product = el('article', 'de-shop-item'), image = safeImageUrl(item.image);
+      if (item.card) product.append(el('div', 'de-shop-art', drawCard(item.card, false)));
+      else if (item.imagePath && controller.loadArchiveImage) { const img = el('img'); img.alt = ''; img.className = 'de-shop-art'; product.append(img); loadArchiveArt(item.imagePath, img); }
+      else if (image) { const img = el('img'); img.src = image; img.alt = ''; img.loading = 'lazy'; img.className = 'de-shop-art'; product.append(img); }
       product.append(el('h3', '', item.name), el('strong', '', `${item.price.toLocaleString()} MP`));
+      if (item.description) { const about = el('p', 'de-note de-shop-about', item.description); about.title = item.description; product.append(about); }
       const count = textField(`buy-count-${item.id}`, '1'); count.type = 'number'; count.min = '1'; count.max = '50'; count.setAttribute('aria-label', `${item.name} quantity`);
       const buy = button(item.owned ? 'Owned' : 'Purchase', () => { const quantity = Number(count.value); if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) { local.message = 'Choose a quantity from 1 to 50.'; requestRender(); return; } if (confirmAction(`Purchase ${quantity} × ${item.name} for ${(item.price * quantity).toLocaleString()} MP?`)) send({ type: 'buy', itemId: item.id, count: quantity }); }, !!item.owned || shop.available === false || !!shop.loading || !!state.busy || item.price > shop.mp, true);
       product.append(count, buy); grid.append(product);
     }
     if (!shop.items.length) grid.append(note('No products have been received from the server.'));
     panel.append(grid);
+    if (shop.purchased?.length) {
+      const receipt = el('details', 'de-shop-receipt'); receipt.dataset.key = 'shop-receipt'; receipt.open = true;
+      receipt.append(el('summary', '', `Acquired Cards (${shop.purchased.length})${shop.replayed ? ' · Previous receipt' : ''}`)); const cards = el('div', 'de-receipt-cards');
+      for (const card of shop.purchased.slice(0, 80)) { const preview = button('', () => { local.inspected = card; requestRender(); }); preview.append(drawCard(card)); preview.setAttribute('aria-label', `Inspect ${card.name}`); cards.append(preview); }
+      if (local.inspected && shop.purchased.some(card => card.id === local.inspected!.id && card.passcode === local.inspected!.passcode)) receipt.append(note(`${local.inspected.name}: ${local.inspected.description ?? 'Card description unavailable.'}`));
+      receipt.append(cards); if (shop.purchased.length > 80) receipt.append(note(`Showing 80 of ${shop.purchased.length} cards.`)); panel.append(receipt);
+    }
     if (state.online) { const cosmetics = el('details', 'de-shop-cosmetics'); cosmetics.dataset.key = 'shop-cosmetics'; cosmetics.append(el('summary', '', 'Cosmetic Boxes & Wardrobe'), renderOnlineFeature(state.online, action => send({ type: 'onlineAction', action }), 'cosmetics')); panel.append(cosmetics); }
     n.append(panel);
   }
+  /** Fallback field without original art: the same zone geometry as the original sheet. */
   function drawField(canvas: HTMLCanvasElement): void {
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     const g = ctx.createLinearGradient(0, 0, 0, 768); g.addColorStop(0, '#07315b'); g.addColorStop(.5, '#176e8c'); g.addColorStop(1, '#0b426a'); ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 768);
-    ctx.strokeStyle = '#8ed9e4'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(180, 351); ctx.lineTo(844, 351); ctx.stroke();
-    ctx.font = '11px Arial'; ctx.textAlign = 'center';
-    for (const y of [180, 282, 417, 523]) for (let k = 0; k < 5; k++) { const x = 288 + 112 * k; ctx.strokeRect(x - 37, y - 49, 74, 98); ctx.fillStyle = '#c1eced66'; ctx.fillText(y === 282 || y === 417 ? 'MONSTER' : 'SPELL / TRAP', x, y + 4); }
-    for (const x of [122, 902]) for (const y of [180, 282, 417, 523]) { ctx.strokeRect(x - 37, y - 49, 74, 98); }
-    ctx.fillStyle = '#cff5ff'; ctx.font = '14px Arial'; ctx.fillText('DUEL EVOLUTION', 512, 359);
+    ctx.lineWidth = 3;
+    for (const side of [0, 1] as const) {
+      ctx.strokeStyle = side ? '#ff4f7b' : '#1d7cf2';
+      for (const row of ['monster', 'spell'] as const) for (let k = 0; k < 5; k++) {
+        const x = side ? 1024 - FIELD_LAYOUT.cellX(k) : FIELD_LAYOUT.cellX(k), y = FIELD_LAYOUT.rows[row][side];
+        ctx.strokeRect(x - 38, y - 52, 76, 104);
+      }
+      for (const pile of Object.values(FIELD_LAYOUT.piles)) { const [x, y] = pile[side]; ctx.strokeRect(x - 28, y - 39, 56, 78); }
+    }
   }
   function renderDuel(): void {
     const duel = state.duel; if (!duel) return emptyPanel('duel', 'Duel', 'Waiting for duel state.');
-    const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Duel field'); stage.append(canvas); drawField(canvas);
+    // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
+    const board = el('div', 'de-duel-board'); stage.append(board);
+    const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Duel field'); board.append(canvas); drawField(canvas);
+    const archive = controller.loadArchiveImage ? (path: string, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; image.decoding = 'async'; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
+    if (archive) {
+      // The original backdrop, then the plain halves of the zone sheet: the opponent's red half above, the player's blue half below.
+      if (duel.background) board.append(archive(duel.background, 'de-duel-bg'));
+      for (const [half, top] of [[1, 50], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
+    }
     const hud = el('div', 'de-duel-hud');
-    const duelist = (index: 0 | 1) => { const lp = el('strong', '', `LP ${duel.players[index].lp.toLocaleString()}`); lpNodes[index] = lp; return el('div', 'de-duelist', el('div', '', duel.players[index].name), lp); };
-    const clock = duel.timer ? `${duel.timer.paused ? 'Paused · ' : ''}${duel.players[duel.timer.player].name} ${Math.floor(Math.max(0, duel.timer.seconds) / 60)}:${String(Math.max(0, duel.timer.seconds) % 60).padStart(2, '0')}` : '';
-    hud.append(duelist(0), el('div', 'de-duel-phase', `Turn ${duel.turn} · ${duel.phase}`, el('div', '', duel.players[duel.turnPlayer].name), ...(clock ? [el('div', '', clock)] : [])), duelist(1)); stage.append(hud);
+    const match = state.match ? `Match ${state.match.round} · ${state.match.scores[0]}–${state.match.scores[1]}${state.match.scores[2] ? ` · ${state.match.scores[2]} drawn` : ''}` : '';
+    const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? `${duel.timer.paused ? 'Paused · ' : ''}${Math.floor(Math.max(0, duel.timer.seconds) / 60)}:${String(Math.max(0, duel.timer.seconds) % 60).padStart(2, '0')}` : '';
+    const duelist = (index: 0 | 1) => {
+      const player = duel.players[index], lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
+      const panel = el('div', `de-duelist${duel.turnPlayer === index ? ' active' : ''}`, el('div', 'de-duelist-name', player.name), el('div', 'de-lp', el('span', 'de-lp-label', 'LP'), el('span', 'de-lp-bar', bar), lp));
+      panel.setAttribute('aria-label', `${player.name}: ${player.lp} life points${duel.turnPlayer === index ? ', their turn' : ''}`);
+      if (clock(index)) panel.append(el('div', 'de-duel-clock', `Time ${clock(index)}`));
+      if (index === 0 && match) panel.append(el('div', 'de-duel-clock', match));
+      for (const counter of (player.turnCounters ?? []).filter(c => c.turns > 0)) panel.append(note(`${counter.name}: ${counter.turns} turns`));
+      return panel;
+    };
+    hud.append(duelist(0), duelist(1)); stage.append(hud);
+    const phases = [['draw', 'DP', 'Draw Phase'], ['standby', 'SP', 'Standby Phase'], ['main1', 'M1', 'Main Phase 1'], ['battle', 'BP', 'Battle Phase'], ['main2', 'M2', 'Main Phase 2'], ['end', 'EP', 'End Phase']] as const;
+    const current = phases.find(([key]) => key === duel.phase);
+    const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-label', `Turn ${duel.turn}${current ? `, ${current[2]}` : ''}, ${duel.players[duel.turnPlayer].name}'s turn`);
+    bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(duel.turn))));
+    phases.forEach(([key, short, long], row) => {
+      const cell = el('div', `de-phase${key === duel.phase ? ' current' : ''}`); cell.title = long;
+      // duel_pbutton_01: c01 for the player's turn, c00 the opponent's; column 2 is the lit current phase.
+      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 0 : 1}.png`); sheet.style.left = key === duel.phase ? '-200%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', short)); }
+      else cell.textContent = short;
+      bar.append(cell);
+    });
+    board.append(bar);
+    if (state.relay) { const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = state.relay.players[2 * team + slot], active = state.relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? state.relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : state.relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } stage.append(roster); }
     const cards = el('div', 'de-field-cards');
     const visibleCardIds = new Set<string>();
     // Only the topmost card of a pile is drawn; counts remain visible without allocating one DOM tree per deck card.
@@ -431,16 +629,20 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.dataset.key = `field-card:${c.id}`;
       b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}`; b.append(...Array.from(tile.childNodes));
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
-      b.setAttribute('aria-label', c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`);
+      const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
+      const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
+      if (counters.length) b.append(el('span', 'de-card-counter', counters.map(counter => counter.kind === 0 ? String(counter.count) : `${counter.kind}:${counter.count}`).join(' · ')));
+      if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
+      b.setAttribute('aria-label', c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`);
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }
-    stage.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); stage.append(effectsLayer); presentEffects(duel);
+    board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel);
     const actions = el('div', 'de-duel-actions');
     for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => send({ type: 'duelAction', actionId: a.id }), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
-    else if (!duel.ended) actions.append(button('Surrender', () => { if (confirmAction('Surrender this duel?')) send({ type: 'surrender' }); }, !!state.busy));
-    else actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    else if (!duel.ended) actions.append(button('Surrender', () => { if (confirmAction('Surrender this duel?')) send({ type: 'surrender' }); }, !!state.busy || state.relay?.canAct === false));
+    else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
     stage.append(actions);
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log); log.scrollTop = log.scrollHeight;
@@ -463,7 +665,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     send({ type: 'duelRespond', promptId, response });
   }
   function renderPrompt(prompt: DuelPromptView): void {
-    if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); }
+    if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; }
     for (const id of local.selected) if (!(prompt.kind === 'attributes' ? prompt.options.some(o => o.id === id && !o.disabled) : prompt.candidates?.some(c => c.id === id && !c.disabled))) local.selected.delete(id);
     const panel = el('section', 'de-panel de-duel-prompt'); if (prompt.kind === 'place' || prompt.options.some(o => o.cardId)) panel.className += ' de-target-prompt'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', prompt.text); panel.append(title(prompt.text));
     const respond = (response: DuelResponse) => respondToPrompt(prompt.id, response);
@@ -482,13 +684,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       panel.append(options);
     }
     if (prompt.kind === 'cards' || prompt.candidates?.length) {
+      // Option prompts (yes/no, effect choice) may list the cards they refer to: those are for reading only.
+      const reference = !prompt.readOnly && !['cards', 'announce'].includes(prompt.kind), inspectOnly = prompt.readOnly || reference;
       const choices = el('div', 'de-prompt-candidates');
       for (const candidate of prompt.candidates ?? []) {
-        const selected = local.selected.has(candidate.id), b = button('', () => { if (selected) local.selected.delete(candidate.id); else if (local.selected.size < (prompt.max ?? prompt.candidates?.length ?? 0)) local.selected.add(candidate.id); requestRender(); }, !!candidate.disabled || !!state.busy);
-        b.dataset.key = `prompt-candidate:${prompt.id}:${candidate.id}`; b.setAttribute('aria-pressed', String(selected)); if (candidate.card) b.append(drawCard(candidate.card)); b.append(el('span', '', candidate.label)); choices.append(b);
+        const selected = local.selected.has(candidate.id), b = button('', () => { if (inspectOnly) { local.promptInspection = candidate.card ?? null; requestRender(); return; } if (selected) local.selected.delete(candidate.id); else if (local.selected.size < (prompt.max ?? prompt.candidates?.length ?? 0)) local.selected.add(candidate.id); requestRender(); }, (inspectOnly ? !candidate.card : !!candidate.disabled) || !!state.busy);
+        b.dataset.key = `prompt-${reference ? 'reference' : 'candidate'}:${prompt.id}:${candidate.id}`; if (!inspectOnly) b.setAttribute('aria-pressed', String(selected)); if (candidate.card) b.append(drawCard(candidate.card)); b.append(el('span', '', candidate.label)); choices.append(b);
       }
-      const confirm = button('Confirm Selection', () => respond({ cardIds: [...local.selected] }), local.selected.size < (prompt.min ?? 0) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      panel.append(note(`Choose ${prompt.min ?? 0}–${prompt.max ?? prompt.candidates?.length ?? 0}. Selected: ${local.selected.size}`), choices, confirm);
+      const confirm = button(prompt.readOnly ? 'Close Card List' : 'Confirm Selection', () => respond({ cardIds: [...local.selected] }), local.selected.size < (prompt.min ?? 0) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
+      if (reference) panel.append(choices);
+      else { if (prompt.readOnly) panel.append(note('Select a visible card to read its details.')); else panel.append(note(`Choose ${prompt.min ?? 0}–${prompt.max ?? prompt.candidates?.length ?? 0}. Selected: ${local.selected.size}`)); panel.append(choices, confirm); }
+      if (inspectOnly && local.promptInspection) panel.append(el('aside', 'de-prompt-inspector', drawCard(local.promptInspection), el('h3', '', local.promptInspection.name), el('p', '', local.promptInspection.description ?? 'Card description unavailable.')));
     }
     if (prompt.kind === 'number') {
       const form = el('form', 'de-row'), input = textField(`prompt-number:${prompt.id}`, String(prompt.numberMin ?? 0)); input.type = 'number'; input.min = String(prompt.numberMin ?? 0); input.max = String(prompt.numberMax ?? 0x7fffffff); input.setAttribute('aria-label', prompt.text);
@@ -506,7 +712,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const prep = state.preparation; if (!prep) return;
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Preparation'));
     const phase = prep.phase.toLowerCase();
-    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
+    if (prep.role === 'partner' || prep.role === 'spectator') panel.append(el('p', '', prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…'));
+    else if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
       panel.append(el('p', '', 'Choose your hand.'), el('div', 'de-row', ...(['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => button(label, () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }), !!state.busy, true))));
     } else if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) {
       panel.append(el('p', '', 'Choose who goes first.'), el('div', 'de-row', button('Go First', () => send({ type: 'chooseFirst', first: true }), !!state.busy, true), button('Go Second', () => send({ type: 'chooseFirst', first: false }), !!state.busy)));
@@ -529,6 +736,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   function renderSettings(): void {
     const n = sceneRoot('Options'), panel = el('section', 'de-panel de-center de-stack', title('Options'));
+    const display = browserDisplay.state, displayGroup = el('section', 'de-settings-row', el('h3', '', 'Display'), note(display.active ? 'Fullscreen' : 'Windowed'));
+    const fullscreen = button(display.active ? 'Exit Fullscreen' : 'Enter Fullscreen', () => { void browserDisplay.toggle(); }, !display.supported || display.pending); fullscreen.dataset.key = 'browser-fullscreen-toggle'; fullscreen.setAttribute('aria-pressed', String(display.active));
+    displayGroup.append(fullscreen); if (display.pending) displayGroup.append(note('Waiting for the browser display change…'));
+    if (!display.supported) displayGroup.append(note(browserDisplay.unavailableMessage));
+    if (display.error) { const error = el('p', 'de-error', display.error); error.setAttribute('role', 'alert'); displayGroup.append(error); }
+    panel.append(displayGroup);
+    panel.append(el('div', 'de-settings-row', el('h3', '', 'Language'), note('English'), note('Additional translations are unavailable.')));
+    if (state.dataStatus) {
+      const data = state.dataStatus, details = el('details', 'de-audio-details'); details.dataset.key = 'options-data'; details.open = data.issues.length > 0;
+      details.append(el('summary', '', 'Game data'), note(data.loading ? 'Loading game data…' : data.issues.length ? 'Some game data is unavailable.' : 'Game data loaded.'));
+      if (data.issues.length) details.append(el('ul', '', ...data.issues.slice(0, 16).map(issue => el('li', '', issue))));
+      details.append(button(data.loading ? 'Loading Game Data…' : 'Retry loading game data', () => send({ type: 'reloadData' }), data.loading || !!state.busy)); panel.append(details);
+    }
     for (const [key, name] of [['sound', 'Sound effects'], ['music', 'Music']] as const) {
       const input = el('input'); input.type = 'range'; input.min = '0'; input.max = '1'; input.step = '0.05'; input.value = String(state.settings[key]); input.setAttribute('aria-label', name);
       input.onchange = () => send({ type: 'settings', settings: { [key]: Number(input.value) } }); panel.append(labelled(`${name} · ${Math.round(state.settings[key] * 100)}%`, input));
@@ -542,38 +762,47 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       recording.append(el('div', 'de-row', button('Start Recording', () => { if (!capture.records || confirmAction('Start a new recording? This replaces the current recording.')) send({ type: 'captureStart' }); }, capture.recording || !!state.busy), button('Stop Recording', () => send({ type: 'captureStop' }), !capture.recording), button('Download Recording', () => send({ type: 'captureDownload' }), capture.recording || !capture.records))); panel.append(recording);
     }
     if (state.audio) { const audio = el('details', 'de-audio-details'); audio.dataset.key = 'options-audio'; audio.append(el('summary', '', 'Audio files & playback'), renderAudioFeature(state.audio, action => send({ type: 'audioAction', action }))); panel.append(audio); }
-    panel.append(button('Back', () => open(state.player ? 'lobby' : 'title'))); n.append(panel);
+    panel.append(button('Back', () => open(state.sideboarding || state.preparation || state.match && !state.match.complete || state.duel && !state.duel.ended ? 'duel' : state.player ? 'lobby' : 'title'))); n.append(panel);
   }
   function render(): void {
     if (disposed || rendering) return; rendering = true;
     try {
       state = controller.getState();
+      if (state.scene !== 'lobby') { worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
+      const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
+      if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
-      if (renderedIdentity !== identity) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
+      if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
       else for (const field of Array.from(host.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[data-key]'))) {
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(field.tagName) && !secretField(field) && !['checkbox', 'radio', 'range', 'file', 'button', 'submit'].includes(field.type)) drafts.set(field.dataset.key!, field.value);
       }
       for (const details of Array.from(host.querySelectorAll<HTMLDetailsElement>('details'))) if (details.dataset.key) expanded.set(details.dataset.key, details.open);
-      fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; delete lpNodes[0]; delete lpNodes[1];
-      observer?.disconnect(); for (const entry of art.values()) { entry.used = false; entry.images.clear(); }
-      if (!state.duel?.prompt) { local.promptId = null; local.selected.clear(); }
+      fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1];
+      observer?.disconnect(); for (const entry of art.values()) { entry.used = false; for (const image of entry.images) { image.onerror = null; image.onload = null; image.removeAttribute('src'); } entry.images.clear(); }
+      if (!state.duel?.prompt) { local.promptId = null; local.selected.clear(); local.promptInspection = null; }
       const previousPromptId = local.promptId;
+      const npcIdentity = state.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene) ? `${state.scene}/${state.npc.npc?.id}/${state.npc.stage}` : '';
+      const focusNpc = !!npcIdentity && npcIdentity !== renderedNpcIdentity; renderedNpcIdentity = npcIdentity;
       const active = document.activeElement as HTMLElement | null;
       const focusKey = active && host.contains(active) ? active.dataset.key : undefined;
-      const editable = active && !secretField(active) && ['INPUT', 'TEXTAREA'].includes(active.tagName) ? active as HTMLInputElement | HTMLTextAreaElement : null;
+      const editable = restoreDrafts && active && !secretField(active) && ['INPUT', 'TEXTAREA'].includes(active.tagName) ? active as HTMLInputElement | HTMLTextAreaElement : null;
       const selection = focusKey && editable ? { start: editable.selectionStart, end: editable.selectionEnd, value: editable.value, password: editable.type === 'password' } : null;
       header.replaceChildren(el('h1', '', 'Duel Evolution'));
-      const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.status);
+      const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status'); header.append(status);
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene;
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
-      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
-      if (state.preparation) renderPreparation();
+      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
+      if (state.preparation && !state.sideboarding) renderPreparation();
+      if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
+        const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.shop?.items.find(item => item.id === id)?.name, resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
+      }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       nav.replaceChildren();
       const scenes: [Scene, string][] = state.player ? [['lobby', 'Lobby'], ['deck', 'Edit Deck'], ['shop', 'Shop'], ['social', 'Friends & Mail'], ['settings', 'Options']] : [['title', 'Title'], ['characters', 'Characters'], ['settings', 'Options']];
-      if (state.duel) scenes.splice(1, 0, ['duel', 'Duel']);
-      for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); nav.append(b); }
+      if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
+      if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
+      for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); nav.append(b); }
       if (state.connection === 'online') nav.append(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
@@ -602,14 +831,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const first = Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key?.startsWith('prompt-') && !(x as HTMLButtonElement).disabled);
         first?.focus({ preventScroll: true });
       }
+      if (focusNpc) Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key?.startsWith('npc:') && !(x as HTMLButtonElement).disabled)?.focus({ preventScroll: true });
     } finally { pruneArt(); rendering = false; }
   }
   host.onkeydown = e => {
     if (e.key !== 'Escape') return;
+    if (browserDisplay.state.active) return;
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (local.target !== null) { local.target = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; unsubscribe(); observer?.disconnect(); for (const entry of art.values()) { entry.abort.abort(); entry.lease?.release(); entry.images.clear(); } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
