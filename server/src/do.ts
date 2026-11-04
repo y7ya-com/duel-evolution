@@ -14,6 +14,7 @@ import { logLevel } from "./util/loglevel.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
+import { chatGet, chatSend } from "./game/chat.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 /** After /__admin/shutdown, how long new game sockets are refused if no deploy replaces this instance. */
@@ -141,6 +142,23 @@ export class WorldDO extends DurableObject<Env> {
         try { res(this.srv.game.lp.friendsInfo(user)); } catch (e) { console.error(`[friends] ${e}`); res([500, { error: "server error" }]); }
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/chat") {
+      // the Worker forwards GET /api/de/chat?after=N and POST /api/de/chat {channel, text, targetPid?, requestId?} here
+      // with x-de-user (a checked session); game/chat.ts, the server-wide stream (the HTML UI's speech bubbles read it)
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      let body: unknown = null;
+      if (request.method === "POST") {
+        const raw = await request.text();
+        if (raw.length > 32768) return Response.json({ error: "request too large" }, { status: 413 });
+        try { body = JSON.parse(raw); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      } else if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+      const out = await new Promise<{ ok: unknown } | { error: string }>((res) => this.srv.world.run(() => {
+        try { res(request.method === "GET" ? chatGet(this.srv.game, user, Number(url.searchParams.get("after") ?? 0)) : chatSend(this.srv.game, user, body)); }
+        catch (e) { console.error(`[chat] ${e}`); res({ error: "temporarily-unavailable" }); }
+      }));
+      return Response.json("ok" in out ? out.ok : out, { status: "ok" in out ? 200 : 409, headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__de/duel/challenge") {
       // the Worker forwards POST /api/de/duel/challenge {pid} here with x-de-user (a checked session); Lobby.duelInvite
