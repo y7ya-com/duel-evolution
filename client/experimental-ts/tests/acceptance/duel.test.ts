@@ -345,7 +345,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       await enterWith(page,`Dun ${RUN}`,0);
       const prompts = tracker();
       let duels = 0, results:string[] = [];
-      for (const npc of ['Yami Yugi','Seto Kaiba','Joey Wheeler']) {
+      for (const npc of ['Yami Yugi','Tea','Joey','Jaden','Chazz']) {
         await click(page,'Lobby').catch(() => {}); await until(page,byKey('lobby-npcs'),60000);
         const listed = await page.ev(`(()=>{document.querySelector('[data-key="lobby-npcs"]').open=true;return [...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)})()`) as string[];
         if (!listed.includes(npc)) continue;
@@ -364,7 +364,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>(b.dataset.key?.includes('npcSelectPack')||['Continue','Receive Gift','Close NPC'].includes(b.textContent))&&!b.disabled)`;
           if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(600);
         }
-        if (prompts.kinds().size >= 4) break;
+        if (prompts.kinds().size >= 4 || duels >= 2) break;
       }
       const kinds = prompts.kinds();
       console.log(JSON.stringify({ duels,results,kinds:describeKinds(kinds),errors:prompts.errors }));
