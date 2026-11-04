@@ -14,6 +14,7 @@ import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
+import { tradeOverlayFrame } from './cosmetics/trade-cosmetics.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -409,6 +410,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
+    // Card Swap's cosmetics (cosmetics/trade-cosmetics.js): over the trade window whoever draws it; never the frame's end
+    try { tradeOverlayFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: trade cosmetics', e); }
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

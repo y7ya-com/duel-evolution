@@ -419,6 +419,49 @@ export function cosmeticTradeCancel(g: Game, who: string | Session, body: unknow
   return { ...state(g, s, me, ledger(me)), offer: offerOut(offer, s.acct) };
 }
 
+// ---- the native trade's cosmetic lines (trade.ts: one trade, cards and cosmetics, one commit). Only spare copies
+// move (l.copies: never the first unlock, never legacy PBIN ownership). Nothing is escrowed while the trade is open:
+// the lines live on the in-memory trade session and every one is checked again at the commit, so a cancel, a
+// disconnect or a server restart has nothing to give back.
+/** At most this many different items per side (the trade window's strip has room for them). */
+export const TRADE_COSMETIC_LINES = 6;
+/** An item as the trade panel draws it (its art and rarity; no holdings). */
+export function tradeItem(id: string) {
+  const item = COSMETIC_BY_ID.get(id);
+  return item ? { ...item, ...bodyInfo(item) } : null;
+}
+/** A side's lines from a request (resolved like an offer's, merged per item), or null when malformed. */
+export function tradeLines(value: unknown, acct: string, g: Game): Line[] | null {
+  const a = accountCopy(g, acct);
+  const out = lines(value, a ? accountBody(a) : "male");
+  return out && out.length <= TRADE_COSMETIC_LINES ? out : null;
+}
+/** The account's spare copies (item -> copies), read only; null without an account. */
+export function spareCopies(g: Game, acct: string): Record<string, number> | null {
+  const a = accountCopy(g, acct);
+  if (!a) return null;
+  const l = ledger(a), out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(l.copies)) if (nat(n) > 0 && COSMETIC_BY_ID.has(id)) out[id] = nat(n);
+  return out;
+}
+/** The spare copies the panel offers to add: every item with copies, as the API's items with `copies`. */
+export function tradeSpares(g: Game, acct: string) {
+  const spares = spareCopies(g, acct) ?? {};
+  return COSMETICS.filter((item) => spares[item.id] > 0).map((item) => ({ ...item, ...bodyInfo(item), copies: spares[item.id] }));
+}
+/** Both sides' lines on two account entries (copies, the caller commits them together): each side's spares are
+ *  checked first, then given and received. false (and the entries must be thrown away) when a side lacks a copy. */
+export function swapCosmetics(ea: State, eb: State, pa: PP.P, pb: PP.P, giveA: Line[], giveB: Line[]): boolean {
+  const la = ledger(ea), lb = ledger(eb);
+  if (!canGive(la, giveA) || !canGive(lb, giveB)) return false;
+  take(la, giveA); take(lb, giveB);
+  receive(la, giveB); receive(lb, giveA);
+  project(pa, la); project(pb, lb);
+  return true;
+}
+/** The client's ownership bits again after a trade moved cosmetics (NetAccount onPbin: no gift dialog). */
+export const pushCosmeticOwnership = (g: Game, s: Session, p: PP.P) => pushOwnership(g, s, p);
+
 /** Gender changes preserve design ownership and select its actual corresponding body artwork. */
 export function cosmeticAppearance(g: Game, who: string | Session, body: unknown) {
   const s = active(g, who); if (hasError(s)) return s;

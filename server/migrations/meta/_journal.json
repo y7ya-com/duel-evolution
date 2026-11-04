@@ -50,6 +50,13 @@
       "when": 1793809304625,
       "tag": "0006_anti_alt_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793822957526,
+      "tag": "0007_trade_log_cosmetics",
+      "breakpoints": true
     }
   ]
 }

@@ -323,7 +323,7 @@ export function openWardrobe({ focusId, world } = {}) {
     else if (!t.uniform) {
       const bodies = (it.bodies || []).length >= 2 ? 'Both bodies' : `${BODY_LABEL[(it.bodies || [])[0]] || 'One'} body only for now`;
       line(t.worlds.length ? `${bodies} · ${t.where === 'Both worlds' ? 'both worlds' : t.where}` : bodies);
-      if (t.spares && !why) line(`You have ${t.spares + 1}. Trading spare copies is coming soon.`);
+      if (t.spares && !why) line(`You have ${t.spares + 1}: trade the ${t.spares === 1 ? 'spare' : `${t.spares} spares`} in Card Swap.`);
     }
     if (t.equippedIn.length && !why) line(`Wearing it in ${t.equippedIn.map(x => WORLD_LABEL[x]).join(' and ')}`);
     if (why) lines.push(h('div', 'wd-why sa-t sa-w', { 'data-tone': why.tone, role: why.tone === 'error' ? 'alert' : why.tone === 'ok' ? 'status' : undefined, text: why.text }));

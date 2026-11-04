@@ -169,7 +169,7 @@ assert.deepEqual([wu.state, wu.layers.slice(8)], ['cant', ['wm_a2_01_c01', 'wm_a
 const dominoLook = wu.layers;
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), false);
-assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3\. Trading spare copies is coming soon\./);
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3: trade the 2 spares in Card Swap\./);
 wu = await bust();   // the try-on: the clothes layer, and only it, changes
 assert.deepEqual([wu.state, wu.text], ['preview', 'Previewing']);
 assert.deepEqual(wu.layers.map((n, i) => n === dominoLook[i] ? '' : dominoLook[i] + '>' + n).filter(Boolean), ['wm_ac_08_c01_r>wm_dc_03_c01_r']);

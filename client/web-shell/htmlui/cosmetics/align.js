@@ -177,12 +177,67 @@ function wardrobe(root, S, C) {
   if (head && rf) C.vcentred('the item\'s art beside its name', box(rf, S), box(head, S));
 }
 
+// Card Swap's cosmetics (cosmetics/trade-cosmetics.js): each side's tiles on one row and one grid mirrored on its area's
+// centre (16 px from both edges, the Cosmetics button's face ending where the partner's last column does), the button
+// centred on my row, the band's line on the same axis; the picker's rows on one column with the hint, Done centred.
+function trade(layers, S, C) {
+  for (const l of layers) {
+    const side = l.dataset.side, at = box(l, S), w = +l.dataset.w || 488, axis = at.l + w / 2;   // the layer sits at its window's origin
+    if (side === 'trade') {
+      const band = l.querySelector('.tc-band');
+      if (shown(band) && band.textContent) { C.centred('the band', box(band, S), axis); C.centred('the band\'s line', textBox(band.firstChild, S), axis); C.vcentred('the band\'s line', textBox(band.firstChild, S), box(band, S)); }
+      continue;
+    }
+    const tiles = [...l.querySelectorAll('.tc-tile')].map(e => box(e, S));
+    C.same(`${side}: the tiles' tops`, tiles.map(b => b.t));
+    C.same(`${side}: the tiles' gaps`, tiles.slice(1).map((b, i) => b.l - tiles[i].r).filter(g => g < 20));
+    if (tiles.length) C.leftOn(`${side}: the first tile (16 px in)`, tiles[0], at.l + 16);
+    for (const e of l.querySelectorAll('.tc-tile')) {
+      const br = e.querySelector('.sa-brackets');
+      if (shown(br)) C.centred(`${side}: brackets on ${e.dataset.id}`, box(br, S), box(e, S).cx);
+    }
+    const bt = l.querySelector('.tc-btn');
+    if (shown(bt)) {
+      const f = box(bt, S), t = textBox(bt.querySelector('span'), S);
+      C.rightOn('the Cosmetics button (16 px in, as the first tile)', f, axis + w / 2 - 16);
+      if (tiles.length) C.vcentred('the Cosmetics button on my row', f, tiles[0]);
+      C.centred('the Cosmetics button\'s text', t, f.cx); C.vcentred('the Cosmetics button\'s text', t, f);
+    }
+  }
+}
+function tradePicker(root, S, C) {
+  const win = box(root.querySelector('.tcp-win'), S), A = win.cx;
+  const rows = [...root.querySelectorAll('.tcp-row')].filter(shown).map(r => [r, box(r, S)]);
+  if (rows.length) {
+    C.edges('the picker rows', rows.map(([, b]) => b));
+    C.leftOn('the hint (on the rows\')', box(root.querySelector('.tcp-hint'), S), rows[0][1].l);
+    for (const [r, b] of rows.slice(0, 6)) {
+      const name = r.querySelector('.nm').textContent;
+      C.vcentred('row icon ' + name, box(r.querySelector('.de-rf'), S), b);
+      C.vcentred('row − ' + name, box(r.querySelector('.minus'), S), b);
+      C.vcentred('row + ' + name, box(r.querySelector('.plus'), S), b);
+      C.vcentred('row count ' + name, box(r.querySelector('.cnt'), S), b);
+      for (const p of r.querySelectorAll('.pm')) { const pb = box(p, S), t = textBox(p.firstChild, S); C.centred('sign on its plate ' + p.textContent, t, pb.cx); }
+    }
+    C.same('the − and + plates\' tops', rows.flatMap(([r]) => [...r.querySelectorAll('.pm')].map(p => box(p, S).t - box(r, S).t)));
+  }
+  const done = root.querySelector('.tcp-done');
+  C.centred('Done (on the picker)', box(done, S), A);
+  const t = textBox(done.querySelector('span'), S), f = box(done, S);
+  C.centred('Done\'s text', t, f.cx); C.vcentred('Done\'s text', t, f);
+  const foot = root.querySelector('.tcp-foot');
+  if (foot.textContent) C.centred('the picker\'s foot line', textBox(foot, S), A);
+}
+
 /** Measure the screen that is up. */
 export function checkAlign() {
   const S = stage(), C = checker();
   let screen = null;
   const wd = document.querySelector('.de-wd'), rv = document.querySelector('.bx-rv[data-phase=done]'), bx = document.querySelector('.bx');
-  if (wd) { screen = 'wardrobe'; wardrobe(wd, S, C); }
+  const tcp = document.querySelector('.de-tcp'), tc = [...document.querySelectorAll('.de-tc')].filter(shown);
+  if (tcp) { screen = 'trade-picker'; tradePicker(tcp, S, C); trade(tc, S, C); }
+  else if (tc.length) { screen = 'trade'; trade(tc, S, C); }
+  else if (wd) { screen = 'wardrobe'; wardrobe(wd, S, C); }
   else if (rv) { screen = 'reveal'; reveal(rv, S, C); }
   else if (bx?.querySelector('.bx-sheet')) { screen = 'contents'; contents(bx, S, C); }
   else if (bx?.querySelector('.bx-head')) { screen = 'showcase'; showcase(bx, S, C); }

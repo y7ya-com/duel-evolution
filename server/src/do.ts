@@ -19,6 +19,7 @@ import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmetic
 import { shopView, shopPurchaseApi } from "./game/shop-api.ts";
 import { chatGet, chatSend } from "./game/chat.ts";
 import { rankLookup, RANK_MAX_AGE } from "./game/rank-api.ts";
+import { tradeCosmeticsInfo, tradeCosmeticsPanel, tradeCosmeticsSet } from "./game/trade-cosmetics.ts";
 import { CREATED_HEADER, IPB_HEADER } from "./auth/binding.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
@@ -147,13 +148,14 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(body, { status: failed ? r.status : 200, headers: failed && r.status === 429
         ? { "Cache-Control": "no-store", "Retry-After": String(r.retryAfter ?? 1) } : { "Cache-Control": failed ? "no-store" : `private, max-age=${RANK_MAX_AGE}` } });
     }
-    if (/^\/__de\/(cosmetics|shop|chat)(?:\/|$)/.test(url.pathname)) {
+    if (/^\/__de\/(cosmetics|shop|chat|trade)(?:\/|$)/.test(url.pathname)) {
       const user = request.headers.get("x-de-user");
       if (!user) return Response.json({ error: "signed out" }, { status: 401 });
       const reads: Record<string, () => unknown> = {
         "/__de/cosmetics": () => cosmeticInfo(this.srv.game, user),
         "/__de/shop": () => shopView(this.srv.game, user),
         "/__de/chat": () => chatGet(this.srv.game, user, Number(url.searchParams.get("after") ?? 0)),
+        "/__de/trade/cosmetics": () => tradeCosmeticsInfo(this.srv.game, user),
       };
       const writes: Record<string, (body: unknown) => unknown> = {
         "/__de/cosmetics/open": (b) => cosmeticOpen(this.srv.game, user, b),
@@ -165,6 +167,9 @@ export class WorldDO extends DurableObject<Env> {
         "/__de/cosmetics/trade/decline": (b) => cosmeticTradeCancel(this.srv.game, user, b),
         "/__de/shop/buy": (b) => shopPurchaseApi(this.srv.game, user, b),
         "/__de/chat": (b) => chatSend(this.srv.game, user, b),
+        // the native trade's cosmetic lines (game/trade-cosmetics.ts): in memory until the trade's one commit
+        "/__de/trade/cosmetics": (b) => tradeCosmeticsSet(this.srv.game, user, b),
+        "/__de/trade/cosmetics/panel": (b) => tradeCosmeticsPanel(this.srv.game, user, b),
       };
       let body: unknown = null;
       if (request.method === "POST") {
@@ -180,7 +185,8 @@ export class WorldDO extends DurableObject<Env> {
           void this.srv.world.run(() => { try { resolve(action()); } catch (e) { reject(e); } });
         });
         // A successful money/item response is acknowledged only after write-through persistence.
-        if (!url.pathname.startsWith("/__de/chat")) await this.sink?.flush();
+        // (chat and the trade panel write nothing to D1: a trade's commit is flushed by the next save as any trade's)
+        if (!/^\/__de\/(chat|trade)/.test(url.pathname)) await this.sink?.flush();
         const failed = result && typeof result === "object" && "error" in result;
         return Response.json(result && typeof result === "object" && "ok" in result ? result.ok : result,
           { status: failed ? (result.status ?? 409) : 200, headers: { "Cache-Control": "no-store" } });

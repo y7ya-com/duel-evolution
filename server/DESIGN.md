@@ -159,8 +159,12 @@ INTENTIONAL):
   (`TRADE_GIVE_MIN_DUELS`; receiving needs none), and an account takes in at most 30 net cards a day through trades
   (`TRADE_IN_DAY_MAX`; balanced swaps don't count). A one-off bind (`legacyBind`, `p.bind_v` 1) soul-binds the whole
   trunk of every character under 20 rewarded duels at its first load: cards its free grant bought before soul-bound MP
-  were otherwise tradeable. Each refusal has its own chat line. Every confirmed trade, done or refused, goes to D1
-  `trade_log`; each game connection records the user's IP (an IPv6 /64), network and country in `login_ip` (90 days).
+  were otherwise tradeable. Cosmetics in a trade obey the same rules: giving one needs the 20 rewarded duels too, and
+  the cap counts one budget in card units (`trade-units.ts`: a card 1, a cosmetic copy 2/5/15/30 for Common/Rare/
+  Super/Ultra, about what a copy costs out of the earned-MP boxes, an Ultra the whole day), so an equal-units swap of
+  cards for cosmetics counts nothing. The legacy bind has no cosmetic side: only spare copies trade, and legacy PBIN
+  ownership is never a copy. Each refusal has its own chat line. Every confirmed trade, done or refused, goes to D1
+  `trade_log` (a mixed trade's lines in `a_cos` / `b_cos`, the report weighing them in card units); each game connection records the user's IP (an IPv6 /64), network and country in `login_ip` (90 days).
   A daily cron (04:17 UTC, `db/audit.ts`) flags relays (A → B → C within 2 h), one-way flows (20+ net cards at 4:1),
   accounts sharing an IP that trade, and repeated refusals, marks accounts seen only on hosting/VPN networks, keeps
   the report in R2 (`GET /__trade-report`, admin) and posts a summary to `REPORT_WEBHOOK` when set. It flags; a
@@ -203,7 +207,7 @@ INTENTIONAL):
   The UI discloses base and next-opening odds, including each item's probability. Server-side cryptographic rolls,
   per-account pity, monotonic opening tokens and persisted receipts prevent rerolls or duplicate payment on retries.
   The account wardrobe keeps its first unlock permanently; later copies can be traded through escrow with explicit
-  recipient acceptance. Native PBIN ownership migrates without manufacturing tradable copies. Design families use
+  recipient acceptance, or inside Card Swap with cards (below). Native PBIN ownership migrates without manufacturing tradable copies. Design families use
   verified native artwork identities, so all real body variants share ownership. New Outfit Box drops require both
   male and female artwork; school uniforms and one-body costumes stay outside the paid pool. Yugi/Téa also stay
   out: sharing an internal artwork index does not establish matching-body versions of the same named costume.
@@ -322,6 +326,15 @@ INTENTIONAL):
   three sizes was owning that many items, so each one past the first becomes a tradable copy. Legacy PBIN bits count
   as ownership only, as before. In production on 2026-11-04 no ledger held an Afro and one character had the Afro I
   bit.
+- **Card Swap trades cosmetics too, in the same trade** (`trade.ts`, `game/trade-cosmetics.ts`, the htmlui's
+  `cosmetics/trade-cosmetics.js`). Each side's spare copies (at most 6 items) are lines on the in-memory trade session,
+  set through `POST /api/de/trade/cosmetics {give}`; the server finds the trade from the caller's game session. Nothing
+  is escrowed: a cancel, a disconnect or a restart has nothing to give back, and the commit checks every line again. The
+  commit writes both accounts' cards, cosmetics and intake counters in one store commit; any refusal moves nothing. The
+  2008 client draws only cards, so the HTML panel registers itself per trade (`/panel`); lines need both registered,
+  and a commit with lines while either is not is refused. Like cards, lines lock once one side pressed Ready; at the
+  final question (0x7118) a change withdraws it, as a No does: both votes and lamps reset, 0x7120 2 to both, and a vote
+  counts only for the question asked (a late answer to a withdrawn one is dropped).
 - **The HTML shop uses authenticated game APIs.** `/api/de/shop` lists the native catalogue and buys through the
   same validated purchase path, with persisted retry tokens. `/api/de/cosmetics` handles boxes, wardrobe, appearance
   and duplicate trades. The Worker verifies the session and mutation Origin; the WorldDO serializes mutations and
