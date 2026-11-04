@@ -67,9 +67,27 @@ export interface SessionOptions extends Omit<GatewayOptions, 'onMessage' | 'onSt
 }
 interface RightsRefresh { account:Channel; slot:number; epoch:number; promise:Promise<void> }
 const EMPTY = () => new Uint8Array(0);
+/** Result codes the original client words itself: login (server/src/game/hub.ts AUTH_*) and character creation
+ * (server/src/game/accounts.ts REG_NAME_*, the 2008 client's own wording). */
+const RESULT_TEXT: Record<string, Record<number, string>> = {
+  // CNetAccountTask::errorText (0x006a6eb0) text ids, original English wording.
+  Login: {
+    [-240]: 'Incorrect User ID or Password. Sign out and sign in again.',
+    [-241]: 'Invalid User ID.',
+    [-242]: 'This User ID is already logged in. Close the other window, or wait a minute and try again.',
+    [-244]: 'This User ID has not been used for over 180 days.',
+    [-246]: 'You have a Login ban.',
+    [-200]: 'Failed to connect to server.',
+  },
+  'Character creation': {
+    [-260]: 'This Player Name is already in use. Please create another.',
+    [-262]: 'There are incompatible characters in this name. Please create another.',
+    [-263]: 'Inappropriate name. Please create another.',
+  },
+};
 const checkResult = (message: WireMessage, label: string): void => {
   const result = new BinaryReader(message.data).i32();
-  if (result !== 0) throw new Error(`${label} refused (${result})`);
+  if (result !== 0) throw new Error(RESULT_TEXT[label]?.[result] ?? `${label} refused (${result})`);
 };
 const parseRows = <T>(data: Uint8Array, width: number, decode: (row: BinaryReader) => T): T[] => {
   if (data.length % width) throw new Error(`Invalid ${width}-byte table`);
@@ -198,7 +216,10 @@ export class GameSession {
   async createCharacter(slot: number, name: string): Promise<void> {
     this.assertLive(); this.validateSlot(slot);
     if (!this.account) throw new Error('Accounts channel is unavailable');
-    if (!name.trim() || name.length > 16 || name.includes('\0') || [...name].some((c) => c.charCodeAt(0) > 255)) throw new Error('Character name must contain 1–16 Latin-1 characters');
+    // The original asks again unless the name is longer than 3 characters (CNetAccountTask NEW_WAIT_PROMPT); the
+    // 16-byte wire name carries Latin-1 only, which the original reports with its -262 wording.
+    if (name.length > 16 || name.includes('\0') || [...name].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) > 255)) throw new Error(RESULT_TEXT['Character creation']![-262]!);
+    if (name.trim().length <= 3) throw new Error('Enter a name of at least 4 characters.');
     checkResult(await this.account.request(0x3020, new BinaryWriter().u8(slot).s(name, 16).bytes(), 0x3022), 'Character creation');
     await this.refreshCharacters();
   }
