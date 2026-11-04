@@ -330,7 +330,7 @@ function pvpSetup() {
     return { s, lobby, duel };
   });
   const match = () => {
-    const m = g.pvp!.reserve(players[0].s, players[1].s) as unknown as PvpMatch;
+    const m = g.pvp!.reserve(players[0].s, players[1].s, "autoduel") as unknown as PvpMatch;
     m.attach(players[0].duel); m.attach(players[1].duel);
     const e = { started: true, over: false, ended: false, turn: 12, stats: null, lastLp: [4000, 0], pending: () => 0, resend: () => {},
       end: vi.fn(() => { e.over = e.ended = true; }), surrender: vi.fn(), abandon: vi.fn() };
@@ -341,7 +341,7 @@ function pvpSetup() {
   return { srv, g, players, match, ranks, settle: async () => { await vi.advanceTimersByTimeAsync(2000); await world.idle(); } };
 }
 
-describe("PvP results move the rating", () => {
+describe("Autoduel results move the rating (only Autoduel is ranked: test/ranked-autoduel.test.ts)", () => {
   it("a finished duel rates both (simultaneously, from the records before it) and survives the D1 round trip", async () => {
     const f = pvpSetup(), m = f.match();
     (m as any).t0 = Date.now() / 1000 - 600;

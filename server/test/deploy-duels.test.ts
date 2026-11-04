@@ -66,7 +66,7 @@ function engine() {
 
 function match(f: ReturnType<typeof setup>, mode: "live" | "side" | "pending" | "reserved") {
   const [a, b] = f.players;
-  const m = f.g.pvp!.reserve(a.s, b.s) as unknown as PvpMatch;
+  const m = f.g.pvp!.reserve(a.s, b.s, "room") as unknown as PvpMatch;
   if (mode !== "reserved") { m.attach(a.duel); m.attach(b.duel); }
   if (mode !== "pending" && mode !== "reserved") m.ps = engine() as unknown as PvpSession;
   if (mode === "side") { m.matchStyle = 4; m.between = m.needStart = true; m.games = [1]; m.swapClockOn = [true, false]; }

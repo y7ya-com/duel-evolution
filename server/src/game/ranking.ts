@@ -2,7 +2,8 @@
 // (apps/world/src/ranking.ts + glicko2.ts, packages/world-protocol tierOf / RANK_LADDER / unlockedUniforms):
 // Glicko-2, one rating period per rated result, the same 1500/350/0.06 start, floor 100, 5 placement games and
 // the same tier thresholds. Differences, each for a reason given where it is made:
-//   - one rated result per finished MATCH (a single duel, or a Bo3 as a whole), never per Bo3 game;
+//   - ranked = Autoduel only (isRankedOrigin); one rated result per finished ranked MATCH (a single duel, or a Bo3 as
+//     a whole), never per Bo3 game;
 //   - the displayed school is the stored one, with a 50-point demotion buffer (the badge doesn't flicker on a
 //     threshold); promotion is immediate. Rating, school and division go up and down with play;
 //   - the rank uniforms are kept for good (owner, 2026-11-04): they follow `best`, the best school ever reached
@@ -12,8 +13,9 @@
 //   - a graduated student (character LV GRADUATION_LEVEL and GRAD_OPPONENTS distinct real opponents beaten: see
 //     "graduation"; kept once reached) may wear any owned outfit in the Academy (rankRowAllowed). A placeholder until
 //     a story lets players finish the GX story and graduate.
-// Rated duels count in both worlds and the rank is the same in both: nothing here (or in pvpMatch.rate) reads the
-// world. The record lives on the character, p.rank (D1 state_extras, like p.econ: no migration); one per slot.
+// Ranked = Autoduel only (owner, 2026-11-04: isRankedOrigin): rooms, direct invites and tournament games are unranked,
+// since a player who can't choose the opponent can't easily trade wins with one. Rated duels count in both worlds and
+// the rank is the same in both: nothing here (or in pvpMatch.rate) reads the world. The record lives on the character, p.rank (D1 state_extras, like p.econ: no migration); one per slot.
 // Pure: no store, no clock.
 import { createHash } from "node:crypto";
 import { AVATAR_ROWS, avatarRowWorlds } from "./cosmetics-catalog.ts";
@@ -111,8 +113,9 @@ export const PBIN_RANKED = 1022, PBIN_GRADUATED = 1023;
 // Owner, 2026-11-04: "it needs to be wins but not abusable win trading with alts etc." A graduate needs BOTH:
 //   - character LV GRADUATION_LEVEL, from PvP score (persist.ts pvpXp, itself guarded: no XP for a short duel, past
 //     the day's pair cap, or against the same account; persist.ts xpGuard);
-//   - qualifying wins (gradQualifies) against GRAD_OPPONENTS distinct opponents: a rated match win (rateMatch's
-//     guards: not the same account, not past RATED_PAIR_DAY_MAX today) that isn't short, against an opponent placed
+//   - qualifying wins (gradQualifies) against GRAD_OPPONENTS distinct opponents: a rated match win, so a ranked
+//     Autoduel one (isRankedOrigin; never a room, invite or tournament game), within rateMatch's guards (not the same
+//     account, not past RATED_PAIR_DAY_MAX today), that isn't short, against an opponent placed
 //     before the match (GRAD_OPP_MIN_GAMES) whose DE account is GRAD_OPP_MIN_AGE_MS old (better-auth user.createdAt,
 //     from the Worker: auth/binding.ts) and who shares none of the winner's IP-bucket tags (hub.ts Session.ipbs,
 //     keyed hashes). Per opponent at most GRAD_WINS_PER_OPP qualifying wins count, ever, and a new opponent counts only
@@ -160,11 +163,15 @@ export function gradOf(p: { grad?: unknown } | null | undefined): Grad {
 /** One side of a finished match, as graduation sees it (pvpMatch.rate). `ipbs`: its session's IP-bucket tags; `created`:
  *  its DE user's creation time (ms); `rank`: its record BEFORE the match. Unknown (null / empty) never qualifies. */
 export type GradSide = { acct: string; ipbs: readonly string[]; created: number | null; rank: Rank };
-/** Why the match's win is not a qualifying win for its winner, or null when it is. `rated`: rateMatch's result. */
-export function gradQualifies(o: Outcome, rated: readonly [Rank | null, Rank | null], sides: readonly [GradSide, GradSide], now: number): string | null {
+/** Why the match's win is not a qualifying win for its winner, or null when it is. A qualifying win is a RATED win, so
+ *  a ranked one: `origin` must be ranked (isRankedOrigin: Autoduel only, never a room, invite or tournament game) and
+ *  `rated` (rateMatch's result) must rate the winner. */
+export function gradQualifies(o: Outcome, rated: readonly [Rank | null, Rank | null], sides: readonly [GradSide, GradSide], now: number,
+  origin: MatchOrigin): string | null {
   if (o.winner === null) return "no winner";
   const me = sides[o.winner], opp = sides[1 - o.winner];
   if (me.acct === opp.acct) return "same account";
+  if (!isRankedOrigin(origin)) return `unranked (${origin})`;
   if (!rated[o.winner]) return "unrated";
   if (o.short) return "short";
   if (opp.rank.games < GRAD_OPP_MIN_GAMES) return "opponent unplaced";
@@ -255,6 +262,41 @@ export function rankInfo(r: Rank) {
     peak: Math.round(r.peak), placed, school: r.school, division: kept ? (r.school === "master" ? 0 : 1) : tier.division,
     label: kept ? (r.school === "master" ? "Master" : `${LABEL[r.school]} I`) : tier.label, placementLeft: Math.max(0, PLACEMENT_GAMES - r.games),
     bestSchool: best, uniforms: unlockedUniforms(best) };
+}
+
+// ─────────────────────────────── which matches are ranked ───────────────────────────────
+/** How a PvP match was made. Always the server's own: the caller of Matches.reserve says it from the lobby's state
+ *  (lobby.ts autoPair: "autoduel", challengeReply: "room" or, for a direct invite's private room, "invite";
+ *  tournaments.ts pair: "tournament"), never from anything a client sends. */
+export type MatchOrigin = "autoduel" | "room" | "invite" | "tournament";
+export const MATCH_ORIGINS: readonly MatchOrigin[] = ["autoduel", "room", "invite", "tournament"];
+/** Ranked = Autoduel only (owner, 2026-11-04). In a room, a direct invite or a tournament the players (or the bracket)
+ *  pick the opponent, which makes win-trading with a friend or an alt easy; Autoduel pairs whoever is searching. An
+ *  unranked match leaves p.rank, the rank uniforms and graduation's qualifying wins alone; MP, XP/LV (with their own
+ *  guards), the record, stats and card offers are as for any PvP match. */
+export const isRankedOrigin = (o: MatchOrigin): boolean => o === "autoduel";
+
+// ─────────────────────────────── ranked matchmaking (lobby.ts autoTryMatch) ───────────────────────────────
+// Autoduel pairs by rating, closest first, within a window that widens with the time waited so a small population
+// still finds games: AUTO_WINDOW_START at first, AUTO_WINDOW_STEP wider every AUTO_WINDOW_STEP_S seconds, at most
+// AUTO_WINDOW_MAX. A pair is allowed within the wider of the two players' windows (the one who waited longer decides).
+export const AUTO_WINDOW_START = 150, AUTO_WINDOW_STEP = 50, AUTO_WINDOW_STEP_S = 10, AUTO_WINDOW_MAX = 400;
+/** The rating window (±) after `waited` seconds of searching. */
+export const autoWindow = (waited: number): number =>
+  Math.min(AUTO_WINDOW_MAX, AUTO_WINDOW_START + AUTO_WINDOW_STEP * Math.floor(Math.max(0, Number.isFinite(waited) ? waited : 0) / AUTO_WINDOW_STEP_S));
+/** The rating matchmaking uses: an unplaced player counts as RATING_START (its placement games move the rating too
+ *  much to mean anything); its own RD still goes into the rating update (rateMatch). */
+export const matchRating = (r: Rank): number => (r.games >= PLACEMENT_GAMES ? r.rating : RATING_START);
+/** One player searching: `key` its game account, `rating` matchRating, `waited` seconds, `last` the account of its
+ *  previous Autoduel opponent (or null). */
+export type AutoSeeker = { key: string; rating: number; waited: number; last: string | null };
+/** The opponent for `me` among `cands` (given oldest search first), or null: never the same account; within the wider
+ *  of the two windows; closest rating first (ties: who searched longest). The two who just played each other (either
+ *  one's previous Autoduel opponent is the other) only when nobody else fits. */
+export function autoPick<T extends AutoSeeker>(me: AutoSeeker, cands: readonly T[]): T | null {
+  const ok = cands.filter((o) => o.key !== me.key && Math.abs(o.rating - me.rating) <= Math.max(autoWindow(me.waited), autoWindow(o.waited)))
+    .sort((a, b) => Math.abs(a.rating - me.rating) - Math.abs(b.rating - me.rating));   // stable: ties keep the oldest first
+  return ok.find((o) => me.last !== o.key && o.last !== me.key) ?? ok[0] ?? null;
 }
 
 // ─────────────────────────────── rated-result rules ───────────────────────────────

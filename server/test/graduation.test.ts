@@ -50,7 +50,7 @@ function world(n: number, who: (i: number) => Who) {
   const edit = (i: number, fn: (p: any) => void) => { const st = g.store.loadRaw(); fn(st.accounts[`acct${i}`].profiles["0"]); g.store.saveRaw(st); };
   /** One finished single duel between accounts a and b; `winner` 0 = a. Default: a real 10-minute, 12-turn duel by LP. */
   const play = async (a: number, b: number, o: { winner: 0 | 1 | null; secs?: number; turns?: number; surrender?: boolean }) => {
-    const m = g.pvp!.reserve(players[a].s, players[b].s) as unknown as PvpMatch;
+    const m = g.pvp!.reserve(players[a].s, players[b].s, "autoduel") as unknown as PvpMatch;
     m.attach(players[a].duel); m.attach(players[b].duel);
     const e = { started: true, over: false, ended: false, turn: 12, stats: null, lastLp: [4000, 0], pending: () => 0, resend: () => {},
       end: vi.fn(() => { e.over = e.ended = true; }), surrender: vi.fn(), abandon: vi.fn() };
@@ -118,17 +118,17 @@ describe("qualifying wins", () => {
   const won: RK.Outcome = { winner: 0, forfeit: false, short: false };
   const rated: [RK.Rank, RK.Rank] = [placedRank(), placedRank()];
   it("only a rated, not short win over a placed, week-old account on another network", () => {
-    expect(RK.gradQualifies(won, rated, [me, side()], T0)).toBeNull();
-    expect(RK.gradQualifies({ ...won, winner: null }, rated, [me, side()], T0)).toBe("no winner");
-    expect(RK.gradQualifies(won, [null, rated[1]], [me, side()], T0)).toBe("unrated");
-    expect(RK.gradQualifies({ ...won, short: true }, rated, [me, side()], T0)).toBe("short");
-    expect(RK.gradQualifies(won, rated, [me, side({ acct: "a" })], T0)).toBe("same account");
-    expect(RK.gradQualifies(won, rated, [me, side({ rank: { ...placedRank(), games: RK.PLACEMENT_GAMES - 1 } })], T0)).toBe("opponent unplaced");
-    expect(RK.gradQualifies(won, rated, [me, side({ created: T0 - 6 * DAY })], T0)).toBe("opponent account too new");
-    expect(RK.gradQualifies(won, rated, [me, side({ created: T0 - 7 * DAY })], T0)).toBeNull();
-    expect(RK.gradQualifies(won, rated, [me, side({ created: null })], T0)).toBe("opponent age unknown");
-    expect(RK.gradQualifies(won, rated, [me, side({ ipbs: ["n9", "n1"] })], T0)).toBe("same network");
-    expect(RK.gradQualifies(won, rated, [me, side({ ipbs: [] })], T0)).toBe("network unknown");
+    expect(RK.gradQualifies(won, rated, [me, side()], T0, "autoduel")).toBeNull();
+    expect(RK.gradQualifies({ ...won, winner: null }, rated, [me, side()], T0, "autoduel")).toBe("no winner");
+    expect(RK.gradQualifies(won, [null, rated[1]], [me, side()], T0, "autoduel")).toBe("unrated");
+    expect(RK.gradQualifies({ ...won, short: true }, rated, [me, side()], T0, "autoduel")).toBe("short");
+    expect(RK.gradQualifies(won, rated, [me, side({ acct: "a" })], T0, "autoduel")).toBe("same account");
+    expect(RK.gradQualifies(won, rated, [me, side({ rank: { ...placedRank(), games: RK.PLACEMENT_GAMES - 1 } })], T0, "autoduel")).toBe("opponent unplaced");
+    expect(RK.gradQualifies(won, rated, [me, side({ created: T0 - 6 * DAY })], T0, "autoduel")).toBe("opponent account too new");
+    expect(RK.gradQualifies(won, rated, [me, side({ created: T0 - 7 * DAY })], T0, "autoduel")).toBeNull();
+    expect(RK.gradQualifies(won, rated, [me, side({ created: null })], T0, "autoduel")).toBe("opponent age unknown");
+    expect(RK.gradQualifies(won, rated, [me, side({ ipbs: ["n9", "n1"] })], T0, "autoduel")).toBe("same network");
+    expect(RK.gradQualifies(won, rated, [me, side({ ipbs: [] })], T0, "autoduel")).toBe("network unknown");
   });
   it("at most GRAD_WINS_PER_OPP count per opponent, ever; a new opponent from a counted network doesn't count; no more than GRAD_OPPONENTS are kept", () => {
     const p: any = { rec: { lv: 1 } };

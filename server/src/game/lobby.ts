@@ -13,6 +13,7 @@ import * as PP from "./persist.ts";
 import { lawfulLook } from "./cosmetics.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
+import * as RK from "./ranking.ts";
 import { channelFor, sendChat } from "./chat.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
@@ -32,7 +33,11 @@ const FRIEND_ACCEPT_DELAY = 1.5;
 const NPC_ROOMS = 0;
 const LIMIT_LIST = true, WATCH = true, ROOM_REOPEN = true, RESETAUTOWAIT = true, USB_AUTH_REFUSE = true;
 const TPPRESENT = false, STARTUP_PRESENT = true, AUTODUEL = true, AUTODUEL_MATCH = true;
-const AUTO_STATE = 0x66, R_AUTO = -602, AUTO_DUEL_STATE = 0x69, AUTODUEL_LV_DIFF = 5, AUTODUEL_MATCH_DELAY = 1.0;
+// AUTODUEL_LV_DIFF: the Auto Duel window's own "Level Limit ON" (レベルの近い, room x[2]): a player who asks for it
+// still gets an opponent within 5 LV, on top of the rating window (ranking.ts AUTO_WINDOW_*: the client offers the
+// choice, so it is kept). AUTODUEL_LAST_MAX: the previous-opponent memory (autoTryMatch's back-to-back rule) is
+// bounded, oldest entries first out.
+const AUTO_STATE = 0x66, R_AUTO = -602, AUTO_DUEL_STATE = 0x69, AUTODUEL_LV_DIFF = 5, AUTODUEL_MATCH_DELAY = 1.0, AUTODUEL_LAST_MAX = 2000;
 const OFFER_TIMEOUT = 30;
 // a direct invite: how long its private room waits for the challenger's 0x4300, and how long a challenger waits before
 // challenging the same player again after a decline or no answer
@@ -67,8 +72,10 @@ const TRADE: Record<number, [number, Uint8Array][]> = {
   0x7122: [[0x7122, new Uint8Array(0)]],
 };
 
+/** `since`: when an autoduel room started searching (g.clock seconds: the rating window widens from it); `retry`: a
+ *  widening retry is armed for it (autoRetry). */
 interface Room { id: number; p1: number; p2: number; mstat: number; mstat0?: number; dstyle: number; wmode: number; pw: boolean;
-  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session }
+  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session; since?: number; retry?: boolean }
 /** a direct duel invite (duelInvite): b's room as only a sees it, until the challenge it allows ends */
 interface Invite { room: Room; a: Session; b: Session }
 interface Challenge { room: number; from: Conn; to: Conn; a: Session; b: Session; done: boolean }
@@ -77,11 +84,11 @@ type Mail = { id: number; from: number; from_name: string; to: number; to_name: 
 /** Where py's LP keeps its module state (MEM); mail, friends, black list and team persist in state.lobby. */
 interface Mem { rooms: Map<number, Room>; next_room: number; offer: { room: number; npc: number } | null; mail: Mail[]; next_mail: number;
   friends: number[]; black: number[]; team: any; challenges: Map<number, Challenge>; friend_offers: Map<string, [Session, Conn]>;
-  invites: Map<number, Invite>; inviteCooldown: Map<string, number> }
+  invites: Map<number, Invite>; inviteCooldown: Map<string, number>; autoLast: Map<string, string> }
 
 export class Lobby {
   mem: Mem = { rooms: new Map(), next_room: 1000, offer: null, mail: [], next_mail: 1, friends: [], black: [], team: null,
-    challenges: new Map(), friend_offers: new Map(), invites: new Map(), inviteCooldown: new Map() };
+    challenges: new Map(), friend_offers: new Map(), invites: new Map(), inviteCooldown: new Map(), autoLast: new Map() };
   private loaded = false;
   private mailT = 0;
   readonly handlers: Map<number, (c: Conn, msgId: number, param: number, data: Uint8Array) => boolean>;
@@ -182,7 +189,8 @@ export class Lobby {
     const rid = this.mem.next_room++;
     const r: Room = { id: rid, p1: me, p2: 0, mstat: data.length > 2 ? data[2] : 0, mstat0: data.length > 2 ? data[2] : 0,
       dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: data.length > 3 ? !!data[3] : false,
-      pwd: pad(data.subarray(4, 20), 16), x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null };
+      pwd: pad(data.subarray(4, 20), 16), x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null,
+      since: this.g.clock.time() };
     const old = [...this.mem.rooms.values()].filter((v) => v.p1 === me && !v.only);
     for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me && !v.only) this.mem.rooms.delete(k);
     this.mem.rooms.set(rid, r);
@@ -421,7 +429,9 @@ export class Lobby {
     const { a, b } = ch;
     const pvp = this.g.pvp;
     if (!pvp) { this.post(aConn, 0x4301, new W().u32(R_NOROOM).bytes()); return true; }
-    pvp.reserve(a, b);
+    // a challenge accepted: an opponent chosen, so unranked (ranking.ts isRankedOrigin). `invite` is the server's own
+    // mark (duelInvite's private room, Room.only); an autoduel room can't be challenged at all (challenge(): R_AUTO)
+    pvp.reserve(a, b, invite ? "invite" : "room");
     this.roomState(a, DUEL_STATE, b.name, b);
     this.roomState(b, DUEL_STATE, a.name, a);
     r.p2 = a.pid!; r.mstat = 1;
@@ -447,6 +457,11 @@ export class Lobby {
     return st === 3 ? st : null;
   }
 
+  /** The autoduel matchmaking (ranked: ranking.ts isRankedOrigin). The other searching rooms of the block that fit
+   *  (a human, alive, not in a match or a challenge, a compatible duel style, not the same account, the Level Limit if
+   *  either asked for it), then ranking.ts autoPick: by rating (matchRating), closest first, within the widening window
+   *  (autoWindow), not the pair that just played when anyone else fits. Nobody yet: autoRetry tries again when the
+   *  window next widens. Free mode: everyone counts as RATING_START (no rating there), so the oldest search first. */
   autoTryMatch(c: Conn): boolean | null {
     if (!(AUTODUEL && AUTODUEL_MATCH)) return null;
     const pvp = this.g.pvp, s = this.sess(c);
@@ -455,22 +470,54 @@ export class Lobby {
     if (!mine) return null;
     const cands = [...this.mem.rooms.values()].sort((a, b) => a.id - b.id).filter((r) => r !== mine && this.isAuto(r) && !r.p2 &&
       r.block === mine.block && this.humanRoom(r) && this.alive(r.conn!) && this.sess(r.conn) !== s && !this.mem.challenges.has(r.id) && this.autoStyle(mine, r) !== null);
-    let pick: [Room, Session] | null = null;
+    const at = this.g.clock.time(), me = this.autoSeeker(s, mine, at);
+    const fits: (RK.AutoSeeker & { r: Room; o: Session })[] = [];
     for (const r of cands) {
       const o = this.sess(r.conn)!;
-      if (pvp.byPid(o.pid!)) continue;
+      if (o.acct === s.acct || pvp.byPid(o.pid!)) continue;
       if ((mine.x[2] || r.x[2]) && Math.abs(this.autoCard(s)[0] - this.autoCard(o)[0]) > AUTODUEL_LV_DIFF) continue;
-      pick = [r, o]; break;
+      fits.push({ ...this.autoSeeker(o, r, at), r, o });
     }
-    if (!pick) return null;
-    const [r, o] = pick;
+    const pick = RK.autoPick(me, fits);
+    if (!pick) { this.autoRetry(c, mine, me.waited); return null; }
+    const { r, o } = pick;
     if (mine.p2 || r.p2 || this.mem.rooms.get(mine.id) !== mine || this.mem.rooms.get(r.id) !== r) return null;
     mine.p2 = o.pid!; r.p2 = s.pid;
+    this.autoLastSet(s.acct, o.acct);
+    this.log(`[lobby] autoduel (${FREE.isFree(s) ? "free mode, unranked" : "ranked"}): ${s.acct} ${Math.round(me.rating)} vs ${o.acct} ${Math.round(pick.rating)}: gap ${Math.round(Math.abs(me.rating - pick.rating))},`
+      + ` window ±${Math.max(RK.autoWindow(me.waited), RK.autoWindow(pick.waited))} (searched ${Math.round(me.waited)} s / ${Math.round(pick.waited)} s)`
+      + (me.last === o.acct || pick.last === s.acct ? ", again: nobody else fits" : ""));
     return this.autoPair(r.conn!, o, r, c, s, mine);
+  }
+  /** s searching in room r, as autoPick sees it: its rating (the active character's p.rank: ranking.ts matchRating;
+   *  RATING_START in free mode, which has no rating), the seconds searched, its previous autoduel opponent. */
+  private autoSeeker(s: Session, r: Room, at: number): RK.AutoSeeker {
+    let rating = RK.RATING_START;
+    if (!FREE.isFree(s)) {
+      try { rating = this.g.withCtx(s, () => { const st = this.g.loadState(); return RK.matchRating(RK.rankOf(PP.profile(st, PP.activeSlot(st), false))); }); }
+      catch (e) { this.log(`[lobby] autoduel rating of ${s.acct}: ${e}`); }
+    }
+    return { key: s.acct, rating, waited: Math.max(0, at - (r.since ?? at)), last: this.mem.autoLast.get(s.acct) ?? null };
+  }
+  /** No opponent yet: one more try when the window next widens (until it is at its widest; after that a new searcher,
+   *  or one back from a duel, tries itself). One armed retry per room. */
+  private autoRetry(c: Conn, mine: Room, waited: number) {
+    if (mine.retry || RK.autoWindow(waited) >= RK.AUTO_WINDOW_MAX) return;
+    mine.retry = true;
+    const next = RK.AUTO_WINDOW_STEP_S * (Math.floor(waited / RK.AUTO_WINDOW_STEP_S) + 1);
+    this.later(next - waited + 0.05, () => {
+      mine.retry = false;
+      if (this.mem.rooms.get(mine.id) === mine && this.isAuto(mine) && !mine.p2) this.autoTryMatch(c);
+    });
+  }
+  /** The two accounts' previous autoduel opponent is each other (autoPick's back-to-back rule). */
+  private autoLastSet(a: string, b: string) {
+    for (const [k, v] of [[a, b], [b, a]]) { this.mem.autoLast.delete(k); this.mem.autoLast.set(k, v); }
+    for (const k of this.mem.autoLast.keys()) { if (this.mem.autoLast.size <= AUTODUEL_LAST_MAX) break; this.mem.autoLast.delete(k); }
   }
 
   private autoPair(ca: Conn, a: Session, ra: Room, cb: Conn, b: Session, rb: Room): boolean {
-    this.g.pvp!.reserve(a, b);
+    this.g.pvp!.reserve(a, b, "autoduel");   // the only ranked origin (ranking.ts isRankedOrigin): nobody chose the opponent
     this.roomState(a, AUTO_DUEL_STATE, b.name, b);
     this.roomState(b, AUTO_DUEL_STATE, a.name, a);
     for (const [r, cc, me] of [[ra, ca, a], [rb, cb, b]] as [Room, Conn, Session][]) {
@@ -522,7 +569,7 @@ export class Lobby {
     if (this.g.pvp?.byPid(me)) { this.postPvp(c, "room reopen skipped: still in a match"); return; }
     const rs = [...this.mem.rooms.values()].filter((r) => r.p1 === me && r.p2);
     const npc = rs.filter((r) => r.p2 >= FAKE_BASE);
-    for (const r of rs) { r.p2 = 0; r.mstat = r.mstat0 ?? 0; }
+    for (const r of rs) { r.p2 = 0; r.mstat = r.mstat0 ?? 0; r.since = this.g.clock.time(); }
     if (rs.length) this.postPvp(c, `room reopen: ${rs.map((r) => r.id).join(",")} free again`);
     for (const r of rs) { c.send(0x3113, this.roomEntry(r)); this.blockPost(r.block ?? null, 0x3113, this.roomEntry(r), s); }
     if (rs.length) {

@@ -75,7 +75,7 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
     PP.trunkAdd(null, st.accounts.aaaa.profiles["0"], [...own.main, ...own.extra]);
     st.accounts.bbbb.profiles = { "0": { ...PP.blankProfile("Beta"), prog: 1 } };
     srv.game.store.saveRaw(st);
-    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
     for (const [c, d] of [[A, own], [B, NPC_DECKS["54"]]] as [Client, { main: number[]; extra: number[] }][]) {
       await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
       await send(c, 0x6600, new W().u32(d.main.length).u32(0).u32(d.extra.length).bytes());
@@ -104,7 +104,7 @@ describe.skipIf(!have)("PROGRESSION: a PvP deck with unowned cards", () => {
     srv.game.store.saveRaw(st);
     for (const skip6603 of [false, true]) {
       const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
-      const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+      const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
       for (const c of [A, B]) {
         await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
         await send(c, 0x6600, new W().u32(own.main.length).u32(0).u32(own.extra.length).bytes());

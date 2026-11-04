@@ -183,7 +183,7 @@ export class Tournaments {
     a.playing = b.playing = true;
     let key: unknown;
     if (this.g.pvp && sa && sb) {
-      const m = this.g.pvp.reserve(sa, sb) as unknown;
+      const m = this.g.pvp.reserve(sa, sb, "tournament") as unknown;   // unranked (ranking.ts isRankedOrigin)
       rec.m = m;
       this.g.pvpHookMatch?.(m, (winnerPid) => { if (rec.winner === null || winnerPid !== "draw") rec.winner = winnerPid; },
         (present) => this.report(rec, rec.winner, present));

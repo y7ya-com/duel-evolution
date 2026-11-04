@@ -20,7 +20,7 @@ describe("the duel port's 0x6001", () => {
     const pa = await alice.enterRoom(), pm = await mallory.enterRoom();
     expect(pa).not.toBeNull(); expect(pm).not.toBeNull();
     const sa = h.game.hub.byPid(pa!)!, sm = h.game.hub.byPid(pm!)!;
-    const m = h.game.pvp!.reserve(sa, sm) as unknown as { c: [unknown, unknown] };
+    const m = h.game.pvp!.reserve(sa, sm, "room") as unknown as { c: [unknown, unknown] };
     const d = mallory.link(5760);
     d.send(0x6001, be32(pa!));                          // alice's pid, from mallory's WebSocket
     await h.tick(500);
@@ -236,7 +236,7 @@ describe("PvP spectators", () => {
     const [a, b, c] = ["alice", "bob", "carol"].map((n) => h.client(n, n, "pw", `user-${n}`));
     for (const x of [a, b, c]) { await x.account(0, x.name); await x.enterRoom(); }
     const [sa, sb, sc] = [a, b, c].map((x) => h.game.hub.byPid(x.pid!)!);
-    h.game.pvp!.reserve(sa, sb);
+    h.game.pvp!.reserve(sa, sb, "room");
     expect(h.game.pvp!.watchRequest(b.id, a.pid!, sb)).toBeNull();
     expect(h.game.pvp!.watchRequest(a.id, b.pid!, sa)).toBeNull();
     expect(h.game.pvp!.watchRequest(c.id, a.pid!, sc)).not.toBeNull();

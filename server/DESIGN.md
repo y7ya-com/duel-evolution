@@ -200,9 +200,25 @@ INTENTIONAL):
   NPC chains retain card, title, recipe and other non-outfit rewards; future outfit rewards are retired.
 - **Rank uniforms follow a PvP rating, not LV** (`game/ranking.ts`, after duelforge's `ranking.ts`/`glicko2.ts`
   and its world-protocol tier table). 2008 gated Ra Yellow at LV 10 and Obelisk Blue at LV 20. Now every finished
-  PvP match is one Glicko-2 rating period: a single duel, or a Bo3 as a whole. Players start at 1500/350/0.06, the
+  ranked match is one Glicko-2 rating period: a single duel, or a Bo3 as a whole. Players start at 1500/350/0.06, the
   floor is 100, and they are placed after 5 rated results. Thresholds are duelforge's: Slifer Red below 1550, Ra
   Yellow from 1550, Obelisk Blue from 1850, Master from 2150 (it wears what Obelisk wears).
+  - **Ranked = Autoduel only; rooms, invites and tournaments are unranked** (owner, 2026-11-04;
+    `ranking.ts` `isRankedOrigin`). In Autoduel nobody chooses the opponent, so trading wins with a friend or an alt
+    is much harder than in a room, a direct invite (the player card's Duel) or a tournament bracket. Every PvP match
+    has an origin (`autoduel`, `room`, `invite`, `tournament`), given by the server code that made the pairing
+    (`lobby.ts` `autoPair` and `challengeReply`, `tournaments.ts` `pair`, through `Matches.reserve`). No client
+    message carries it, and an autoduel room cannot be challenged (−602). An unranked match leaves `p.rank`, the
+    rank uniforms and graduation's qualifying wins alone. MP, XP/LV (with their own guards), the win/loss record,
+    stats and card offers work as in any PvP match. The match's log lines say `ranked` or `unranked` and its origin.
+  - **Autoduel pairs by rating** (`lobby.ts` `autoTryMatch`, `ranking.ts` `autoPick`). Among the block's searchers
+    with a compatible duel style, it picks the closest rating first (ties: who searched longest). The rating window
+    starts at ±150 (`AUTO_WINDOW_START`) and widens by 50 (`AUTO_WINDOW_STEP`) every 10 s searched
+    (`AUTO_WINDOW_STEP_S`), up to ±400 (`AUTO_WINDOW_MAX`). The wider of the two players' windows counts, and a
+    search is retried each time its window widens. An unplaced player counts as 1500 (its own RD still goes into
+    the rating update). Never the same account. The pair that just played each other (either side's previous
+    Autoduel opponent) only when nobody else fits. The Auto Duel window's own "Level Limit ON" (room `x[2]`) still
+    keeps that player's opponents within 5 LV (`AUTODUEL_LV_DIFF`): the client offers it, so it is honoured.
   - A higher school also unlocks the lower uniforms, as duelforge's `unlockedUniforms` does.
   - Slifer Red is everyone's, unplaced Beginners included. It is the client's default Academy outfit: avatarValidate
     resets to it.
@@ -211,10 +227,11 @@ INTENTIONAL):
     shown still go up and down; the school shown is demoted only 50 points below its threshold, so the badge does not
     flicker.
   - The "2" variants (Red/Yellow/Blue 2) follow the same schools and still have to be owned.
-  - Both worlds: a rated match is any finished PvP match (room, autoduel, direct invite, tournament) wherever it was
-    made, and the rank is the same in both. Rank uniforms are Academy outfits, worn in both worlds.
+  - Both worlds: a ranked (Autoduel) match is rated wherever it was made, and the rank is the same in both. Rank
+    uniforms are Academy outfits, worn in both worlds.
   - Rating is per character slot (`p.rank`), not per account.
-  - NPC duels, free mode and server-restart voids are never rated.
+  - NPC duels, free mode (an autoduel there included), unranked PvP matches and server-restart voids are never
+    rated.
   - Draws count 0.5.
   - Leaving costs the leaver rating: a surrender, a time-out, a disconnection past the grace period or leaving a
     Bo3. If the match was also short (under 3 turns and 2 minutes), only the leaver is rated.
@@ -225,7 +242,7 @@ INTENTIONAL):
   win trading with alts etc." A character graduates once it has **both** (`ranking.ts` "graduation", every number
   a named constant there):
   - **character LV 20** (`GRADUATION_LEVEL`): where the 2008 editor gave the last school's uniform. On the XP curve
-    (cap LV 30) it is 40,000 score, about 1,000 PvP wins. The LV XP is guarded like MP and the rating
+    (cap LV 30) it is 40,000 score, about 1,000 PvP wins (any PvP match, ranked or not, gives XP). The LV XP is guarded like MP and the rating
     (`persist.ts` `xpBlocked`, per game, with `ECON`'s numbers):
     - a short game (under `PVP_MIN_TURNS` 3 turns and `PVP_MIN_S` 120 seconds: an instant surrender, disconnect or
       time-out) gives the winner, or a draw, nothing. The loser still takes its normal penalty (0 to -16, never a
@@ -235,8 +252,8 @@ INTENTIONAL):
       that day (`p.xp_pairs`, per character: LV is a character's);
     - the same account on both sides gets no XP.
   - **25 distinct qualifying opponents** (`GRAD_OPPONENTS`). A qualifying win (`gradQualifies`) is a rated match
-    win (so the rating's guards hold: not the same account, at most `RATED_PAIR_DAY_MAX` 5 a day per pair) that
-    isn't short, over an opponent who:
+    win, so a ranked Autoduel win, never a room, invite or tournament one. The rating's guards hold (not the same
+    account, at most `RATED_PAIR_DAY_MAX` 5 a day per pair), and the win isn't short. The opponent:
     - was placed before the match (`GRAD_OPP_MIN_GAMES` = 5 rated results);
     - has a DE account at least 7 days old (`GRAD_OPP_MIN_AGE_MS`). The age is better-auth's `user.createdAt` in D1,
       which the Worker reads with the session check at the game WebSocket upgrade (`auth/binding.ts`
