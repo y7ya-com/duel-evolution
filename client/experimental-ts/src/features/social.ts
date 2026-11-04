@@ -10,7 +10,8 @@ export type SocialAction =
   | { type: 'refreshMail' | 'refreshTeam' | 'leaveTeam' | 'disbandTeam' | 'readyTrade' | 'cancelTrade' }
   | { type: 'sendMail'; toPid: number; subject: string; body: string }
   | { type: 'findPlayer' | 'createTeam'; name: string }
-  | { type: 'inviteFriend' | 'ignore' | 'unignore' | 'inviteTeam' | 'inviteTrade'; pid: number }
+  | { type: 'inviteFriend' | 'ignore' | 'unignore' | 'inviteTeam'; pid: number }
+  | { type: 'inviteTrade'; pid: number; name?: string }
   | { type: 'replyFriend'; pid: number; accept: boolean }
   | { type: 'replyTeam'; teamId: number; inviterPid: number; accept: boolean }
   | { type: 'replyTrade' | 'confirmTrade'; accept: boolean }
@@ -103,7 +104,7 @@ export class SocialController {
           if (!['idle', 'closing', 'finished'].includes(t.phase)) throw new Error('Close the current trade before inviting another player.');
           command = tradeCommands.request(pid(action.pid));
           if (t.phase === 'finished') this.send(tradeCommands.exit());
-          this.trade({ ...freshTrade(), phase: 'requesting', partner: { pid: action.pid, name: '' } }); break;
+          this.trade({ ...freshTrade(), phase: 'requesting', partner: { pid: action.pid, name: action.name ?? '' } }); break;
         case 'replyTrade':
           if (t.phase !== 'offered') throw new Error('No trade invitation to answer.');
           this.decliningTrade = !action.accept; command = action.accept ? tradeCommands.accept() : tradeCommands.reject(); this.trade({ phase: 'waiting' }); break;
@@ -116,6 +117,8 @@ export class SocialController {
         case 'confirmTrade': open(); if (!t.view.allReady) throw new Error('Both players must be ready before confirmation.'); command = tradeCommands.confirm(action.accept); break;
         case 'cancelTrade':
           if (t.phase === 'idle') return;
+          // A trade the server already ended (completed, declined, cancelled) has no session to exit: close locally.
+          if (t.phase === 'finished') { this.trade(freshTrade()); this.update({ status: 'Trade closed.', error: null }); return; }
           // USEREXIT also handles a request accepted while its reply was still in flight.
           command = tradeCommands.exit();
           this.trade({ phase: 'closing' }); break;
@@ -171,10 +174,17 @@ export class SocialController {
     const t = this.current.trade;
     if (event.type === 'offer') { this.decliningTrade = false; this.trade({ ...freshTrade(), phase: 'offered', partner: { pid: event.pid, name: event.name } }); return; }
     if (event.type === 'result') {
+      // Code 1 answers an invitation the other player declined: an outcome, not an error.
+      const who = t.partner?.name || 'The other player';
+      if (event.code === 1 && !this.decliningTrade) {
+        this.trade({ phase: 'finished', view: { ...t.view, finished: true, success: false } }); this.update({ status: `${who} declined the trade.`, error: null }); return;
+      }
       this.update({ status: `Trade ${event.operation}: ${event.code}`, error: event.code !== 0 ? `Trade request failed (${event.code}).` : null });
       if (event.operation === 'request') this.trade({ phase: event.code === 0 ? 'waiting' : 'idle' });
       if (event.operation === 'offerReply') {
-        if (event.code !== 0 || this.decliningTrade) { this.decliningTrade = false; this.trade({ phase: 'finished' }); this.update({ status: event.code === 0 || event.code === 1 ? 'Trade invitation declined.' : `Trade reply failed (${event.code}).` }); return; }
+        // The decliner has nothing left to show; the inviter sees the ended trade until it closes it.
+        if (this.decliningTrade) { this.decliningTrade = false; this.trade(freshTrade()); this.update({ status: 'Trade invitation declined.' }); return; }
+        if (event.code !== 0) { this.trade({ phase: 'finished' }); this.update({ status: event.code === 1 ? 'Trade invitation declined.' : `Trade reply failed (${event.code}).` }); return; }
         this.trade({ phase: 'open' });
         this.send(tradeCommands.loadCollection()); this.send(tradeCommands.start());
       }

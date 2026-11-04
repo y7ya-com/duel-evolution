@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
-import { acceptanceGaps, acceptanceInventory } from '../src/parity/acceptance';
+import { acceptanceGaps, acceptanceInventory, acceptanceEvidence } from '../src/parity/acceptance';
 import { duelReplayAdapter } from '../src/parity/duel-adapter';
 import { compareReplay, WireRecorder } from '../src/parity/replay';
 import { syntheticDuelTrace } from '../src/parity/synthetic';
@@ -64,13 +64,20 @@ it('reports explicit unverified acceptance gaps and actual observed reducer opco
   expect(new Set(acceptanceInventory.map(f => f.id)).size).toBe(acceptanceInventory.length);
   expect(acceptanceInventory.length).toBeGreaterThan(65);
   for (const flow of acceptanceInventory) { expect(flow.acceptance.length).toBeGreaterThan(15); if (flow.status === 'verified') expect(flow.evidence.length).toBeGreaterThan(0); }
+  // Every verified flow names a browser acceptance test that exists and records that flow.
+  for (const flow of acceptanceInventory.filter(f => f.status === 'verified')) {
+    const e = acceptanceEvidence(flow.id)!, file = e.test.split(' > ')[0]!;
+    expect(existsSync(resolve(import.meta.dirname, '..', file)), `${flow.id}: ${file}`).toBe(true);
+    expect(readFileSync(resolve(import.meta.dirname, '..', file), 'utf8'), `${flow.id} is recorded by ${file}`).toContain(`'${flow.id}'`);
+    expect(e.observed.length, flow.id).toBeGreaterThan(10);
+  }
   const synthetic = syntheticEvidence(); expect(synthetic.deterministic).toBe(true); expect(synthetic.supported).toBe(12);
   const gaps = acceptanceGaps(); const fixtureProbe = privateFixtureProbe();
   if (fixtureProbe.available) expect(fixtureProbe.sameTraceDeterministic).toBe(true);
   const report = { schema: 1, parityPassed: gaps.length === 0 && synthetic.deterministic,
     verifiedFlows: acceptanceInventory.length - gaps.length, totalFlows: acceptanceInventory.length,
     gaps, synthetic, legacyFixtureProbe: fixtureProbe,
-    missingEvidence: ['No live browser acceptance run recorded.', 'No independent expected-state/response oracle for a current-wire gameplay capture.',
+    missingEvidence: ['No independent expected-state/response oracle for a current-wire gameplay capture.',
       'Outgoing responses, rendering, audio and HTTP flows require separate assertions; their payloads are not recorded.',
       'Observed opcode counts are not a denominator of all supported protocol behaviors.'] };
   const reportPath = process.env.PARITY_REPORT_PATH;

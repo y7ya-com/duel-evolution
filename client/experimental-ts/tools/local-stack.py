@@ -31,7 +31,10 @@ D = os.path.join(R.OUT, f"experimental-{PORT}")
 
 
 def main():
-    os.setpgrp()
+    try:
+        os.setpgrp()
+    except PermissionError:   # already a session (and group) leader under setsid
+        pass
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
     import atexit
@@ -42,7 +45,8 @@ def main():
         while os.getppid() == parent:
             time.sleep(2)
         os.kill(os.getpid(), signal.SIGTERM)
-    threading.Thread(target=watch, daemon=True).start()
+    if os.environ.get("LOCAL_STACK_DETACHED") != "1":   # detached runs (setsid nohup) outlive the shell that started them
+        threading.Thread(target=watch, daemon=True).start()
     with socket.socket() as s:
         if s.connect_ex(("127.0.0.1", PORT)) == 0:
             sys.exit(f"local-stack.py: 127.0.0.1:{PORT} is taken (a stale wrangler dev?)")

@@ -768,6 +768,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (prep.opponentHand !== undefined && prep.opponentHand !== null) panel.append(note(`Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand] ?? 'an unknown hand'}.`));
     stage.append(panel);
   }
+  function tradeReason(): string | undefined { return [...(state.lobby?.chat ?? [])].reverse().find(line => /^Trade cancelled:/.test(line.text))?.text; }
   function socialOptions() {
     return {
       card: (passcode: number) => controller.cardView?.(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` },
@@ -843,7 +844,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
       if (state.socialDetail && state.socialDetail.trade.phase !== 'idle' && !['title', 'characters'].includes(state.scene)) {
-        const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); } });
+        const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, ...(tradeReason() ? { reason: tradeReason()! } : {}) });
         if (trade) stage.append(trade);
       }
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {

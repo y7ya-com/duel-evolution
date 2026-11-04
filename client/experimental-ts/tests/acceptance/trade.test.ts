@@ -30,23 +30,27 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       await openClient(a,await signIn(`TestTa${RUN}`),{ assets:false }); await openClient(b,await signIn(`TestTb${RUN}`),{ assets:false });
       await enterWorld(a,names.a); await enterWorld(b,names.b);
       // Both earn tradeable cards (starter and starting-MP cards are soul-bound).
-      await earnCards(a); await earnCards(b);
+      const rewardA = await earnCards(a), rewardB = await earnCards(b);
+      expect(rewardA.length).toBeGreaterThan(0); expect(rewardB.length).toBeGreaterThan(0);
       await click(a,'Lobby'); await click(b,'Lobby');
       // trade.invite: decline first.
       await invite(a,b,names.b);
       await inTrade(b,`b.textContent==='Decline trade'`);
-      await until(b,`!${tradeWindow}`,30000); await until(a,`!${tradeWindow}||${tradeWindow}.textContent.includes('ended')`,30000);
-      if (await a.ev(`Boolean(${tradeWindow})`)) await inTrade(a,`b.textContent==='Close'||b.textContent==='Cancel trade'`).catch(() => {});
+      await until(b,`!${tradeWindow}`,30000);
+      await until(a,`${tradeWindow}?.textContent.includes(${JSON.stringify(`${names.b} declined the trade.`)})`,30000);
+      await inTrade(a,`b.textContent==='Close'`); await until(a,`!${tradeWindow}`,10000);
       // then accept.
       await invite(a,b,names.b);
       await inTrade(b,`b.textContent==='Accept trade'`);
       for (const p of [a,b]) await until(p,`${tradeWindow}?.querySelector('.de-trade-trunk')`,30000);
       await screenshot(a,'trade-open');
-      record('trade.invite',{ actions:'Invite by name; partner declines; invite again; partner accepts', expected:'Invite, accept, decline and cancel without stale state', observed:'decline closed both windows; second invite opened the trade on both sides' });
+      record('trade.invite',{ actions:'Invite by name; partner declines; invite again; partner accepts', expected:'Invite, accept, decline and cancel without stale state', observed:`decliner's window closed; inviter saw "${names.b} declined the trade." and closed it; second invite opened the trade on both sides` });
       // trade.offers: A offers a card; B sees it live. B offers one; A sees it.
       const aCards = await offerable(a), bCards = await offerable(b);
       expect(aCards.length).toBeGreaterThan(0); expect(bCards.length).toBeGreaterThan(0);
-      const give = aCards[0]!.name, take = bCards.find(c => c.name !== give)?.name ?? bCards[0]!.name;
+      // Earned reward cards are tradeable; starter copies are soul-bound (tried below as the failure case).
+      const give = rewardA.find(n => aCards.some(c => c.name === n))!, take = rewardB.find(n => n !== give && bCards.some(c => c.name === n)) ?? rewardB[0]!;
+      expect(give).toBeTruthy();
       const start = { aGive:await trunk(a,give), aTake:await trunk(a,take), bGive:await trunk(b,give), bTake:await trunk(b,take) };
       await inTrade(a,`b.getAttribute('aria-label')===${JSON.stringify(`Offer ${give}`)}`);
       await until(b,`[...document.querySelectorAll('.de-trade-side')][1]?.querySelector(${JSON.stringify(`.de-trade-card[title="${give}"]`)})`,30000);
@@ -84,7 +88,22 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       for (const p of [a,b]) if (await p.ev(`Boolean(${tradeWindow})`)) await inTrade(p,`b.textContent==='Close'`).catch(() => {});
       const afterCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
       expect(afterCancel).toEqual(beforeCancel);
-      record('trade.failure',{ actions:'Open a trade, offer a card, partner cancels; read collections', expected:'Cancellation causes no loss or duplication', observed:`collections unchanged after cancel: A ${take}×${afterCancel.a}, B ${give}×${afterCancel.b}` });
+      // A soul-bound starter card: both ready and confirm; the server refuses the exchange and says why; nothing moves.
+      await click(a,'Lobby'); await click(b,'Lobby');
+      await invite(a,b,names.b); await inTrade(b,`b.textContent==='Accept trade'`);
+      for (const p of [a,b]) await until(p,`${tradeWindow}?.querySelector('.de-trade-trunk')`,30000);
+      const bound = (await offerable(a)).find(c => !rewardA.includes(c.name) && c.name !== take)!.name, boundBefore = await trunk(a,bound);
+      await inTrade(a,`b.getAttribute('aria-label')===${JSON.stringify(`Offer ${bound}`)}`);
+      await until(b,`[...document.querySelectorAll('.de-trade-side')][1]?.querySelector('.de-trade-card')`,30000);
+      for (const p of [a,b]) { await inTrade(p,`b.textContent==='Ready'`); await inTrade(p,`b.textContent==='Confirm'`); }
+      for (const p of [a,b]) await until(p,`[...document.querySelectorAll('.de-trade-window button')].some(b=>b.textContent==='Complete trade')`,30000);
+      for (const p of [a,b]) { await inTrade(p,`b.textContent==='Complete trade'`); await inTrade(p,`b.textContent==='Confirm'`); }
+      await until(a,`${tradeWindow}?.textContent.includes('soul-bound')`,60000);
+      const refusal = await a.ev(`[...document.querySelectorAll('.de-trade-window p')].map(p=>p.textContent).find(t=>t.includes('soul-bound'))`) as string;
+      for (const p of [a,b]) if (await p.ev(`Boolean(${tradeWindow})`)) await inTrade(p,`b.textContent==='Close'`).catch(() => {});
+      const boundAfter = await ownedCopies(a,bound);
+      expect(boundAfter).toBe(boundBefore);
+      record('trade.failure',{ actions:'Partner cancels an open trade; then a soul-bound starter card is offered and both confirm', expected:'Disconnect, stale inventory, bound items and cancellation cause no loss or duplication', observed:`after cancel: A ${take}×${afterCancel.a}, B ${give}×${afterCancel.b} unchanged; bound ${bound}: "${refusal}", A still owns ×${boundAfter}` });
       void text; void byKey;
     } finally { closeAll(); }
   },900000);

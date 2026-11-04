@@ -61,7 +61,7 @@ export function renderSocialFeature(state: SocialState, dispatch: (action: Socia
         button('Add friend', () => dispatch({ type: 'inviteFriend', pid })),
         button('Write mail', () => { dispatch({ type: 'editDraft', key: 'Recipient', value: `${searched}#${pid}` }); }),
         button('Invite to team', () => dispatch({ type: 'inviteTeam', pid }), !state.team),
-        button('Invite to trade', () => dispatch({ type: 'inviteTrade', pid }), !['idle', 'finished', 'closing'].includes(state.trade.phase)),
+        button('Invite to trade', () => dispatch({ type: 'inviteTrade', pid, ...(searched ? { name: searched } : {}) }), !['idle', 'finished', 'closing'].includes(state.trade.phase)),
         button('Ignore', () => dispatch({ type: 'ignore', pid })),
       );
       if (options.onWhisper && searched) actions.append(button('Whisper', () => options.onWhisper!(searched)));
@@ -79,7 +79,7 @@ export function renderSocialFeature(state: SocialState, dispatch: (action: Socia
     if (Number.isSafeInteger(pid) && pid > 0) {
       row.append(button('Mail', () => dispatch({ type: 'editDraft', key: 'Recipient', value: `${friend.name}#${pid}` })));
       if (friend.online && options.onDuel) row.append(button('Duel', () => options.onDuel!(pid)));
-      if (friend.online) row.append(button('Trade', () => dispatch({ type: 'inviteTrade', pid }), !['idle', 'finished', 'closing'].includes(state.trade.phase)));
+      if (friend.online) row.append(button('Trade', () => dispatch({ type: 'inviteTrade', pid, name: friend.name }), !['idle', 'finished', 'closing'].includes(state.trade.phase)));
     }
     friends.append(row);
   }
@@ -140,7 +140,7 @@ export function renderSocialFeature(state: SocialState, dispatch: (action: Socia
 }
 
 /** The trade window: shown over any scene while a trade is in progress. Cards are shown, never typed. */
-export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialAction) => void, state: SocialState, options: SocialUIOptions & { search?: string; onSearch?: (value: string) => void } = {}): HTMLElement | null {
+export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialAction) => void, state: SocialState, options: SocialUIOptions & { search?: string; onSearch?: (value: string) => void; reason?: string } = {}): HTMLElement | null {
   if (trade.phase === 'idle') return null;
   const { button, confirm } = make2(dispatch, state);
   const root = make('section', undefined, 'de-panel de-trade-window'); root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'Card trade');
@@ -154,7 +154,9 @@ export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialA
   };
   if (trade.phase === 'requesting' || trade.phase === 'waiting') root.append(make('p', `Waiting for ${partner} to answer…`));
   if (trade.phase === 'offered') root.append(make('p', `${partner} wants to trade cards with you.`), make('div', undefined, 'de-row'), button('Accept trade', () => dispatch({ type: 'replyTrade', accept: true }), false, true), button('Decline trade', () => dispatch({ type: 'replyTrade', accept: false })));
-  if (trade.phase === 'open' || trade.phase === 'finished') {
+  const exchanged = trade.ownOffer.length > 0 || trade.view.otherOffer.length > 0;
+  if (trade.phase === 'finished' && !exchanged) root.append(make('p', state.status && /declined/.test(state.status) ? state.status : 'The trade ended without an exchange.', 'de-note'));
+  if (trade.phase === 'open' || trade.phase === 'finished' && exchanged) {
     const editable = trade.phase === 'open' && !trade.view.ready && !trade.view.otherReady && !trade.pendingMove;
     const columns = make('div', undefined, 'de-trade-columns');
     const own = make('section', undefined, 'de-trade-side'); own.append(make('h3', `You give (${trade.ownOffer.length}/10)${trade.view.ready ? ' · Ready' : ''}`));
@@ -190,7 +192,8 @@ export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialA
       else if (trade.view.ready) actions.append(make('span', `Waiting for ${partner} to be ready…`, 'de-note'));
       root.append(actions);
     }
-    if (trade.view.finished) root.append(make('p', trade.view.success ? 'Trade complete. Your collection has been updated.' : 'The trade ended without an exchange.', trade.view.success ? 'de-trade-result' : 'de-note'));
+    // The server explains a refused exchange in a system message (e.g. soul-bound cards); show it here.
+    if (trade.view.finished) root.append(make('p', trade.view.success ? 'Trade complete. Your collection has been updated.' : options.reason ?? 'The trade ended without an exchange.', trade.view.success ? 'de-trade-result' : 'de-note'));
   }
   if (trade.phase === 'finished' || trade.phase === 'closing') root.append(button('Close', () => dispatch({ type: 'cancelTrade' })));
   else root.append(confirm('Cancel trade', 'Close this trade? Offers on both sides are abandoned.', () => dispatch({ type: 'cancelTrade' })));

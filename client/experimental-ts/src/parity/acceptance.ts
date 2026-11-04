@@ -1,3 +1,4 @@
+import verified from '../../acceptance-evidence/verified.json';
 /** Acceptance inventory, not implementation claims. Passing unit tests never auto-promotes a flow.
  * Verification requires dated new-client evidence: setup, actions, observations and asserted outcome.
  */
@@ -88,5 +89,12 @@ const rows: [string, string, string, string][] = [
   ['errors.api', 'errors', 'API and assets', 'HTTP/auth failures, unavailable data and missing assets show usable retry/fallback states.'],
   ['errors.concurrency', 'errors', 'Concurrent and stale operations', 'Busy state, duplicate clicks, navigation and late replies cannot apply to the wrong session.'],
 ];
-export const acceptanceInventory: readonly AcceptanceFlow[] = rows.map(([id, area, flow, acceptance]) => ({ id, area, flow, acceptance, status: 'unverified', evidence: [] }));
+/** Browser evidence from tests/acceptance/ against the real local stack, collected by tools/acceptance-evidence.mjs. */
+export interface AcceptanceEvidence { at: string; commit: string; test: string; actions: string; expected: string; observed: string; accounts?: string }
+const evidenceFor = (id: string): AcceptanceEvidence | undefined => (verified as Record<string, AcceptanceEvidence>)[id];
+export const acceptanceInventory: readonly AcceptanceFlow[] = rows.map(([id, area, flow, acceptance]) => {
+  const e = evidenceFor(id);
+  return { id, area, flow, acceptance, status: e ? 'verified' : 'unverified', evidence: e ? [`${e.at} @${e.commit} ${e.test}: ${e.observed}`] : [] };
+});
+export const acceptanceEvidence = (id: string): AcceptanceEvidence | undefined => evidenceFor(id);
 export function acceptanceGaps(): AcceptanceFlow[] { return acceptanceInventory.filter(flow => flow.status !== 'verified' || flow.evidence.length === 0); }

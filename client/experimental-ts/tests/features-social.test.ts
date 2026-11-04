@@ -57,7 +57,7 @@ describe('social controller authority and lifecycle', () => {
   });
   it('handles declined trade ack zero without opening, return-to-editing, malformed messages and disposal', () => {
     const { controller: c, sent, changed } = setup(); receive(c, 0x7104, new W().u32(1004).s('Bob', 16).bytes());
-    c.dispatch({ type: 'replyTrade', accept: false }); receive(c, 0x7105, result()); expect(c.state.trade.phase).toBe('finished'); expect(sent).toHaveLength(1);
+    c.dispatch({ type: 'replyTrade', accept: false }); receive(c, 0x7105, result()); expect(c.state.trade.phase).toBe('idle'); expect(c.state.status).toBe('Trade invitation declined.'); expect(sent).toHaveLength(1);
     receive(c, 0x4612, Uint8Array.of(1)); expect(c.state.error).toContain('Truncated'); receive(c, 0xffff); c.reset(); expect(c.state.error).toBeNull();
     const before = changed.mock.calls.length; c.dispose(); c.reset(); c.dispatch({ type: 'refreshMail' }); receive(c, 0x4603); expect(changed).toHaveBeenCalledTimes(before); expect(sent).toHaveLength(1);
   });

@@ -5,6 +5,7 @@ import { readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 import { launch } from '../../../web-shell/htmlui/tools/cdp.mjs';
+import { expect } from 'vitest';
 
 export type Page = Awaited<ReturnType<typeof launch>>;
 /** Test user and character names must be fresh per run: accounts stay online briefly and names are server-wide. */
@@ -77,7 +78,8 @@ async function isolatedPage(port:number,width:number,height:number):Promise<Page
 export async function until(page:Page,condition:string,timeout = 30000):Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeout) { if (await page.ev(`Boolean(${condition})`).catch(() => false)) return; await sleep(60); }
-  throw new Error(`Timed out: ${condition}\n--- page ---\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,2500)}\n--- logs ---\n${page.logs.slice(-20).join('\n')}`);
+  const body = String(await page.ev('document.body.innerText').catch(() => ''));
+  throw new Error(`Timed out: ${condition}\n--- page ---\n${body.slice(0,2000)}\n--- page end ---\n${body.slice(-1200)}\n--- logs ---\n${page.logs.slice(-20).join('\n')}`);
 }
 /** A real pointer press at the control's centre; an obstructed or vanished control fails rather than being skipped. */
 export async function press(page:Page,selector:string):Promise<void> {
@@ -130,7 +132,8 @@ const EVIDENCE_DIR = resolve(import.meta.dirname,'../../acceptance-evidence');
 export function commit():string { try { return execSync('git rev-parse --short HEAD',{ cwd:import.meta.dirname }).toString().trim(); } catch { return 'unknown'; } }
 export function record(flow:string,observation:{ actions:string; expected:string; observed:string; accounts?:string }) {
   mkdirSync(EVIDENCE_DIR,{ recursive:true });
-  appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),...observation }) + '\n');
+  const state = expect.getState(), test = `${(state.testPath ?? '').replace(/^.*?(tests\/acceptance\/)/,'$1')} > ${state.currentTestName ?? ''}`;
+  appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),test,...observation }) + '\n');
 }
 function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
 export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/acceptance',{ recursive:true }); writeFileSync(`/tmp/acceptance/${name}.png`,await page.shot()); }
@@ -196,9 +199,11 @@ export async function playDuel(page:Page,options:{ attack?:boolean; summon?:bool
 }
 /** NPC list → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
 export async function startNpcDuel(page:Page,npc:string) {
-  await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`).catch(() => {});
-  await until(page,`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].some(b=>b.textContent===${JSON.stringify(npc)}&&!b.disabled)`,30000);
-  await press(page,`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].find(b=>b.textContent===${JSON.stringify(npc)})`);
+  if (!(await page.ev(`document.querySelector('[data-key="lobby-npcs"]')?.open`))) await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`).catch(() => {});
+  // Several NPCs share a name (levels 4/6/8); take the first that is enabled and visible.
+  const entry = `[...document.querySelectorAll('[data-key="lobby-npcs"] button')].find(b=>b.textContent===${JSON.stringify(npc)}&&!b.disabled&&b.getClientRects().length)`;
+  await until(page,entry,30000);
+  await press(page,entry);
   const confirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
   const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
   for (let i = 0; i < 6 && !(await page.ev(`Boolean(${confirm})`)); i++) { await until(page,`${confirm}||${next}`,20000); if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(300); }
@@ -226,29 +231,41 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
 }
 /** Surrender the current duel (confirming the server's question) and wait for the result. */
 export async function surrender(page:Page) {
+  // The server answers a surrender with its Yes/No question when this side may act: wait for our own turn.
+  for (const start = Date.now(); Date.now() - start < 180000;) {
+    if (await page.ev(`Boolean(${byText('End Turn')}||${byText('Return to Lobby')})`)) break;
+    // Answer whatever the server asks meanwhile (chains, targets), without playing anything.
+    if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog],.de-zone-target,.de-duel-notice'))`)) await duelBot(page,{ summon:false,attack:false });
+    await sleep(200);
+  }
+  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) return;
   await click(page,'Surrender',60000);
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
   await until(page,`${yes}||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
   if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
   await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
 }
-/** After an NPC duel: back to the lobby, through the NPC's result dialogue, choose the offered reward pack, close. */
-export async function claimNpcReward(page:Page):Promise<string|null> {
+/** After an NPC duel: back to the lobby, through the NPC's result dialogue, choose the offered reward pack, close.
+ * Returns the pack label, the received card names ("Name · New" rows) and the dialog text seen. */
+export async function claimNpcReward(page:Page):Promise<{ pack:string|null; received:string[]; dialog:string }> {
   const panel = `document.querySelector('[aria-label="NPC interaction"]')`;
-  await click(page,'Return to Lobby');
-  let pack:string|null = null;
-  for (let i = 0; i < 30 && (await page.ev(`Boolean(${panel})`) || i < 5); i++) {
+  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) await click(page,'Return to Lobby');
+  let pack:string|null = null, received:string[] = [], dialog = '';
+  for (let i = 0; i < 40 && (await page.ev(`Boolean(${panel})`) || i < 6); i++) {
+    const rows = await page.ev(`[...(${panel}?.querySelectorAll('.de-receipt-cards article p') ?? [])].map(p=>p.textContent.split(' · ')[0])`) as string[];
+    if (rows.length) { received = rows; dialog = (await page.ev(`${panel}?.innerText ?? ''`) as string).replace(/\s+/g,' ').slice(0,240); }
     const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
     const other = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>['Continue','Receive Gift','Close NPC'].includes(b.textContent)&&!b.disabled)`;
-    if (await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
-    else if (await page.ev(`Boolean(${other})`)) await press(page,other);
+    if (!pack && await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
+    else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
     await sleep(800);
   }
-  return pack;
+  return { pack, received, dialog };
 }
-/** Earn tradeable (not soul-bound) cards: lose an NPC duel at once and take its reward pack. */
+/** Earn tradeable (not soul-bound) cards: lose an NPC duel by passing every turn (a surrender earns no reward pack)
+ * and take its reward pack. */
 export async function earnCards(page:Page,npc = 'Yami Yugi') {
   await startNpcDuel(page,npc);
-  await surrender(page);
-  return claimNpcReward(page);
+  await playDuel(page,{ summon:false,attack:false,timeout:420000 });
+  return (await claimNpcReward(page)).received;
 }
