@@ -125,7 +125,10 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`(()=>{${live}.close();${byText('End Turn')}.click();})()`);
       const heldWhile = await connection(page);
       await resumed(page);
-      await until(page,`Number(/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??0)>${t0}`,60000);
+      // The server may ask chain questions on the way to the end of the turn: decline them; End Turn is never pressed again.
+      const no = `[...document.querySelectorAll('.de-duel-prompt button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='No'&&!b.disabled)`;
+      let declined = 0;
+      for (let i = 0; i < 400 && await turn(page) <= t0; i++) { if (await page.ev(`Boolean(${no})`)) { await press(page,no).catch(() => {}); declined++; } await sleep(150); }
       const t1 = await turn(page);
       expect(t1).toBe(t0 + 1);
       const log = await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent)`) as string[];
@@ -138,7 +141,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       expect(resumes).toBeGreaterThanOrEqual(4);
       record('reconnect.resume',{ actions:'Drop the game WebSocket: with a chat message in flight (lobby), right after Purchase (shop), in the deck editor, and in the duel on my main phase; then chat, re-read MP/collection, End Turn once, surrender',
         expected:'Tunnel resume keeps channels and sequences; no duplicate chat, purchase or duel input',
-        observed:`${resumes} resumed tunnels; lobby ${lobbyStatuses}; "${first}" ×${count(first)}, "${second}" ×${count(second)}; MP ${before} → ${after} (one 200 MP pack, "${receipt}"), collection ${copies} → ${granted} copies, unchanged after the deck-editor drop (${again}); duel turn ${t0} → ${t1} after one End Turn pressed while the tunnel was ${heldWhile} (board unchanged by an earlier drop, "${me} ends the turn." ×${ends} in the log), surrender → ${result}` });
+        observed:`${resumes} resumed tunnels; lobby ${lobbyStatuses}; "${first}" ×${count(first)}, "${second}" ×${count(second)}; MP ${before} → ${after} (one 200 MP pack, "${receipt}"), collection ${copies} → ${granted} copies, unchanged after the deck-editor drop (${again}); duel turn ${t0} → ${t1} after one End Turn pressed while the tunnel was ${heldWhile} (${declined} chain question${declined === 1 ? '' : 's'} declined) (board unchanged by an earlier drop, "${me} ends the turn." ×${ends} in the log), surrender → ${result}` });
     } finally { closeAll(); }
   },600000);
   it('offers a clean new connection after a rejected or expired resume',async () => {
