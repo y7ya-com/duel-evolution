@@ -599,8 +599,19 @@ export class ClientApp implements ClientController {
       const data = await this.services.refreshDecks(options);
       if (epoch !== this.epoch || this.disposed) throw new DOMException('Session changed', 'AbortError');
       if (!this.editor) {
-        const deck = data.decks.find(d => d.name === data.current[this.deckMode]) ?? data.decks[0];
+        const deck = data.decks.find(d => d.name === data.current[this.deckMode]);
         if (deck) this.editor = new DeckEditor(deck, this.collection);
+        else if (this.freeMode) {
+          // Free Duel tests decks from the whole card pool. Without a free deck yet, start from a copy of the world deck
+          // under its own name, so saving it can never rewrite (or rename) the saved world deck.
+          const source = data.decks.find(d => d.name === data.current.world) ?? data.decks[0];
+          if (source) {
+            const taken = new Set(data.decks.map(d => d.name)), base = `${source.name.slice(0, 24)} (Free)`;
+            let name = base; for (let n = 2; taken.has(name); n++) name = `${base.slice(0, 26)} ${n}`;
+            const copy = new DeckEditor({ name, main: [...source.main], side: [...(source.side ?? [])], extra: [...source.extra] }, this.collection);
+            this.editor = copy.rename(name).ok ? copy : new DeckEditor({ name: 'Free Deck', main: [...source.main], side: [...(source.side ?? [])], extra: [...source.extra] }, this.collection);
+          }
+        } else if (data.decks[0]) this.editor = new DeckEditor(data.decks[0], this.collection);
       }
       this.syncEditor(); this.emit();
     } else if (scene === 'shop') {

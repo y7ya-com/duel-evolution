@@ -68,6 +68,8 @@ function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: 
 interface LocalState {
   /** The last duel information box the player closed. */
   noticeSeen: number;
+  /** The duel log's scroll position while the reader is not at the bottom (null: follow new lines). */
+  logScroll: number | null;
   tradeSearch: string;
   message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
   channel: string; chat: string; whisperTarget: string; target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
@@ -81,7 +83,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
   let roomJoin: number | null = null, roomJoinPassword = '';
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '' };
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -714,7 +716,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
     stage.append(actions);
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
-    for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log); log.scrollTop = log.scrollHeight;
+    for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log);
+    // Follow new lines only while the reader is at the bottom; a player reading older lines keeps their place.
+    log.scrollTop = local.logScroll === null ? log.scrollHeight : local.logScroll;
+    log.onscroll = () => { local.logScroll = log.scrollHeight - log.scrollTop - log.clientHeight < 8 ? null : log.scrollTop; };
     if (!duel.notice) local.noticeSeen = 0;
     if (duel.notice && duel.notice.id > local.noticeSeen) {
       // The original shows these as a message box closed with OK; it never blocks the re-sent prompt underneath.
