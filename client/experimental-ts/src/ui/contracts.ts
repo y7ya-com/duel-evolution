@@ -63,6 +63,8 @@ export interface DuelView {
   log: string[];
   /** Archive path of the original duel backdrop for the current field theme. */
   background?: string;
+  /** The latest server information box (for example, a refused surrender). */
+  notice?: { id: number; text: string };
   spectators?: number;
   spectating?: boolean;
   timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CardCatalog } from '../src/catalog';
-import { projectDuel, interpretAction, interpretResponse } from '../src/presentation';
+import { projectDuel, interpretAction, interpretResponse, describeEvent } from '../src/presentation';
+import { DuelTextCatalog } from '../src/duel/text';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
 import { encodeDuelResponse } from '../src/duel/responses';
 import { engine, set_card, setcommand, comid_field, comid_hand, request_input, listItem } from '../../../server/src/duel/translator/lockstep';
@@ -136,5 +137,18 @@ describe('duel log', () => {
       'You: Main Phase 1', 'Rival draws 2 cards.', 'Rival summons Reference card.', "Rival's Reference card attacks directly!",
       'You takes 1,200 damage.', 'Rival activates a card.',
     ]);
+  });
+});
+
+describe('server information boxes', () => {
+  it('become notices with the original dialog text when generated, never prompts', () => {
+    let s = initial();
+    s = reduce(s, setcommand(0x1b, 0x32, [0, 82, 0]));
+    expect(s.prompt).toBeNull();
+    const notice = s.events.find(e => e.type === 'notice')!;
+    expect(notice.params).toEqual([82]);
+    expect(describeEvent(s, cat, ['You', 'Rival'], notice)).toBe('You may surrender starting from the 10th turn.');
+    const texts = new DuelTextCatalog(); texts.install({ v: 1, legacyOptions: {}, legacyPrompts: {}, cardNames: {}, dialogs: { 82: 'Original wording.' } });
+    expect(describeEvent(s, cat, ['You', 'Rival'], notice, texts)).toBe('Original wording.');
   });
 });

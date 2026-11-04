@@ -17,6 +17,7 @@ import type { GameplayCommand } from './gameplay/binary';
 import { CardCatalog } from './catalog';
 import { projectDuel, interpretResponse, interpretAction, applyTimeline, describeEvent } from './presentation';
 import { fieldThemeKindForPasscode } from './duel/theme';
+import { describeNotice } from './duel/text';
 import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
 import { DuelAudioDirector } from './duel/audio';
@@ -98,6 +99,11 @@ export class ClientApp implements ClientController {
   private game: GameSession | null = null;
   private editor: DeckEditor | null = null;
   private packCatalog: Promise<Map<number, PackInfo>> | null = null;
+  /** The other duelist of a player-versus-player duel, from the challenge either side made. */
+  private duelIsPvp = false;
+  private pvpOpponent: string | null = null;
+  private nextOpponent: string | null = null;
+  private duelNotice: { id: number; text: string } | null = null;
   private sideboard: DeckView | null = null;
   private sideboardRound: number | null = null;
   private duelState: DuelState = createDuelState();
@@ -238,6 +244,7 @@ export class ClientApp implements ClientController {
   }
   private updateSession(state: SessionState): void {
     if (this.disposed) return;
+    if (state.challenge) this.nextOpponent = state.challenge.name;
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
       this.collection = [...state.collection].map(([pc, n]) => this.catalog.card(pc, n));
@@ -332,7 +339,8 @@ export class ClientApp implements ClientController {
     const previous = this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
     const names = this.duelNames();
-    this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e)).filter((line): line is string => line !== null)].slice(-100);
+    this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
+    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: event.sequence, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
     this.timeline.enqueue(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
@@ -393,16 +401,23 @@ export class ClientApp implements ClientController {
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
     this.duelAudio.reset(this.duelState.sequence);
     this.settledDuel = null;
-    this.fieldPasscode=0;this.fieldAudioSlot=11;
+    this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null;
   }
   private syncDuel(): void {
     const background = this.duelBackground();
-    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}),
+    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
       spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   private duelNames(): [string, string] {
-    return [this.view.player?.name ?? 'You', this.npc.state.npc?.name ?? 'Opponent'];
+    const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
+    return [this.view.player?.name ?? 'You', opponent ?? 'Opponent'];
+  }
+  private roomOpponentName(): string | null {
+    const state = this.game?.state, self = this.view.player?.id; if (!state || self === undefined) return null;
+    const room = state.rooms.find(r => r.owner === self || r.opponent === self); if (!room) return null;
+    const other = room.owner === self ? room.opponent : room.owner;
+    return state.players.find(p => p.pid === other)?.name ?? null;
   }
   /** data/y/duel/field/duel_field.txt: line 1 is the Academy hall, line k+1 the backdrop of field theme k. */
   private duelBackground(): string | null {
@@ -477,7 +492,7 @@ export class ClientApp implements ClientController {
         queueMicrotask(() => {
           if (this.disposed || this.game !== game) { this.attachingOffer = false; return; }
           this.stopWorld();if (this.npc.state.stage === 'ask' || this.npc.state.stage === 'greeting') this.npc.reset();
-          this.resetDuel(); this.syncDuel();
+          this.resetDuel(); this.duelIsPvp = true; this.pvpOpponent = this.nextOpponent ?? this.roomOpponentName(); this.nextOpponent = null; this.syncDuel();
           void (async () => game.acceptDuelOffer(this.currentDeck()))().catch(e => this.failure(e)).finally(() => { this.attachingOffer = false; });
         });
       },
@@ -604,6 +619,7 @@ export class ClientApp implements ClientController {
         case 'npcClose':
           if(!this.npc.close())throw new Error('Finish this NPC interaction and reward selection first.');break;
         case 'duelChallenge': {
+          this.nextOpponent = this.game?.state.players.find(p => p.pid === command.playerId)?.name ?? null;
           if (!this.services.decks.state.data) await this.refresh('deck');
           const result = await this.services.api.http.request('POST', '/api/de/duel/challenge', value => {
             if (!value || typeof value !== 'object' || !('room' in value) || !Number.isSafeInteger(value.room)) throw new Error('Invalid duel invitation response.');

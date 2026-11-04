@@ -35,6 +35,19 @@ for (const card of original) {
   const name = engine.texts[card.pc]?.[0];
   if (typeof name === 'string' && name.trim()) output.cardNames[card.pc] = name.trim();
 }
+// Optional original duel dialog strings (data/bin#/dlg_indx_e.bin + dlg_text_e.bin, extracted privately):
+// u32 offsets into UTF-16LE text; @n colour codes are removed.
+if (process.env.DE_DLG_INDEX && process.env.DE_DLG_TEXT) {
+  const index = readFileSync(process.env.DE_DLG_INDEX), text = readFileSync(process.env.DE_DLG_TEXT);
+  if (index.length % 4 || index.length > 64 * 1024 || text.length > 4 * 1024 * 1024) throw new Error('Unexpected duel dialog table size');
+  output.dialogs = {};
+  for (let id = 0; id < index.length / 4 && id < 4096; id++) {
+    const start = index.readUInt32LE(id * 4); if (start >= text.length) continue;
+    let end = start; while (end + 1 < text.length && (text[end] || text[end + 1])) end += 2;
+    const value = text.subarray(start, end).toString('utf16le').replace(/@\d/g, '').trim();
+    if (value) output.dialogs[id] = value;
+  }
+}
 mkdirSync(resolve(root, 'public'), { recursive: true });
 writeFileSync(resolve(root, 'public/duel-texts.json'), JSON.stringify(output));
-console.log(`Generated private duel labels: ${Object.keys(output.legacyOptions).length} option IDs, ${Object.keys(output.legacyPrompts).length} prompt IDs, ${Object.keys(output.cardNames).length} card names.`);
+console.log(`Generated private duel labels: ${Object.keys(output.legacyOptions).length} option IDs, ${Object.keys(output.legacyPrompts).length} prompt IDs, ${Object.keys(output.cardNames).length} card names, ${Object.keys(output.dialogs ?? {}).length} dialog strings.`);

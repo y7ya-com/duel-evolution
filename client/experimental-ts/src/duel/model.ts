@@ -352,7 +352,9 @@ function applyRecord(state: DuelState, record: CommandRecord): void {
       } else state.prompt = prompt(state, 'actions', 'Choose an action');
       break;
     case 0x1b:
-      if (record.b === 0x32) state.prompt = dialogPrompt(state, p, record.hints);
+      // Kind 0 is an information box (e.g. surrender refused); the server re-sends the pending prompt right after it.
+      if (record.b === 0x32 && p[0] === 0) event(state, 'notice', 0, [p[1] ?? 0]);
+      else if (record.b === 0x32) state.prompt = dialogPrompt(state, p, record.hints);
       else if (record.b === 0x33) state.prompt = listPrompt(state, p[1], record.hints);
       else if (![0x0a, 0x0b, 0x0c, 0x29, 0x37, 0x47].includes(record.b)) {
         unsupported(state, 0x6202, record.kind, record.b, 'Unknown view/prompt command');

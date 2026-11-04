@@ -4,7 +4,7 @@ import type { DuelView, DuelPromptView, DuelOption, DuelResponse, FieldZone } fr
 import { CardCatalog } from './catalog';
 import type { CardPlacement, TimelineSample } from './duel/timeline';
 import { fieldCardPosition } from './ui/helpers';
-import { describePrompt, type DuelTextCatalog } from './duel/text';
+import { describePrompt, describeNotice, type DuelTextCatalog } from './duel/text';
 const zones: Record<Zone, FieldZone> = { monster: 'monster', spell: 'spell', hand: 'hand', deck: 'deck', extra: 'extra', grave: 'graveyard', banish: 'banished' };
 const actionId = (a: LegalAction) => `action:${a.player}:${a.zone}:${a.index}:${a.command}`;
 const phases: Record<number, string> = { 3: 'Battle Phase', 4: 'Main Phase 2', 5: 'End Turn' };
@@ -21,7 +21,8 @@ function identityVisible(card: ReturnType<typeof visibleCards>[number]): boolean
 }
 const PHASES: Record<number, string> = { 0x0c: 'Draw Phase', 0x0d: 'Standby Phase', 0x0e: 'Main Phase 1', 0x0f: 'Battle Phase', 0x10: 'Main Phase 2' };
 /** A readable duel-log line for a server presentation event, or null for bookkeeping the player never sees. */
-export function describeEvent(state: DuelState, catalog: CardCatalog, names: [string, string], e: DuelState['events'][number]): string | null {
+export function describeEvent(state: DuelState, catalog: CardCatalog, names: [string, string], e: DuelState['events'][number], texts?: DuelTextCatalog): string | null {
+  if (e.type === 'notice') return describeNotice(e.params[0] ?? 0, texts);
   const m = /^engine:([0-9a-f]+)$/.exec(e.type); if (!m) return null;
   const cmd = parseInt(m[1]!, 16), who = names[e.player] ?? 'A duelist', p = e.params;
   const shown = e.card === undefined ? null : state.cards[e.card];
@@ -124,7 +125,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     }),
     prompt, turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase ?? 'Preparing', actions,
     ...(state.timer ? { timer: { ...state.timer } } : {}),
-    log: state.events.slice(-120).map(e => describeEvent(state, catalog, names, e)).filter((line): line is string => line !== null).slice(-60),
+    log: state.events.slice(-120).map(e => describeEvent(state, catalog, names, e, texts)).filter((line): line is string => line !== null).slice(-60),
     ...(state.result ? { ended: state.result.result === 1 ? 'Victory' : state.result.result === 2 ? 'Defeat' : state.result.result === 3 ? 'Draw' : 'Duel finished' } : {}),
     ...(latestIssue ? { waiting: `Unsupported gameplay: ${latestIssue}` } : blocked ? { waiting: 'Waiting for the server…' } : {}),
   };

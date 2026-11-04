@@ -4,6 +4,8 @@ export interface TextAlternative { card: number; text: string }
 export interface DuelTextData {
   v: 1; legacyOptions: Record<string, TextAlternative[]>;
   legacyPrompts: Record<string, TextAlternative[]>; cardNames: Record<string, string>;
+  /** Optional original duel dialog strings (data/bin#/dlg_text_?.bin) by text id, colour codes removed. */
+  dialogs?: Record<string, string>;
 }
 const normal = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 /** Generated display data only. Installing text never grants an action or changes response values. */
@@ -11,6 +13,7 @@ export class DuelTextCatalog {
   private options = new Map<number, TextAlternative[]>();
   private prompts = new Map<number, TextAlternative[]>();
   private names = new Map<number, string>();
+  private dialogs = new Map<number, string>();
   install(input: unknown): void {
     if (!input || typeof input !== 'object' || (input as { v?: unknown }).v !== 1) throw new Error('Invalid duel text version');
     const data = input as Record<string, unknown>; let bytes = 0;
@@ -38,7 +41,8 @@ export class DuelTextCatalog {
     // Validate everything before replacing the current usable catalog.
     const options = alternatives(data.legacyOptions), prompts = alternatives(data.legacyPrompts);
     const names = new Map(entries(data.cardNames, 100000).map(([key, value]) => [Number(key), text(value, 512)]));
-    this.options = options; this.prompts = prompts; this.names = names;
+    const dialogs = data.dialogs === undefined ? new Map<number, string>() : new Map(entries(data.dialogs, 4096).map(([key, value]) => [Number(key), text(value, 4096)]));
+    this.options = options; this.prompts = prompts; this.names = names; this.dialogs = dialogs;
   }
   private resolve(table: Map<number, TextAlternative[]>, id: number, card?: number): string | null {
     const values = table.get(id); if (!values?.length) return null;
@@ -50,6 +54,7 @@ export class DuelTextCatalog {
   option(id: number, card?: number): string | null { return this.resolve(this.options, id, card); }
   prompt(id: number, card?: number): string | null { return this.resolve(this.prompts, id, card); }
   cardName(card: number): string | null { return this.names.get(card) ?? null; }
+  dialog(id: number): string | null { return this.dialogs.get(id) ?? null; }
 }
 
 /** Meanings are backed by translator consts names and explicit handlers, rather than legacy IDs guessed as OCG IDs. */
@@ -62,6 +67,12 @@ const PROMPT_MEANINGS: Record<number, string> = {
   317: 'Choose the number of counters.', 326: 'Choose a battle position.', 328: 'Activate this card’s effect from your hand?',
   329: 'Activate this card’s effect from your Graveyard?', 594: 'Choose a number.',
 };
+
+/** Server information boxes (dialog kind 0): the original text when generated, else its translator meaning. */
+const NOTICE_MEANINGS: Record<number, string> = { 82: 'You may surrender starting from the 10th turn.' };
+export function describeNotice(id: number, texts?: DuelTextCatalog): string {
+  return texts?.dialog(id) ?? NOTICE_MEANINGS[id] ?? 'The server declined that action.';
+}
 
 export function describePrompt(prompt: DuelPrompt, texts: DuelTextCatalog, contextPasscode?: number): { title: string; optionLabels: Map<number, string> } {
   const subject = prompt.text.find(t => t.kind === 4)?.value ?? contextPasscode;

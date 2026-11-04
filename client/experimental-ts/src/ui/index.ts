@@ -55,6 +55,8 @@ function cardTile(card: CardView, showName = true, faceUp = true, load?: (card: 
   return tile;
 }
 interface LocalState {
+  /** The last duel information box the player closed. */
+  noticeSeen: number;
   message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
   channel: string; chat: string; whisperTarget: string; target: number | null; promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
   sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
@@ -66,7 +68,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all' };
+  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, channel: 'lobby', chat: '', whisperTarget: '', target: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -646,6 +648,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     stage.append(actions);
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log); log.scrollTop = log.scrollHeight;
+    if (!duel.notice) local.noticeSeen = 0;
+    if (duel.notice && duel.notice.id > local.noticeSeen) {
+      // The original shows these as a message box closed with OK; it never blocks the re-sent prompt underneath.
+      const notice = duel.notice, close = () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); requestRender(); };
+      const box = el('section', 'de-panel de-duel-notice', el('p', '', notice.text), button('OK', close, false, true)); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', notice.text);
+      stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
+    }
     if (duel.prompt) renderPrompt(duel.prompt);
     if (local.inspected && local.inspectedFrom === 'duel') {
       const inspected = duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || (duel.actions ?? []).some(a => a.cardId === c.id)));
@@ -710,13 +719,25 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   function renderPreparation(): void {
     const prep = state.preparation; if (!prep) return;
+    const archiveImage = controller.loadArchiveImage ? (path: string) => { const image = el('img'); image.alt = ''; image.draggable = false; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Preparation'));
     const phase = prep.phase.toLowerCase();
     if (prep.role === 'partner' || prep.role === 'spectator') panel.append(el('p', '', prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…'));
     else if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
-      panel.append(el('p', '', 'Choose your hand.'), el('div', 'de-row', ...(['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => button(label, () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }), !!state.busy, true))));
+      // data/y/janken: jan_card_01..03 are rock, scissors and paper.
+      panel.append(el('p', '', 'Choose your hand.'), el('div', 'de-row de-janken', ...(['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => {
+        const b = button(label, () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }), !!state.busy, true);
+        if (archiveImage) { b.className = 'de-janken-card'; b.replaceChildren(archiveImage(`data/y/janken/jan_card_0${hand + 1}.png`), el('span', '', label)); }
+        return b;
+      })));
     } else if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) {
-      panel.append(el('p', '', 'Choose who goes first.'), el('div', 'de-row', button('Go First', () => send({ type: 'chooseFirst', first: true }), !!state.busy, true), button('Go Second', () => send({ type: 'chooseFirst', first: false }), !!state.busy)));
+      const order = (label: string, first: boolean) => {
+        const b = button(label, () => send({ type: 'chooseFirst', first }), !!state.busy, first);
+        // jan_dai_01_e: four 64px plates, "first" on rows 0-1 and "second" on rows 2-3.
+        if (archiveImage) { b.className = 'de-janken-order'; const plate = el('span', 'de-janken-plate'), image = archiveImage('data/y/janken/jan_dai_01_e.png'); image.style.top = first ? '0' : '-200%'; plate.append(image); b.replaceChildren(plate, el('span', 'de-sr', label)); }
+        return b;
+      };
+      panel.append(el('p', '', 'You won! Choose who goes first.'), el('div', 'de-row de-janken', order('Go First', true), order('Go Second', false)));
     } else if (/ready|begin|confirm|invitation/.test(phase)) panel.append(button('Start Duel', () => send({ type: 'beginDuel' }), !!state.busy, true));
     else panel.append(el('p', '', 'Waiting for the other duelist…'));
     if (prep.opponentHand !== undefined && prep.opponentHand !== null) panel.append(note(`Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand] ?? 'an unknown hand'}.`));

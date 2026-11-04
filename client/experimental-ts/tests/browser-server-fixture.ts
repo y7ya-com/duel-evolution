@@ -40,7 +40,10 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
   const assetRequests:BrowserAssetRequest[] = [];
   let activeAssetRequests = 0, lastAssetActivity = Date.now();
   const remoteAssets = options.assetBaseUrl ? createRemoteAssetMiddleware({baseUrl:options.assetBaseUrl,forwardValidators:true}) : null;
-  const logs:string[] = [], packets:{ id:string; bytes:number }[] = [], user = 'browser-fixture-user';
+  const logs:string[] = [], packets:{ id:string; bytes:number }[] = [];
+  // One account per browser: the cookie names it ('1' is the default account). Tests sign a second browser in with
+  // GET /api/de/session?as=<name> before loading the client.
+  const fixtureUser = (req:IncomingMessage) => { const m = /(?:^|;\s*)de_browser_fixture=([a-z0-9]{1,16})/.exec(req.headers.cookie ?? ''); return m ? m[1] === '1' ? 'browser-fixture-user' : `browser-fixture-${m[1]}` : null; };
   const gameServer = buildServer(configFrom({ DEV:'1',PARITY_SEED:'1',SEND_PACE:'0',DUEL_PAUSE:'0.001',OWNER_ACCT:'' }),{ players:{} },line => {
     logs.push(line); if (logs.length > 5000) logs.shift();
   });
@@ -68,11 +71,14 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
     void (async () => {
     const url = new URL(req.url ?? '/',origin || 'http://localhost');
     if (url.pathname === '/api/de/session') {
-      res.setHeader('Set-Cookie','de_browser_fixture=1; Path=/; HttpOnly; SameSite=Lax');
-      return json(res,{ signedIn:true,userId:user,name:'Browser Fixture',roles:[],discord:false,password:true });
+      const as = url.searchParams.get('as'), named = as && /^[a-z0-9]{1,16}$/.test(as) ? as : null;
+      const user = named ? named === '1' ? 'browser-fixture-user' : `browser-fixture-${named}` : fixtureUser(req) ?? 'browser-fixture-user';
+      if (named || !fixtureUser(req)) res.setHeader('Set-Cookie',`de_browser_fixture=${named ?? '1'}; Path=/; HttpOnly; SameSite=Lax`);
+      return json(res,{ signedIn:true,userId:user,name:named && named !== '1' ? `Browser Fixture ${named}` : 'Browser Fixture',roles:[],discord:false,password:true });
     }
     if (url.pathname.startsWith('/api/')) {
-      if (!req.headers.cookie?.includes('de_browser_fixture=1')) return json(res,{ error:'fixture-sign-in-required' },401);
+      const user = fixtureUser(req);
+      if (!user) return json(res,{ error:'fixture-sign-in-required' },401);
       if (req.method !== 'GET' && req.headers.origin !== origin) return json(res,{ error:'fixture-origin' },403);
       let result:unknown;
       await gameServer.world.run(() => {
@@ -101,6 +107,11 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
       if (url.pathname === '/api/de/chat' && req.method === 'POST') {
         const data = await body(req); await gameServer.world.run(() => { result = chatSend(gameServer.game,user,data); }); return json(res,result);
       }
+      if (url.pathname === '/api/de/duel/challenge' && req.method === 'POST') {
+        const data = await body(req) as { pid?:unknown; name?:unknown }; let response:[number,unknown] | undefined;
+        await gameServer.world.run(() => { response = gameServer.game.lp.duelInvite(user,Number(data.pid) || 0,typeof data.name === 'string' ? data.name.slice(0,32) : '') as [number,unknown]; });
+        return json(res,response![1],response![0]);
+      }
       if (url.pathname === '/api/de/shop/buy') {
         const data = await body(req); await gameServer.world.run(() => { result = shopPurchaseApi(gameServer.game,user,data); }); return json(res,result);
       }
@@ -115,7 +126,8 @@ export async function browserServerFixture(options:BrowserFixtureOptions = {}) {
   })().catch(error => { if (!res.headersSent) json(res,{ error:error instanceof Error ? error.message : String(error) },500); else res.destroy(); }); });
   server.on('upgrade',(req,socket,head) => {
     const url = new URL(req.url ?? '/',origin);
-    if (url.pathname !== '/net' || req.headers.origin !== origin || !req.headers.cookie?.includes('de_browser_fixture=1')) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); return; }
+    const user = fixtureUser(req);
+    if (url.pathname !== '/net' || req.headers.origin !== origin || !user) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n'); return; }
     wss.handleUpgrade(req,socket,head,(ws:any) => {
       const id = `browser-${++peerN}`; peers.add(id); websockets.add(ws);
       gameServer.world.openPeer(id,user,text => ws.send(text),bytes => {
