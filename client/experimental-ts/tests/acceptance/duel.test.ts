@@ -161,7 +161,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       await screenshot(a,'duel-pvp-a-start'); await screenshot(b,'duel-pvp-b-start');
 
       const prompts = tracker();
-      const stats = { checkpoints:0, failed:[] as string[], leaks:[] as string[], artLeaks:[] as string[], bothInput:0, opponentActions:[] as string[], monsters:0, sets:0, ownSetNamed:0, flips:0, positions:0, lp:new Set<string>(), destroyed:0, banished:0, phases:new Set<string>(), log:0, logOrder:[] as string[], chains:0, counters:0, control:0, shuffles:0, piles:new Set<string>() };
+      const stats = { checkpoints:0, failed:[] as string[], leaks:[] as string[], artLeaks:[] as string[], bothInput:0, opponentActions:[] as string[], monsters:0, sets:0, ownSetNamed:0, flips:0, positions:0, lp:new Set<string>(), destroyed:0, banished:0, phases:new Set<string>(), log:0, logOrder:[] as string[], chains:0, counters:0, control:0, shuffles:0, secretChecks:0, artRequests:0, piles:new Set<string>() };
       let previous:{ a:Snap; b:Snap } | null = null, lastTurn = 0, lastBar = '';
       const checkpoint = async (why:string) => {
         const s = await settle(a,b);
@@ -176,9 +176,11 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           const secret = [...new Set(owner.cards.filter(c => c.side === 'your' && (c.zone === 'hand' || c.back && ['monster','spell','field'].includes(c.zone))).map(nameOf).filter((n):n is string => !!n))]
             .filter(n => !publicNames.has(n) && !otherDeck.includes(n) && !logText.includes(n));
           if (!secret.length) continue;
+          stats.secretChecks += secret.length;
           const text = await exposed(otherPage);
           for (const n of secret) if (text.includes(n)) stats.leaks.push(`${n} exposed on the opponent's page @ ${owner.bar}`);
           const requests = await otherPage.ev(`window.__art ?? []`) as string[];
+          stats.artRequests = Math.max(stats.artRequests,requests.length);
           for (const r of await artRanges(secret)) for (const q of requests) {
             const m = /^merge\.dat bytes=(\d+)-(\d+)$/.exec(q); if (m && Number(m[1]) <= r.end && Number(m[2]) >= r.start && Number(m[2]) - Number(m[1]) < 4 * 1024 * 1024) stats.artLeaks.push(`${r.name} art requested by the opponent (${q})`);
           }
@@ -338,6 +340,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       expect(stats.logOrder).toEqual([]);
       expect(prompts.errors).toEqual([]);
       expect(stats.checkpoints).toBeGreaterThan(10);
+      expect(stats.secretChecks,'hidden cards were checked').toBeGreaterThan(0);
+      expect(stats.artRequests,'the art spy saw the opponent page load art').toBeGreaterThan(0);
       const turns = turnOf(final[0]) || lastTurn;
       record('duel.field',{ actions:`PvP ${names.a} vs ${names.b}, both bots summon/set/attack; ${stats.checkpoints} settled checkpoints`, expected:'Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership.', observed:`at every checkpoint A's own zones (per index), hand count and deck/grave/banish/extra counts equalled B's mirrored opponent side and vice versa; up to ${stats.monsters} monsters on the field; piles seen: ${[...stats.piles].join(', ')}; ${turns} turns; result ${result} (${ended})` });
       record('duel.visibility',{ actions:'Both players set and summon cards; each checkpoint compares face, position and names across the two screens', expected:'Reveal/hide cards, tokens, control changes, shuffles and positions match server state.', observed:`face-up/face-down and attack/defense agreed per zone index at all ${stats.checkpoints} checkpoints; ${stats.flips} flips, ${stats.positions} position changes, ${stats.control} control changes, ${stats.shuffles} shuffle checkpoints observed; own set cards named to their owner ${stats.ownSetNamed} times and never to the opponent` });
@@ -346,7 +350,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       record('duel.stale',{ actions:'A captured prompt answer pressed after a newer prompt arrived; a phase button from an earlier turn pressed on a later turn', expected:'Reject stale input and display unsupported prompts without fabricating a valid action.', observed:`${staleResult || 'no second prompt arrived for the captured one'}; ${staleActionResult || 'stale phase button not exercised'}; no "Unsupported gameplay" state seen` });
       record('duel.log',{ actions:'Scroll the duel log while a prompt waits; compare log order between screens and over time', expected:'Open supported duel logs, retain ordering and card references, and close without affecting active prompts.', observed:`${logProbe || 'no prompt with a long log'}; logs of both screens agreed line by line (hidden names replaced by "a card/a monster"); earlier lines kept their order in later logs; ${stats.log} lines shown` });
       record('duel.presentation',{ actions:'A plays with animations on; A inspects a card while B acts', expected:'Animations, card inspection and logs remain ordered while input waits appropriately.', observed:`${animationProbe || 'no animation observed'}; ${inspectProbe || 'inspection probe not reached'}` });
-      record('cards.hidden',{ actions:"Each checkpoint reads the owner's hidden cards (hand, set cards) and searches the opponent's whole page (text and attributes) and its art requests", expected:'Card backs and unknown assets reveal no private identity and remain usable.', observed:`no hidden name in the opponent's DOM and no opponent art request for hidden cards' merge.dat entries at ${stats.checkpoints} checkpoints; opponent backs drawn with the original card back` });
+      record('cards.hidden',{ actions:"Each checkpoint reads the owner's hidden cards (hand, set cards) and searches the opponent's whole page (text and attributes) and its art requests", expected:'Card backs and unknown assets reveal no private identity and remain usable.', observed:`${stats.secretChecks} hidden card names (hand and set cards, excluding names public or in the viewer's own deck) checked against the opponent's whole DOM text and attributes and against up to ${stats.artRequests} archive range requests (merge.dat entries of their art) over ${stats.checkpoints} checkpoints: none exposed or requested; opponent's cards drawn as the original card back` });
       record('duel.prompts',{ actions:'Both bots answer every prompt the PvP duel raised', expected:'Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.', observed:`PvP prompts: ${describeKinds(kinds)}` });
     } finally { closeAll(); }
   },900000);
@@ -357,11 +361,12 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       await enterWith(page,`Dun ${RUN}`,0);
       const prompts = tracker();
       let duels = 0, results:string[] = [];
-      for (const npc of ['Yami Yugi','Tea','Joey','Jaden','Chazz']) {
+      for (const npc of ['Yami Yugi','Tea Gardner','Joey Wheeler','Jaden Yuki','Chazz Princeton']) {
         await click(page,'Lobby').catch(() => {}); await until(page,byKey('lobby-npcs'),60000);
-        const listed = await page.ev(`(()=>{document.querySelector('[data-key="lobby-npcs"]').open=true;return [...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)})()`) as string[];
-        if (!listed.includes(npc)) continue;
-        try { await startNpcDuel(page,npc); } catch { continue; }
+        await until(page,`document.querySelectorAll('[data-key="lobby-npcs"] button').length>0`,30000);
+        const listed = await page.ev(`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)`) as string[];
+        if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }
+        try { await startNpcDuel(page,npc); } catch (error) { results.push(`${npc}: no duel (${String(error).slice(0,120)})`); continue; }
         duels++;
         const start = Date.now();
         while (Date.now() - start < 300000) {
@@ -376,14 +381,14 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>(b.dataset.key?.includes('npcSelectPack')||['Continue','Receive Gift','Close NPC'].includes(b.textContent))&&!b.disabled)`;
           if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(600);
         }
-        if (prompts.kinds().size >= 4 || duels >= 2) break;
+        if (prompts.kinds().size >= 5 || duels >= 3) break;
       }
       const kinds = prompts.kinds();
       console.log(JSON.stringify({ duels,results,kinds:describeKinds(kinds),errors:prompts.errors }));
       expect(duels).toBeGreaterThan(0);
       expect(prompts.errors).toEqual([]);
       for (const [kind,e] of kinds) expect(e.accepted,`${kind} prompts accepted`).toBeGreaterThan(0);
-      record('duel.prompts',{ actions:`NPC duels (${results.join('; ')}) with a bot answering every prompt through the prompt dialogs`, expected:'Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.', observed:`prompt kinds met and accepted by the server: ${describeKinds(kinds)}; no refused or unsupported response` });
+      record('duel.prompts',{ actions:`NPC duels (${results.filter(r => /Victory|Defeat|Draw|surrender/.test(r)).join('; ')}) with a bot answering every prompt through the prompt dialogs`, expected:'Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.', observed:`prompt kinds met and accepted by the server: ${describeKinds(kinds)}; no refused or unsupported response` });
       const selection = [...kinds].filter(([k]) => ['cards','place'].includes(k));
       if (selection.length) record('duel.selection',{ actions:'Card and zone selection prompts answered by the bot (first candidate, confirm; or an on-field zone)', expected:'Card, field, ritual and discard selection respect bounds, cancellation and hidden identities.', observed:`selection prompts: ${selection.map(([k,e]) => `${k} ×${e.n}, ${e.accepted} accepted ("${[...e.texts][0]}")`).join('; ')}` });
     } finally { closeAll(); }
