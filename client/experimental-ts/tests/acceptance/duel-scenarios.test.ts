@@ -77,6 +77,16 @@ async function target(page:Page,other:Page,re:RegExp,timeout = 40000) {
   }
   throw new Error(`no target ${re}: ` + JSON.stringify(await view(page)).slice(0,1500));
 }
+/** Wait (declining chain questions on both pages, as target() does) until `page` offers a board target matching `re`. */
+async function awaitTarget(page:Page,other:Page,re:RegExp,timeout = 40000):Promise<View> {
+  for (const end = Date.now() + timeout; Date.now() < end;) {
+    const v = await view(page); if (v.zones.some(z => re.test(z))) return v;
+    if (v.prompt?.kind === 'yes-no') { await opt(page,'No'); await sleep(400); continue; }
+    const o = await view(other); if (o.prompt?.kind === 'yes-no') { await opt(other,'No'); await sleep(400); continue; }
+    await sleep(200);
+  }
+  throw new Error(`no target ${re}: ` + JSON.stringify(await view(page)).slice(0,1500));
+}
 /** Open a card's inspector and press one of its actions ("Summon", "Activate", "Set spell/trap"). */
 async function play(page:Page,name:string,where:string,action:string) {
   await until(page,cardSel(name,where),20000); await press(page,cardSel(name,where));
@@ -246,12 +256,10 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       seen.selection.push(`Mystical Space Typhoon target choice on B's screen, instruction "${mstInstruction}": ${mstTargets.map(z => `"${z}"`).join(', ')} (the set card unnamed); the set card went to A's Graveyard (2 cards on both screens)`);
       // Change of Heart: Breaker moves to B, counter and all, on both screens.
       await act(b,a,'Change of Heart','your hand','Activate');
-      for (let i = 0; i < 100 && !(await view(b)).zones.some(z => z.startsWith('Breaker')); i++) await sleep(200);
-      const heartInstruction = (await view(b)).instruction;
+      const heartInstruction = (await awaitTarget(b,a,/^Breaker the Magical Warrior, opponent monster/)).instruction;
       expect(heartInstruction).toBe('Select a target card from the Field.');
       await target(b,a,/^Breaker the Magical Warrior, opponent monster/);
-      for (let i = 0; i < 100 && !(await view(b)).zones.some(z => /^Select: your monster zone/.test(z)); i++) await sleep(200);
-      const heartZone = (await view(b)).instruction;
+      const heartZone = (await awaitTarget(b,a,/^Select: your monster zone/)).instruction;
       expect(heartZone).toBe('Select a Monster Card Zone.');
       await screenshot(b,'scenario-1-b-zone-instruction');
       await target(b,a,/^Select: your monster zone/);

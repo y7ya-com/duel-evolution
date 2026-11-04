@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CardCatalog } from '../src/catalog';
-import { projectDuel, interpretAction, interpretResponse, describeEvent } from '../src/presentation';
+import { projectDuel, interpretAction, interpretResponse, describeEvent, applyTimeline } from '../src/presentation';
 import { DuelTextCatalog } from '../src/duel/text';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
 import { encodeDuelResponse } from '../src/duel/responses';
@@ -175,6 +175,12 @@ describe('board selection instructions', () => {
     const summon = { type: 'action', player: 0, zone: 11, index: 0, command: 4 } as const;
     expect(projectDuel(s, cat, ['You', 'Rival'], null, undefined, summon).instruction).toBe('Please select a monster as Tribute.');
     expect(projectDuel(s, cat, ['You', 'Rival'], null, undefined, null).instruction).toBe('Select a target card from the Field.');
+  });
+  it('waits with the board while it still animates', () => {
+    const v = view(ask(reduce(initial(), set_card(1, 5, 0, 123, 9)), [['1,5', 1 << 11]]));
+    const sample = { cards: [], effects: [], lp: [8000, 8000] as [number, number], pending: true, acknowledgedThrough: 0, retainedCards: 0 };
+    expect(applyTimeline(v, sample as never, cat).instruction).toBeUndefined();
+    expect(applyTimeline(v, { ...sample, pending: false } as never, cat).instruction).toBe('Select a target card from the Field.');
   });
   it('uses the generated original text when installed, and none once the choice was sent', () => {
     const texts = new DuelTextCatalog(); texts.install({ v: 1, legacyOptions: {}, legacyPrompts: {}, cardNames: {}, dialogs: { 274: 'Original pick text.' } });
