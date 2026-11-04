@@ -19,6 +19,7 @@ function identityVisible(card: ReturnType<typeof visibleCards>[number]): boolean
   return card.passcode !== null && (card.faceUp || card.player === 0 &&
     ['hand', 'extra', 'monster', 'spell'].includes(card.zone));
 }
+const lpLine = (who: string, what: string, lp?: [number, number]) => `${who} ${what}${lp ? ` (LP ${lp[0]} -> ${lp[1]})` : ''}`;
 const PHASES: Record<number, string> = { 0x0c: 'Draw Phase', 0x0d: 'Standby Phase', 0x0e: 'Main Phase 1', 0x0f: 'Battle Phase', 0x10: 'Main Phase 2' };
 /** A readable duel-log line for a server presentation event, or null for bookkeeping the player never sees. */
 export function describeEvent(state: DuelState, catalog: CardCatalog, names: [string, string], e: DuelState['events'][number], texts?: DuelTextCatalog): string | null {
@@ -42,8 +43,11 @@ export function describeEvent(state: DuelState, catalog: CardCatalog, names: [st
     case 0x12: return `${who} activates ${card('a card')}.`;
     case 0x19: return `${who}'s ${card('monster')} attacks!`;
     case 0x1a: return `${who}'s ${card('monster')} attacks directly!`;
-    case 0x25: return p[0] ? `${who} takes ${p[0].toLocaleString()} damage.` : null;
-    case 0x24: return p[0] ? `${who} gains ${p[0].toLocaleString()} LP.` : null;
+    // The original Duel Log's wording (server/src/duel/duelText.ts): "<name> paid 2000 LP (LP 8000 -> 6000)". Engine 0x25's
+    // P1 is the LP change's type (EngineCmd6.cpp engCmdLp): 2 a cost (the translator's PAY_LPCOST), else damage.
+    case 0x25: return p[0] ? lpLine(who, p[1] === 2 ? `paid ${p[0]} LP` : `took ${p[0]} damage`, e.lp) : null;
+    case 0x24: return p[0] ? lpLine(who, `gained ${p[0]} LP`, e.lp) : null;
+    case 0x26: return e.lp && e.lp[0] !== e.lp[1] ? lpLine(who, 'LP set', e.lp) : null;
     case 0x23: return `${who}'s LP drop to 0.`;
     case 0x31: return `${card('A card')} is sent to the Graveyard.`;
     case 0x46: return `${card('A monster')} is tributed.`;
@@ -65,7 +69,37 @@ function actionLabel(state: DuelState, catalog: CardCatalog, a: LegalAction): st
     : a.zone === 14 ? 'graveyard' : 'banished cards';
   return `${a.label}: ${identity ?? `${side} ${zone}`}`;
 }
-export function projectDuel(state: DuelState, catalog: CardCatalog, names: [string, string], submittedPrompt: number | null = null, texts?: DuelTextCatalog): DuelView {
+/** The declaration list's candidates as prompt options (cached per catalog, mode and text tables). */
+const declarableViews = new WeakMap<object, { id: string; label: string }[]>();
+function declarableCards(catalog: CardCatalog, mode: number, texts?: DuelTextCatalog): { id: string; label: string }[] {
+  const list = catalog.declarable(mode >= 0x4b && mode <= 0x4e ? mode : 0x4b, texts);
+  let views = declarableViews.get(list);
+  if (!views) { views = list.map(c => ({ id: String(c.passcode), label: c.name })); declarableViews.set(list, views); }
+  return views;
+}
+/** The original's instruction for a selection made on the board itself, in its duel dialog wording (the translator's
+ * pick panel: DLG_PICK_FIELD 274, DLG_PICK_TRIBUTE 18, DLG_PICK_OPP_HAND 244; 222 for an attack target; 243 a card in
+ * one's own hand). A zone has no dialog line of its own: its words are the original's zone names. */
+const INSTRUCTIONS: Record<number, string> = { 18: 'Please select a monster as Tribute.', 222: 'Select monster as target for attack.',
+  243: 'Select 1 card from your hand.', 244: "Select 1 card from your opponent's hand.", 274: 'Select a target card from the Field.' };
+export function boardInstruction(state: DuelState, p: NonNullable<DuelState['prompt']>, texts?: DuelTextCatalog, lastAction?: EngineResponse | null): string | null {
+  // Surrender (the deck's command 10) and pile inspection (1) ride along with every request.
+  const choices = p.actions.filter(a => a.command !== 10 && a.command !== 1);
+  if (p.kind !== 'actions' || p.buttons.length || !choices.length) return null;
+  const line = (id: number) => texts?.dialog(id) ?? INSTRUCTIONS[id]!;
+  if (choices.every(a => a.command === 0)) return line(222);
+  if (!choices.every(a => a.command === 11)) return null;
+  if (choices.every(a => uidFor(state, a) === null)) {
+    const monster = choices.every(a => a.zone <= 4), spell = choices.every(a => a.zone >= 5 && a.zone <= 10);
+    return monster ? 'Select a Monster Card Zone.' : spell ? 'Select a Spell & Trap Card Zone.' : 'Select a Card Zone.';
+  }
+  if (choices.every(a => a.zone === 11)) return line(choices.every(a => a.player === 1) ? 244 : 243);
+  // A Tribute Summon or Set asks for its Tributes right after the summon from the hand.
+  const summoned = lastAction?.type === 'action' && lastAction.zone === 11 && (lastAction.command === 4 || lastAction.command === 6);
+  if (summoned && choices.every(a => a.player === 0 && a.zone <= 4)) return line(18);
+  return line(274);
+}
+export function projectDuel(state: DuelState, catalog: CardCatalog, names: [string, string], submittedPrompt: number | null = null, texts?: DuelTextCatalog, lastAction?: EngineResponse | null): DuelView {
   const p = state.prompt, blocked = submittedPrompt === p?.id;
   const boardPrompt = p && ['actions', 'field-selection', 'discard', 'ritual'].includes(p.kind);
   const actions: DuelOption[] = p && boardPrompt && state.acceptingInput && !blocked ? p.actions.map(a => {
@@ -85,7 +119,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
       : ['field-selection', 'discard', 'ritual'].includes(p.kind) ? 'place' : 'choice';
     prompt = { id: String(p.id), text: p.title, kind, cancelable: p.cancelable,
       min: p.min, max: p.max, options: p.options.map(o => ({ id: `answer:${o.value}`, label: o.label })),
-      ...(p.kind === 'number' ? { numberMin: p.min, numberMax: p.max } : {}), ...(p.kind === 'announce-card' ? { suggestions: catalog.names() } : {}) };
+      ...(p.kind === 'number' ? { numberMin: p.min, numberMax: p.max } : {}), ...(p.kind === 'announce-card' ? { declarable: declarableCards(catalog, p.listMode, texts) } : {}) };
     if (texts) {
       // CHAIN_END has no wire command to clear the cached chain. Only this dialog's
       // explicit picture list is safe context for text alternatives.
@@ -113,6 +147,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
       delete prompt.candidates;
     }
   }
+  const instruction = p && state.acceptingInput && !blocked ? boardInstruction(state, p, texts, lastAction) : null;
   const latestIssue = state.errors.at(-1) ?? state.unsupported.at(-1)?.reason;
   return {
     players: [
@@ -132,7 +167,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
           counters: Object.entries(c.counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count })),
         } : {}), ...(c.faceUp && c.turns > 0 ? { turnCounter: c.turns } : {}) };
     }),
-    prompt, turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase ?? 'Preparing', actions, ...(actions.length ? { actionsFor: String(p!.id) } : {}),
+    prompt, ...(instruction ? { instruction } : {}), turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase ?? 'Preparing', actions, ...(actions.length ? { actionsFor: String(p!.id) } : {}),
     ...(state.timer ? { timer: { ...state.timer } } : {}),
     log: state.events.slice(-120).map(e => describeEvent(state, catalog, names, e, texts)).filter((line): line is string => line !== null).slice(-60),
     ...(state.result ? { ended: state.result.result === 1 ? 'Victory' : state.result.result === 2 ? 'Defeat' : state.result.result === 3 ? 'Draw' : 'Duel finished' } : {}),

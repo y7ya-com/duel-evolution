@@ -19,6 +19,11 @@ const PHASE_ART: Record<NonNullable<DuelCue['phase']>, string> = { draw: 'dr', s
 /** Original field-theme kinds (src/duel/theme.ts) in data/y/duel/field/field.txt order; titles are fie_<name>_fe.png. */
 const FIELD_TITLES = ['mori', 'kouya', 'yama', 'sougen', 'umi', 'yami', 'sanctu', 'gaia', 'water', 'burn', 'desert', 'shine', 'dark', 'fusion', 'shine', 'umi', 'kouya', 'dark', 'sanctu', 'desert', 'fusion', 'yami'];
 const MAX_ANIMS = 24, MAX_TINTS = 96, MAX_ART = 256;
+/** One frame of the original's 60 Hz game loop. */
+const FRAME = 1000 / 60;
+/** CBattleManager state 4 (client/src/duel/SceneBattleManager.cpp): aim 8 frames, flight to frame 16, then the hit; the
+ * attack movie (duel_ef_attack_a) runs on at its own rate, at most this long. */
+export const ATTACK = { aim: 8 * FRAME, hit: 16 * FRAME, movie: 700 };
 const BANNERS = new Set<DuelCue['kind']>(['phase', 'turn', 'field']);
 
 interface Anim { cue: DuelCue; start: number; duration: number; draw(ctx: CanvasRenderingContext2D, t: number): void }
@@ -170,17 +175,31 @@ export class DuelFx {
         });
       }
       case 'attack': {
-        const movie = `${E}duel_ef_attack_a.txt`; this.want(movie);
+        const movie = `${E}duel_ef_attack_a.txt`, arrow = `${E}duel_ef_attackIcon_a.png`, hit = `${E}duel_ef_attackIcon_a_hit.png`; this.want(movie, arrow, hit);
         const from = this.where(cue.at);
         // CBattleManager::draw: a direct attack hits the defending player's side (y 0x40 or 0x218), scaled by the attacker's ATK.
         const atk = this.duel?.cards.find(c => c.controller === cue.at?.controller && c.zone === 'monster' && c.index === cue.at?.index)?.attack ?? 1000;
         const to = cue.direct ? { x: 512, y: cue.player === 0 ? 0x40 : 0x218, w: 0, h: 0 } : this.where(cue.target);
         const scale = cue.direct ? atk < 1000 ? 1 : atk < 2000 ? 2 : 3 : 1;
         if (this.reduced) return this.push(cue, 600, (ctx, t) => this.ring(ctx, to, t / 600, '#ffd24a'));
-        return this.push(cue, 900, (ctx, t) => {
-          const k = clamp(t / 250);
-          if (k < 1) this.streak(ctx, from, to, k);
-          if (t >= 200) this.playMovie(ctx, movie, t - 200, to.x, to.y, scale);
+        // State 4 of CBattleManager (its counter +0x10 a frame to 0x200, 32 frames): the attacker's arrow turns to the
+        // target (frames 0..8), flies there on a 1 - cos ease (8..16), then the hit: the movie starts at the target,
+        // turned the way the arrow flew, and the hit mark shows (full for 8 frames, fading over 8).
+        const up = (ax: number, ay: number, bx: number, by: number) => Math.atan2(bx - ax, -(by - ay));
+        const flight = up(from.x, from.y, to.x, to.y), opponent = cue.player === 1;
+        return this.push(cue, ATTACK.hit + ATTACK.movie, (ctx, t) => {
+          if (t < ATTACK.aim) {
+            const k = t / ATTACK.aim, rot = opponent ? Math.PI - Math.atan2(to.x - from.x, to.y - from.y) * k : flight * k;
+            this.sprite(ctx, arrow, from.x, from.y, rot, 1);
+          } else if (t < ATTACK.hit) {
+            const e = 1 - Math.cos((t - ATTACK.aim) / (ATTACK.hit - ATTACK.aim) * Math.PI / 2);
+            const x = from.x + (to.x - from.x) * e, y = from.y + (to.y - from.y) * e;
+            this.sprite(ctx, arrow, x, y, Math.hypot(to.x - x, to.y - y) > 1 ? up(x, y, to.x, to.y) : flight, 1);
+          } else {
+            this.playMovie(ctx, movie, t - ATTACK.hit, to.x, to.y, scale, flight);
+            const f = (t - ATTACK.hit) / FRAME;
+            if (f < 16) this.sprite(ctx, hit, to.x, to.y, flight, clamp(2 - f / 8));
+          }
         });
       }
       case 'destroy': case 'tribute': {
@@ -326,10 +345,10 @@ export class DuelFx {
     ctx.globalAlpha = 1 - clamp(k); ctx.strokeStyle = color; ctx.lineWidth = 4;
     ctx.strokeRect(at.x - (at.w || 60) / 2 - 3, at.y - (at.h || 84) / 2 - 3, (at.w || 60) + 6, (at.h || 84) + 6);
   }
-  private streak(ctx: CanvasRenderingContext2D, from: Point, to: Point, k: number): void {
-    const x = from.x + (to.x - from.x) * ease(k), y = from.y + (to.y - from.y) * ease(k);
-    const g = ctx.createRadialGradient(x, y, 0, x, y, 34); g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(0.4, 'rgba(255,214,90,.7)'); g.addColorStop(1, 'rgba(255,140,0,0)');
-    ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(x - 34, y - 34, 68, 68);
+  /** A sprite centred on (x, y), turned `rot` radians (0 points up) at `alpha`. */
+  private sprite(ctx: CanvasRenderingContext2D, path: string, x: number, y: number, rot: number, alpha: number): void {
+    const img = this.image(path); if (!img || alpha <= 0) return;
+    ctx.save(); ctx.globalAlpha = clamp(alpha); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(img, -img.width / 2, -img.height / 2); ctx.restore();
   }
   /** coin_new.txt: duel_ef_coin is 14 frames of 50×50 (0 the puzzle face = heads, 7 the eye = tails). */
   private coins(ctx: CanvasRenderingContext2D, sheet: string, faces: number[], at: Point, t: number): void {
@@ -358,7 +377,7 @@ export class DuelFx {
     }
   }
   /** One original SWF movie at its frame rate around (x, y). Missing pieces draw nothing. */
-  private playMovie(ctx: CanvasRenderingContext2D, path: string, t: number, x: number, y: number, scale: number): void {
+  private playMovie(ctx: CanvasRenderingContext2D, path: string, t: number, x: number, y: number, scale: number, rot = 0): void {
     const movie = this.movie(path); if (!movie || t < 0) return;
     const frame = Math.floor(t * movie.frameRate / 1000);
     if (frame >= movie.frameCount) return;
@@ -372,10 +391,12 @@ export class DuelFx {
       const img = this.image(dir + file); if (!img) continue;
       const source = this.tinted(img, dir + file, item.color);
       ctx.save();
-      ctx.setTransform(scale / 20, 0, 0, scale / 20, x, y);
+      // The movie's own placement: scaled and turned about its origin (CSwfEngine scale_ and rot_.z), at (x, y).
+      const cos = Math.cos(rot) * scale / 20, sin = Math.sin(rot) * scale / 20;
+      ctx.setTransform(cos, sin, -sin, cos, x, y);
       const m = item.clipMatrix, b = item.clip;
       ctx.transform(m.a, m.b, m.c, m.d, m.tx, m.ty); ctx.beginPath(); ctx.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); ctx.clip();
-      ctx.setTransform(scale / 20, 0, 0, scale / 20, x, y);
+      ctx.setTransform(cos, sin, -sin, cos, x, y);
       const f = item.matrix; ctx.transform(f.a, f.b, f.c, f.d, f.tx, f.ty);
       ctx.globalAlpha = clamp(item.color.mult[3] + item.color.add[3] / 255);
       if (ctx.globalAlpha > 0) ctx.drawImage(source, 0, 0);

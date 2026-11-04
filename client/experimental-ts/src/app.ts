@@ -150,6 +150,8 @@ export class ClientApp implements ClientController {
   private worldFrame: number | null = null;
   private worldLastFrame: number | null = null;
   private submittedPrompt: number | null = null;
+  /** The last board action sent, so a Tribute choice after a summon reads as one (presentation.ts boardInstruction). */
+  private lastDuelAction: import('./duel/types').DuelResponse | null = null;
   private collectionRef: ReadonlyMap<number, number> | null = null;
   private collection: CardView[] = [];
   private catalogCards: CardView[] | null = null;
@@ -509,7 +511,7 @@ export class ClientApp implements ClientController {
     this.lastFrame = null;
   }
   private resetDuel(): void {
-    this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null;
+    this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null; this.lastDuelAction = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
     this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
     this.settledDuel = null;
@@ -517,7 +519,7 @@ export class ClientApp implements ClientController {
   }
   private syncDuel(): void {
     const background = this.duelBackground();
-    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
+    this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts, this.lastDuelAction), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
       spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer, at: this.timerAt() } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
@@ -898,7 +900,7 @@ export class ClientApp implements ClientController {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');
           const response = interpretResponse(this.duelState, command.promptId, command.response, text => this.catalog.named(text));
           const messages = encodeDuelResponse(this.duelState, response);
-          this.submittedPrompt = this.duelState.prompt?.id ?? null;
+          this.submittedPrompt = this.duelState.prompt?.id ?? null; this.lastDuelAction = null;
           for (const m of messages) this.requireGame().sendDuel(m.id, m.data);
           this.syncDuel(); break;
         }
@@ -907,7 +909,7 @@ export class ClientApp implements ClientController {
           // Action ids name a zone and index, so one rendered for an earlier prompt could act on a different card now.
           if (command.promptId !== undefined && command.promptId !== String(this.duelState.prompt?.id)) throw new Error('This choice has expired.');
           const response = interpretAction(this.duelState, command.actionId), messages = encodeDuelResponse(this.duelState, response);
-          this.submittedPrompt = this.duelState.prompt?.id ?? null;
+          this.submittedPrompt = this.duelState.prompt?.id ?? null; this.lastDuelAction = response;
           for (const m of messages) this.requireGame().sendDuel(m.id, m.data);
           this.syncDuel(); break;
         }

@@ -58,6 +58,23 @@ export function waistUpLayers(raw: Uint8Array, variant: 0 | 1, data: Part[]): { 
   return out;
 }
 
+/** The eye parts (eye whites 3, eyes 5, eyebrows 7) are drawn in frames: `_01` open, `_02` half shut, `_03` shut
+ * (04..07 the same with a sweat drop). A blink swaps them in the composition; nothing else moves. */
+export const EYE_KINDS = [3, 5, 7] as const;
+export type EyeFrame = 1 | 2 | 3;
+export function eyeFrameLayers(layers: { path: string; rect: Part['rect'] }[], frame: EyeFrame): { path: string; rect: Part['rect'] }[] {
+  if (frame === 1) return layers;
+  return layers.map(layer => ({ ...layer, path: layer.path.replace(/^(data\/avatar\/wu\/w[mw]_(?:es|ey|eb)_\d+)_01(_c\d+\.png)$/i, `$1_0${frame}$2`) }));
+}
+
+/** The original's blink, measured on its duel screen (a 30 fps screencast, 2026-11-04): the eyes stay open a random
+ * 0.3–9 s, then half shut, shut and half shut for 8 game frames (133 ms) each, and open again; each portrait blinks on
+ * its own. `random` is [0, 1). Returns the frames as [frame, milliseconds], from the moment the eyes open. */
+export const BLINK = { minOpen: 300, maxOpen: 9000, step: 133 };
+export function blinkSchedule(random: () => number): [EyeFrame, number][] {
+  return [[1, BLINK.minOpen + random() * (BLINK.maxOpen - BLINK.minOpen)], [2, BLINK.step], [3, BLINK.step], [2, BLINK.step]];
+}
+
 export class WaistUpComposer {
   private readonly data = new Map<0 | 1, Promise<Part[]>>();
   constructor(private readonly load: ArchiveLoader) {}
@@ -72,9 +89,24 @@ export class WaistUpComposer {
     if (!known) { known = this.text(`data/avatar/wu/${female ? 'ww' : 'wm'}_data.csv`, signal).then(parseWaistUpData); this.data.set(key, known); known.catch(() => this.data.delete(key)); }
     return known;
   }
+  /** The composed portrait with its eyes open, half shut and shut (768×768 canvases; a frame whose parts do not load
+   * is left out). */
+  async composeFrames(parts: Uint8Array, variant: 0 | 1, signal: AbortSignal): Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>> {
+    const layers = waistUpLayers(parts, variant, await this.dictionary(parts[0] === 1, signal));
+    const frames: Partial<Record<EyeFrame, HTMLCanvasElement>> = {};
+    for (const frame of [1, 2, 3] as const) {
+      const canvas = await this.draw(eyeFrameLayers(layers, frame), signal, frame === 1);
+      if (canvas) frames[frame] = canvas;
+    }
+    return frames;
+  }
   /** A 768×768 canvas with the composed portrait. */
   async compose(parts: Uint8Array, variant: 0 | 1, signal: AbortSignal): Promise<HTMLCanvasElement> {
     const layers = waistUpLayers(parts, variant, await this.dictionary(parts[0] === 1, signal));
+    return (await this.draw(layers, signal, true))!;
+  }
+  /** Draw `layers`; null when a part fails and `partial` is false (a blink frame missing a part is not shown). */
+  private async draw(layers: { path: string; rect: Part['rect'] }[], signal: AbortSignal, partial: boolean): Promise<HTMLCanvasElement | null> {
     const images = await Promise.all(layers.map(async layer => {
       const lease = await this.load(layer.path, signal).catch(() => null);
       if (!lease) return null;
@@ -84,6 +116,7 @@ export class WaistUpComposer {
         return image.naturalWidth ? image : null;
       } finally { setTimeout(() => lease.release(), 0); }
     }));
+    if (!partial && images.some(img => !img)) return null;
     const canvas = document.createElement('canvas'); canvas.width = SIZE; canvas.height = SIZE;
     const ctx = canvas.getContext('2d');
     if (ctx) layers.forEach((layer, i) => { const img = images[i]; if (img) ctx.drawImage(img, layer.rect[0], layer.rect[1], layer.rect[2], layer.rect[3]); });

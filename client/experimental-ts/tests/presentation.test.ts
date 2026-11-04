@@ -136,8 +136,51 @@ describe('duel log', () => {
     ];
     expect(projectDuel(s, cat, ['You', 'Rival']).log).toEqual([
       'You: Main Phase 1', 'Rival draws 2 cards.', 'Rival summons Reference card.', "Rival's Reference card attacks directly!",
-      'You takes 1,200 damage.', 'Rival activates a card.',
+      'You took 1200 damage', 'Rival activates a card.',
     ]);
+  });
+});
+
+describe('LP changes in the duel log', () => {
+  it('words a cost as a payment and damage as damage, as the original Duel Log does, with the LP before and after', () => {
+    let s = initial();
+    s = reduce(s, engine(0x25, 0, 4000, 2));   // Dark Magic Curtain: pay half your LP (the translator's PAY_LPCOST, type 2)
+    s = reduce(s, engine(0x25, 1, 800, 0));    // effect damage
+    s = reduce(s, engine(0x25, 1, 1200, 1));   // battle damage
+    s = reduce(s, engine(0x24, 0, 500, 1));
+    expect(view(s).log.slice(-4)).toEqual(['You paid 4000 LP (LP 8000 -> 4000)', 'Rival took 800 damage (LP 8000 -> 7200)',
+      'Rival took 1200 damage (LP 7200 -> 6000)', 'You gained 500 LP (LP 4000 -> 4500)']);
+    expect(s.events.filter(e => e.type === 'engine:25').map(e => e.lp)).toEqual([[8000, 4000], [8000, 7200], [7200, 6000]]);
+  });
+  it('logs an LP set only when it changes the LP', () => {
+    let s = reduce(initial(), engine(0x26, 0, 7000));
+    s = reduce(s, engine(0x26, 0, 7000));
+    expect(view(s).log.filter(l => l.includes('LP set'))).toEqual(['You LP set (LP 8000 -> 7000)']);
+  });
+});
+
+describe('board selection instructions', () => {
+  const ask = (s: DuelState, entries: [string, number][]) => reduce(reduceDuelMessage(s, { id: 0x6611, data: comid_field(new Map(entries)) }), request_input(3));
+  it('says what a selection made on the board asks, in the original dialog wording', () => {
+    // A target among the opponent's cards (Mystical Space Typhoon): the translator's pick panel text 274.
+    expect(view(ask(reduce(initial(), set_card(1, 5, 0, 123, 9)), [['1,5', 1 << 11]])).instruction).toBe('Select a target card from the Field.');
+    // Empty zones: the original's zone names.
+    expect(view(ask(initial(), [['0,1', 1 << 11], ['0,2', 1 << 11]])).instruction).toBe('Select a Monster Card Zone.');
+    expect(view(ask(initial(), [['0,6', 1 << 11]])).instruction).toBe('Select a Spell & Trap Card Zone.');
+    // An attack target (command 0 on the opponent's monsters).
+    expect(view(ask(reduce(initial(), set_card(1, 0, 2, 123, 9)), [['1,2', 1 << 0]])).instruction).toBe('Select monster as target for attack.');
+  });
+  it('reads a choice among the player\'s monsters right after a summon from the hand as the Tribute', () => {
+    const s = ask(reduce(initial(), set_card(0, 0, 0, 123, 4)), [['0,0', 1 << 11]]);
+    const summon = { type: 'action', player: 0, zone: 11, index: 0, command: 4 } as const;
+    expect(projectDuel(s, cat, ['You', 'Rival'], null, undefined, summon).instruction).toBe('Please select a monster as Tribute.');
+    expect(projectDuel(s, cat, ['You', 'Rival'], null, undefined, null).instruction).toBe('Select a target card from the Field.');
+  });
+  it('uses the generated original text when installed, and none once the choice was sent', () => {
+    const texts = new DuelTextCatalog(); texts.install({ v: 1, legacyOptions: {}, legacyPrompts: {}, cardNames: {}, dialogs: { 274: 'Original pick text.' } });
+    const s = ask(reduce(initial(), set_card(1, 5, 0, 123, 9)), [['1,5', 1 << 11]]);
+    expect(projectDuel(s, cat, ['You', 'Rival'], null, texts).instruction).toBe('Original pick text.');
+    expect(projectDuel(s, cat, ['You', 'Rival'], s.prompt!.id, texts).instruction).toBeUndefined();
   });
 });
 

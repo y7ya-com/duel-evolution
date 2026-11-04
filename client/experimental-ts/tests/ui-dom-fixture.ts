@@ -39,6 +39,12 @@ export class TestNode {
     if (selector === '[data-key]') return descendants.filter(c => c.dataset.key);
     return descendants.filter(c => c.tagName.toLowerCase() === selector.toLowerCase());
   }
+  /** The first descendant matching `.class` or `tag` (only the simple selectors the client uses). */
+  querySelector(selector: string): TestNode | null {
+    const all = this.querySelectorAll('*');
+    if (selector.startsWith('.')) return all.find(c => c.className.split(' ').includes(selector.slice(1))) ?? null;
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
   focus(): void { this.owner.activeElement = this; }
   setSelectionRange(start: number, end: number): void { this.selectionStart = start; this.selectionEnd = end; }
   getContext(): null { return null; }

@@ -22,14 +22,16 @@ const DECKS = {
     'Scenario 3':[...rep(C.gold,4),...rep(C.poison,4),C.celtic] },
 };
 
-type View = { bar:string; players:string[]; cards:string[]; prompt:{ kind:string; id:string; text:string; buttons:string[] }|null; actions:string[]; zones:string[]; waiting:string|null; errors:string[]; log:string[]; ended:string|null };
+type View = { bar:string; players:string[]; cards:string[]; prompt:{ kind:string; id:string; text:string; buttons:string[] }|null; actions:string[]; zones:string[]; waiting:string|null; errors:string[]; log:string[]; ended:string|null; instruction:string|null; badges:string[] };
 const VIEW = `(()=>{const ok=b=>!b.disabled&&b.getClientRects().length;const p=document.querySelector('.de-duel-prompt[role=dialog]');
   return {bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),
   cards:[...document.querySelectorAll('.de-field-card')].map(b=>b.getAttribute('aria-label')+(b.querySelector('.de-card-count')?' ×'+b.querySelector('.de-card-count').textContent:'')),
   prompt:p?{kind:p.dataset.kind,id:p.dataset.prompt,text:p.innerText,buttons:[...p.querySelectorAll('button,input')].map(x=>(x.dataset.key||x.tagName)+'|'+(x.textContent||x.value)+(x.disabled?'|disabled':''))}:null,
   actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
   waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent),
-  log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null}})()`;
+  log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null,
+  instruction:document.querySelector('.de-duel-instruction')?.textContent??null,
+  badges:[...document.querySelectorAll('.de-field-card .de-badge')].map(b=>{const img=b.querySelector('.de-badge-icon img');return (b.closest('.de-field-card').getAttribute('aria-label')??'').split(',')[0]+' '+b.dataset.kind+'='+b.dataset.count+(img&&img.complete&&img.naturalWidth?' drawn':' not drawn');})}})()`;
 const view = (page:Page) => page.ev(VIEW) as Promise<View>;
 const promptButton = (label:string) => `[...document.querySelectorAll('.de-duel-prompt[role=dialog] button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`;
 async function opt(page:Page,label:string) { await until(page,promptButton(label),20000); await press(page,promptButton(label)); }
@@ -80,13 +82,15 @@ async function play(page:Page,name:string,where:string,action:string) {
   await until(page,cardSel(name,where),20000); await press(page,cardSel(name,where));
   await until(page,inspectorButton(action + ':'),10000); await press(page,inspectorButton(action + ':'));
 }
+/** Each zone choice's instruction line, as act() met it. */
+const zoneInstructions = new Set<string>();
 /** From the idle Main Phase: play a card; then place it in the first free zone if a bare zone choice follows. */
 async function act(page:Page,other:Page,name:string,where:string,action:string) {
   await idle(page,other); await play(page,name,where,action);
   for (let i = 0; i < 8; i++) {
     await sleep(250);
     const v = await view(page), zone = /^Select: your (spell\/trap|monster) zone/;
-    if (v.zones.length && v.zones.every(z => zone.test(z))) { await target(page,other,zone); return; }
+    if (v.zones.length && v.zones.every(z => zone.test(z))) { zoneInstructions.add(`${v.zones[0]!.includes('monster') ? 'monster' : 'spell/trap'} zone: "${v.instruction}"`); await target(page,other,zone); return; }
     if (v.prompt || v.zones.length) return;
   }
 }
@@ -190,16 +194,30 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const counterA = (await view(a)).cards.find(c => c.startsWith('Breaker the Magical Warrior, your monster'));
       const counterB = (await view(b)).cards.find(c => c.startsWith('Breaker the Magical Warrior, opponent monster'));
       expect(counterA).toContain('Spell counters: 1'); expect(counterB).toContain('Spell counters: 1');
+      // The counter is the original's coin badge (magic_counter.png row 1) with its digit, on both screens.
+      const drawn = (v:View) => v.badges.some(x => x.endsWith(' drawn') && !x.endsWith('not drawn'));
+      for (let i = 0; i < 100 && !(drawn(await view(a)) && drawn(await view(b))); i++) await sleep(200);
+      const badges = { a:(await view(a)).badges, b:(await view(b)).badges };
+      expect(badges).toEqual({ a:['Breaker the Magical Warrior 0=1 drawn'],b:['Breaker the Magical Warrior 0=1 drawn'] });
+      await screenshot(a,'scenario-1-a-counter');
       const breakerStats = await inspectStats(a,'Breaker the Magical Warrior','your monster');
       expect(breakerStats).toContain('ATK 1900');
-      seen.visibility.push(`Breaker the Magical Warrior summoned: "Spell counters: 1" on both screens, ${breakerStats} (1600 + 300 per counter)`);
+      seen.visibility.push(`Breaker the Magical Warrior summoned: "Spell counters: 1" on both screens, drawn as the original's counter badge (${badges.a[0]} / ${badges.b[0]}), ${breakerStats} (1600 + 300 per counter)`);
       await act(a,b,'Scapegoat','your hand','Set spell/trap');
       await act(a,b,'Mystical Space Typhoon','your hand','Set spell/trap');
       await act(a,b,'Prohibition','your hand','Activate');
       const announce = await awaitPrompt(a,b,'announce');
       expect(first(announce.text)).toBe('Declare 1 card name.');
-      await press(a,`document.querySelector('[data-key^="prompt-announcement:"]')`); await a.send('Input.insertText',{ text:'snatch steal' });
-      await press(a,promptButton('Announce'));
+      // The original's candidate list: every declarable card, narrowed while typing; the pick declares it.
+      const declare = `[...document.querySelectorAll('[data-key^="prompt-declare:"]')]`;
+      const listed = await a.ev(`({shown:${declare}.length,count:document.querySelector('.de-announce-count')?.textContent})`) as { shown:number; count:string };
+      expect(listed.shown).toBeGreaterThan(10); expect(listed.count).toMatch(/^\d{4} cards: showing the first \d+/);
+      await press(a,`document.querySelector('[data-key^="prompt-announcement:"]')`); await a.send('Input.insertText',{ text:'snatch st' });
+      await until(a,`${declare}.length===1`,10000);
+      const narrowed = await a.ev(`${declare}.map(b=>b.textContent)`) as string[];
+      expect(narrowed).toEqual(['Snatch Steal']);
+      await screenshot(a,'scenario-1-a-declare');
+      await press(a,`${declare}[0]`);
       await idle(a,b);
       await screenshot(a,'scenario-1-a-turn1'); await click(a,'End Turn');
       // B's Draw Phase: A activates the set Scapegoat and places the tokens.
@@ -214,21 +232,30 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       // Prohibition: B's Snatch Steal (declared by typing its name) can be neither activated nor set; Change of Heart can.
       const snatch = await inspectActions(b,'Snatch Steal','your hand'), heart = await inspectActions(b,'Change of Heart','your hand');
       expect(snatch).toEqual([]); expect(heart.some(t => t.startsWith('Activate:'))).toBe(true);
-      seen.prompts.push(`announce-card: Prohibition asked "${first(announce.text)}" with a name field; A typed "snatch steal" and the server accepted it: B's Snatch Steal then offered no action (Change of Heart offered ${heart.join(', ')})`);
+      seen.prompts.push(`announce-card: Prohibition asked "${first(announce.text)}" with the original's candidate list (${listed.count}); typing "snatch st" left ${JSON.stringify(narrowed)}, A picked it and the server accepted it: B's Snatch Steal then offered no action (Change of Heart offered ${heart.join(', ')})`);
       // MST on A's set card: the face-down target is offered without its name.
       await act(b,a,'Mystical Space Typhoon','your hand','Activate');
       for (let i = 0; i < 100 && !(await view(b)).zones.some(z => z.startsWith('Face-down card')); i++) await sleep(200);
-      const mstTargets = (await view(b)).zones;
+      const mstTargets = (await view(b)).zones, mstInstruction = (await view(b)).instruction;
+      expect(mstInstruction).toBe('Select a target card from the Field.');
       expect(mstTargets).toContain('Face-down card, opponent spell, Select: opponent’s spell/trap zone 2');
       expect(mstTargets.some(z => z.startsWith('Prohibition, opponent spell'))).toBe(true);
       await target(b,a,/^Face-down card, opponent spell/);
       await idle(b,a);
       expect(await fieldCount(a,'your','graveyard')).toBe(2); expect(await fieldCount(b,'opponent','graveyard')).toBe(2);
-      seen.selection.push(`Mystical Space Typhoon target choice on B's screen: ${mstTargets.map(z => `"${z}"`).join(', ')} (the set card unnamed); the set card went to A's Graveyard (2 cards on both screens)`);
+      seen.selection.push(`Mystical Space Typhoon target choice on B's screen, instruction "${mstInstruction}": ${mstTargets.map(z => `"${z}"`).join(', ')} (the set card unnamed); the set card went to A's Graveyard (2 cards on both screens)`);
       // Change of Heart: Breaker moves to B, counter and all, on both screens.
       await act(b,a,'Change of Heart','your hand','Activate');
+      for (let i = 0; i < 100 && !(await view(b)).zones.some(z => z.startsWith('Breaker')); i++) await sleep(200);
+      const heartInstruction = (await view(b)).instruction;
+      expect(heartInstruction).toBe('Select a target card from the Field.');
       await target(b,a,/^Breaker the Magical Warrior, opponent monster/);
+      for (let i = 0; i < 100 && !(await view(b)).zones.some(z => /^Select: your monster zone/.test(z)); i++) await sleep(200);
+      const heartZone = (await view(b)).instruction;
+      expect(heartZone).toBe('Select a Monster Card Zone.');
+      await screenshot(b,'scenario-1-b-zone-instruction');
       await target(b,a,/^Select: your monster zone/);
+      seen.selection.push(`Change of Heart: target instruction "${heartInstruction}", then the zone instruction "${heartZone}"`);
       await idle(b,a);
       const control = { a:(await view(a)).cards.filter(c => c.startsWith('Breaker')), b:(await view(b)).cards.filter(c => c.startsWith('Breaker')) };
       expect(control.a).toEqual(['Breaker the Magical Warrior, opponent monster, attack, Spell counters: 1']);
@@ -237,13 +264,14 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       // Tribute Summon: cancel the tribute choice first (back to the Main Phase, Skull still in hand), then tribute Breaker.
       await act(b,a,'Summoned Skull','your hand','Summon');
       for (let i = 0; i < 100 && !(await view(b)).actions.includes('Cancel'); i++) await sleep(200);
-      const tributeTargets = (await view(b)).zones;
+      const tributeTargets = (await view(b)).zones, tributeInstruction = (await view(b)).instruction;
+      expect(tributeInstruction).toBe('Please select a monster as Tribute.');
       expect(tributeTargets).toEqual(['Breaker the Magical Warrior, your monster, attack, Spell counters: 1, Select: Breaker the Magical Warrior']);
       await click(b,'Cancel');
       const cancelled = await idle(b,a);
       expect(cancelled.cards).toContain('Summoned Skull, your hand, attack');
       expect(cancelled.cards.some(c => c.startsWith('Breaker the Magical Warrior, your monster'))).toBe(true);
-      seen.selection.push('tribute choice for Summoned Skull (one candidate, Breaker) cancelled with Cancel: the server returned B to the Main Phase with Skull still in hand and Breaker on the field');
+      seen.selection.push(`tribute choice for Summoned Skull (one candidate, Breaker; instruction "${tributeInstruction}") cancelled with Cancel: the server returned B to the Main Phase with Skull still in hand and Breaker on the field`);
       await act(b,a,'Summoned Skull','your hand','Summon');
       await target(b,a,/^Breaker the Magical Warrior, your monster/);
       await target(b,a,/^Select: your monster zone/);
@@ -316,6 +344,12 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       await idle(b,a);
       expect(await fieldCount(a,'your','graveyard')).toBe(graveBefore + 1); expect(await fieldCount(b,'opponent','graveyard')).toBe(graveBefore + 1);
       const lpAfter = (await view(b)).players[0];
+      // Abyssal Designator's cost is an LP payment: logged as the original Duel Log words it, on both screens.
+      const paid = { a:(await view(a)).log.filter(l => l.startsWith(`${names.b} paid`)), b:(await view(b)).log.filter(l => l.startsWith(`${names.b} paid`)) };
+      expect(paid.a).toEqual(paid.b); expect(paid.a).toHaveLength(1); expect(paid.a[0]).toMatch(/^.* paid 1000 LP \(LP (\d+) -> (\d+)\)$/);
+      const [, before, after] = /\(LP (\d+) -> (\d+)\)/.exec(paid.a[0]!)!; expect(Number(before) - Number(after)).toBe(1000);
+      expect((await view(b)).log.some(l => l.startsWith(`${names.b} took 1000 damage`))).toBe(false);
+      seen.prompts.push(`LP payment: Abyssal Designator's 1000 LP cost logged "${paid.a[0]}" on both screens (no damage line)`);
       seen.prompts.push(`attribute + type: Abyssal Designator (${lp} → ${lpAfter}) offered all 6 attributes, then "${first(adRace.text)}" with 20 types; EARTH + Machine made A choose among ${send.length} Card Trooper(s) in hand only (not Celtic Guardian, EARTH Warrior): A's Graveyard ${graveBefore}→${graveBefore + 1} on both screens`);
       seen.selection.push(`A's forced choice from its own hand: its candidates were named on A's screen while B's screen showed A's hand as ${hidden.length} card backs`);
       // Monster Reborn: a Graveyard list with max 1, a refused cancel, then the summon position.
@@ -414,6 +448,8 @@ describe.skipIf(!scenario)('scenario duels: declarations, selections and visibil
       const results = `results ${result1.join('/')}, ${result2.join('/')}, ${result3.join('/')}`;
       record('duel.visibility',{ actions:`PvP ${names.a} vs ${names.b}, three scripted duels with 6-9 card decks (known hands): Breaker, Scapegoat, Change of Heart, Mystical Space Typhoon, Book of Moon, Gold Sarcophagus`, expected:'Reveal/hide cards, tokens, control changes, shuffles and positions match server state.', observed:`${seen.visibility.join('; ')}; ${results}` });
       record('duel.prompts',{ actions:'Prohibition (card name typed), Card Trooper (number), Earthshaker (2 then 1 attributes), Abyssal Designator (attribute + type), Monster Reborn (position), Poison of the Old Man (option), chain questions answered Yes/No', expected:'Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.', observed:`${seen.prompts.join('; ')}; every answer was accepted (the duel moved on with the declared outcome), no error or unsupported state` });
+      expect([...zoneInstructions].every(z => /zone: "Select a (Monster|Spell & Trap) Card Zone\."$/.test(z))).toBe(true);
+      seen.selection.push(`zone choices said ${[...zoneInstructions].join(', ')}`);
       record('duel.selection',{ actions:'Tribute, targets, ritual monster and materials, a hand-limit discard, Graveyard and Deck lists, cancels on a tribute, a forced list and a forced discard', expected:'Card, field, ritual and discard selection respect bounds, cancellation and hidden identities.', observed:seen.selection.join('; ') });
     } finally { closeAll(); }
   },1200000);

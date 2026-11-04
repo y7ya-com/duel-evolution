@@ -48,6 +48,19 @@ if (process.env.DE_DLG_INDEX && process.env.DE_DLG_TEXT) {
     if (value) output.dialogs[id] = value;
   }
 }
+// Optional original card-name order (data/bin#/card_sort_<lang>.bin: a u16 key per card_prop.bin record, whose first
+// word's low 14 bits are the card's internal id), extracted privately: the order of the card-name declaration list.
+if (process.env.DE_CARD_SORT && process.env.DE_CARD_PROP) {
+  const sort = readFileSync(process.env.DE_CARD_SORT), prop = readFileSync(process.env.DE_CARD_PROP);
+  if (sort.length % 2 || prop.length % 8 || sort.length / 2 !== prop.length / 8 || prop.length > 512 * 1024) throw new Error('Unexpected card order table size');
+  const byInternal = new Map(original.filter(c => Number.isSafeInteger(c.internal) && Number.isSafeInteger(c.pc)).map(c => [c.internal, c.pc]));
+  output.cardOrder = {};
+  for (let i = 1; i < sort.length / 2; i++) {
+    const pc = byInternal.get(prop.readUInt32LE(i * 8) & 0x3fff), key = sort.readUInt16LE(i * 2);
+    // Key 0 marks a record outside the name order (alternative art); the declaration list folds those into their card.
+    if (pc && key && output.cardOrder[pc] === undefined) output.cardOrder[pc] = key;
+  }
+}
 mkdirSync(resolve(root, 'public'), { recursive: true });
 writeFileSync(resolve(root, 'public/duel-texts.json'), JSON.stringify(output));
-console.log(`Generated private duel labels: ${Object.keys(output.legacyOptions).length} option IDs, ${Object.keys(output.legacyPrompts).length} prompt IDs, ${Object.keys(output.cardNames).length} card names, ${Object.keys(output.dialogs ?? {}).length} dialog strings.`);
+console.log(`Generated private duel labels: ${Object.keys(output.legacyOptions).length} option IDs, ${Object.keys(output.legacyPrompts).length} prompt IDs, ${Object.keys(output.cardNames).length} card names, ${Object.keys(output.dialogs ?? {}).length} dialog strings, ${Object.keys(output.cardOrder ?? {}).length} card order keys.`);

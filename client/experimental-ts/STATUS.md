@@ -50,12 +50,29 @@ Still open at that point: see "Known gaps" below.
 cc0e0d8..bd2f03d). Chromium (Vulkan) drove the client against the real local stack: wrangler dev of `server/` with
 better-auth, D1, WorldDO and the duel engine. See ACCEPTANCE.md and PARITY.md.
 
+Duel-screen gaps closed (2026-11-04, compared with the original game and its decompiled source):
+- Card-name declarations list the original's candidates (CWindowDeckList kinds 0x4b..0x4e: every card but tokens, one
+  per name, narrowed by the list mode, in CARD_Sort order when `tools/duel-texts.mjs` is given `DE_CARD_SORT` and
+  `DE_CARD_PROP`), filtered while typing as its search box does; picking one declares it (src/ui/duel-announce.ts).
+- LP payments are logged as the original Duel Log words them ("<name> paid 1000 LP (LP 8000 -> 7000)", damage "took",
+  recovery "gained"): engine 0x25's P1 type 2 is a cost.
+- Board selections show an instruction line: the translator's pick-panel texts (274 a target, 18 a Tribute, 244 the
+  opponent's hand), 222 an attack target, and for a zone the original's zone names. The original engine against this
+  server shows no text for them (only the pink hover frame: the server's `pick_panel` is off); these are its own dialog
+  lines for the same choices.
+- Counters and turn counts are the original's badges (CCard::drawCounters / drawCounterRoom: magic_counter.png coins,
+  pas_eff_suna.png hourglass, duel_fontm_y digits, the coin's turn and burst on a change); text badges remain only
+  without the original art.
+- Portraits blink as the original's: the eye parts' `_02` / `_03` frames, half-shut, shut, half-shut for 8 game frames
+  each after a random 0.3-9 s (measured from a 30 fps screencast of the original duel screen).
+- The attack follows CBattleManager state 4: the arrow (duel_ef_attackIcon_a) turns 8 frames and flies 8 frames on a
+  1 - cos ease, then the hit movie, turned the way it flew, and the hit mark.
+
 Known gaps, not blocking any acceptance flow:
-- Play: no candidate list when declaring a card name; LP payments are logged as damage; board-selection prompts have no
-  instruction text.
-- Presentation: accessory names read "Avatar item N"; static duel portraits; title/character-select art missing (not in
-  `merge.dat`); counters are text badges; chat channels are a dropdown; the menu bar sits under the frame; some duel
-  effect timings are approximations.
+- Presentation: accessory names read "Avatar item N"; title/character-select art missing (not in `merge.dat`); chat
+  channels are a dropdown; the menu bar sits under the frame. Duel effects whose players are not decompiled (phase and
+  turn banners, LP damage digits, chain plaques, summon/set sparkles, coin and die tosses) keep their measured-by-eye
+  timings; the portraits' sweat frames (04..07) and talking mouths are not used (their triggers are not known).
 - HTML UI: the screens are a hand-made replica of `client/web-shell/htmlui` as of 2026-10-31. Main's later htmlui
   commits (online-only chat with unread badges, Duel on a player card, the start-screen backdrop, deck/card-detail
   overflow fixes) are not ported.

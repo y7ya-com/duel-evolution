@@ -23,7 +23,7 @@ export class CardCatalog {
       if (c.extra !== undefined && typeof c.extra !== 'boolean') throw new Error('Invalid card zone');
       next.set(c.passcode, { ...c });
     }
-    this.cards = next; this.sortedNames = null;
+    this.cards = next; this.declarableCache = null;
   }
   card(passcode: number, owned?: number): CardView {
     const c = this.cards.get(passcode);
@@ -38,12 +38,12 @@ export class CardCatalog {
       }
       next.set(c.passcode,entry);
     }
-    this.cards = next; this.sortedNames = null;
+    this.cards = next; this.declarableCache = null;
   }
   installOriginalTexts(texts: OriginalCardTextCatalog): void {
     const next = new Map(this.cards);
     for (const c of texts.entries) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:'original-en'});
-    this.cards = next; this.sortedNames = null;
+    this.cards = next; this.declarableCache = null;
   }
   /** The server's rarity per passcode; display only. */
   installRarities(rarities: Readonly<Record<string, string>>): void {
@@ -55,7 +55,7 @@ export class CardCatalog {
   installLocalizedTexts(texts: readonly { passcode: number; name: string; description: string }[], language: string): void {
     const next = new Map(this.cards), source = `original-${language.toLowerCase()}` as const;
     for (const c of texts) next.set(c.passcode,{...next.get(c.passcode),passcode:c.passcode,name:c.name,description:c.description,descriptionSource:source});
-    this.cards = next;
+    this.cards = next; this.declarableCache = null;
   }
   get size(): number { return this.cards.size; }
   allCards(): CardView[] { return [...this.cards.keys()].map(pc => this.card(pc)); }
@@ -66,9 +66,28 @@ export class CardCatalog {
     for (const c of this.cards.values()) if (c.name.toLowerCase().replace(/\s+/g, ' ') === key) return c.passcode;
     return null;
   }
-  /** Each card name once, sorted: suggestions for a card declaration. */
-  names(): string[] { return this.sortedNames ??= [...new Set([...this.cards.values()].map(c => c.name))].sort((a, b) => a.localeCompare(b)); }
-  private sortedNames: string[] | null = null;
+  /** The cards a card-name declaration lists (the original's CWindowDeckList::buildNameList): every card of the
+   * database but tokens, each name once (an alternative art folds into the first card of its name, the one `named`
+   * resolves), narrowed by the list mode: 0x4b any card, 0x4c no Fusion Monster, 0x4d Monsters but Fusions, 0x4e Monsters.
+   * `order` gives the original name order (CARD_Sort); without it, names compare as plain text. */
+  declarable(mode = 0x4b, order?: { cardOrder(passcode: number): number | undefined }): { passcode: number; name: string }[] {
+    const cached = this.declarableCache;
+    if (cached && cached.mode === mode && cached.order === order) return cached.list;
+    const seen = new Set<string>(), out: { passcode: number; name: string; order: number }[] = [];
+    for (const c of this.cards.values()) {
+      const type = c.type ?? '', name = c.name.toLowerCase().replace(/\s+/g, ' ');
+      const monster = /^Monster/.test(type) || c.attack !== undefined && !/^(Spell|Trap)/.test(type), fusion = /\bFusion\b/.test(type);
+      if (/\bToken\b/.test(type) || seen.has(name)) continue;
+      seen.add(name);
+      if (mode === 0x4c && fusion || mode === 0x4d && (!monster || fusion) || mode === 0x4e && !monster) continue;
+      out.push({ passcode: c.passcode, name: c.name, order: order?.cardOrder(c.passcode) ?? 0x10000 });
+    }
+    out.sort((a, b) => a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const list = out.map(({ passcode, name }) => ({ passcode, name }));
+    this.declarableCache = { mode, order, list };
+    return list;
+  }
+  private declarableCache: { mode: number; order: object | undefined; list: { passcode: number; name: string }[] } | null = null;
   get mergePaths(): Record<string, string> { return Object.fromEntries([...this.cards.values()].filter(c => c.mergePath).map(c => [String(c.passcode), c.mergePath!])); }
 }
 

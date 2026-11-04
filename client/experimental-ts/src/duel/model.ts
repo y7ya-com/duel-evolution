@@ -101,9 +101,9 @@ function packedSource(state: DuelState, value: number): DuelCard | null {
   if (matches.length !== 1) return null;
   return state.cards[matches[0]!] ?? null;
 }
-function event(state: DuelState, type: string, p: Player, params: number[], card?: number): void {
+function event(state: DuelState, type: string, p: Player, params: number[], card?: number, lp?: [number, number]): void {
   if (state.events.length >= MAX_PRESENTATION_EVENTS) { state.events.shift(); state.droppedPresentationEvents++; }
-  state.events.push({ sequence: state.sequence, type, player: p, params: [...params], ...(card === undefined ? {} : { card }) });
+  state.events.push({ sequence: state.sequence, type, player: p, params: [...params], ...(card === undefined ? {} : { card }), ...(lp ? { lp } : {}) });
 }
 function unsupported(state: DuelState, messageId: number, kind: number, command: number, reason: string): void {
   if (state.unsupported.some((u) => u.messageId === messageId && u.kind === kind && u.command === command && u.reason === reason)) return;
@@ -134,7 +134,9 @@ function prompt(state: DuelState, kind: DuelPrompt['kind'], title: string): Duel
     listMode: state.list.mode, detail: 0, hints: 0 };
 }
 function listPrompt(state: DuelState, mode: number, hints = 0): DuelPrompt {
-  const result = prompt(state, mode === 0x4b || hints & 1 ? 'announce-card' : 'cards', 'Choose cards');
+  // 0x4b..0x4e are the original's card-name lists (CWindowDeckList::buildNameList: any card, no Fusion, Monsters but
+  // Fusions, Monsters); the translator asks with 0x4b.
+  const result = prompt(state, mode >= 0x4b && mode <= 0x4e || hints & 1 ? 'announce-card' : 'cards', 'Choose cards');
   if (state.list.consumed) result.items = [];
   result.listMode = mode; result.hints = hints;
   if (mode === 6) result.min = result.max = 1;
@@ -191,6 +193,8 @@ function execute(state: DuelState, record: CommandRecord): void {
     state.prompt = null; state.acceptingInput = false;
   }
   let card: DuelCard | null = null;
+  // An LP change keeps the LP before and after it, so the duel log can show both (the original Duel Log's "(LP a -> b)").
+  const lpBefore = cmd >= 0x23 && cmd <= 0x26 ? state.sides[who].lp : null;
   const missing = (why: string) => unsupported(state, 0x6202, 0, cmd, why);
   switch (cmd) {
     case 1: {
@@ -330,7 +334,7 @@ function execute(state: DuelState, record: CommandRecord): void {
     case 0x5c: case 0x5d: case 0x60: case 0x62: break;
     default: missing('Unknown engine command; gameplay parity is not established');
   }
-  event(state, `engine:${cmd.toString(16)}`, who, p, card?.uid);
+  event(state, `engine:${cmd.toString(16)}`, who, p, card?.uid, lpBefore === null ? undefined : [lpBefore, state.sides[who].lp]);
 }
 
 /** MSVC LCG/Fisher-Yates, matching translator/helpers.ts and the original hand/set-card shuffle. */
