@@ -124,7 +124,7 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
           counters: Object.entries(c.counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count })),
         } : {}), ...(c.faceUp && c.turns > 0 ? { turnCounter: c.turns } : {}) };
     }),
-    prompt, turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase ?? 'Preparing', actions,
+    prompt, turn: state.turn, turnPlayer: state.turnPlayer, phase: state.phase ?? 'Preparing', actions, ...(actions.length ? { actionsFor: String(p!.id) } : {}),
     ...(state.timer ? { timer: { ...state.timer } } : {}),
     log: state.events.slice(-120).map(e => describeEvent(state, catalog, names, e, texts)).filter((line): line is string => line !== null).slice(-60),
     ...(state.result ? { ended: state.result.result === 1 ? 'Victory' : state.result.result === 2 ? 'Defeat' : state.result.result === 3 ? 'Draw' : 'Duel finished' } : {}),

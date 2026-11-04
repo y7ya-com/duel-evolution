@@ -74,6 +74,8 @@ export interface DuelView {
   waiting?: string;
   /** Only server-issued commands are offered. */
   actions?: DuelOption[];
+  /** The server prompt the actions answer; an action sent for an older prompt is refused. */
+  actionsFor?: string;
   effects?: { type: 'attack' | 'chain' | 'damage' | 'recover' | 'flash'; player: 0 | 1; progress: number; cardId?: string; value?: number }[];
 }
 export interface SocialEntry { id: number | string; name: string; status?: string; online?: boolean; }
@@ -174,7 +176,7 @@ export type ClientCommand =
   | { type: 'buy'; itemId: number; count: number }
   | { type: 'refresh'; scene: Scene }
   | { type: 'duelRespond'; promptId: string; response: DuelResponse }
-  | { type: 'duelAction'; actionId: string }
+  | { type: 'duelAction'; actionId: string; promptId?: string }
   | { type: 'inspectCard'; cardId: string }
   | { type: 'surrender' }
   | { type: 'settings'; settings: Partial<SettingsView> };
