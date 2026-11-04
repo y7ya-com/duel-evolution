@@ -573,7 +573,8 @@ export class GameSession {
     this.state.opponentHand = rival;
     if (delta === 0) { this.emit(); return 'draw'; }
     this.duel.send(0x6102);
-    if (delta === 1) this.phase('choose-first'); else this.emit();
+    // The loser waits for the winner's first/second choice; offering the hands again would send an unanswered 0x6101.
+    if (delta === 1) this.phase('choose-first'); else this.phase('preparing-duel');
     return delta === 1 ? 'win' : 'lose';
   }
   async chooseFirst(first: boolean): Promise<void> {

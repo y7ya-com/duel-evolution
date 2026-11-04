@@ -639,15 +639,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const handCount = handCounts[c.controller];
       // The player's own set cards stay card backs on the field but remain readable to their owner (never the opponent's).
       const ownSet = isOwnSetCard(c);
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (c.faceUp || ownSet || (duel.actions ?? []).some(a => a.cardId === c.id)) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      // A board selection (an attack target, a card to choose on either side) is made on the card itself, as in the original.
+      const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && (c.controller === 1 || cardActions[0]!.label.startsWith('Select:')) ? cardActions[0]! : null;
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (c.faceUp || ownSet || (duel.actions ?? []).some(a => a.cardId === c.id)) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}`; b.append(...Array.from(tile.childNodes));
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${selection ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (selection) b.title = selection.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
       if (counters.length) b.append(el('span', 'de-card-counter', counters.map(counter => counter.kind === 0 ? String(counter.count) : `${counter.kind}:${counter.count}`).join(' · ')));
       if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
-      b.setAttribute('aria-label', c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : ownSet ? `${c.name} (set face-down), your ${c.zone}${c.zone === 'monster' ? `, ${c.position ?? ''}` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`);
+      b.setAttribute('aria-label', (c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : ownSet ? `${c.name} (set face-down), your ${c.zone}${c.zone === 'monster' ? `, ${c.position ?? ''}` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`) + (selection ? `, ${selection.label}` : ''));
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }

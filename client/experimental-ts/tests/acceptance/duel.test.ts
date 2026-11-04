@@ -16,9 +16,9 @@ const SNAP = `(()=>{
   const ins=document.querySelector('.de-duel-inspector');
   return {cards,players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',
     log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt:prompt?{id:prompt.dataset.prompt??'',kind:prompt.dataset.kind??'',text:prompt.getAttribute('aria-label')??''}:null,
-    actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
+    actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
     inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null,
-    waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:nodes.some(b=>b.style.transform!==''),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
+    waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:document.body.innerText.includes('Resolving duel animations'),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
 })()`;
 const snap = (page:Page) => page.ev(SNAP) as Promise<Snap>;
 /** Everything a page exposes as text: visible text plus every attribute value. */
@@ -233,8 +233,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       let stale:{ page:Page; who:'A'|'B'; prompt:string; key:string; captured:string } | null = null, staleResult = '';
       let staleAction:{ page:Page; who:'A'|'B'; turn:number; label:string } | null = null, staleActionResult = '';
       let logProbe = '', inspectProbe = '', animationProbe = '';
-      const start = Date.now();
-      let result = '';
+      const start = Date.now(), stalls:string[] = [];
+      let result = '', idleSince = Date.now(), lastSignature = '';
       while (Date.now() - start < 540000) {
         const [sa,sb] = await Promise.all([snap(a),snap(b)]);
         prompts.before('A',sa); prompts.before('B',sb);
@@ -302,6 +302,16 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             continue;
           }
         }
+        // A stall (nobody holds input for long) is a defect to see, not to wait out: dump both screens once per stall.
+        const signature = JSON.stringify([sa.bar,sa.prompt?.id,sa.actions,sa.zones,sa.log.length,sa.cards.length,sb.bar,sb.prompt?.id,sb.actions,sb.zones,sb.log.length,sb.cards.length]);
+        if (signature !== lastSignature) { lastSignature = signature; idleSince = Date.now(); }
+        else if (Date.now() - idleSince > 25000) {
+          stalls.push(`turn ${turnOf(sa)}: A ${JSON.stringify({ bar:sa.bar,prompt:sa.prompt,actions:sa.actions,zones:sa.zones,waiting:sa.waiting,errors:sa.errors,inspector:sa.inspector })} B ${JSON.stringify({ bar:sb.bar,prompt:sb.prompt,actions:sb.actions,zones:sb.zones,waiting:sb.waiting,errors:sb.errors,inspector:sb.inspector })}`);
+          await screenshot(a,`duel-stall-a-${stalls.length}`); await screenshot(b,`duel-stall-b-${stalls.length}`);
+          console.log('stall',stalls.at(-1),'\nA text:',(await a.ev('document.body.innerText') as string).slice(0,1500),'\nA logs:',a.logs.slice(-15).join('\n'),'\nA model:',await ((p:Page)=>p.ev(`(()=>{const d=window.__deApp?.diagnostics.duel;if(!d)return null;return JSON.stringify({prompt:d.prompt&&{...d.prompt,actions:d.prompt.actions?.length},accepting:d.acceptingInput,inputKind:d.inputKind,unsupported:d.unsupported.slice(-3),errors:d.errors.slice(-3),events:d.events.slice(-6).map(e=>e.type+':'+e.player+':'+JSON.stringify(e.params).slice(0,60))}).slice(0,3000)})()`))(a),'\nB model:',await ((p:Page)=>p.ev(`(()=>{const d=window.__deApp?.diagnostics.duel;if(!d)return null;return JSON.stringify({prompt:d.prompt&&{...d.prompt,actions:d.prompt.actions?.length},accepting:d.acceptingInput,inputKind:d.inputKind,unsupported:d.unsupported.slice(-3),errors:d.errors.slice(-3),events:d.events.slice(-6).map(e=>e.type+':'+e.player+':'+JSON.stringify(e.params).slice(0,60))}).slice(0,3000)})()`))(b),'\nB logs:',b.logs.slice(-15).join('\n'));
+          idleSince = Date.now();
+          if (stalls.length >= 2) break;
+        }
         const step = async (page:Page,s:Snap,who:'A'|'B') => { const r = await duelBot(page); if (r === 'acted') prompts.answered(who,s); return r; };
         await Promise.all([step(a,sa,'A'),step(b,sb,'B')]);
         await sleep(120);
@@ -316,7 +326,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       await screenshot(a,'duel-pvp-a-end'); await screenshot(b,'duel-pvp-b-end');
       const final = await Promise.all([snap(a),snap(b)]);
       const kinds = prompts.kinds();
-      console.log(JSON.stringify({ result,stats:{ ...stats,lp:[...stats.lp].slice(-3),phases:[...stats.phases],piles:[...stats.piles] },kinds:describeKinds(kinds),stale:staleResult,staleAction:staleActionResult,logProbe,inspectProbe,animationProbe,errors:prompts.errors },null,1));
+      console.log(JSON.stringify({ result,stats:{ ...stats,lp:[...stats.lp].slice(-3),phases:[...stats.phases],piles:[...stats.piles] },kinds:describeKinds(kinds),stale:staleResult,staleAction:staleActionResult,logProbe,inspectProbe,animationProbe,errors:prompts.errors,stalls },null,1));
+      expect(stalls).toEqual([]);
       expect(['Victory/Defeat','Defeat/Victory','Draw/Draw']).toContain(result);
       expect(stats.failed).toEqual([]);
       expect(stats.leaks).toEqual([]);

@@ -42,6 +42,19 @@ describe('duel board mechanics', () => {
     expect(f.commands).toEqual([{ type: 'duelAction', actionId: 'phase:5', promptId: '7' }]);
     f.mounted.dispose();
   });
+  it('makes a single server-issued selection on a card (an attack target) a direct, highlighted control', async () => {
+    const f = fixture();
+    f.update({ scene: 'duel', duel: { players, turn: 3, turnPlayer: 0, phase: 'Battle', log: [], prompt: null, actionsFor: '12', cards: [
+      { id: 'foe', passcode: 46986414, name: 'Dark Magician', controller: 1, zone: 'monster', index: 0, faceUp: true, position: 'attack' },
+      { id: 'hidden', name: 'Hidden card', controller: 1, zone: 'monster', index: 1, faceUp: false, position: 'defense' },
+    ], actions: [{ id: 'action:1:0:0:11', cardId: 'foe', label: 'Select: Dark Magician' }, { id: 'action:1:1:0:11', cardId: 'hidden', label: 'Select: opponent’s monster zone 2' }] } }); await Promise.resolve();
+    const foe = f.root.querySelectorAll('button').find(b => b.dataset.key === 'field-card:foe')!, hidden = f.root.querySelectorAll('button').find(b => b.dataset.key === 'field-card:hidden')!;
+    expect(foe.className).toContain('de-card-target'); expect(foe.getAttribute('aria-label')).toBe('Dark Magician, opponent monster, attack, Select: Dark Magician');
+    expect(hidden.getAttribute('aria-label')).toBe('Face-down card, opponent monster, Select: opponent’s monster zone 2');
+    hidden.onclick?.({});
+    expect(f.commands).toEqual([{ type: 'duelAction', actionId: 'action:1:1:0:11', promptId: '12' }]);
+    f.mounted.dispose();
+  });
   it('marks prompt dialogs with their kind and identity', async () => {
     const f = fixture();
     f.update({ scene: 'duel', duel: { players, turn: 2, turnPlayer: 0, phase: 'Main', log: [], cards: [], prompt: { id: '9', kind: 'yes-no', text: 'Chain?', options: [{ id: 'answer:1', label: 'Yes' }, { id: 'answer:0', label: 'No' }] } } }); await Promise.resolve();

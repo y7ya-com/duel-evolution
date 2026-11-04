@@ -157,7 +157,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       const target=all.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(target)return {kind:'key',key:target.dataset.key};
       const confirm=opts.find(b=>b.dataset.key?.startsWith('prompt-confirm:'));if(confirm)return {kind:'key',key:confirm.dataset.key};
     }
-    const zone=[...document.querySelectorAll('.de-zone-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
+    const zone=[...document.querySelectorAll('.de-zone-target,.de-card-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
     const ins=document.querySelector('.de-duel-inspector');
     if(ins){
       const acts=[...ins.querySelectorAll('button')].filter(ok).filter(b=>b.textContent!=='Close');

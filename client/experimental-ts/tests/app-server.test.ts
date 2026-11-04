@@ -122,6 +122,8 @@ describe('ClientApp with actual server and GameSession', () => {
     await a.send({ type: 'replyChallenge', accept: true }); await vi.advanceTimersByTimeAsync(1000);
     expect(a.app.getState().preparation?.phase).toBe('rock-paper-scissors'); expect(b.app.getState().preparation?.phase).toBe('rock-paper-scissors');
     await drive(Promise.all([a.app.dispatch({ type: 'chooseHand', hand: 0 }), b.app.dispatch({ type: 'chooseHand', hand: 1 })]));
+    // The loser is not offered another hand while the winner chooses.
+    expect(b.app.getState().preparation?.phase).toBe('preparing-duel');
     await a.send({ type: 'chooseFirst', first: true }); await vi.advanceTimersByTimeAsync(100);
     await a.send({ type: 'beginDuel' }); await b.send({ type: 'beginDuel' }); await vi.advanceTimersByTimeAsync(4000);
     expect(a.app.diagnostics.duel.sequence).toBeGreaterThan(0); expect(b.app.diagnostics.duel.sequence).toBeGreaterThan(0);
