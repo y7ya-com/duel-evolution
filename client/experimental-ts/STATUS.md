@@ -2,6 +2,18 @@
 
 The requested completion condition is **not achieved**. The independent TypeScript client is implemented and playable for the exercised paths, but full parity with the current client plus improvements is not established. The original one-hour work window paused at 2026-11-04 08:13:48 UTC. The user resumed work and explicitly removed the time limit. The checkpoint results below are historical; resumed integration is in progress.
 
+## Walkthrough with original art — 2026-11-04 (afternoon)
+
+The client was driven end to end in Chromium against the real game authority with original art read from the archive (title → character → lobby → profile → shop → deck editor → NPC dialogue → rock-paper-scissors → full NPC duel → result → lobby), and every screen was compared with captures of the original. Fixed from that:
+
+- Duel screen uses the original Academy backdrop (field-spell backdrops per `duel_field.txt`), the zone frame sheet, phase buttons, card back, janken cards/turn plates and YOU WIN/LOSE/DRAW banners. Zone geometry is measured from the original 1024×768 screen (`FIELD_LAYOUT`); the board keeps 4:3 and zooms on phones. Without configured assets the same layout is drawn without broken images.
+- Readable duel log; NPC/PvP opponent names; option prompts no longer offer their referenced cards as selections; server information boxes (e.g. refused surrender) show as OK message boxes with original wording.
+- Shop shows pack names/descriptions/art from `data/cardpack/PACK_*`; NPC reward packs use the same names. NPC dialogue joins each line's five balloon rows. Profile is a closable player card. Lobby fits the window; the player menu is no longer hidden under the area panel.
+
+New browser evidence: `tests/browser-pvp.test.ts` (`BROWSER_PVP=1`, two accounts in two isolated browser contexts) passes: challenge → accept → RPS → ten turns with both screens agreeing on turn/phase/LP/names → refused early surrender message → confirmed surrender → Victory/Defeat → both back in a usable lobby. Full suite: 85 files / 1,017 tests pass; desktop/mobile NPC e2e and the opt-in real-asset browser checks pass.
+
+Still open: avatar portraits on the duel screen, original duel animations/effects, title/character-select art (not in `merge.dat`), the NPC result-line mapping, and the acceptance gate below (no flow is promoted automatically).
+
 ## Resumed work
 
 - Independent response oracle now compares new encoder packets through isolated copies of the actual translator: 72 recordings, 5,791 logical decisions / 5,914 new packets, including 5,235 successful core choices. It found and fixed read-only pile inspection confirmation. Remaining rejected requests are checked for hidden semantic progress rather than credited as successful choices. See `src/duel/README.md` for exact boundaries.

@@ -164,8 +164,8 @@ export class ClientApp implements ClientController {
     this.online = new OnlineController({ http: this.services.api.http, onChange: online => this.patch({ online }) });
     if (options.assets) this.loadArchiveImage = (path, signal) => this.readArchiveImage(path, signal);
     this.profile = new ProfileController({send:command=>this.sendGameplay(command),onChange:profileDetail=>this.patch({profileDetail})});
-    this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>this.patch({npc,
-      npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}),
+    this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>{ if (npc.packs.length) this.loadPackNames(); this.patch({npc,
+      npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}); },
       onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
       onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
       resolveLine:(id,line)=>this.options.npcDialogue?.resolve(id,line),resolvePresentText:id=>this.options.npcDialogue?.resolveText(id)});
@@ -204,13 +204,21 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.loadCard(passcode, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
+  private loadPackCatalog(): Promise<Map<number, PackInfo>> | null {
+    if (!this.options.assets) return null;
+    return this.packCatalog ??= loadPackCatalog(this.options.assets, this.scope.signal).catch(error => { this.packCatalog = null; throw error; });
+  }
+  /** Reward packs are named from the same original tables as the shop. */
+  private loadPackNames(): void {
+    if (this.view.packNames) return;
+    void this.loadPackCatalog()?.then(packs => { if (!this.disposed) this.patch({ packNames: Object.fromEntries([...packs].map(([id, pack]) => [id, pack.name])) }); }).catch(() => {});
+  }
   /** Names, descriptions and art from the original pack tables and card catalogue; the server only sends ids. */
   private async shopView(shop: ShopCatalog): Promise<ClientView['shop'] & object> {
     const view = toShopView(shop), assets = this.options.assets;
     let packs: Map<number, PackInfo> | null = null;
     if (assets) {
-      this.packCatalog ??= loadPackCatalog(assets, this.scope.signal).catch(error => { this.packCatalog = null; throw error; });
-      try { packs = await this.packCatalog; } catch { packs = null; }
+      try { packs = await this.loadPackCatalog(); } catch { packs = null; }
     }
     view.items = view.items.map((item, i) => {
       const product = shop.items[i]!;
@@ -227,7 +235,7 @@ export class ClientApp implements ClientController {
   readonly loadArchiveImage?: (path: string, signal: AbortSignal) => Promise<{ url: string; release(): void }>;
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
-    if (!/^data\/(?:cardpack|y\/duel|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:cardpack|y\/duel|y\/duel_end|y\/janken|card)\/(?:[\w#.-]+\/)*[\w#.-]+\.png$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }

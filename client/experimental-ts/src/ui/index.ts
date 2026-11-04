@@ -157,7 +157,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const canPresentLobby = (previous: ClientView, next: ClientView) => {
     const a = previous.lobby, b = next.lobby;
-    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews) return false;
+    if (previous.scene !== 'lobby' || next.scene !== 'lobby' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.starter !== next.starter || previous.online !== next.online || previous.profileDetail !== next.profileDetail || previous.matchmaking !== next.matchmaking || previous.mode !== next.mode || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level || a.mapId !== b.mapId || a.name !== b.name || a.width !== b.width || a.height !== b.height || a.mapImage !== b.mapImage || a.connected !== b.connected || a.chat !== b.chat || a.rooms !== b.rooms || a.areas !== b.areas || a.npcs !== b.npcs || a.invitation !== b.invitation || a.avatars.length !== b.avatars.length) return false;
     return a.avatars.every((p, i) => { const n = b.avatars[i]; return p.id === n.id && p.name === n.name && p.self === n.self && p.npc === n.npc && p.image === n.image; });
   };
@@ -168,7 +168,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
-    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews) return false;
+    if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames) return false;
     if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.cards.length !== b.cards.length) return false;
     if (a.players.some((p, i) => p.name !== b.players[i].name || p.turnCounters !== b.players[i].turnCounters)) return false;
     return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense && c.counters === n.counters && c.turnCounter === n.turnCounter; });
@@ -664,7 +664,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
       } else local.inspected = null;
     }
-    else if (duel.ended || duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.ended || duel.waiting || '')));
+    else if (duel.ended) {
+      // data/y/duel_end: the result word (m01) over its glow (m02).
+      const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : duel.ended === 'Draw' ? 'drow' : null;
+      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', duel.ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', duel.ended);
+      if (kind && controller.loadArchiveImage) for (const layer of ['m02', 'm01']) {
+        const image = el('img', `de-duel-end-${layer}`); image.alt = ''; image.style.visibility = 'hidden';
+        image.onload = () => { image.style.visibility = ''; banner.classList.add('has-art'); }; loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image);
+      }
+      stage.append(banner);
+    }
+    else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
   }
   function respondToPrompt(promptId: string, response: DuelResponse): void {
     const currentState = controller.getState(), current = currentState.duel?.prompt;
@@ -816,7 +826,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
-        const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.shop?.items.find(item => item.id === id)?.name, resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
+        const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       nav.replaceChildren();

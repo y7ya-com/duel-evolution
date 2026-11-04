@@ -80,6 +80,8 @@ export interface SettingsView { sound: number; music: number; reducedMotion: boo
 export interface ClientView {
   npc?: Readonly<NpcState>;
   npcCardViews?: Readonly<Record<number, CardView>>;
+  /** Original pack names by pack id, once the pack tables are read. */
+  packNames?: Readonly<Record<number, string>>;
   dataStatus?: { loading: boolean; issues: string[] };
   mode?: 'world' | 'free';
   profileDetail?: ProfileState;
