@@ -53,6 +53,8 @@ export interface SessionState {
   pbin?:Uint8Array; npcbin?:Uint8Array;
   players: Player[]; areas: Area[]; npcs: Npc[]; rooms: DuelRoom[]; chat: SessionChat[]; area: number; areaBlock: number;
   duelOffer: DuelOffer | null; challenge: DuelChallenge | null; outgoingChallengeRoom: number | null; spectating: boolean;
+  /** A watched duel's two duelists, from its 0x6006 duel information (player 0 first). */
+  watchNames?: [string, string] | null;
   matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; error: string | null;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
@@ -102,6 +104,13 @@ const parseRows = <T>(data: Uint8Array, width: number, decode: (row: BinaryReade
   for (let i = 0; i < data.length; i += width) out.push(decode(new BinaryReader(data.subarray(i, i + width))));
   return out;
 };
+/** 0x6006 for a spectator: per player u16 main, u16 extra, u8, name[16], parts[32], [16], country[4]; then the mode. */
+export function decodeWatchNames(data: Uint8Array): [string, string] | null {
+  if (data.length < 146) return null;
+  const r = new BinaryReader(data), names: string[] = [];
+  for (let k = 0; k < 2; k++) { r.u16(); r.u16(); r.u8(); names.push(r.s(16)); r.bytes(52); }
+  return names.every(Boolean) ? [names[0]!, names[1]!] : null;
+}
 export function decodeCharacters(data: Uint8Array): Character[] {
   const result = new BinaryReader(data); if (result.i32() !== 0) throw new Error('Character list refused');
   return parseRows(data.subarray(4), 76, (r) => {
@@ -483,7 +492,7 @@ export class GameSession {
   challengeRoom(roomId: number, password = ''): void {
     if (this.state.matchmaking.status === 'searching') throw new Error('Cancel the automatic opponent search first');
     if (!Number.isInteger(roomId) || roomId <= 0 || roomId > 0xffffffff || password.length > 16 || password.includes('\0') || [...password].some(c => c.charCodeAt(0) > 255)) throw new Error('Invalid room challenge');
-    const lobby = this.requireLobby(); this.roomStyle = this.state.rooms.find(room => room.id === roomId)?.style ?? 3; this.state.outgoingChallengeRoom = roomId;
+    const lobby = this.requireLobby(); this.roomStyle = this.state.rooms.find(room => room.id === roomId)?.style ?? 3; this.state.outgoingChallengeRoom = roomId; this.state.error = null;
     lobby.send(0x4300,new BinaryWriter().u32(roomId).raw(md5(new BinaryWriter().s(password,password.length).bytes())).bytes()); this.emit();
   }
   replyToChallenge(accept: boolean): void {
@@ -511,7 +520,8 @@ export class GameSession {
       this.state.spectating = true; this.state.relay = null; this.state.duelRole = 'spectator'; this.state.match = null; this.state.duelFirst = null; this.state.duelOffer = null;
       this.duel = await this.gateway.open(port);
       if (this.options.freeMode) this.duel.send(0xca10,Uint8Array.of(1));
-      await this.duel.request(0x6700,EMPTY(),0x6006);
+      const info = await this.duel.request(0x6700,EMPTY(),0x6006);
+      this.state.watchNames = decodeWatchNames(info.data);
       this.phase('duel'); this.requestWatchBatch();
       this.watchTimer = setInterval(() => {
         try { if (this.gateway.status === 'connected' && this.duel && !this.duel.closed) this.requestWatchBatch(); }
@@ -607,7 +617,8 @@ export class GameSession {
       const r = new BinaryReader(data), host = r.s(15), port = r.u16();
       this.state.duelOffer = { host, port, address: data.slice(), source: this.pendingNpc ? 'npc' : 'pvp' };
       if (!this.pendingNpc && (this.pendingMatchmaking || this.state.matchmaking.status === 'searching')) this.state.matchmaking = { ...this.state.matchmaking,status:'matched' };
-      this.state.challenge = null; this.state.outgoingChallengeRoom = null;
+      // A duel is starting: an earlier challenge's refusal message is no longer current.
+      this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.error = null;
       this.options.onDuelOffer?.(this.state.duelOffer);
     } else if (channel === this.lobby && id === 0x43a0 && data.length === 42) {
       if (this.pendingNpc || !this.pendingMatchmaking && !['searching','matched'].includes(this.state.matchmaking.status)) return;
@@ -615,7 +626,7 @@ export class GameSession {
       this.state.matchmaking = { ...this.state.matchmaking,opponent:{ pid,name,level,title,parts:r.bytes(16) } };
     } else if (channel === this.lobby && id === 0x4302) {
       const r = new BinaryReader(data), pid = r.u32(), name = r.s(16); r.u8();
-      const level = r.u8(), title = r.u16(); r.u16(); this.state.challenge = { pid, name, level, title, parts:r.bytes(16) };
+      const level = r.u8(), title = r.u16(); r.u16(); this.state.challenge = { pid, name, level, title, parts:r.bytes(16) }; this.state.error = null;
     } else if (channel === this.lobby && [0x4305,0x4308].includes(id)) this.state.challenge = null;
     else if (channel === this.lobby && id === 0x4301) {
       const code = new BinaryReader(data).i32();
@@ -667,6 +678,9 @@ export class GameSession {
           player.state = r.u8(); player.parts = r.bytes(16); player.x = r.u16(); player.y = r.u16(); player.direction = r.u8();
         }
         this.state.players = [...this.state.players.filter((p) => p.pid !== pid), player];
+      } else if (operation >= 0x67 && operation <= 0x6a) {
+        // Hub stateMsg: a player now duelling (the state itself in place of the operation, then the rival's card).
+        this.state.players = this.state.players.map((p) => p.pid === pid ? { ...p, state: operation, areaBlock } : p);
       }
     }
     else if (id === 0x4231) this.listNpcs = [];

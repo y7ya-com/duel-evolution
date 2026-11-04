@@ -421,6 +421,7 @@ export class ClientApp implements ClientController {
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   private duelNames(): [string, string] {
+    const watched = this.game?.state.spectating ? this.game.state.watchNames : null; if (watched) return [...watched];
     const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
     return [this.view.player?.name ?? 'You', opponent ?? 'Opponent'];
   }
