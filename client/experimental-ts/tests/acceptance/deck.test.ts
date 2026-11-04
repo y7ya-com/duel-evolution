@@ -24,11 +24,18 @@ async function add(page:Page,name:string,zoneValue:'main'|'side'|'extra' = 'main
 }
 async function editDeck(page:Page) { await click(page,'Edit Deck'); await until(page,byKey('collection-search'),60000); await until(page,`document.querySelector('[data-key="deck-select"]')`,30000); await sleep(800); }
 /** Reload the page and come back to the same character's deck editor: everything shown comes from the server again. */
-async function reload(page:Page,character:string) {
-  await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
-  await click(page,'Go Online',60000);
+async function reload(page:Page,character:string,assets = true) {
+  await page.go(`${CLIENT}/?portOffset=1000${assets ? '&assets=/game-assets/' : ''}`,`document.querySelector('.de-client')`);
   const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-  await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
+  // The previous page's session can take a moment to close; the server then asks to wait and try again, as a player would.
+  for (let attempt = 0; attempt < 12 && !(await page.ev(`Boolean(${slot})`)); attempt++) {
+    const go = `[...document.querySelectorAll('button')].find(b=>['Go Online','Continue'].includes(b.textContent.trim())&&!b.disabled)`;
+    await until(page,`${go}||${slot}`,60000);
+    if (await page.ev(`Boolean(${go})`)) await press(page,go);
+    await until(page,`${slot}||/already logged in/.test(document.body.innerText)`,30000).catch(() => {});
+    if (!(await page.ev(`Boolean(${slot})`))) await sleep(5000);
+  }
+  await until(page,slot,10000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
   await editDeck(page);
 }
 /** The editor's exports: the anchor download is captured as bytes. */
@@ -202,11 +209,7 @@ describe.skipIf(!enabled)('deck editor against the real server',() => {
       expect(spell).toContain('Pot of Greed'); expect(spell).toMatch(/Spell/); expect(spell).toMatch(/Forbidden/); expect(spell).not.toMatch(/ATK/);
       await screenshot(page,'card-inspect');
       // Without original art the same card is drawn as a named fallback tile, never a broken image.
-      await page.go(`${CLIENT}/?portOffset=1000`,`document.querySelector('.de-client')`);
-      await click(page,'Go Online',60000);
-      const slot = `[...document.querySelectorAll('.de-characters button')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-      await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
-      await editDeck(page);
+      await reload(page,character,false);
       await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(400);
       const fallback = await page.ev(`(()=>{const t=document.querySelector('.de-card-inspector .de-card');return {text:t?.querySelector('.de-card-unknown')?.textContent ?? '',images:t?.querySelectorAll('img').length ?? -1,name:document.querySelector('.de-card-inspector h3')?.textContent}})()`) as { text:string; images:number; name:string };
       expect(fallback.images).toBe(0); expect(fallback.text).toBe(fallback.name);
