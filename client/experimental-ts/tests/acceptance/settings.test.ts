@@ -155,7 +155,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await until(page,byKey('lobby-npcs'),30000);
       // Escape closes the player's own profile card.
       await click(page,'My Profile');
-      const profile = `document.querySelector('[role=dialog][aria-label="Player profile"]')`;
+      const profile = `document.querySelector('[data-key="profile-ok"]')`;   // main's Profile window
       await until(page,profile,20000);
       await page.ev(`document.activeElement?.blur()`);
       await key(page,'Escape','Escape',27);

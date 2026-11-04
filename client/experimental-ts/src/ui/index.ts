@@ -728,6 +728,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
     else if (!duel.ended) actions.append(button('Surrender', () => { if (confirmAction('Surrender this duel?')) send({ type: 'surrender' }); }, !!state.busy || state.relay?.canAct === false));
     else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    // main's menu bar is not on the duel screen (as in the game): Options (sound, display) stays reachable from here
+    actions.append(button('Options', () => open('settings')));
     stage.append(actions);
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log);

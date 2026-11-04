@@ -42,9 +42,10 @@ const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name)
 export function playerSelect(ctx: BuildContext): WindowSpec {
   const t = playerSelectLive.windows[0], b = new WindowBuilder(ctx.ids, 'select', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51153 });
   const cs = b.fromTemplate(t);
-  // top to bottom, left to right: the DOM (and Tab) order main's generic controls follow; nothing in it overlaps
-  // but the frame and the help text, which stay first
-  b.win.controls.sort((p, q) => p.y - q.y || p.x - q.x);
+  // the frame, help text and level labels first, then the buttons top to bottom, left to right: the DOM (and Tab)
+  // order main's generic controls follow, and no label's box (the level's is 128 wide) over a button
+  const button = (c: HtmlControl) => c.cls === 'CWindowTaskTextSwitch' ? 1 : 0;
+  b.win.controls.sort((p, q) => button(p) - button(q) || p.y - q.y || p.x - q.x);
   const idle = () => !ctx.ui.dialog && !ctx.state.busy;
   const rows = byY(cs, 'プレイヤ選択ボタン'), dels = byY(cs, '削除ボタン'), levels = byY(cs, 'プレイヤ選択ボタンのLV表示文字');
   rows.forEach((row, slot) => {

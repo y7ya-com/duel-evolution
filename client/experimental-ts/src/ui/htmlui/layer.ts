@@ -49,6 +49,13 @@ export class HtmlUiLayer {
     this.host = document.createElement('div');
     this.host.id = 'htmlui-host';
     this.host.dataset.rewrite = '';
+    // main's text boxes never take the pointer: on main the engine has it in pass mode, here a label's box (Select
+    // Player's 128-wide level) would cover the button beside it
+    if (!document.getElementById('htmlui-rewrite-css')) {
+      const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
+      st.textContent = '#htmlui-host[data-rewrite] .txt { pointer-events: none; }';
+      document.head.append(st);
+    }
     document.body.append(this.host);
     for (const mod of [...MODULES, ...Object.values(EXTRA)]) for (const cls of mod.classes) this.declared.set(cls, mod.mode ?? 'pass');
     for (const [cls, mod] of Object.entries(EXTRA)) this.declared.set(cls, mod.mode ?? 'pass');
