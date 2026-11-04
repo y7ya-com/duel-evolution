@@ -61,10 +61,14 @@ export function chatLine(s) {
   const m = /^([^:：]{1,24})[:：]\s?(.*)$/s.exec(t);
   return m ? { name: m[1], text: m[2] } : { text: t };
 }
+// the tabs: the shown ones left to right but Proximity Chat (the server has no proximity channel: a line sent there goes
+// to Global, server/src/game/chat.ts; ovr/chatfree.c hides it in a runtime built with it); logTabs: every shown tab, the
+// logs' partners by order
 export function chatParts(win) {
-  const cs = win.controls;
+  const cs = win.controls, logTabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x);
   return {
-    tabs: cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x),
+    tabs: logTabs.filter(t => !/^proximity chat$/i.test(untag(t.label).trim())),
+    logTabs,
     // one log per tab, the active tab's shown
     log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),

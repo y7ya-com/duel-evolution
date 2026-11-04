@@ -14,6 +14,7 @@ import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
+import { updateLiveChat } from './live-chat.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -365,6 +366,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
+    updateLiveChat(snap);   // the speech bubbles over the avatars (live-chat.js), whichever screens draw the windows
     const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();

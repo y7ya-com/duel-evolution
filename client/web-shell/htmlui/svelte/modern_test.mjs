@@ -60,6 +60,11 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   ]);
   const p = L.chatParts(w);
   assert.deepEqual(p.tabs.map(t => t.label), ['All Chat', 'TRADE']);
+  // no Proximity Chat tab (the server's channels: Global, Trade, Whisper, Team); its log keeps its partner by order
+  const near = L.chatParts(win('CChatWindow', [ctl('Tab', { x: 8, label: 'All Chat', active: true }), ctl('Tab', { x: 80, label: 'Proximity Chat' }),
+    ctl('Tab', { x: 192, label: 'TRADE' })]));
+  assert.deepEqual(near.tabs.map(t => t.label), ['All Chat', 'TRADE']);
+  assert.deepEqual(near.logTabs.map(t => t.label), ['All Chat', 'Proximity Chat', 'TRADE']);
   assert.deepEqual(p.log.items, ['@0A:hi'], 'the shown log, not the first');
   assert.ok(p.input && p.taller && p.shorter);
   assert.ok(p.open && p.typing, 'the lobby chat: its log and line drawn');

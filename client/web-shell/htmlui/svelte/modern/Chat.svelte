@@ -1,10 +1,10 @@
 <script module>
   // The chat, modern (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp). Its tabs come from the
   // game (All Chat | Duel Log | Proximity Chat | TRADE | Team: ovr/duellog.c adds Duel Log on the duel screen), so
-  // nothing here knows tab names. The log is the shown Textlist's items in a native scroller that stays at the bottom
-  // while the player is there; the line is a real <input> that commits through the control's setText, Enter being the
-  // game's own WM_CHAR 13 (it sends). Taller / Shorter are its IconExpand / IconHide. The panel fills the window's
-  // rect, which is the engine's (taller moves it up).
+  // nothing here knows tab names but Proximity Chat's, which is left out (logic.js chatParts). The log is the shown
+  // Textlist's items in a native scroller that stays at the bottom while the player is there; the line is a real
+  // <input> that commits through the control's setText, Enter being the game's own WM_CHAR 13 (it sends). Taller /
+  // Shorter are its IconExpand / IconHide. The panel fills the window's rect, which is the engine's (taller moves it up).
   import { chatLine, chatParts, chatLogs, newLines } from './logic.js';
 </script>
 
@@ -30,9 +30,9 @@
   $effect(() => {
     const logs = chatLogs(win), next = { ...unread };
     logs.forEach((l, i) => {
-      const t = p.tabs[i], n = newLines(seen.get(l.id), l.items || []);
+      const t = p.logTabs[i], n = newLines(seen.get(l.id), l.items || []);
       seen.set(l.id, l.items || []);
-      if (!t) return;
+      if (!t || !p.tabs.includes(t)) return;   // (Proximity Chat's: no tab shown)
       if (t.active) next[t.id] = 0;
       else if (n && primed) next[t.id] = (next[t.id] || 0) + n;
       if (t.active && l === p.log && n && primed && !atBottom) fresh += n;
