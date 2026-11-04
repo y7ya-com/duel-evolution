@@ -62,7 +62,7 @@
   .head { position: absolute; left: 0; margin: 0; display: flex; justify-content: center; align-items: baseline; gap: 8px; font-family: var(--display); font-size: 11px; font-weight: 400;
     letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
   .val { font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; font-size: 13px; font-weight: 750; letter-spacing: 0; text-transform: none; color: var(--ink-strong); }
-  .ring { position: absolute; border-radius: 3px; box-shadow: 0 0 0 1px var(--n200); transition: box-shadow .14s; }
+  .ring { position: absolute; border-radius: 8px; box-shadow: 0 0 0 1px var(--n200); transition: box-shadow .14s; }
   .ring.hover { box-shadow: 0 0 0 2px var(--p500); }
   .ring.on { box-shadow: 0 0 0 3px var(--gold-400), 0 0 0 4px var(--gold-edge), 0 4px 10px -4px rgba(140, 80, 0, .5); }
   .track { position: absolute; height: 6px; border-radius: 3px; background: var(--n200); box-shadow: inset 0 1px 1px rgba(10, 35, 80, .15); }

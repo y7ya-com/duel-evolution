@@ -1,37 +1,25 @@
 // A headless Chrome for Testing over CDP, for the htmlui tools (mockshot.mjs, flip.mjs). No visible window; refuses
 // to start with under 25 % memory free (buildslot admits the whole run at 35 %) (the shared Mac's rule). CHROME=<binary> to pick another build.
 import { spawn, execSync } from 'node:child_process';
-import { rmSync, readdirSync, existsSync, readFileSync } from 'node:fs';
+import { rmSync, readdirSync } from 'node:fs';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function chromePath() {
   if (process.env.CHROME) return process.env.CHROME;
-  const base = process.platform === 'darwin' ? process.env.HOME + '/Library/Caches/ms-playwright'
-    : (process.env.XDG_CACHE_HOME || process.env.HOME + '/.cache') + '/ms-playwright';
+  const base = process.env.HOME + '/Library/Caches/ms-playwright';
   const dir = readdirSync(base).filter(d => d.startsWith('chromium-')).sort().pop();
-  const candidates = process.platform === 'darwin'
-    ? ['chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', 'chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing']
-    : ['chrome-linux64/chrome', 'chrome-linux/chrome'];
-  const binary = candidates.map(name => `${base}/${dir}/${name}`).find(existsSync);
-  if (!binary) throw new Error('No cached Chromium binary found; set CHROME to the installed browser.');
-  return binary;
+  return `${base}/${dir}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 }
 
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
 export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false } = {}) {
-  let free = 100;
-  if (process.platform === 'darwin') free = +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
-  else if (process.platform === 'linux') {
-    const memory = readFileSync('/proc/meminfo', 'utf8'), value = key => +new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(memory)?.[1];
-    free = value('MemAvailable') / value('MemTotal') * 100;
-  }
+  const free = +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100);
   if (free < 25) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
   const profile = '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run',
-    ...(process.platform === 'darwin' ? ['--use-angle=metal'] : ['--no-sandbox', '--disable-dev-shm-usage']), 'about:blank'], { stdio: 'ignore' });
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', '--use-angle=metal', 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);

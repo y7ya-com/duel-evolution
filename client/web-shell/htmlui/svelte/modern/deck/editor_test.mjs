@@ -1,7 +1,7 @@
 // node client/web-shell/htmlui/svelte/modern/deck/editor_test.mjs: the modern deck editor's filters, search and rules
 // (editor.js) on made-up cards (no card data in git)
 import assert from 'node:assert/strict';
-import { rank, norm, view, NO_FILTER, blocked, copies, home, trunkCard } from './editor.js';
+import { rank, norm, view, NO_FILTER, blocked, copies, home } from './editor.js';
 
 const C = (id, name, o = {}) => ({ id, name, atk: 1000, def: 1000, kind: 1, attr: 2, level: 4, race: 1, limit: 3, ...o });
 const cards = [C(1, 'Blue Flame Knight', { atk: 3000, level: 8, attr: 1 }), C(2, 'Flame Swordsman', { kind: 2, level: 5 }),
@@ -34,10 +34,4 @@ assert.equal(blocked(cards[1], 'main', { left: 1 }), 'Fusion monsters go to the 
 assert.equal(blocked(cards[1], 'side', { left: 1 }), 'Fusion monsters go to the Fusion Deck');
 assert.equal(blocked(cards[0], 'side', { left: 1, counts: { side: 15 } }), 'Section is full');
 assert.equal(blocked(cards[0], 'main', { left: 1, counts: { main: 40 } }), '');
-// the trunk's plate counts what is left to add (owner: "it stays the same despite the card being used in the deck"):
-// 3 owned, then 1, 2, 3 copies in the deck -> 3, 2, 1, 0 left; at 0 greyed (out), not "not owned"
-assert.deepEqual([0, 1, 2, 3].map(used => trunkCard(3 - used, used).n), [3, 2, 1, 0]);
-assert.deepEqual(trunkCard(0, 3), { n: 0, owned: 3, out: true, notown: false });
-assert.deepEqual(trunkCard(0, 0), { n: 0, owned: 0, out: false, notown: true });
-assert.equal(trunkCard(2, 1).out, false);
 console.log('modern deck editor: ok');

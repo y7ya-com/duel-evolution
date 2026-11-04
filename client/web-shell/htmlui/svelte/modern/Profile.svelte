@@ -1,6 +1,6 @@
 <script module>
-  // My Profile, modern (CWindowModelProfile): the engine's ten label / value rows (logic.js profile) as a duelist record:
-  // the name, title and level on a blue band, the record in an inset table. OK (and Esc) is its own ButtonDuel.
+  // My Profile, modern (CWindowModelProfile): the engine's ten label / value rows (logic.js profile) as a profile card:
+  // the name, title and level up top, the record as a grid of figures. OK (and Esc) is its own ButtonDuel.
   import { profile } from './logic.js';
   const TOP = new Set(['Name', 'Title', 'LV']);
 </script>
@@ -42,23 +42,21 @@
 </div>
 
 <style>
-
-  .scrim { position:absolute; width:1024px; height:768px; background:#073a7055; }
-  .card { left:0; top:0; padding-bottom:12px; }
-  .who { display:flex; align-items:center; gap:12px; margin:12px 14px 0; padding:10px 12px; background:linear-gradient(90deg,#1269b9,#45a5de); border:1px solid #1e6aaa; box-shadow:inset 0 1px #b4ecff; }
-  .badge { display:none; }
-  .id { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
-  .name { font-size:20px; font-weight:700; color:#fff; text-shadow:0 1px #134e87; }
-  .title { font-size:13px; font-weight:600; color:#fff1aa; }
-  .lv { background:var(--gold); border-color:var(--gold-edge); color:var(--gold-ink); text-shadow:0 1px #ffffd4; height:28px; line-height:26px; }
-  .lv b { font-size:16px; }
-  .stats { margin:10px 14px 0; display:grid; grid-template-columns:1fr 1fr; gap:1px; padding:1px; background:#74afcd; border:1px solid #5d96b9; }
-  .stat { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:7px; padding:9px 10px; background:var(--well); }
-  .stat:nth-child(4n+3),.stat:nth-child(4n+4) { background:#d8f2fb; }
-  .stat:last-child:nth-child(odd) { grid-column:1/-1; }
-  dt { font-size:12px; color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  dd { margin:0; font-size:17px; font-weight:700; color:var(--ink-strong); }
-  footer { display:flex; justify-content:flex-end; padding:12px 14px 0; }
-  footer .mu-btn { min-width:96px; }
-
+  .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .3); }
+  .card { left: 0; top: 0; padding-bottom: 14px; }
+  .who { display: flex; align-items: center; gap: 14px; padding: 16px 18px 8px; }
+  .badge { display: grid; place-items: center; width: 52px; height: 52px; flex: none; border-radius: 50%; font-weight: 800; font-size: 22px;
+    color: #fff; background: var(--sel); box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--p700), 0 4px 10px rgba(10, 35, 80, .3); }
+  .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .name { font-size: 20px; font-weight: 800; color: var(--ink-strong); }
+  .title { font-size: 13px; font-weight: 650; color: var(--azure-500); }
+  .lv { height: 24px; line-height: 24px; font-size: 12px; padding: 0 10px; border-radius: 12px; }
+  .lv b { font-size: 14px; }
+  .stats { margin: 8px 18px 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat { padding: 10px 12px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px; background: var(--well); box-shadow: var(--well-shadow); }
+  .stat:last-child:nth-child(4n + 3) { grid-column: span 2; }
+  dt { font-size: 11px; font-weight: 600; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  dd { margin: 4px 0 0; font-size: 18px; font-weight: 800; color: var(--ink-strong); }
+  footer { display: flex; justify-content: flex-end; padding: 14px 18px 0; }
+  footer .mu-btn { min-width: 96px; }
 </style>

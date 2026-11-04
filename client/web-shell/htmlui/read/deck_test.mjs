@@ -93,14 +93,3 @@ assert.deepEqual(strip(248, ' 3 ATK1000/DEF 600'), [true, [' 3 ATK1000/DEF 600']
 assert.deepEqual(strip(15), [false, [], 1]);
 assert.deepEqual(strip(-1), [false, [], 0]);    // nothing shown
 console.log('read/deck_test: ok');
-
-// The duel pile viewer owns five native CCard slots, not ordinary window controls.
-{
-  const pile = elem('CWindowDeckList', 0x500), nativeCard = alloc(0x80);
-  w32(pile + 0x340, vt('CWindowDeckList', 0x340));
-  w32(pile + 0x438, 3); w32(pile + 0x4e4, 1); w32(pile + 0x478 + 4, nativeCard);
-  w32(nativeCard + 0x10, 4007); w32(nativeCard + 0x38, 384); w32(nativeCard + 0x3c, 300); w32(nativeCard + 0x48, 256);
-  list(fac + 0x10, [pile]);
-  const p = read(dv, 2, 28).windows.find(w => w.cls === 'CWindowDeckList').pile;
-  assert.deepEqual(p, { kind: 3, count: 1, title: '', offset: 0, bar: 0, cards: [{ id: 4007, x: 384, y: 300, faceUp: true }] });
-}

@@ -1,6 +1,6 @@
 <script>
-  // A game window: the original cyan bevel and blue title band, with a readable inset body.
-  // An optional close also handles Esc; opening is immediate, without moving native hit targets.
+  // A game window (theme.js .mu-plate / .mu-head): the bevelled metal frame round its field, the title plaque in the
+  // display face, an optional close (Esc too). Opens with a quick scale and fade where it stands. Children are the body.
   import Icon from '../Icon.svelte';
   let { title = '', onclose = null, width = null, role = 'dialog', modal = false, class: cls = '', style = '', children, panel = $bindable() } = $props();
   const keys = e => { if (e.key === 'Escape' && onclose) { e.preventDefault(); onclose(); } };

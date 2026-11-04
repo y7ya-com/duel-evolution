@@ -8,7 +8,8 @@
 // Pass mode: the game takes the input; hover and pressed come from the snapshot.
 import { SHEET, sprite } from '../../ui.js';
 import { textBox } from '../controls/basic.js';
-import { menuButton, titleBar, panel } from '../controls/skin.js';
+import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
+import { inviteDuel, cardName, nativeDuel } from '../invite.js';
 
 // CWindowTaskFramePlace, lobbyname_win_01_c01.png (256 x 52; the body stretched after its first 224 px): a 1 px brown
 // edge, a 3 px gold bevel (light top / left, darker right / bottom), a #625d36 line, then the blue body, #0985ff to
@@ -59,11 +60,7 @@ const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 
 
 // The bar's picture atlas (not in ui.js's SHEET yet), loaded as it loads one: its clamp copy's alpha says where
 // sprite() needs the .rgb copy under a mask
-// Until it has loaded, and for good if it can't (an art set shipped without it: live's ui/ had no menuicon_02_c01, and
-// Free Duel's lobby showed an empty bar, no way out), the whole bar is the game's: its controls pass (bar), the page
-// draws nothing there (its strip would cover the game's buttons)
-let icons, loading, noIcons = false;
-const bar = new Set();
+let icons, loading;
 const loadIcons = () => loading ||= (async () => {
   const base = SHEET.window.url.slice(0, SHEET.window.url.lastIndexOf('/') + 1), m = new Image();
   m.src = base + 'clamp/menuicon_02_c01.png';
@@ -154,26 +151,46 @@ function menuBar(win, root, st) {
   }
 }
 
-const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar };
+// A player's card (CPlayerListMenu): the game draws all of it (its ids pass through, `kept`); the page adds one
+// 2008 button on a tab above its top right, Duel (../invite.js), when the game offers no duel request of its
+// own, and a refusal's reason in a box under the tab for a few seconds
+const kept = new Map();   // window id -> its control and sprite ids
+function playerCard(win, root, st) {
+  kept.set(win.id, new Set([...win.controls.map(c => c.id), ...(win.extras || []).map(e => e.id)]));
+  const show = win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
+  if (!show) { if (st.btn) { st.btn.remove(); st.btn = null; } return; }
+  if (st.btn) return;
+  const name = cardName(win.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && /^\s*LV\s*\d/i.test(c.text || ''))?.text);
+  st.btn = duelButton(root, { x: win.w - 128, y: -30, w: 120, h: 26, label: 'Duel' });
+  st.btn.style.pointerEvents = 'auto';
+  st.btn.onclick = async () => {
+    if (st.busy) return;
+    st.busy = true;
+    st.btn.disabled = true;
+    try {
+      const r = await inviteDuel(st.api, name);
+      if (!r.ok) {
+        st.msg?.remove();
+        st.msg = textBox(root, r.message, { x: win.w - 268, y: -58, w: 260, align: 2, white: true, color: [1, 1, 1, 1] });
+        st.msg.classList.add('lb-shadow');
+        setTimeout(() => { st.msg?.remove(); st.msg = null; }, 4000);
+      }
+    } finally { st.busy = false; if (st.btn) st.btn.disabled = false; }
+  };
+}
+
+const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CPlayerListMenu: playerCard };
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
-  mount: () => { inject(); return {}; },
-  passthrough: (x, parent) => !icons && (bar.has(x.id) || !!parent && bar.has(parent.id)),   // the bar, while the page can't draw its buttons
+  mount: (win) => { inject(); return { id: win.id }; },
+  passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),   // a kept control's parts too
   update(win, prev, root, api, st) {
     st.win = win;
-    if (win.cls === 'CWindowModelMenu' && !icons) {
-      bar.clear();
-      for (const c of win.controls) bar.add(c.id);
-      if (st.bar) { root.replaceChildren(); st.bar = null; }
-      if (!noIcons) loadIcons().then(() => menuBar(st.win, root, st), e => {
-        if (!noIcons) console.warn('htmlui lobby: no menu bar icons (ui/menuicon_02_c01.png), the game draws its bar', e);
-        noIcons = true;
-      });
-      return;
-    }
+    st.api = api;
+    if (win.cls === 'CWindowModelMenu' && !icons) { loadIcons().then(() => menuBar(st.win, root, st)); return; }
     DRAW[win.cls](win, root, st);
   },
-  unmount(root) { root.replaceChildren(); },
+  unmount(root, st) { kept.delete(st?.id); root.replaceChildren(); },
 };

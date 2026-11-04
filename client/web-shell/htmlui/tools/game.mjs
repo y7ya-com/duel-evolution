@@ -5,7 +5,7 @@
 // COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
 // SHIP=<infra/out/<prefix>> (a DRY=1 ship-client.sh): the page as shipped instead (index.html at /, its own scripts and
 // the bridge it injects; loader/ from web-shell/loader). HTMLUI=on: /htmlui.json turns CWindowPlayerSelect on (the
-// R2 file the owner's approval adds), HTMLUI=<file>.json serves that file; otherwise it is absent, as it ships.
+// R2 file the owner's approval adds); otherwise it is absent, as it ships.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -45,10 +45,9 @@ const srv = createServer((req, res) => {
   if (p.includes('..')) { res.writeHead(403, ISO); return res.end(); }
   if (/^\/(api|yo2|app)\/|^\/__warm/.test(p)) return forward(req, res);
   if (p === '/htmlui.json') {
-    if (HTMLUI !== 'on' && !HTMLUI?.endsWith('.json')) { res.writeHead(404, ISO); return res.end(); }
+    if (HTMLUI !== 'on') { res.writeHead(404, ISO); return res.end(); }
     res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' });
-    // HTMLUI=<file>.json: that file (live's R2 htmlui.json, say)
-    return res.end(HTMLUI === 'on' ? JSON.stringify({ on: ['CWindowPlayerSelect'] }) : readFileSync(HTMLUI));
+    return res.end(JSON.stringify({ on: ['CWindowPlayerSelect'] }));
   }
   if (SHIP && !p.startsWith('/game/') && !p.startsWith('/fonts/')) {   // the shipped page and its files
     const f = p === '/' ? path.join(SHIP, 'index.html') : p.startsWith('/loader/') ? path.join(shell, p) : path.join(SHIP, p);

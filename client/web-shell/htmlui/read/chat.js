@@ -13,35 +13,10 @@ const MY_ROOM = 10, SIGN_IN_LAST = 7;   // SceneId (src/System/yo2SceneManager.h
 export const onlineAfter = (online, scene) => scene >= 1 && scene <= SIGN_IN_LAST ? false : scene === MY_ROOM ? true : online;
 let online = null, scene = 0;
 
-// Positions come from the player's actual name label in the avatar hierarchy, never map-grid guesses.
-export function chatAvatars(h, root) {
-  const out = [], seen = new Set();
-  const walk = (task, depth) => {
-    if (!task || seen.has(task) || seen.size >= 2048 || depth > 10) return;
-    seen.add(task);
-    const type = h.cls(task);
-    if (type === 'CPlChibiAvatar') {
-      const label = h.ptr(task + 0xb8), elm = h.ptr(task + 0x94), pid = h.i32(task + 0xec);
-      if (pid > 0 && label && elm && h.vis(label) && h.vis(elm) && !h.locked(task)) {
-        const at = h.at(label);
-        if (Number.isFinite(at.wx) && Number.isFinite(at.wy)) out.push({ pid, x: at.wx, y: at.wy - 8 });
-      }
-      return;
-    }
-    if (/^(CSpriteElm|CTextElm|CSwf)/.test(type)) return;
-    for (const child of h.children(task)) walk(child, depth + 1);
-  };
-  walk(root, 0);
-  return out;
-}
-
-export default h => {
-  const { u8, u32, i32, vec } = h;
+export default ({ u8, u32, i32, vec }) => {
   const sm = u32(SCENE_MNG);
   if (sm) online = onlineAfter(online, scene = i32(sm + 0x7c));
   return {
-    snapshot: () => ({ chatOnline: online !== false && scene > SIGN_IN_LAST,
-      chatAvatars: online !== false && sm ? chatAvatars(h, h.ptr(sm + 0x70)) : [] }),
     windows: {
       CChatWindow: w => ({ mode: i32(w + 0x414), online: online !== false, world: scene > SIGN_IN_LAST,
         pairs: vec(w + 0x3e0, 0x1c).map(t => ({ tab: u32(t + 8), log: u32(t + 4), visible: !!u8(t) })) }),
