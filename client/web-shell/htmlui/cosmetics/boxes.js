@@ -25,6 +25,9 @@ import { BOXES_CSS } from './boxes-css.js';
 const nth = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
 
 export const ORIGIN = { x: 264, y: 0 };   // CShopAvatarWindow's rect (read/shop.js ITEMS): the root's place on screen
+// the panel's centre line (root px): the engine's glass (23..521) and band, the banner frame, the box tabs, the strip,
+// its arrows, the foot's lines and buttons all centre on it
+export const AXIS = 272;
 // the engine's side pills (screen px, from its 1x render): Confirm (now Open Box) and Back
 export const PILLS = { confirm: { x: 795, y: 481, w: 223, h: 48 }, back: { x: 795, y: 541, w: 223, h: 49 } };
 
@@ -174,14 +177,15 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
   function strip(v) {
     if (S.error && !S.info) return h('div', { class: 'bx-strip' },
       h('div', { class: 'bx-fail sa-t', role: 'alert' }, S.error),
-      h('button', { class: 'sa-btn2 bx-retry', style: at(186, 70, 116), onclick: () => load(true) }, h('span', {}, 'Retry')));
+      h('button', { class: 'sa-btn2 bx-retry', style: at(189, 70, 115), onclick: () => load(true) }, h('span', {}, 'Retry')));
     if (!S.info || !v.box) return h('div', { class: 'bx-strip', 'aria-busy': 'true' },
       Array.from({ length: STRIP }, (_, i) => h('div', { class: 'bx-sk de-skel', style: at(i * 98 + 6, 10, 84, 84) })));
     const p = pageOf(v), shown = v.items.slice(p * STRIP, p * STRIP + STRIP), sel = selected(v);
+    const x0 = (STRIP - shown.length) * 49;   // a short page centred on the axis (98 a cell)
     return h('div', { class: 'bx-strip', role: 'listbox', 'aria-label': `${v.name}: items` }, shown.map((it, i) => {
       const on = it.id === sel?.id;
       return h('button', { class: 'bx-cell', role: 'option', 'aria-selected': String(on), 'aria-label': `${it.name}, ${RARITY[it.rarity]?.label}`,
-        data: { on, id: it.id }, style: at(i * 98, 0, 96, 150), onclick: () => { S.sel[v.id] = it.id; render(); } },
+        data: { on, id: it.id }, style: at(x0 + i * 98, 0, 96, 150), onclick: () => { S.sel[v.id] = it.id; render(); } },
         framed(it, 70, 'strip', at(10, 14, 76, 76)),
         h('div', { class: 'sa-brackets', data: { hi: !on } }),
         h('div', { class: 'sa-plate tag', data: { on } }, h('span', { class: 'sa-t' }, it.name)));
@@ -193,8 +197,9 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     return [
       h('div', { class: 'bx-pity sa-t' }, v.box ? v.pityLine : ''),
       why ? h('div', { class: 'bx-why sa-t', id: 'bx-why', role: S.msg ? 'alert' : null }, why) : null,
-      h('button', { class: 'sa-btn2 bx-link', style: at(98, 532, 150), disabled: !v.box, onclick: () => setView('contents') }, h('span', { class: 'sa-t' }, 'Contents & odds')),
-      h('button', { class: 'sa-btn2 bx-wd', style: at(296, 532, 150), onclick: () => wardrobe() }, h('span', { class: 'sa-t' }, 'Wardrobe')),
+      // the pair centred on the panel's axis (272) by their faces (145 of 150: shopart.js FACE), 48 apart
+      h('button', { class: 'sa-btn2 bx-link', style: at(AXIS - 24 - 145, 532, 150), disabled: !v.box, onclick: () => setView('contents') }, h('span', { class: 'sa-t' }, 'Contents & odds')),
+      h('button', { class: 'sa-btn2 bx-wd', style: at(AXIS + 24, 532, 150), onclick: () => wardrobe() }, h('span', { class: 'sa-t' }, 'Wardrobe')),
       h('button', { class: 'sa-pill bx-open', data: { tone: 'go', busy: S.busy }, disabled: !ready, 'aria-describedby': why ? 'bx-why' : null,
         style: at(PILLS.confirm.x - ORIGIN.x, PILLS.confirm.y - ORIGIN.y, PILLS.confirm.w, 50), onclick: () => open() },
         h('span', {}, S.busy ? 'Opening…' : !S.info ? 'Loading…' : 'Open Box')),
@@ -345,16 +350,16 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
       const nv = nowView();
       const again = h('button', { class: 'sa-pill again', data: { tone: 'hi' }, disabled: !nv.affordable, title: nv.disabled || null,
         onclick: () => { close(); open(); } }, h('span', {}, 'Open another'));
+      // one column under the card, the card's width: the name, the rarity, the news plate, the notice, the pills
       return [
         h('div', { class: 'after' },
           h('div', { class: 'nm sa-t24 sa-w', title: r.name }, r.name),
           h('div', { class: 'rl sa-t sa-w', data: { rarity: r.rarity } }, `${r.label} ${(r.kind || '').toLowerCase()}`.trim()),
           h('div', { class: 'sa-plate news', data: { hi: r.isNew } }, h('span', { class: 'sa-t' }, r.duplicate ? r.dupText : 'New: added to your Wardrobe')),
           r.notice ? h('div', { class: 'notice sa-t sa-w' }, r.notice) : null,
-          equipBtn,
-          h('div', { class: 'row' }, again,
-            h('button', { class: 'sa-pill wd', onclick: () => { close(); wardrobe(r.id); } }, h('span', {}, 'Wardrobe')),
-            h('button', { class: 'sa-pill done', onclick: close }, h('span', {}, 'Done'))),
+          equipBtn, again,
+          h('button', { class: 'sa-pill wd', onclick: () => { close(); wardrobe(r.id); } }, h('span', {}, 'Wardrobe')),
+          h('button', { class: 'sa-pill done', onclick: close }, h('span', {}, 'Done')),
           !nv.affordable && nv.disabled ? h('div', { class: 'status sa-t sa-w', 'data-bad': '' }, nv.disabled) : status),
       ];
     }

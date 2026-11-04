@@ -54,6 +54,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const q = (sel, f = 'e => e.textContent') => b.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); return e ? (${f})(e) : null; })()`);
 const qa = (sel, f = 'e => e.textContent') => b.ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].map(${f})`);
 const click = sel => b.ev(`document.querySelector(${JSON.stringify(sel)}).click()`);
+// the alignment checks (align.js) on the screen that is up: centred groups and column stacks within 1 game px
+const aligned = async (screen, label = screen) => {
+  const r = await b.ev(`import('/htmlui/cosmetics/align.js').then(m => m.checkAlign())`);
+  assert.equal(r.screen, screen, label);
+  const bad = r.checks.filter(c => !c.ok);
+  assert.deepEqual(bad, [], label + ': ' + JSON.stringify(bad));
+  assert.ok(r.checks.length >= 8, label + ': measured');
+};
 await sleep(300);
 
 // ---- the showcase: the band (the selected item), the title, three price tags, the banner, the strip, the pity line
@@ -78,6 +86,7 @@ assert.doesNotMatch(await q('.bx-main'), /♂|♀|★/);
 assert.match(await q('#plate .bx-wallet .tot .sa-num', 'e => e.getAttribute("aria-label")'), /^6200 MP$/);
 assert.match(await q('#plate .bx-wallet .ern'), /Earned/);
 assert.match(await q('#plate .bx-wallet .ern .sa-num', 'e => e.getAttribute("aria-label")'), /^1200 MP$/);
+await aligned('showcase');
 // a single-body item: dimmed for a body that can't wear it (not for this male body), its body in the band only
 await click('.bx-cell[data-id=s1]');
 assert.equal(await q('.bx-cell[data-on]', 'e => e.dataset.id'), 's1');
@@ -90,6 +99,7 @@ await click('.bx-tab:nth-child(2)');
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Outfit');
 assert.equal(await q('.bx-open', 'e => e.disabled'), true);
 assert.equal(await q('.bx-why'), 'Needs 300 more earned MP. Starter MP buys cards only.');
+await aligned('showcase', 'the showcase, insufficient MP');
 assert.equal(await q('.bx-head .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnOutfit)');
 await b.ev(`document.querySelector('.bx-tab[data-on]').focus(); document.querySelector('.bx-tab[data-on]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Duel Disk');
@@ -121,6 +131,9 @@ assert.equal(await qa('.bx-rv .pt, .bx-rv .rays, .bx-rv .shine').then(x => x.len
 assert.deepEqual(await qa('.bx-rv button', 'e => e.textContent'), ['Equip', 'Open another', 'Wardrobe', 'Done']);
 assert.deepEqual(await qa('.bx-rv .sa-pill', 'e => e.dataset.tone || ""'), ['go', 'hi', '', ''], 'orange primary, cyan secondaries');
 assert.deepEqual(__lastOpen(await b.ev('__calls')), ['/cosmetics/open', { boxId: 'head', requestId: '0' }]);
+await aligned('reveal', 'the reveal, new');
+// one column: the card, the news plate and the four pills at the card's width
+assert.deepEqual(await qa('.bx-card, .bx-rv .news, .bx-rv .sa-pill', 'e => e.getBoundingClientRect().width'), [228, 228, 228, 228, 228, 228]);
 assert.match(await q('#plate .bx-wallet .tot .sa-num', 'e => e.getAttribute("aria-label")'), /^5700 MP$/, 'the wallet follows the open');
 // equip: the server's answer, then the note that others see it
 await click('.bx-rv .equip');
@@ -143,6 +156,8 @@ assert.equal(await q('.bx-card .sheen'), null);
 assert.equal(await q('.bx-rv .news'), 'Duplicate: you now have 2');
 assert.equal(await q('.bx-rv .again', 'e => e.disabled'), true, 'two opens left 200 earned MP: no third');
 assert.match(await q('.bx-rv .after'), /Needs 300 more earned MP/);
+await sleep(400);   // the card's entrance (a scale) settled: measured at rest
+await aligned('reveal', 'the reveal, a duplicate, insufficient MP');
 // Escape closes it
 await b.ev(`document.querySelector('.bx-rv').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
 assert.equal(await q('.bx-rv'), null);
@@ -158,6 +173,7 @@ assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
 assert.equal(await q('.bx-rv .notice'), 'The female version of this item is still being made.');
 assert.equal(await q('.bx-rv .equip', 'e => [e.disabled, e.textContent].join()'), "true,Can't wear yet");
 assert.equal(await q('.bx-rv .after .rl'), 'Super Rare hair');
+await aligned('reveal', "the reveal, can't wear yet");
 await click('.bx-rv .done');
 await b.send('Emulation.setEmulatedMedia', { features: [] });
 
@@ -183,6 +199,7 @@ assert.match(await q('.bx-rules'), /8th open in a row/);
 assert.equal(await q('.bx-list', 'e => getComputedStyle(e).overflowY'), 'auto');
 assert.equal(await qa('.bx-sidebtn').then(x => x.join('|')), 'Back to box');
 assert.equal(await q('.bx-open', 'e => !!e'), true, 'Open Box stays on its pill');
+await aligned('contents');
 await b.ev(`document.querySelector('.bx-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
 assert.equal(await q('.bx-title'), 'Cosmetic Boxes');
 

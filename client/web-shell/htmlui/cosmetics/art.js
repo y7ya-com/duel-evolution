@@ -35,7 +35,9 @@ export const CHIBI = 'data/avatar/chibi/';
 export const DISKS = 'data/map/map_switch/';
 // the shop's own sprites and the card get's glow frame (cosmetics/shopart.js: the skin the boxes and the Wardrobe use)
 export const SHOP = 'data/shop/', RESULT = 'data/y/result/';
-const READ = [CHIBI, DISKS, SHOP, RESULT];
+// the waist-up avatar's parts and their tables (cosmetics/waistup.js: the bust in the Wardrobe and the reveal)
+export const WAISTUP = 'data/avatar/wu/';
+const READ = [CHIBI, DISKS, SHOP, RESULT, WAISTUP];
 const two = n => String(n).padStart(2, '0');
 const prefix = female => (female ? 'cw_' : 'cm_');
 const chibi = (female, part) => `${CHIBI}${prefix(female)}${part}_n01_01.png`;

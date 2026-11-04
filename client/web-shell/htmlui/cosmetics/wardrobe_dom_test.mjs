@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { launch } from '../tools/cdp.mjs';
+import { WM_CSV, WW_CSV } from './waistup_fixture.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 30000 + process.pid % 10000;   // its own server: never another session's
 const srv = spawn('node', [path.join(here, '../serve.mjs'), String(PORT)], { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -32,8 +33,8 @@ const INV = [
   it('accessory:sunglasses', 'Sunglasses', 'accessory', 9, 'rare', [v('male', 0x50, [0, 1]), v('female', 0x50, [0, 1])]),
   it('dueldisk:3417', 'Battle City Alpha Gold', 'dueldisk', 8, 'ultra', [v('male', 0xb4, [0, 1]), v('female', 0xb4, [0, 1])]),
 ];
-const domino = [0, 0xa, 0x20, 0, 0x40, 0x60, 0x87, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
-const academy = [0, 0xa, 0x20, 0, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0];
+const domino = [0, 0xa, 0x20, 0x30, 0x40, 0x60, 0x87, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
+const academy = [0, 0xa, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0];
 const INFO = { available: true, inventory: INV, boxes: [], catalog: [],
   appearance: { gender: 'male', world: 1, parts: academy, looks: { 0: domino, 1: academy } },
   rank: { bestSchool: 'ra', uniforms: ['slifer', 'ra'], graduated: false, graduationLevel: 20, graduation: { level: 12, levelRequired: 20, opponents: 7, opponentsRequired: 25 } } };
@@ -55,7 +56,9 @@ await b.ev(`(async () => {
     return ok(__info);
   };
   // lazyfs.js's yo2Lazy with entry(): a coloured shape per picture, none for the disk's (the placeholder)
+  const csv = { 'data/avatar/wu/wm_data.csv': ${JSON.stringify(WM_CSV)}, 'data/avatar/wu/ww_data.csv': ${JSON.stringify(WW_CSV)} };
   const png = async name => {
+    if (csv[name]) return new TextEncoder().encode(csv[name]);
     if (name.includes('mapdisk')) return null;
     const c = new OffscreenCanvas(128, 128), g = c.getContext('2d');
     let hsh = 0; for (const ch of name) hsh = (hsh * 31 + ch.charCodeAt(0)) >>> 0;
@@ -63,7 +66,7 @@ await b.ev(`(async () => {
     return new Uint8Array(await (await c.convertToBlob()).arrayBuffer());
   };
   window.__read = [];
-  window.Module = { yo2Lazy: { files: new Map(), files2: { has: n => /^data\\/(avatar\\/chibi|map\\/map_switch)\\//.test(n) },
+  window.Module = { yo2Lazy: { files: new Map(), files2: { has: n => /^data\\/(avatar\\/(chibi|wu)|map\\/map_switch)\\//.test(n) },
     entry: async n => { __read.push(n); return png(n); } } };
   window.W = await import('/htmlui/cosmetics/wardrobe.js');
   window.__close = W.openWardrobe();
@@ -73,6 +76,20 @@ const q = js => b.ev(`(() => { const R = document.querySelector('.de-wd'); retur
 await until(`document.querySelectorAll('.de-wd .wd-row[data-id]').length > 0`);
 await until(`[...document.querySelectorAll('.de-wd .wd-row .de-art')].every(e => e.dataset.state !== 'loading')`);
 const row = id => `R.querySelector('[data-id="${id}"]')`;
+// the bust: its state, its state plate's text, its layers once drawn (waistup.js: the picture names, bottom first)
+const bust = async () => {
+  await until(`(() => { const w = document.querySelector('.de-wd .wd-wu'); return w && w.dataset.state !== 'loading'; })()`);
+  return q(`({ state: R.querySelector('.wd-bust').dataset.state, text: R.querySelector('.wd-state').textContent,
+    layers: R.querySelector('.wd-wu').dataset.layers.split(' '), drawn: R.querySelector('.wd-wu').dataset.state })`);
+};
+// the alignment checks (align.js) on the screen that is up: every centred group and column stack within 1 game px
+const aligned = async label => {
+  const r = await b.ev(`import('/htmlui/cosmetics/align.js').then(m => m.checkAlign())`);
+  assert.equal(r.screen, 'wardrobe', label);
+  const bad = r.checks.filter(c => !c.ok);
+  assert.deepEqual(bad, [], label + ': ' + JSON.stringify(bad));
+  return r.checks.length;
+};
 
 // the overlay: over the canvas, modal, built from the shop's pieces (the glass window, its band, the title plate)
 assert.equal(await q(`R.getAttribute('role') + R.getAttribute('aria-modal')`), 'dialogtrue');
@@ -103,12 +120,28 @@ assert.equal(await q(`${row('uniform:obelisk')}.querySelector('.wr').textContent
 assert.equal(await q(`${row('uniform:slifer')}.querySelector('.wr').textContent`), 'Wearing');
 assert.ok(await q(`${row('uniform:slifer')}.hasAttribute('data-hi')`), 'the worn row: the light plate');
 assert.equal(await q(`R.querySelector('.wd-foot').textContent`), 'Graduation: LV 12/20 · 7/25 rivals beaten');
+// the bust: the Academy look (Afro I, the Academy disk) with Jaden's Costume (selected, wearable there) tried on
+let wu = await bust();
+assert.deepEqual([wu.state, wu.text, wu.drawn], ['preview', 'Previewing', 'ready']);
+assert.deepEqual(wu.layers, ['wm_h2_11_c01', 'wm_bo_01_c01_r', 'wm_hs_11_c01', 'wm_es_01_01_c01', 'wm_mo_01_01_c01', 'wm_ey_01_01_c01',
+  'wm_no_01_c01', 'wm_eb_01_01_c01', 'wm_ac_08_c01_r', 'wm_h1_11_c01', 'wm_da_01_c01_r']);
+assert.ok((await b.ev('__read')).includes('data/avatar/wu/wm_data.csv'), 'the table read from the game files');
+assert.ok(await q(`R.querySelector('.wd-wu canvas').width >= 226`), 'drawn at the device pixels');
+assert.ok((await aligned('the Wardrobe, previewing')) > 40);
+// the worn uniform: the saved look, Wearing
+await b.ev(`document.querySelector('[data-id="uniform:slifer"]').click()`);
+wu = await bust();
+assert.deepEqual([wu.state, wu.text, wu.layers[8]], ['wearing', 'Wearing', 'wm_ac_01_c01_r']);
+const saved = wu.layers;
 // the spares: a plain ×3 in the row's text; the trade note only in the detail
 assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.nm').textContent`), 'Black Suit  ×3');
 await b.ev(`document.querySelector('[data-id="uniform:obelisk"]').click()`);
 assert.ok(await q(`${row('uniform:obelisk')}.hasAttribute('data-on') && !${row('uniform:obelisk')}.hasAttribute('data-off')`), 'selected: cyan even when locked');
 assert.match(await q(`R.querySelector('.wd-info').textContent`), /Reach Obelisk Blue in ranked Autoduel to unlock/);
-assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Lockedtrue');
+assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Equiptrue');
+wu = await bust();
+assert.deepEqual([wu.state, wu.text], ['locked', 'Locked']);
+assert.deepEqual(wu.layers, saved, 'a locked uniform: the bust unchanged');
 
 // a Domino outfit in the Academy: Equip disabled, the reason shown, the trade note
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
@@ -116,25 +149,40 @@ assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Black Suit');
 assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Rare outfit');
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), true);
 assert.match(await q(`R.querySelector('.wd-why').textContent`), /outside Duel Academy until you graduate/);
-assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3\. Trading spare copies is coming soon\./);
-assert.equal(await q(`R.querySelector('.wd-stage').dataset.rarity`), 'rare');
+assert.doesNotMatch(await q(`R.querySelector('.wd-info').textContent`), /Trading spare/, 'the reason takes the band: no spares line');
+assert.equal(await q(`R.querySelector('.wd-info .de-rf').dataset.rarity`), 'rare');
+wu = await bust();
+assert.deepEqual([wu.state, wu.text], ['cant', "Can't wear"]);
+assert.deepEqual(wu.layers, saved, 'refused here: the bust unchanged');
+await aligned('the Wardrobe, refused');
 // a female-only item: its notice
 await b.ev(`document.querySelector('[data-id="outfit:tea"]').click()`);
 assert.match(await q(`R.querySelector('.wd-why').textContent`), /female|male version/);
 assert.match(await q(`R.querySelector('.wd-info').textContent`), /Female body only for now/);
+assert.deepEqual((await bust()).layers, saved, 'the other body\'s item: the bust unchanged');
 
 // Domino City: the suit is wearable; equip it -> POST {id, world: 0}, the confirmation, the row now Wearing
 await b.ev(`document.querySelector('.wd-worlds [data-world="0"]').click()`);
 assert.equal(await q(`${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing');   // Domino wears Jaden's
+wu = await bust();   // the world switch: that world's look (Jaden's, Sunglasses, Alpha Gold); Téa's still selected: unchanged
+assert.deepEqual([wu.state, wu.layers.slice(8)], ['cant', ['wm_a2_01_c01', 'wm_ac_08_c01_r', 'wm_h1_11_c01', 'wm_dd_02_c02_r']]);
+const dominoLook = wu.layers;
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), false);
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3\. Trading spare copies is coming soon\./);
+wu = await bust();   // the try-on: the clothes layer, and only it, changes
+assert.deepEqual([wu.state, wu.text], ['preview', 'Previewing']);
+assert.deepEqual(wu.layers.map((n, i) => n === dominoLook[i] ? '' : dominoLook[i] + '>' + n).filter(Boolean), ['wm_ac_08_c01_r>wm_dc_03_c01_r']);
+await aligned('the Wardrobe, Domino City');
 await b.ev(`document.querySelector('.wd-equip').click()`);
 assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Equipping…');
 await until(`document.querySelector('.de-wd .wd-why[data-tone=ok]')`);
 assert.equal(await q(`R.querySelector('.wd-why').textContent`), 'Equipped in Domino City. Other players see your new look.');
 assert.deepEqual((await b.ev('__calls')).find(c => c[0].endsWith('/equip')), ['/cosmetics/equip', { id: 'outfit:black-suit', world: 0 }]);
 assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.wr').textContent + '|' + ${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing|');
-assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Wearing');
+assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Equiptrue');
+wu = await bust();   // after Equip: the new saved look
+assert.deepEqual([wu.state, wu.text, wu.layers[9]], ['wearing', 'Wearing', 'wm_dc_03_c01_r']);
 // the server refuses: its error text (api.js errorText) in the detail
 await b.ev(`__fail = { error: 'no-compatible-variant', status: 409, reason: 'world', worlds: [0] }; document.querySelector('[data-id="outfit:jaden"]').click()`);
 await b.ev(`document.querySelector('.wd-equip').click()`);
@@ -151,6 +199,11 @@ await b.ev(`document.querySelector('[data-tab="dueldisk"]').click()`);
 await until(`document.querySelector('.de-wd [data-id="dueldisk:3417"] .de-art')?.dataset.state === 'none'`);
 assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Battle City Alpha Gold');
 assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Ultra Rare duel disk');
+assert.equal((await bust()).state, 'wearing');   // worn in Domino City
+await b.ev(`document.querySelector('.wd-worlds [data-world="1"]').click()`);
+wu = await bust();   // the Academy: the disk tried on over the Academy disk
+assert.deepEqual([wu.state, wu.layers.at(-1)], ['preview', 'wm_dd_02_c02_r']);
+await aligned('the Wardrobe, a duel disk');
 // Esc closes, and a second open with focusId lands on that item's tab
 await b.ev(`document.querySelector('.de-wd').focus()`);
 await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });

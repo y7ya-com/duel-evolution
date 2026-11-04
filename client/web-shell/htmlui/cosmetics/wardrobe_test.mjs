@@ -3,7 +3,7 @@
 // tabs and counts, equipped per world, the body and world rules with their reasons, graduation, the rank uniforms,
 // spares, the empty state, the focus tab and a uniform's parts. Exit 1 on the first failure.
 import assert from 'node:assert/strict';
-import { wardrobeView, canWear, isEquipped, tileOf, tabOfId, uniformParts, graduationOf, uniformItem, SCHOOLS, EMPTY_HINT } from './wardrobe-model.js';
+import { wardrobeView, canWear, isEquipped, tileOf, tabOfId, uniformParts, graduationOf, uniformItem, SCHOOLS, EMPTY_HINT, previewOf, defaultLook } from './wardrobe-model.js';
 
 const v = (gender, number, worlds) => ({ gender, bit: (gender === 'female' ? 256 : 0) + number, number, worlds });
 const it = (id, kind, slot, rarity, variants, extra = {}) => {
@@ -102,4 +102,20 @@ assert.equal(w.tiles.find(t => t.id === 'outfit:black-suit').equipped, true);   
 assert.equal(w.tiles.find(t => t.id === 'outfit:tea').wearable, true);
 assert.equal(w.tiles.find(t => t.id === 'outfit:kaiba').wearable, false);
 assert.equal(wardrobeView(her, { tab: 'hair' }).tiles[0].equipped, true);       // female Afro 0x5
+// the bust's try-on (previewOf): the saved look with the item's own row put on; worn / refused / locked: unchanged
+const pv = (item, world) => previewOf(info, tileOf(item, info, world), world);
+assert.deepEqual(pv(jaden, 1), { parts: [...academy.slice(0, 6), 0x87, ...academy.slice(7)], saved: academy, state: 'preview' });
+assert.deepEqual(pv(suit, 0).state, 'wearing');
+assert.deepEqual([pv(suit, 1).state, pv(suit, 1).parts], ['cant', academy], 'a Domino outfit in the Academy: unchanged');
+assert.match(pv(suit, 1).reason, /until you graduate/);
+assert.deepEqual([pv(tea, 0).state, pv(tea, 0).parts], ['cant', domino], 'the other body\'s item: unchanged');
+assert.deepEqual(pv(gold, 1).parts[8], 0xb4);
+assert.deepEqual(pv(sun, 1).parts[9], 0x50);
+assert.deepEqual(pv(afro, 1).parts[1], 0xa, 'Afro: its first row (Afro I)');
+const obeliskT = tileOf(uniformItem(SCHOOLS[2]), info, 1), raT = tileOf(uniformItem(SCHOOLS[1]), info, 1);
+assert.deepEqual(previewOf(info, obeliskT, 1).state, 'cant');
+assert.deepEqual(previewOf(info, raT, 1).parts[6], 0x81);
+assert.deepEqual(previewOf(info, null, 0), { parts: domino, saved: domino, state: 'wearing' });
+// no saved look for a world yet: the default one of the body and world
+assert.deepEqual(previewOf({ ...info, appearance: { gender: 'female', world: 0, looks: {} } }, null, 1).parts, defaultLook('female', 1));
 console.log('wardrobe_test: ok');

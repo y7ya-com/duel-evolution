@@ -47,6 +47,10 @@ export const PIECES = {
   // the card get's glowing card frame (data/y/result/light.tif: 380 x 500, its window 30, 36, 320 x 428)
   glow: ['data/y/result/light.tif.png', 0, 0, 380, 500],
 };
+/** The pieces whose box is not their face: [top, right, bottom, left] of drop shadow inside the box, game px. The small
+ *  button's face is 110 x 30 of its 115 x 35 (a soft shadow right and below): its text and its place centre on the
+ *  face (cosmetics/align.js measures the face). */
+export const FACE = { 'sa-btn2': [0, 5, 5, 0] };
 /** Box id -> its category banner: Domino's avatar banner for outfits, the Academy's for the head, the cards' for disks. */
 export const BANNER = { outfit: 'bnOutfit', head: 'bnHead', dueldisk: 'bnDisk' };
 
@@ -174,8 +178,10 @@ ${state('.sa-pill:not([data-tone=go]):active:not(:disabled)', 'pillDown', F.pill
 .sa-pill[data-tone=go]:active:not(:disabled) { filter: brightness(.9); }
 .sa-pill:disabled { filter: grayscale(1) brightness(.9); color: #e4e8ea; }
 
-/* the confirm window's small buttons */
-${skin('.sa-btn2', 'btn2', [6, 8, 8, 6], F.btn2, `height: 35px; cursor: inherit; color: #000; text-align: center; font: ${px(16)}/33px ${FONT};`)}
+/* the confirm window's small buttons: the text centred on the face (the box less its shadow: FACE) */
+${skin('.sa-btn2', 'btn2', [6, 8, 8, 6], F.btn2, `height: 35px; cursor: inherit; color: #000; text-align: center; font: ${px(16)}/30px ${FONT};
+  padding: 0 5px 5px 0;`)}
+.sa-btn2 > span { display: block; line-height: 30px; }
 ${state('.sa-btn2:hover:not(:disabled)', 'btn2Hi', F.btn2)}
 ${state('.sa-btn2:active:not(:disabled)', 'btn2Down', F.btn2)}
 .sa-btn2:disabled { color: #808080; }

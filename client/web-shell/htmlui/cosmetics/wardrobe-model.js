@@ -138,3 +138,25 @@ export function uniformParts(info, item, world) {
   parts[6] = item.variants[0].number;
   return parts;
 }
+
+// CAvatarData::setDefault's look (Game/Avatar/yo2AvatarData.cpp; GX: the red uniform and the Academy disk): the bust
+// of a world with no saved look yet
+export const defaultLook = (body, world) => [body === 'female' ? 1 : 0, 0, 0x20, 0x30, 0x40, 0x60, world === 1 ? 0x80 : 0x70, 0x90,
+  world === 1 ? 0xb8 : 0xb0, 0x20, 0, 0, 0, 0, 0, 0];
+
+/** What the bust shows for tile `t` in `world`: { parts, state, saved }. state 'wearing' (the saved look: the item is
+ *  worn, or nothing is selected), 'preview' (the saved look with the item put on, as the server's cosmeticEquip would:
+ *  the body's variant for that world, parts[slot] = its number) or 'cant' (the saved look unchanged: the reason is
+ *  the tile's). saved: the world's saved look (the default one when the world has none yet). */
+export function previewOf(info, t, world) {
+  const body = bodyOf(info), saved = [...(lookOf(info, world) || defaultLook(body, world))];
+  if (!t || t.equipped) return { parts: saved, saved, state: 'wearing' };
+  if (t.locked || !t.wearable) return { parts: saved, saved, state: 'cant', reason: t.locked ? t.status : t.reason };
+  const item = t.item, graduated = item.slot === 6 && !!info?.rank?.graduated;
+  const v = item.uniform ? item.variants[0]
+    : (item.variants || []).find(x => x.gender === body && (graduated || (x.worlds || []).includes(world)));
+  if (!v) return { parts: saved, saved, state: 'cant', reason: t.reason };
+  const parts = [...saved];
+  parts[item.slot] = v.number;
+  return { parts, saved, state: 'preview' };
+}
