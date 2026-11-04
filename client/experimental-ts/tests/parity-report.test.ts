@@ -66,10 +66,12 @@ it('reports explicit unverified acceptance gaps and actual observed reducer opco
   for (const flow of acceptanceInventory) { expect(flow.acceptance.length).toBeGreaterThan(15); if (flow.status === 'verified') expect(flow.evidence.length).toBeGreaterThan(0); }
   // Every verified flow names a browser acceptance test that exists and records that flow.
   for (const flow of acceptanceInventory.filter(f => f.status === 'verified')) {
-    const e = acceptanceEvidence(flow.id)!, file = e.test.split(' > ')[0]!;
-    expect(existsSync(resolve(import.meta.dirname, '..', file)), `${flow.id}: ${file}`).toBe(true);
-    expect(readFileSync(resolve(import.meta.dirname, '..', file), 'utf8'), `${flow.id} is recorded by ${file}`).toContain(`'${flow.id}'`);
-    expect(e.observed.length, flow.id).toBeGreaterThan(10);
+    for (const e of acceptanceEvidence(flow.id)) {
+      const file = e.test.split(' > ')[0]!;
+      expect(existsSync(resolve(import.meta.dirname, '..', file)), `${flow.id}: ${file}`).toBe(true);
+      expect(readFileSync(resolve(import.meta.dirname, '..', file), 'utf8'), `${flow.id} is recorded by ${file}`).toContain(`'${flow.id}'`);
+      expect(e.observed.length, flow.id).toBeGreaterThan(10);
+    }
   }
   const synthetic = syntheticEvidence(); expect(synthetic.deterministic).toBe(true); expect(synthetic.supported).toBe(12);
   const gaps = acceptanceGaps(); const fixtureProbe = privateFixtureProbe();

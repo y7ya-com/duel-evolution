@@ -91,10 +91,13 @@ const rows: [string, string, string, string][] = [
 ];
 /** Browser evidence from tests/acceptance/ against the real local stack, collected by tools/acceptance-evidence.mjs. */
 export interface AcceptanceEvidence { at: string; commit: string; test: string; actions: string; expected: string; observed: string; accounts?: string }
-const evidenceFor = (id: string): AcceptanceEvidence | undefined => (verified as Record<string, AcceptanceEvidence>)[id];
+const evidenceFor = (id: string): AcceptanceEvidence[] => {
+  const value = (verified as Record<string, AcceptanceEvidence | AcceptanceEvidence[]>)[id];
+  return value === undefined ? [] : Array.isArray(value) ? value : [value];
+};
 export const acceptanceInventory: readonly AcceptanceFlow[] = rows.map(([id, area, flow, acceptance]) => {
-  const e = evidenceFor(id);
-  return { id, area, flow, acceptance, status: e ? 'verified' : 'unverified', evidence: e ? [`${e.at} @${e.commit} ${e.test}: ${e.observed}`] : [] };
+  const entries = evidenceFor(id);
+  return { id, area, flow, acceptance, status: entries.length ? 'verified' : 'unverified', evidence: entries.map(e => `${e.at} @${e.commit} ${e.test}: ${e.observed}`) };
 });
-export const acceptanceEvidence = (id: string): AcceptanceEvidence | undefined => evidenceFor(id);
+export const acceptanceEvidence = (id: string): AcceptanceEvidence[] => evidenceFor(id);
 export function acceptanceGaps(): AcceptanceFlow[] { return acceptanceInventory.filter(flow => flow.status !== 'verified' || flow.evidence.length === 0); }

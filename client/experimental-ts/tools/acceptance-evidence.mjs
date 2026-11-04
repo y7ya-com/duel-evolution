@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Collects browser acceptance evidence (acceptance-evidence/runs.jsonl from tests/acceptance/, and any further
-// JSONL files given as arguments) into acceptance-evidence/verified.json: the newest observation per flow, keeping
-// the test that produced it. Only flows of src/parity/acceptance.ts are kept. The committed file is what the parity
+// JSONL files given as arguments) into acceptance-evidence/verified.json: for each flow, the newest observation of each
+// test that covers it. Only flows of src/parity/acceptance.ts are kept. The committed file is what the parity
 // gate reads; runs.jsonl itself stays local.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -16,8 +16,11 @@ for (const source of sources) for (const line of readFileSync(source, 'utf8').sp
   if (!line.trim()) continue;
   const row = JSON.parse(line); read++;
   if (!ids.has(row.flow) || !row.observed || !row.test || !row.test.startsWith('tests/acceptance/')) continue;
-  const previous = verified[row.flow];
-  if (!previous || previous.at < row.at) verified[row.flow] = { at: row.at, commit: row.commit, test: row.test, actions: row.actions, expected: row.expected, observed: row.observed, ...(row.accounts ? { accounts: row.accounts } : {}) };
+  // One entry per flow and test (several tests can cover one flow, e.g. a general duel and a scenario duel): the newest.
+  const entries = (verified[row.flow] = Array.isArray(verified[row.flow]) ? verified[row.flow] : verified[row.flow] ? [verified[row.flow]] : []);
+  const at = entries.findIndex(e => e.test === row.test);
+  const entry = { at: row.at, commit: row.commit, test: row.test, actions: row.actions, expected: row.expected, observed: row.observed, ...(row.accounts ? { accounts: row.accounts } : {}) };
+  if (at < 0) entries.push(entry); else if (entries[at].at < row.at) entries[at] = entry;
 }
 const sorted = Object.fromEntries(Object.entries(verified).sort(([a], [b]) => a.localeCompare(b)));
 writeFileSync(target, JSON.stringify(sorted, null, 1) + '\n');
