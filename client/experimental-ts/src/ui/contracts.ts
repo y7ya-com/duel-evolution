@@ -69,7 +69,8 @@ export interface DuelView {
   notice?: { id: number; text: string };
   spectators?: number;
   spectating?: boolean;
-  timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number };
+  /** `at`: when `seconds` was current (ms); the clock runs down from there unless paused. */
+  timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number; at?: number };
   ended?: string;
   waiting?: string;
   /** Only server-issued commands are offered. */

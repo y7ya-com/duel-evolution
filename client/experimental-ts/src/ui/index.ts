@@ -81,6 +81,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
   let sideboardClock: ReturnType<typeof setInterval> | null = null;
+  // The turn clock runs down between the server's readings; only its text changes each second.
+  let duelClock: ReturnType<typeof setInterval> | null = null, duelClockNode: HTMLElement | null = null;
+  const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
@@ -171,7 +174,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
     if (previous.scene !== 'duel' || next.scene !== 'duel' || !a || !b || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.npc !== next.npc || previous.npcCardViews !== next.npcCardViews || previous.packNames !== next.packNames || previous.socialDetail !== next.socialDetail || previous.social !== next.social) return false;
-    if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.cards.length !== b.cards.length) return false;
+    if (a.prompt !== b.prompt || a.actions !== b.actions || a.log !== b.log || a.turn !== b.turn || a.phase !== b.phase || a.turnPlayer !== b.turnPlayer || a.ended !== b.ended || a.waiting !== b.waiting || a.spectating !== b.spectating || a.timer !== b.timer || a.notice !== b.notice || a.cards.length !== b.cards.length) return false;
     if (a.players.some((p, i) => p.name !== b.players[i].name || p.turnCounters !== b.players[i].turnCounters)) return false;
     return a.cards.every((c, i) => { const n = b.cards[i]; return c.id === n.id && c.passcode === n.passcode && c.name === n.name && c.description === n.description && c.image === n.image && c.controller === n.controller && c.zone === n.zone && c.index === n.index && c.faceUp === n.faceUp && c.position === n.position && c.attack === n.attack && c.defense === n.defense && c.counters === n.counters && c.turnCounter === n.turnCounter; });
   };
@@ -612,13 +615,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const [half, top] of [[1, 50], [0, 282]] as const) { const frames = el('div', 'de-duel-frames'); frames.style.top = `${top / 768 * 100}%`; const sheet = archive(FIELD_SHEET); sheet.style.top = half ? '-100%' : '0'; frames.append(sheet); board.append(frames); }
     }
     const hud = el('div', 'de-duel-hud');
+    duelClockNode = null;
     const match = state.match ? `Match ${state.match.round} · ${state.match.scores[0]}–${state.match.scores[1]}${state.match.scores[2] ? ` · ${state.match.scores[2]} drawn` : ''}` : '';
-    const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? `${duel.timer.paused ? 'Paused · ' : ''}${Math.floor(Math.max(0, duel.timer.seconds) / 60)}:${String(Math.max(0, duel.timer.seconds) % 60).padStart(2, '0')}` : '';
+    const clock = (index: 0 | 1) => duel.timer && duel.timer.player === index ? clockText(duel.timer) : '';
     const duelist = (index: 0 | 1) => {
       const player = duel.players[index], lp = el('strong', 'de-lp-value', player.lp.toLocaleString()), bar = el('span', 'de-lp-fill'); bar.style.width = lpWidth(player.lp); lpNodes[index] = lp; lpBars[index] = bar;
       const panel = el('div', `de-duelist${duel.turnPlayer === index ? ' active' : ''}`, el('div', 'de-duelist-name', player.name), el('div', 'de-lp', el('span', 'de-lp-label', 'LP'), el('span', 'de-lp-bar', bar), lp));
       panel.setAttribute('aria-label', `${player.name}: ${player.lp} life points${duel.turnPlayer === index ? ', their turn' : ''}`);
-      if (clock(index)) panel.append(el('div', 'de-duel-clock', `Time ${clock(index)}`));
+      if (clock(index)) { const node = el('div', 'de-duel-clock', `Time ${clock(index)}`); panel.append(node); duelClockNode = node; }
       if (index === 0 && match) panel.append(el('div', 'de-duel-clock', match));
       for (const counter of (player.turnCounters ?? []).filter(c => c.turns > 0)) panel.append(note(`${counter.name}: ${counter.turns} turns`));
       return panel;
@@ -694,8 +698,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     if (duel.ended) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
-      const kind = duel.ended === 'Victory' ? 'win' : duel.ended === 'Defeat' ? 'lose' : duel.ended === 'Draw' ? 'drow' : null;
-      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', duel.ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', duel.ended);
+      // A spectator is neither side: the banner names the winner instead of Victory/Defeat.
+      const ended = duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended;
+      const kind = ended === 'Victory' ? 'win' : ended === 'Defeat' ? 'lose' : ended === 'Draw' ? 'drow' : null;
+      const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', ended);
       if (kind && controller.loadArchiveImage) for (const layer of ['m02', 'm01']) {
         const image = el('img', `de-duel-end-${layer}`); image.alt = ''; image.style.visibility = 'hidden';
         image.onload = () => { image.style.visibility = ''; banner.classList.add('has-art'); }; loadArchiveArt(`data/y/duel_end/duel_ef_${kind}_${layer}_e.png`, image); banner.append(image);
@@ -831,6 +837,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       state = controller.getState();
       if (state.scene !== 'lobby') { worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
+      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; }, 1000); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
       if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
@@ -907,5 +914,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, dispose() { if (disposed) return; disposed = true; host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } unsubscribe(); browserDisplay.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

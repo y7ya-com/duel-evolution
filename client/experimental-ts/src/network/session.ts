@@ -734,7 +734,8 @@ export class GameSession {
       this.state.match = { ...this.state.match, sideboardDeadline:paused ? null : Date.now() + Math.max(0,seconds) * 1000 };
     } else if (channel === this.lobby && id === 0x4800 && this.state.match) {
       this.state.match = { ...this.state.match,stage:'complete',complete:true,sideboardDeadline:null };
-    } else if (id === 0x649b && data[0] === 1) this.state.error = 'The server rejected this deck or duel action';
+    } else if (id === 0x649b && data[0] === 1 && this.state.phase !== 'duel') this.state.error = 'The server rejected this deck or duel action';
+    // During the duel code 1 is a cut connection; the duel screen shows it (duel/server-info.ts).
     else return; // Duel packets are emitted by the duel model; avoid a redundant session render for each command.
     this.emit();
   }

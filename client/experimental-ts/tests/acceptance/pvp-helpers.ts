@@ -84,7 +84,6 @@ export async function settled(a:Page,b:Page):Promise<[DuelReading,DuelReading]> 
   }
   return last;
 }
-const dump = `(()=>{const x=window.__deApp;if(!x)return 'no debug handle';const d=x.duelState,p=d?.prompt;return JSON.stringify({accepting:d?.acceptingInput,inputKind:d?.inputKind,submitted:x.submittedPrompt,status:d?.status,prompt:p&&{id:p.id,kind:p.kind,buttons:p.buttons,actions:p.actions?.map(a=>a.label+':'+a.zone+':'+a.index),dialogKind:p.dialogKind},buttons:d?.buttons,turn:d?.turn,phase:d?.phase})})()`;
 /** A field selection (a tribute or a target: the cards themselves are the choices, as in the original) is answered by
  * opening each field card's details and pressing its Select action. True if one was chosen. */
 export async function selectOnField(page:Page):Promise<boolean> {
@@ -113,7 +112,7 @@ export async function playBoth(a:Page,b:Page,options:{ stop?:(turn:number) => bo
     const turn = Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`) as string)?.[1] ?? 0);
     const bar = `${await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??''`)}|${await a.ev(`document.querySelectorAll('.de-duel-log div').length`)}`;
     if (bar !== lastBar) { lastBar = bar; moved = Date.now(); }
-    else if (Date.now() - moved > 90000) throw new Error(`The duel made no progress for 90 s at ${bar}\n--- models ---\n${await a.ev(dump)}\n${await b.ev(dump)}\n--- A ---\n${String(await a.ev('document.body.innerText')).slice(-1500)}\n--- B ---\n${String(await b.ev('document.body.innerText')).slice(-1500)}`);
+    else if (Date.now() - moved > 90000) throw new Error(`The duel made no progress for 90 s at ${bar}\n--- A ---\n${String(await a.ev('document.body.innerText')).slice(-1500)}\n--- B ---\n${String(await b.ev('document.body.innerText')).slice(-1500)}`);
     if (turn > checked && x !== 'finished' && y !== 'finished') {
       checked = turn;
       const pair = await settled(a,b);
