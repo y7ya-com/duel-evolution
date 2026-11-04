@@ -12,7 +12,9 @@
     "smoke": "node tools/browser-smoke.mjs",
     "test:parity-infrastructure": "node tools/parity.mjs --test",
     "world": "node tools/world.mjs",
-    "texts": "node tools/duel-texts.mjs"
+    "texts": "node tools/duel-texts.mjs",
+    "pretest": "npm run build",
+    "presmoke": "npm run build"
   },
   "devDependencies": {
     "@types/node": "20.19.43",

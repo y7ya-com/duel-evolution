@@ -19,7 +19,7 @@ The helper reuses the repository's installed Vitest through `tools/run.mjs` (inc
 
 ## Record and replay contract
 
-`WireRecorder` accepts the network module's raw `WireMessage` shape. Capture is opt-in and in memory; application wiring is left to the parent owner. Use a monotonically allocated capture channel id, call `open(id, 'duel')` before subscribing to that channel, then `message(id, 'in', message)` in receive order and `close(id)` at final channel closure. A tunnel resume continues the same logical channel; a new channel needs a fresh capture id. A capture must start before duel initialization; a mid-duel trace alone does not reconstruct its prior state. Recording does not send responses or change the network lifecycle.
+`WireRecorder` accepts the network module's raw `WireMessage` shape. Capture is opt-in and in memory; the application already wires the higher-level `LiveCapture` at incoming/outgoing channel boundaries, with opt-in Start/Stop/Download controls in Options (see `src/parity/LIVE.md`). The following low-level example describes infrastructure, not missing application wiring. Use a monotonically allocated capture channel id, call `open(id, 'duel')` before subscribing to that channel, then `message(id, 'in', message)` in receive order and `close(id)` at final channel closure. A tunnel resume continues the same logical channel; a new channel needs a fresh capture id. A capture must start before duel initialization; a mid-duel trace alone does not reconstruct its prior state. Recording does not send responses or change the network lifecycle.
 
 ```ts
 import { WireRecorder, compareReplay } from './parity/replay';
@@ -149,4 +149,8 @@ Strict TypeScript initially passed, and a final strict compile restricted to the
 
 The parity gate intentionally fails with **0/81 verified acceptance flows**. No live browser acceptance session, real new-client wire capture, multiplayer end-to-end run, response oracle, UI/audio comparison or complete server engine/brain/reference parity sweep was performed.
 
-Next integration work: attach the recorder at the parent-owned channel boundary; acquire sanitized current-wire traces from complete NPC, PvP, tag and spectate sessions; add independent expected state/response assertions; perform the listed browser acceptance flows; record evidence without promoting rows merely because infrastructure checks pass.
+Historical next steps from the focused parity task (recorder integration has since landed): acquire sanitized current-wire traces from complete NPC, PvP, tag and spectate sessions; add independent expected state/response assertions; perform the listed browser acceptance flows; record evidence without promoting rows merely because infrastructure checks pass.
+
+## Current checkpoint clarification
+
+The validation narrative above records the earlier focused parity-task snapshot. Parent integration subsequently fixed the reported type/gateway failures, wired safe live recording and downloads, and passed 564 tests plus typecheck/build. Desktop mouse and mobile touch NPC51 runs download captures that replay to the same natural loss. The complete 81-flow gate still fails; these scoped results do not establish all gameplay or presentation parity. Recorded-duel corpus checks state and response representability; byte equality is checked for action/phase packets, not every selection/answer/announcement/cancellation packet. See STATUS.md for the current evidence and limitations.

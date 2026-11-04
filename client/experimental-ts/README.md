@@ -27,15 +27,17 @@ For original card images, add `?assets=/game-assets/`. The development server re
 
 ```sh
 npm run typecheck
-npm test
 npm run build
+npm test
 npm run smoke
 npm run parity
 ```
 
+`npm test` and `npm run smoke` rebuild first through their npm prerequisites, preventing browser checks from silently exercising stale `dist/` output. Direct Vitest/browser-tool invocations require an explicit current build.
+
 Tests that use the actual server/OCGcore and recorded private fixtures require the generated game data. A visible skip is not a pass for that behavior. The standalone asset/resource tests use synthetic files. `smoke` uses installed cached Chromium through the repository CDP helper, explicitly fixture-backed HTTP, and checks desktop/mobile bootstrap and Options; it is not a production-authentication or gameplay-parity test.
 
-The current recorded-duel tests regenerate v2 output from existing reference recordings and compare the new client model's board, piles, LP, identity/ownership/location, face/position and successful semantic response bytes. The latest full run exercised 72 recordings, 24,802 state boundaries, 66,966 packets and 5,235 successful decisions. This is scoped evidence, not a claim that every card or original-client behavior is covered.
+The current recorded-duel tests regenerate v2 output from existing reference recordings and compare the new client model's board, piles, LP, identity/ownership/location, face/position, and check that successful recorded choices are representable by the semantic encoder. Corpus byte equality covers action/phase packets only; selection, answer, announcement and cancellation categories have focused roundtrip tests, not complete recorded-response equivalence. The latest full run exercised 72 recordings, 24,802 state boundaries, 66,966 packets and 5,235 successful decisions. This is scoped evidence, not a claim that every card or original-client behavior is covered.
 
 ## Design and resource ownership
 
