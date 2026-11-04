@@ -11,6 +11,7 @@ import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
 import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
+import { ApiError } from './services/http';
 import { SocialController } from './features/social';
 import { OnlineController } from './features/online';
 import type { GameplayCommand } from './gameplay/binary';
@@ -285,6 +286,8 @@ export class ClientApp implements ClientController {
   }
   private failure(e: unknown): void {
     if (this.disposed || e instanceof DOMException && e.name === 'AbortError') return;
+    // A 401 means the browser's sign-in ended (signed out elsewhere, expired cookie), not a broken action.
+    if (e instanceof ApiError && e.status === 401) { this.patch({ error: 'Your sign-in has ended. Reload the page and sign in again to continue.', status: 'Signed out.' }); return; }
     this.patch({ error: e instanceof Error ? e.message : String(e), status: 'The action could not be completed.' });
   }
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }

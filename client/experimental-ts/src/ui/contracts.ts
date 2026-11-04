@@ -73,6 +73,8 @@ export interface DuelView {
   timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number };
   ended?: string;
   waiting?: string;
+  /** The latest duel packet the client rejected whole (the board keeps its last good state). */
+  issue?: string;
   /** Only server-issued commands are offered. */
   actions?: DuelOption[];
   effects?: { type: 'attack' | 'chain' | 'damage' | 'recover' | 'flash'; player: 0 | 1; progress: number; cardId?: string; value?: number }[];

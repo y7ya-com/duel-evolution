@@ -216,7 +216,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (['duelRespond', 'duelAction', 'surrender'].includes(command.type) && controller.getState().relay?.canAct === false) { local.message = 'Your tag partner is playing this turn.'; requestRender(); return; }
     try {
       const result = controller.dispatch(command);
-      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
+      // An aborted command belongs to a session or screen the player already left: nothing to report.
+      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed && !(e instanceof DOMException && e.name === 'AbortError')) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
     } catch (e) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); }
   };
   const available = (scene: Scene) => !state.unavailable?.[scene];
@@ -543,7 +544,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     panel.append(button(side.ready ? 'Deck Submitted · Waiting for Opponent' : 'Submit Sideboard', () => send({ type: 'submitSideboard' }), !exact || side.ready || !!state.busy, true)); n.append(panel);
   }
   function renderShop(): void {
-    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', 'Loading the shop catalogue.');
+    const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', state.error && !state.busy ? 'The shop catalogue could not be loaded. Refresh to try again.' : 'Loading the shop catalogue.');
     const n = sceneRoot('Card Shop'), panel = el('section', 'de-panel de-stack de-fill', title('Card Shop'));
     const categories = ['all', ...new Set(shop.items.map(i => i.category ?? 'items'))], select = el('select'); select.setAttribute('aria-label', 'Shop department'); select.dataset.key = 'shop-category';
     for (const category of categories) { const o = el('option', '', category === 'all' ? 'All departments' : category); o.value = category; select.append(o); }
@@ -691,6 +692,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.append(banner);
     }
     else if (duel.waiting) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
+    if (duel.issue && (duel.prompt || duel.ended)) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
   function respondToPrompt(promptId: string, response: DuelResponse): void {
     const currentState = controller.getState(), current = currentState.duel?.prompt;
@@ -856,7 +858,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.mode === 'free') { const shop = scenes.findIndex(([scene]) => scene === 'shop'); if (shop >= 0) scenes.splice(shop, 1); }
       if (state.duel || state.sideboarding) scenes.splice(1, 0, ['duel', 'Duel']);
       for (const [scene, label] of scenes) { const b = button(label, () => open(scene), !!state.busy || (!!state.sideboarding && !['duel', 'settings'].includes(scene)) || (scene === 'characters' && state.connection !== 'online')); if (scene === state.scene) b.setAttribute('aria-current', 'page'); nav.append(b); }
-      if (state.connection === 'online') nav.append(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }, !!state.busy));
+      // Disconnect stays available while busy: it is how a player abandons a request that never answers.
+      if (state.connection === 'online') nav.append(button('Disconnect', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); }));
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
         if (!control.dataset.key && !secretField(control)) control.dataset.key = `focus:${tag}:${i}:${control.getAttribute('aria-label') ?? control.textContent?.slice(0, 80) ?? ''}`;
