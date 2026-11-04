@@ -201,6 +201,17 @@ for (const feature of ["cosmetics", "shop", "chat"]) {
   routes.on(["GET", "POST"], `/api/de/${feature}/*`, gameFeature);
 }
 
+// Tag Duel team picker and invitation responses: identity is always the signed-in account's current character.
+const tags = async (c: Context<E>) => {
+  if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/tag" + new URL(c.req.url).pathname.slice("/api/de/tag".length), fwd);
+};
+routes.on(["GET", "POST"], "/api/de/tag", tags);
+routes.on(["GET", "POST"], "/api/de/tag/*", tags);
 routes.get("/api/de/wallet", async (c) => {
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
   if (!v) return c.json({ error: "signed out" }, 401);

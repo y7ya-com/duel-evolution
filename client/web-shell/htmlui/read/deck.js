@@ -3,6 +3,7 @@
 // from the controls' raw parts (screens/deck.js sets parts: true); this adds the state the HTML needs to know what
 // it shows (cards, counts, view, drag) and the true rects of windows that lay out outside their nominal one.
 import { APP } from '../read.js';
+import { rarityForInternalId, subscribeRarities } from '../card-rarity.js';
 
 // The card database for the modern deck editor (globalThis.yo2Deck), read from the exe's own tables, never a data file
 // in git. The yaneSDK CFile globals (src/duel/CardDB.cpp, DuelText.cpp: data at +0x18, a 4-byte header skipped when
@@ -39,6 +40,7 @@ function cardDb({ u8, u32, i32 }) {
       for (let i = 0, n = Math.min(u32(NLIMIT), 0x1000); i < n; i++) if (u32(LIMITS + 12 * i) === id) { limit = u8(LIMITS + 12 * i + 8); break; }
       c = { id, kid: w0 & 0x3fff, name: text(NAME, id), atk: stat((w0 >>> 14) & 0x1ff), def: stat(w0 >>> 23), kind: (w1 >>> 1) & 0x1f,
         attr: (w1 >>> 6) & 0xf, level: (w1 >>> 10) & 0xf, icon: (w1 >>> 14) & 7, race: (w1 >>> 17) & 0x1f, limit };
+      Object.defineProperty(c, 'rarity', { enumerable: true, get: () => rarityForInternalId(id) });
       cache.set(id, c);
       return c;
     },
@@ -63,11 +65,12 @@ function cardDb({ u8, u32, i32 }) {
     },
   };
   globalThis.yo2Deck = out;
+  subscribeRarities(() => out.v++);
   return out;
 }
 
 export default h => {
-  const { u8, u32, i32, f32, ptr, vec, str, generic, label, children, cls, name, spr, swf } = h;
+  const { u8, u32, i32, f32, ptr, vec, str, wstr, generic, label, children, cls, name, spr, swf } = h;
   const cards = (a, at) => vec(a, 4).map(p => u32(u32(p) + at));   // a vector<Card*> -> the cards' ids
   // the card table (*(0x12a1140 + 0x18): 8 bytes a card by its id, the exe's bit fields, KabanWindowList.h card::): a
   // monster's attribute ((w1 >> 6) & 0xf) is < 8 (FUN_007177f0). Live: Mystic Tomato 2, a spell 8, a trap 9
@@ -117,6 +120,23 @@ export default h => {
       CWindowTaskKabanScroll: c => ({ ...generic(c), maxTop: i32(c + 0x4c8), total: i32(c + 0x4d0) }),
     },
     windows: {
+      // yo2ResultWindow.cpp CWindowResult::Layout, +3e4 wins, +3e8 losses, +3ec score.
+      // SceneDialogs.h: the summon menu's CCard pointer +4a0, CCard::cardId +10.
+      CUSummonDialogSp: w => {
+        const c = u32(w + 0x4a0), scale = c ? i32(c + 0x44) / 65536 : 1;
+        return { commandPointer: c, commandCard: c ? i32(c + 0x10) : 0, commandPoint: c ? { x: i32(c + 0x38), y: i32(c + 0x3c), w: 50 * scale, h: 72 * scale } : null };
+      },
+      // SceneDeckList.h: five smart_ptr<CCard> slots, native horizontal scroll and pile kind.
+      CWindowDeckList: w => {
+        const bar = ptr(w + 0x418);
+        return { pile: { kind: i32(w + 0x438), count: i32(w + 0x4e4), title: wstr(w + 0x4ec),
+          offset: bar ? generic(bar).value || 0 : 0, bar,
+          cards: Array.from({ length: 5 }, (_, i) => u32(w + 0x478 + i * 16 + 4)).filter(Boolean).map(c => ({
+            id: i32(c + 0x10), x: i32(c + 0x38), y: i32(c + 0x3c), faceUp: i32(c + 0x48) > 0,
+          })) } };
+      },
+      CWindowResultNpc: w => ({ resultName: str(w + 0x410), resultStats: { wins: i32(w + 0x420), losses: i32(w + 0x424), draws: i32(w + 0x428) } }),
+      CWindowResult: w => ({ resultStats: { wins: i32(w + 0x3e4), losses: i32(w + 0x3e8), score: i32(w + 0x3ec) } }),
       // both panels sit in a (0, 0) 336 x 144 window and lay out in screen pixels (their posX/posY stay 0): the true
       // rect runs from the header bar (DeckBar x/y/width 0x494..0x49c, DeckParts.h:157-158) down to the bottom frame
       // (FrameThin rect 0x3c8): the deck's side frame (CWindowTaskDeck 0x384[1], DeckWindow.h:356), the trunk's

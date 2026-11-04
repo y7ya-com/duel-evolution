@@ -10,6 +10,7 @@ import * as PP from "../src/game/persist.ts";
 import { makeDf, WHY_LP } from "../src/duel/duelfin.ts";
 import { DUEL_GRACE, type Matches, type PvpMatch } from "../src/duel/pvpMatch.ts";
 import { type PvpSession } from "../src/duel/ocgSession.ts";
+import { tagChat, type TagRelayMatch } from "../src/duel/tagRelay.ts";
 import { X } from "../src/duel/port.ts";
 import { WorldDO } from "../src/do.ts";
 import type { Env } from "../src/env.ts";
@@ -133,6 +134,26 @@ describe("planned deployments do not decide duels", () => {
       expect(hasResult(p.messages.duel)).toBe(false);
       expect(p.messages.lobby.some(([id]) => id === 0x4140 || id === 0x4800)).toBe(false);
     }
+  });
+
+  it("removes all four tag players when a deployment interrupts a relay", async () => {
+    const f = setup(4), [a, b, c, d] = f.players;
+    const chat = (p: typeof a, text: string) => f.g.withCtx(p.s, () => tagChat(f.g, p.s, p.lobby, new TextEncoder().encode(text)));
+    expect(chat(a, `/tag invite ${c.s.name}, ${b.s.name}, ${d.s.name}`)).toBe(true);
+    for (const p of [b, c, d]) chat(p, `/tag accept ${a.s.name}`);
+    const m = f.g.pvp!.byPid(a.s.pid!) as TagRelayMatch;
+    expect(m).toBeTruthy();
+    for (const p of f.players) m.attach(p.duel);
+    m.ps = engine() as unknown as PvpSession;
+    const finish = vi.spyOn(m, "finish"), baseline = f.profiles();
+    f.g.duel!.prepareRestart();
+    for (const p of f.players) m.onClose(p.duel);
+    await f.settle();
+    expect(m.done).toBe(true);
+    expect(f.players.every(p => f.g.pvp!.byPid(p.s.pid!) === null)).toBe(true);
+    expect(finish).not.toHaveBeenCalled();
+    expect(f.profiles()).toEqual(baseline);
+    expect(f.players.every(p => !hasResult(p.messages.duel))).toBe(true);
   });
 
   it("an ordinary NPC disconnect still records the loss", () => {

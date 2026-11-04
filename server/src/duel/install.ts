@@ -7,11 +7,14 @@ import type { Services } from "../world.ts";
 import { DuelPort } from "./port.ts";
 import { Matches, type PvpMatch } from "./pvpMatch.ts";
 import { NpcWatch } from "./npcWatch.ts";
+import { installTagRelays } from "./tagRelay.ts";
 
 export function installDuel(g: Game): DuelPort {
   const c = g.cfg;
   const port = (g.duel = new DuelPort(g, { pause: c.duelPause, test: c.pvpTest, reserva: c.duelReserva, deckCheck: c.deckCheck ?? (c.progression ? "bloquear" : null) }));
-  g.pvp = new Matches(g, c.duelPause, c.pvpTest);
+  const matches = new Matches(g, c.duelPause, c.pvpTest);
+  g.pvp = matches;
+  installTagRelays(g, matches);
   g.nw = new NpcWatch(g, c.duelPause);
   g.duelBegin = (cc, rival, mode) => port.duelBegin(cc, rival, mode);
   /** py torneos._hook_match: wraps _finish (each client's result) and _close_match (end) of ONE match. */

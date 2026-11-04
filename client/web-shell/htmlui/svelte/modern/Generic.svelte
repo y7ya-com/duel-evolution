@@ -19,6 +19,8 @@
   const prompt = $derived(duelPrompt(win));
   // a duel command menu (Summon / Set ...): its options as buttons (DuelCmd)
   const cmd = $derived(duelCmd(win));
+  let selectedCard = $state(globalThis.__yo2ModernCardSelection || 0);
+  $effect(() => { const select = e => { selectedCard = e.detail; }; addEventListener('yo2-card-actions', select); return () => removeEventListener('yo2-card-actions', select); });
   // a duel window: compact and translucent, no scrim (owner: "too opaque and loud, it blocks the duel field")
   const duel = $derived(/^CU/.test(win.cls));
   // everything drawn here with the engine's pictures cut out (evenodd: the window's box and a margin for the plate's
@@ -45,6 +47,7 @@
     const id = wid;
     openGeneric.add(id);
     const key = e => {
+      if (e.target?.closest?.('.yo2-tag-lobby')) return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.key !== 'Escape' && e.key !== 'Enter')) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || e.target?.isContentEditable) return;
       const snap = globalThis.yo2Html?.snapshot?.();
@@ -70,7 +73,9 @@
 {#if prompt}
 <div class="mu"><DuelPrompt p={prompt} {win} /></div>
 {:else if cmd}
+{#if selectedCard && selectedCard === win.commandPointer}
 <div class="mu"><DuelCmd m={cmd} {win} api={view.api} /></div>
+{/if}
 {:else}
 {#if win.modal && !duel}<div class="scrim" aria-hidden="true" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={scrimCut} style:opacity={win.alpha ?? 1}></div>{/if}
 <div class="mu" class:duel aria-hidden="true" style:opacity={win.alpha ?? 1} style:clip-path={cut}>
@@ -120,11 +125,11 @@
 <style>
   .mu > * { position: absolute; }
   /* duel windows see-through, so the field stays in view */
-  .duel :global(.mu-plate::after) { background: rgba(244, 248, 253, .8); backdrop-filter: blur(6px); }
+  .duel :global(.mu-plate::after) { background: linear-gradient(180deg,rgba(221,249,255,.96),rgba(152,220,248,.94)); }
   .scrim { position: absolute; width: 1024px; height: 768px; background: rgba(10, 50, 120, .22); pointer-events: none; }
   .plate { overflow: hidden; }
-  .band { position: absolute; left: 0; right: 0; top: 0; }
-  .well { border-radius: 6px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
+  .band { position: absolute; left: 0; right: 0; top: 0; min-height: 0; }
+  .well { border-radius: 2px; background: var(--well); box-shadow: inset 0 2px 3px rgba(10, 35, 80, .18), inset 0 0 0 1px #8ea2bf, 0 1px 0 rgba(255, 255, 255, .8); }
   .text { color: var(--ink); white-space: pre-wrap; word-break: break-word; overflow: hidden; }
   .text.heading { font-weight: 700; color: var(--ink-strong); }
   .text.inwell { padding: 8px 12px; }
@@ -132,7 +137,7 @@
   .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gbtn.on { color: #fff; background: var(--sel); box-shadow: 0 0 0 1px var(--p700); }
   .check { display: flex; align-items: center; }
-  .box { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; background: #fff;
+  .box { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 2px; background: #effbff;
     box-shadow: inset 0 1px 2px rgba(11, 42, 92, .15), 0 0 0 1px var(--btn-edge); color: #fff; }
   .check.on .box { background: var(--sel); box-shadow: 0 0 0 1px var(--p700); }
   .box :global(.mu-ico) { transform: rotate(90deg); }

@@ -91,6 +91,15 @@ Duels need the engine data in the (local) R2 bucket:
 `npx wrangler r2 object put ygo-original/duel-evolution/engine/<file> --file gamedata/engine/<file> --local` for
 `cards.json`, `strings.json` and `scripts.pack`.
 
+### Run the published browser client against the local server
+
+After the server setup and local R2 engine data above, run `cd server && pnpm dev:client`
+and open http://localhost:8787/. The gateway starts the local Worker on port 8788 and
+fetches the published client and game assets read-only from `original.ygoevolution.com`.
+Authentication, game requests and WebSockets stay local; browser cookies are never sent
+to the asset host. This runs the published client build, so changes to client source
+require a local build and the original game files described above. Stop it with Ctrl+C.
+
 ### Pointing a client at a server
 
 The client reads its server settings from environment variables. In the browser they come from the page's query

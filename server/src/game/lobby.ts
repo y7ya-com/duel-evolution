@@ -12,6 +12,7 @@ import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
+import { tagChat } from "../duel/tagRelay.ts";
 import { channelFor, sendChat } from "./chat.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
@@ -555,6 +556,7 @@ export class Lobby {
     let text = data.subarray(14);
     const z = text.indexOf(0);
     text = text.subarray(0, z < 0 ? text.length : z).subarray(0, MAX_DATA - 27);
+    if (tagChat(this.g, this.sess(c), c, text)) return true;
     const channel = channelFor(kind), s = this.sess(c);
     if (!channel || !s) return true;
     // One server-wide public channel, including My Room. Legacy proximity sends become Global.

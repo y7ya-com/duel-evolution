@@ -11,6 +11,21 @@ Mock snapshots for building without the game: `mock/*.json` (one object per file
 - `node client/web-shell/htmlui/tools/mockshot.mjs <outdir> [names] [--dpr=2]`: headless screenshots of them.
 - `node client/web-shell/htmlui/read_test.mjs`: the reader on a synthetic memory image.
 
+## Visual and navigation requirements
+
+Legacy additions must blend into the original game: retain its artwork, portraits, window furniture, colours,
+typography and button treatment. Improving layout does not authorize replacing the skin with a website or dashboard.
+Modern additions must use the game's established UI components consistently.
+
+- Appearance belongs inside the Main Menu as a normal menu entry.
+- Cosmetic boxes belong inside physical shops, not the Main Menu or a floating shortcut.
+- Tag Duel belongs inside the existing Duel menu alongside Create Duel and Auto Duel.
+- Chat must always have a discoverable in-game handle; idle messages may fade, but connection/loading states must not
+  hide the chat entry. Keep the HUD anchored to the game canvas.
+- Extend the owning menu or window; do not attach unrelated buttons beside it or introduce another taskbar.
+
+Keep local UI revisions available for the owner's review and follow the explicitly requested deployment scope.
+
 ## Snapshot
 
 ```js
@@ -106,6 +121,10 @@ from `unknown` controls by `name` and geometry.
 Ids are numbers (guest addresses). Strings are already UTF-16 decoded. Every coordinate is in game pixels; the
 bridge scales the whole layer (`--s` CSS variable = canvas CSS px / 1024), so screens lay out at 1x.
 
+The shop's `CShop*` task classes are enabled by the bridge's shipped defaults even when an older hosted `htmlui.json`
+does not list them. `HTML_UI=0`, an explicit class selection/exclusion, or `"shop": false` in that configuration can
+disable them. Native shop input uses drawn control world positions; a task's children can have different element parents.
+
 ## Screen module
 
 ```js
@@ -118,6 +137,7 @@ export default {
                                                        // control, extra and (with parts) each part (and its control)
   parts: false,                       // true: every control gets `parts` (its raw sprite / text / swf children)
   clip: true,                         // false: the window's root doesn't clip to w x h (controls laid out outside it)
+  occlusionBox: (win, snap) => win,     // optional game-pixel drawing bounds for holes around native foreground dialogs
   mount(win, root, api) { return state },              // root: a <div> already placed at win.x/y, sized w x h
   update(win, prev, root, api, state) {},              // every frame the window's snapshot changed (prev: last one)
   unmount(root, state) {},
@@ -192,7 +212,7 @@ screen. `data-state` on the element carries the state for CSS.
 api.click(controlId)            // move, press, release at the control's centre: real canvas mouse events, 2 frames apart
 api.hover(controlId)            // move the game mouse over it
 api.key(vk, down = true)        // a WM_KEYDOWN/UP to the focused control
-api.char(code)                  // a WM_CHAR to the focused control ('\r' submits an Input, '\b', Tab)
+api.char(code, id?)             // WM_CHAR to the focused control; optional id holds a hidden target enabled until playback; Promise resolves after native playback
 api.setText(controlId, string)  // an input's value (the control's setText at the next Present; IME/paste come from the DOM)
 api.scroll(controlId, value)    // a scroll bar's value (not wired yet: use api.wheel)
 api.wheel(controlId, delta)     // a wheel event over it (canvas)

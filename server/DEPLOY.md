@@ -43,7 +43,7 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
      77d9ed6; `DEPLOY_TEXT` changes it);
    - waits 120 s;
    - checks the live duel count after the countdown and aborts if any duel remains;
-   - calls `/__admin/prepare-restart` **before deployment**: unfinished NPC/PvP duels are voided without
+   - calls `/__admin/prepare-restart` **before deployment**: unfinished NPC/PvP/tag duels are voided without
      wins, losses, draws, XP, MP, card rewards or tournament advancement; queued results and disconnect callbacks
      are suppressed, new gameplay is refused, and prior D1 writes are flushed;
    - calls `/__admin/shutdown`, which repeats preparation idempotently before closing gateway WebSockets with

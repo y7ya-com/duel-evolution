@@ -78,29 +78,68 @@ const loadIcons = () => loading ||= (async () => {
 
 // CMainMenu: the frame (FrameMain, the window's size: skin.js panel with the bottom-thick band), the title bar with the
 // × (ShadowText, IconHide), an entry per shown ButtonMain (skin.js menuButton)
-function mainMenu(win, root, st) {
+function mainMenu(win, root, st, api) {
   const title = win.controls.find(c => c.cls === 'CWindowTaskShadowText' && top(c))?.text ?? '';
   const close = win.controls.find(c => c.cls === 'CWindowTaskIconHide');
-  const key = [win.w, win.h, title].join();
+  const rows = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown);
+  const h = rows[0]?.h || 24, pitch = h + 4;
+  const entries = rows.map(c => ({ label: c.label, c }));
+  const profile = entries.findIndex(e => /profile/i.test(e.label || ''));
+  entries.splice(profile < 0 ? entries.length : profile + 1, 0, { label: 'Appearance', action: () => globalThis.dispatchEvent(new CustomEvent('yo2-cosmetics-open', { detail: { tab: 'wardrobe' } })) });
+  entries.push({ label: 'Modern UI', action: () => globalThis.yo2Html?.modern(true) });
+  const height = 32 + entries.length * pitch + 8;
+  const y = Math.max(4, Math.min(736 - height, win.y + win.h - height)) - win.y;
+  const key = JSON.stringify([win.w, y, height, title, entries.map(e => [e.label, e.c?.id])]);
   if (st.key !== key) {
-    root.replaceChildren();
-    st.key = key;
-    st.panel = panel(root, { w: win.w, h: win.h, band: 6 });
+    root.replaceChildren(); st.key = key;
+    st.panel = panel(root, { y, w: win.w, h: height, band: 6 });
     st.title = titleBar(st.panel, { w: win.w, title, close: !!close });
-    st.buttons = new Map();
+    st.buttons = entries.map((e, i) => {
+      const b = menuButton(st.panel, { x: rows[0]?.x ?? 12, y: 32 + i * pitch, w: rows[0]?.w ?? win.w - 24, h, label: e.label });
+      b.style.pointerEvents = 'auto'; b.dataset.modernOwned = '';
+      b.onclick = () => e.c ? api.click(e.c.id) : e.action();
+      return b;
+    });
+    if (close) { st.title.close.style.pointerEvents = 'auto'; st.title.close.dataset.modernOwned = ''; st.title.close.onclick = () => api.click(close.id); }
   }
-  if (close) st.title.close.dataset.state = close.pressed ? 'pressed' : 'normal';
-  const seen = new Set();
-  for (const c of win.controls) {
-    if (c.cls !== 'CWindowTaskButtonMain' || !c.shown) continue;
-    seen.add(c.id);
-    let b = st.buttons.get(c.id);
-    if (!b) { b = menuButton(st.panel, { x: c.x, y: c.y, w: c.w, h: c.h, label: c.label }); st.buttons.set(c.id, b); }
-    Object.assign(b.style, { left: c.x + 'px', top: c.y + 'px' });
-    if (b.label !== c.label) { b.label = c.label; b.set({ label: c.label }); }
-    b.set({ state: look(c) });
+  entries.forEach((e, i) => {
+    st.buttons[i].set({ state: e.c ? look(e.c) : 'normal' });
+    st.buttons[i].disabled = e.c ? e.c.state === 'disabled' : e.label === 'Appearance' && ![10, 11, 12, 14].includes(globalThis.yo2Html?.snapshot?.()?.scene);
+  });
+}
+
+// Extend the original Duel menu itself. Native actions keep their own IDs;
+// the added team action uses the same plates and lives before Cancel.
+function duelMenu(win, root, st, api) {
+  const controls = win.controls.filter(c => c.shown && !c.parent);
+  const choices = controls.filter(c => /PictureSwitch$/.test(c.cls) && c.w >= 64).sort((a,b) => a.x-b.x);
+  const title = controls.find(c => /ShadowText$/.test(c.cls) && c.y < 24)?.text || 'Duel';
+  const cancel = controls.find(c => /ButtonDuel$|TextSwitch$/.test(c.cls) && c.label);
+  const inside = (t,c) => t.x >= c.x-2 && t.x < c.x+c.w && t.y >= c.y && t.y < c.y+c.h;
+  const signature = JSON.stringify(win);
+  if (signature === st.duelSignature) return;
+  st.duelSignature = signature; root.replaceChildren();
+  const height = Math.max(win.h, 260) + 32;
+  const base = panel(root, { w: win.w, h: height, band: 6 });
+  const head = titleBar(base, { w: win.w, title, close: !!cancel });
+  const act = (button, action) => { button.style.pointerEvents = 'auto'; button.dataset.modernOwned = ''; button.onclick = action; };
+  if (cancel) act(head.close, () => api.click(cancel.id));
+  for (const c of controls.filter(c => /ShadowText$/.test(c.cls) && c.y >= 24 && !choices.some(w => inside(c,w)))) {
+    textBox(base, c.text, { x:c.x,y:c.y,w:c.w,px:c.fontSize||16,align:c.align,color:c.color });
   }
-  for (const [id, b] of st.buttons) if (!seen.has(id)) { b.remove(); st.buttons.delete(id); }
+  const rows = choices.map(c => ({ c, label: controls.find(t => /ShadowText$/.test(t.cls) && inside(t,c))?.text || c.label || c.name }));
+  const y0 = Math.max(90, ...controls.filter(c => /ShadowText$/.test(c.cls) && c.y >=24 && !choices.some(w => inside(c,w))).map(c => c.y + (c.h||16))) + 12;
+  for (let i=0;i<rows.length;i++) {
+    const {c,label}=rows[i]; const b=menuButton(base,{x:16,y:y0+i*34,w:win.w-32,h:26,label,state:look(c)});
+    b.disabled=c.enabled===false||c.state==='disabled'; act(b,()=>api.click(c.id));
+  }
+  const tag=menuButton(base,{x:16,y:y0+rows.length*34,w:win.w-32,h:26,label:'Tag Duel',state:null});
+  act(tag,()=>globalThis.dispatchEvent(new CustomEvent('yo2-tag-lobby-open')));
+  if (cancel) {
+    const b=menuButton(base,{x:(win.w-120)/2,y:y0+(rows.length+1)*34+4,w:120,h:24,label:cancel.label,state:look(cancel)});
+    act(b,()=>api.click(cancel.id));
+  }
+  base.style.height=Math.max(height,y0+(rows.length+2)*34+16)+'px';
 }
 
 // CWindowModelPlace: the plate (FramePlace's size) and its four ShadowTexts
@@ -183,7 +222,7 @@ function playerCard(win, root, st) {
   };
 }
 
-const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CPlayerListMenu: playerCard };
+const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: menuBar, CWindowModelDuel: duelMenu, CPlayerListMenu: playerCard };
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
@@ -204,7 +243,7 @@ export default {
       });
       return;
     }
-    DRAW[win.cls](win, root, st);
+    DRAW[win.cls](win, root, st, api);
   },
   unmount(root, st) { kept.delete(st?.id); root.replaceChildren(); },
 };

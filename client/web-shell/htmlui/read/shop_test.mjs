@@ -33,3 +33,45 @@ assert.equal(T.shown, false);
 dv.setInt32(mng + 0x7c, 0x0e, true); w32(win + 0x20, 2);   // back in the shop, the window hidden (lockFlags |= 2)
 assert.equal(read(dv).tasks.find(t => t.cls === 'CShopCardWindow').shown, false);
 console.log('read/shop_test: ok');
+
+// Native item costs and ids survive pagination; the browser never fabricates a catalogue or prices.
+for (let i = 0; i < 12; i++) {
+  const p = items + i * 0x14;
+  w32(p, 700 + i); w8(p + 4, 0); w32(p + 8, 1100 + i); w32(p + 12, 25 + i);
+}
+w32(win + 0x20, 0);
+T = read(dv).tasks.find(t => t.cls === 'CShopCardWindow');
+assert.equal(T.itemCount, 12);
+assert.deepEqual(T.items.map(({ itemId, type, param, price, slot }) => ({ itemId, type, param, price, slot })), [
+  { itemId: 710, type: 0, param: 1110, price: 35, slot: 0 },
+  { itemId: 711, type: 0, param: 1111, price: 36, slot: 1 },
+]);
+// Only an RTTI-confirmed CElement can be used as a compact subtree hide instruction.
+const element = alloc(0x1b0); w32(element, vt('CElement')); w32(win + 0x7c, element);
+T = read(dv).tasks.find(t => t.cls === 'CShopCardWindow');
+assert.deepEqual(T.hideIds, [element]);
+w32(element, vt('CShopNumber'));
+assert.equal(read(dv).tasks.find(t => t.cls === 'CShopCardWindow').hideIds, undefined);
+console.log('read/shop_test: native prices, pagination, and validated subtree hiding ok');
+
+const nativeTask = (name, bytes) => {
+  const task = alloc(bytes), control = alloc(0x3d0);
+  w32(task, vt(name)); w32(task + 0x70, vt(name, 0x70));
+  w32(control, vt('CWindowTaskPictureSwitch')); w8(control + 0xc4, 1); wf(control + 0x174, 1);
+  w32(control + 0x344, task + 0x70); w8(control + 0x350, 1);
+  return [task, control];
+};
+const [price, priceTag] = nativeTask('CShopPricePlate', 0xd0);
+w32(price + 0x94, priceTag); w32(price + 0xb8, 1250); w32(price + 0xbc, 10); w32(price + 0xc0, 4); w32(price + 0xc8, 0); w8(price + 0xb4, 1); wf(price + 0xc4, .5);
+const [confirm, ok] = nativeTask('CShopConfirmWindow', 0x180);
+w32(confirm + 0x94, ok); w32(confirm + 0xa0, 9876); w32(confirm + 0x174, 3750);
+const cart = alloc(0x1c); w32(cart, 812); w8(cart + 4, 0); w32(cart + 8, 231); w32(cart + 12, 1250); w32(cart + 0x14, 3);
+w32(confirm + 0x154, cart); w32(confirm + 0x158, cart + 0x1c);
+const controls = alloc(12); [sw, priceTag, ok].forEach((c, i) => w32(controls + i * 4, c));
+w32(fac + 4, controls); w32(fac + 8, controls + 12);
+const tasks = read(dv).tasks;
+const P = tasks.find(t => t.cls === 'CShopPricePlate'), C = tasks.find(t => t.cls === 'CShopConfirmWindow');
+assert.deepEqual([P.tagId, P.price, P.count, P.index, P.enabled, P.rate], [priceTag, 1250, 10, 4, true, .5]);
+assert.deepEqual([C.okId, C.cancelId, C.total], [ok, 9876, 3750]);
+assert.deepEqual(C.cart, [{ itemId: 812, type: 0, param: 231, price: 1250, count: 3 }]);
+console.log('read/shop_test: verified native selection, confirmation actions and complete cart ok');

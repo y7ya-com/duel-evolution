@@ -54,3 +54,4 @@
 00763470  # the duel field's plane set (fieldplane.c: an index past the plane loader's array becomes plane 0; crash #19)
 007d8840  # the plane loader's SecretLoad by index (fieldplane.c: the same bound)
 007d8e70  # the plane loader's plane by index (fieldplane.c: the same bound)
+006bb780  # CNetLobby CHATNOTICE (chatfree.c: room chat stays in the server-wide stream)

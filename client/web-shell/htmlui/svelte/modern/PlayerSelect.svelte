@@ -38,7 +38,7 @@
           <button type="button" class="slot-main" onclick={() => click(s.row)} onpointerenter={() => hover(s.row)} onfocus={() => hover(s.row)}
             disabled={s.row.state === 'disabled'}>
             <span class="badge" aria-hidden="true">
-              {#if s.empty}<Icon name="plus" size={18} />{:else}{s.name.trim().charAt(0).toUpperCase()}{/if}
+              {#if s.empty}<Icon name="plus" size={18} />{:else}{String(i + 1).padStart(2, '0')}{/if}
             </span>
             <span class="who">
               <span class="name">{s.name}</span>
@@ -64,29 +64,25 @@
 </div>
 
 <style>
-  .panel { left: 0; top: -44px; width: 480px; padding-bottom: 14px; }
-  .slots { list-style: none; margin: 0; padding: 12px 14px 4px; display: flex; flex-direction: column; gap: 8px; }
-  .slot { position: relative; display: flex; align-items: center; gap: 10px; }
-  .spacer { width: 30px; flex: none; }
-  /* a slot: a white card in the window, the 2008 row's blue edge */
-  .slot-main { flex: 1; display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 12px 0 10px; border-radius: var(--r-ctl) var(--r-ctl) var(--r-ctl) 4px;
-    background: var(--card); box-shadow: 0 0 0 1px var(--btn-edge), inset 0 1px 0 #fff, 0 1px 3px rgba(10, 35, 80, .12);
-    transition: transform .16s var(--ease), background .16s, box-shadow .16s; }
-  .slot-main:hover, .slot[data-state='hover'] .slot-main { transform: translateX(3px); background: var(--btn-hover);
-    box-shadow: 0 0 0 1px var(--p500), 0 8px 18px -8px rgba(20, 70, 160, .5); }
-  .slot-main:focus-visible { outline: 2px solid var(--azure-500); outline-offset: 2px; }
-  .slot-main:active { transform: translateX(1px) scale(.995); }
-  .badge { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; font-weight: 800; font-size: 16px;
-    color: #fff; background: var(--sel); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .9), 0 0 0 2.5px var(--p700), 0 2px 4px rgba(10, 35, 80, .25); }
-  .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
-  .name { font-size: 15px; font-weight: 750; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub { font-size: 11.5px; color: var(--ink-3); }
-  .slot-main :global(.go) { color: var(--azure-500); transition: transform .16s var(--ease); }
-  .slot-main:hover :global(.go) { transform: translateX(2px); }
-  .empty .slot-main { background: rgba(255, 255, 255, .5); box-shadow: none; outline: 1.5px dashed var(--n300); outline-offset: -1.5px; }
-  .empty .slot-main:hover { outline-color: transparent; }
-  .empty .badge { color: var(--p700); background: #fff; box-shadow: inset 0 0 0 1.5px var(--n300); }
-  .empty .name { font-weight: 650; color: var(--ink-2); }
-  .del { flex: none; }
-  footer { display: flex; justify-content: flex-end; padding: 8px 14px 0; }
+
+  .panel { left:0; top:-44px; width:464px; padding-bottom:12px; }
+  .slots { list-style:none; margin:0; padding:12px 12px 4px; display:flex; flex-direction:column; gap:8px; }
+  .slot { position:relative; display:flex; align-items:center; gap:8px; }
+  .spacer { width:28px; flex:none; }
+  .slot-main { flex:1; display:flex; align-items:center; gap:12px; height:58px; padding:0 10px 0 0; border:1px solid #438bc1; border-radius:3px; background:var(--card); box-shadow:inset 0 1px #fff,0 1px #4ca5d3; }
+  .slot-main:hover,.slot[data-state='hover'] .slot-main { background:linear-gradient(#fff9ce,#ffe894); border-color:#cf912a; }
+  .slot-main:focus-visible { outline:2px solid var(--gold-400); outline-offset:2px; }
+  .slot-main:active { background:var(--gold); }
+  .badge { display:grid; place-items:center; align-self:stretch; width:48px; flex:none; color:#fff; background:var(--sel); border-right:1px solid #1761ad; font:italic 800 23px Arial,sans-serif; text-shadow:0 2px #19558d; box-shadow:inset 2px 0 #a8f5ff; }
+  .who { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; text-align:left; }
+  .name { font-size:16px; font-weight:700; color:var(--ink-strong); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub { font-size:12px; color:var(--ink-3); }
+  .slot-main :global(.go) { color:var(--p700); }
+  .empty .slot-main { background:#c6e9f4b3; border-color:#77b5d2; }
+  .empty .badge { color:#e3faff; background:linear-gradient(#6ca9d1,#367bb0); }
+  .empty .name { color:var(--ink-2); font-weight:600; }
+  .del { flex:none; width:28px; height:28px; border:1px solid #5c9dbf; background:var(--btn); }
+  footer { display:flex; justify-content:flex-end; padding:8px 12px 0; }
+  footer .mu-btn { min-width:96px; }
+
 </style>
