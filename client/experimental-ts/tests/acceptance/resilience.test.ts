@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page } from './harness';
+/** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
+ * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
+async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
+async function menuClick(page:Page,label:string) { await openMenu(page); await until(page,byText(label),30000); await page.ev(`${byText(label)}.click()`); }
 
 /** Records the client's game WebSockets (one per tunnel; a resume opens another) without changing them. `rewrite`
  * redirects later connections (a refused port, a black hole, a forged resume id) as a broken network would. Binary
@@ -349,8 +353,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await until(page,`[...document.querySelectorAll('[role=alert]')].length>0`,30000);
       const authError = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as string;
       await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
-      await until(page,`/Sign in/.test(document.querySelector('[role=status]')?.textContent??'')`,30000);
-      const signedOut = await page.ev(`document.querySelector('[role=status]')?.textContent`) as string;
+      await until(page,`[...document.querySelectorAll('[role=status]')].some(s=>/Sign in/.test(s.textContent))`,30000);
+      const signedOut = await page.ev(`[...document.querySelectorAll('[role=status]')].map(s=>s.textContent).find(t=>/Sign in/.test(t))`) as string;
       record('errors.api',{ actions:'Start with card rules and NPC dialogue blocked, then Retry in Options; shop catalogue answering 500, then Refresh; reload with the asset bridge blocked (shop, deck editor); clear the session cookie mid-session',
         expected:'HTTP/auth failures, unavailable data and missing assets show usable retry/fallback states',
         observed:`data: "${missing.slice(0,160)}" → retry: "${reloaded.slice(0,80)}"; shop 500: "${shopError}" → Refresh showed ${shopRecovered} items; no art: ${shopBroken} broken images in the shop, ${deckBroken} in the deck editor (cards drawn as "${deckNames}"); cookie cleared: "${authError}", after reload "${signedOut}"` });
@@ -388,17 +392,19 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // shop reply does not take the screen back.
       await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/shop/`);
-      await until(page,byText('Shop'),30000); await page.ev(`${byText('Shop')}.click()`);
+      // Shop is a Main Menu entry: open the menu, then click without the pointer (the reply is being held).
+      await menuClick(page,'Shop');
       await until(page,`window.__net.http.release`,10000);
+      await openMenu(page);
       const navBusy = await page.ev(`[...document.querySelectorAll('button')].filter(b=>['Edit Deck','Lobby'].includes(b.textContent)).map(b=>b.disabled).join()`);
       await page.ev(`window.__net.http.delay=null;window.__net.http.release();window.__net.http.release=null`);
       await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,30000);
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
       await click(page,'Lobby'); await until(page,byKey('lobby-npcs'),60000);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
-      await until(page,byText('Edit Deck'),30000); await page.ev(`${byText('Edit Deck')}.click()`);
+      await menuClick(page,'Edit Deck');
       await until(page,`window.__net.http.release`,10000);
-      await until(page,byText('Disconnect'),30000); await page.ev(`${byText('Disconnect')}.click()`);
+      await menuClick(page,'Disconnect');
       await until(page,byText('Go Online'),30000);
       const pending = await page.ev(`window.__net.http.log.filter(l=>l.startsWith('delay')).length`) as number;
       await page.ev(`window.__net.http.delay=null`);
