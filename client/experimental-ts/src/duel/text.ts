@@ -77,15 +77,26 @@ export function describeNotice(id: number, texts?: DuelTextCatalog): string {
 export function describePrompt(prompt: DuelPrompt, texts: DuelTextCatalog, contextPasscode?: number): { title: string; optionLabels: Map<number, string> } {
   const subject = prompt.text.find(t => t.kind === 4)?.value ?? contextPasscode;
   const textIds = prompt.text.filter(t => t.kind === 0 || t.kind === 2).map(t => t.value);
-  let title = textIds.map(id => texts.prompt(id, subject) ?? PROMPT_MEANINGS[id]).find(Boolean) ?? prompt.title;
   const name = subject ? texts.cardName(subject) : null;
-  if (name && prompt.kind === 'yesno') title = `${name}: ${title}`;
+  // The original dialog box shows every text line (kind 2, then kind 3 continuations after the 0xffff break), with the
+  // dialog's card (kind 4) and number (kind 1) filled in.
+  const number = prompt.text.find(t => t.kind === 1)?.value;
+  const original = prompt.text.filter(t => [0, 2, 3].includes(t.kind) && t.value !== 0xffff).map(t => texts.dialog(t.value)).filter((line): line is string => !!line);
+  const legacy = textIds.map(id => texts.prompt(id, subject)).find(Boolean);
+  const named = !legacy && !!name && original.some(line => line.includes('%s'));
+  let title = legacy ?? (original.length ? original.map(line => line.replace(/%s/g, name ?? 'this card').replace(/%d/g, number === undefined ? 'some' : String(number))).join(' ') : null)
+    ?? textIds.map(id => PROMPT_MEANINGS[id]).find(Boolean) ?? prompt.title;
+  const stars = prompt.kind === 'ritual' ? /\(\d+ stars? remaining\)/.exec(prompt.title)?.[0] : undefined;
+  if (stars && !title.includes(stars)) title = `${title} ${stars}`;
+  if (prompt.kind === 'announce-card') title = texts.dialog(145) ?? 'Declare 1 card name.';
+  else if (name && prompt.kind === 'yesno' && !named) title = `${name}: ${title}`;
   if (prompt.kind === 'discard') title = `Choose ${prompt.min} card${prompt.min === 1 ? '' : 's'} to discard.`;
   const optionLabels = new Map<number, string>();
   if (prompt.kind === 'option') for (let i = 0; i < prompt.items.length; i++) {
     const item = prompt.items[i];
     if (item.owner !== 2) continue;
-    optionLabels.set(i, texts.option(item.rawId, subject) ?? `Option ${i + 1} — text ${item.rawId} unavailable`);
+    // Without the card, a card-specific alternative is ambiguous: the original's generic dialog text names the effect.
+    optionLabels.set(i, texts.option(item.rawId, subject) ?? texts.dialog(item.rawId) ?? `Option ${i + 1} — text ${item.rawId} unavailable`);
   }
   return { title, optionLabels };
 }

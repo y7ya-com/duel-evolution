@@ -733,7 +733,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         options.append(labelled(option.label, input));
       }
       const confirm = button('Confirm Attributes', () => respond({ optionIds: [...local.selected] }), local.selected.size < (prompt.min ?? 1) || local.selected.size > (prompt.max ?? 1) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      panel.append(note(`Choose ${prompt.min ?? 1}–${prompt.max ?? 1} attributes.`), options, confirm);
+      panel.append(note(prompt.min === prompt.max ? `Choose ${prompt.min ?? 1} attribute${prompt.min === 1 ? '' : 's'}.` : `Choose ${prompt.min ?? 1}–${prompt.max ?? 1} attributes.`), options, confirm);
     } else if (prompt.options.length) {
       const options = el('div', 'de-prompt-options');
       for (const option of prompt.options) { const b = button(option.label, () => respond({ optionId: option.id }), !!option.disabled || !!state.busy, true); b.dataset.key = `prompt-option:${prompt.id}:${option.id}`; options.append(b); }
@@ -752,13 +752,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else { if (prompt.readOnly) panel.append(note('Select a visible card to read its details.')); else panel.append(note(`Choose ${prompt.min ?? 0}–${prompt.max ?? prompt.candidates?.length ?? 0}. Selected: ${local.selected.size}`)); panel.append(choices, confirm); }
       if (inspectOnly && local.promptInspection) panel.append(el('aside', 'de-prompt-inspector', drawCard(local.promptInspection), el('h3', '', local.promptInspection.name), el('p', '', local.promptInspection.description ?? 'Card description unavailable.')));
     }
-    if (prompt.kind === 'number') {
+    // The server lists every number it accepts as a choice (scaled labels such as LP); free entry is for a bare range.
+    if (prompt.kind === 'number' && !prompt.options.length) {
       const form = el('form', 'de-row'), input = textField(`prompt-number:${prompt.id}`, String(prompt.numberMin ?? 0)); input.type = 'number'; input.min = String(prompt.numberMin ?? 0); input.max = String(prompt.numberMax ?? 0x7fffffff); input.setAttribute('aria-label', prompt.text);
       const b = el('button', 'gold', 'Confirm'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, b); form.onsubmit = e => { e.preventDefault(); respond({ number: Number(input.value) }); }; panel.append(form);
     }
     if (prompt.kind === 'announce' && !prompt.candidates?.length) {
       const form = el('form', 'de-row'), input = textField(`prompt-announcement:${prompt.id}`, '', 'Card name or passcode'); input.setAttribute('aria-label', 'Card announcement'); input.maxLength = 120;
-      const b = el('button', 'gold', 'Announce'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, b); form.onsubmit = e => { e.preventDefault(); respond({ text: input.value }); }; panel.append(form);
+      const names = el('datalist'); names.id = `de-announce-${prompt.id}`; input.setAttribute('list', names.id); for (const name of prompt.suggestions ?? []) { const o = el('option'); o.value = name; names.append(o); }
+      const b = el('button', 'gold', 'Announce'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, names, b); form.onsubmit = e => { e.preventDefault(); respond({ text: input.value }); }; panel.append(form);
     }
     if (prompt.cancelable) panel.append(button(['place', 'choice', 'cards'].includes(prompt.kind) ? 'Finish / cancel' : 'Cancel', () => respond({ cancel: true }), !!state.busy));
     if (!prompt.options.length && !prompt.candidates?.length && !['number', 'announce', 'cards'].includes(prompt.kind)) panel.append(note('Waiting for supported choices from the server.'));

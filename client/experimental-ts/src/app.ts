@@ -754,7 +754,7 @@ export class ClientApp implements ClientController {
         }
         case 'duelRespond': {
           if (this.submittedPrompt === this.duelState.prompt?.id) throw new Error('This choice has already been sent.');
-          const response = interpretResponse(this.duelState, command.promptId, command.response);
+          const response = interpretResponse(this.duelState, command.promptId, command.response, text => this.catalog.named(text));
           const messages = encodeDuelResponse(this.duelState, response);
           this.submittedPrompt = this.duelState.prompt?.id ?? null;
           for (const m of messages) this.requireGame().sendDuel(m.id, m.data);
