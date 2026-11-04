@@ -82,7 +82,10 @@ export async function until(page:Page,condition:string,timeout = 30000):Promise<
 /** A real pointer press at the control's centre; an obstructed or vanished control fails rather than being skipped. */
 export async function press(page:Page,selector:string):Promise<void> {
   const point = await page.ev(`(async()=>{let b=${selector};if(!b||b.disabled)return null;b.scrollIntoView({block:'center',inline:'center',behavior:'instant'});for(let f=0;f<10;f++){await new Promise(requestAnimationFrame);b=${selector};if(!b||b.disabled)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);if(hit&&(hit===b||b.contains(hit)))return{x,y};}return null})()`);
-  if (!point) throw new Error(`Control is covered, disabled or gone: ${selector}\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,1500)}`);
+  if (!point) {
+    const cover = await page.ev(`(()=>{const b=${selector};if(!b)return 'gone';if(b.disabled)return 'disabled';const r=b.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return 'covered by '+(h?h.tagName.toLowerCase()+'.'+String(h.className).replaceAll(' ','.'):'nothing (off screen)');})()`).catch(() => '?');
+    throw new Error(`Control is ${cover}: ${selector}\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,1500)}`);
+  }
   const down = page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
   const up = page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
   await down; await up;
@@ -229,7 +232,7 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
   await until(page,byKey('collection-search'),60000);
   await type(page,byKey('collection-search'),name);
   await sleep(600);
-  return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].filter(b=>b.title.startsWith(${JSON.stringify(name + ' ·')})).reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
+  return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].filter(b=>${JSON.stringify(!name)}||b.title.startsWith(${JSON.stringify(name + ' ·')})).reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
 }
 /** Surrender the current duel (confirming the server's question) and wait for the result. */
 export async function surrender(page:Page) {
