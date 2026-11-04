@@ -106,7 +106,7 @@ describe("PvP MP: the minimum length", () => {
     const mp = (i: number) => (Object.values(h.state().accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].rec.mp;
     const before = [mp(0), mp(1)];
     const m = h.game.pvp!.reserve(sess(h, A), sess(h, B)) as unknown as Record<string, any>;   // its private t0 / surrender
-    m.ps = { turn, started: true, over: false, stats: null, lastLp: null, end() {}, resend() {} } as any;
+    m.ps = { turn, started: true, over: false, stats: null, lastLp: null, end() {}, resend() {}, pending() { return "nobody"; } } as any;
     m.t0 = Date.now() / 1000 - secs;
     m.surrender(1);
     return [mp(0) - before[0], mp(1) - before[1]];
