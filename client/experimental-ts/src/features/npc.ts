@@ -24,7 +24,8 @@ export interface NpcOptions {
   resolvePresentText?(textId: number): string | null | undefined;
   /** Refresh authoritative PBIN/NPCBIN after ITEMGET(1); its receipt can hide right bits. */
   onRefreshProgress?(): void | Promise<void>;
-  /** Supply only if the original duelResultLine mapping is known. */
+  /** Original duelResultLine (PE 0x007918c0) line for the finished duel, or null while its inputs are incomplete;
+   * see `npcResultLine` in ../npcs/result.ts. Call `refreshResultLine()` when they complete. */
   resultLine?(result: 1 | 2 | 3): number | null;
 }
 const initial = (): NpcState => ({ stage: 'idle', npc: null, dialogue: null, result: null, present: 0,
@@ -116,6 +117,14 @@ export class NpcController {
   afterDuel(result: 1 | 2 | 3): void {
     if (this.disposed || this.value.stage !== 'duel') return;
     this.patch({ stage: 'after-duel', result, dialogue: this.dialogue(this.options.resultLine?.(result) ?? null) });
+  }
+  /** Re-reads `resultLine` while the result-opening line is still unresolved (the duel's type0x4d finish record
+   * arrives after C_DUEL_END). A resolved line, a later stage or another NPC session is never rewritten. */
+  refreshResultLine(): void {
+    const s = this.value;
+    if (this.disposed || s.stage !== 'after-duel' || !s.result || s.dialogue?.line != null) return;
+    const line = this.options.resultLine?.(s.result) ?? null;
+    if (line !== null) this.patch({ dialogue: this.dialogue(line) });
   }
   advance(): void {
     if (this.disposed) return;
