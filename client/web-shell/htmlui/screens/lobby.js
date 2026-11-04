@@ -190,7 +190,7 @@ export default {
   clip: false,   // the banner's window is 0 x 0 and the bar's 384 wide under a 1024-wide strip
   mount: (win) => { inject(); return { id: win.id }; },
   passthrough: (x, parent) => (!icons && (bar.has(x.id) || !!parent && bar.has(parent.id)))   // the bar, while the page can't draw its buttons
-    || [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),   // a kept control's parts too
+    || [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),   // a kept player-card control's parts too
   update(win, prev, root, api, st) {
     st.win = win;
     st.api = api;

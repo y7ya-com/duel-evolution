@@ -40,4 +40,9 @@ const duel = (h, pageLines) => ({ id: 90, cls: 'CCardDetailViewDlg', x: 0, y: 60
       { text: 'A monster.', w: 216, h, wx: 8, wy: 632, fontSize: 16, pageLines, firstLine: 0, align: 0 })] });
 assert.deepEqual(same(duel(80, 12)).items.find(i => i.id === 93).rect, { x: 8, y: 632, w: 216, h: 80 });
 assert.deepEqual(same(duel(120, 4)).items.find(i => i.id === 93).rect, { x: 8, y: 632, w: 216, h: 80 });
+// a trunk row's card name (CWindowTaskCardInfoItem::m_name, 200 px) is fitted in its control (screens/deck.js 4aff9df)
+const row = { id: 100, cls: 'CWindowModelKaban', x: 0, y: 0, w: 400, h: 300, extras: [], labels: [], controls: [
+  ctl(101, 'CWindowTaskText', { labels: [{ id: 102, text: 'Ancient One of the Deep Forest', wx: 40, wy: 60, wz: 51205, shown: true }] },
+    { name: 'CWindowTaskCardInfoItem::m_name', text: 'Ancient One of the Deep Forest', w: 200, fontSize: 16, align: 0 })] };
+assert.equal(same(row).items.find(i => i.id === 102).box.fit, true);
 console.log('svelte deck_test ok');

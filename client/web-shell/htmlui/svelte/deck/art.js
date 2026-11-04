@@ -45,6 +45,7 @@ export function plan(win, editor = true) {
         if (h && x < 9999) add(t.id, t.wz ?? 0, { x, y, w, h }, { kind: 'flow', text: t.text, x: x - ox, y: y - oy, w, h, alpha: t.a ?? 1, px: box.px });
         continue;
       }
+      if (ctl?.name === 'CWindowTaskCardInfoItem::m_name') box.fit = true;   // a trunk row's card name: its 200 px
       add(t.id, t.wz ?? 0, { x: t.wx, y: t.wy, w: box.w || 256, h: (box.px || 16) * t.text.split('\n').length },
         { kind: 'label', text: t.text, x: t.wx - ox, y: t.wy - oy, alpha: t.a ?? 1, box });
     }

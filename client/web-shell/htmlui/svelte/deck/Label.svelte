@@ -1,6 +1,8 @@
 <script>
   // Tagged text as real DOM text (the owner's rule): per line, one text box per colour run at the pen; @1 is
   // AtConverter's bold 18 px style. box: the CTextElm's { align, w, px, ink } as it lays its lines out.
+  // box.fit: a card name in its control's width (owner: names ran past their trunk row; screens/deck.js drawLabel): the
+  // letters drawn up to 1 px closer, then cut with an ellipsis at the width (the engine cuts it mid-letter there)
   import { textWidth, spacing, fontCss, textColor } from '../../controls/basic.js';
   import { runs, TAG_RGB } from '../../screens/deck.js';
   let { text, x, y, alpha = 1, box } = $props();
@@ -13,7 +15,12 @@
     return rs.map(r => {
       if (r.x !== null) pen = r.x;
       const rgb = ink !== null && r.rgb === TAG_RGB[0] ? ink : r.rgb, p = px(r), ls = spacing(r.s, p);
-      const o = { s: r.s, x: x + pen, y: y + size * li, p, ls, color: textColor([rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255).concat(alpha), true) };
+      const o = { s: r.s, x: x + pen, y: y + size * li, p, ls, fls: ls, cut: null, color: textColor([rgb >> 16, rgb >> 8 & 255, rgb & 255].map(v => v / 255).concat(alpha), true) };
+      const over = box.fit && box.w ? pen + rw(r) - box.w : 0, n = [...r.s].length;
+      if (over > 0) {
+        o.fls = ls - Math.min(over / n, 1);
+        if (over / n > 1) o.cut = box.w - pen;
+      }
       pen += rw(r);
       return o;
     });
@@ -22,5 +29,6 @@
 
 {#each lines as r}
   <div class="txt" style:left="{r.x}px" style:top="{r.y}px" style:font={fontCss(r.p, r.p)} style:color={r.color} style:text-align="left"
-    style:white-space="pre" style:font-weight={r.p === 18 ? 'bold' : null}><span style:letter-spacing="{r.ls}px" style:margin-right="{-r.ls}px">{r.s}</span></div>
+    style:white-space="pre" style:font-weight={r.p === 18 ? 'bold' : null} style:width={r.cut !== null ? `${r.cut}px` : null}
+    style:overflow={r.cut !== null ? 'hidden' : null} style:text-overflow={r.cut !== null ? 'ellipsis' : null}><span style:letter-spacing="{r.fls}px" style:margin-right="{-r.ls}px">{r.s}</span></div>
 {/each}
