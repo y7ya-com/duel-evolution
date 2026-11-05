@@ -104,7 +104,11 @@ export async function click(page:Page,text:string,timeout = 30000) {
   // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
   if (text === 'Options') { await until(page,`${byText(text)}||${inMainMenu('DUEL OPTIONS')}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = 'DUEL OPTIONS'; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
-  if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,`document.querySelector('[data-key="main-menu"]')`); await until(page,byText(text),5000); }
+  // the menu already open (its entries waiting on a busy app): wait for the entry; closed: open it with MAIN
+  if (!await page.ev(`Boolean(${byText(text)})`)) {
+    if (!await page.ev(`Boolean(document.querySelector('#htmlui-host [data-key^="menu:"]'))`)) await press(page,`document.querySelector('[data-key="main-menu"]')`);
+    await until(page,byText(text),timeout);
+  }
   await press(page,byText(text));
 }
 export async function type(page:Page,selector:string,value:string) {
@@ -174,6 +178,7 @@ export const chatLines = (page:Page) => page.ev(`[...document.querySelectorAll('
 /** A line typed into the chat and sent with Enter, on a tab (all, trade, team) or as a whisper ('/w name text'). */
 export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'proximity'|'trade'|'team'; to?:string } = {}) {
   if (tab) await press(page,byKey(`chat-tab:${tab}`));
+  await until(page,`document.querySelector('.de-stage')?.getAttribute('aria-busy')==='false'`,30000);   // Enter does nothing while busy
   await type(page,byKey('chat'),to ? `/w ${to} ${message}` : message);
   for (const t of ['keyDown','keyUp']) await page.send('Input.dispatchKeyEvent',{ type:t,key:'Enter',code:'Enter',windowsVirtualKeyCode:13,...(t === 'keyDown' ? { text:'\r' } : {}) });
 }

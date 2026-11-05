@@ -54,7 +54,9 @@ export class HtmlUiLayer {
     // Player's 128-wide level) would cover the button beside it
     if (!document.getElementById('htmlui-rewrite-css')) {
       const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
-      st.textContent = '#htmlui-host[data-rewrite] .txt { pointer-events: none; }';
+      // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
+      // over everything the engine draws
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] .txt { pointer-events: none; }';
       document.head.append(st);
     }
     document.body.append(this.host);

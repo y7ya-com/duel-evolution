@@ -755,7 +755,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     stage.append(actions);
     // main's menu bar is not on the duel screen (as in the game): Options (sound, display) stays reachable, apart from
     // the duel's own actions
-    stage.append(el('div', 'de-duel-options', button('Options', () => open('settings'))));
+    stage.append(el('div', 'de-duel-options', button('Options', () => open('settings')), ...(state.connection === 'online' ? [button('Return to Title', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); })] : [])));
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log);
     // Follow new lines only while the reader is at the bottom; a player reading older lines keeps their place.
