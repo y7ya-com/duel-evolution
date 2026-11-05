@@ -72,7 +72,7 @@ assert n == 1
 s = s.replace('</title>', '</title>\n<meta name="yo2-build" content="%s">' % os.environ['BUILDID'], 1)
 open(p, 'w').write(s)
 PY
-echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
+echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -c %y $B/yo2rc.wasm 2>/dev/null || stat -f %Sm $B/yo2rc.wasm)" > $O/BUILD.txt
 cat $O/BUILD.txt
 cp $C/web-shell/index.html $O/
 # for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
