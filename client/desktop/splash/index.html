@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Duel Evolution</title>
+<!-- The desktop shell's first page (src-tauri/src/main.rs): it shows the update check, then go() checks the server is
+     reachable and opens the game, or says it isn't with a Retry. logo.png is the site's apple-touch-icon.png, copied in
+     at build time (the repo keeps no images). -->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #c9d2e3; font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+    user-select: none; cursor: default; }
+  main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 0 24px;
+    box-sizing: border-box; text-align: center; background: radial-gradient(ellipse at 50% 40%, #13254a 0%, #000 70%); }
+  img { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 8px 32px rgba(0, 0, 0, .6); }
+  h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: .02em; color: #fff; }
+  .bar { width: 220px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+  .bar i { display: block; width: 40%; height: 100%; border-radius: 2px; background: #4f86e8; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  #status { min-height: 1.5em; margin: -8px 0 0; color: #8b97ad; }
+  #retry { padding: 8px 28px; border: 1px solid #4f86e8; border-radius: 6px; background: #1d3b75; color: #fff; font: inherit;
+    cursor: pointer; }
+  #retry:hover { background: #24478c; }
+  .offline .bar { display: none; }
+  main:not(.offline) #retry { display: none; }
+</style>
+<main>
+  <img src="logo.png" alt="" onerror="this.remove()">
+  <h1>Duel Evolution</h1>
+  <div class="bar"><i></i></div>
+  <p id="status">Checking for updates…</p>
+  <button id="retry" onclick="go()">Retry</button>
+</main>
+<script>
+  const SITE = "https://ygoevolution.com/";
+  const main = document.querySelector("main");
+  function status(text) { document.getElementById("status").textContent = text; }
+  // __warm also wakes the game server, as index.html does; an opaque no-cors answer is enough to know it is up
+  async function go() {
+    main.classList.remove("offline");
+    status("Connecting…");
+    try {
+      await fetch(SITE + "__warm", { mode: "no-cors", cache: "no-store", signal: AbortSignal.timeout(15000) });
+      location.replace(SITE);
+    } catch (e) {
+      main.classList.add("offline");
+      status("Can't reach the Duel Evolution server. Check your internet connection.");
+    }
+  }
+</script>

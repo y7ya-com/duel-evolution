@@ -1,0 +1,37 @@
+# The Windows download (client/desktop): run by hand from the Actions tab after bumping the version in
+# client/desktop/src-tauri/tauri.conf.json. It builds the NSIS installer, signs the update with TAURI_SIGNING_PRIVATE_KEY
+# and publishes release desktop-v<version> with the installer and latest.json, which installed copies check at launch.
+name: desktop
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/desktop/src-tauri
+      - name: Icons and the splash logo from the site's apple-touch-icon.png (the repo keeps no images)
+        working-directory: client/desktop
+        shell: bash
+        run: |
+          curl -sSfL https://ygoevolution.com/apple-touch-icon.png -o splash/logo.png
+          npx -y @tauri-apps/cli@2.12.4 icon splash/logo.png -o src-tauri/icons
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          projectPath: client/desktop
+          tauriScript: npx -y @tauri-apps/cli@2.12.4
+          tagName: desktop-v__VERSION__
+          releaseName: Duel Evolution for Windows __VERSION__
+          releaseBody: Download the -setup.exe below. Installed copies update themselves at launch.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

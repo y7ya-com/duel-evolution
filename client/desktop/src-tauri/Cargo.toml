@@ -1,0 +1,28 @@
+[package]
+name = "duel-evolution"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
+serde_json = "1"   # generate_context! embeds the plugins config
+tokio = { version = "1", features = ["time"] }
+
+# the full screen hook (main.rs): the versions tauri's wry uses
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

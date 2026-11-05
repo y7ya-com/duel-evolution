@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Duel Evolution",
+  "version": "0.1.0",
+  "identifier": "com.ygoevolution.desktop",
+  "build": {
+    "frontendDist": "../splash"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "Duel Evolution",
+    "shortDescription": "Duel Evolution",
+    "longDescription": "A free fan revival of Yu-Gi-Oh! Online: Duel Evolution. Not affiliated with or endorsed by Konami.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.png", "icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCRDM0MTlDODY1RjBEMDkKUldRSkRWK0duRUhURzZFaEVjSG9PNG5iYmRDZmJPd3RXcDA3SVh2eEU2d2Y3L1IxNUZJcEsrV3kK",
+      "endpoints": ["https://github.com/y7ya-com/duel-evolution/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

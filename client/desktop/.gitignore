@@ -1,0 +1,5 @@
+# generated: cargo, tauri-build schemas, and the icons (made from the site's apple-touch-icon.png, see README)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/
+splash/logo.png
