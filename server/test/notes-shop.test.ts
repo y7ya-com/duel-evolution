@@ -147,7 +147,7 @@ describe("shop: wearables withdrawn, catalogue ids reserved", () => {
     const [h, A] = await setup();
     setProf(h, (p) => { p.rec.mp = 20000; });
     const before = structuredClone(prof(h));
-    // Plaster, Sunglasses, Bakura's garms (boy), Academy Tracksuit (boy and girl), Jaden's garms
+    // Plaster, Sunglasses, Bakura's Eyepatch (boy), Academy Tracksuit (boy and girl), Jaden's garms
     const stale = [33, 80, 84, 131, 387, 135].map((bit) => [oldIid(bit), 1] as [number, number]);
     expect(stale.every(([iid]) => iid >= FIRST_AVATAR_IID)).toBe(true);
     const r = await buy(A, cart(...stale));

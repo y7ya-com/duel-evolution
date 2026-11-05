@@ -17,7 +17,7 @@ const hex = (b: ArrayLike<number>) => Buffer.from(Uint8Array.from(b as number[])
 // Male looks: [sex, hair, accessory, nose, eyes, mouth, outfit, back hair, disk, glasses, 0 x3, skin, hair colour, eye colour]
 const look = (o: Partial<Record<"hair" | "acc" | "outfit" | "disk" | "glasses", number>>, world: 0 | 1) =>
   Uint8Array.from([0, o.hair ?? 0, o.acc ?? 0x20, 0x30, 0x40, 0x60, o.outfit ?? (world ? 0x80 : 0x70), 0x90, o.disk ?? (world ? 0xb8 : 0xb0), o.glasses ?? 0x20, 0, 0, 0, 1, 2, 3]);
-/** Items A owns: Afro (10-12), Afro IV (13), Plaster (33), Sunglasses (80), Bakura's Garms (84), Black Suit (119,
+/** Items A owns: Afro (10-12), Afro IV (13), Plaster (33), Sunglasses (80), Bakura's Eyepatch (84), Black Suit (119,
  *  Domino), Jaden's Costume (135, Academy), Battle City Black (177, Domino-made disk), Academy Black (185). */
 const OWNED = [10, 11, 12, 13, 33, 80, 84, 119, 135, 177, 185];
 

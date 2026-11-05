@@ -440,7 +440,7 @@ describe("2026-11 owner rules: split pairs, single-body drops, rarities, worlds 
       return [box.id, Object.fromEntries((["common", "rare", "super", "ultra"] as const).map((t) => [t, [d.poolByRarity[t].count, d.poolByRarity[t].singleBody]]))];
     }));
     expect(table).toEqual({
-      head: { common: [11, 9], rare: [3, 2], super: [2, 1], ultra: [1, 0] },   // Afro I-III (c, c, r) are one Afro (c)
+      head: { common: [10, 8], rare: [4, 3], super: [2, 1], ultra: [1, 0] },   // Afro I-III (c, c, r) are one Afro (c); Bald (single-body) is rare
       dueldisk: { common: [8, 0], rare: [6, 0], super: [6, 0], ultra: [7, 0] },
       outfit: { common: [6, 6], rare: [2, 1], super: [2, 1], ultra: [3, 2] },
     });

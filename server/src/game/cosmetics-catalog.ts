@@ -128,7 +128,7 @@ export const ownedCosmeticIds = (id: string, legacy = false): string[] => {
 // cloak outfits and are not separate items. duelforge has no hair/headwear rarities (they are
 // free there), so these tiers are this server's own. Afro I-III are one item (MERGED_FAMILIES).
 const HEAD: Record<number, [CosmeticKind, number, string, string, CosmeticRarity]> = {
-  3263: ["hair", 1, "skinhead", "Shaved Hair", "common"],
+  3263: ["hair", 1, "skinhead", "Bald", "rare"],
   3264: ["hair", 1, "quiff-1", "Quiff I", "common"],
   3265: ["hair", 1, "quiff-2", "Quiff II", "rare"],
   3266: ["hair", 1, "quiff-3", "Quiff III", "super"],
@@ -146,7 +146,7 @@ const HEAD: Record<number, [CosmeticKind, number, string, string, CosmeticRarity
   3407: ["accessory", 9, "blue-specs", "Blue Specs", "common"],
   3408: ["accessory", 9, "pink-specs", "Pink Specs", "common"],
   3409: ["accessory", 9, "frameless-specs", "Frameless Specs", "common"],
-  3534: ["accessory", 9, "bakura", "Bakura's Garms", "ultra"],
+  3534: ["accessory", 9, "bakura", "Bakura's Eyepatch", "ultra"],
 };
 // Authored design descriptions; the metadata supplies actual gender bits. Male and female
 // rows of a disk share number and text (e.g. 177/433), so every disk is a verified pair.

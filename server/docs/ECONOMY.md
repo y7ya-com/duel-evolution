@@ -227,14 +227,16 @@ boxes. A change in progress in this worktree also withdraws slots 2 and 9 from t
 
 | Box | Reworked catalog: pool (c / r / s / u) | Deployed catalog, projected |
 |---|---|---|
-| Head & Hair | **7** (3 / 2 / 1 / 1): Afro I-IV (c, c, r, s); Green Specs (c), Sunglasses (r), Bakura's Garms (u) | 7 (3 / 2 / 2 / 0). The glasses rarities were *assumed* from their 2008 price, with Bakura's Garms as super. |
+| Head & Hair | **7** (3 / 2 / 1 / 1): Afro I-IV (c, c, r, s); Green Specs (c), Sunglasses (r), Bakura's Eyepatch (u) | 7 (3 / 2 / 2 / 0). The glasses rarities were *assumed* from their 2008 price, with Bakura's Eyepatch as super. |
 | Duel Disk | **27** (11 / 6 / 3 / **7**). All 4 Battle City Alpha colourways plus the 3 other Golds are ultra. | 27 (8 / 11 / 4 / 4) |
 | Outfit | **6** (4 / 0 / 1 / 1): Street I-III and Black Suit (c), Qualifier's Robe (s), Marik's Costume (u) | 6 (3 / 1 / 1 / 1) |
 
-Excluded for having only one body: Quiff I-III, Shaved Hair, Ponytail, Plaster (slot 2), the 6 one-body glasses,
+Excluded for having only one body: Quiff I-III, Bald, Ponytail, Plaster (slot 2), the 6 one-body glasses,
 Kaiba, Joey, the fitted-duelist (Yugi/Tea) design, and every `ac_*` costume. Every disk has both bodies, but 12 equip
 only in Domino and 15 only in Academy (`worlds`). A player who only uses one world therefore cannot wear about half of
 the disk drops there.
+(Since then single-body items drop for both bodies too, and on 2026-11-05 Shaved Hair became **Bald**, Rare, and
+Bakura's Garms **Bakura's Eyepatch**: the live pool and its odds are `cosmetics-catalog.ts`'s, disclosed in the shop.)
 
 **Expected cost.** Seeded Monte Carlo, 40,000 runs per row. "Days" uses the 525 MP median play day and the 1,100 MP
 p75 day. "Prot." means duplicate protection: the item is drawn among the rolled tier's **unowned** items while any
@@ -282,7 +284,7 @@ Deployed catalog, projected pools (cross-check):
     four Gold colourways as the chase items. Duelforge also makes the whole Alpha (Skywing) silhouette legendary,
     but it backs that up with shard picks.
   - If the seven ultras are kept, use `ultraAt 10` for the disk box instead (57.7 boxes).
-- **The head box needs ultra pity once it has an ultra.** Bakura's Garms at 1% with no ultra pity takes 46 boxes
+- **The head box needs ultra pity once it has an ultra.** Bakura's Eyepatch at 1% with no ultra pity takes 46 boxes
   (23,000 MP) on average, and the p90 to complete the box is 103 boxes.
 - **Outfits:** the single ultra gates the whole pool. Ultra pity at 15 with a 4% weight puts the first ultra at about
   10-11 boxes, instead of 17, and caps it at 15.
