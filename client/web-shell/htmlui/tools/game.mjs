@@ -5,7 +5,7 @@
 // COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
 // SHIP=<infra/out/<prefix>> (a DRY=1 ship-client.sh): the page as shipped instead (index.html at /, its own scripts and
 // the bridge it injects; loader/ from web-shell/loader). HTMLUI=on: /htmlui.json turns CWindowPlayerSelect on (the
-// R2 file the owner's approval adds); otherwise it is absent, as it ships.
+// R2 file the owner's approval adds), HTMLUI=<file>: that file (live's); otherwise it is absent.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -45,6 +45,9 @@ const srv = createServer((req, res) => {
   if (p.includes('..')) { res.writeHead(403, ISO); return res.end(); }
   if (/^\/(api|yo2|app)\/|^\/__warm/.test(p)) return forward(req, res);
   if (p === '/htmlui.json') {
+    // HTMLUI=<file>: that htmlui.json as is (live's: curl https://original.ygoevolution.com/htmlui.json), the page then
+    // runs with the site's switches (its classes on, Modern UI parked)
+    if (HTMLUI && HTMLUI !== 'on') { res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' }); return res.end(readFileSync(HTMLUI)); }
     if (HTMLUI !== 'on') { res.writeHead(404, ISO); return res.end(); }
     res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ on: ['CWindowPlayerSelect'] }));
