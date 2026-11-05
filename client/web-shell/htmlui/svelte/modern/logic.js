@@ -61,16 +61,19 @@ export function chatLine(s) {
   const m = /^([^:：]{1,24})[:：]\s?(.*)$/s.exec(t);
   return m ? { name: m[1], text: m[2] } : { text: t };
 }
-// the tabs: the shown ones left to right but Proximity Chat (the server has no proximity channel: a line sent there goes
-// to Global, server/src/game/chat.ts; ovr/chatfree.c hides it in a runtime built with it); logTabs: every shown tab, the
-// logs' partners by order
+// the chat's parts. tabs: left to right, each with its log (the reader's pairs, read/chat.js; without them, the logs in
+// tab order) and a short name ('All Chat' -> 'All', 'TRADE' -> 'Trade'). The Duel Log tab (ovr/duellog.c, the duel
+// screen) is left out (owner: no use to anyone).
+// mode: the engine's height (0 tall, 1 short, 2 collapsed), from the reader or else the window's height
 export function chatParts(win) {
-  const cs = win.controls, logTabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x);
+  const cs = win.controls, byId = new Map(cs.map(c => [c.id, c])), logs = cs.filter(c => c.cls === 'CWindowTaskTextlist');
+  const tabs = cs.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x).map((t, i) => {
+    const pair = win.pairs?.find(p => p.tab === t.id), label = nice(untag(t.label).trim());
+    return { id: t.id, label, short: label.replace(/\s+chat$/i, ''), active: !!t.active, enabled: t.enabled !== false,
+      log: (pair ? byId.get(pair.log) : logs[i]) || null };
+  }).filter(t => !/^duel log$/i.test(t.label));
   return {
-    tabs: logTabs.filter(t => !/^proximity chat$/i.test(untag(t.label).trim())),
-    logTabs,
-    // one log per tab, the active tab's shown
-    log: cs.find(c => c.cls === 'CWindowTaskTextlist' && c.shown) || cs.find(c => c.cls === 'CWindowTaskTextlist'),
+    tabs,
     input: cs.find(c => /CWindowTaskInput$/.test(c.cls) && top(c)),
     // the line, drawn only as the game shows it (the deck editor's chat, folded to its bar, has none)
     typing: cs.some(c => /CWindowTaskInput$/.test(c.cls) && top(c) && c.shown),
