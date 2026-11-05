@@ -17,7 +17,7 @@ export function engineBars(clip) {
   const layer = document.createElement('div');
   layer.id = 'htmlui-bars';
   Object.assign(layer.style, { position: 'fixed', left: 0, top: 0, width: '1024px', height: '768px', transformOrigin: '0 0',
-    pointerEvents: 'none', zIndex: 4 });   // under the HTML host (5): an HTML window in front covers a bar
+    pointerEvents: 'none', zIndex: 3 });   // under the HTML host (4): an HTML window in front covers a bar
   const live = new Map();   // bar id -> { el, inner, at (the value the box shows), want (the value sent), wantFrames }
 
   // the engine's value v as the box's scroll offset, and back

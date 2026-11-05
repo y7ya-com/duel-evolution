@@ -7,10 +7,11 @@
 // are native boxes (scrollbars.js) unless htmlui.json has "scrollbars": false or the page ?HTML_SCROLL=0.
 // Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
+import { writeClasses, WINDOWS } from './tables.js';
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
-import { cursorCss, ripple } from './cursor.js';
+import { cursorCss, ripple, HD } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
@@ -22,22 +23,26 @@ import { mountCardShop } from './shop/index.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
+const HOLD = 3000;   // ms a window waits for the loading layer before the engine draws it (start's frame)
 
 // svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
 // screens/<group>.js (htmlui.json "svelte" / ?HTML_SVELTE=, switches() syntax by group name: deck, chat ...; none by
 // default until the group's flip pairs match). No build there: the plain module stays.
+// The modules load in parallel (one by one they were ~36 round trips before the first HTML window, seconds on a phone);
+// they are applied in SCREENS order, as before.
 export async function loadScreens(base = new URL('./screens/', import.meta.url), svelte = () => false) {
-  for (const n of SCREENS) {   // read/<group>.js: a screen group's reader extension (read.js extend), if it has one
-    const m = await import(new URL(`../read/${n}.js`, base)).catch(() => null);
-    if (m?.default) extend(m.default);
-  }
+  const get = u => import(u).catch(() => null);
+  const [readers, plain, gen] = await Promise.all([
+    Promise.all(SCREENS.map(n => get(new URL(`../read/${n}.js`, base)))),   // read/<group>.js: a group's reader extension
+    Promise.all(SCREENS.map(n => get(new URL(n + '.js', base)))),
+    Promise.all(SCREENS.map(n => svelte(n) && import(new URL(`../gen/${n}.js`, base)).catch(e => console.warn('htmlui svelte', n, e)))),
+  ]);
+  for (const m of readers) if (m?.default) extend(m.default);
   const by = new Map();
-  for (const n of SCREENS) {
-    const m = await import(new URL(n + '.js', base)).catch(() => null);
-    for (const c of m?.default?.classes || []) by.set(c, m.default);
-    const s = svelte(n) && await import(new URL(`../gen/${n}.js`, base)).catch(e => console.warn('htmlui svelte', n, e));
-    for (const c of s?.default?.classes || []) by.set(c, s.default);
-  }
+  SCREENS.forEach((n, i) => {
+    for (const c of plain[i]?.default?.classes || []) by.set(c, plain[i].default);
+    for (const c of gen[i]?.default?.classes || []) by.set(c, gen[i].default);
+  });
   return by;
 }
 
@@ -51,11 +56,10 @@ export function switches(spec, defaults = []) {
   return c => s.has(c);
 }
 
+// The layer sits where the engine's windows sit: over the canvas (1) and the native scroll bars (3), under the loader's
+// box (#loading, 5: the boot, a scene's "Loading..." veil), which covers HTML windows as it covers the game's
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
-  pointer-events: none; z-index: 5; }
-/* hidden through a scene load by visibility, not display: none, which restarted every CSS animation in it (each window
-   played its entrance again after every load) */
-#htmlui-host[hidden] { display: block; visibility: hidden; }
+  pointer-events: none; z-index: 4; }
 #htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }
@@ -233,20 +237,31 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const st = document.createElement('style');
   st.textContent = CURSOR_CSS;
   document.head.append(st);
-  // The layer (screens, atlases, the host) loads only once the switches want a window or task the game shows: a page
-  // with htmlui.json off for every class loads none of it (it used to block every boot on the atlases)
+  // The layer (screens, atlases, the host) loads in the background, never in the boot's way: from the start when a
+  // class is on (init below), else once one is wanted (yo2Html.toggle); a page with every class off loads none of it
   // Modern UI (modern.js): its screens over the legacy ones while on; screens.get / has ask it first
   const mu = modernUi({ defaults, canvas });
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
+  let initFailed = false, heldSince = 0;
+  let loadStarted = 0;
   const init = () => loading ||= (async () => {
-    legacy = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
+    loadStarted = performance.now();
+    const mods = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
+    legacy = mods;   // known owners while the layer loads: class holds obey the same HOLD deadline
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);
-    ({ render } = await makeLayer(host, screens));
+    const layer = await makeLayer(host, screens);
+    // preload(): a screen's own art (the menu bar's HD icons), there before its first window instead of swapped in
+    // under it; it never fails the layer
+    await Promise.all([...new Set(mods.values())].map(m => m.preload?.().catch(() => {})));
+    ({ render } = layer);
     place();
-  })().catch(e => console.warn('htmlui', e));
+  })().catch(e => { initFailed = true; console.warn('htmlui', e); });
+  // Loaded from the start when any class is on, not at the first window that wants it: that window was the engine's
+  // until the layer came (seconds on a slow line), then swapped to the HTML one (players: "flickers as it loads")
+  if (defaults.on?.length || (spec && spec !== '0')) init();
   // ponytail: the sprites keep the 1x half-texel shift at any scale: the engine renders at 1x and the browser
   // upscales its canvas, so 0.5 game px IS its shift (a 0.5 / dpr shift misaligned the art: 2x flip 95 % -> 73 %)
   // the click ripple (cursor.js ripple()): the game's sprites at its positions, in a layer over everything, so the CSS
@@ -263,14 +278,16 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       if (!e) {
         e = fxEls[i] = document.createElement('div');
         Object.assign(e.style, { position: 'absolute', overflow: 'hidden' });
-        e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '' }));
+        // the HD redraw (cursor.js HD) when there is one, else the 1x art
+        e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '', onerror() { this.dataset.hd = '0'; this.src = this.src.replace('/hd/', '/'); } }));
         Object.assign(e.firstChild.style, { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', maxWidth: 'none' });
         fx.append(e);
       }
-      const [sx, sy, sw, sh] = s.src, src = 'ui/' + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
+      const im = e.firstChild, r = im.dataset.hd === '0' ? 1 : HD;
+      const [sx, sy, sw, sh] = s.src, src = (r === 1 ? 'ui/' : 'ui/hd/') + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
       Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
-      if (e.firstChild.getAttribute('src') !== src) e.firstChild.src = src;
-      e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
+      if (im.getAttribute('src') !== src) im.src = src;
+      im.style.transform = `scale(${s.wsx / r}, ${s.wsy / r}) translate(${-sx * r}px, ${-sy * r}px)`;
     });
   };
   const bars = engineBars(clip);
@@ -320,7 +337,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (kind === 'begin') closeShop();
     scene = to; switching = kind === 'begin';
     coverScene(kind, from, to, frameNo);   // the card shop's cover (shop/cover.js): up before the engine draws the shop scene, or its way out
-    if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
+    if (!switching) endFrame = frameNo;
   };
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -396,20 +413,35 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
   // slots: the runtime's table size, after a header word that holds it (htmlui.c checks the word is still there: an
-  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header
-  Module.onYo2Frame = (tables, heap, slots) => {
+  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header. classes: an optional
+  // appended count + primary-vtable table; no fourth argument means address-only suppression
+  Module.onYo2Frame = (tables, heap, slots, classes) => {
     SLOTS = slots || 63;
-    try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+    if (classes) new Uint32Array(heap.buffer)[classes >>> 2] = 0;
+    try { frame(slots ? tables + 4 : tables, heap, classes); } catch (e) {
+      // A broken layer must never leave class ownership latched in the runtime.
+      const H = new Uint32Array(heap.buffer), t = (slots ? tables + 4 : tables) >>> 2;
+      if (classes) H[classes >>> 2] = 0;
+      H[t] = H[t + 1 + SLOTS] = 0;
+      if (failed++ < 5) console.warn('htmlui: frame failed', e);
+    }
   };
-  function frame(tables, heap) {
+  function frame(tables, heap, classes) {
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
     const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
-    if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();
+    const wanted = !render && [...snap.windows, ...snap.tasks].some(w => want(w.cls));
+    if (wanted) init();
+    // the layer still loading: the windows it will draw are held back (the engine does not draw them either) for up to
+    // HOLD ms, so a window comes up once, in HTML, not as the engine's first and then swapped; past that (or the layer
+    // failed) the engine draws them until it comes
+    if (!wanted) heldSince = 0; else if (!heldSince) heldSince = performance.now();
+    const hold = wanted && !initFailed && performance.now() - heldSince < HOLD;
     const all = [...snap.windows, ...snap.tasks.filter(t => screens.has(t.cls))];
     const owned = new Set(render ? all.filter(w => want(w.cls)).slice(-SLOTS).map(w => w.id) : []);
+    const held = hold ? [...snap.windows, ...snap.tasks].filter(w => want(w.cls)).map(w => w.id) : [];
     wantParts = new Set(all.filter(w => owned.has(w.id) && screens.get(w.cls)?.parts).map(w => w.id));
     // isolate (the flip test): everything but one window hidden, so both captures have the same (empty) backdrop.
     // The window's top CTask ancestor goes into the hide table; an engine-drawn window passes (the nearest listed
@@ -433,20 +465,23 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
     // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
     const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
-    // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
-    // stays hidden through a scene load and while the loader's box (#loading: the boot, a scene's "Loading...") is up,
-    // and shows with the first frame the engine presents after the scene's end, as its own windows would
+    // Through a scene load the HTML windows do what the engine's do: they stay (a window that lives on, the menu bar,
+    // never blinks), under the loader's veil (z-order, CSS above), darkened by the engine's screen fader (below). The
+    // layer used to hide from a scene's begin until a while after its end and the loader's box: over the veil it had to,
+    // but every persistent window then went away and came back, and popped in after the scene had faded in (players:
+    // "loads, disappears, loads again", "the bottom bar still flickers"). wait: Modern UI's own rule, unchanged
     const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
-    // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
-    // through a scene load
-    const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
-    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
+    // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden
+    const barIds = barsOn ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
+    const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...held, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
     coverFrame(frameNo, switching, snap);
-    if (host && host.hidden !== wait) host.hidden = wait;
-    if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
+    // the screen fader (read.js snapshot.fader): the engine multiplies its whole frame, windows included, by k; the
+    // HTML windows and the native bars get the same factor (a grey one: the fades measured are black)
+    const k = snap.fader ? (snap.fader.k[0] + snap.fader.k[1] + snap.fader.k[2]) / 3 : 1, dim = k < 0.998 ? `brightness(${k.toFixed(3)})` : '';
+    for (const el of [host, bars.layer]) if (el && el.style.filter !== dim) el.style.filter = dim;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
@@ -468,6 +503,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     }
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    // Advertised separately: old runtimes keep their exact layout. Publish future owners too, while no instance
+    // exists yet; only primary vtables, never a control's secondary interface. A failed/late layer releases holds.
+    writeClasses(H, classes, SLOTS, c => want(c) && (screens.has(c) || WINDOWS.has(c)),
+      !!render || (!!loading && !initFailed && performance.now() - loadStarted < HOLD));
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   }
 

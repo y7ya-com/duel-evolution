@@ -64,7 +64,7 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   if (mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   const go = async (url, ready = 'window.__ready') => {
     await send('Page.navigate', { url });
-    for (let i = 0; i < 100; i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
+    for (let i = 0; i < +(process.env.CDP_READY_POLLS || 100); i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
     throw new Error('not ready: ' + url + '\n' + logs.join('\n'));
   };
   const shot = async (clip) => {
