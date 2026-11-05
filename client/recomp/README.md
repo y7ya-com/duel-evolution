@@ -196,38 +196,27 @@ balance is pinned at 0x7fffffff after both handlers, so no gate trips whatever t
 DUELPASS entry (the only way into the DUELPASS windows, the only places the balance is shown) is hidden;
 `ovr/audiomenu.c`'s showEntry override does it, and arrange() closes the gap. `RC_DP=1` restores both.
 
-## Disks and outfits in either world
+## One look, any part in either world
 
-`ovr/worldparts.c`: any duel disk, and the Academy outfits (0x7f and up, series 3), can be worn in both worlds; the
-Domino outfits (the QUALIFIER's Robe included) stay in Domino, as on the server (`avatarRowWorlds`). It overrides
-avatarValidate (0x00a58cc0: the check that reset the whole avatar, run by the chibi renderer, player select and the
-appearance editor), CPbinDictionary::collect (0x00ad5ab0: the appearance editor's part lists) and the avatar shop's list
-(CShopAvatarWindow vf10, 0x00afac40). Every other slot keeps the exe's series rule. Test: `make worldparts_test &&
-build/worldparts_test`. `RC_WORLDPARTS=0` restores the original.
+`ovr/worldparts.c`: there is no Domino vs Academy split. A character has one look, drawn the same everywhere, and may
+wear anything it owns in either world. The server enforces ownership and the one rank rule, the dorm uniforms of a
+school not yet reached (`server/src/game/ranking.ts`, `cosmetics.ts` lawfulLook), so the client drops every series
+(world) test the exe makes on avatar parts:
+- avatarValidate (0x00a58cc0: the check that reset the whole avatar, run by the chibi renderer, player select and the
+  appearance editor) always runs with checkSeries false, on every slot. The exe's sex, slot and colour checks, and
+  their reset, stay.
+- CPbinDictionary::collect (0x00ad5ab0: the appearance editor's part lists) lists every owned part of the slot,
+  whatever its series.
+- The avatar shop's list (CShopAvatarWindow vf10, 0x00afac40) sees every row as series 1, wearable in both worlds.
+- The editor's LV gate on the dorm uniforms (CWindowDialogAvatarSwitch::refresh, 0x008ae060: Ra Yellow at 10,
+  Obelisk Blue at 20) is lifted when the server's 0x3114 bits carry 1022 (rank-authored, no item): the active
+  character's LV reads 255 for that call, and the server's rank bits decide. Without bit 1022 (an older server, a new
+  character's starter bits) the LV gate stays. Bit 1023 (graduated) may still be sent and changes nothing.
 
-Rank uniforms and graduated students (`server/src/game/ranking.ts`, server/DESIGN.md) are enforced by the server,
-which knows every rating and LV. A rank uniform, once its school is reached, is kept for good; a graduated student
-(LV 20, `GRADUATION_LEVEL`) may wear any owned outfit in the Academy. So:
-- avatarValidate draws any outfit in either world: a graduated student's Domino outfit in the Academy is drawn, not
-  reset to the default on everyone else's screen. Every other slot keeps the exe's series rule, which is the
-  server's too.
-- The editor follows the server's 0x3114 bits. They clear the uniforms of a school never reached, and set two bits
-  that have no item (avatar_pbin kind 0):
-  - 1022 (rank-authored): the refresh override (CWindowDialogAvatarSwitch::refresh, 0x008ae060) makes the active
-    character's LV read 255 for that call, so the exe's LV gate (Ra Yellow at 10, Obelisk Blue at 20) removes
-    nothing.
-  - 1023 (graduated): collect lists every owned outfit in both worlds.
-- Without bit 1022 (an older server, a new character's starter bits) the LV gate stays.
-- The shop list keeps the world rule.
-
-`build/worldparts_test` part 6 checks that the drawing check never resets another player's lawful look: every
-combination of hair, accessory, outfit, disk and glasses rows the server lets anyone wear (a graduated student's, the
-widest), both sexes and both worlds, with the body features and colours cycling alongside, is drawn exactly as sent
-(382,800 looks with the real rows file).
-
-A client without this override still resets a graduated student's Domino outfit in the Academy to the default on its
-screen, and still gates by LV in its editor. The server accepts only what the rank and LV allow, so that client can
-show too little, never too much.
+Test: `make worldparts_test CC=gcc && build/worldparts_test [rows]`. Part 6 checks that the drawing check never resets
+another player's look: every combination of hair, accessory, outfit, disk and glasses rows of their slot, both sexes
+and both worlds, with the body features and colours cycling alongside, is drawn exactly as sent (382,800 looks with
+the real rows file). `RC_WORLDPARTS=0` restores the original.
 
 ## Overrides (stage 3)
 

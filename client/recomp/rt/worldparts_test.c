@@ -1,4 +1,4 @@
-// ovr/worldparts.c, the world rule for clothes and duel disks, over a stand-in guest: the PBIN dictionary, the owned
+// ovr/worldparts.c, one look and no world rule for avatar parts (owner, 2026-11-05), over a stand-in guest: the PBIN dictionary, the owned
 // flags and the part vector are host fakes behind rc_call, and o_00a58cc0 / o_00ad5ab0 are models of the exe's
 // avatarValidate and collect (src/Game/yo2GameManager.cpp, src/Game/yo2PlayerBin.cpp; game_manager_test checks the
 // former on the real PBIN map). The rows are synthetic, shaped like the real ones; `build/worldparts_test <rows>`
@@ -30,8 +30,8 @@ static void synthetic_rows(void) {   // per sex: the real slots and series of cl
     for (int sex = 0; sex < 2; sex++) {
         int base = sex * 0x100, kind = sex + 1;
         for (int n = 0; n < 0x0e; n++) put_row(base + n, n, kind, 1, 1);
-        put_row(base + 0x0e, 0x0e, kind, 1, 2);   // a Domino-only and an Academy-only hair: other slots keep the
-        put_row(base + 0x0f, 0x0f, kind, 1, 3);   // exe's rule
+        put_row(base + 0x0e, 0x0e, kind, 1, 2);   // a Domino-only and an Academy-only hair (the exe's series): worn
+        put_row(base + 0x0f, 0x0f, kind, 1, 3);   // in both worlds now
         for (int n = 0x20; n < 0x24; n++) put_row(base + n, n, kind, 2, 1);
         put_row(base + 0x30, 0x30, kind, 3, 1);
         put_row(base + 0x40, 0x40, kind, 4, 1);
@@ -148,14 +148,7 @@ static int is_default(const uint8_t *b, int world) {
     return !memcmp(b, d, 16);
 }
 
-// the editor's rule: clothes and disks of their slot; outfits numbered 0x7f and up, or series 3, in either world,
-// the rest in Domino; any disk in either world
-static int expect_ok(int sex, int clothes, int disk, int world) {
-    const Row *cl = &rows[sex * 0x100 + clothes], *dk = &rows[sex * 0x100 + disk];
-    return cl->slot == 6 && dk->slot == 8 && (world == 0 || clothes >= 0x7f || cl->series == 3);
-}
-// what avatarValidate draws: any outfit and any disk of their slot in either world (the server checks the world and
-// the rank: a graduated student's Domino outfit in the Academy must be drawn, not reset)
+// what avatarValidate draws: any outfit and any disk of their slot in either world, whatever the series
 static int expect_drawn(int sex, int clothes, int disk) {
     return rows[sex * 0x100 + clothes].slot == 6 && rows[sex * 0x100 + disk].slot == 8;
 }
@@ -219,10 +212,10 @@ int main(int argc, char **argv) {
         synthetic_rows();
     }
     memset(owned, 1, sizeof owned);
-    owned[PBIN_GRADUATED] = owned[PBIN_RANKED] = 0;   // no item: the server's flags (set in 3b and 5)
+    owned[PBIN_GRADUATED] = owned[PBIN_RANKED] = 0;   // no item: the server's flags (set in 3 and 5)
     uint8_t in[16], out[16], ref[16];
 
-    // 1. every clothes x disk byte, both sexes, both worlds
+    // 1. every clothes x disk byte, both sexes, both worlds: kept whenever the slots are right, whatever the series
     int kept = 0;
     for (int sex = 0; sex < 2; sex++)
         for (int world = 0; world < 2; world++)
@@ -238,9 +231,21 @@ int main(int argc, char **argv) {
                         assert(is_default(out, world));
                     }
                 }
-    // the cases named in the rule: what is DRAWN (the editor's lists keep the world rule: part 3)
+    // every row of every slot, both sexes, both worlds, alone in an otherwise default look: kept iff of its slot
+    for (int sex = 0; sex < 2; sex++)
+        for (int world = 0; world < 2; world++)
+            for (int slot = 1; slot <= 9; slot++)
+                for (int n = 0; n < 0x100; n++) {
+                    set_default(in, world);
+                    in[0] = sex, in[slot] = n;
+                    validate_on(f_00a58cc0, in, world, 1, out);
+                    if (slot == 9 && n == 0) in[9] = 0x20;   // the exe's ACCESSORY2 0 -> none
+                    int none = (slot == 2 || slot == 9) && in[slot] == 0x20, mine = rows[sex * 0x100 + n].slot == slot;
+                    assert(mine || none ? !memcmp(in, out, 16) : is_default(out, world));
+                }
+    // the named cases
     struct { int sex, clothes, disk, world, ok; } named[] = {
-        {0, 0x70, 0xb8, 0, 1}, {0, 0x70, 0xb0, 1, 1},   // a Domino outfit in the Academy: drawn (a graduated student)
+        {0, 0x70, 0xb8, 0, 1}, {0, 0x70, 0xb0, 1, 1},   // a Domino outfit in the Academy
         {0, 0x80, 0xb0, 0, 1}, {0, 0x82, 0xd7, 0, 1},   // Academy outfits (uniforms too) and disks in Domino
         {0, 0x80, 0xb0, 1, 1}, {0, 0x80, 0xc4, 1, 1},   // Domino disks in the Academy
         {0, 0x78, 0xb0, 0, 1}, {0, 0x78, 0xb8, 1, 1},   // the QUALIFIER's Robe (series 1), both worlds
@@ -254,8 +259,31 @@ int main(int argc, char **argv) {
         validate_on(f_00a58cc0, in, named[k].world, 1, out);
         assert(named[k].ok ? !memcmp(in, out, 16) : is_default(out, named[k].world));
     }
+    // every part whose row is one world's only (series 2 Domino, 3 Academy), any slot: drawn in the other world too
+    int oneWorld = 0;
+    for (int sex = 0; sex < 2; sex++)
+        for (int n = 0; n < 0x100; n++) {
+            const Row *r = &rows[sex * 0x100 + n];
+            if (r->kind != sex + 1 || r->slot < 1 || r->slot > 9 || (r->series != 2 && r->series != 3)) continue;
+            int other = r->series == 2;   // the Academy for a Domino part, Domino for an Academy one
+            set_default(in, other), in[0] = sex, in[r->slot] = n;
+            validate_on(f_00a58cc0, in, other, 1, out), assert(!memcmp(in, out, 16));
+            oneWorld++;
+        }
+    assert(oneWorld > 0);
+    // the exe's own checks still reset: a bad sex, a part of another slot, a colour out of range
+    for (int world = 0; world < 2; world++) {
+        set_default(in, 1 - world), in[0] = 2;
+        validate_on(f_00a58cc0, in, world, 1, out), assert(is_default(out, world));
+        set_default(in, 1 - world), in[1] = 0x30;
+        validate_on(f_00a58cc0, in, world, 1, out), assert(is_default(out, world));
+        for (int i = 13; i < 16; i++) {
+            set_default(in, 1 - world), in[i] = 8;
+            validate_on(f_00a58cc0, in, world, 1, out), assert(is_default(out, world));
+        }
+    }
 
-    // 2. the other bytes as in the exe, with clothes and disk both rules allow; and checkSeries false untouched
+    // 2. any input: exactly the exe with checkSeries false, whatever checkSeries says
     srand(1);
     static const uint8_t pool[] = {0x00, 0x01, 0x0e, 0x0f, 0x20, 0x21, 0x30, 0x40, 0x50, 0x51, 0x60, 0x90, 0x70,
                                    0x80, 0xb0, 0xb8, 0x00, 0x20, 0xff};
@@ -265,69 +293,44 @@ int main(int argc, char **argv) {
         in[0] = rand() % 9 ? rand() % 2 : rand() % 4;
         for (int i = 13; i < 16; i++) in[i] = rand() % 9;
         int check = rand() % 4 != 0;
-        if (check || rand() % 2) in[6] = world == 0 ? 0x70 : 0x80, in[8] = world == 0 ? 0xb0 : 0xb8;
+        if (rand() % 2) in[6] = rand() % 2 ? 0x70 : 0x80, in[8] = rand() % 2 ? 0xb0 : 0xb8;
         validate_on(f_00a58cc0, in, world, check | (rand() % 2 ? 0x100 : 0), out);   // only the low byte is the bool
-        validate_on(o_00a58cc0, in, world, check, ref);
+        validate_on(o_00a58cc0, in, world, 0, ref);
         assert(!memcmp(out, ref, 16));
     }
 
-    // 3. the editor's lists (series 2 in Domino, 3 in the Academy)
+    // 3. the editor's lists (series 2 in Domino, 3 in the Academy): every owned part of the kind and slot, both worlds
     int got[256], want[256];
-    for (int sex = 0; sex < 2; sex++)
-        for (int series = 2; series <= 3; series++) {
-            int n = list(f_00ad5ab0, sex, 8, series, got), m = 0;   // disks: all of them, in order
-            for (int i = sex * 0x100; i < sex * 0x100 + 0x100; i++)
-                if (rows[i].slot == 8 && rows[i].kind == sex + 1) want[m++] = i;
-            assert(n == m && m > 0 && !memcmp(got, want, sizeof *got * m));
-            n = list(f_00ad5ab0, sex, 6, series, got), m = 0;   // outfits: by the rule
-            for (int i = sex * 0x100; i < sex * 0x100 + 0x100; i++)
-                if (rows[i].slot == 6 && rows[i].kind == sex + 1 && expect_ok(sex, i & 0xff, 0xb0, series - 2)) want[m++] = i;
-            assert(n == m && m > 0 && !memcmp(got, want, sizeof *got * m));
-            for (int slot = 1; slot <= 9; slot++) {   // every other slot: as the exe
-                if (slot == 6 || slot == 8) continue;
-                n = list(f_00ad5ab0, sex, slot, series, got);
-                m = list(o_00ad5ab0, sex, slot, series, want);
-                assert(n == m && !memcmp(got, want, sizeof *got * m));
-            }
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass) {   // then with some parts not owned, and the server's graduated flag (no longer read) set
+            for (int i = 0; i < 0x400; i += 3) owned[i] = 0;
+            owned[0x70] = owned[0x80] = owned[0xb3] = owned[0x0e] = 0;
+            owned[PBIN_GRADUATED] = 1;
         }
-    // 3b. a graduated student (PBIN_GRADUATED): every owned outfit in either world; the other slots as before
-    owned[PBIN_GRADUATED] = 1;
-    for (int sex = 0; sex < 2; sex++)
-        for (int series = 2; series <= 3; series++) {
-            int n = list(f_00ad5ab0, sex, 6, series, got), m = 0;
-            for (int i = sex * 0x100; i < sex * 0x100 + 0x100; i++)
-                if (rows[i].slot == 6 && rows[i].kind == sex + 1) want[m++] = i;
-            assert(n == m && m > 0 && !memcmp(got, want, sizeof *got * m));
-            for (int slot = 1; slot <= 9; slot++) {
-                if (slot == 6) continue;
-                owned[PBIN_GRADUATED] = 0;
-                m = list(f_00ad5ab0, sex, slot, series, want);
-                owned[PBIN_GRADUATED] = 1;
-                n = list(f_00ad5ab0, sex, slot, series, got);
-                assert(n == m && !memcmp(got, want, sizeof *got * m));
-            }
-        }
-    owned[0x70] = 0;
-    {
-        int n = list(f_00ad5ab0, 0, 6, 3, got);
-        for (int i = 0; i < n; i++) assert(got[i] != 0x70);   // not owned: out, graduated or not
+        for (int sex = 0; sex < 2; sex++)
+            for (int series = 2; series <= 3; series++)
+                for (int slot = 1; slot <= 9; slot++) {
+                    int n = list(f_00ad5ab0, sex, slot, series, got), m = 0;
+                    for (int i = sex * 0x100; i < sex * 0x100 + 0x100; i++)
+                        if (owned[i] && rows[i].slot == slot && rows[i].kind == sex + 1) want[m++] = i;
+                    assert(n == m && !memcmp(got, want, sizeof *got * m));
+                    if (!pass && (slot == 6 || slot == 8)) assert(m > 0);
+                    for (int i = 0; i < n; i++) assert(owned[got[i]]);   // never one not owned
+                }
     }
-    owned[0x70] = 1, owned[PBIN_GRADUATED] = 0;
-
-    owned[0xb3] = owned[0x80] = 0;   // parts not owned stay out
-    int n = list(f_00ad5ab0, 0, 8, 3, got);
-    for (int i = 0; i < n; i++) assert(got[i] != 0xb3);
-    n = list(f_00ad5ab0, 0, 6, 2, got);
-    for (int i = 0; i < n; i++) assert(got[i] != 0x80);
     memset(owned, 0, sizeof owned);
     assert(list(f_00ad5ab0, 0, 8, 2, got) == 0);
+    memset(owned, 1, sizeof owned);
+    owned[PBIN_GRADUATED] = owned[PBIN_RANKED] = 0;
 
-    // 4. the avatar shop's list, and the dictionary as it was afterwards
+    // 4. the avatar shop's list: every row reads series 1 (so every part of the player's kind, any world value), and
+    // the dictionary as it was afterwards
     static uint8_t before[PI_SIZE * 0x400];
     memcpy(before, G(DICT + DICT_ROWS), sizeof before);
+    static const int worlds[] = {0, 1, 5};
     for (int sex = 0; sex < 2; sex++)
-        for (int world = 0; world < 2; world++) {
-            WR32m(MNG + 0x448, world);
+        for (size_t w = 0; w < sizeof worlds / sizeof *worlds; w++) {
+            WR32m(MNG + 0x448, worlds[w]);
             shop_kind = sex + 1;
             CPU c = cpu();
             c.ecx = 0x00340000;
@@ -337,24 +340,12 @@ int main(int argc, char **argv) {
             assert(c.esp == STACK && c.ret_to == 0x00abcdef && !memcmp(before, G(DICT + DICT_ROWS), sizeof before));
             int m = 0, clothes = 0, disks = 0;
             for (int i = 0; i < 0x400; i++) {
-                const Row *r = &rows[i];
-                if (r->kind != sex + 1) continue;
-                int ok = r->slot == 6 || r->slot == 8 ? expect_ok(sex, r->slot == 6 ? i & 0xff : 0x80, r->slot == 8 ? i & 0xff : 0xb0, world)
-                                                      : r->series == 1 || r->series == world + 2;
-                if (!ok) continue;
+                if (rows[i].kind != sex + 1) continue;
                 assert(m < shop_n && shop[m] == i);
-                m++, clothes += r->slot == 6, disks += r->slot == 8;
+                m++, clothes += rows[i].slot == 6, disks += rows[i].slot == 8;
             }
-            assert(m == shop_n && disks == 29 && clothes == (world ? (sex ? 7 : 12) : (sex ? 15 : 25)));
+            assert(m == shop_n && disks == 29 && clothes == (sex ? 15 : 25));
         }
-    WR32m(MNG + 0x448, 5);   // another world value: the exe's own list
-    shop_kind = 1;
-    CPU c = cpu();
-    for (int i = 0; i < 4; i++) PUSHm(&c, 0);
-    PUSHm(&c, 0x00abcdef);
-    f_00afac40(&c);
-    assert(c.esp == STACK && shop_n > 0);
-    for (int i = 0; i < shop_n; i++) assert(rows[shop[i]].series == 1 || rows[shop[i]].series == 3);
 
     // 5. the editor's LV gate: lifted (LV reads 255 for the call, then is put back) only with PBIN_RANKED in the dialog's
     // bits; without it (an older server, a new character's starter bits) the exe's gate sees the real LV
@@ -376,11 +367,10 @@ int main(int argc, char **argv) {
     WR32m(APP, 0);                                // no app yet: the same
     assert(refresh_sees() == -2);
 
-    // 6. what others see: every look the server lets anyone wear (server/src/game/cosmetics-catalog.ts avatarRowWorlds,
-    // ranking.ts rankRowAllowed with a graduated student, the widest case) is drawn exactly as sent, never reset:
-    // every combination of hair, accessory, outfit, duel disk and glasses rows (and "none"), both sexes, both worlds,
-    // with the body features (nose, eyes, mouth, back hair) and colours cycling through all of theirs alongside.
-    // The rank uniforms are Academy outfits (series 3): in both worlds. Ownership is the server's (not drawn here).
+    // 6. what others see: every look of right-slot parts (any series) is drawn exactly as sent, never reset: every
+    // combination of hair, accessory, outfit, duel disk and glasses rows (and "none"), both sexes, both worlds, with
+    // the body features (nose, eyes, mouth, back hair) and colours cycling through all of theirs alongside. Ownership
+    // and the dorm uniforms' rank gate are the server's (ranking.ts rankRowAllowed), not drawn here.
     int lawful = 0;
     for (int sex = 0; sex < 2; sex++)
         for (int world = 0; world < 2; world++) {
@@ -390,9 +380,7 @@ int main(int argc, char **argv) {
                 for (int n = 0; n < 0x100; n++) {
                     const Row *r = &rows[sex * 0x100 + n];
                     if (r->kind != sex + 1 || r->slot != slot || ((slot == 2 || slot == 9) && n == 0x20)) continue;
-                    int ok = slot == 8 ? 1 : slot == 6 ? 1 /* graduated: any outfit; else world 0, >= 0x7f or series 3 */
-                                     : r->series == 1 || r->series == world + 2;
-                    if (ok) cand[slot][nc[slot]++] = n;
+                    cand[slot][nc[slot]++] = n;
                 }
                 assert(nc[slot] > 0);
             }
@@ -411,20 +399,6 @@ int main(int argc, char **argv) {
                                 lawful++;
                             }
         }
-    {   // the named cases: a graduated student's Domino outfit in the Academy; a rank uniform in Domino; every disk
-        uint8_t g[16];
-        set_default(g, 1), g[6] = 0x77;   // Black Suit (male, Domino) in the Academy
-        validate_on(f_00a58cc0, g, 1, 1, out), assert(!memcmp(g, out, 16));
-        set_default(g, 0), g[6] = 0x82;   // Obelisk Blue in Domino
-        validate_on(f_00a58cc0, g, 0, 1, out), assert(!memcmp(g, out, 16));
-        for (int world = 0; world < 2; world++)
-            for (int n = 0; n < 0x100; n++)
-                if (rows[n].slot == 8 && rows[n].kind == 1) {
-                    set_default(g, world), g[8] = n;
-                    validate_on(f_00a58cc0, g, world, 1, out), assert(!memcmp(g, out, 16));
-                }
-    }
-
-    printf("worldparts_test ok (%d validations, %d clothes x disk pairs kept, %d lawful looks drawn as sent)\n", ncalls, kept, lawful);
+    printf("worldparts_test ok (%d validations, %d clothes x disk pairs kept, %d looks drawn as sent)\n", ncalls, kept, lawful);
     return 0;
 }
