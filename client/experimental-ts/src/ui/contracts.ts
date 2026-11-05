@@ -62,13 +62,16 @@ export interface DuelPromptView {
   readOnly?: boolean;
   numberMin?: number;
   numberMax?: number;
-  /** A card declaration's name suggestions (every catalog name; the server decides what is declarable). */
-  suggestions?: readonly string[];
+  /** A card declaration's candidate list, in the original's order (every card the list mode allows; the server still
+   * decides what is declarable): `id` is the passcode to declare. */
+  declarable?: readonly { id: string; label: string }[];
 }
 export interface DuelView {
   players: readonly [DuelistView, DuelistView];
   cards: DuelCardView[];
   prompt: DuelPromptView | null;
+  /** What to do in a selection made on the board itself (a target, a Tribute, a zone): the original's wording. */
+  instruction?: string;
   turn: number;
   turnPlayer: 0 | 1;
   phase: string;

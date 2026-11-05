@@ -1,6 +1,6 @@
 import type { CardView, DuelCardView, DuelView } from './contracts';
 import { DuelFx, type ArchiveLoader } from './duel-fx';
-import { WaistUpComposer } from './duel-portrait';
+import { WaistUpComposer, blinkSchedule, type EyeFrame } from './duel-portrait';
 import { fieldCardPosition } from './helpers';
 
 /** The original duel screen's furniture around the field, with its art: the two waist-up portraits between the backdrop
@@ -45,8 +45,16 @@ export function cardKindLine(card: CardView): string {
   return `[${[typeof card.race === 'string' && card.race ? card.race : '', ...kinds, attribute].filter(Boolean).join('/')}]`;
 }
 
+export interface DuelPresentationOptions { random?: () => number; setTimer?: (cb: () => void, ms: number) => unknown; clearTimer?: (id: unknown) => void }
+
 export class DuelPresentation {
   readonly fx: DuelFx;
+  /** Each side's portrait frames (eyes open, half shut, shut) and its blink timer. */
+  private readonly faces: [{ frames: Partial<Record<EyeFrame, HTMLCanvasElement>>; timer: unknown }, { frames: Partial<Record<EyeFrame, HTMLCanvasElement>>; timer: unknown }] = [{ frames: {}, timer: null }, { frames: {}, timer: null }];
+  private reduced = false;
+  private readonly random: () => number;
+  private readonly setTimer: (cb: () => void, ms: number) => unknown;
+  private readonly clearTimer: (id: unknown) => void;
   private readonly portraits: [HTMLCanvasElement, HTMLCanvasElement];
   private readonly portraitKeys: [string, string] = ['', ''];
   private readonly composer: WaistUpComposer | null;
@@ -62,7 +70,10 @@ export class DuelPresentation {
   private hovered: string | null = null;
   private infoKey = '';
 
-  constructor(private readonly load: ArchiveLoader | null) {
+  constructor(private readonly load: ArchiveLoader | null, options: DuelPresentationOptions = {}) {
+    this.random = options.random ?? Math.random;
+    this.setTimer = options.setTimer ?? ((cb, ms) => setTimeout(cb, ms));
+    this.clearTimer = options.clearTimer ?? (id => clearTimeout(id as ReturnType<typeof setTimeout>));
     this.fx = new DuelFx(load);
     this.composer = load ? new WaistUpComposer(load) : null;
     this.portraits = [0, 1].map(side => {
@@ -105,13 +116,14 @@ export class DuelPresentation {
       this.lastCue = duel.cues?.[duel.cues.length - 1]?.id ?? this.lastCue;
     }
     this.duel = duel;
+    if (reducedMotion !== this.reduced) { this.reduced = reducedMotion; for (const side of [0, 1] as const) this.blink(side); }
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
     this.renderInfo(); this.drawStats();
   }
   private lastCue: number | null = null;
-  dispose(): void { this.abort.abort(); this.statsLayer.remove(); this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove(); }
+  dispose(): void { for (const face of this.faces) { if (face.timer !== null) this.clearTimer(face.timer); face.timer = null; face.frames = {}; } this.abort.abort(); this.statsLayer.remove(); this.fx.dispose(); this.info.remove(); for (const p of this.portraits) p.remove(); }
 
   private drawStats(): void {
     const font = this.statsFont, ctx = this.statsLayer.getContext('2d'); if (!font || !ctx || !this.duel) return;
@@ -133,12 +145,35 @@ export class DuelPresentation {
     const canvas = this.portraits[side], key = parts ? Array.from(parts).join('.') : '';
     if (key === this.portraitKeys[side]) return;
     this.portraitKeys[side] = key;
+    const face = this.faces[side]; face.frames = {}; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
     if (!parts || !this.composer) { canvas.hidden = true; return; }
-    void this.composer.compose(parts, side === 0 ? 1 : 0, this.abort.signal).then(composed => {
-      if (this.portraitKeys[side] !== key) return;
-      const ctx = canvas.getContext('2d'); if (!ctx) return;
-      ctx.clearRect(0, 0, 768, 768); ctx.drawImage(composed, 0, 0); canvas.hidden = false; canvas.dataset.parts = key;
+    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal).then(frames => {
+      if (this.portraitKeys[side] !== key || !frames[1]) return;
+      face.frames = frames; canvas.dataset.parts = key;
+      this.showEyes(side, 1); canvas.hidden = false;
+      this.blink(side);
     }).catch(() => { canvas.hidden = true; });
+  }
+  private showEyes(side: 0 | 1, frame: EyeFrame): void {
+    const canvas = this.portraits[side], image = this.faces[side].frames[frame] ?? this.faces[side].frames[1];
+    const ctx = canvas.getContext('2d'); if (!ctx || !image) return;
+    ctx.clearRect(0, 0, 768, 768); ctx.drawImage(image, 0, 0); canvas.dataset.eyes = String(frame);
+  }
+  /** The portrait blinks as the original's does (duel-portrait.ts blinkSchedule); with reduced motion its eyes stay open. */
+  private blink(side: 0 | 1): void {
+    const face = this.faces[side];
+    if (face.timer !== null) { this.clearTimer(face.timer); face.timer = null; }
+    if (!face.frames[1]) return;
+    this.showEyes(side, 1);
+    if (this.reduced || !face.frames[2] || !face.frames[3]) return;
+    const steps = blinkSchedule(this.random);
+    const next = (i: number) => {
+      if (i >= steps.length) { this.portraits[side].dataset.blinks = String(Number(this.portraits[side].dataset.blinks ?? 0) + 1); this.blink(side); return; }
+      const [frame, ms] = steps[i]!;
+      this.showEyes(side, frame);
+      face.timer = this.setTimer(() => next(i + 1), ms);
+    };
+    next(0);
   }
 
   private renderInfo(): void {

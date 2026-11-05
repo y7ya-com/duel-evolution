@@ -3,6 +3,8 @@ import { deckCollection, sideboardDifference, defaultDeckFilters, parseDeckImpor
 import type { DeckCardType, DeckFilters, DeckSort } from './deck';
 import { deckPlacementReason, FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
+import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
+import { cardBadges, BADGE_CSS } from './duel-counters';
 import { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
@@ -92,7 +94,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let roomJoin: number | null = null, roomJoinPassword = '';
   const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + DECK_CHECK_CSS + WALLET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
@@ -164,6 +166,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
+  const announce = new AnnouncePanel();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   const avatarNodes = new Map<number, HTMLElement>();
   const avatarViews = new Map<number, AvatarView>();
@@ -245,6 +248,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     node.style.transform = motion ? `translate(-50%,-50%) rotate(${motion.rotation}deg) scaleX(${motion.scaleX})` : '';
     node.style.zIndex = motion?.zIndex === undefined ? '' : String(motion.zIndex);
     node.style.opacity = motion?.opacity === undefined ? '' : String(Math.max(0, Math.min(1, motion.opacity)));
+    // The original draws a card's badges upright whatever the card's position: turn them back.
+    const badges = node.querySelector?.<HTMLElement>('.de-card-badges');
+    if (badges) badges.style.transform = `rotate(${-(motion?.rotation ?? (p.rotate ? 90 : 0))}deg)`;
   };
   const canSkipRender = (previous: ClientView, next: ClientView) => {
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
@@ -712,6 +718,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       bar.append(cell);
     });
     board.append(bar);
+    // A choice made on the board itself (a target, a Tribute, a zone) says what to choose, without covering the board.
+    if (duel.instruction) { const line = el('div', 'de-duel-instruction', duel.instruction); line.setAttribute('role', 'status'); board.append(line); }
     if (state.relay) { const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = state.relay.players[2 * team + slot], active = state.relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? state.relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : state.relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } stage.append(roster); }
     const cards = el('div', 'de-field-cards');
     const visibleCardIds = new Set<string>();
@@ -733,8 +741,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
-      if (counters.length) b.append(el('span', 'de-card-counter', counters.map(counter => counter.kind === 0 ? String(counter.count) : `${counter.kind}:${counter.count}`).join(' · ')));
-      if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
+      // With the original art the counters are its coin and hourglass badges (duel-counters.ts); without it, text badges.
+      const badges = archive ? cardBadges(c, { image: path => archive(path) }) : null;
+      if (badges) { b.append(badges); placeFieldCard(b, c, handCount); }
+      else {
+        if (counters.length) b.append(el('span', 'de-card-counter', counters.map(counter => counter.kind === 0 ? String(counter.count) : `${counter.kind}:${counter.count}`).join(' · ')));
+        if (turnCounter > 0) b.append(el('span', 'de-card-turns', `Turns ${turnCounter}`));
+      }
       b.setAttribute('aria-label', (c.faceUp ? `${c.name}, ${c.controller ? 'opponent' : 'your'} ${c.zone}, ${c.position ?? ''}${counterText ? `, ${counterText}` : ''}${turnCounter ? `, ${turnCounter} turns` : ''}` : ownSet ? `${c.name} (set face-down), your ${c.zone}${c.zone === 'monster' ? `, ${c.position ?? ''}` : ''}` : `Face-down card, ${c.controller ? 'opponent' : 'your'} ${c.zone}`) + (selection ? `, ${selection.label}` : ''));
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
@@ -839,11 +852,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const form = el('form', 'de-row'), input = textField(`prompt-number:${prompt.id}`, String(prompt.numberMin ?? 0)); input.type = 'number'; input.min = String(prompt.numberMin ?? 0); input.max = String(prompt.numberMax ?? 0x7fffffff); input.setAttribute('aria-label', prompt.text);
       const b = el('button', 'gold', 'Confirm'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, b); form.onsubmit = e => { e.preventDefault(); respond({ number: Number(input.value) }); }; panel.append(form);
     }
-    if (prompt.kind === 'announce' && !prompt.candidates?.length) {
-      const form = el('form', 'de-row'), input = textField(`prompt-announcement:${prompt.id}`, '', 'Card name or passcode'); input.setAttribute('aria-label', 'Card announcement'); input.maxLength = 120;
-      const names = el('datalist'); names.id = `de-announce-${prompt.id}`; input.setAttribute('list', names.id); for (const name of prompt.suggestions ?? []) { const o = el('option'); o.value = name; names.append(o); }
-      const b = el('button', 'gold', 'Announce'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, names, b); form.onsubmit = e => { e.preventDefault(); respond({ text: input.value }); }; panel.append(form);
-    }
+    if (prompt.kind === 'announce' && !prompt.candidates?.length) panel.append(announce.render(prompt, { busy: !!state.busy, declare: text => respond({ text }) }));
     if (prompt.cancelable) panel.append(button(['place', 'choice', 'cards'].includes(prompt.kind) ? 'Finish / cancel' : 'Cancel', () => respond({ cancel: true }), !!state.busy));
     if (!prompt.options.length && !prompt.candidates?.length && !['number', 'announce', 'cards'].includes(prompt.kind)) panel.append(note('Waiting for supported choices from the server.'));
     stage.append(panel);

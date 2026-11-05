@@ -48,11 +48,34 @@ describe('duel prompt context', () => {
     const view = projectDuel(s, catalog, ['You', 'Rival'], null, texts());
     expect(view.prompt).toMatchObject({ kind: 'announce', text: 'Declare 1 card name.' });
     expect(view.prompt?.candidates).toBeUndefined();
-    expect(view.prompt?.suggestions).toEqual(['Change of Heart', 'Snatch Steal']);
+    expect(view.prompt?.declarable).toEqual([{ id: '4031928', label: 'Change of Heart' }, { id: '45986603', label: 'Snatch Steal' }]);
     const id = String(s.prompt!.id), named = (text: string) => catalog.named(text);
     expect(interpretResponse(s, id, { text: '  snatch   STEAL ' }, named)).toEqual({ type: 'announce-card', passcode: 45986603 });
     expect(interpretResponse(s, id, { text: '4031928' }, named)).toEqual({ type: 'announce-card', passcode: 4031928 });
     expect(() => interpretResponse(s, id, { text: 'No such card' }, named)).toThrow('No card is named');
+  });
+  it('lists the declarable cards as the original does: no tokens, one entry per name, the list mode, the original order', () => {
+    const catalog = new CardCatalog(); catalog.install([
+      { passcode: 10, name: 'Zeta Fusion', type: 'Monster / Fusion', attack: 1 }, { passcode: 11, name: 'Alpha Spell', type: 'Spell' },
+      { passcode: 12, name: 'Sheep Token', type: 'Monster / Normal / Token', attack: 0 }, { passcode: 13, name: 'Beta Monster', type: 'Monster / Effect', attack: 1 },
+      { passcode: 14, name: 'Beta Monster', type: 'Monster / Effect', attack: 1 },   // an alternative art: folded into 13
+    ]);
+    const names = (mode: number, order?: { cardOrder(pc: number): number | undefined }) => catalog.declarable(mode, order).map(c => c.name);
+    expect(names(0x4b)).toEqual(['Alpha Spell', 'Beta Monster', 'Zeta Fusion']);
+    expect(names(0x4c)).toEqual(['Alpha Spell', 'Beta Monster']);
+    expect(names(0x4d)).toEqual(['Beta Monster']);
+    expect(names(0x4e)).toEqual(['Beta Monster', 'Zeta Fusion']);
+    expect(catalog.declarable(0x4b).find(c => c.name === 'Beta Monster')?.passcode).toBe(13);
+    // CARD_Sort keys (tools/duel-texts.mjs cardOrder) decide the order when generated.
+    const t = new DuelTextCatalog(); t.install({ ...data(), cardOrder: { 10: 1, 13: 2, 11: 3 } });
+    expect(names(0x4b, t)).toEqual(['Zeta Fusion', 'Beta Monster', 'Alpha Spell']);
+    // Modes 0x4c..0x4e are card-name declarations too, and the prompt lists what its mode allows.
+    let s = feed(started(), [[0x6202, setcommand(T_VIEW, 0x33, [0, 0x4d, 0], 1)]]);
+    expect(s.prompt?.kind).toBe('announce-card');
+    expect(projectDuel(s, catalog, ['You', 'Rival'], null, t).prompt?.declarable?.map(c => c.label)).toEqual(['Beta Monster']);
+  });
+  it('rejects a malformed card order table', () => {
+    expect(() => new DuelTextCatalog().install({ ...data(), cardOrder: { 10: -1 } })).toThrow('Invalid card order');
   });
   it('keeps a list view’s cards and its own dialog out of the dialogs that follow it', () => {
     // A Graveyard list, then (no new list) the summon position question: no Graveyard cards under the question.

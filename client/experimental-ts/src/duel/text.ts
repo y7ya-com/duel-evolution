@@ -6,6 +6,8 @@ export interface DuelTextData {
   legacyPrompts: Record<string, TextAlternative[]>; cardNames: Record<string, string>;
   /** Optional original duel dialog strings (data/bin#/dlg_text_?.bin) by text id, colour codes removed. */
   dialogs?: Record<string, string>;
+  /** Optional original card-name order (data/bin#/card_sort_<lang>.bin, the key CARD_Sort gives each card) by passcode. */
+  cardOrder?: Record<string, number>;
 }
 const normal = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 /** Generated display data only. Installing text never grants an action or changes response values. */
@@ -14,6 +16,7 @@ export class DuelTextCatalog {
   private prompts = new Map<number, TextAlternative[]>();
   private names = new Map<number, string>();
   private dialogs = new Map<number, string>();
+  private order = new Map<number, number>();
   install(input: unknown): void {
     if (!input || typeof input !== 'object' || (input as { v?: unknown }).v !== 1) throw new Error('Invalid duel text version');
     const data = input as Record<string, unknown>; let bytes = 0;
@@ -42,7 +45,11 @@ export class DuelTextCatalog {
     const options = alternatives(data.legacyOptions), prompts = alternatives(data.legacyPrompts);
     const names = new Map(entries(data.cardNames, 100000).map(([key, value]) => [Number(key), text(value, 512)]));
     const dialogs = data.dialogs === undefined ? new Map<number, string>() : new Map(entries(data.dialogs, 4096).map(([key, value]) => [Number(key), text(value, 4096)]));
-    this.options = options; this.prompts = prompts; this.names = names; this.dialogs = dialogs;
+    const order = data.cardOrder === undefined ? new Map<number, number>() : new Map(entries(data.cardOrder, 100000).map(([key, value]) => {
+      if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 0xffff) throw new Error('Invalid card order');
+      return [Number(key), value as number] as const;
+    }));
+    this.options = options; this.prompts = prompts; this.names = names; this.dialogs = dialogs; this.order = order;
   }
   private resolve(table: Map<number, TextAlternative[]>, id: number, card?: number): string | null {
     const values = table.get(id); if (!values?.length) return null;
@@ -55,6 +62,8 @@ export class DuelTextCatalog {
   prompt(id: number, card?: number): string | null { return this.resolve(this.prompts, id, card); }
   cardName(card: number): string | null { return this.names.get(card) ?? null; }
   dialog(id: number): string | null { return this.dialogs.get(id) ?? null; }
+  /** The card's place in the original name order (CARD_Sort), when generated. */
+  cardOrder(passcode: number): number | undefined { return this.order.get(passcode); }
 }
 
 /** Meanings are backed by translator consts names and explicit handlers, rather than legacy IDs guessed as OCG IDs. */

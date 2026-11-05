@@ -34,6 +34,8 @@ export interface DuelPrompt {
 }
 export interface PresentationEvent {
   sequence: number; type: string; player: Player; params: number[]; card?: number;
+  /** LP changes (engine 0x23..0x26): the player's LP before and after. */
+  lp?: [number, number];
 }
 export interface UnsupportedEvent { sequence: number; messageId: number; kind: number; command: number; reason: string }
 export interface DuelState {
