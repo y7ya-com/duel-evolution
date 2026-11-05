@@ -28,11 +28,11 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   if (free < min) throw new Error(`only ${free}% memory free`);
   // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
   try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
-  const profile = '/tmp/htmlui-chrome-' + process.pid;
+  const profile = process.env.YO2_CHROME_PROFILE || '/tmp/htmlui-chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), 'about:blank'], { stdio: 'ignore' });
   // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
-  const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
+  const kill = () => { ch.kill('SIGKILL'); try { if (!process.env.YO2_CHROME_PROFILE) rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
   // a SIGTERM / SIGINT (a stopped run, buildslot, Ctrl-C) ends the process without 'exit' handlers: make it an exit
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) if (!process.listenerCount(sig)) process.on(sig, () => process.exit(1));
@@ -63,7 +63,7 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   if (mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   const go = async (url, ready = 'window.__ready') => {
     await send('Page.navigate', { url });
-    for (let i = 0; i < 100; i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
+    for (let i = 0; i < +(process.env.CDP_READY_POLLS || 100); i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
     throw new Error('not ready: ' + url + '\n' + logs.join('\n'));
   };
   const shot = async (clip) => {

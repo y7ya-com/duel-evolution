@@ -11,6 +11,9 @@
 // a button held down, the click ripple: not diffed, its timing differs): <outdir>/<cls>-cursor-<pose>@<dpr>x-
 // {engine,css,cursor,heat}.png, report-cursor@<dpr>x.json. --uicheck [--at=x,y]: only the cursor changes with it on.
 // route: a name from ROUTES below (the clicks that reach a screen and the window classes to flip there).
+// --measure-loads: cold/warm route at 50 Mbit/s, 40 ms RTT; JSON scene/stall/resource counters and replay trace.
+// --visits=cold: one visit; --async / --ios force a fallback build.
+// CDP_READY_POLLS=2400 allows throttled boot; YO2_CHROME_PROFILE puts the profile on disk (kept on exit).
 // Writes <outdir>/<cls>@<dpr>x-{engine,html,heat}.png and report.json ({cls: {identical, within2, max, px}}).
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -495,12 +498,69 @@ await sleep(500);
 const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }),
   scrollbars: args.includes('--scrollbars') || args.includes('--bars') });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
+const measureLoads = args.includes('--measure-loads');
+if (measureLoads) {
+  await b.send('Page.enable'); await b.send('Network.enable');
+  await b.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: 50e6 / 8, uploadThroughput: 10e6 / 8 });
+  await b.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    performance.setResourceTimingBufferSize(10000);
+    window.__loads = { scenes: [], clicks: [], frameWork: [], visibility: [], trace: [], peakPins: 0, peakLru: 0 };
+    addEventListener('mousedown', e => __loads.clicks.push({ t: performance.now(), x: e.clientX, y: e.clientY, button: e.button }), true);
+    const poll = setInterval(() => {
+      if (typeof Module === 'undefined' || !Module.yo2Lazy) return;
+      clearInterval(poll);
+      const out = __loads, L = Module.yo2Lazy;
+      const work = { decode: 0, upload: 0, slept: 0, waitObj: 0, frames: 0 }, onFrame = Module.yo2Frame;
+      Module.yo2Frame = (...a) => {
+        if (out.frameWork.length < 5000) out.frameWork.push({ t: performance.now(), decode: a[0], upload: a[1], slept: a[2], waitObj: a[3] });
+        work.decode += a[0] || 0; work.upload += a[1] || 0; work.slept += a[2] || 0; work.waitObj += a[3] || 0; work.frames++;
+        if (onFrame) onFrame(...a);
+      };
+      out.work = work;
+      const frame = () => Module.yo2Presents || 0;
+      const url = [...L.files.keys()].find(u => /merge\\.dat$/.test(u));
+      const size = url && L.files.get(url).size;
+      const ops = FS.lookupPath('/game/merge.dat').node.stream_ops, read = ops.read;
+      ops.read = function(stream, buffer, offset, length, pos) {
+        if (out.trace.length < 100000) out.trace.push('iotrace ' + frame() + ' ' + size + ' ' + pos.toString(16) + ' ' + length.toString(16));
+        return read.call(this, stream, buffer, offset, length, pos);
+      };
+      Module.onYo2Scene = (kind, from, to) => {
+        out.scenes.push({ t: performance.now(), kind, from, to, stats: { ...L.stats }, work: { ...work } });
+        out.trace.push('scene ' + kind + ' ' + from + ' -> ' + to);
+      };
+      let visible;
+      setInterval(() => {
+        out.peakPins = Math.max(out.peakPins, L.pinned.size); out.peakLru = Math.max(out.peakLru, L.lru.size);
+        const box = document.getElementById('loading'), now = !!box && getComputedStyle(box).display !== 'none';
+        if (now !== visible) out.visibility.push({ t: performance.now(), loading: now }), visible = now;
+      }, 50);
+    }, 0);
+  ` });
+}
+const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
+const until = async (what, ms, test) => {
+  for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
+  writeFileSync(path.join(out, 'stuck.png'), await b.shot());
+  writeFileSync(path.join(out, 'console.txt'), b.logs.join('\n'));
+  throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
+};
+const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
+const mouse = (type, [x, y], button = 'left') => b.send('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mousePressed' ? (button === 'right' ? 2 : 1) : 0, clickCount: 1 });
+
+const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
+for (const visit of measureLoads ? (opt('visits') === 'cold' ? ['cold'] : ['cold', 'warm']) : ['once']) {
+  // The gateway holds disconnected sockets for resume for 45 s; a warm reload must release the old account first.
+  if (measureLoads && visit === 'cold') {
+    await b.send('Storage.clearDataForOrigin', { origin: `http://127.0.0.1:${GAME}`, storageTypes: 'all' });
+    await b.send('Network.clearBrowserCache');
+  }
+  if (visit === 'warm') { await b.send('Page.navigate', { url: 'about:blank' }); await sleep(47000); }
 // --nocursor: the engine's cursor; route.query: the route's own (a local page takes any ENV: RC_INPUT_FILE below)
 // --svelte=deck,chat: those screen groups from their Svelte build (gen/, npm run build first)
-const q = [args.includes('--nocursor') && 'HTML_CURSOR=0', opt('svelte') && `HTML_SVELTE=${opt('svelte')}`, route.query].filter(Boolean).join('&');
+const q = [args.includes('--async') && 'async=1', args.includes('--ios') && 'ios=1', args.includes('--nocursor') && 'HTML_CURSOR=0', opt('svelte') && `HTML_SVELTE=${opt('svelte')}`, route.query].filter(Boolean).join('&');
 // --ui=A,B: those classes in HTML from the first frame (?HTML_UI=), not only after the route as --on does
 await b.go(opt('ship') ? `http://127.0.0.1:${GAME}/?${q}` : `http://127.0.0.1:${GAME}/?HTML_UI=${opt('ui') || '0'}&${q}`, 'window.yo2Html && Module.yo2Presents > 30');
-const snap = () => b.ev('JSON.stringify(window.yo2Html.snapshot())').then(JSON.parse);
 // --watch: every animation frame, is an HTML window visible while a scene loads or the loader's box is up? (the owner:
 // the chat came up before the place had loaded). Printed at the end as the bad samples' count and the first few.
 if (args.includes('--watch')) await b.ev(`(() => {
@@ -517,16 +577,6 @@ if (args.includes('--watch')) await b.ev(`(() => {
   };
   requestAnimationFrame(tick);
 })()`);
-const until = async (what, ms, test) => {
-  for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(250)) if (await test()) return;
-  writeFileSync(path.join(out, 'stuck.png'), await b.shot());
-  writeFileSync(path.join(out, 'console.txt'), b.logs.join('\n'));
-  throw new Error('timed out: ' + what + '\n' + b.logs.slice(-20).join('\n'));
-};
-const toClient = async (x, y) => b.ev(`(() => { const r = document.getElementById('canvas').getBoundingClientRect(); return [r.left + ${x} * r.width / 1024, r.top + ${y} * r.height / 768]; })()`);
-const mouse = (type, [x, y], button = 'left') => b.send('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mousePressed' ? (button === 'right' ? 2 : 1) : 0, clickCount: 1 });
-
-const click = async (x, y) => { const p = await toClient(x, y); await mouse('mouseMoved', p); await sleep(500); await mouse('mousePressed', p); await sleep(200); await mouse('mouseReleased', p); await sleep(500); };
 for (const [a, x, y, z] of route.steps) {
   if (a === 'wait') await sleep(x);
   if (a === 'click') await click(x, y);
@@ -574,6 +624,16 @@ for (const [a, x, y, z] of route.steps) {
   if (a === 'scene') await until('scene ' + x, y, async () => (await snap())?.scene === x);
   if (a === 'window') await until('window ' + x, y, async () => { const s = await snap(); return s && (!x || s.windows.some(w => w.cls === x && w.shown)); });
 }
+if (measureLoads) {
+  await b.ev('Module.yo2Lazy.savePins()');
+  const data = await b.ev(`({ ...__loads, stats: Module.yo2Lazy.stats, stalls: Module.yo2Stalls, missLog: Module.yo2Lazy.missLog,
+    learned: Module.yo2Lazy.learned(), pins: Module.yo2Lazy.pinned.size, lru: Module.yo2Lazy.lru.size,
+    resources: performance.getEntriesByType('resource').map(e => ({ name: e.name, start: e.startTime, ms: e.duration, bytes: e.encodedBodySize })) })`);
+  writeFileSync(path.join(out, visit + '.trace'), data.trace.join('\n')); delete data.trace;
+  writeFileSync(path.join(out, visit + '.json'), JSON.stringify(data, null, 2));
+}
+}
+if (measureLoads) { b.close(); process.exit(0); }
 // --on=A,B: those classes in HTML too, from here on (another screen's window over the route's: the chat over the deck)
 await b.ev('performance.setResourceTimingBufferSize(5000)');   // the boot's 250 would drop what follows
 for (const c of (opt('on') || '').split(',').filter(Boolean)) await b.ev(`window.yo2Html.toggle(${JSON.stringify(c)}, true)`);

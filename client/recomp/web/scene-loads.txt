@@ -1,0 +1,170 @@
+Scene-load work, 2026-11-05
+
+Branch: t3/faster-scene-loads, based on 1d70847 / 284ef37 / 965fc7f.
+No push, deploy, remote R2 write, or production server/CDN change.
+
+Method
+------
+Stock baseline: ~/.cache/yo2-game/build, including the original lazyfs pre-js.
+Controlled after: same stock HTML, JS runtime and WASM; ONLY the lazyfs include
+replaced. The full source was also generated and built with make -j4 web
+web-async web-ios. This avoids attributing compiler/runtime changes to lazyfs.
+CDP: 50 Mbit/s download, 10 Mbit/s upload, 40 ms latency, DPR 1, slot 2 only.
+GPU confirmed through SystemInfo: Intel Graphics / ANGLE Vulkan / Mesa, not
+SwiftShader. Cold clears origin storage and HTTP cache. Warm retains Cache
+Storage/localStorage, navigates away, and waits 47 s for the local gateway's
+45 s reconnect hold to expire. The same tl-explore route runs both times.
+
+The local test server originally had no ETag: that silently DISABLED persistence
+and learning. game.mjs now supplies size/mtime ETags for its local fixtures on
+HEAD and ranges. Both baseline and after used this fix. Cache-Control remains
+no-store locally, so these measurements isolate the explicit Cache Storage
+path. The live merge endpoint was inspected read-only: no-cache, ETag present.
+
+Primary evidence: ~/.cache/de-scratch/faster-loads/{baseline-timing,final-timing}
+contains cold/warm JSON, actual MEMFS access traces, scene events, mouse-down
+input timestamps, loading-box visibility, resource timings, per-frame decode/
+upload/yield counters, and missLog. Earlier repeated runs are baseline, after,
+and final. Konami assets and traces stay out of git.
+
+Results (MB = decimal payload bytes; chunks are 1 MiB)
+----------------------------------------------------
+Input-to-ready uses the first #loading disappearance after the relevant engine
+scene end, sampled every 50 ms. My Room includes both scene-25 stages. The door
+input is the route's right-button hold (it starts walking through the door);
+the lobby ready point is before the route's delayed popup acknowledgement.
+The two scripted waits around that acknowledgement are NOT load time.
+
+                                    Cold stock -> after    Warm stock -> after
+Boot to title ready                 17.82 -> 16.51 s       11.46 -> 10.99 s
+Online -> Select Player              4.05 ->  1.97 s        2.07 ->  2.01 s
+Select Player -> My Room              3.58 ->  3.60 s        3.55 ->  3.49 s
+Door hold -> lobby ready              4.94 ->  3.69 s        5.01 ->  3.59 s
+Popup OK -> final lobby ready         1.81 ->  1.82 s        no scene switch
+
+Entire route, including background prefetch during scripted idle periods:
+                                    Cold stock -> after    Warm stock -> after
+Game/font payload                  203.477 -> 187.752 MB   21.750 -> 20.976 MB
+Game/font resource requests             205 -> 195             29 -> 32
+Synchronous file misses                  15 -> 2                1 -> 0
+Synchronous file stall time            4223 -> 219 ms         190 -> 0 ms
+Cache Storage chunks restored             0 -> 0              193 -> 185
+
+Counts include HEADs/manifests (hence warm requests increase: small files now
+get version HEADs); bytes are Resource Timing encodedBodySize for completed
+requests, excluding headers and partially transferred aborted fetches. Build
+JS/WASM and HTML/atlases are excluded from game/font totals. Warm still fetches
+~21 MB because speculative prefetch gets farther into future duel resources;
+this is not ~21 MB of cache misses for resources needed by this route.
+The route deliberately dwells for seconds per screen, so its total background
+traffic exceeds a player clicking straight through. Compare matched runs.
+
+Where cold waits go (same input-to-ready windows; requests assigned by start):
+                         stock bytes/requests  after bytes/requests  sync ms
+Boot/title                    48.288 / 56          40.952 / 55       941 -> 219
+Select Player                 14.680 / 14           6.291 / 6       1832 -> 0
+My Room                       14.680 / 14          14.680 / 14         0 -> 0
+Lobby                         20.972 / 21          15.729 / 15      1449 -> 0
+Popup acknowledgement          3.146 / 3            3.146 / 3          0 -> 0
+These windows include useful and speculative transfers; work can be prefetched
+earlier than the window. They do not sum to the route total (idle gaps).
+
+Engine-only scene signals: cold Select Player 2.084 -> 0.088 s; lobby's loading
+scene 1.802 -> 0.660 s. Stock Select Player's 2.114 s frame had 1832 ms of file
+stalls, 73 ms decode, 100 ms yielded, and <1 ms texture upload. Stock My Room's
+271 ms frame had NO file misses: 50 ms decode, 4 ms upload, 31 ms yielded.
+After, the My Room frame was 346 ms: 66 ms decode, 8 ms upload, 37 ms yielded,
+zero file stalls. The remainder includes engine/JS work and scheduling; this
+instrumentation does not separately measure all worker CPU or GPU execution.
+Warm lobby scene signals varied 1.12-2.39 s in stock repeats and 1.08-1.33 s
+in after repeats, with zero scene file stalls in BOTH. Do not attribute the
+entire warm wall-time difference to this change. My Room/acknowledgement and
+the roughly 0.7 s engine/fade stages remain; this work does not skip them.
+
+Changes
+-------
+1. Both next-scene horizons precede broad HOT folders. Previously title ->
+   login -> player select put the select set at priority 3, behind ~40 MB of
+   priority-2 menu/thumbnail folders. One background network fetch remains the
+   limit, and synchronous reads still abort it to take the link.
+2. Replace the native BOOT set with the identical observed browser BOOT sets
+   from JSPI, ASYNCIFY and 1 GB runs. Seven unused chunks (390..396, 7 MiB) no
+   longer sit under the title preload barrier. Scene policies fetch needed
+   members later. Updated scene 25's default includes browser room resources
+   (the old [396,397] missed chunks such as 5/14/6/33/34).
+3. Scene 25 retains a latest-first union of recent visits, capped at 48 chunks:
+   a short intermediate visit must not erase another destination's resources.
+   Normal scenes still replace their sets. Pagehide uses the same save logic.
+4. Parse the PE section table (4 KB header), then put only non-code,
+   non-discardable section chunks through the existing boot workers. rt.c needs
+   precisely these bytes. This removes three serial exe misses (7..9) without
+   fetching its 8 MB code section. Invalid/short headers fall back to lazy reads.
+5. Version small files too. The old >=4 MiB cutoff prevented the 757 KB font,
+   system.bin and small metadata from being restored on returning visits.
+6. Reproducible --measure-loads mode in flip.mjs, persistent scratch profiles,
+   configurable startup timeout, and current browser globals in replay.mjs.
+
+Memory and validation
+---------------------
+No cache or concurrency limit increased: coarse-pointer PIN_MAX 112, LRU 32;
+desktop 224/64; page cache 256 x 64 KiB; background network PARALLEL 1,
+boot HOLD_PARALLEL 4. Final controlled desktop peak: 158/25 cold, 178/26 warm,
+versus stock 160/35 and 180/35. Coarse-pointer route hit exactly 112/32.
+Forced iOS route confirmed a 1,073,741,824-byte WASM heap and reached the lobby.
+Chrome device emulation is not physical iPad/Safari memory verification.
+
+All seven client/recomp/web/*_test.mjs scripts pass. Added tests cover PE
+selection (skip code/relocs), malformed PE fallback, small-file warm restores,
+and shared-scene set retention. Real read traces replay cold/warm through
+lazyfs_replay.mjs (0 modelled stalls cold and warm; its fixed 180 ms/chunk
+model is a regression tool, not the browser throughput measurement). Full JSPI, ?async and forced 1 GB builds walk the route.
+Build output: client/recomp/build-web (all three JS/WASM variants).
+
+Boundaries / next measured experiments
+-------------------------------------
+The supplied local game fixture lacks merge.dat.dir.gz. Live ALREADY serves
+that 252,657-byte sidecar; it can replace the ~5.2 MB directory reads on live.
+Both comparison arms used the same supplied local fixture, but absolute local
+boot times are not predictions of live boot. The local server also uses
+no-store for build assets; production build-asset caching was not simulated.
+Only 50 Mbit/s / 40 ms was measured, on one shared Linux host; small timing
+changes and rare failures need more samples before statistical claims.
+
+Naive page-sized demand reads were evaluated against the captured reads:
+scene 25 touches 27.263 MB in 1 MiB chunks versus 8.258 MB in 64 KiB pages,
+but even merging missing pages within each read increases requests 26 -> 90
+(with no eviction, no speculative prefetch). Scene 7: 9.437 -> 1.638 MB and
+8 -> 17 requests. A scene-page prefetch/coalescing design could save more bytes,
+but request/RTT cost must be measured; no global page-size change was shipped.
+Extra background parallelism/coalescing was unnecessary to remove every cold
+scene sync miss on this route and would require cancellation/wasted-byte
+measurements on slower links. It was left at the proven one-fetch bound.
+
+Server/CDN recommendations (NOT applied): retain fresh HEAD validation; make
+truly versioned range URLs immutable only when the URL identifies the actual
+content, including historical versions. no-cache requires validation even for
+stored 206 responses; Cache Storage currently supplies the measured warm
+benefit. This route already has zero warm scene XHRs after the fix, so do NOT
+claim an additional warm-scene latency win from headers here. For scale: one
+1 MiB network range at 50 Mbit/s costs ~168 ms payload plus 40 ms RTT; a known
+cached range could avoid that transfer after memory eviction, if the browser
+can reuse it. Verify real 206 reuse/304s and eviction scenarios before rollout.
+Keep trickle=1 opt-in: immutable headers must not justify enabling the 336 MB
+card-art trickle globally. Mirror the existing sidecar in local performance
+fixtures for the next production-faithful boot experiment.
+
+Reproduce (after the local dependency/fixture setup in the task):
+  source ~/.cache/emsdk/emsdk_env.sh
+  cd client/recomp
+  .venv/bin/python gen.py
+  make -j4 web web-async web-ios
+  cd ../web-shell/htmlui
+  # Set GAME, FONTS, CARDS, ART and YO2EMU to the task's local fixture paths.
+  BUILD=<build> CDP_MIN_FREE=8 CDP_READY_POLLS=2400 \
+    YO2_CHROME_PROFILE=~/.cache/de-scratch/faster-loads/new-profile \
+    node tools/flip.mjs ~/.cache/de-scratch/faster-loads/new-run tl-explore \
+      --measure-loads --slot=2 --dpr=1
+  # --async or --ios forces the fallback; --phone exercises coarse-pointer caps.
+  # --visits=cold limits verification runs to one visit.
+Profiles explicitly supplied by YO2_CHROME_PROFILE are retained on disk; the
+measurement mode clears them for its cold visit, then preserves the warm one.
