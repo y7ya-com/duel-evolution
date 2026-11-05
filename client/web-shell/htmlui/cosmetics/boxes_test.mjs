@@ -2,7 +2,7 @@
 // bar, the pity meters and line, the showcase's state (affordable, short of earned MP, closed), the strip, the selected
 // item's detail, the contents sheet, the reveal's card; the shop skin's pieces and digits. Synthetic items only.
 import assert from 'node:assert/strict';
-import { wearWorld, pct, pityMeters, pityLine, oddsBar, pityActive, boxView, contents, revealView, worldsText, bodiesText, featured,
+import { wearWorld, pct, pityMeters, previewLook, wipNotice, oddsBar, pityActive, boxView, contents, revealView, worldsText, bodiesText, featured,
   itemLines, stripItems, TABS, BOX_LOOK, STRIP } from './boxes-model.js';
 import { RARITY, rarityColor, rarityLabel, THEME_CSS, mpDigits } from './theme.js';
 import { PIECES, BANNER, SHOP_SKIN_CSS, digitsWidth } from './shopart.js';
@@ -39,16 +39,17 @@ const box = { id: 'head', name: 'Test Box', price: 500, superAt: 8, ultraAt: 15,
   poolByRarity: { common: { count: 2 }, rare: { count: 1 }, super: { count: 1 }, ultra: { count: 2 } } };
 const info = { wallet: { total: 5800, bound: 5000, earned: 800 }, boxes: [box, { ...box, id: 'outfit', price: 1200 }], appearance: { gender: 'male', world: 0 } };
 
-// pity: the Nth miss is guaranteed (superAt 8 with 2 misses: in 6 opens); the last one says "next open!"
+// pity: a bar per guarantee from the server's counters; the Nth miss is guaranteed (superAt 8 with 2 misses: 2/8, in 6)
 const [sup, ult] = pityMeters(box);
-assert.equal(pityLine(box), 'Super Rare or better within 6 · Ultra Rare within 10');
-assert.equal(sup.key, 'super'); assert.equal(sup.left, 6); assert.equal(sup.text, 'in 6 opens'); assert.equal(sup.label, 'Super Rare or better');
-assert.equal(ult.left, 10); assert.equal(ult.text, 'in 10 opens'); assert.equal(ult.label, 'Ultra Rare guaranteed');
-assert.ok(Math.abs(sup.progress - 2 / 7) < 1e-9);
+assert.equal(sup.key, 'super'); assert.equal(sup.label, 'Super Rare'); assert.equal(sup.count, '2/8'); assert.equal(sup.left, 6); assert.equal(sup.next, false);
+assert.equal(ult.label, 'Ultra Rare'); assert.equal(ult.count, '5/15'); assert.equal(ult.left, 10);
+assert.ok(Math.abs(sup.progress - 2 / 8) < 1e-9);
+assert.ok(!('text' in sup), 'no sentences: the bar and the count');
 const near = pityMeters({ ...box, pity: { superMisses: 7, ultraMisses: 13, superAt: 8, ultraAt: 15 } });
-assert.equal(near[0].left, 1); assert.equal(near[0].next, true); assert.equal(near[0].text, 'next open!'); assert.equal(near[0].progress, 1);
-assert.equal(near[1].text, 'in 2 opens');
-assert.equal(pityLine({ ...box, pity: { superMisses: 7, ultraMisses: 13, superAt: 8, ultraAt: 15 } }), 'Super Rare or better on the next open · Ultra Rare within 2');
+assert.equal(near[0].left, 1); assert.equal(near[0].next, true, 'the next open lands it: the bar glows'); assert.equal(near[0].count, '7/8');
+assert.equal(near[1].next, false); assert.equal(near[1].count, '13/15');
+// the duel disk box's ultra guarantee is at 10 (BOX_ECONOMY): read from the box, not assumed
+assert.deepEqual(pityMeters({ ...box, ultraAt: 10, pity: { superMisses: 1, ultraMisses: 9, superAt: 8, ultraAt: 10 } }).map(m => [m.count, m.next]), [['1/8', false], ['9/10', true]]);
 assert.equal(pityMeters({ ...box, pity: { superMisses: 99, ultraMisses: 0 } })[0].left, 1, 'clamped');
 assert.deepEqual(pityMeters({ ...box, superAt: null, ultraAt: null, pity: { superMisses: 0, ultraMisses: 0, superAt: null, ultraAt: null } }), []);
 
@@ -68,14 +69,15 @@ assert.equal(head.count, 6); assert.equal(head.owned, 2); assert.equal(head.hero
 assert.deepEqual(head.featured.map(i => i.id), ['u1', 'u2', 's1']);
 assert.deepEqual(head.items.map(i => i.id), ['u1', 'u2', 's1', 'r1', 'c1', 'c2'], 'the strip: rarest first');
 assert.deepEqual(stripItems({ pool: [] }), []); assert.equal(STRIP, 5);
-assert.equal(head.priceDigits, '500MP'); assert.equal(head.pityLine, 'Super Rare or better within 6 · Ultra Rare within 10');
-assert.deepEqual(itemLines(box.pool[3], 'female'), ['S1', 'Super Rare hair', 'Male body only for now · Domino City']);
-assert.deepEqual(itemLines(box.pool[4], 'male'), ['U1', 'Ultra Rare hair', 'Both bodies · Both worlds']);
+assert.equal(head.priceDigits, '500MP'); assert.deepEqual(head.pity.map(m => m.count), ['2/8', '5/15']);
+assert.deepEqual(itemLines(box.pool[3]), ['S1', 'Super Rare hair', 'Female version coming soon'], 'the short WIP notice');
+assert.deepEqual(itemLines(box.pool[4]), ['U1', 'Ultra Rare hair'], 'nothing more for an item both bodies wear');
+assert.equal(wipNotice({ bodies: ['female'] }), 'Male version coming soon'); assert.equal(wipNotice(pool[0]), '');
 assert.equal(head.notice, 'Some items exist for one body only for now.');
 const outfit = boxView(info, 'outfit');
 assert.equal(outfit.affordable, false); assert.equal(outfit.short, 400);
-assert.equal(outfit.disabled, 'Needs 400 more earned MP. Starter MP buys cards only.');
-assert.match(boxView(info, 'head', 0) && boxView({ ...info, boxes: [{ ...box, available: false }] }, 'head').disabled, /closed/);
+assert.equal(outfit.disabled, 'Needs 400 more earned MP');
+assert.match(boxView(info, 'head', 0) && boxView({ ...info, boxes: [{ ...box, available: false }] }, 'head').disabled, /^Closed/);
 assert.equal(boxView(null, 'head').box, null, 'loading');
 assert.deepEqual(TABS.map(t => t.id), ['head', 'outfit', 'dueldisk']);
 assert.equal(featured({ pool: [it('a', 'common')] }).length, 0);
@@ -101,13 +103,26 @@ const nu = revealView({ ...pool[4], duplicate: false, owned: true }, 'male');
 assert.equal(nu.label, 'Ultra Rare'); assert.equal(nu.isNew, true); assert.equal(nu.dupText, ''); assert.equal(nu.tempo, 'special');
 assert.ok(nu.anticipation >= 1200 && nu.anticipation <= 1500, 'about 1.2-1.5 s before an ultra');
 const dup = revealView({ ...pool[1], duplicate: true, copies: 3 }, 'male');
-assert.equal(dup.duplicate, true); assert.equal(dup.dupText, 'Duplicate: you now have 4', 'three spares and the one worn');
-assert.equal(revealView({ ...pool[1], duplicate: true, copies: 1 }).dupText, 'Duplicate: you now have 2');
+assert.equal(dup.duplicate, true); assert.equal(dup.dupText, 'Duplicate ×4', 'three spares and the one worn');
+assert.equal(revealView({ ...pool[1], duplicate: true, copies: 1 }).dupText, 'Duplicate ×2');
 assert.equal(dup.tempo, 'quick'); assert.ok(dup.anticipation < nu.anticipation, 'commons are quick');
 const one = revealView({ ...pool[3], duplicate: false, compatible: false }, 'female');
-assert.equal(one.notice, 'The female version is still being made.'); assert.equal(one.compatible, false);
+assert.equal(one.notice, 'Female version coming soon'); assert.equal(one.compatible, false);
 assert.equal(one.bodiesText, 'Male body only for now'); assert.equal(one.worlds, 'Domino City'); assert.equal(one.tempo, 'normal');
 assert.equal(one.item.id, 's1', 'the whole item, for its art');
 assert.equal(revealView({ ...pool[3], duplicate: false }, 'male').notice, '', 'no "female version" notice for the body that can wear it');
 assert.equal(revealView({ rarity: 'weird' }).rarity, 'common');
+// the preview: the player's look with the item's part in its slot (the current world's look; nothing saved)
+const look = [0, 0, 0x20, 0x30, 0x40, 0x60, 0x70, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0];
+const pinfo = { appearance: { gender: 'male', world: 1, parts: look, looks: { 0: look, 1: [...look.slice(0, 6), 0x80, 0x90, 0xb8, ...look.slice(9)] } } };
+const hair = it('h', 'rare', { slot: 1, variants: [{ gender: 'male', number: 10, worlds: [0, 1] }, { gender: 'female', number: 5, worlds: [0, 1] }] });
+const pl = previewLook(pinfo, hair);
+assert.equal(pl.mode, 'bust'); assert.equal(pl.gender, 'male'); assert.equal(pl.world, 1);
+assert.equal(pl.parts[1], 10, 'the hair in its slot'); assert.equal(pl.parts[6], 0x80, "the current world's look under it");
+assert.equal(pinfo.appearance.looks[1][1], 0, 'the saved look untouched');
+const domOnly = it('o', 'super', { kind: 'outfit', slot: 6, variants: [{ gender: 'male', number: 0x77, worlds: [0] }] });
+assert.equal(previewLook(pinfo, domOnly).parts[6], 0x77, 'one look for both worlds: an item of the other world still tries on');
+assert.equal(previewLook({ appearance: { gender: 'female', world: 0 } }, hair).parts[0], 1, 'no saved look: the default female one');
+const male = previewLook({ appearance: { gender: 'female', world: 0 } }, { ...pool[3], compatible: false });
+assert.deepEqual(male, { mode: 'art', notice: 'Female version coming soon' }, "a body that can't wear it: the art and the notice");
 console.log('cosmetics/boxes model ok');

@@ -37,10 +37,39 @@ export const BOXES_CSS = `
 .bx-fail { position: absolute; left: 0; top: 30px; width: 488px; text-align: center; white-space: normal; }
 .bx-prev { left: -6px; top: 326px; } .bx-next { left: 518px; top: 326px; }
 
-/* the foot: the pity line, why Open can't be pressed, the two small buttons */
-.bx-pity, .bx-why { position: absolute; left: 28px; width: 488px; text-align: center; }
-.bx-pity { top: 466px; }
-.bx-why { top: 486px; white-space: normal; line-height: 16px; max-height: 40px; overflow: hidden; }
+/* the preview: the player's bust in the selection frame over the left of the screen (the Wardrobe's bust), its cyan
+   Preview plate on the frame's foot; an item this body can't wear: its art and the body notice instead */
+.bx-pv { position: absolute; pointer-events: none; animation: bx-fade .15s ease-out; }
+.bx-pv[hidden] { display: none; }
+.bx-pv > .pv-bg, .bx-pv > .sa-glass, .bx-pv > .pv-wu, .bx-pv > .pv-art { position: absolute; left: 17px; top: 18px; width: 202px; height: 264px; }
+.bx-pv > .pv-bg { background: linear-gradient(#eef2f4, #d3dce1); }
+.bx-pv > .sa-frame { left: 0; top: 0; width: 236px; height: 300px; }
+.bx-pv[data-mode=art] > .pv-wu, .bx-pv[data-mode=bust] > .pv-art { display: none; }
+.bx-pv .pv-art > .de-rf { padding: 4px; }
+.bx-pv .pv-note { position: absolute; left: 8px; top: 204px; width: 186px; text-align: center; white-space: normal; line-height: 16px;
+  color: #5a1d00; text-wrap: balance; }
+.bx-pv > .pv-tag { left: 58px; top: 284px; width: 120px; height: 28px; display: flex; align-items: center; justify-content: center; }
+
+/* the foot: the pity bars, why Open can't be pressed, the small button */
+.bx-why { position: absolute; left: 28px; width: 488px; top: 508px; text-align: center; white-space: nowrap; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
+/* a pity bar: the tier's name, a dark recessed track of one segment per open (the band's slate, the art frame's 1-px
+   rim), the opens without the tier filled in its frame's metal, the count; the last segment glows when the next open
+   lands the guarantee (the tier's colour: theme.js RARITY) */
+.bx-pity { position: absolute; left: 62px; width: 420px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+.bx-pity[data-at=showcase] { top: 462px; }
+.bx-pity[data-at=contents] { top: 524px; }
+.bx-pity .pm { position: relative; height: 18px; display: grid; grid-template-columns: 84px 1fr 40px; align-items: center; column-gap: 8px; }
+.bx-pity .lb { line-height: 18px; text-align: right; }
+.bx-pity .ct { line-height: 18px; text-align: left; }
+.bx-pity .bar { display: grid; gap: 1px; height: 12px; padding: 1px; background: linear-gradient(#4e626d, #85979f);
+  box-shadow: 0 0 0 1px #1b252c, inset 0 1px 2px rgba(0,0,0,.5); }
+.bx-pity .bar > i { display: block; background: rgba(10,22,30,.55); box-shadow: inset 0 1px 0 rgba(0,0,0,.35); }
+.bx-pity .bar > i[data-on], .bx-pity .bar > i[data-due] { background: linear-gradient(rgba(255,255,255,.7), rgba(255,255,255,.15) 45%, transparent 55%,
+  rgba(0,0,0,.18)), var(--c); box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); }
+.bx-pity .bar > i[data-due] { animation: bx-due 1s ease-in-out infinite alternate; }
+.bx-pity .pm[data-next] .bar { box-shadow: 0 0 0 1px #1b252c, 0 0 6px 1px var(--c), 0 0 12px 2px var(--c); }
+@keyframes bx-due { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .bx-pity .bar > i[data-due] { animation: none; } }
 .bx-open > span { padding: 0 34px; }
 .bx-sidebtn { position: absolute; margin: 0; padding: 0; border: 0; border-radius: 24px; background: transparent; cursor: inherit;
   color: #fff; text-align: center; }
@@ -61,11 +90,10 @@ export const BOXES_CSS = `
 .bx-row .sa-t { line-height: 28px; } .bx-grp .sa-t { line-height: 24px; }
 /* the columns: the name, the body (centred), the chance and the owned count (numbers right-aligned on the column's
    right edge); the head row's labels centred over their columns */
-.c-nm { left: 34px; width: 232px; } .bx-grp .c-nm, .bx-sheet .hd .c-nm { left: 8px; width: 258px; }
-.c-bd { left: 270px; width: 62px; text-align: center; } .c-pc { left: 334px; width: 56px; text-align: right; } .c-ow { left: 398px; width: 50px; text-align: right; }
-.bx-sheet .hd .c-bd, .bx-sheet .hd .c-pc, .bx-sheet .hd .c-ow { text-align: center; }
+.c-nm { left: 34px; width: 212px; } .bx-grp .c-nm, .bx-sheet .hd .c-nm { left: 8px; width: 258px; }
+.c-bd { left: 248px; width: 84px; text-align: right; color: #5a1d00; } .c-pc { left: 334px; width: 56px; text-align: right; } .c-ow { left: 398px; width: 50px; text-align: right; }
+.bx-sheet .hd .c-pc, .bx-sheet .hd .c-ow { text-align: center; }
 .bx-row .de-rf { padding: 2px; }
-.bx-rules { position: absolute; left: 24px; top: 522px; width: 496px; white-space: normal; line-height: 18px; text-align: center; }
 
 /* the wallet in the MP plate (its root at 795, 390): the shop's digits */
 .bx-wallet { position: absolute; left: 0; top: 0; width: 229px; height: 84px; pointer-events: none; }
@@ -82,9 +110,7 @@ export const BOXES_CSS = `
 .bx-rv .wait { position: absolute; inset: 0; transition: opacity .2s; }
 .bx-rv .wait .bn { left: 324px; top: 244px; width: 376px; height: 112px; }
 .bx-rv .wait .fr { left: 307px; top: 226px; width: 410px; height: 148px; animation: bx-breathe .9s ease-in-out infinite alternate; }
-.bx-rv .wait .nm { position: absolute; left: 0; right: 0; top: 384px; text-align: center; }
-.bx-rv:not([data-phase=wait]) .wait, .bx-rv:not([data-phase=wait]) .skip { opacity: 0; pointer-events: none; }
-.bx-rv .skip { position: absolute; left: 0; right: 0; top: 700px; text-align: center; opacity: .75; }
+.bx-rv:not([data-phase=wait]) .wait { opacity: 0; pointer-events: none; }
 /* the column: the card (228 wide, on the screen's centre 512), and under it everything at the card's width */
 .bx-card { position: absolute; left: 398px; top: 26px; width: 228px; height: 300px; opacity: 0; }
 .bx-card .glow { position: absolute; inset: 0; background: var(--sa-glow) 0 0 / 100% 100% no-repeat; }

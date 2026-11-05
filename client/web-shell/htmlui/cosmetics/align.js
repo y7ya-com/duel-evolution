@@ -83,10 +83,32 @@ function showcase(root, S, C) {
     const arrows = [...root.querySelectorAll('.bx-prev, .bx-next')].map(e => box(e, S));
     C.centred('the paging arrows (as a pair)', union(arrows), A);
   }
-  for (const sel of ['.bx-pity', '.bx-why']) { const e = root.querySelector(sel); if (shown(e) && e.textContent) C.centred(sel.slice(4) + ' line', textBox(e, S), A); }
-  const pair = ['.bx-link', '.bx-wd'].map(s => root.querySelector(s)).filter(shown).map(e => box(e, S));
-  if (pair.length === 2) { C.centred('Contents & odds + Wardrobe (as a pair)', union(pair), A); C.same('the two buttons\' widths', pair.map(b => b.w)); C.same('the two buttons\' tops', pair.map(b => b.t)); }
-  for (const b of root.querySelectorAll('.bx-link, .bx-wd')) if (shown(b)) { const p = box(b, S), t = textBox(b.querySelector('span'), S); C.centred('button text ' + b.textContent, t, p.cx); C.vcentred('button text ' + b.textContent, t, p); }
+  const why = root.querySelector('.bx-why');
+  if (shown(why) && why.textContent) C.centred('why line', textBox(why, S), A);
+  pityBars(root, S, C, A);
+  const link = root.querySelector('.bx-link');
+  if (shown(link)) { const p = box(link, S), t = textBox(link.querySelector('span'), S); C.centred('Contents & odds', p, A); C.centred('button text ' + link.textContent, t, p.cx); C.vcentred('button text ' + link.textContent, t, p); }
+  // the preview: its Preview plate centred on its frame, its text on the plate
+  const pv = root.querySelector('.bx-pv');
+  if (shown(pv)) {
+    const fr = box(pv.querySelector('.sa-frame'), S), tag = pv.querySelector('.pv-tag'), tb = box(tag, S), tt = textBox(tag.querySelector('span'), S);
+    C.centred('the Preview plate', tb, fr.cx); C.centred('the Preview text', tt, tb.cx); C.vcentred('the Preview text', tt, tb);
+    const note = pv.querySelector('.pv-note');
+    if (shown(note) && note.textContent) { C.centred('the preview notice', textBox(note, S), fr.cx); C.centred('the preview art', box(pv.querySelector('.pv-art > .de-rf'), S), fr.cx); }
+  }
+}
+// the pity bars: centred on the axis, every bar on the same track (shared left and right edges), the texts on their row
+function pityBars(root, S, C, A) {
+  const g = root.querySelector('.bx-pity');
+  if (!shown(g)) return;
+  C.centred('the pity bars', box(g, S), A);
+  const rows = [...g.querySelectorAll('.pm')];
+  C.edges('the pity tracks', rows.map(r => box(r.querySelector('.bar'), S)));
+  for (const r of rows) {
+    const rb = box(r, S);
+    for (const t of r.querySelectorAll('.sa-t')) C.vcentred('pity text ' + t.textContent, textBox(t, S), rb);
+    C.vcentred('pity track ' + r.dataset.key, box(r.querySelector('.bar'), S), rb);
+  }
 }
 function contents(root, S, C) {
   const sheet = box(root.querySelector('.bx-sheet'), S), A = sheet.cx, hd = root.querySelector('.bx-sheet .hd');
@@ -95,14 +117,13 @@ function contents(root, S, C) {
   const list = root.querySelector('.bx-list');
   C.edges('the head row and the list', [box(hd, S), box(list, S)]);
   // the head's labels centred over their columns; the rows' numbers right-aligned on the column's right edge
-  for (const c of ['c-bd', 'c-pc', 'c-ow']) {
+  for (const c of ['c-pc', 'c-ow']) {
     const h = hd.querySelector('.' + c), hb = box(h, S);
     C.centred('head ' + h.textContent, textBox(h, S), hb.cx);
     const cells = [...list.querySelectorAll('.bx-row .' + c + ', .bx-grp .' + c)].filter(e => e.textContent).slice(0, 8);
     for (const e of cells) {
       const t = textBox(e, S);
-      if (c === 'c-bd') C.centred(`row ${e.textContent} (${c})`, t, hb.cx);
-      else C.rightOn(`row ${e.textContent} (${c}), right-aligned`, t, hb.r);
+      C.rightOn(`row ${e.textContent} (${c}), right-aligned`, t, hb.r);
     }
   }
   for (const e of [...list.querySelectorAll('.bx-row, .bx-grp')].slice(0, 6)) {
@@ -111,8 +132,7 @@ function contents(root, S, C) {
     const rf = e.querySelector('.de-rf');
     if (rf) C.vcentred('row icon ' + e.querySelector('.c-nm').textContent, box(rf, S), rb);
   }
-  const rules = root.querySelector('.bx-rules');
-  if (shown(rules)) { C.edges('the rules and the sheet', [sheet, box(rules, S)]); C.centred('the rules text', textBox(rules, S), A); }
+  pityBars(root, S, C, A);
 }
 function reveal(rv, S, C) {
   const card = box(rv.querySelector('.bx-card'), S), A = card.cx;
@@ -133,50 +153,35 @@ function reveal(rv, S, C) {
   if (shown(news)) { const nb = box(news, S), t = textBox(news.querySelector('span'), S); C.centred('the news plate text', t, nb.cx); C.vcentred('the news plate text', t, nb); }
 }
 function wardrobe(root, S, C) {
-  const win = box(root.querySelector('.wd-win'), S), side = box(root.querySelector('.wd-side'), S);
-  C.centred('the window and the side column (as a pair, on the stage)', union([win, side]), 512);
-  const A = win.cx;
-  const rows = [...root.querySelectorAll('.wd-row')].filter(shown);
-  const list = root.querySelector('.wd-list');
-  const lb = box(list, S);
-  const visible = rows.map(r => [r, box(r, S)]).filter(([, b]) => b.t >= lb.t - TOL && b.b <= lb.b + TOL);
-  const tabs = [...root.querySelectorAll('.wd-tab')].map(e => box(e, S)), worlds = [...root.querySelectorAll('.wd-worlds .sa-plate')].map(e => box(e, S));
-  if (visible.length) {
-    const rb = visible[0][1];
-    C.centred('the rows (on the window)', rb, A);
-    C.edges('the tabs and the rows', [union(tabs), rb]);
-    C.rightOn('the world switch (on the rows\')', union(worlds), rb.r);
-    C.edges('the world plates on the tab columns', [tabs[2], worlds[0]]); C.edges('the world plates on the tab columns', [tabs[3], worlds[1]]);
-    C.leftOn('the hint (on the rows\')', box(root.querySelector('.wd-hint'), S), rb.l);
-    const foot = root.querySelector('.wd-foot');
-    C.edges('the foot and the rows', [rb, box(foot, S)]);
-    if (foot.textContent) C.centred('the graduation line', textBox(foot, S), A);
-    for (const [r, b] of visible.slice(0, 6)) {
-      const name = r.querySelector('.nm').textContent;
-      C.vcentred('row icon ' + name, box(r.querySelector('.de-rf'), S), b);
-      C.vcentred('row name ' + name, textBox(r.querySelector('.nm'), S), b);
-      const wr = r.querySelector('.wr');
-      if (wr.textContent) C.vcentred('row label ' + wr.textContent + ' (' + name + ')', textBox(wr, S), b);
-    }
-    const wrs = visible.map(([r]) => r.querySelector('.wr')).filter(e => e.textContent).map(e => textBox(e, S).r);
-    C.same('the rows\' Wearing / Locked labels: right edges', wrs);
-  }
-  C.same('the tabs\' widths', [...tabs, ...worlds].map(b => b.w));
+  const win = box(root.querySelector('.wd-win'), S), A = win.cx;
+  C.centred('the window (on the stage)', win, 512);
+  const bust = box(root.querySelector('.wd-bust'), S);
+  C.centred('the bust (on the window)', bust, A);
+  const tabs = [...root.querySelectorAll('.wd-tab')].map(e => box(e, S));
+  C.same('the tabs\' widths', tabs.map(b => b.w));
   C.same('the tabs\' gaps', tabs.slice(1).map((b, i) => b.l - tabs[i].r));
-  for (const t of [...root.querySelectorAll('.wd-tab, .wd-worlds .sa-plate')]) { const p = box(t, S), tb = textBox(t, S); C.centred('plate text ' + t.textContent, tb, p.cx); C.vcentred('plate text ' + t.textContent, tb, p); }
-  // the side column: one width top to bottom, equal gaps, the state plate on its axis
-  const stack = ['.wd-bust', '.wd-side > .sa-band', '.wd-equip', '.wd-close'].map(s => box(root.querySelector(s), S));
-  C.edges('the bust frame, the detail band, Equip, Close', stack);
-  C.same('the side column\'s gaps (band, Equip, Close)', stack.slice(2).map((b, i) => b.t - stack[i + 1].b));
+  for (const t of root.querySelectorAll('.wd-tab')) { const p = box(t, S), tb = textBox(t, S); C.centred('tab text ' + t.textContent, tb, p.cx); C.vcentred('tab text ' + t.textContent, tb, p); }
+  const tiles = [...root.querySelectorAll('.wd-tile')].filter(shown).map(e => box(e, S));
+  if (tiles.length) {
+    C.leftOn('the grid (on the tabs\' left)', tiles[0], union(tabs).l);
+    const row = tiles.filter(b => Math.abs(b.t - tiles[0].t) < 1).slice(0, 4);
+    C.same('a row\'s tops', row.map(b => b.t));
+    C.same('a row\'s gaps', row.slice(1).map((b, i) => b.l - row[i].r));
+    if (row.length === 4) C.rightOn('a full row (on the tabs\' right)', row[3], union(tabs).r);
+  }
   const stateEl = root.querySelector('.wd-state');
-  C.centred('the bust\'s state plate', box(stateEl, S), side.cx);
-  C.centred('the bust\'s state text', textBox(stateEl, S), side.cx);
+  C.centred('the bust\'s state plate', box(stateEl, S), bust.cx);
+  C.centred('the bust\'s state text', textBox(stateEl, S), bust.cx);
   C.vcentred('the bust\'s state text', textBox(stateEl, S), box(stateEl, S));
-  for (const p of root.querySelectorAll('.wd-side > .sa-pill')) { const pb = box(p, S), t = textBox(p.querySelector('span'), S); C.centred('button text ' + p.textContent, t, pb.cx); C.vcentred('button text ' + p.textContent, t, pb); }
+  const foot = root.querySelector('.wd-foot');
+  if (foot.textContent) C.centred('the graduation line', textBox(foot, S), bust.cx);
+  const stack = ['.wd-side > .sa-band', '.wd-equip', '.wd-off', '.wd-close'].map(s => root.querySelector(s)).filter(shown).map(e => box(e, S));
+  C.edges('the detail band and the buttons', stack);
+  C.same('the window\'s margins (grid left, side right)', [union(tabs).l - win.l, win.r - stack[0].r]);
+  for (const p of root.querySelectorAll('.wd-side > .sa-pill')) if (shown(p)) { const pb = box(p, S), t = textBox(p.querySelector('span'), S); C.centred('button text ' + p.textContent, t, pb.cx); C.vcentred('button text ' + p.textContent, t, pb); }
   const head = root.querySelector('.wd-head'), rf = root.querySelector('.wd-info > .de-rf');
   if (head && rf) C.vcentred('the item\'s art beside its name', box(rf, S), box(head, S));
 }
-
 // Card Swap's cosmetics (cosmetics/trade-cosmetics.js): each side's tiles on one row and one grid mirrored on its area's
 // centre (16 px from both edges, the Cosmetics button's face ending where the partner's last column does), the button
 // centred on my row, the band's line on the same axis; the picker's rows on one column with the hint, Done centred.

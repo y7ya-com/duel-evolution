@@ -3,13 +3,19 @@
 // sprites (cosmetics/shopart.js). The game keeps drawing the frame (the glass panel, its dark band, the title plate), the
 // clerk, the avatar, the backdrop, the MP plate and the side pills; this draws over them, as the native pack display
 // lays a category out:
-//   the band      the selected item's detail (as the pack window describes its selected pack there)
+//   the band      the selected item: its name, its rarity, the short WIP notice of a one-body item
 //   the title     "Cosmetic Boxes" over the native "Avatar Parts" plate
 //   the boxes     three price tags (name, price in the shop's digits): the selected one cyan
 //   the header    the box's category banner in the selection frame (the category menu's selected look)
 //   the strip     the box's items, rarest first, five to a page as the pack display's row: the rarity on each art's
-//                 frame, the name on its tag, the selected one in the yellow corner brackets; the orange arrows page it
-//   the foot      one pity line; when Open can't be pressed, one line why; Contents & odds and Wardrobe (small buttons)
+//                 frame, the name on its tag, the selected one in the yellow corner brackets; the orange arrows page it.
+//                 A click previews the item on the player's waist-up bust (cosmetics/waistup.js, as the Wardrobe tries
+//                 items on) in the selection frame over the left of the screen, tagged Preview: nothing is saved, no
+//                 call is made. A second click, a click anywhere else, Esc, a box or page change clear it. An item this
+//                 body can't wear shows its art and the short body notice there instead.
+//   the foot      the pity bars (one per guarantee: a segment per open, filled with the opens without that tier, in the
+//                 tier's frame colour; the bar glows when the next open lands it); when Open can't be pressed, one line
+//                 why; Contents & odds (a small button)
 //   the side      Open Box on the Confirm pill (the orange primary, as the native Buy); Back stays the game's
 // The contents & odds sheet is the yellow list window; the reveal dims the screen and presents the item large in the
 // card get's glowing frame. screens/shop.js mounts it in the window's root (264, 0) and draws the wallet into the MP
@@ -17,12 +23,12 @@
 // Pass mode: the root takes no pointer; the pieces here do (pointer-events: auto), so the game never sees those clicks;
 // the engine's Back pill (left uncovered on the showcase) is the game's.
 import * as api from './api.js';
-import { injectTheme, RARITY, WORLD_LABEL, BODY_LABEL, mpDigits } from './theme.js';
-import { TABS, STRIP, boxView, contents, revealView, pct, wearWorld, itemLines } from './boxes-model.js';
+import { injectTheme, RARITY, mpDigits } from './theme.js';
+import { TABS, STRIP, boxView, contents, revealView, pct, wearWorld, itemLines, previewLook, pityMeters } from './boxes-model.js';
 import { renderItemArt } from './art.js';
+import { renderWaistUp } from './waistup.js';
 import { injectShopSkin, digits } from './shopart.js';
 import { BOXES_CSS } from './boxes-css.js';
-const nth = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
 
 export const ORIGIN = { x: 264, y: 0 };   // CShopAvatarWindow's rect (read/shop.js ITEMS): the root's place on screen
 // the panel's centre line (root px): the engine's glass (23..521) and band, the banner frame, the box tabs, the strip,
@@ -30,6 +36,8 @@ export const ORIGIN = { x: 264, y: 0 };   // CShopAvatarWindow's rect (read/shop
 export const AXIS = 272;
 // the engine's side pills (screen px, from its 1x render): Confirm (now Open Box) and Back
 export const PILLS = { confirm: { x: 795, y: 481, w: 223, h: 48 }, back: { x: 795, y: 541, w: 223, h: 49 } };
+// the preview's selection frame (root px: over the left of the screen, beside the panel; the Wardrobe's bust frame)
+export const PREVIEW = { x: -252, y: 112, w: 236, h: 300 };
 
 const reduced = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function h(tag, props = {}, ...kids) {
@@ -96,7 +104,7 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
   el.append(main);
   root.append(el);
   const S = { info: api.peekInfo(), error: null, boxId: 'head', view: 'showcase', busy: false, msg: null, msgTimer: 0, dead: false,
-    page: {}, sel: {} };
+    page: {}, sel: {}, pv: null };
   const arts = new Map();
   const body = () => S.info?.appearance?.gender || 'male';
   // an item's art in its rarity frame (cached per place and size: a rebuild keeps the drawn canvas)
@@ -132,14 +140,10 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
   const page = d => {
     const i = TABS.findIndex(t => t.id === S.boxId);
     S.boxId = TABS[(i + d + TABS.length) % TABS.length].id;
-    S.msg = null;
+    S.msg = null; S.pv = null;
     render();
   };
-  const setView = v => { S.view = v; S.msg = null; onView?.(v); render(); };
-  const wardrobe = (focusId) => {
-    import('./wardrobe.js').then(m => m.openWardrobe({ focusId, world: S.info?.appearance?.world }))
-      .catch(() => say('The Wardrobe could not be opened. Please try again.'));
-  };
+  const setView = v => { S.view = v; S.msg = null; S.pv = null; onView?.(v); render(); };
   // the strip's page and selection, per box
   const pages = v => Math.max(1, Math.ceil((v.items?.length || 0) / STRIP));
   const pageOf = v => Math.min(S.page[v.id] || 0, pages(v) - 1);
@@ -151,8 +155,44 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     const n = pages(v), p = (pageOf(v) + d + n) % n;
     S.page[v.id] = p;
     S.sel[v.id] = v.items[p * STRIP]?.id;
+    S.pv = null;
     render();
   };
+
+  // ---- the preview: the clicked item on the player's waist-up bust, in the selection frame; never saved
+  const pvWu = h('div', { class: 'pv-wu', role: 'img' });
+  const pvArt = h('div', { class: 'pv-art' });
+  const pv = h('div', { class: 'bx-pv', hidden: true, 'aria-live': 'polite', style: at(PREVIEW.x, PREVIEW.y, PREVIEW.w, PREVIEW.h) },
+    h('div', { class: 'pv-bg' }), h('div', { class: 'sa-glass' }), pvWu, pvArt, h('div', { class: 'sa-frame' }),
+    h('div', { class: 'sa-plate pv-tag', data: { on: true } }, h('span', { class: 'sa-t' }, 'Preview')));
+  el.append(pv);
+  let pvDraw = null;
+  const togglePreview = (v, it) => { S.sel[v.id] = it.id; S.pv = S.pv === it.id ? null : it.id; render(); };
+  function drawPreview(v) {
+    const it = S.view === 'showcase' && S.pv ? (v.items || []).find(i => i.id === S.pv) : null;
+    pv.hidden = !it;
+    if (!it) { delete pv.dataset.id; return; }
+    const L = previewLook(S.info, it);
+    pv.dataset.id = it.id;
+    pv.dataset.mode = L.mode;
+    if (L.mode === 'bust') {
+      const hex = L.parts.map(n => (n & 255).toString(16).padStart(2, '0')).join('');
+      if (pvWu.dataset.want !== hex) {
+        pvDraw?.destroy();
+        pvWu.dataset.want = hex;
+        pvDraw = renderWaistUp(pvWu, L.parts, { gender: L.gender, world: L.world });
+      }
+      pvWu.setAttribute('aria-label', `Preview: your look wearing ${it.name}`);
+      pvArt.replaceChildren(); pvArt.removeAttribute('aria-label');
+    } else {
+      pvArt.replaceChildren(framed({ ...it, compatible: true, bodies: [] }, 112, 'pv', at(37, 52, 128, 128), 2),
+        h('div', { class: 'pv-note sa-t' }, L.notice));
+      pvArt.setAttribute('aria-label', `Preview: ${it.name}. ${L.notice}`);
+    }
+  }
+  // a click anywhere but on an item clears the preview (the game's canvas too: seen, never stopped)
+  const outside = ev => { if (S.pv && !ev.target?.closest?.('.bx-cell')) { S.pv = null; render(); } };
+  document.addEventListener('pointerdown', outside, true);
 
   // ---- the band: the selected item (or, on the sheet, the box), white on the dark band
   function band(lines) {
@@ -164,7 +204,7 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     return h('div', { class: 'bx-tabs', role: 'tablist', 'aria-label': 'Boxes' }, TABS.map((t, i) => {
       const b = box(t.id), on = t.id === S.boxId;
       return h('button', { class: 'sa-plate bx-tab', role: 'tab', 'aria-selected': String(on), tabindex: on ? '0' : '-1',
-        data: { on }, style: at(30 + i * 164, 110, 156, 44), onclick: () => { S.boxId = t.id; S.msg = null; render(); } },
+        data: { on }, style: at(30 + i * 164, 110, 156, 44), onclick: () => { S.boxId = t.id; S.msg = null; S.pv = null; render(); } },
         h('span', { class: 'nm sa-t' }, t.label), h('span', { class: 'pr' }, b ? digits(mpDigits(b.price)) : null));
     }));
   }
@@ -183,23 +223,36 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     const p = pageOf(v), shown = v.items.slice(p * STRIP, p * STRIP + STRIP), sel = selected(v);
     const x0 = (STRIP - shown.length) * 49;   // a short page centred on the axis (98 a cell)
     return h('div', { class: 'bx-strip', role: 'listbox', 'aria-label': `${v.name}: items` }, shown.map((it, i) => {
-      const on = it.id === sel?.id;
-      return h('button', { class: 'bx-cell', role: 'option', 'aria-selected': String(on), 'aria-label': `${it.name}, ${RARITY[it.rarity]?.label}`,
-        data: { on, id: it.id }, style: at(x0 + i * 98, 0, 96, 150), onclick: () => { S.sel[v.id] = it.id; render(); } },
+      const on = it.id === sel?.id, pving = it.id === S.pv;
+      return h('button', { class: 'bx-cell', role: 'option', 'aria-selected': String(on), 'aria-pressed': String(pving),
+        'aria-label': `${it.name}, ${RARITY[it.rarity]?.label}${pving ? ', previewing' : ''}`,
+        data: { on, id: it.id, pv: pving }, style: at(x0 + i * 98, 0, 96, 150), onclick: () => togglePreview(v, it) },
         framed(it, 70, 'strip', at(10, 14, 76, 76)),
         h('div', { class: 'sa-brackets', data: { hi: !on } }),
         h('div', { class: 'sa-plate tag', data: { on } }, h('span', { class: 'sa-t' }, it.name)));
     }));
   }
+  // ---- the pity bars: one per guarantee, a segment per open toward it, the tier's name beside it and the count after
+  function pityBars(box, where) {
+    const ms = pityMeters(box);
+    if (!ms.length) return null;
+    return h('div', { class: 'bx-pity', data: { at: where }, role: 'group', 'aria-label': 'Guarantees' }, ms.map(m =>
+      h('div', { class: 'pm', data: { key: m.key, next: m.next }, role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': String(m.at),
+        'aria-valuenow': String(m.misses), 'aria-label': `${m.label} ${m.count}`,
+        style: { '--c': RARITY[m.key].color } },
+        h('span', { class: 'lb sa-t' }, m.label),
+        h('span', { class: 'bar', style: { gridTemplateColumns: `repeat(${m.at}, 1fr)` } },
+          Array.from({ length: m.at }, (_, i) => h('i', { data: { on: i < m.misses, due: m.next && i === m.at - 1 } }))),
+        h('span', { class: 'ct sa-t' }, m.count))));
+  }
   function foot(v) {
     const ready = !!v.box && v.affordable && !S.busy;
     const why = S.msg || (v.box && !v.affordable ? v.disabled : '');
     return [
-      h('div', { class: 'bx-pity sa-t' }, v.box ? v.pityLine : ''),
+      v.box ? pityBars(v.box, 'showcase') : null,
       why ? h('div', { class: 'bx-why sa-t', id: 'bx-why', role: S.msg ? 'alert' : null }, why) : null,
-      // the pair centred on the panel's axis (272) by their faces (145 of 150: shopart.js FACE), 48 apart
-      h('button', { class: 'sa-btn2 bx-link', style: at(AXIS - 24 - 145, 532, 150), disabled: !v.box, onclick: () => setView('contents') }, h('span', { class: 'sa-t' }, 'Contents & odds')),
-      h('button', { class: 'sa-btn2 bx-wd', style: at(AXIS + 24, 532, 150), onclick: () => wardrobe() }, h('span', { class: 'sa-t' }, 'Wardrobe')),
+      // centred on the panel's axis (272) by its face (145 of 150: shopart.js FACE)
+      h('button', { class: 'sa-btn2 bx-link', style: at(AXIS - 145 / 2, 532, 150), disabled: !v.box, onclick: () => setView('contents') }, h('span', { class: 'sa-t' }, 'Contents & odds')),
       h('button', { class: 'sa-pill bx-open', data: { tone: 'go', busy: S.busy }, disabled: !ready, 'aria-describedby': why ? 'bx-why' : null,
         style: at(PILLS.confirm.x - ORIGIN.x, PILLS.confirm.y - ORIGIN.y, PILLS.confirm.w, 50), onclick: () => open() },
         h('span', {}, S.busy ? 'Opening…' : !S.info ? 'Loading…' : 'Open Box')),
@@ -208,28 +261,25 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
 
   // ---- screen 3: contents & odds, in the yellow list window
   function sheet(v) {
-    const groups = contents(v.box), b = v.box;
-    const row = i => h('div', { class: 'bx-row', data: { owned: i.owned }, title: i.notice || null },
+    const groups = contents(v.box);
+    // the body column only for an item made for one body so far: "Male only"
+    const row = i => h('div', { class: 'bx-row', data: { owned: i.owned } },
       framed(i, 22, 'row', at(4, 2, 24, 24)),
       h('span', { class: 'sa-t c-nm' }, i.name),
-      h('span', { class: 'sa-t c-bd' }, i.bodies.length >= 2 ? 'Both' : BODY_LABEL[i.bodies[0]] || ''),
+      h('span', { class: 'sa-t c-bd' }, i.bodies.length === 1 ? `${i.bodies[0] === 'female' ? 'Female' : 'Male'} only` : ''),
       h('span', { class: 'sa-t c-pc' }, pct(i.chance)),
       h('span', { class: 'sa-t c-ow' }, i.copies > 0 ? `×${i.copies + (i.owned ? 1 : 0)}` : i.owned ? 'Owned' : ''));
     const list = h('div', { class: 'yo2-scroll-list bx-list', tabindex: '0', 'aria-label': 'Box contents' },
       groups.map(g => [h('div', { class: 'bx-grp', data: { rarity: g.rarity } },
-        h('span', { class: 'sa-t c-nm' }, `${g.label}: ${g.items.length} ${g.items.length === 1 ? v.look.one : v.unit}`),
+        h('span', { class: 'sa-t c-nm' }, g.label),
         h('span', { class: 'sa-t c-pc' }, pct(g.odds)), h('span', { class: 'sa-t c-ow' }, `${g.owned} / ${g.items.length}`)),
       g.items.map(row)]));
-    const rules = ['Every open gives one item. A duplicate becomes a copy you can trade.'];
-    if (b.superAt && b.ultraAt) rules.push(`The ${nth(b.superAt)} open in a row without a Super Rare or better gives one; the ${nth(b.ultraAt)} without an Ultra Rare gives one.`);
-    else if (b.superAt) rules.push(`The ${nth(b.superAt)} open in a row without a Super Rare or better gives one.`);
-    else if (b.ultraAt) rules.push(`The ${nth(b.ultraAt)} open in a row without an Ultra Rare gives one.`);
     return h('div', { class: 'bx-contents' },
       h('div', { class: 'sa-yellow bx-sheet' },
-        h('div', { class: 'hd' }, h('span', { class: 'sa-t c-nm' }, 'Item'), h('span', { class: 'sa-t c-bd' }, 'Body'),
+        h('div', { class: 'hd' }, h('span', { class: 'sa-t c-nm' }, 'Item'),
           h('span', { class: 'sa-t c-pc' }, 'Chance'), h('span', { class: 'sa-t c-ow' }, 'Owned')),
         list),
-      h('div', { class: 'bx-rules sa-t' }, rules.join(' ')));
+      pityBars(v.box, 'contents'));
   }
 
   let lastList = 0;
@@ -240,8 +290,7 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     if (prevList) lastList = prevList.scrollTop;
     const contentsView = S.view === 'contents' && v.box;
     const sel = v.box ? selected(v) : null;
-    const lines = contentsView ? [`${v.name}: ${v.count} ${v.unit}, one at random per open.`, `Owned ${v.owned} of ${v.count}.`]
-      : sel ? itemLines(sel, body()) : [];
+    const lines = contentsView ? [v.name, `${v.owned}/${v.count} owned`] : sel ? itemLines(sel) : [];
     const multi = v.box && pages(v) > 1;
     const parts = [
       band(lines),
@@ -250,18 +299,20 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
         h('button', { class: 'sa-arrow bx-prev', data: { dir: 'prev' }, disabled: !multi, 'aria-label': 'Previous items', onclick: () => turn(v, -1) }),
         h('button', { class: 'sa-arrow bx-next', data: { dir: 'next' }, disabled: !multi, 'aria-label': 'Next items', onclick: () => turn(v, 1) })],
       foot(v).filter(x => x && (!contentsView || x.classList.contains('bx-open'))),
-      contentsView ? h('button', { class: 'bx-sidebtn', style: local(PILLS.back), onclick: () => setView('showcase') }, h('span', { class: 'sa-t' }, 'Back to box')) : null,
+      contentsView ? h('button', { class: 'bx-sidebtn', style: local(PILLS.back), onclick: () => setView('showcase') }, h('span', { class: 'sa-t' }, 'Back')) : null,
     ];
     const focused = document.activeElement && main.contains(document.activeElement) ? focusKey(document.activeElement) : null;
     main.replaceChildren(...parts.flat(3).filter(Boolean));
     if (focused) main.querySelector(focused)?.focus({ preventScroll: true });
     const list = main.querySelector('.bx-list');
     if (list) list.scrollTop = lastList;
+    drawPreview(v);
   }
   el.addEventListener('keydown', ev => {
     if (el.querySelector(':scope > .bx-rv')) return;   // the reveal's own keys
     if (S.view === 'contents' && ev.key === 'Escape') { setView('showcase'); ev.preventDefault(); return; }
     if (S.view !== 'showcase') return;
+    if (ev.key === 'Escape' && S.pv) { S.pv = null; render(); ev.preventDefault(); return; }
     if ((ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && ev.target.closest?.('.bx-tabs')) {
       page(ev.key === 'ArrowLeft' ? -1 : 1);
       el.querySelector('.bx-tab[data-on]')?.focus();
@@ -273,7 +324,7 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
   async function open() {
     const v = boxView(S.info, S.boxId);
     if (S.busy || !v.box || !v.affordable) return;
-    S.busy = true; S.msg = null; render();
+    S.busy = true; S.msg = null; S.pv = null; render();
     const rv = reveal(v);
     try {
       const out = await api.openBox(v.id);
@@ -294,10 +345,10 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     const t0 = performance.now(), slow = !reduced();
     const ov = h('div', { class: 'bx-rv', role: 'dialog', 'aria-modal': 'true', 'aria-label': `Opening the ${v.name}`, tabindex: '-1',
       data: { phase: 'wait', tempo: 'normal' } });
-    // the anticipation: the box's banner in its frame, the frame's glow breathing, until the server answers
+    // the anticipation: the box's banner in its frame, the frame's glow breathing, until the server answers (a click skips)
     const wait = h('div', { class: 'wait' }, h('div', { class: 'sa-banner bn', style: { backgroundImage: `var(--sa-${v.look.banner})` } }),
-      h('div', { class: 'sa-frame fr' }), h('div', { class: 'sa-t sa-w nm' }, v.name));
-    ov.append(h('div', { class: 'dim' }), wait, h('div', { class: 'skip sa-t sa-w' }, 'Click to skip'));
+      h('div', { class: 'sa-frame fr' }));
+    ov.append(h('div', { class: 'dim' }), wait);
     el.append(ov);
     ov.focus({ preventScroll: true });
     let rw = null, phase = 'wait', skip = false, timers = [], closed = false;
@@ -340,8 +391,6 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
           const w = wearWorld(r.item, body(), S.info?.appearance?.world);
           await api.equip(r.id, w?.world);
           label(equipBtn, 'Equipped'); equipBtn.dataset.done = '';
-          status.textContent = !w || w.here ? `${r.name} is on. Other players see your new look.`
-            : `${r.name} is set for ${WORLD_LABEL[w.world]}: you wear it there.`;
         } catch (e) {
           equipBtn.disabled = false; label(equipBtn, 'Equip');
           status.dataset.bad = ''; status.textContent = e.message;
@@ -350,15 +399,14 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
       const nv = nowView();
       const again = h('button', { class: 'sa-pill again', data: { tone: 'hi' }, disabled: !nv.affordable, title: nv.disabled || null,
         onclick: () => { close(); open(); } }, h('span', {}, 'Open another'));
-      // one column under the card, the card's width: the name, the rarity, the news plate, the notice, the pills
+      // one column under the card, the card's width: the name, the rarity, the news plate, the WIP notice, the pills
       return [
         h('div', { class: 'after' },
           h('div', { class: 'nm sa-t24 sa-w', title: r.name }, r.name),
           h('div', { class: 'rl sa-t sa-w', data: { rarity: r.rarity } }, `${r.label} ${(r.kind || '').toLowerCase()}`.trim()),
-          h('div', { class: 'sa-plate news', data: { hi: r.isNew } }, h('span', { class: 'sa-t' }, r.duplicate ? r.dupText : 'New: added to your Wardrobe')),
+          h('div', { class: 'sa-plate news', data: { hi: r.isNew } }, h('span', { class: 'sa-t' }, r.duplicate ? r.dupText : 'New')),
           r.notice ? h('div', { class: 'notice sa-t sa-w' }, r.notice) : null,
           equipBtn, again,
-          h('button', { class: 'sa-pill wd', onclick: () => { close(); wardrobe(r.id); } }, h('span', {}, 'Wardrobe')),
           h('button', { class: 'sa-pill done', onclick: close }, h('span', {}, 'Done')),
           !nv.affordable && nv.disabled ? h('div', { class: 'status sa-t sa-w', 'data-bad': '' }, nv.disabled) : status),
       ];
@@ -375,6 +423,8 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     refresh: () => load(true),
     destroy() {
       S.dead = true; off(); clearTimeout(S.msgTimer);
+      document.removeEventListener('pointerdown', outside, true);
+      pvDraw?.destroy();
       for (const a of arts.values()) a.r?.destroy?.();
       arts.clear(); el.remove();
     },
@@ -385,6 +435,6 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
 function focusKey(e) {
   if (e.classList.contains('bx-tab')) return '.bx-tab[data-on]';
   if (e.classList.contains('bx-cell')) return '.bx-cell[data-on]';
-  for (const c of ['bx-prev', 'bx-next', 'bx-open', 'bx-link', 'bx-wd', 'bx-sidebtn', 'bx-list', 'bx-retry']) if (e.classList.contains(c)) return '.' + c;
+  for (const c of ['bx-prev', 'bx-next', 'bx-open', 'bx-link', 'bx-sidebtn', 'bx-list', 'bx-retry']) if (e.classList.contains(c)) return '.' + c;
   return null;
 }
