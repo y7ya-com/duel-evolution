@@ -1,3 +1,4 @@
+import { rewardLogin } from "./rewards.ts";
 // Sessions per account and presence in a block (py pvp_hub.py). See that file's docstring for the message formats.
 import { createHash } from "node:crypto";
 import type { Conn } from "../net/conn.ts";
@@ -240,6 +241,7 @@ export class Hub {
     // Restore both looks on reconnect/character selection; never retain the previous character's cache.
     this.g.withCtx(s, () => {
       const st = this.g.loadState(), p = profile(st, s.slot!, false) ?? {};
+      const rewardChanged = rewardLogin(this.g, p);
       const before = JSON.stringify([p.pbin, p.avatar]);
       syncCosmeticOwnership(this.g, s, p);
       s.partsW.clear();
@@ -248,7 +250,7 @@ export class Hub {
       const look = lawfulLook(p, 1, avatarParts(p, 1));
       if (look.changed && typeof p.avatar?.a === "string") setLook(p, look.parts);
       for (const world of [0, 1]) s.partsW.set(world, look.changed ? look.parts : avatarParts(p, world));
-      if (before !== JSON.stringify([p.pbin, p.avatar])) this.g.saveState(st);
+      if (rewardChanged || before !== JSON.stringify([p.pbin, p.avatar])) this.g.saveState(st);
       s.parts = s.partsW.get(s.world ?? 1)!;
     });
     return s;

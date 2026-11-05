@@ -1,3 +1,4 @@
+import { rewardDuel, rewardEvent } from "./rewards.ts";
 // Per-character persistence (py research/persistencia/proposal.py): the player record, trunk, PBIN/NPCBIN, the prize
 // queue, NPC chains, titles, duel results and XP, plus make_handlers (PH). Formats: that file's docstring.
 // Env knobs are fixed at py's defaults as the server runs them (arranque sets YO2_TRUNK_START=all3).
@@ -122,7 +123,7 @@ export function blankProfile(name = ""): P {
   Object.assign(rec, { lv: START_LV, mp: START_MP });
   const sv = startValues();
   if ("mp" in sv) rec.mp = sv.mp;
-  return { name, rec, trunk: {}, pbin: defaultPbinBits(), npcbin: {}, avatar: {}, decks: {}, claims: [], pending: [], country: "" };
+  return { name, rec, trunk: {}, pbin: defaultPbinBits(), npcbin: {}, avatar: { a: "0000203040608090b820000000000000", b: "0000203040608090b820000000000000" }, decks: {}, claims: [], pending: [], country: "" };
 }
 
 export function countryFromLang(p: P | null, lang: number): boolean {
@@ -328,6 +329,7 @@ const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.
 
 /** MP for a finished duel, after the guards; pvp = null for an NPC duel. Returns what was paid. */
 export function mpReward(g: Game | null, p: P, result: string, turns: number, pvp: { opp: string | null; secs: number } | null = null): number {
+  p.prize_unbound = false;
   if (!PROGRESSION || (g && isFree(g.ctx))) return 0;
   const e = econToday(g, p), win = result === "win", E = ECON, acc = econAccount(g, e);
   let mp: number = pvp ? (win ? E.PVP_WIN : E.PVP_LOSS) : (win ? E.NPC_WIN : E.NPC_LOSS), why = "";
@@ -337,20 +339,27 @@ export function mpReward(g: Game | null, p: P, result: string, turns: number, pv
     mpBalances(p); // clamp the existing promotional subset BEFORE adding earned currency
     if (pvp?.opp) e.pairs[pvp.opp] = (e.pairs[pvp.opp] ?? 0) + 1;
     if (win && !acc.wins) mp += E.FIRST_WIN;
+    p.prize_unbound = acc.duels < E.SOFT_CAP;
     if (acc.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
     e.duels++; if (win) e.wins++;
     e.earned += mp;
     recInc((p.rec ??= {}), "mp", mp);
     (p.earned = { duels: earnedDuels(p) }).duels++;
   }
+  rewardDuel(g, p, result, mp, !!pvp, p.prize_unbound === true);
   econLog(g, e, `+${mp} MP (${pvp ? "pvp" : "npc"} ${result}, ${turns} turns${pvp ? `, ${Math.round(pvp.secs)} s` : ""}${why})`);
   return mp;
+}
+/** Mission/login income shares the UTC economy ledger without consuming duel eligibility. */
+export function recordRewardIncome(g: Game | null, p: P, amount: number): void {
+  const e = econToday(g, p); e.earned += amount;
 }
 /** A shop purchase, for the [economia] log and the day's counters. */
 export function mpSpent(g: Game | null, p: P, mp: number, packs: number): void {
   if (!PROGRESSION) return;
   const e = econToday(g, p);
   e.spent += mp; e.packs += packs;
+  rewardEvent(g, p, "pack", packs);
   econLog(g, e, `-${mp} MP (${packs} packs)`);
 }
 
@@ -429,10 +438,13 @@ export function bindCards(p: P, cards: unknown[]): void {
   clampBound(p);
 }
 export function clampBound(p: P): void {
-  if (!p.bound) return;
-  for (const [k, n] of Object.entries(p.bound as Record<string, number>)) {
+  for (const [k, n] of Object.entries((p.bound ?? {}) as Record<string, number>)) {
     const m = Math.min(int(n), int(p.trunk?.[k] ?? 0));
     if (m > 0) p.bound[k] = m; else delete p.bound[k];
+  }
+  for (const [k, n] of Object.entries((p.crafted ?? {}) as Record<string, number>)) {
+    const m = Math.max(0, Math.min(int(n), int(p.trunk?.[k] ?? 0) - int(p.bound?.[k] ?? 0)));
+    if (m) p.crafted[k] = m; else delete p.crafted[k];
   }
 }
 
@@ -491,19 +503,26 @@ export function setLook(p: P, parts: Uint8Array, world?: number): void {
   const hex = Buffer.from(parts).toString("hex");
   p.avatar = { ...(p.avatar ?? {}), a: hex, b: hex, ...(world === 0 || world === 1 ? { w: world } : {}) };
 }
-/** The look for protocol world 0 (Domino) or 1 (Academy): the character's one look either way. A character with no
- *  saved look yet gets the world's default (the Academy's red uniform and disk). */
+/** Repair legacy/native placeholder slots using the same body defaults as CAvatarData. */
+export function normalizeLook(p: P, input: Uint8Array): Uint8Array {
+  const parts = input.slice(), defaults = Uint8Array.from([0, 0, 32, 48, 64, 96, 128, 144, 184, 32, 0, 0, 0, 0, 0, 0]);
+  const base = parts[0] === 1 ? 256 : 0;
+  for (let slot = 1; slot <= 9; slot++) {
+    if ([2, 9].includes(slot) && parts[slot] === 32) continue;
+    const row = AV_PBIN[String(base + parts[slot])];
+    if (!row || row[3] !== slot || row[2] !== (parts[0] === 1 ? 2 : 1)) parts[slot] = defaults[slot];
+  }
+  if (Number(p.rec?.lv ?? 1) < 5) parts[6] = 0x80;
+  return parts;
+}
+/** One saved look in both worlds. Missing or native placeholder slots start in Slifer Red. */
 export function avatarParts(p: P, world: number): Uint8Array {
   unifyLook(p);
   const saved = p.avatar?.[world === 1 ? "b" : "a"];
-  if (typeof saved === "string" && /^[0-9a-f]{32}$/i.test(saved)) return new Uint8Array(Buffer.from(saved, "hex"));
-  const parts = new Uint8Array(Buffer.from("0000203040607090b020000000000000", "hex"));
-  const other = p.avatar?.[world === 1 ? "a" : "b"];
-  if (typeof other === "string" && /^[0-9a-f]{32}$/i.test(other)) {
-    const looks = Buffer.from(other, "hex");
-    for (let i = 0; i < 16; i++) if (i !== 6 && i !== 8) parts[i] = looks[i];
-  }
-  if (world === 1) { parts[6] = 0x80; parts[8] = 0xb8; }
+  const input = typeof saved === "string" && LOOK_HEX.test(saved)
+    ? new Uint8Array(Buffer.from(saved, "hex")) : new Uint8Array(Buffer.from("0000203040608090b820000000000000", "hex"));
+  const parts = normalizeLook(p, input);
+  setLook(p, parts);
   return parts;
 }
 
@@ -587,7 +606,7 @@ export function playerDataUpdate(p: P, npc?: number | null): Uint8Array {
 export function playerEntry(slot: string, p: P, tpRank: number | null = null): Uint8Array {
   const v: P = { ...(p.rec ?? {}) };
   v.title = fixTitleValue(v.title ?? 0);
-  Object.assign(v, { slot: int(slot), name: p.name ?? "", avatar_a: p.avatar?.a ?? "", avatar_b: p.avatar?.b ?? "" });
+  Object.assign(v, { slot: int(slot), name: p.name ?? "", avatar_a: Buffer.from(avatarParts(p, 0)).toString("hex"), avatar_b: Buffer.from(avatarParts(p, 1)).toString("hex") });
   if (tpRank !== null) v.tp_rank = int(tpRank);
   return encode(PLAYERLIST_ENTRY_SPEC, v);
 }
@@ -917,6 +936,7 @@ export function pvpCardEntry(g: Game, match = false, packs: number[] | null = nu
 }
 export function pvpCardOffer(g: Game, p: P, match = false, packs: number[] | null = null): P | null {
   const e = pvpCardEntry(g, match, packs);
+  if (e) e.bound = !p.prize_unbound;
   if (e) { const due: P[] = (p[PVP_CARD_KEY] ??= []); due.push(e); due.splice(0, Math.max(0, due.length - PVP_CARD_DUE_MAX)); }
   return e;
 }
@@ -925,6 +945,7 @@ export function pvpCardTake(p: P | null, pack: number): number {
   for (let i = due.length - 1; i >= 0; i--) {
     const e = due[i] && typeof due[i] === "object" ? due[i] : {};
     if ((e.packs ?? []).map(int).includes(int(pack))) {
+      p!.prize_bind_pending = e.bound !== false;
       due.splice(i, 1);
       if (!due.length) delete p![PVP_CARD_KEY];
       try { return Math.max(1, Math.min(5, int(e.n ?? 1))); } catch { return 1; }
@@ -936,6 +957,7 @@ export function pvpCardGrant(g: Game, p: P, e: P, draw: (pack: number, n: number
   const pack = g.rng.choice(e.packs as number[]);
   const cards = draw(pack, e.n).slice(0, e.n).map(int);
   trunkAdd(g, p, cards, 1, "pvp");
+  if (e.bound ?? !p.prize_unbound) bindCards(p, cards);
   return [pack, cards];
 }
 
@@ -1042,6 +1064,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);
+  p.prize_unbound = false;
   // Instant surrender must not be a faster MP source than playing a duel.
   if (!(surrender === "me" && int(turns || 0) < ECON.NPC_MIN_TURNS)) mpReward(g, p, result, int(turns || 0));
   let present = 0, pkg: P | null = null;
@@ -1055,6 +1078,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
     const [bits, cards] = result === "win" && !NR_CTX.on?.friendship ? npcRewards(p, npc, oldB3, e[3]) : [[], []];
     if (bits.length || cards.length) {
       pkg = pendingAdd(g, p, bits, cards, VIA_NPC, `NPC ${npc} b3 ${oldB3}->${e[3]}`);
+      if (!p.prize_unbound) bindCards(p, cards);
       present = pkg ? 1 : 0;
     }
   }
@@ -1154,7 +1178,8 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       if (data.length >= 20) {
         const st = g.loadState(); const p = profile(st, activeSlot(st))!;
         const style = new DataView(data.buffer, data.byteOffset).getUint32(0);
-        setLook(p, data.subarray(4, 20), style === 0 ? 0 : 1);   // one look for both worlds
+        const parts = normalizeLook(p, data.slice(4, 20));
+        setLook(p, parts, style === 0 ? 0 : 1);   // one look for both worlds
         g.saveState(st);
       }
       c.send(0x4171, new W().u32(0).bytes());
@@ -1186,4 +1211,22 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
     my_name: () => myName(g.loadState()),
   };
   return h;
+}
+
+/** selectpack removes the due entry before lobby persists the cards. Preserve its original reward eligibility. */
+export function bindClaimedPrize(p: P, cards: number[]): void {
+  let bound = p.prize_bind_pending;
+  delete p.prize_bind_pending;
+  if (bound === undefined) {
+    const due: number[] = p.npc_card_due ?? [];
+    const entries: P[] = p.npc_prize_binding ?? [];
+    // selectpack removes the FIRST occurrence of its chosen pack, including when duplicate packs are queued.
+    const missing = entries.findIndex((_, i) => {
+      const after = entries.filter((_, j) => j !== i);
+      return after.length === due.length && after.every((e, j) => e.pack === due[j]);
+    });
+    if (missing >= 0) bound = entries.splice(missing, 1)[0].bound;
+    else bound = true; // old due cards lack verifiable paid-duel provenance
+  }
+  if (bound) bindCards(p, cards);
 }

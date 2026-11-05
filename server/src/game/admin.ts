@@ -1,3 +1,4 @@
+import { buildFunnelReport } from "../db/trade-funnel.ts";
 // Moderation and admin (py yo2srv/admin/moderacion.py + gestion.py, the parts that reach the wire): login bans
 // (0x3004 −246), GM accounts (research/mundo), sanction bits of 0x3004, shop prices, and the admin actions the
 // WorldDO exposes on its token-protected HTTP API (src/do.ts /__admin/*).
@@ -42,6 +43,8 @@ export class Admin {
     setTimeout(() => this.g.world.close(c, "banned"), REJECT_CLOSE_S * 1000);
     return true;
   }
+
+  tradeFunnel(db: D1Database, days = 7) { return buildFunnelReport(db, days, this.g.clock.time() * 1000); }
 
   // ---- admin actions (HTTP API)
   private now() { return this.g.clock.strftime().slice(0, 16); }

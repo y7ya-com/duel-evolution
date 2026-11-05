@@ -108,60 +108,59 @@ describe("bound-funded shop output", () => {
     expect(PP.mpBalances(p)).toEqual({ total: 0, bound: 0, earned: 0 });
   });
 
-  it("leaves earned-funded copies tradeable alongside a bound copy of the same single card", async () => {
+  it("leaves earned-funded pack copies tradeable beside bound copies", async () => {
     const { h, items, buy } = await setup();
-    mutate(h, (p) => { p.rec.mp = 200; p.mp_wallet.bound = 25; });
-    const single = items.find((item) => item.kind === 0)!;
-    expect(await buy([single.iid, 2])).toBe(0);
+    mutate(h, (p) => { p.rec.mp = 400; p.mp_wallet.bound = 25; });
+    const pack = items.find((item) => item.kind === 1 && item.prm === 1)!;
+    expect(await buy([pack.iid, 2])).toBe(0);
     const p = prof(h);
-    expect(p.trunk[single.prm]).toBe(2);
-    expect(boundOf(p)[single.prm]).toBe(1);
-    expect(p.trunk[single.prm] - boundOf(p)[single.prm]).toBe(1);
+    expect(count(p.trunk)).toBe(10);
+    expect(count(boundOf(p))).toBe(5);
+    expect(count(p.trunk) - count(boundOf(p))).toBe(5);
   });
 
-  it("a withdrawn cosmetic id in the cart consumes no bound MP; the bound MP pays (and binds) the card", async () => {
+  it("withdrawn single and cosmetic ids consume no MP in a mixed pack cart", async () => {
     const { h, items, buy } = await setup();
-    // Wearables left the shop (cosmetic boxes only); their old catalogue ids stay reserved and unlisted.
-    expect(items.some((item) => item.kind === 2)).toBe(false);
-    const withdrawn = Math.max(...items.map((item) => item.iid)) + 9; // the old Plaster row
-    const single = items.find((item) => item.kind === 0)!;
-    mutate(h, (p) => { p.rec.mp = 500; p.mp_wallet.bound = 150; });
-    expect(await buy([withdrawn, 1], [single.iid, 1])).toBe(0);
+    const pack = items.find((item) => item.kind === 1 && item.prm === 1)!;
+    mutate(h, (p) => { p.rec.mp = 500; p.mp_wallet.bound = 250; });
+    expect(await buy([61, 1], [107, 1], [pack.iid, 1])).toBe(0);
     const p = prof(h);
-    expect(boundOf(p)[single.prm]).toBe(1);
-    expect(PP.mpBalances(p)).toEqual({ total: 500 - single.cost, bound: 150 - single.cost, earned: 350 });
+    expect(count(boundOf(p))).toBe(5);
+    expect(PP.mpBalances(p)).toEqual({ total: 300, bound: 50, earned: 250 });
   });
 
-  it("does not bind older earned copies when the inventory cap discards a bound-funded copy", async () => {
+  it("does not bind older earned copies when inventory caps discard a bound-funded pack", async () => {
     const { h, items, buy } = await setup();
-    const single = items.find((item) => item.kind === 0)!;
-    mutate(h, (p) => { p.rec.mp = 100; p.mp_wallet.bound = 100; p.trunk = { [single.prm]: 255 }; p.bound = {}; });
-    expect(await buy([single.iid, 1])).toBe(0);
-    const p = prof(h);
-    expect(p.trunk[single.prm]).toBe(255);
-    expect(count(boundOf(p))).toBe(0);
+    const pack = items.find((item) => item.kind === 1 && item.prm === 1)!;
+    const { packContents } = await import("../src/game/shop.ts");
+    mutate(h, (p) => { p.rec.mp = 200; p.mp_wallet.bound = 200;
+      p.trunk = Object.fromEntries(packContents(1)!.cards.map((pc) => [pc, 255])); p.bound = {}; });
+    const before = structuredClone(prof(h).trunk);
+    expect(await buy([pack.iid, 1])).toBe(0);
+    expect(prof(h).trunk).toEqual(before);
+    expect(count(boundOf(prof(h)))).toBe(0);
   });
 
-  it("initializes an older free starter's bindings before binding its first promotional-MP purchase", async () => {
+  it("initializes an older free starter's bindings before its first promotional-MP pack", async () => {
     const { h, items, buy } = await setup();
     const starter = legalDeck(8001), starterCards = [...starter.main, ...starter.extra];
-    const single = items.find((item) => item.kind === 0 && !starterCards.includes(item.prm))!;
+    const pack = items.find((item) => item.kind === 1 && item.prm === 1)!;
     mutate(h, (p) => {
       p.starter = 8001; delete p.bound;
       for (const card of starterCards) p.trunk[card] = (p.trunk[card] ?? 0) + 1;
     });
-    expect(await buy([single.iid, 1])).toBe(0);
+    expect(await buy([pack.iid, 1])).toBe(0);
     const p = prof(h);
     expect(boundOf(p)).toEqual(p.trunk);
-    expect(count(p.bound)).toBe(starterCards.length + 1);
+    expect(count(p.bound)).toBe(starterCards.length + 5);
   });
 
-  it("keeps both balances, inventory and bindings unchanged when a mixed cart is unaffordable", async () => {
+  it("keeps balances, inventory and bindings unchanged when a pack cart is unaffordable", async () => {
     const { h, items, buy } = await setup();
     mutate(h, (p) => { p.rec.mp = 150; p.mp_wallet.bound = 75; });
-    const single = items.find((item) => item.kind === 0)!;
+    const pack = items.find((item) => item.kind === 1)!;
     const before = prof(h);
-    expect(await buy([single.iid, 2])).toBe(1);
+    expect(await buy([pack.iid, 2])).toBe(1);
     expect(prof(h)).toEqual(before);
   });
 

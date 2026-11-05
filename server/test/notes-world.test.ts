@@ -89,7 +89,9 @@ describe("NPC list (mundo/npc.py, research/mundo, research/npcreglas)", () => {
 describe("avatar (mundo/avatar.py, research/avatar)", () => {
   it("one look for both worlds: two different saved looks become one at lobby selection (a, or b when last in the Academy); stale looks cleared", async () => {
     const h = harness(), A = h.client("A");
-    await A.account(0, "Alice"); await A.enterRoom();
+    await A.account(0, "Alice");
+    { const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["0"].rec.lv = 5; h.game.store.saveRaw(st); }
+    await A.enterRoom();
     const session = h.game.hub.byPid(A.pid!)!;
     const domino = Uint8Array.from([1, 2, 32, 48, 64, 96, 112, 144, 176, 32, 0, 0, 0, 0, 0, 0]);
     const academy = domino.slice(); academy[6] = 128; academy[8] = 184;
@@ -161,7 +163,7 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     const my = A.link(5732);
     my.send(0x3003, A.key); await my.wait(0x3004);
     let n = my.mark(); my.send(0x4100, [5, 0]); const pid = u32((await my.wait(0x4101, n))!, 4);
-    const parts = Uint8Array.from([0, 1, 0x20, 0x30, 0x40, 0x60, 0x70, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0]);
+    const parts = Uint8Array.from([0, 1, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0]);
     n = my.mark(); my.send(0x4170, cat(be32(0), parts, new Uint8Array(4)));
     const d = (await my.wait(0x4181, n))!;
     expect([u32(d), u32(d, 4), [...d.subarray(8)]]).toEqual([pid, 0, [...parts]]);

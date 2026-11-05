@@ -6,7 +6,7 @@ import type { State } from "./store.ts";
 import * as PP from "./persist.ts";
 import { isFree } from "./freemode.ts";
 import { W } from "../net/proto.ts";
-import { BOXES, COSMETICS, COSMETIC_BY_ID, COSMETIC_BY_BIT, RARITIES, AVATAR_ROWS, MERGED_FAMILIES, resolveCosmeticId, ownedCosmeticIds, canonicalBoxId, cosmeticPool, expandCosmeticBits,
+import { BOXES, COSMETICS, FREE_COSMETICS, FREE_COSMETIC_BY_ID, COSMETIC_BY_ID, COSMETIC_BY_BIT, RARITIES, AVATAR_ROWS, MERGED_FAMILIES, resolveCosmeticId, ownedCosmeticIds, canonicalBoxId, cosmeticPool, expandCosmeticBits,
   boxById, boxAvailable, boxWeights, boxDisclosure, bodyInfo, bodyNotice, itemBodies,
   type Body, type Box, type CosmeticFamily, type CosmeticRarity, type BoxId, type Pity } from "./cosmetics-catalog.ts";
 import { rankRowAllowed, rankView, type RankView } from "./ranking.ts";
@@ -170,16 +170,20 @@ function appearanceOptions(p: PP.P, world: number, parts: Uint8Array, view: Rank
     options.push({ index, label, choices: Array.from({ length: count }, (_, value) => ({ value, label: `${label} ${value + 1}` })) });
   return options;
 }
-function validAppearance(p: PP.P, world: number, parts: Uint8Array, view: RankView): boolean {
-  if (parts.length !== 16 || parts[0] > 1 || [10, 11, 12].some((i) => parts[i] !== 0) || parts[13] > 2 || parts[14] > 6 || parts[15] > 6) return false;
+function appearanceError(p: PP.P, world: number, parts: Uint8Array, view: RankView): string | null {
+  if (parts.length !== 16 || parts[0] > 1 || [10, 11, 12].some((i) => parts[i] !== 0) || parts[13] > 2 || parts[14] > 6 || parts[15] > 6) return "invalid-appearance";
+  if (Number(p.rec?.lv ?? 1) < 5 && parts[6] !== 0x80) return "slifer-until-lv5";
   const base = parts[0] === 1 ? 256 : 0;
   for (let slot = 1; slot <= 9; slot++) {
     if ([2, 9].includes(slot) && parts[slot] === 32) continue;
     const bit = base + parts[slot], row = AVATAR_ROWS[String(bit)];
-    if (!row || row[3] !== slot || row[2] !== (parts[0] === 1 ? 2 : 1) || !rowAllowed(p, bit, world, view)) return false;
+    if (!row || row[3] !== slot || row[2] !== (parts[0] === 1 ? 2 : 1)) return "invalid-appearance";
+    if (!rankRowAllowed(bit, world, view)) return "rank-uniform-locked";
+    if (!row[1] && !PP.pbinTest(p, bit)) return "appearance-not-owned";
   }
-  return PP.avatarOwned(p, parts);
+  return PP.avatarOwned(p, parts) ? null : "appearance-not-owned";
 }
+
 function expireOffers(g: Game): void {
   const changes: Record<string, State> = {};
   for (const [acct, a] of Object.entries(g.store.peek().accounts ?? {}) as [string, State][]) {
@@ -220,7 +224,7 @@ function state(g: Game, s: Session, a: State, l: Ledger) {
     appearanceOptions: appearanceOptions(p, world, parts, view),
     appearanceOptionsByWorld: { "0": appearanceOptions(p, 0, PP.avatarParts(p, 0), view), "1": appearanceOptions(p, 1, PP.avatarParts(p, 1), view) },
     // Ranked PvP (ranking.ts): rating, school, the best school and the uniforms it unlocked, graduation.
-    rank: view,
+    rank: view, outfitLocked: Number(p.rec?.lv ?? 1) < 5,
     // Odds disclosure: configuredOdds is the table; baseOdds/nextOdds are what is actually rolled,
     // renormalised over rarities that have eligible items (nextOdds includes this player's pity).
     boxes: BOXES.map((b) => {
@@ -230,7 +234,7 @@ function state(g: Game, s: Session, a: State, l: Ledger) {
         pool: pool.map((item) => ({ ...itemOut(item, l, gender),
           baseChance: odds.baseOdds[item.rarity] / count(item.rarity), nextChance: odds.nextOdds[item.rarity] / count(item.rarity) })) };
     }),
-    inventory: COSMETICS.filter((item) => owned.has(item.id) || nat(l.copies[item.id]) > 0).map((item) => itemOut(item, l, gender)),
+    inventory: [...FREE_COSMETICS.map(item => ({ ...item, bodies: [...new Set(item.variants.map(v => v.gender))], owned: true, copies: 0, tradable: 0, compatible: item.variants.some(v => v.gender === gender) })), ...COSMETICS.filter((item) => owned.has(item.id) || nat(l.copies[item.id]) > 0).map((item) => itemOut(item, l, gender))],
     catalog: COSMETICS.map((item) => itemOut(item, l, gender)), trades };
 }
 export function cosmeticInfo(g: Game, who: string | Session) {
@@ -296,15 +300,19 @@ export function cosmeticEquip(g: Game, who: string | Session, body: unknown) {
   const l = ledger(a), p = profile(a, s)!;
   const parts = PP.avatarParts(p, world), gender = bodyOfParts(parts);
   // An old paired id (e.g. outfit:fitted-duelist from a stale client) means this body's half.
-  const item = COSMETIC_BY_ID.get(resolveCosmeticId(String(b?.id), gender));
+  const free = FREE_COSMETIC_BY_ID.get(String(b?.id));
+  const item = free ?? COSMETIC_BY_ID.get(resolveCosmeticId(String(b?.id), gender));
   if (!item) return fail("bad-request", 400);
-  if (!l.owned.includes(item.id)) return fail("not-owned", 403);
+  if (!free && !l.owned.includes(item.id)) return fail("not-owned", 403);
   if (!item.variants.some((v) => v.gender === gender))
-    return fail("no-compatible-variant", 409, { reason: "body", id: item.id, bodies: itemBodies(item), notice: bodyNotice(item) });
+    return fail("no-compatible-variant", 409, { reason: "body", id: item.id, ...(free ? { bodies: item.variants.map(v => v.gender) } : { bodies: itemBodies(item as CosmeticFamily), notice: bodyNotice(item as CosmeticFamily) }) });
   // the body's first variant is the item's own (Afro: Afro I's row; the merged sizes stay wearable, see MERGED_FAMILIES);
   // one look for both worlds (owner, 2026-11-05): no world rule
   const variant = item.variants.find((v) => v.gender === gender)!;
+  if (item.slot === 6 && Number(p.rec?.lv ?? 1) < 5 && variant.number !== 0x80) return fail("slifer-until-lv5", 403);
   project(p, l); parts[item.slot] = variant.number;
+  const error = appearanceError(p, world, parts, rankView(p));
+  if (error) return fail(error, 403);
   PP.setLook(p, parts, world);
   g.store.commit({}, { [s.acct]: a });
   pushOwnership(g, s, p);
@@ -481,19 +489,19 @@ export function cosmeticAppearance(g: Game, who: string | Session, body: unknown
       if ([2, 9].includes(slot) && old[slot] === 32) { parts[slot] = 32; continue; }
       const previous = AVATAR_ROWS[String(oldBase + old[slot])], family = COSMETIC_BY_BIT.get(oldBase + old[slot]);
       // the same design for the other body; of a merged item's rows (Afro's sizes), the same size if it has one
-      const others = family?.variants.filter((v) => v.gender === (requestedGender ? "female" : "male") && v.worlds.includes(w)) ?? [];
+      const others = family?.variants.filter((v) => v.gender === (requestedGender ? "female" : "male")) ?? [];
       const variant = others.find((v) => AVATAR_ROWS[String(v.bit)][4] === previous?.[4]) ?? others[0];
       const sameName = !family && previous ? Object.entries(AVATAR_ROWS).find(([bit, row]) => row[2] === requestedGender + 1 && row[3] === slot && row[4] === previous[4] && rowAllowed(p, Number(bit), w, view))?.[1] : null;
       const fallback = fallbackRow(p, requestedGender, slot, w, view);
       parts[slot] = variant?.number ?? sameName?.[0] ?? fallback?.[0] ?? ([2, 9].includes(slot) ? 32 : 0);
     }
-    if (!validAppearance(p, w, parts, view)) return fail("invalid-appearance", 400);
+    const error = appearanceError(p, w, parts, view); if (error) return fail(error, 403);
     updates.push({ world: w, parts });
   }
   if (b.parts !== undefined) {
     const parts = Uint8Array.from(b.parts as number[]);
     if (requestedGender !== null && parts[0] !== requestedGender) return fail("gender-conflict", 400);
-    if (!validAppearance(p, world, parts, view)) return fail("unowned-or-invalid-appearance", 403);
+    const error = appearanceError(p, world, parts, view); if (error) return fail(error, 403);
     const previous = updates.findIndex((u) => u.world === world);
     if (previous >= 0) updates.splice(previous, 1);
     updates.push({ world, parts });
@@ -529,6 +537,7 @@ const SLIFER = 0x80;
 /** The first default row of this body and slot this character may wear (a body change's stand-in for a part with no
  *  version for the new body). One look for both worlds (owner, 2026-11-05): `world` is not a rule any more. */
 function fallbackRow(p: PP.P, gender: number, slot: number, world: number, view: RankView) {
+  if (slot === 6) return AVATAR_ROWS[String((gender === 1 ? 256 : 0) + SLIFER)];
   return Object.entries(AVATAR_ROWS).find(([bit, row]) => row[1] && row[2] === gender + 1 && row[3] === slot && rowAllowed(p, Number(bit), world, view))?.[1];
 }
 /** A look checked against the rank rule. `owned` false: some part is not this character's (the caller refuses the
@@ -536,11 +545,11 @@ function fallbackRow(p: PP.P, gender: number, slot: number, world: number, view:
  *  `changed` says if any part was. There is no world rule (one look for both worlds, owner 2026-11-05), and rank
  *  unlocks are for good, so a look that passed once always passes again. */
 export function lawfulLook(p: PP.P, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
-  const out = parts.slice(), view = rankView(p), w = world === 0 ? 0 : 1;
+  const out = PP.normalizeLook(p, parts), view = rankView(p), w = world === 0 ? 0 : 1;
   if (!PP.avatarOwned(p, parts)) return { owned: false, changed: false, parts: out };
   if (out.length < 10 || out[0] > 1) return { owned: true, changed: false, parts: out };
   const kind = out[0] === 1 ? 2 : 1, base = out[0] === 1 ? 256 : 0;
-  let changed = false;
+  let changed = out.some((v, i) => v !== parts[i]);
   for (let i = 1; i <= 9; i++) {
     if ([2, 9].includes(i) && out[i] === 32) continue;
     const bit = base + out[i], row = AVATAR_ROWS[String(bit)];

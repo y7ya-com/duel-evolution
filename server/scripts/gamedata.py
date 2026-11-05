@@ -75,6 +75,10 @@ def main():
     for pid in (46, 47, 48):
         if shop["iid"].get(str(pid)) and not any(row[0] == pid for row in shop["packs"]):
             shop["packs"].append([pid, 0, None])
+    # -I omits the script directory from sys.path; still load our versioned override helper.
+    sys.path.insert(0, HERE)
+    from structure_decks import apply_structure_decks
+    apply_structure_decks(shop)
     dump("shop", shop)
 
 

@@ -1,3 +1,4 @@
+import { boundOf } from "../game/starter.ts";
 // py research/npcreglas/proposal.py: the NPC duel with the official 2008 rules (NPC_RULES_2008: no_record, card,
 // friendship and famous_decks on; npc_window off), with research/mundo's prizes for the DC08 originals ("prizes" on).
 // install() in py wraps duelfin's npc_duel_end / lobby_after_duel_msgs and persistence's npc_rewards / check_titles /
@@ -108,6 +109,7 @@ export function deckNpc(nid: number, npcbinGet: (i: number) => number[]): number
 export function nrNpcDuelEnd(g: Game, base: (p: P, npc: number, result: string, turns: number, lpLeft: number) => Uint8Array,
   p: P, npc0: number, result: string, turns = 0, lpLeft = 0): Uint8Array {
   const f = NPC_RULES_2008;
+  if (PP.progression()) boundOf(p);
   if (!(f.no_record || f.friendship)) return base(p, npc0, result, turns, lpLeft);
   // Challenging the map's base character can play an advanced recipe. Credit that same stage, otherwise the
   // base counter keeps growing forever and neither the third deck nor the chain-completion outfit is reachable.
@@ -121,6 +123,7 @@ export function nrNpcDuelEnd(g: Game, base: (p: P, npc: number, result: string, 
   if (f.no_record) p.rec = { ...recBefore, mp: (p.rec ?? {}).mp ?? recBefore.mp };   // out of the record, but the duel's MP stays
   if (f.friendship && valid) {
     const pkg = applyFriendship(g, p, npc, result, eBefore);
+    if (pkg && !p.prize_unbound) PP.bindCards(p, pkg.cards ?? []);
     if (pkg) g.log(`[npcreglas] NPC ${npc}: regalo ${JSON.stringify(pkg.bits)} cartas ${JSON.stringify(pkg.cards)}`);
   }
   return PP.playerDataUpdate(p, valid ? npc : null);
@@ -133,6 +136,9 @@ export function nrLobbyAfterDuel(g: Game, base: (packs: number[]) => [number, Ui
   if (f.card && card && !packs.length) {
     const pack = g.rng.choice(CARD_PACKS);
     const due: number[] = (p.npc_card_due ??= []);
+    const binding: P[] = (p.npc_prize_binding ??= due.map((pack) => ({ pack, bound: true })));
+    binding.push({ pack, bound: !p.prize_unbound });
+    binding.splice(0, Math.max(0, binding.length - CARD_DUE_MAX));
     due.push(pack);
     due.splice(0, Math.max(0, due.length - CARD_DUE_MAX));
     packs = [pack];

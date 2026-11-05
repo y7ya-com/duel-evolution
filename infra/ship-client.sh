@@ -51,7 +51,18 @@ js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['duelspeed'] = f'duelsp
 # Its kill switch is the unhashed htmlui.json beside the page (?HTML_UI= overrides it), never shipped from here.
 hu = os.path.join(shell, 'htmlui')
 mods = sorted(os.path.relpath(os.path.join(d, f), hu) for d, _, fs in os.walk(hu) for f in fs
-              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read', 'gen', 'cosmetics'))
+              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read', 'gen', 'cosmetics', 'crafting', 'shop', 'rewards')
+              or os.path.relpath(os.path.join(d, f), hu) == os.path.join('svelte', 'modern', 'deck', 'pictures.js'))   # card art, shop/art.js's
+# every static relative import of a shipped module must be shipped too: one missing file (a folder left out of the list
+# above) fails bridge.js's static import graph and the whole HTML UI with it (2026-11-04: cosmetics/ left out)
+import re as _re
+_ship = set(mods)
+for m in mods:
+    for spec in _re.findall(rb'''(?:^|[;\n])\s*(?:import|export)\s[^'"]*?from\s*['"](\.{1,2}/[^'"]+)['"]|^\s*import\s*['"](\.{1,2}/[^'"]+)['"]''', rd(os.path.join(hu, m)), _re.M):
+        spec = (spec[0] or spec[1]).decode()
+        t = os.path.normpath(os.path.join(os.path.dirname(m), spec))
+        if t == os.path.join('..', 'ui.js'): continue   # h-<hash>/ui.js, shipped beside htmlui/
+        if t not in _ship: sys.exit(f'ship: htmlui/{m} imports {spec} ({t}), which is not shipped')
 hk = h(rd(f'{shell}/../html-ui/ui.js'), *(m.encode() + rd(os.path.join(hu, m)) for m in mods))
 put(f'h-{hk}/ui.js', rd(f'{shell}/../html-ui/ui.js'))
 for m in mods: put(f'h-{hk}/htmlui/{m}', rd(os.path.join(hu, m)))

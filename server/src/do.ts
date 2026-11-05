@@ -1,3 +1,5 @@
+import { rewardsView, rewardsClaim, rewardDeckSaved, rewardShopVisited } from "./game/rewards.ts";
+import { craftView, craftOperation, deckNeeds, type Deck } from "./game/crafting.ts";
 // WorldDO: the singleton Durable Object that terminates every client's gateway WebSocket (see DESIGN.md).
 // Resident on purpose (standard ws.accept(), no hibernation): sessions, blocks and rooms live in memory; a hibernated
 // DO would keep the sockets but lose them.
@@ -16,7 +18,7 @@ import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
 import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel } from "./game/cosmetics.ts";
-import { shopView, shopPurchaseApi } from "./game/shop-api.ts";
+import { shopView, shopPurchaseApi, shopPackView } from "./game/shop-api.ts";
 import { chatGet, chatSend } from "./game/chat.ts";
 import { rankLookup, RANK_MAX_AGE } from "./game/rank-api.ts";
 import { tradeCosmeticsInfo, tradeCosmeticsPanel, tradeCosmeticsSet } from "./game/trade-cosmetics.ts";
@@ -106,6 +108,12 @@ export class WorldDO extends DurableObject<Env> {
       }
       const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
       const g = this.srv.game;
+      if (url.pathname === "/__admin/trade-funnel") {
+        if (!this.env.DB) return Response.json({ error: "no D1" }, { status: 503 });
+        const days = Number((body as any)?.days ?? url.searchParams.get("days") ?? 7);
+        if (!Number.isInteger(days) || days < 1 || days > 365) return Response.json({ error: "invalid-window" }, { status: 400 });
+        return Response.json(await g.admin.tradeFunnel(this.env.DB, days));
+      }
       if (url.pathname === "/__admin/deck") {
         if (!this.env.DB) return Response.json({ error: "no D1" }, { status: 503 });
         const [st, r] = await adminDeck(this.env.DB, g.store.peek().accounts, body as Record<string, unknown>);
@@ -148,16 +156,40 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(body, { status: failed ? r.status : 200, headers: failed && r.status === 429
         ? { "Cache-Control": "no-store", "Retry-After": String(r.retryAfter ?? 1) } : { "Cache-Control": failed ? "no-store" : `private, max-age=${RANK_MAX_AGE}` } });
     }
-    if (/^\/__de\/(cosmetics|shop|chat|trade)(?:\/|$)/.test(url.pathname)) {
+    if (/^\/__de\/(cosmetics|shop|chat|trade|craft|rewards)(?:\/|$)/.test(url.pathname)) {
       const user = request.headers.get("x-de-user");
       if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      // Saved decks live in D1, not profile.decks (which only keeps duel history).
+      let craftNeed: Record<string, number> = {};
+      let craftCharacter: string | null = null;
+      if (url.pathname.startsWith("/__de/craft")) {
+        if (!this.env.DB) return Response.json({ error: "deck-store-unavailable" }, { status: 503 });
+        const acct = this.srv.game.store.accountOfUser(user), session = acct ? this.srv.game.hub.sessions.get(acct) : null;
+        if (session?.slot !== null && session?.slot !== undefined) {
+          craftCharacter = `${acct}/${session.slot}`;
+          const rows = (await this.env.DB.prepare("SELECT main, side, extra FROM user_decks WHERE char_key = ? AND deleted = 0")
+            .bind(`${acct}/${session.slot}`).all<{ main: string; side: string; extra: string }>()).results;
+          craftNeed = deckNeeds(rows.map((r) => ({ main: JSON.parse(r.main), side: JSON.parse(r.side), extra: JSON.parse(r.extra) } as Deck)));
+        }
+      }
       const reads: Record<string, () => unknown> = {
+        "/__de/rewards": () => rewardsView(this.srv.game, user),
+        "/__de/craft": () => craftView(this.srv.game, user, craftNeed),
         "/__de/cosmetics": () => cosmeticInfo(this.srv.game, user),
-        "/__de/shop": () => shopView(this.srv.game, user),
+        "/__de/shop": () => {
+          const result = shopView(this.srv.game, user);
+          if (!("error" in result)) rewardShopVisited(this.srv.game, user);
+          return result;
+        },
+        "/__de/shop/pack": () => shopPackView(this.srv.game, user, url.searchParams.get("id")),
         "/__de/chat": () => chatGet(this.srv.game, user, Number(url.searchParams.get("after") ?? 0)),
         "/__de/trade/cosmetics": () => tradeCosmeticsInfo(this.srv.game, user),
       };
       const writes: Record<string, (body: unknown) => unknown> = {
+        "/__de/rewards/claim": (b) => rewardsClaim(this.srv.game, user, b),
+        "/__de/craft/make": (b) => craftOperation(this.srv.game, user, "make", b, craftNeed),
+        "/__de/craft/dismantle": (b) => craftOperation(this.srv.game, user, "dismantle", b, craftNeed),
+        "/__de/craft/dismantle-extras": (b) => craftOperation(this.srv.game, user, "dismantle-extras", b, craftNeed),
         "/__de/cosmetics/open": (b) => cosmeticOpen(this.srv.game, user, b),
         "/__de/cosmetics/equip": (b) => cosmeticEquip(this.srv.game, user, b),
         "/__de/cosmetics/appearance": (b) => cosmeticAppearance(this.srv.game, user, b),
@@ -182,7 +214,13 @@ export class WorldDO extends DurableObject<Env> {
       if (!action) return Response.json({ error: "method not allowed" }, { status: 405 });
       try {
         const result = await new Promise<any>((resolve, reject) => {
-          void this.srv.world.run(() => { try { resolve(action()); } catch (e) { reject(e); } });
+          void this.srv.world.run(() => { try {
+            if (craftCharacter) {
+              const acct = this.srv.game.store.accountOfUser(user), session = acct ? this.srv.game.hub.sessions.get(acct) : null;
+              if (`${acct}/${session?.slot}` !== craftCharacter) { resolve({ error: "character-changed", status: 409 }); return; }
+            }
+            resolve(action());
+          } catch (e) { reject(e); } });
         });
         // A successful money/item response is acknowledged only after write-through persistence.
         // (chat and the trade panel write nothing to D1: a trade's commit is flushed by the next save as any trade's)
@@ -260,6 +298,10 @@ export class WorldDO extends DurableObject<Env> {
         else if (request.method === "PUT" && !rest) {
           const d = deckIn(body), cur = currentOf(body);
           r = typeof d === "string" ? [400, { error: d }] : cur === "bad mode" ? [400, { error: cur }] : await deckPut(db, o.key, d, cur);
+          if (r[0] === 200 && typeof d !== "string") {
+            await this.srv.world.run(() => rewardDeckSaved(this.srv.game, user, o.key, d.main, d.extra, body?.mode));
+            await this.sink?.flush();
+          }
         } else if (request.method === "DELETE" && rest) r = await deckDelete(db, o.key, rest);
         else r = [405, { error: "method not allowed" }];
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }

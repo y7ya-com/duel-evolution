@@ -293,3 +293,98 @@ export function boxDisclosure(box: Box, pity?: Pity) {
         items: items.map((item) => ({ id: item.id, name: item.name, kind: item.kind, rarity: item.rarity, ...bodyInfo(item) })) }];
     })) as Record<CosmeticRarity, PoolRow> };
 }
+
+/** The editor's initial PBIN parts, independent of paid pools and duplicate ledgers.
+ * yo2ChangeAvatar.cpp kLists/refresh: initial rows by body and slot; fixed 7/7 colours,
+ * numbered 3 skin tones, and an explicit glasses None. Rank uniforms stay rank-authored.
+ * Names below are yo2text_e.idx/bin English strings, indexed by avatar_pbin text id. */
+export type FreeCosmetic = Omit<CosmeticFamily, "kind" | "rarity"> & {
+  kind: string; rarity: null; free: true; school?: "slifer"; uniform?: true;
+};
+const FREE_NAMES: Record<number, string> = {
+  "3250": "Brown",
+  "3251": "Blonde",
+  "3252": "Black",
+  "3253": "White",
+  "3254": "Red",
+  "3255": "Blue",
+  "3256": "Green",
+  "3257": "Default",
+  "3258": "Long Hair",
+  "3259": "Short Hair",
+  "3260": "Spiky Hair",
+  "3261": "Centre Parting",
+  "3262": "Slick Hair",
+  "3270": "Default",
+  "3271": "Punk Hair",
+  "3272": "Long Hair",
+  "3273": "Ponytail",
+  "3280": "Default",
+  "3281": "Cold Eyes",
+  "3282": "Dark Eyes",
+  "3283": "Wild Eyes",
+  "3284": "Large Eyes",
+  "3285": "Thin Eyes",
+  "3290": "Default",
+  "3291": "Small",
+  "3300": "Default",
+  "3301": "Small",
+  "3302": "Smirking",
+  "3310": "Domino: White",
+  "3311": "Domino: Red",
+  "3312": "Domino: Yellow",
+  "3313": "Domino: Black",
+  "3320": "Academy: Red",
+  "3321": "Academy: Yellow",
+  "3322": "Academy: Blue",
+  "3330": "Default",
+  "3331": "Swept Hair",
+  "3332": "Centre Parting",
+  "3333": "Short Hair",
+  "3334": "Fringe",
+  "3340": "Default",
+  "3341": "Long",
+  "3342": "Medium",
+  "3350": "Default",
+  "3351": "Cold Eyes",
+  "3352": "Gentle Eyes",
+  "3353": "Cat eyes",
+  "3360": "Default",
+  "3361": "Small",
+  "3370": "Default",
+  "3371": "Glossy",
+  "3380": "Domino Uniform",
+  "3390": "Academy: Red",
+  "3391": "Academy: Yellow",
+  "3392": "Academy: Blue",
+  "3400": "None",
+  "3401": "Cheeks",
+  "3410": "Battle City Model",
+  "3411": "Duel Academy Model"
+};
+function freeCatalog(): FreeCosmetic[] {
+  const items = new Map<string, FreeCosmetic>();
+  const add = (id: string, name: string, slot: number, gender: Body, number: number, bit: number) => {
+    let item = items.get(id);
+    if (!item) items.set(id, item = { id, name, slot, kind: slot === 6 ? "outfit" : slot === 8 ? "dueldisk" : [3, 4, 5, 13, 15].includes(slot) ? "face" : slot === 2 || slot === 9 ? "accessory" : "hair", rarity: null, free: true, variants: [] });
+    item.variants.push({ gender, number, bit, worlds: [0, 1] });
+  };
+  for (const [bit, row] of Object.entries(AVATAR_ROWS)) {
+    const [number, initial, body, slot, text] = row;
+    if (!initial || ![1, 2].includes(body) || (slot === 6 && number > 0x80)) continue;
+    if (slot === 6 && number === 0x80) {
+      add("uniform:slifer", "Slifer Red Uniform", slot, body === 2 ? "female" : "male", number, Number(bit));
+      Object.assign(items.get("uniform:slifer")!, { school: "slifer", uniform: true });
+      continue;
+    }
+    add(`free:part:${text}`, ([1, 3, 4, 5, 7].includes(slot) ? `${({1: "Hair", 3: "Nose", 4: "Eyes", 5: "Mouth", 7: "Back Hair"} as Record<number, string>)[slot]}: ${FREE_NAMES[text]}` : FREE_NAMES[text]) || `Part ${number}`, slot, body === 2 ? "female" : "male", number, Number(bit));
+  }
+  for (const gender of ["male", "female"] as const) {
+    add("free:none:9", "No Glasses", 9, gender, 32, (gender === "female" ? 256 : 0) + 32);
+    for (const [slot, label, count] of [[13, "Skin Tone", 3], [14, "Hair Colour", 7], [15, "Eye Colour", 7]] as const)
+      for (let n = 0; n < count; n++) add(`free:${slot}:${n}`, slot === 13 ? `${label} ${n + 1}` : `${label}: ${FREE_NAMES[3250 + n]}`, slot, gender, n, -1);
+  }
+  return [...items.values()];
+}
+export const FREE_COSMETICS = freeCatalog();
+export const FREE_COSMETIC_BY_ID = new Map(FREE_COSMETICS.map(item => [item.id, item]));

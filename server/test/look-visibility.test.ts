@@ -41,7 +41,7 @@ async function setup(opts: { graduated?: boolean; school?: number } = {}) {
   await a.account(0, "Alice"); await b.account(0, "Bob"); await c.account(0, "Carol");
   const edit = (fn: (st: any) => void) => { const st = h.state(); fn(st); h.game.store.saveRaw(st); };
   edit((st) => {
-    const p = st.accounts[A].profiles["0"];
+    const p = st.accounts[A].profiles["0"]; p.rec.lv = 5;
     p.pbin = [...new Set([...(p.pbin ?? []), ...OWNED])].sort((x: number, y: number) => x - y);
     if (opts.graduated) { p.rec.lv = RK.GRADUATION_LEVEL; p.graduated = 1; }
     if (opts.school) p.rank = { ...RK.rankOf(null), rating: opts.school, rd: 60, games: 20, wins: 15, losses: 5, school: RK.schoolAfter("beginner", opts.school, true),
@@ -100,7 +100,7 @@ describe("the native avatar change (0x4170) reaches everyone in the block", () =
     let n = b.room!.mark(), na = a.room!.mark();
     a.room!.send(0x4170, cat(be32(1), bad, new Uint8Array(4))); await a.room!.wait(0x4171, na); await h.tick(200);
     expect(seen(b, a.pid!, n)).toEqual(both(fixed));
-    expect(updates(a, a.pid!, na)).toEqual([[1, hex(fixed)]]);                     // A's own client is told what was kept
+    expect(updates(a, a.pid!, na)).toEqual([[0, hex(fixed)], [1, hex(fixed)]]);                     // A's own client is told what was kept
     expect(await list2(h, b, a.pid!)).toBe(hex(fixed)); expect(stored(h)).toEqual([hex(fixed), hex(fixed)]);
     const obelisk = look({ outfit: 0x82 }, 0);                                      // the same uniform, in Domino
     n = b.room!.mark(); na = a.room!.mark();
@@ -165,7 +165,7 @@ describe("the wardrobe API reaches everyone in the block", () => {
     const { h, a, b } = await setup();
     await enter(b, ACADEMY_PORT, 1, look({}, 1)); await enter(a, ACADEMY_PORT, 1, look({}, 1));
     const n = b.room!.mark(), before = stored(h);
-    expect(cosmeticAppearance(h.game, "user-a", { world: 1, parts: [...look({ outfit: 0x82 }, 1)] })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(h.game, "user-a", { world: 1, parts: [...look({ outfit: 0x82 }, 1)] })).toMatchObject({ error: "rank-uniform-locked" });
     expect(cosmeticEquip(h.game, "user-a", { id: "outfit:qualifier-robe", world: 1 })).toMatchObject({ error: "not-owned" });
     await h.tick(200);
     expect(updates(b, a.pid!, n)).toEqual([]); expect(stored(h)).toEqual(before);
@@ -283,4 +283,20 @@ describe("a rank change shows nothing new and takes nothing back", () => {
     a.room!.send(0x4170, cat(be32(1), look({ outfit: 0x82 }, 1), new Uint8Array(4))); await a.room!.wait(0x4171, na); await h.tick(200);
     expect(updates(b, a.pid!, nb)).toEqual([[0, hex(look({ outfit: 0x82 }, 1))], [1, hex(look({ outfit: 0x82 }, 1))]]);
   });
+});
+
+
+it("native placeholders and outfit changes below LV5 are corrected for self and observers in both worlds", async () => {
+  const { h, a, b, edit, sess } = await setup();
+  edit(st => { st.accounts[A].profiles["0"].rec.lv = 4; });
+  await enter(b, ACADEMY_PORT, 1, look({}, 1)); await enter(a, ACADEMY_PORT, 1, look({}, 1));
+  for (const world of [0, 1] as const) {
+    const parts = look({ outfit: 0x77 }, world), fixed = parts.slice(); fixed[6] = 0x80;
+    const n = b.room!.mark(), na = a.room!.mark();
+    a.room!.send(0x4170, cat(be32(world), parts, new Uint8Array(4))); await a.room!.wait(0x4171, na); await h.tick(200);
+    expect(seen(b, a.pid!, n)).toEqual(both(fixed));
+    expect(seen(a, a.pid!, na)).toEqual(both(fixed));
+    expect(stored(h)).toEqual([hex(fixed), hex(fixed)]);
+    expect(duelParts(h, sess())).toEqual([hex(fixed), hex(fixed)]);
+  }
 });

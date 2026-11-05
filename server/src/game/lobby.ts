@@ -1,3 +1,4 @@
+import { boundOf } from "./starter.ts";
 // The lobby (5732) and room ports (5740-5750, 5800-5876): py yo2srv/lobby/lobby.py lobby_reply, the handlers of
 // research/lobby/proposal.py (LP: rooms, PvP challenges, autoduel, watch, chat, friends, mail, teams, packs, trade),
 // mundo/bloques.py (block lists) and mundo/avatar.py.
@@ -869,7 +870,9 @@ export class Lobby {
     const trunk = p.trunk ?? {};
     const seen = new Set<number>(), flags: number[] = [];
     for (const cid of cards) { flags.push((trunk[String(cid)] ?? 0) === 0 && !seen.has(cid) ? 1 : 0); seen.add(cid); }
+    if (PP.progression()) boundOf(p);
     PP.trunkAdd(this.g, p, cards, 1, "lobby pack");
+    if (PP.progression()) PP.bindClaimedPrize(p, cards);
     this.g.saveState(st);
     return flags;
   }
@@ -1117,7 +1120,7 @@ export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data:
     }
     g.hub.onLobbyMsg(c, msgId, data);
   } catch (e) { g.log(`[hub] 0x${msgId.toString(16)}: ${e}`); }
-  if (corrected) c.send(0x4181, cat(new W().u32(myPid(g)).u32(u32(data)).bytes(), corrected));   // its own look, as kept
+  if (corrected) for (const world of [0, 1]) c.send(0x4181, cat(new W().u32(myPid(g)).u32(world).bytes(), corrected));   // its own look, as kept
   if (g.lp.handle(c, msgId, param, data)) return;
   if (msgId === 0x4170 && data.length >= 4) g.avState.world = u32(data);
   if (g.ph && g.phLobby.has(msgId)) {

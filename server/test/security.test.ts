@@ -333,7 +333,7 @@ describe("avatar parts (0x4170)", () => {
     };
     expect(await wear()).toEqual([0, 0]);                         // answered, but not kept nor shown
     expect(h.state().accounts["u:user-a"].profiles["0"].avatar?.a).not.toBe(Buffer.from(parts).toString("hex"));
-    const st = h.state(); st.accounts["u:user-a"].profiles["0"].pbin.push(120); h.game.store.saveRaw(st);
+    const st = h.state(); st.accounts["u:user-a"].profiles["0"].rec.lv = 5; st.accounts["u:user-a"].profiles["0"].pbin.push(120); h.game.store.saveRaw(st);
     expect(await wear()).toEqual([0, 2]);                         // one look: shown for both worlds
     expect(h.state().accounts["u:user-a"].profiles["0"].avatar.a).toBe(Buffer.from(parts).toString("hex"));
     expect(h.state().accounts["u:user-a"].profiles["0"].avatar.b).toBe(Buffer.from(parts).toString("hex"));

@@ -201,7 +201,7 @@ const gameFeature = async (c: Context<E>) => {
   const url = new URL(c.req.url);
   return toWorld(c.env, c.req.raw, "/__de/" + url.pathname.slice("/api/de/".length) + url.search, fwd);
 };
-for (const feature of ["cosmetics", "shop", "chat", "rank", "trade"]) {
+for (const feature of ["cosmetics", "shop", "chat", "rank", "trade", "craft", "rewards"]) {
   routes.on(["GET", "POST"], `/api/de/${feature}`, gameFeature);
   routes.on(["GET", "POST"], `/api/de/${feature}/*`, gameFeature);
 }

@@ -132,7 +132,7 @@ function fixture(extra = 0) {
   PP.setProgression(true);
   const names = ["alice", "bob", ...Array.from({ length: extra }, (_, i) => `x${i}`)];
   const accounts = Object.fromEntries(names.map((name, i) => {
-    const p = PP.blankProfile(name); p.prog = 1; p.rec.mp = 15000; p.mp_wallet = { version: 1, bound: 5000 };
+    const p = PP.blankProfile(name); p.prog = 1; p.rec.lv = 5; p.rec.mp = 15000; p.mp_wallet = { version: 1, bound: 5000 };
     return [name, { idx: i + 1, user_id: `user-${name}`, active_slot: 0, players: { "0": name }, profiles: { "0": p } }];
   }));
   const srv = buildServer(configFrom({ PROGRESSION: "1", PVP_TEST: "1", PARITY_SEED: "1" }), { accounts }, () => {});
@@ -169,13 +169,13 @@ describe("the server refuses a rank uniform the player hasn't unlocked (it was L
     expect(choices(info, "1", 6)).toContain(0x80); expect(choices(info, "1", 6)).not.toContain(0x81); expect(choices(info, "1", 6)).not.toContain(0x82);
     const parts = info.appearance.looks["1"].slice(); parts[6] = 0x81;
     f.mutate((st) => { st.accounts.alice.profiles["0"].rec.lv = 30; });      // LV 30 alone: still refused
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
-    expect(cosmeticAppearance(f.g, f.a, { world: 0, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });   // in Domino too
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 0, parts })).toMatchObject({ error: "rank-uniform-locked" });   // in Domino too
     f.setRank("alice", placed(1600));
     expect((cosmeticInfo(f.g, f.a) as any).rank).toMatchObject({ school: "ra", placed: true, uniforms: ["slifer", "ra"] });
     expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
     parts[6] = 0x82;
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
     parts[6] = 0x80;                                                          // a higher school still wears Slifer Red
     expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
     f.setRank("alice", placed(1900));
@@ -188,13 +188,13 @@ describe("the server refuses a rank uniform the player hasn't unlocked (it was L
     const f = fixture();
     f.mutate((st) => { st.accounts.alice.profiles["0"].pbin.push(133, 134); });
     const parts = (cosmeticInfo(f.g, f.a) as any).appearance.looks["1"].slice(); parts[6] = 0x85;
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
     f.setRank("alice", placed(1600));
     expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
     parts[6] = 0x86;
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
     parts[6] = 0x84;                                                          // Red 2: Slifer's, but not owned
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "appearance-not-owned" });
   });
   it("0x3114 carries the rank: uniforms of a school never reached cleared, PBIN_RANKED set, PBIN_GRADUATED for a graduated student only; p.pbin is not touched", () => {
     const f = fixture(), p = f.raw().accounts.alice.profiles["0"];
@@ -255,8 +255,8 @@ describe("graduated students (LV GRADUATION_LEVEL)", () => {
     expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
     expect([look(f, "bob", 0)[6], look(f, "bob", 1)[6]]).toEqual([0x70, 0x70]);
     parts[6] = 0x78;                                                          // QUALIFIER's Robe: not owned, graduated or not
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
-    expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "appearance-not-owned" });
+    expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ error: "appearance-not-owned" });
   });
   it("a demotion takes nothing back: no look reset, no re-dress, the uniform still in both worlds", () => {
     const f = fixture();
@@ -297,6 +297,7 @@ describe("the native 0x4170 (the 2008 editor, room entry)", () => {
     const h = harness({ players: {} }, { DEV: "0" });
     const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b");
     await a.account(0, "Alice"); await b.account(0, "Bob");
+    { const st = h.state(); for (const a of Object.values(st.accounts) as any[]) a.profiles["0"].rec.lv = 5; h.game.store.saveRaw(st); }
     await a.enterRoom(); await b.enterRoom();
     const A = "u:user-a", stored = () => {
       const v = h.state().accounts[A].profiles["0"].avatar;
@@ -307,7 +308,7 @@ describe("the native 0x4170 (the 2008 editor, room entry)", () => {
     const fixed = parts.slice(); fixed[6] = 0x80;                            // Slifer Red, the uniform everyone may wear
     let r = await send(h, a, b, 1, parts);
     expect(stored()).toBe(Buffer.from(fixed).toString("hex"));
-    expect(r.others).toEqual([[...fixed], [...fixed]]); expect(r.self).toEqual([[...fixed]]);
+    expect(r.others).toEqual([[...fixed], [...fixed]]); expect(r.self).toEqual([[...fixed], [...fixed]]);
     const edit = (fn: (st: any) => void) => { const st = h.state(); fn(st); h.game.store.saveRaw(st); };
     edit((st) => { st.accounts[A].profiles["0"].rank = placed(1900, { last: Date.now() }); });
     r = await send(h, a, b, 1, parts);

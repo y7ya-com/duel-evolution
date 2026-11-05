@@ -1,3 +1,4 @@
+import { boundOf } from "../game/starter.ts";
 // py pvp_match.py (PVP): Matches (reservations {pidA, pidB} left by an accepted challenge, and the routing of duel
 // connections: the one whose 0x6001 has a reserved pid belongs to its PvpMatch) and PvpMatch (the synchronized start of
 // both clients, the duel through ocgSession.PvpSession, the end with each one's lobby, surrender / disconnection /
@@ -1017,6 +1018,8 @@ export class PvpMatch {
       if (isFree(s)) {   // free mode: its own record only; no MP, LV, stats, titles or card (game/freemode.ts)
         if (played && last) freeRecord(p, res === DFM.RESULT_WIN ? true : res === DFM.RESULT_LOSE ? false : null);
       } else {
+        if (PP.progression()) boundOf(p);
+        p.prize_unbound = false;
         if (played) {
           xp = this.xp(p, k, res, last, mres, turns);
           pvpRecord(this.g, p, res, turns);

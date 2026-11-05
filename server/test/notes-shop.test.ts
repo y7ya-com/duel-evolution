@@ -2,11 +2,11 @@
 // B69 clothes (now withdrawn: cosmetic boxes only), B71 prize packs not sold) -> src/game/shop.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
-import { WEARABLE_AVATAR_SLOTS } from "../src/game/shop.ts";
+import { shopCatalog, shopPurchase, SHOP_SELL_SINGLES, WEARABLE_AVATAR_SLOTS, SHOP_ROTATION, packInRotation } from "../src/game/shop.ts";
 import LD from "../gamedata/lobby.json";
-import { harness, be32, cat, i32, pc, u32, type Client, type Harness } from "./notes-harness.ts";
+import { harness, be32, cat, i32, u32, type Client, type Harness } from "./notes-harness.ts";
 
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); SHOP_ROTATION.forceOn = []; SHOP_ROTATION.forceOff = []; });
 
 type Item = { iid: number; kind: number; prm: number; cost: number };
 async function setup(): Promise<[Harness, Client, Item[]]> {
@@ -34,7 +34,8 @@ async function buy(A: Client, data: Uint8Array) {
 }
 
 describe("shop (tienda.py)", () => {
-  it("later boosters 46–48 are listed and can be purchased", async () => {
+  it("later boosters 46–48 can be forced on and purchased", async () => {
+    SHOP_ROTATION.forceOn = [46, 47, 48];
     const [, A, items] = await setup();
     for (const pid of [46, 47, 48]) {
       const item = items.find((i) => i.kind === 1 && i.prm === pid);
@@ -57,11 +58,11 @@ describe("shop (tienda.py)", () => {
 
   it("B33: 0x5210 is a CART (u32 item + u8 count per row): every row is bought and the total is charged", async () => {
     const [h, A, items] = await setup();
-    const card = items.find((i) => i.kind === 0)!, pack = items.find((i) => i.kind === 1 && i.prm < 1000)!;
+    const card = items.find((i) => i.kind === 1 && i.prm === 2)!, pack = items.find((i) => i.kind === 1 && i.prm < 1000)!;
     const mp0 = prof(h).rec.mp;
     const r = await buy(A, cart([card.iid, 2], [pack.iid, 1]));
     expect(r.r5211).toBe(0);
-    expect(r.ents.filter((e) => e.iid === card.iid).length).toBe(2);
+    expect(r.ents.filter((e) => e.iid === card.iid).length).toBe(10);
     expect(r.ents.filter((e) => e.iid === pack.iid).length).toBe(5);
     expect(prof(h).rec.mp).toBe(mp0 - 2 * card.cost - pack.cost);
   });
@@ -69,7 +70,7 @@ describe("shop (tienda.py)", () => {
   it("B33: all or nothing: a cart over the balance -> 0x5212 s32 1 + 0x5211 s32 1, nothing changes", async () => {
     const [h, A, items] = await setup();
     setProf(h, (p) => { p.rec.mp = 150; });
-    const card = items.find((i) => i.kind === 0)!;
+    const card = items.find((i) => i.kind === 1)!;
     const before = JSON.stringify(prof(h).trunk);
     const r = await buy(A, cart([card.iid, 1], [card.iid + 1, 1]));
     expect([i32(r.r5212[0]), r.r5211]).toEqual([1, 1]);
@@ -89,11 +90,12 @@ describe("shop (tienda.py)", () => {
 
   it("B40: each card's u8 «new» is 1 only if the trunk did not have it before this purchase (2nd copy in the same cart: 0)", async () => {
     const [h, A, items] = await setup();
-    setProf(h, (p) => { p.trunk = { [pc(1)]: 1 }; });
-    const c1 = items.find((i) => i.kind === 0 && i.prm === pc(1))!, c2 = items.find((i) => i.kind === 0 && i.prm === pc(2))!;
-    const r = await buy(A, cart([c1.iid, 1], [c2.iid, 2]));
-    expect(r.ents.map((e) => [e.card, e.nw])).toEqual([[pc(1), 0], [pc(2), 1], [pc(2), 0]]);
-    expect(prof(h).trunk).toEqual({ [pc(1)]: 2, [pc(2)]: 2 });
+    const pack = items.find((i) => i.kind === 1 && i.prm === 1)!;
+    setProf(h, (p) => { p.trunk = {}; });
+    const r = await buy(A, cart([pack.iid, 20]));
+    const seen = new Set<number>();
+    for (const e of r.ents) { expect(e.nw).toBe(seen.has(e.card) ? 0 : 1); seen.add(e.card); }
+    expect(r.ents.length).toBeGreaterThan(seen.size);
   });
 
   it("B68: buying a structure deck (type 1 with a PBIN right) sets PBIN[bit + 1] (its recipe in the deck editor); no 0x5205", async () => {
@@ -134,13 +136,28 @@ describe("shop: wearables withdrawn, catalogue ids reserved", () => {
       expect(items.some((i) => i.kind === 2 && i.prm === bit), `PBIN ${bit}`).toBe(false);
   });
 
-  it("packs and single cards keep their catalogue ids; nothing new took a withdrawn id", async () => {
-    const [, , items] = await setup();
-    expect(items.filter((i) => i.kind === 1).map((i) => [i.iid, i.prm])).toEqual(PACK_IDS.map((pid, i) => [i + 1, pid]));
+  it("remaining packs keep their pre-retirement ids; singles and avatar ids stay reserved", async () => {
+    const [h, , items] = await setup();
+    expect(items.filter((i) => i.kind === 1).map((i) => [i.iid, i.prm])).toEqual(PACK_IDS.map((pid, i) => [i + 1, pid]).filter(([, pid]) => packInRotation(pid, h.game.clock.time())));
     expect(items.filter((i) => i.kind === 0).map((i) => [i.iid, i.prm]))
-      .toEqual(CARD_IDS.map((cid, i) => [PACK_IDS.length + i + 1, cid]));
+      .toEqual([]);
+    for (let id = PACK_IDS.length + 1; id < FIRST_AVATAR_IID; id++) expect(items.some((i) => i.iid === id)).toBe(false);
     expect(items.some((i) => i.iid >= FIRST_AVATAR_IID && i.iid < FIRST_AVATAR_IID + avatarRows.length)).toBe(false);
     expect(avatarRows.length).toBeGreaterThan(0);
+  });
+
+  it("keeps an avatar row at its pre-retirement id after all 46 reserved singles", async () => {
+    const [h] = await setup();
+    // All live avatar rows are withdrawn. Make one a sellable body feature to exercise its allocated id.
+    const [bit, row] = avatarRows[0], originalSlot = row[3];
+    try {
+      row[3] = 3;
+      const item = shopCatalog(h.game).find((r) => r[4] === 2 && u32(r, 5) === bit)!;
+      expect(u32(item)).toBe(oldIid(bit));
+      expect(u32(item)).toBe(107);
+    } finally { row[3] = originalSlot; }
+    expect(SHOP_SELL_SINGLES).toBe(false);
+    for (const cid of CARD_IDS) expect(shopPurchase(h.game, 0, cid, 1)).toEqual([]);
   });
 
   it("a stale cart naming only withdrawn ids is refused and costs nothing", async () => {
@@ -150,7 +167,7 @@ describe("shop: wearables withdrawn, catalogue ids reserved", () => {
     // Plaster, Sunglasses, Bakura's Eyepatch (boy), Academy Tracksuit (boy and girl), Jaden's garms
     const stale = [33, 80, 84, 131, 387, 135].map((bit) => [oldIid(bit), 1] as [number, number]);
     expect(stale.every(([iid]) => iid >= FIRST_AVATAR_IID)).toBe(true);
-    const r = await buy(A, cart(...stale));
+    const r = await buy(A, cart(...stale, ...CARD_IDS.map((_, i) => [PACK_IDS.length + i + 1, 1] as [number, number])));
     expect([i32(r.r5212[0]), r.r5211]).toEqual([1, 1]);
     expect(r.ents).toEqual([]);
     expect(prof(h)).toEqual(before);
@@ -159,10 +176,11 @@ describe("shop: wearables withdrawn, catalogue ids reserved", () => {
   it("a withdrawn id in a mixed cart is skipped: only the card is charged and no avatar part is granted", async () => {
     const [h, A, items] = await setup();
     setProf(h, (p) => { p.rec.mp = 20000; });
-    const card = items.find((i) => i.kind === 0)!, pbin = [...prof(h).pbin];
+    const card = items.find((i) => i.kind === 1)!, pbin = [...prof(h).pbin];
     const r = await buy(A, cart([oldIid(80), 1], [card.iid, 1], [oldIid(131), 1]));
     expect(r.r5211).toBe(0);
-    expect(r.ents.map((e) => [e.iid, e.kind, e.card])).toEqual([[card.iid, 0, card.prm]]);
+    expect(r.ents).toHaveLength(5);
+    expect(r.ents.every((e) => e.iid === card.iid && e.kind === 1)).toBe(true);
     expect(prof(h).rec.mp).toBe(20000 - card.cost);
     expect(prof(h).pbin).toEqual(pbin);
   });

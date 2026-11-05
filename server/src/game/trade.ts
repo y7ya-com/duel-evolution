@@ -1,3 +1,4 @@
+import { craftedOffered, craftedMove } from "./crafted-copies.ts";
 // Card trade between two players (py research/intercambio/proposal.py, TP): the 0x7000 envelope.
 import type { Conn } from "../net/conn.ts";
 import { W } from "../net/proto.ts";
@@ -7,7 +8,7 @@ import * as PP from "./persist.ts";
 import { SANCTION_TRADE } from "./lobby.ts";
 import { boundOf } from "./starter.ts";
 import { pushCosmeticOwnership, spareCopies, swapCosmetics, tradeItem, tradeSpares, TRADE_COSMETIC_LINES } from "./cosmetics.ts";
-import { cosmeticUnits, type CosmeticLine } from "./trade-units.ts";
+import { cardUnits, cosmeticUnits, type CosmeticLine } from "./trade-units.ts";
 
 const SUB = { TRADESTART: 0x7101, REQTRADE: 0x7102, OFFERREPLY: 0x7105, CANCELREQ: 0x7108, USEREXIT: 0x7112, ADDCARD: 0x7113,
   DELETECARD: 0x7114, SETSTATUS: 0x7117, LASTCONFIRM: 0x7119, ARRIVE: 0x7122, CLEAR: 0x7128, READY: 0x7132 };
@@ -173,7 +174,7 @@ export class Trades {
           this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) gives ${give.length} cards, ${cGive.length} cosmetic lines after ${earned} rewarded duels (< ${PP.TRADE_GIVE_MIN_DUELS}): cancelled`);
           return "fresh";
         }
-        const into = take.length + cosmeticUnits(cTake), out = give.length + cosmeticUnits(cGive);
+        const into = cardUnits(take) + cosmeticUnits(cTake), out = cardUnits(give) + cosmeticUnits(cGive);
         if (econ && into > out && tin + into - out > PP.TRADE_IN_DAY_MAX) {
           this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) would take in ${tin + into - out} net card units today (> ${PP.TRADE_IN_DAY_MAX}): cancelled`);
           return "cap";
@@ -184,26 +185,30 @@ export class Trades {
           return "min";
         }
       }
-      const apply = (give: number[], take: number[], net: number) => (p: any) => {
+      const lockA = this.withProfile(a, (p) => craftedOffered(p, giveA));
+      const lockB = this.withProfile(b, (p) => craftedOffered(p, giveB));
+      const apply = (give: number[], take: number[], net: number, outgoing: number[], incoming: number[]) => (p: any) => {
+        craftedMove(p, outgoing, []);
         PP.trunkRemove(p, give, this.g, "intercambio"); PP.trunkAdd(this.g, p, take, 1, "intercambio");
+        craftedMove(p, [], incoming);
         PP.tradeInAdd(this.g, p, net);
       };
-      const netA = giveB.length + cosmeticUnits(cosB) - giveA.length - cosmeticUnits(cosA);
+      const netA = cardUnits(giveB) + cosmeticUnits(cosB) - cardUnits(giveA) - cosmeticUnits(cosA);
       const accounts = this.g.store.peek().accounts ?? {};
       if (accounts[a.acct] && accounts[b.acct] && a.acct !== b.acct) {
         // both accounts' copies changed together, then one commit: cards, cosmetics and the intake counters
         const ea = structuredClone(accounts[a.acct]), eb = structuredClone(accounts[b.acct]);
         const pa = this.g.withCtx(a, () => PP.profile(ea, a.slot ?? PP.activeSlot(ea))!), pb = this.g.withCtx(b, () => PP.profile(eb, b.slot ?? PP.activeSlot(eb))!);
         if (mixed && !swapCosmetics(ea, eb, pa, pb, cosA, cosB)) return "cos-missing";
-        this.g.withCtx(a, () => apply(giveA, giveB, netA)(pa));
-        this.g.withCtx(b, () => apply(giveB, giveA, -netA)(pb));
+        this.g.withCtx(a, () => apply(giveA, giveB, netA, lockA, lockB)(pa));
+        this.g.withCtx(b, () => apply(giveB, giveA, -netA, lockB, lockA)(pb));
         this.g.store.commit({}, { [a.acct]: ea, [b.acct]: eb });
         if (mixed) { pushCosmeticOwnership(this.g, a, pa); pushCosmeticOwnership(this.g, b, pb); }
         if (mixed) this.g.log(`[economia] trade pids ${a.pid}/${b.pid}: ${giveA.length} cards + ${cosA.map((l) => `${l.id}x${l.count}`).join(",") || "no cosmetics"} for ${giveB.length} cards + ${cosB.map((l) => `${l.id}x${l.count}`).join(",") || "no cosmetics"}`);
       } else {
         if (mixed) return "cos-client";   // the owner's legacy account has no wardrobe
-        this.withProfile(a, apply(giveA, giveB, netA), true);
-        this.withProfile(b, apply(giveB, giveA, -netA), true);
+        this.withProfile(a, apply(giveA, giveB, netA, lockA, lockB), true);
+        this.withProfile(b, apply(giveB, giveA, -netA, lockB, lockA), true);
       }
     } catch (e) { this.g.log(`[intercambio] error moving the cards: ${e}`); return "missing"; }
     return "done";

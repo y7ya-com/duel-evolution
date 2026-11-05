@@ -4,14 +4,14 @@ import { buildServer } from "../src/server.ts";
 import { Session } from "../src/game/hub.ts";
 import * as PP from "../src/game/persist.ts";
 import { rowsToState, stateToRows } from "../src/db/project.ts";
-import { BOXES, COSMETICS, COSMETIC_BY_ID, DROP_EXCLUSIONS, expandCosmeticBits, cosmeticPool, outfitArtworkId, AVATAR_ROWS,
+import { BOXES, COSMETICS, FREE_COSMETICS, COSMETIC_BY_ID, DROP_EXCLUSIONS, expandCosmeticBits, cosmeticPool, outfitArtworkId, AVATAR_ROWS,
   BODY_WIP_NOTICE, BOX_BODY_NOTICE, SPLIT_FAMILIES, MERGED_FAMILIES, boxDisclosure, resolveCosmeticId } from "../src/game/cosmetics-catalog.ts";
-import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel, syncCosmeticOwnership } from "../src/game/cosmetics.ts";
+import { lawfulLook, cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel, syncCosmeticOwnership } from "../src/game/cosmetics.ts";
 
 function fixture() {
   PP.setProgression(true);
   const accounts = Object.fromEntries(["alice", "bob", "eve"].map((name, i) => {
-    const p = PP.blankProfile(name); p.prog = 1; p.rec.mp = 15000; p.mp_wallet = { version: 1, bound: 5000 };
+    const p = PP.blankProfile(name); p.prog = 1; p.rec.lv = 5; p.rec.mp = 15000; p.mp_wallet = { version: 1, bound: 5000 };
     return [name, { idx: i + 1, user_id: `user-${name}`, active_slot: 0, players: { "0": name }, profiles: { "0": p } }];
   }));
   const srv = buildServer(configFrom({ PROGRESSION: "1", PVP_TEST: "1", PARITY_SEED: "1" }), { accounts }, () => {});
@@ -205,7 +205,7 @@ describe("a design owns every real body equivalent", () => {
     const f = fixture(); cosmeticInfo(f.game, f.a); // the ledger exists (split-migrated) before the bit arrives
     mutate(f, st => { const p = st.accounts.alice.profiles["0"]; p.pbin.push(116); p.avatar = { a: "0000203040607490b020000000000000" }; });
     const result = cosmeticAppearance(f.game, f.a, { gender: "female" }) as any;
-    expect(result.appearance.looks["0"][6]).toBe(0x70); // Tracksuit Red has no female version: the free uniform.
+    expect(result.appearance.looks["0"][6]).toBe(0x80); // Tracksuit Red has no female version: the free uniform.
     expect(result.inventory.find((i: any) => i.id === "outfit:tracksuit-red")).toMatchObject({ owned: true, compatible: false, bodies: ["male"], notice: BODY_WIP_NOTICE.female });
     expect(result.inventory.some((i: any) => i.id === "outfit:punk-red")).toBe(false);
   });
@@ -213,12 +213,12 @@ describe("a design owns every real body equivalent", () => {
     const f = fixture();
     mutate(f, st => { const p = st.accounts.alice.profiles["0"]; p.pbin.push(122); p.avatar = { a: "0000203040607a90b020000000000000" }; });
     const result = cosmeticAppearance(f.game, f.a, { gender: "female" }) as any;
-    expect(result.appearance.looks["0"][6]).toBe(0x70);
+    expect(result.appearance.looks["0"][6]).toBe(0x80);
     expect(result.inventory.find((i: any) => i.id === "outfit:kaiba")).toMatchObject({ owned: true, compatible: false, bodies: ["male"], notice: BODY_WIP_NOTICE.female });
     const before = raw(f), parts = result.appearance.looks["0"].slice(); parts[6] = 0x77; // Marik not owned.
-    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
-    parts[6] = 0x70; parts[14] = 7;
-    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "appearance-not-owned" });
+    parts[6] = 0x80; parts[14] = 7;
+    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "invalid-appearance" });
     expect(raw(f)).toEqual(before);
     parts[14] = 6; parts[13] = 2;
     expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ appearanceUpdated: true });
@@ -226,9 +226,9 @@ describe("a design owns every real body equivalent", () => {
   it("keeps rank uniforms gated by the PvP rating, not LV, in the shortcut editor (test/ranking.test.ts has the rest)", () => {
     const f = fixture(); const info = cosmeticInfo(f.game, f.a) as any;
     const parts = info.appearance.looks["1"].slice(); parts[6] = 0x81;
-    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
     mutate(f, st => { st.accounts.alice.profiles["0"].rec.lv = 10; });   // the 2008 LV 10 gate no longer opens it
-    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts })).toMatchObject({ error: "rank-uniform-locked" });
     mutate(f, st => { st.accounts.alice.profiles["0"].rank = { rating: 1600, rd: 80, vol: 0.06, games: 5, school: "ra", last: Date.now() }; });
     expect(cosmeticAppearance(f.game, f.a, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
   });
@@ -242,7 +242,7 @@ describe("a design owns every real body equivalent", () => {
     cosmeticInfo(f.game, f.a);
     mutate(f, st => { st.accounts.alice.cosmetics.owned = ["outfit:yugi"]; st.accounts.alice.profiles["0"].pbin = st.accounts.alice.profiles["0"].pbin.filter((b: number) => b !== 374); });
     const female = cosmeticAppearance(f.game, f.a, { gender: "female" }) as any;
-    expect(female.appearance.looks["0"][6]).toBe(0x70); // no Téa's garms for a Yugi-only owner after the split
+    expect(female.appearance.looks["0"][6]).toBe(0x80); // no Téa's garms for a Yugi-only owner after the split
     expect(female.inventory.find((i: any) => i.id === "outfit:yugi")).toMatchObject({ owned: true, compatible: false, notice: BODY_WIP_NOTICE.female });
   });
 });
@@ -640,5 +640,74 @@ describe("Afro I, II and III are one item, Afro (owner, 2026-11-04)", () => {
     expect(cosmeticAppearance(f.game, f.a, { gender: "female" })).toMatchObject({ appearanceUpdated: true });
     expect(PP.avatarParts(raw(f).accounts.alice.profiles["0"], 0)[1]).toBe(7);   // female Afro III
     expect((cosmeticEquip(f.game, f.a, { id: "hair:afro", world: 1 }) as any).equipped.parts[1]).toBe(5);
+  });
+});
+
+
+describe("Slifer beginner look and level 5 outfit lock", () => {
+  it("repairs native zero placeholders before a Slifer appearance request (the misleading dorm error regression)", () => {
+    const f = fixture();
+    mutate(f, st => { st.accounts.alice.profiles["0"].avatar = { a: "0".repeat(32), b: "0".repeat(32) }; });
+    const info = cosmeticInfo(f.game, f.a) as any;
+    expect(info.appearance.looks["0"]).toEqual([0, 0, 32, 48, 64, 96, 128, 144, 184, 32, 0, 0, 0, 0, 0, 0]);
+    for (const world of [0, 1]) expect(cosmeticAppearance(f.game, f.a, { world, parts: info.appearance.parts })).toMatchObject({ appearanceUpdated: true });
+  });
+  it("defaults both bodies and worlds to Slifer, blocks outfits before LV5, and unlocks an owned outfit at LV5", () => {
+    const f = fixture(); copies(f, "alice", "outfit:black-suit", 0);
+    for (const gender of [0, 1]) {
+      mutate(f, st => { const p = st.accounts.alice.profiles["0"]; p.rec.lv = 4; p.avatar = { a: `${gender ? "01" : "00"}${"00".repeat(15)}` }; });
+      const info = cosmeticInfo(f.game, f.a) as any;
+      expect(info.outfitLocked).toBe(true);
+      for (const world of [0, 1]) {
+        expect(info.appearance.looks[String(world)][6]).toBe(128);
+        expect(cosmeticAppearance(f.game, f.a, { world, parts: info.appearance.parts })).toMatchObject({ appearanceUpdated: true });
+        const parts = info.appearance.parts.slice(); parts[6] = gender ? 0x74 : 0x77;
+        expect(cosmeticAppearance(f.game, f.a, { world, parts })).toMatchObject({ error: "slifer-until-lv5" });
+        expect(cosmeticEquip(f.game, f.a, { id: "outfit:black-suit", world })).toMatchObject({ error: "slifer-until-lv5" });
+      }
+      mutate(f, st => { st.accounts.alice.profiles["0"].rec.lv = 5; });
+      for (const world of [0, 1]) expect(cosmeticEquip(f.game, f.a, { id: "outfit:black-suit", world })).toMatchObject({ equipped: { world } });
+      const p = raw(f).accounts.alice.profiles["0"];
+      expect(p.avatar.a).toBe(p.avatar.b);
+    }
+  });
+});
+
+describe("free editor wardrobe", () => {
+  it("lists exactly every initial non-rank PBIN and every fixed editor choice", () => {
+    for (const [bit, row] of Object.entries(AVATAR_ROWS)) {
+      if (!row[1] || ![1, 2].includes(row[2]) || (row[3] === 6 && row[0] > 128)) continue;
+      expect(FREE_COSMETICS.some(i => i.slot === row[3] && i.variants.some(v => v.bit === Number(bit)))).toBe(true);
+    }
+    expect(FREE_COSMETICS.filter(i => i.slot === 13)).toHaveLength(3);
+    expect(FREE_COSMETICS.filter(i => i.slot === 14)).toHaveLength(7);
+    expect(FREE_COSMETICS.filter(i => i.slot === 15)).toHaveLength(7);
+    expect(FREE_COSMETICS.some(i => i.slot === 6 && i.variants.some(v => v.number > 128))).toBe(false);
+  });
+  for (const body of ["male", "female"] as const) it(`lists and equips every ${body} free choice through both appearance paths`, () => {
+    const f = fixture();
+    mutate(f, st => { const p = st.accounts.alice.profiles["0"]; p.avatar = { a: `${body === "female" ? "01" : "00"}00203040608090b820000000000000` }; });
+    const info = cosmeticInfo(f.game, f.a) as any;
+    for (const item of FREE_COSMETICS) {
+      expect(info.inventory.find((i: any) => i.id === item.id)).toMatchObject({ free: true, owned: true, rarity: null, copies: 0, tradable: 0 });
+      const variant = item.variants.find(v => v.gender === body);
+      const out = cosmeticEquip(f.game, f.a, { id: item.id }) as any;
+      if (!variant) { expect(out.error).toBe("no-compatible-variant"); continue; }
+      expect(out.error, item.id).toBeUndefined();
+      expect(out.equipped.parts[item.slot]).toBe(variant.number);
+      const p = raw(f).accounts.alice.profiles["0"];
+      expect(lawfulLook(p, 0, Uint8Array.from(out.equipped.parts))).toMatchObject({ owned: true, changed: false });
+      expect((cosmeticAppearance(f.game, f.a, { world: 1, parts: out.equipped.parts }) as any).error, item.id).toBeUndefined();
+    }
+  });
+  it("keeps free Domino outfits locked below level five and rank uniforms gated", () => {
+    const f = fixture();
+    mutate(f, st => { st.accounts.alice.profiles["0"].rec.lv = 4; });
+    expect(cosmeticEquip(f.game, f.a, { id: "free:part:3310" })).toMatchObject({ error: "slifer-until-lv5" });
+    const parts = (cosmeticInfo(f.game, f.a) as any).appearance.parts;
+    parts[6] = 129;
+    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "slifer-until-lv5" });
+    mutate(f, st => { st.accounts.alice.profiles["0"].rec.lv = 5; });
+    expect(cosmeticAppearance(f.game, f.a, { world: 0, parts })).toMatchObject({ error: "rank-uniform-locked" });
   });
 });

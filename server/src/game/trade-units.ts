@@ -1,3 +1,5 @@
+import { SHARDS } from "./shards-config.ts";
+import { cardRarity } from "./card-rarity.ts";
 // How a mixed trade (cards + cosmetics, trade.ts) counts against the anti-alt intake cap (persist.ts TRADE_IN_DAY_MAX)
 // and in the daily report (db/audit.ts). One budget, in card units: a card is 1, a cosmetic copy is its rarity's weight.
 // The weights follow what a copy costs out of the boxes (earned MP only: an Outfit Box is 1500 MP, a booster 200), and
@@ -10,3 +12,6 @@ export interface CosmeticLine { id: string; count: number; rarity?: string }
 export const cosmeticUnits = (lines: readonly CosmeticLine[]): number =>
   lines.reduce((n, l) => n + (COSMETIC_UNITS[l.rarity as CosmeticRarity] ?? COSMETIC_UNITS.common) * Math.max(0, Math.floor(l.count) || 0), 0);
 export const cosmeticCopies = (lines: readonly CosmeticLine[]): number => lines.reduce((n, l) => n + Math.max(0, Math.floor(l.count) || 0), 0);
+
+export const CARD_UNITS = { N: 1, R: 2, SR: 6, UR: 15 } as const;
+export const cardUnits = (cards: readonly number[]): number => cards.reduce((n, pc) => n + (SHARDS.tradeRarityWeights ? CARD_UNITS[cardRarity(pc) ?? "N"] : 1), 0);

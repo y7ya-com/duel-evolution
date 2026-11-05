@@ -152,7 +152,7 @@ with no admin overrides:
 | Booster (`sobre`; packs 1-45 and 46-48) | 48 | 200 | 5 cards drawn uniformly from the pack's 44-60-card pool. Overall pool mix: 66% N, 24% R, 7% SR, 3% UR. |
 | Beginner (`principiante`; 1001-1003) | 3 | 100 | 5 cards from a pool of about 150 |
 | Structure deck (`estructura`; 7001, 7003, 7005, 8001-8006) | 9 | 1,000 | a fixed 40-45-card list plus its recipe right. One is free per character (`starter`). |
-| Single card (`carta`) | 46 | 100 | mostly 2008 basics: 31 N, 9 R, 5 SR, 1 UR |
+| Single cards | retired | — | All 46 former singles are craftable; catalogue ids remain reserved. |
 | Avatar item, slot 2 face mark | 1 | 200 | AVATAR_PRICES |
 | Avatar item, slot 9 glasses | 10 + 2 | 500, or 1,500 for the ×3 "present" design | |
 | Hair box | - | 500 | spends earned MP only |
@@ -324,9 +324,11 @@ Deployed catalog, projected pools (cross-check):
    - The 2008 prices still fit the faucet: a median player buys 2.6 boosters a day once the grant is gone.
    - Structure decks are the best value per card (about 25 MP per card, against 40 for a booster) and are capped by
      their fixed lists.
-   - Optional, low priority: price singles by `card-rarity.ts`, at N 100, R 200, SR 400, UR 800. Today one SR single
-     costs as much as an N, while any *specific* card from boosters costs about 2,200 MP (5 draws from a pool of about
-     55 cards). This needs a code change, because `carta` is a single admin key.
+   - Single-card sales are retired now that crafting covers all 46 former singles, including the six gamedata-only
+     cards. `SHOP_SELL_SINGLES = false` in `shop.ts` hides them from both catalogues and prevents purchases through
+     native 0x5210 and POST /__de/shop/buy. Their item ids remain reserved, so packs and avatar ids never shift.
+     The legacy admin `carta` price override has no effect while singles are disabled; one config line restores sales.
+     The buy-single → dismantle shard-loop check is replaced by coverage that every former single is craftable.
 6. **Avatar shop items:** withdraw the face mark and glasses from the native shop, as the change in progress does.
    The glasses designs that exist for both bodies are in the head box. Single-body rows stay owned where already
    granted, but are no longer sold.
@@ -413,5 +415,51 @@ Re-run against the final catalog before shipping.
 duplicates is meant to close the gap, and so is not needing the other body's single-body items. With 13 outfits
 the outfit box no longer needs the price rise considered for its 6-item pool, so it stays at 1,200. Re-measure once
 trades happen: if few duplicates change hands, cut the disk box's price before adding duplicate protection. Not
-applied (owner decisions): rarity-priced single cards (§8.5) and the soul-bound migration for pre-11-02 grants (§6).
+applied (owner decisions): the soul-bound migration for pre-11-02 grants (§6).
 Packs and faucets are unchanged.
+
+## 13. Shards and Secret Packs (2026-11-05)
+
+Shards belong to a character slot and come only from dismantling. There is no pack bonus, trading of shards,
+or MP conversion. `src/game/shards-config.ts` is the single configuration: `table: "stingy"` selects craft
+N/R/SR/UR **20/50/150/450**, dismantle **1/2/15/150**. The alternative `"proposed"` selects
+**15/40/100/300**, **1/4/25/100**. `craftedTradeable: true`, `tradeRarityWeights: false`, and
+`secretPacks: true` are the owner's defaults.
+
+Crafting permits every collectible card, including forbidden cards and cards sold nowhere, except World Championship
+prizes 501000000–501000007. A craft cannot directly increase ownership beyond three copies. Crafted copies can trade,
+but their per-copy dismantle lock follows the trade (`p.crafted`, sent before ordinary copies). Turning
+`craftedTradeable` off binds future crafts instead. Soulbound copies never dismantle. Structure decks and Beginner's
+Packs must bind every purchased copy. Ordinary traded copies remain dismantlable. Unrewarded duel prizes and prizes
+past the account's 40-duel full-rate allowance arrive bound; eligibility is retained until a queued prize is claimed.
+
+`GET /api/de/craft` (internally `/__de/craft`) provides the wallet, values, card counts and a request token. POST
+`make`, `dismantle`, and `dismantle-extras` require that token. Extras defaults to keeping three, or one explicitly,
+and protects the maximum main+side+extra demand of each saved, non-deleted D1 deck. Bound and crafted locks also
+apply. Manual dismantles protect saved decks too. Free mode, duels and trades refuse mutations. Inventory, wallet,
+request receipt and append-only `p.shard_audit` save together; D1's existing `state_extras` projection retains them
+without a migration. The economy log records card changes and shard deltas. Receipts survive retries and restarts.
+
+Secret Pack keys come from SR/UR crafts or paid ordinary-booster pulls, never beginner packs, structures, prizes,
+trades or free packs. Each key opens every containing booster for 24 hours and resets its expiry. A character's first
+craft key for each booster also delivers one bound free pack, once ever; a pull key does not consume this entitlement.
+Our packs retain the existing five-card odds. Expiries use Unix seconds; `secretUnlocked(p, now)` gives the shop's
+`unlocked: { [packId]: endsAt }` map. Rotation filtering and purchase validation must both allow an active key via
+`secretPackAvailable`; keys do not otherwise restrict the current always-open catalog. Shop integration is owned by
+the shop implementation (`secret-packs.ts` exports its hooks).
+
+The report-only admin endpoint `/__admin/trade-funnel?days=7` (GET, or POST `{days}`; 1–365 days) ranks accounts by net
+card value received, using current dismantle yields. It shows top senders, values, counts, one-way and lopsided flow,
+many senders, young accounts (<7 days), low level (maximum account character level ≤5), and shared login IPs. The audit
+has no device signal; unknown age or level stays null. Cosmetics have no shard yield and are excluded. No automatic
+sanction runs. The offline CLI is `scripts/economy/trade-funnel.ts`; run with vite-node and a JSON evidence file
+`{trades, logins, meta?}`, optional days and clock in milliseconds. Existing trade/IP tables supply the evidence.
+
+Master Duel references: [pulls or crafts and 24 hours](https://www.pcgamer.com/yu-gi-oh-master-duel-secret-packs-list/),
+[reset to 24 hours on another pull/craft key](https://jp.samurai-gamers.com/master-duel/secret_pack/),
+[first craft-key free pull, once per pack, including cards in multiple packs](https://www.masterduelmeta.com/articles/guides/2024/sr-crafting-guide).
+The free pack rule is based on the first **craft** key, even if the pack was previously discovered through a pull.
+
+The stingy numbers above are placeholders pending the economy retuning; Master Duel inspires Secret Pack keys only.
+Shard costs/balances use safe integer numbers through 9,007,199,254,740,991, with no 32-bit coercion. Unsafe results
+are refused before mutation. Tests round-trip a five-billion craft cost and a twenty-billion wallet through D1.
