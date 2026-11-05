@@ -1,97 +1,80 @@
-// The Wardrobe: the cosmetics a player owns, with their real in-game art (cosmetics/art.js), to see and equip per world.
-// An overlay over whatever scene is up (the Card Shop, a lobby, My Room), built as the native shop builds a category
-// (cosmetics/shopart.js: the game's own shop sprites): the glass window with its dark band and title plate, the
-// Avatar Parts list's row plates (cyan = selected, light = worn), and the side column: the player's waist-up bust
-// (cosmetics/waistup.js, the game's own bust from its own parts) in the selection frame, wearing the selected item
-// (a try-on: the saved look is unchanged until Equip), its state ("Wearing" / "Previewing" / why not), the item's own
-// art and detail on the dark band, the orange Equip pill and the cyan Close pill. Laid out in game px on a
-// 1024 x 768 stage that follows the canvas (crisp at any DPR).
-//   openWardrobe({ focusId, world }) -> close(): opens it (or, already open, selects focusId there); focusId an item id
-//     (the box reveal's reward), world 0 Domino City / 1 Duel Academy (default: the world the character is in)
-// Callers: the shop's Wardrobe button and the box reveal (cosmetics/boxes*.js).
-// Data: cosmetics/api.js getInfo (inventory, appearance per world, rank), equip(id, world) (the server's error text on
-// a refusal); the view model is cosmetics/wardrobe-model.js. The rank uniforms are worn through api.setAppearance when
-// api.js has it (POST /appearance: they are not catalog items); without it the panel says where to wear them.
-// Keys: Esc closes, the arrows move through the list, Enter equips. While it is up no key or click reaches the game.
+// The Wardrobe: the cosmetics a player owns, with their real in-game art (cosmetics/art.js), to see and wear per world.
+// An overlay over the overworld (opened from the menu bar: cosmetics/wardrobe-launcher.js), built from the native shop's
+// own sprites (cosmetics/shopart.js): the glass window with its dark band and title plate; the categories as tabs
+// (Head, Outfit, Disk); the owned items in a grid (cyan plate = worn here, dark = locked, the yellow brackets = the
+// selection); in the middle the player's waist-up bust (cosmetics/waistup.js, the game's own bust from its own parts)
+// large in the selection frame, wearing the selected item (a try-on: nothing changes until Equip) with its state plate;
+// on the right the item's art and detail on the dark band (a locked or unwearable item's reason in one short line),
+// one orange Equip, Take off for a face mark or glasses that is worn, and Close. 1024 x 768 stage following the canvas.
+//   openWardrobe({ focusId }) -> close(): opens it (or, already open, selects focusId there). A character has one look,
+//     worn in both worlds (owner, 2026-11-05): no world switch; the server writes both worlds' copies.
+// Data: cosmetics/api.js getInfo, equip(id, world), setAppearance(world, parts) (the rank uniforms, Take off); the view
+// model is cosmetics/wardrobe-model.js. Keys: Esc closes, the arrows move through the grid, Enter equips. While it is
+// up no key or click reaches the game.
 import * as api from './api.js';
-import { injectTheme, RARITY, WORLD_LABEL, BODY_LABEL } from './theme.js';
+import { injectTheme, RARITY } from './theme.js';
 import { injectShopSkin } from './shopart.js';
 import { renderItemArt } from './art.js';
 import { renderWaistUp } from './waistup.js';
-import { wardrobeView, tabOfId, uniformParts, previewOf, WORLDS } from './wardrobe-model.js';
+import { wardrobeView, tabOfId, uniformParts, previewOf, takeOffParts, TABS } from './wardrobe-model.js';
 
-// The layout (stage px): the window (512 x 590, the shop's) at 118, 89 and the side column (260) at 646, 16 apart, the
-// pair centred on the stage. One grid in the window: its content spans 24..488 (the window's centre 256), the tabs
-// and the world switch four 110 plates 8 apart on it, the rows 464 wide on the same edges. The side column is one
-// width top to bottom: the bust's frame, the detail band, Equip, Close, 10 apart.
+// The layout (stage px): one glass window (960 x 620 at 32, 74) over the overworld. Its band: two hint lines, the title
+// plate. Three columns on it, 24 px from its edges: the grid (Head / Outfit / Disk tabs over the
+// owned items, 4 a row, 66 px tiles 12 apart: 24..324), the bust in the selection frame in the middle (330..630, the
+// window's centre 480) with its state plate and the graduation line, the detail band and the buttons (640..936).
+// A tile's plate: cyan = worn in this world, dark = locked; the yellow corner brackets: the selection (as the shop's).
 const CSS = `
 .de-wd { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0; z-index: 2147483000;
   pointer-events: auto; outline: none; }
-.de-wd .wd-dim { position: absolute; inset: 0; background: rgba(2,9,16,.88); animation: wd-fade .18s ease-out; }
-.de-wd .wd-win { position: absolute; left: 118px; top: 89px; width: 512px; height: 590px; animation: wd-fade .18s ease-out; }
-.de-wd .wd-win > .sa-glass { left: 0; top: 0; width: 512px; height: 590px; }
-.de-wd .wd-win > .sa-glass::before { opacity: .9; }
-.de-wd .wd-win > .sa-band { left: 7px; top: 4px; width: 498px; height: 88px; }
-/* the band: what the panel does, two lines on the grid's left edge; the title plate on its lower left (the shop's
-   place) and the world switch on the same row, on the grid's last two columns */
-.de-wd .wd-hint { position: absolute; left: 24px; top: 13px; width: 464px; }
+.de-wd .wd-dim { position: absolute; inset: 0; background: rgba(2,9,16,.86); animation: wd-fade .18s ease-out; }
+.de-wd .wd-win { position: absolute; left: 32px; top: 74px; width: 960px; height: 620px; animation: wd-fade .18s ease-out; }
+.de-wd .wd-win > .sa-glass { left: 0; top: 0; width: 960px; height: 620px; }
+.de-wd .wd-win > .sa-glass::before { opacity: .92; }
+.de-wd .wd-win > .sa-band { left: 7px; top: 4px; width: 946px; height: 88px; }
+.de-wd .wd-hint { position: absolute; left: 24px; top: 13px; width: 560px; }
 .de-wd .wd-hint > div { height: 18px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; }
 .de-wd .wd-win > .sa-title { left: -10px; top: 67px; width: 256px; }
-.de-wd .wd-worlds .sa-plate, .de-wd .wd-tabs .sa-plate { width: 110px; height: 36px; display: flex; align-items: center;
-  justify-content: center; text-align: center; }
-.de-wd .wd-worlds .sa-plate { top: 67px; }
-.de-wd .wd-tabs .sa-plate { top: 112px; }
-/* the list: the Avatar Parts rows, nine whole rows */
-.de-wd .wd-list { position: absolute; left: 24px; top: 158px; width: 480px; height: 392px; overflow-y: auto; overflow-x: hidden;
+.de-wd .sa-plate.wd-tab { height: 36px; display: flex; align-items: center; justify-content: center; text-align: center; }
+.de-wd .wd-tab { top: 104px; width: 92px; }
+.de-wd .wd-grid { position: absolute; left: 24px; top: 152px; width: 310px; height: 444px; overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin; scrollbar-color: #8fa2ad rgba(0,0,0,.12); }
-.de-wd .wd-row { position: relative; display: block; width: 464px; height: 40px; margin: 0 0 4px; }
-.de-wd .wd-row:last-child { margin-bottom: 0; }
-.de-wd .wd-row > .de-rf { position: absolute; left: 8px; top: 5px; width: 30px; height: 30px; padding: 2px; }
-.de-wd .wd-row > .nm, .de-wd .wd-row > .wr { position: absolute; top: 0; height: 40px; line-height: 40px; }
-.de-wd .wd-row > .nm { left: 48px; right: 96px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-.de-wd .wd-row > .wr { right: 18px; width: 72px; text-align: right; color: #003c78; }
-.de-wd .wd-row[data-off] > .nm, .de-wd .wd-row[data-off] > .wr { color: #e8e8e8; text-shadow: 1px 1px 0 rgba(0,0,0,.4); }
-.de-wd .wd-row[data-locked] > .de-rf > .well > .de-art { opacity: .35; filter: grayscale(1); }
-.de-wd .wd-row[data-cant] > .nm { color: #555; }
-.de-wd .wd-row:focus-visible { outline: none; }
-.de-wd .wd-row:focus-visible::after { content: ''; position: absolute; inset: 4px 8px; outline: 1px dotted #000; }
-.de-wd .wd-empty { position: absolute; left: 0; top: 120px; width: 464px; text-align: center; white-space: normal; line-height: 18px; }
-.de-wd .wd-skel { position: relative; width: 464px; height: 40px; margin: 0 0 4px; }
-.de-wd .wd-foot { position: absolute; left: 24px; top: 560px; width: 464px; height: 16px; line-height: 16px; text-align: center;
-  overflow: hidden; text-overflow: ellipsis; }
-/* the side column: the bust in the selection frame (on the shop's glass), its state on the frame's foot, the detail
-   band (the item's own art, its name, why), Equip and Close */
-.de-wd .wd-side { position: absolute; left: 646px; top: 89px; width: 260px; height: 590px; }
-.de-wd .wd-bust { position: absolute; left: 0; top: 0; width: 260px; height: 292px; }
-.de-wd .wd-bust > .sa-glass { left: 17px; top: 18px; width: 226px; height: 256px; }
-/* an opaque well under the glass (the sprite is see-through: the scene behind must not show through the bust) */
-.de-wd .wd-bust::before { content: ''; position: absolute; left: 17px; top: 18px; width: 226px; height: 256px;
-  background: linear-gradient(#eef2f4, #d3dce1); }
-.de-wd .wd-bust > .wd-wu { position: absolute; left: 17px; top: 18px; width: 226px; height: 256px; }
-.de-wd .wd-bust > .sa-frame { left: 0; top: 0; width: 260px; height: 292px; }
-.de-wd .wd-state { left: 60px; top: 278px; width: 140px; height: 28px; display: flex; align-items: center; justify-content: center; }
-.de-wd .wd-state[data-state=cant] .sa-t { color: #5a1d00; }
-.de-wd .wd-side > .sa-band { left: 0; top: 314px; width: 260px; height: 156px; }
-.de-wd .wd-info { position: absolute; left: 0; top: 314px; width: 260px; height: 156px; overflow: hidden; }
-.de-wd .wd-info > .de-rf { left: 12px; top: 16px; width: 48px; height: 48px; padding: 3px; }
+.de-wd .wd-tile { position: absolute; width: 66px; height: 66px; }
+.de-wd .wd-tile > .de-rf { left: 6px; top: 6px; width: 54px; height: 54px; padding: 3px; pointer-events: none; }
+.de-wd .wd-tile > .sa-brackets { left: -6px; top: -6px; width: 78px; height: 78px; }
+.de-wd .wd-tile > .n { position: absolute; right: 7px; bottom: 6px; pointer-events: none; }
+.de-wd .wd-tile[data-locked] > .de-rf > .well > .de-art { opacity: .35; filter: grayscale(1); }
+.de-wd .wd-tile:focus-visible { outline: none; }
+.de-wd .wd-empty { position: absolute; left: 0; top: 120px; width: 300px; text-align: center; white-space: normal; line-height: 18px; }
+.de-wd .wd-skel { position: absolute; width: 66px; height: 66px; }
+.de-wd .wd-bust { position: absolute; left: 330px; top: 104px; width: 300px; height: 340px; }
+.de-wd .wd-bust::before { content: ''; position: absolute; left: 17px; top: 18px; width: 266px; height: 304px; background: linear-gradient(#eef2f4, #d3dce1); }
+.de-wd .wd-bust > .sa-glass { left: 17px; top: 18px; width: 266px; height: 304px; }
+.de-wd .wd-bust > .wd-wu { position: absolute; left: 17px; top: 18px; width: 266px; height: 304px; }
+.de-wd .wd-bust > .sa-frame { left: 0; top: 0; width: 300px; height: 340px; }
+.de-wd .wd-state { left: 390px; top: 428px; width: 180px; height: 28px; display: flex; align-items: center; justify-content: center; }
+.de-wd .wd-state[data-state=cant] .sa-t, .de-wd .wd-state[data-state=locked] .sa-t { color: #5a1d00; }
+.de-wd .wd-foot { position: absolute; left: 330px; top: 472px; width: 300px; line-height: 17px; text-align: center; white-space: normal; }
+.de-wd .wd-side { position: absolute; left: 640px; top: 104px; width: 296px; height: 492px; }
+.de-wd .wd-side > .sa-band { left: 0; top: 0; width: 296px; height: 232px; }
+.de-wd .wd-info { position: absolute; left: 0; top: 0; width: 296px; height: 232px; overflow: hidden; }
+.de-wd .wd-info > .de-rf { left: 12px; top: 14px; width: 60px; height: 60px; padding: 3px; }
 .de-wd .wd-info > .de-rf[data-locked] > .well > .de-art { filter: grayscale(1) brightness(.6); opacity: .6; }
-.de-wd .wd-head { position: absolute; left: 72px; top: 8px; width: 176px; height: 64px; display: flex; flex-direction: column;
-  justify-content: center; }
+.de-wd .wd-head { position: absolute; left: 84px; top: 10px; width: 200px; height: 68px; display: flex; flex-direction: column; justify-content: center; }
 .de-wd .wd-name { line-height: 22px !important; max-height: 44px; overflow: hidden; white-space: normal;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.de-wd .wd-lines { position: absolute; left: 12px; top: 80px; width: 236px; }
-.de-wd .wd-lines > div { line-height: 17px; white-space: normal; }
+.de-wd .wd-lines { position: absolute; left: 12px; top: 90px; width: 272px; }
+.de-wd .wd-lines > div { line-height: 18px; white-space: normal; }
 .de-wd .wd-rl { line-height: 17px; }
 .de-wd .wd-rl[data-rarity=common] { color: #e4eaee; } .de-wd .wd-rl[data-rarity=rare] { color: #8fe6ff; }
 .de-wd .wd-rl[data-rarity=super] { color: #d6b8ff; } .de-wd .wd-rl[data-rarity=ultra] { color: #ffd862; }
-.de-wd .wd-why { max-height: 51px; overflow: hidden; }
 .de-wd .wd-why[data-tone=warn], .de-wd .wd-why[data-tone=error] { color: #ffd0b0; }
 .de-wd .wd-why[data-tone=ok] { color: #b8ffc8; }
-.de-wd .wd-side > .sa-pill { left: 0; width: 260px; }
-.de-wd .wd-equip { top: 480px; }
-.de-wd .wd-close { top: 540px; }
-.de-wd .wd-none { position: absolute; left: 12px; top: 16px; width: 236px; white-space: normal; line-height: 17px; }
-.de-wd .wd-fail { position: absolute; left: 0; top: 110px; width: 464px; text-align: center; white-space: normal; }
+.de-wd .wd-side > .sa-pill { left: 0; width: 296px; }
+.de-wd .wd-equip { top: 248px; }
+.de-wd .wd-off { top: 308px; }
+.de-wd .wd-close { top: 442px; }
+.de-wd .wd-none { position: absolute; left: 12px; top: 16px; width: 272px; white-space: normal; line-height: 18px; }
+.de-wd .wd-fail { position: absolute; left: 0; top: 110px; width: 300px; text-align: center; white-space: normal; }
 .de-wd .wd-fail .sa-btn2 { position: relative; display: inline-block; width: 116px; margin-top: 16px; }
 @keyframes wd-fade { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .de-wd *, .de-wd *::before, .de-wd *::after { animation: none !important; transition: none !important; } }
@@ -114,35 +97,33 @@ const t16 = (text, extra = '') => h('span', 'sa-t' + extra, { text });
 const rarityWord = t => t.uniform ? 'Rank uniform' : `${RARITY[t.rarity]?.label || 'Common'} ${(t.slotName || t.kind || '').toLowerCase()}`.trim();
 
 let open = null;   // the one open Wardrobe: { close, focus(id) }
+export const COLS = 4, CELL = 78;   // the grid: 66 px tiles, 12 apart
 
 /** Open the Wardrobe over the current scene. -> close(). Opened again while open: selects focusId in it. */
-export function openWardrobe({ focusId, world } = {}) {
-  if (open) { open.focus(focusId, world); return open.close; }
+export function openWardrobe({ focusId } = {}) {
+  if (open) { open.focus(focusId); return open.close; }
   injectTheme();
   injectShopSkin();
   if (!document.getElementById('de-wardrobe-css')) document.head.append(h('style', null, { id: 'de-wardrobe-css', text: CSS }));
-  const st = { info: api.peekInfo?.() || null, world, tab: 'outfit', selectedId: focusId || null, busy: false, loadError: null, why: null };
+  const st = { info: api.peekInfo?.() || null, world: null, tab: 'outfit', selectedId: focusId || null, busy: false, loadError: null, why: null };
   if (focusId && st.info) st.tab = tabOfId(st.info, focusId) || st.tab;
   const root = h('div', 'de-c de-wd', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Wardrobe', tabindex: '-1' });
   const dim = h('div', 'wd-dim', { on: { click: () => close() } });
   const win = h('div', 'wd-win');
-  const side = h('div', 'wd-side');
-  root.append(dim, win, side);
-  const worlds = h('div', 'wd-worlds', { role: 'group', 'aria-label': 'World' });
+  root.append(dim, win);
   const tabs = h('div', 'wd-tabs', { role: 'tablist', 'aria-label': 'Wearables' });
-  const list = h('div', 'yo2-scroll-list wd-list', { role: 'listbox', 'aria-label': 'Your wearables', tabindex: '-1' });
-  const foot = h('div', 'wd-foot sa-t');
+  const grid = h('div', 'yo2-scroll-list wd-grid', { role: 'listbox', 'aria-label': 'Your wearables', tabindex: '-1' });
   const hint = h('div', 'wd-hint sa-t sa-w', { 'aria-live': 'polite' });
-  win.append(h('div', 'sa-glass'), h('div', 'sa-band'), hint, h('div', 'sa-title', { text: 'Wardrobe' }), worlds, tabs, list, foot);
-  WORLDS.forEach((w, i) => worlds.append(h('button', 'sa-plate', { type: 'button', 'data-world': w.id, style: { left: 260 + i * 118 + 'px' },
-    on: { click: () => { st.world = w.id; st.why = null; render(); } } }, t16(w.label))));
-  // the bust (the frame, the glass under it, the bust's own canvas) and its state plate
   const wu = h('div', 'wd-wu', { role: 'img', 'aria-label': 'Your avatar' });
   const bust = h('div', 'wd-bust', {}, [h('div', 'sa-glass'), wu, h('div', 'sa-frame')]);
   const stateEl = h('div', 'sa-plate wd-state', { role: 'status' }, t16('Wearing'));
+  const foot = h('div', 'wd-foot sa-t');
+  const side = h('div', 'wd-side');
   const info = h('div', 'wd-info');
   const equipBtn = h('button', 'sa-pill wd-equip', { type: 'button', 'data-tone': 'go', on: { click: () => equip() } }, h('span', null, { text: 'Equip' }));
-  side.append(bust, stateEl, h('div', 'sa-band'), info, equipBtn, h('button', 'sa-pill wd-close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', on: { click: () => close() } }, h('span', null, { text: 'Close' })));
+  const offBtn = h('button', 'sa-pill wd-off', { type: 'button', 'data-tone': 'hi', on: { click: () => takeOff() } }, h('span', null, { text: 'Take off' }));
+  side.append(h('div', 'sa-band'), info, equipBtn, offBtn, h('button', 'sa-pill wd-close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', on: { click: () => close() } }, h('span', null, { text: 'Close' })));
+  win.append(h('div', 'sa-glass'), h('div', 'sa-band'), hint, h('div', 'sa-title', { text: 'Wardrobe' }), tabs, grid, bust, stateEl, foot, side);
   document.body.append(root);
 
   // the stage over the canvas: its rect and the scale the bridge gives its layers (bridge.js place())
@@ -164,7 +145,7 @@ export function openWardrobe({ focusId, world } = {}) {
     if (e.type !== 'keydown') return;
     if (e.key === 'Escape') { e.preventDefault(); close(); return; }
     const v = view(), rows = v.tiles, i = rows.findIndex(t => t.id === v.selected?.id);
-    const step = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    const step = { ArrowUp: -COLS, ArrowDown: COLS, ArrowLeft: -1, ArrowRight: 1 }[e.key];
     if (step && rows.length && !e.target.closest?.('.wd-worlds, .wd-tabs')) {
       e.preventDefault();
       const n = rows[Math.max(0, Math.min(rows.length - 1, (i < 0 ? 0 : i) + step))];
@@ -178,15 +159,15 @@ export function openWardrobe({ focusId, world } = {}) {
   root.focus({ preventScroll: true });
 
   const unsub = api.onChange?.(i => { st.info = i; render(); }) || (() => {});
-  const rows = new Map();   // item id -> { el, art, body, handle }
+  const tiles = new Map();   // item id -> { el, art, rf, body, handle }
   let bigArt = null, bustDraw = null, closed = false;
 
   const view = () => st.info ? wardrobeView(st.info, st) : { tiles: [], tabs: [], selected: null, loading: true };
-  const rowOf = id => list.querySelector(`[data-id="${CSS_ESC(id)}"]`);
+  const tileOf = id => grid.querySelector(`[data-id="${CSS_ESC(id)}"]`);
   function select(id, scroll) {
     st.selectedId = id; st.why = null;
     render();
-    if (scroll) rowOf(id)?.scrollIntoView({ block: 'nearest' });
+    if (scroll) tileOf(id)?.scrollIntoView({ block: 'nearest' });
   }
   function load(force) {
     st.loadError = null;
@@ -197,79 +178,74 @@ export function openWardrobe({ focusId, world } = {}) {
       const first = focusId && !st.tabFixed;
       if (first) { st.tab = tabOfId(i, focusId) || st.tab; st.tabFixed = true; }
       render();
-      if (first) rowOf(st.selectedId || focusId)?.scrollIntoView({ block: 'nearest' });
+      if (first) tileOf(st.selectedId || focusId)?.scrollIntoView({ block: 'nearest' });
     }, e => { if (!closed) { st.loadError = e?.message || 'Couldn\'t load your wardrobe.'; render(); } });
   }
 
   function render() {
     if (closed) return;
     const v = view();
-    const w = st.world ?? (st.info?.appearance?.world === 0 ? 0 : 1);
-    for (const b of worlds.children) { const on = +b.dataset.world === w; b.setAttribute('aria-pressed', String(on)); b.toggleAttribute('data-on', on); }
-    const tl = v.tabs.length ? v.tabs : [{ id: 'outfit', label: 'Outfits' }, { id: 'hair', label: 'Hair' }, { id: 'accessory', label: 'Accessories' }, { id: 'dueldisk', label: 'Duel Disks' }];
+    const tl = v.tabs.length ? v.tabs : TABS;
     tabs.replaceChildren(...tl.map((t, i) => {
       const on = t.id === st.tab;
       return h('button', 'sa-plate wd-tab', { type: 'button', role: 'tab', 'aria-selected': String(on), 'data-tab': t.id, 'data-on': on,
-        'data-count': t.count, style: { left: 24 + i * 118 + 'px' },
-        on: { click: () => { if (st.tab !== t.id) { st.tab = t.id; st.selectedId = null; st.why = null; list.scrollTop = 0; render(); } } } }, t16(t.label));
+        'data-count': t.count, style: { left: 24 + i * 104 + 'px' },
+        on: { click: () => { if (st.tab !== t.id) { st.tab = t.id; st.selectedId = null; st.why = null; grid.scrollTop = 0; render(); } } } }, t16(t.label));
     }));
     if (st.loadError) { renderFail(); return; }
     if (!st.info) { renderSkeleton(); return; }
     hint.replaceChildren(h('div', null, { text: 'Choose an item to try it on.' }),
-      h('div', null, { text: `Equip saves it to your ${WORLD_LABEL[v.world]} look.` }));
-    renderList(v);
+      h('div', null, { text: 'Equip wears it everywhere.' }));
+    renderGrid(v);
     renderDetail(v);
     const g = v.graduation;
     foot.textContent = g.text;
-    foot.title = g.graduated ? '' : 'Graduating lets you wear your Domino City outfits at Duel Academy.';
   }
   function renderFail() {
     info.replaceChildren(); foot.textContent = ''; hint.replaceChildren();
-    equipBtn.disabled = true;
-    list.replaceChildren(h('div', 'wd-fail sa-t', {}, [h('div', null, { text: st.loadError }),
+    equipBtn.disabled = true; offBtn.hidden = true;
+    grid.replaceChildren(h('div', 'wd-fail sa-t', {}, [h('div', null, { text: st.loadError }),
       h('button', 'sa-btn2', { type: 'button', on: { click: () => load(true) } }, t16('Try again'))]));
   }
   function renderSkeleton() {
-    if (list.firstChild?.classList.contains('wd-skel')) return;
-    list.replaceChildren(...Array.from({ length: 6 }, () => h('div', 'wd-skel de-skel')));
+    if (grid.firstChild?.classList.contains('wd-skel')) return;
+    grid.replaceChildren(...Array.from({ length: 8 }, (_, i) => h('div', 'wd-skel de-skel', { style: { left: (i % COLS) * CELL + 'px', top: Math.floor(i / COLS) * CELL + 'px' } })));
     info.replaceChildren(h('div', 'wd-none sa-t sa-w', { text: 'Opening your wardrobe…' }));
-    equipBtn.disabled = true;
+    equipBtn.disabled = true; offBtn.hidden = true;
   }
-  function rowEl(t, body, selId) {
-    let a = rows.get(t.id);
+  function tileEl(t, body, selId, i) {
+    let a = tiles.get(t.id);
     if (!a || a.body !== body) {
       a?.handle?.destroy();
-      const el = h('button', 'sa-row wd-row', { type: 'button', role: 'option', 'data-id': t.id, on: { click: () => select(t.id), dblclick: () => { select(t.id); equip(); } } });
+      const el = h('button', 'sa-plate wd-tile', { type: 'button', role: 'option', 'data-id': t.id, on: { click: () => select(t.id), dblclick: () => { select(t.id); equip(); } } });
       const art = h('div', 'art'), rf = h('div', 'de-rf', {}, h('div', 'well', {}, art));
-      el.append(rf, h('span', 'sa-t nm'), h('span', 'sa-t wr'));
+      el.append(rf, h('div', 'sa-brackets'));
       a = { el, art, rf, body, handle: null };
-      rows.set(t.id, a);
+      tiles.set(t.id, a);
     }
     const el = a.el, on = t.id === selId;
+    Object.assign(el.style, { left: (i % COLS) * CELL + 'px', top: Math.floor(i / COLS) * CELL + 'px' });
     a.rf.dataset.rarity = t.uniform ? 'common' : t.rarity;
     a.rf.toggleAttribute('data-dim', !t.wearable && !t.locked);
-    el.toggleAttribute('data-on', on);
-    el.toggleAttribute('data-hi', !on && t.equipped);
-    el.toggleAttribute('data-off', t.locked && !on);
-    el.toggleAttribute('data-cant', !t.wearable && !t.locked);
+    el.querySelector('.sa-brackets').hidden = !on;
+    el.toggleAttribute('data-on', t.equipped);
+    el.toggleAttribute('data-off', t.locked);
     el.toggleAttribute('data-locked', t.locked);
     el.toggleAttribute('data-equipped', t.equipped);
     el.setAttribute('aria-selected', String(on));
-    el.title = t.locked ? t.status : t.reason || '';
-    el.querySelector('.nm').textContent = t.spares ? `${t.name}  ×${t.spares + 1}` : t.name;
-    el.querySelector('.wr').textContent = t.equipped ? 'Wearing' : t.locked ? 'Locked' : '';
+    el.setAttribute('aria-label', `${t.name}${t.equipped ? ', worn' : t.locked ? ', locked' : ''}`);
+    el.title = t.locked ? t.status : t.reason || t.name;
     return a;
   }
-  function renderList(v) {
+  function renderGrid(v) {
     const body = v.body, kids = [];
     if (v.empty && !v.uniforms.length) kids.push(h('div', 'wd-empty sa-t sa-w', {}, [h('div', null, { text: v.emptyAll ? 'Your wardrobe is empty.' : v.emptyText }),
       h('div', null, { text: v.hint })]));
-    for (const t of v.tiles) kids.push(rowEl(t, body, v.selected?.id).el);
-    // the same nodes in the new order (a row keeps its drawn art)
-    if (kids.length !== list.children.length || kids.some((k, i) => list.children[i] !== k)) list.replaceChildren(...kids);
+    v.tiles.forEach((t, i) => kids.push(tileEl(t, body, v.selected?.id, i).el));
+    if (kids.length !== grid.children.length || kids.some((k, i) => grid.children[i] !== k)) grid.replaceChildren(...kids);
     for (const t of v.tiles) {
-      const a = rows.get(t.id);
-      if (!a.handle) a.handle = renderItemArt(a.art, t.item, { body, size: 26 });
+      const a = tiles.get(t.id);
+      if (!a.handle) a.handle = renderItemArt(a.art, t.item, { body, size: 48 });
     }
   }
   // the bust: the saved look of the world, with the selected item tried on when this body can wear it there
@@ -286,53 +262,47 @@ export function openWardrobe({ focusId, world } = {}) {
     stateEl.toggleAttribute('data-on', state === 'preview');
     stateEl.toggleAttribute('data-hi', state === 'wearing');
     stateEl.firstChild.textContent = STATE_TEXT[state];
-    wu.setAttribute('aria-label', state === 'preview' ? `Your ${WORLD_LABEL[v.world]} look wearing ${t.name}` : `Your ${WORLD_LABEL[v.world]} look`);
+    wu.setAttribute('aria-label', state === 'preview' ? `Your look wearing ${t.name}` : 'Your look');
   }
   function renderDetail(v) {
     const t = v.selected;
     renderBust(v, t);
+    offBtn.hidden = !t?.canTakeOff;
     if (!t) {
       bigArt?.destroy(); bigArt = null; delete info.dataset.key;
-      info.replaceChildren(h('div', 'wd-none sa-t sa-w', { text: v.emptyAll ? 'Wearables you win from boxes appear here.' : 'Choose an item to try it on.' }));
+      info.replaceChildren(h('div', 'wd-none sa-t sa-w', { text: v.emptyAll ? 'Items you win from boxes appear here.' : 'Choose an item to try it on.' }));
       equipBtn.disabled = true; equipBtn.firstChild.textContent = 'Equip';
       return;
     }
-    const w = v.world, it = t.item, key = `${t.id}|${v.body}`;
+    const it = t.item, key = `${t.id}|${v.body}`;
     const rarity = t.uniform ? 'common' : t.rarity;
-    // the item's own art (its chibi part, as the rows show it), kept while the same item stays selected
     let rf = info.querySelector(':scope > .de-rf');
     if (info.dataset.key !== key || !rf) {
       bigArt?.destroy();
       info.dataset.key = key;
       const art = h('div', 'art');
       rf = h('div', 'de-rf', {}, h('div', 'well', {}, art));
-      bigArt = renderItemArt(art, it, { body: v.body, size: 40, max: 2 });
+      bigArt = renderItemArt(art, it, { body: v.body, size: 52, max: 2 });
     }
     rf.dataset.rarity = rarity;
     rf.toggleAttribute('data-locked', t.locked);
     rf.toggleAttribute('data-dim', !t.wearable && !t.locked);
     const head = h('div', 'wd-head', {}, [h('div', 'wd-name sa-t24 sa-w', { text: t.name, title: t.name }),
       h('div', 'wd-rl sa-t sa-w', { 'data-rarity': rarity, text: rarityWord(t) })]);
-    // the reason it can't be worn (or the server's last answer): it takes the band's last lines
+    // one short line: why it can't be worn (or the server's last answer), else where it is worn
     const uniformNoApi = t.uniform && !t.locked && typeof api.setAppearance !== 'function';
     const why = st.why || (t.equipped ? null : t.locked ? { text: t.status + '.', tone: 'warn' } : !t.wearable ? { text: t.reason, tone: 'warn' }
-      : uniformNoApi ? { text: 'Put this uniform on from the avatar editor for now.', tone: 'info' } : null);
+      : uniformNoApi ? { text: 'Wear this uniform from the avatar editor.', tone: 'info' } : null);
     const lines = [];
-    const line = text => lines.push(h('div', 'sa-t sa-w', { text }));
-    if (t.uniform && !t.locked) line(t.status);
-    else if (!t.uniform) {
-      const bodies = (it.bodies || []).length >= 2 ? 'Both bodies' : `${BODY_LABEL[(it.bodies || [])[0]] || 'One'} body only for now`;
-      line(t.worlds.length ? `${bodies} · ${t.where === 'Both worlds' ? 'both worlds' : t.where}` : bodies);
-      if (t.spares && !why) line(`You have ${t.spares + 1}: trade the ${t.spares === 1 ? 'spare' : `${t.spares} spares`} in Card Swap.`);
-    }
-    if (t.equippedIn.length && !why) line(`Wearing it in ${t.equippedIn.map(x => WORLD_LABEL[x]).join(' and ')}`);
     if (why) lines.push(h('div', 'wd-why sa-t sa-w', { 'data-tone': why.tone, role: why.tone === 'error' ? 'alert' : why.tone === 'ok' ? 'status' : undefined, text: why.text }));
+    if (!why && t.spares) lines.push(h('div', 'sa-t sa-w', { text: `${t.spares} spare${t.spares === 1 ? '' : 's'}: trade in Card Swap.` }));
     info.replaceChildren(rf, head, h('div', 'wd-lines', {}, lines));
     const can = !t.equipped && t.wearable && !t.locked && !uniformNoApi && !st.busy;
     equipBtn.disabled = !can;
     equipBtn.dataset.state = st.busy ? 'busy' : t.equipped ? 'on' : '';
-    equipBtn.title = can ? `Wear it in ${WORLD_LABEL[w]}` : t.equipped ? `You are wearing it in ${WORLD_LABEL[w]}` : '';
-    equipBtn.firstChild.textContent = st.busy ? 'Equipping…' : 'Equip';
+    equipBtn.title = can ? 'Wear it' : t.equipped ? 'You are wearing it' : '';
+    equipBtn.firstChild.textContent = st.busy ? 'Saving…' : t.equipped ? 'Worn' : 'Equip';
+    offBtn.disabled = st.busy;
   }
   async function equip() {
     const v = view(), t = v.selected;
@@ -341,7 +311,7 @@ export function openWardrobe({ focusId, world } = {}) {
     st.busy = true; st.why = null; render();
     try {
       if (t.uniform) {
-        if (typeof api.setAppearance !== 'function') throw { message: 'Put this uniform on from the avatar editor for now.' };
+        if (typeof api.setAppearance !== 'function') throw { message: 'Wear this uniform from the avatar editor.' };
         const r = await api.setAppearance(w, uniformParts(st.info, t.item, w));
         if (r?.info) st.info = r.info;
       } else {
@@ -349,13 +319,27 @@ export function openWardrobe({ focusId, world } = {}) {
         if (r?.info) st.info = r.info;
       }
       if (closed) return;
-      st.why = { text: `Equipped in ${WORLD_LABEL[w]}. Other players see your new look.`, tone: 'ok' };
+      st.why = { text: 'Equipped. Others see your new look.', tone: 'ok' };
     } catch (e) {
       if (closed) return;
       st.why = { text: e?.message || 'Something went wrong. Please try again.', tone: 'error' };
     } finally { st.busy = false; }
     render();
-    rowOf(t.id)?.scrollIntoView({ block: 'nearest' });   // the worn row moves to the top
+  }
+  async function takeOff() {
+    const v = view(), t = v.selected, parts = takeOffParts(st.info, t, v.world);
+    if (!parts || st.busy) return;
+    st.busy = true; st.why = null; render();
+    try {
+      const r = await api.setAppearance(v.world, parts);
+      if (r?.info) st.info = r.info;
+      if (closed) return;
+      st.why = { text: 'Taken off.', tone: 'ok' };
+    } catch (e) {
+      if (closed) return;
+      st.why = { text: e?.message || 'Something went wrong. Please try again.', tone: 'error' };
+    } finally { st.busy = false; }
+    render();
   }
   function close() {
     if (closed) return;
@@ -364,17 +348,22 @@ export function openWardrobe({ focusId, world } = {}) {
     ro?.disconnect();
     removeEventListener('resize', place);
     for (const t of ['keydown', 'keyup', 'keypress']) removeEventListener(t, outside, true);
-    for (const a of rows.values()) a.handle?.destroy();
+    for (const a of tiles.values()) a.handle?.destroy();
     bigArt?.destroy(); bustDraw?.destroy();
     root.remove();
+    onClose.forEach(f => { try { f(); } catch {} });
   }
-  open = { close, focus(id, wd) {
-    if (wd === 0 || wd === 1) st.world = wd;
+  open = { close, focus(id) {
     if (id) { st.selectedId = id; st.tab = tabOfId(st.info, id) || st.tab; }
     load(true); render(); root.focus({ preventScroll: true });
   } };
   render();
-  load(!!focusId);   // a reward just opened: the inventory must have it
+  load(!!focusId);
   return close;
 }
+/** Whether a Wardrobe is open (the menu bar's launcher hides meanwhile). */
+export const isWardrobeOpen = () => !!open;
+const onClose = new Set();
+/** cb() whenever a Wardrobe closes; -> unsubscribe. */
+export const onWardrobeClose = cb => { onClose.add(cb); return () => onClose.delete(cb); };
 const CSS_ESC = s => (globalThis.CSS?.escape ? globalThis.CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));

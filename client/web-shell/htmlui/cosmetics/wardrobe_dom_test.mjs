@@ -1,8 +1,10 @@
-// The Wardrobe's DOM in headless Chrome (skin.html as the page; fetch stubbed with a server-shaped state; Module.yo2Lazy
-// stubbed with synthetic PNGs drawn here, no game art): it opens over the page, the tabs, the rows' art (drawn, the
-// placeholder for a missing picture, the other body's art dimmed), Wearing per world, the world switch, the rank
-// uniforms (earned / locked rows), the spares, a Domino outfit in the Academy refused with the reason, an equip (its
-// request, the confirmation, the refresh), the server's refusal text, keys kept from the game, Esc, focusId, empty.
+// The Wardrobe's DOM in headless Chrome (skin.html as the page; fetch stubbed with a server-shaped state with ONE look,
+// both worlds the same; Module.yo2Lazy stubbed with synthetic PNGs drawn here, no game art): it opens over the page, no
+// world switch, the Head / Outfit / Disk tabs, the grid (four to a row, the worn tile cyan, the selection's brackets,
+// the art drawn, the placeholder, the other body's art dimmed), the large bust's try-on and state, the rank uniforms
+// (earned / locked with its short reason), a Domino outfit worn in the Academy, Equip (its request, the confirmation,
+// the new look), the server's refusal, Take off for glasses (not hair), keys kept from the game, Esc, focusId, empty,
+// and the layout's alignment (align.js).
 //   node client/web-shell/htmlui/cosmetics/wardrobe_dom_test.mjs
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -33,10 +35,10 @@ const INV = [
   it('accessory:sunglasses', 'Sunglasses', 'accessory', 9, 'rare', [v('male', 0x50, [0, 1]), v('female', 0x50, [0, 1])]),
   it('dueldisk:3417', 'Battle City Alpha Gold', 'dueldisk', 8, 'ultra', [v('male', 0xb4, [0, 1]), v('female', 0xb4, [0, 1])]),
 ];
-const domino = [0, 0xa, 0x20, 0x30, 0x40, 0x60, 0x87, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
-const academy = [0, 0xa, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0];
+// one look (owner, 2026-11-05: the same in both worlds): Afro, Jaden's, Alpha Gold, Sunglasses, in the Academy
+const look = [0, 0xa, 0x20, 0x30, 0x40, 0x60, 0x87, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
 const INFO = { available: true, inventory: INV, boxes: [], catalog: [],
-  appearance: { gender: 'male', world: 1, parts: academy, looks: { 0: domino, 1: academy } },
+  appearance: { gender: 'male', world: 1, parts: look, looks: { 0: look, 1: [...look] } },
   rank: { bestSchool: 'ra', uniforms: ['slifer', 'ra'], graduated: false, graduationLevel: 20, graduation: { level: 12, levelRequired: 20, opponents: 7, opponentsRequired: 25 } } };
 
 await b.ev(`(async () => {
@@ -50,8 +52,13 @@ await b.ev(`(async () => {
       await new Promise(r => setTimeout(r, 60));
       if (__fail) return { ok: false, status: 409, json: async () => __fail };
       const { id, world } = JSON.parse(o.body), item = __info.inventory.find(i => i.id === id);
-      __info.appearance.looks[world][item.slot] = item.variants.find(x => x.gender === 'male').number;
+      for (const w of [0, 1]) __info.appearance.looks[w][item.slot] = item.variants.find(x => x.gender === 'male').number;
       return ok({ ...__info, equipped: { id, world, parts: __info.appearance.looks[world] } });
+    }
+    if (u.endsWith('/appearance')) {
+      const { parts } = JSON.parse(o.body);
+      for (const w of [0, 1]) __info.appearance.looks[w] = [...parts];
+      return ok(__info);
     }
     return ok(__info);
   };
@@ -73,8 +80,8 @@ await b.ev(`(async () => {
 })()`);
 const until = async (js, ms = 4000) => { for (const t = Date.now(); Date.now() - t < ms; await sleep(50)) if (await b.ev(js)) return true; throw new Error('timed out: ' + js); };
 const q = js => b.ev(`(() => { const R = document.querySelector('.de-wd'); return ${js}; })()`);
-await until(`document.querySelectorAll('.de-wd .wd-row[data-id]').length > 0`);
-await until(`[...document.querySelectorAll('.de-wd .wd-row .de-art')].every(e => e.dataset.state !== 'loading')`);
+await until(`document.querySelectorAll('.de-wd .wd-tile[data-id]').length > 0`);
+await until(`[...document.querySelectorAll('.de-wd .wd-tile .de-art')].every(e => e.dataset.state !== 'loading')`);
 const row = id => `R.querySelector('[data-id="${id}"]')`;
 // the bust: its state, its state plate's text, its layers once drawn (waistup.js: the picture names, bottom first)
 const bust = async () => {
@@ -96,131 +103,103 @@ assert.equal(await q(`R.getAttribute('role') + R.getAttribute('aria-modal')`), '
 assert.equal(await q(`R.querySelector('.sa-title').textContent`), 'Wardrobe');
 assert.ok(await q(`R.classList.contains('de-c') && !!R.querySelector('.sa-glass') && !!R.querySelector('.sa-band') && !!document.getElementById('de-shop-skin')`));
 assert.equal(await q(`document.activeElement === R`), true);
-// tabs (plates; counts kept as data, no bubbles); the Academy by default (the character's world)
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.dataset.tab + ':' + t.dataset.count + ':' + t.getAttribute('aria-selected') + ':' + t.hasAttribute('data-on'))`),
-  ['outfit:5:true:true', 'hair:1:false:false', 'accessory:1:false:false', 'dueldisk:1:false:false']);
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.textContent)`), ['Outfits', 'Hair', 'Accessories', 'Duel Disks']);
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-worlds .sa-plate')].map(p => p.getAttribute('aria-pressed') + p.hasAttribute('data-on'))`), ['falsefalse', 'truetrue']);
-// the rows: the outfits, then the rank uniforms as plain rows
-assert.deepEqual(await q(`[...R.querySelectorAll('.wd-row[data-id]')].map(t => t.dataset.id)`),
-  ['outfit:jaden', 'outfit:tea', 'outfit:black-suit', 'uniform:slifer', 'uniform:ra', 'uniform:obelisk']);
-assert.ok(await q(`[...R.querySelectorAll('.wd-row')].every(r => r.classList.contains('sa-row'))`), 'the Avatar Parts row plates');
-assert.equal(await q(`R.querySelector('.wd-row[data-on]').dataset.id`), 'outfit:jaden', 'the cyan row: the selection');
-// art: drawn into a canvas at the device's pixels; the other body's art marked (dimmed by its frame), no glyph cue
+assert.equal(await q(`R.querySelectorAll('.wd-worlds, [data-world]').length`), 0, 'one look: no world switch');
+// the tabs: Head, Outfit, Disk (counts kept as data)
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tab')].map(t => t.textContent + ':' + t.dataset.count + ':' + t.hasAttribute('data-on'))`),
+  ['Head:2:false', 'Outfit:5:true', 'Disk:1:false']);
+// the grid: worn first, the rank uniforms after the outfits; four to a row
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tile')].map(t => t.dataset.id)`),
+  ['outfit:jaden', 'outfit:black-suit', 'outfit:tea', 'uniform:slifer', 'uniform:ra', 'uniform:obelisk']);
+assert.deepEqual(await q(`[...R.querySelectorAll('.wd-tile')].slice(0, 5).map(t => t.style.left + ',' + t.style.top)`), ['0px,0px', '78px,0px', '156px,0px', '234px,0px', '0px,78px']);
+assert.ok(await q(`[...R.querySelectorAll('.wd-tile')].every(r => r.classList.contains('sa-plate'))`), 'the shop\'s plates');
+assert.ok(await q(`${row('outfit:jaden')}.hasAttribute('data-on') && ${row('outfit:jaden')}.hasAttribute('data-equipped')`), 'the worn tile: cyan');
+assert.equal(await q(`[...R.querySelectorAll('.wd-tile .sa-brackets')].filter(e => !e.hidden).map(e => e.parentNode.dataset.id).join()`), 'outfit:jaden', 'the brackets: the selection');
+// art: drawn into a canvas; rarity on the art frame; the other body's art dimmed
 assert.equal(await q(`${row('outfit:jaden')}.querySelector('.de-art').dataset.state`), 'ready');
-assert.ok(await q(`${row('outfit:jaden')}.querySelector('canvas').width >= 26`));
 assert.ok(await q(`${row('outfit:tea')}.querySelector('.de-art').hasAttribute('data-fallback') && ${row('outfit:tea')}.querySelector('.de-rf').hasAttribute('data-dim')`));
-assert.equal(await q(`R.querySelector('.de-art-only')`), null);
-assert.doesNotMatch(await q(`R.textContent`), /♂|♀|🎓/);
+assert.equal(await q(`${row('outfit:tea')}.querySelector('.de-rf').dataset.rarity`), 'ultra');
 assert.ok((await b.ev('__read')).includes('data/avatar/chibi/cw_dc_04_c01_n01_01.png'));
-assert.equal(await q(`${row('outfit:tea')}.querySelector('.de-rf').dataset.rarity`), 'ultra', 'rarity on the art frame');
-// the rank uniforms: Obelisk locked (the dark plate, "Locked"), Slifer worn in the Academy look
+// the locked uniform: the dark plate, its reason in one short line
 assert.ok(await q(`${row('uniform:obelisk')}.hasAttribute('data-off') && ${row('uniform:obelisk')}.hasAttribute('data-locked')`));
-assert.equal(await q(`${row('uniform:obelisk')}.querySelector('.wr').textContent`), 'Locked');
-assert.equal(await q(`${row('uniform:slifer')}.querySelector('.wr').textContent`), 'Wearing');
-assert.ok(await q(`${row('uniform:slifer')}.hasAttribute('data-hi')`), 'the worn row: the light plate');
-assert.equal(await q(`R.querySelector('.wd-foot').textContent`), 'Graduation: LV 12/20 · 7/25 rivals beaten');
-// the bust: the Academy look (Afro I, the Academy disk) with Jaden's Costume (selected, wearable there) tried on
+// the bust, large in the middle: the saved look (Jaden's worn, selected)
 let wu = await bust();
-assert.deepEqual([wu.state, wu.text, wu.drawn], ['preview', 'Previewing', 'ready']);
-assert.deepEqual(wu.layers, ['wm_h2_11_c01', 'wm_bo_01_c01_r', 'wm_hs_11_c01', 'wm_es_01_01_c01', 'wm_mo_01_01_c01', 'wm_ey_01_01_c01',
-  'wm_no_01_c01', 'wm_eb_01_01_c01', 'wm_ac_08_c01_r', 'wm_h1_11_c01', 'wm_da_01_c01_r']);
-assert.ok((await b.ev('__read')).includes('data/avatar/wu/wm_data.csv'), 'the table read from the game files');
-assert.ok(await q(`R.querySelector('.wd-wu canvas').width >= 226`), 'drawn at the device pixels');
-assert.ok((await aligned('the Wardrobe, previewing')) > 40);
-// the worn uniform: the saved look, Wearing
-await b.ev(`document.querySelector('[data-id="uniform:slifer"]').click()`);
-wu = await bust();
-assert.deepEqual([wu.state, wu.text, wu.layers[8]], ['wearing', 'Wearing', 'wm_ac_01_c01_r']);
+assert.deepEqual([wu.state, wu.text, wu.drawn], ['wearing', 'Wearing', 'ready']);
+assert.ok(await q(`R.querySelector('.wd-wu canvas').width >= 266`), 'drawn at the device pixels');
 const saved = wu.layers;
-// the spares: a plain ×3 in the row's text; the trade note only in the detail
-assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.nm').textContent`), 'Black Suit  ×3');
-await b.ev(`document.querySelector('[data-id="uniform:obelisk"]').click()`);
-assert.ok(await q(`${row('uniform:obelisk')}.hasAttribute('data-on') && !${row('uniform:obelisk')}.hasAttribute('data-off')`), 'selected: cyan even when locked');
-assert.match(await q(`R.querySelector('.wd-info').textContent`), /Reach Obelisk Blue in ranked Autoduel to unlock/);
-assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Equiptrue');
-wu = await bust();
-assert.deepEqual([wu.state, wu.text], ['locked', 'Locked']);
-assert.deepEqual(wu.layers, saved, 'a locked uniform: the bust unchanged');
-
-// a Domino outfit in the Academy: Equip disabled, the reason shown, the trade note
+assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Worntrue');
+assert.equal(await q(`R.querySelector('.wd-foot').textContent`), 'Graduation: LV 12/20 · 7/25 rivals beaten');
+assert.ok((await aligned('the Wardrobe, wearing')) > 30);
+// a Domino outfit, in the Academy, by a student not graduated: a plain try-on (no world rule any more)
 await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Black Suit');
 assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Rare outfit');
-assert.equal(await q(`R.querySelector('.wd-equip').disabled`), true);
-assert.match(await q(`R.querySelector('.wd-why').textContent`), /outside Duel Academy until you graduate/);
-assert.doesNotMatch(await q(`R.querySelector('.wd-info').textContent`), /Trading spare/, 'the reason takes the band: no spares line');
-assert.equal(await q(`R.querySelector('.wd-info .de-rf').dataset.rarity`), 'rare');
-wu = await bust();
-assert.deepEqual([wu.state, wu.text], ['cant', "Can't wear"]);
-assert.deepEqual(wu.layers, saved, 'refused here: the bust unchanged');
-await aligned('the Wardrobe, refused');
-// a female-only item: its notice
-await b.ev(`document.querySelector('[data-id="outfit:tea"]').click()`);
-assert.match(await q(`R.querySelector('.wd-why').textContent`), /female|male version/);
-assert.match(await q(`R.querySelector('.wd-info').textContent`), /Female body only for now/);
-assert.deepEqual((await bust()).layers, saved, 'the other body\'s item: the bust unchanged');
-
-// Domino City: the suit is wearable; equip it -> POST {id, world: 0}, the confirmation, the row now Wearing
-await b.ev(`document.querySelector('.wd-worlds [data-world="0"]').click()`);
-assert.equal(await q(`${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing');   // Domino wears Jaden's
-wu = await bust();   // the world switch: that world's look (Jaden's, Sunglasses, Alpha Gold); Téa's still selected: unchanged
-assert.deepEqual([wu.state, wu.layers.slice(8)], ['cant', ['wm_a2_01_c01', 'wm_ac_08_c01_r', 'wm_h1_11_c01', 'wm_dd_02_c02_r']]);
-const dominoLook = wu.layers;
-await b.ev(`document.querySelector('[data-id="outfit:black-suit"]').click()`);
 assert.equal(await q(`R.querySelector('.wd-equip').disabled`), false);
-assert.match(await q(`R.querySelector('.wd-info').textContent`), /You have 3: trade the 2 spares in Card Swap\./);
-wu = await bust();   // the try-on: the clothes layer, and only it, changes
+assert.match(await q(`R.querySelector('.wd-info').textContent`), /2 spares: trade in Card Swap\./);
+wu = await bust();
 assert.deepEqual([wu.state, wu.text], ['preview', 'Previewing']);
-assert.deepEqual(wu.layers.map((n, i) => n === dominoLook[i] ? '' : dominoLook[i] + '>' + n).filter(Boolean), ['wm_ac_08_c01_r>wm_dc_03_c01_r']);
-await aligned('the Wardrobe, Domino City');
+assert.deepEqual(wu.layers.map((n, i) => n === saved[i] ? '' : saved[i] + '>' + n).filter(Boolean), ['wm_ac_08_c01_r>wm_dc_03_c01_r'], 'only the clothes change');
+await aligned('the Wardrobe, previewing');
+// Equip: POST {id, world}, the confirmation, the tile now worn, the bust the new saved look
 await b.ev(`document.querySelector('.wd-equip').click()`);
-assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Equipping…');
+assert.equal(await q(`R.querySelector('.wd-equip').textContent`), 'Saving…');
 await until(`document.querySelector('.de-wd .wd-why[data-tone=ok]')`);
-assert.equal(await q(`R.querySelector('.wd-why').textContent`), 'Equipped in Domino City. Other players see your new look.');
-assert.deepEqual((await b.ev('__calls')).find(c => c[0].endsWith('/equip')), ['/cosmetics/equip', { id: 'outfit:black-suit', world: 0 }]);
-assert.equal(await q(`${row('outfit:black-suit')}.querySelector('.wr').textContent + '|' + ${row('outfit:jaden')}.querySelector('.wr').textContent`), 'Wearing|');
-assert.equal(await q(`R.querySelector('.wd-equip').textContent + R.querySelector('.wd-equip').disabled`), 'Equiptrue');
-wu = await bust();   // after Equip: the new saved look
-assert.deepEqual([wu.state, wu.text, wu.layers[9]], ['wearing', 'Wearing', 'wm_dc_03_c01_r']);
-// the server refuses: its error text (api.js errorText) in the detail
-await b.ev(`__fail = { error: 'no-compatible-variant', status: 409, reason: 'world', worlds: [0] }; document.querySelector('[data-id="outfit:jaden"]').click()`);
+assert.equal(await q(`R.querySelector('.wd-why').textContent`), 'Equipped. Others see your new look.');
+assert.deepEqual((await b.ev('__calls')).find(c => c[0].endsWith('/equip')), ['/cosmetics/equip', { id: 'outfit:black-suit', world: 1 }]);
+assert.ok(await q(`${row('outfit:black-suit')}.hasAttribute('data-on') && !${row('outfit:jaden')}.hasAttribute('data-on')`));
+wu = await bust();
+assert.deepEqual([wu.state, wu.layers[9]], ['wearing', 'wm_dc_03_c01_r']);
+// the other body's item: the bust unchanged, one short line
+await b.ev(`document.querySelector('[data-id="outfit:tea"]').click()`);
+assert.equal(await q(`R.querySelector('.wd-why').textContent`), 'Female body only for now.');
+assert.equal((await bust()).state, 'cant');
+// a locked uniform: Locked, its reason
+await b.ev(`document.querySelector('[data-id="uniform:obelisk"]').click()`);
+assert.deepEqual([(await bust()).state, await q(`R.querySelector('.wd-why').textContent`)], ['locked', 'Reach Obelisk Blue in ranked to unlock.']);
+assert.equal(await q(`R.querySelector('.wd-equip').disabled`), true);
+// the server refuses: its error text
+await b.ev(`__fail = { error: 'not-owned', status: 403 }; document.querySelector('[data-id="outfit:jaden"]').click()`);
 await b.ev(`document.querySelector('.wd-equip').click()`);
-await until(`document.querySelector('.de-wd .wd-why')?.textContent.includes('only be worn in Domino City')`);
+await until(`document.querySelector('.de-wd .wd-why')?.textContent === "You don't own this item yet."`);
 assert.equal(await q(`R.querySelector('.wd-why').getAttribute('role')`), 'alert');
 await b.ev(`__fail = null`);
-
+// Head: the glasses worn can be taken off (POST /appearance with "none"); hair can't
+await b.ev(`document.querySelector('[data-tab="head"]').click()`);
+await b.ev(`document.querySelector('[data-id="accessory:sunglasses"]').click()`);
+assert.equal(await q(`R.querySelector('.wd-off').hidden`), false);
+await aligned('the Wardrobe, glasses worn');
+await b.ev(`document.querySelector('.wd-off').click()`);
+await until(`document.querySelector('.de-wd .wd-why[data-tone=ok]')?.textContent === 'Taken off.'`);
+assert.deepEqual((await b.ev('__calls')).filter(c => c[0].endsWith('/appearance')).at(-1)[1].parts[9], 0x20);
+assert.equal(await q(`R.querySelector('.wd-off').hidden`), true);
+await b.ev(`document.querySelector('[data-id="hair:afro"]').click()`);
+assert.equal(await q(`R.querySelector('.wd-off').hidden`), true, 'hair: no take-off');
 // keys: arrows move the selection, none reaches the game; the disk tab: no picture -> the placeholder
 const before = await b.ev('__gameKeys');
-await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
-await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
+await b.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 });
 assert.equal(await b.ev('__gameKeys'), before);
 await b.ev(`document.querySelector('[data-tab="dueldisk"]').click()`);
 await until(`document.querySelector('.de-wd [data-id="dueldisk:3417"] .de-art')?.dataset.state === 'none'`);
 assert.equal(await q(`R.querySelector('.wd-name').textContent`), 'Battle City Alpha Gold');
 assert.equal(await q(`R.querySelector('.wd-rl').textContent`), 'Ultra Rare duel disk');
-assert.equal((await bust()).state, 'wearing');   // worn in Domino City
-await b.ev(`document.querySelector('.wd-worlds [data-world="1"]').click()`);
-wu = await bust();   // the Academy: the disk tried on over the Academy disk
-assert.deepEqual([wu.state, wu.layers.at(-1)], ['preview', 'wm_dd_02_c02_r']);
-await aligned('the Wardrobe, a duel disk');
+assert.equal((await bust()).state, 'wearing');
 // Esc closes, and a second open with focusId lands on that item's tab
 await b.ev(`document.querySelector('.de-wd').focus()`);
 await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
 assert.equal(await b.ev(`!!document.querySelector('.de-wd')`), false);
 assert.equal(await b.ev('__gameKeys'), before);
-await b.ev(`window.__close = W.openWardrobe({ focusId: 'accessory:sunglasses', world: 0 })`);
+await b.ev(`window.__close = W.openWardrobe({ focusId: 'accessory:sunglasses' })`);
 await until(`document.querySelector('.de-wd .wd-name')?.textContent === 'Sunglasses'`);
-assert.equal(await q(`R.querySelector('.wd-tab[aria-selected=true]').dataset.tab`), 'accessory');
+assert.equal(await q(`R.querySelector('.wd-tab[aria-selected=true]').dataset.tab`), 'head');
 assert.equal(await b.ev(`(W.openWardrobe({ focusId: 'hair:afro' }), document.querySelectorAll('.de-wd').length)`), 1);   // one at a time
 await until(`document.querySelector('.de-wd .wd-name')?.textContent === 'Afro'`);
 await b.ev(`__close()`);
-// empty: the hint (the outfits tab keeps its rank uniforms; the hair tab is empty)
+// empty: the hint (the outfits tab keeps its rank uniforms; the head tab is empty)
 await b.ev(`__info.inventory = []; window.__close = W.openWardrobe({ focusId: 'x' })`);
-await until(`!!document.querySelector('.de-wd .wd-row[data-id="uniform:slifer"]')`);
-await b.ev(`document.querySelector('[data-tab="hair"]').click()`);
+await until(`!!document.querySelector('.de-wd .wd-tile[data-id="uniform:slifer"]')`);
+await b.ev(`document.querySelector('[data-tab="head"]').click()`);
 await until(`!!document.querySelector('.de-wd .wd-empty')`);
-assert.match(await q(`R.querySelector('.wd-empty').textContent`), /Open boxes in the Card Shop to get wearables\./);
+assert.match(await q(`R.querySelector('.wd-empty').textContent`), /Win items from the Cosmetic Boxes in the Card Shop\./);
 await b.ev(`__close()`);
 assert.equal(await b.ev(`!!document.querySelector('.de-wd')`), false);
 assert.deepEqual(b.logs.filter(l => /^(error|exception)/.test(l)), []);

@@ -8,18 +8,20 @@
 // Rules (the server's, mirrored so the panel can say why before a press; the server's answer still decides):
 //  - an item is worn by its body's variant (the body's first: cosmeticEquip); no variant for this body: can't wear it
 //    yet (its notice says so);
-//  - the variant's worlds (catalog avatarRowWorlds): Domino outfits (dc_*) only outside the Academy, unless the student
-//    has graduated (any owned outfit in either world: ranking.ts rankRowAllowed); disks and Academy outfits both;
+//  - one look for both worlds (owner, 2026-11-05): no world rule; what this body can wear is worn everywhere;
 //  - the rank uniforms (ranking.ts RANK_UNIFORM_BY_BIT: Slifer Red / Ra Yellow / Obelisk Blue, part 0x80 / 0x81 / 0x82
 //    for both bodies, default rows) are not catalog items: they are earned by the best school ever reached, Slifer by
 //    everyone; worn through the appearance call (they are not in /equip's catalog).
+// the tabs: Head (hair and the face / glasses accessories), Outfit (with the rank uniforms), Disk
 export const TABS = [
-  { id: 'outfit', label: 'Outfits', empty: 'No outfits yet.' },
-  { id: 'hair', label: 'Hair', empty: 'No hairstyles yet.' },
-  { id: 'accessory', label: 'Accessories', empty: 'No accessories yet.' },
-  { id: 'dueldisk', label: 'Duel Disks', empty: 'No duel disks yet.' },
+  { id: 'head', label: 'Head', kinds: ['hair', 'accessory'], empty: 'No hair or accessories yet.' },
+  { id: 'outfit', label: 'Outfit', kinds: ['outfit'], empty: 'No outfits yet.' },
+  { id: 'dueldisk', label: 'Disk', kinds: ['dueldisk'], empty: 'No duel disks yet.' },
 ];
-export const EMPTY_HINT = 'Open boxes in the Card Shop to get wearables.';
+export const EMPTY_HINT = 'Win items from the Cosmetic Boxes in the Card Shop.';
+/** The slots an item can be taken off from (the face mark, the glasses: their "none" is 0x20); hair, outfit and disk
+ *  can only be changed for another. */
+export const OFF_SLOTS = [2, 9], NONE = 0x20;
 export const WORLDS = [{ id: 0, label: 'Domino City' }, { id: 1, label: 'Duel Academy' }];
 const WORLD_NAME = { 0: 'Domino City', 1: 'Duel Academy' };
 const BODY = { male: 'male', female: 'female' };
@@ -44,10 +46,8 @@ export const worldsText = ws => (ws.includes(0) && ws.includes(1) ? 'Both worlds
 export function wearInfo(item, body, rank) {
   const variant = (item.variants || []).find(v => v.gender === body) || null;
   if (!variant) return { variant: null, worlds: [] };
-  const graduated = !!rank?.graduated && item.slot === 6;
-  // the body's own rows: a merged item (Afro) lists them all; any of them in a world makes it wearable there
-  const worlds = graduated ? [0, 1] : [...new Set((item.variants || []).filter(v => v.gender === body).flatMap(v => v.worlds || []))].sort();
-  return { variant, worlds };
+  // one look for both worlds (owner, 2026-11-05): an item this body can wear is worn everywhere
+  return { variant, worlds: [0, 1] };
 }
 /** Whether `item` is worn in `world`'s look: any of the body's rows of its slot (Afro's sizes too). */
 export function isEquipped(item, body, look) {
@@ -60,19 +60,15 @@ const uniformUnlocked = (u, rank) => u.school === 'slifer' || (rank?.uniforms ||
 export function canWear(item, body, world, rank) {
   if (item.uniform) {
     const u = SCHOOLS.find(s => s.school === item.school);
-    if (!uniformUnlocked(u, rank)) return { ok: false, reason: `Locked: reach ${u.rank} in ranked Autoduel to unlock this uniform.` };
+    if (!uniformUnlocked(u, rank)) return { ok: false, reason: `Reach ${u.rank} in ranked to unlock.` };
     return { ok: true, reason: '' };
   }
   const { variant, worlds } = wearInfo(item, body, rank);
   if (!variant) {
     const own = (item.bodies || []).map(b => BODY[b]).join(' and ');
-    return { ok: false, reason: item.notice || `This item is for the ${own} body only for now.` };
+    return { ok: false, reason: `${own[0]?.toUpperCase() || ''}${own.slice(1)} body only for now.` };
   }
-  if (!worlds.includes(world)) {
-    if (item.slot === 6 && worlds.includes(0) && world === 1)
-      return { ok: false, reason: 'Domino City outfits can only be worn outside Duel Academy until you graduate.' };
-    return { ok: false, reason: `This item can only be worn in ${worldsText(worlds)}.` };
-  }
+  void worlds; void world;
   return { ok: true, reason: '' };
 }
 
@@ -80,7 +76,7 @@ export function canWear(item, body, world, rank) {
 export function uniformStatus(item, rank) {
   const u = SCHOOLS.find(s => s.school === item.school);
   if (u.school === 'slifer') return 'Every student starts in Slifer Red';
-  return uniformUnlocked(u, rank) ? `Unlocked by reaching ${u.rank}` : `Reach ${u.rank} in ranked Autoduel to unlock`;
+  return uniformUnlocked(u, rank) ? `Unlocked by reaching ${u.rank}` : `Reach ${u.rank} in ranked to unlock`;
 }
 
 /** Graduation: done, or the progress toward it (rank.graduation). */
@@ -90,7 +86,7 @@ export function graduationOf(rank) {
   const opponents = +g.opponents || 0, opponentsRequired = +g.opponentsRequired || 25;
   return { graduated: !!rank?.graduated, level, levelRequired, opponents, opponentsRequired,
     levelPct: Math.min(100, Math.round(100 * level / levelRequired)), opponentsPct: Math.min(100, Math.round(100 * opponents / opponentsRequired)),
-    text: rank?.graduated ? 'Graduated: any outfit you own can be worn in either world.'
+    text: rank?.graduated ? 'Graduated'
       : `Graduation: LV ${Math.min(level, levelRequired)}/${levelRequired} · ${Math.min(opponents, opponentsRequired)}/${opponentsRequired} rivals beaten` };
 }
 
@@ -107,6 +103,7 @@ export function tileOf(item, info, world) {
     spares: item.uniform ? 0 : Math.max(0, +item.copies || 0), single, otherBody: single && single !== body,
     worlds: item.uniform ? [0, 1] : worlds, where: item.uniform ? 'Both worlds' : wearInfo(item, body, rank).variant ? worldsText(worlds) : `${single ? BODY[single][0].toUpperCase() + BODY[single].slice(1) + ' body' : 'Not this body'} only for now`,
     status: item.uniform ? uniformStatus(item, rank) : '', slotName: SLOT_NAME[item.slot] || '',
+    canTakeOff: isEquipped(item, body, look) && OFF_SLOTS.includes(item.slot),
   };
 }
 
@@ -114,7 +111,7 @@ export function tileOf(item, info, world) {
 export function wardrobeView(info, { world, tab = 'outfit', selectedId } = {}) {
   const w = world === 0 || world === 1 ? world : info?.appearance?.world === 0 ? 0 : 1;
   const owned = (info?.inventory || []).filter(i => i.owned !== false || (+i.copies || 0) > 0);
-  const byKind = k => owned.filter(i => i.kind === k);
+  const byKind = k => owned.filter(i => (TABS.find(t => t.id === k)?.kinds || [k]).includes(i.kind));
   const tabs = TABS.map(t => ({ ...t, count: byKind(t.id).length + (t.id === 'outfit' ? SCHOOLS.filter(u => uniformUnlocked(u, info?.rank)).length : 0) }));
   const order = (a, b) => (b.equipped - a.equipped) || (b.wearable - a.wearable) || (RARITY_ORDER[a.rarity] - RARITY_ORDER[b.rarity]) || a.name.localeCompare(b.name);
   const tiles = byKind(tab).map(i => tileOf(i, info, w)).sort(order);
@@ -128,7 +125,18 @@ export function wardrobeView(info, { world, tab = 'outfit', selectedId } = {}) {
 }
 
 /** The tab an item belongs to (openWardrobe({ focusId })). */
-export const tabOfId = (info, id) => (String(id).startsWith('uniform:') ? 'outfit' : (info?.inventory || []).find(i => i.id === id)?.kind || null);
+export const tabOfId = (info, id) => {
+  if (String(id).startsWith('uniform:')) return 'outfit';
+  const k = (info?.inventory || []).find(i => i.id === id)?.kind;
+  return k ? TABS.find(t => t.kinds.includes(k))?.id || null : null;
+};
+/** The world's look with tile `t`'s slot taken off (a face mark or glasses: "none"), or null when it can't be. */
+export function takeOffParts(info, t, world) {
+  if (!t?.canTakeOff) return null;
+  const parts = [...(lookOf(info, world) || defaultLook(bodyOf(info), world))];
+  parts[t.item.slot] = NONE;
+  return parts;
+}
 
 /** The appearance parts that put a uniform on in `world` (the look there with the clothes replaced). */
 export function uniformParts(info, item, world) {
@@ -152,9 +160,8 @@ export function previewOf(info, t, world) {
   const body = bodyOf(info), saved = [...(lookOf(info, world) || defaultLook(body, world))];
   if (!t || t.equipped) return { parts: saved, saved, state: 'wearing' };
   if (t.locked || !t.wearable) return { parts: saved, saved, state: 'cant', reason: t.locked ? t.status : t.reason };
-  const item = t.item, graduated = item.slot === 6 && !!info?.rank?.graduated;
-  const v = item.uniform ? item.variants[0]
-    : (item.variants || []).find(x => x.gender === body && (graduated || (x.worlds || []).includes(world)));
+  const item = t.item;
+  const v = item.uniform ? item.variants[0] : (item.variants || []).find(x => x.gender === body);
   if (!v) return { parts: saved, saved, state: 'cant', reason: t.reason };
   const parts = [...saved];
   parts[item.slot] = v.number;

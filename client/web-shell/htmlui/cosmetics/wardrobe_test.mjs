@@ -1,9 +1,9 @@
 // node client/web-shell/htmlui/cosmetics/wardrobe_test.mjs: the Wardrobe's view model (cosmetics/wardrobe-model.js) on a
 // state shaped like the server's (server/src/game/cosmetics.ts state(): inventory, appearance per world, rank): the
-// tabs and counts, equipped per world, the body and world rules with their reasons, graduation, the rank uniforms,
-// spares, the empty state, the focus tab and a uniform's parts. Exit 1 on the first failure.
+// three tabs and counts, one look worn everywhere (no world rule), the body rule and the uniforms' rank gate with
+// their short reasons, take-off, graduation as a status, spares, the empty state, the focus tab and a uniform's parts. Exit 1 on the first failure.
 import assert from 'node:assert/strict';
-import { wardrobeView, canWear, isEquipped, tileOf, tabOfId, uniformParts, graduationOf, uniformItem, SCHOOLS, EMPTY_HINT, previewOf, defaultLook } from './wardrobe-model.js';
+import { wardrobeView, canWear, isEquipped, tileOf, tabOfId, uniformParts, graduationOf, uniformItem, SCHOOLS, EMPTY_HINT, previewOf, defaultLook, takeOffParts } from './wardrobe-model.js';
 
 const v = (gender, number, worlds) => ({ gender, bit: (gender === 'female' ? 256 : 0) + number, number, worlds });
 const it = (id, kind, slot, rarity, variants, extra = {}) => {
@@ -18,59 +18,52 @@ const tea = it('outfit:tea', 'outfit', 6, 'ultra', [v('female', 0x76, [0])]);
 const afro = it('hair:afro', 'hair', 1, 'common', [v('male', 0xa, [0, 1]), v('male', 0xb, [0, 1]), v('female', 0x5, [0, 1])]);
 const sun = it('accessory:sunglasses', 'accessory', 9, 'rare', [v('male', 0x50, [0, 1]), v('female', 0x50, [0, 1])]);
 const gold = it('dueldisk:3417', 'dueldisk', 8, 'ultra', [v('male', 0xb4, [0, 1]), v('female', 0xb4, [0, 1])]);
-// male; Domino look: Black Suit, Afro II (a merged size), Alpha Gold; Academy look: Slifer Red uniform, default disk
-const domino = [0, 0xb, 0x20, 0, 0x40, 0x60, 0x77, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
-const academy = [0, 0, 0x20, 0, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0];
+// male; one look (owner, 2026-11-05: the same in both worlds): Black Suit, Afro II (a merged size), Alpha Gold,
+// Sunglasses
+const look = [0, 0xb, 0x20, 0, 0x40, 0x60, 0x77, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0];
 const rank = { bestSchool: 'ra', uniforms: ['slifer', 'ra'], graduated: false, graduationLevel: 20,
   graduation: { level: 12, levelRequired: 20, opponents: 5, opponentsRequired: 25 } };
 const info = { inventory: [suit, jaden, kaiba, tea, afro, sun, gold], rank,
-  appearance: { gender: 'male', world: 1, parts: academy, looks: { 0: domino, 1: academy } } };
+  appearance: { gender: 'male', world: 1, parts: look, looks: { 0: look, 1: look } } };
 
-// tabs: counts (outfits + the earned uniforms: Slifer and Ra), the current world by default (the Academy here)
+// tabs: Head (hair + accessories), Outfit (+ the earned uniforms: Slifer and Ra), Disk
 let w = wardrobeView(info);
-assert.equal(w.world, 1); assert.equal(w.body, 'male'); assert.equal(w.tab, 'outfit');
-assert.deepEqual(w.tabs.map(t => [t.id, t.count]), [['outfit', 6], ['hair', 1], ['accessory', 1], ['dueldisk', 1]]);
-// outfits: wearable here first (Jaden), then the Domino-only ones, rarest first; the uniforms after them
-assert.deepEqual(w.items.map(t => t.id), ['outfit:jaden', 'outfit:tea', 'outfit:kaiba', 'outfit:black-suit']);
+assert.equal(w.body, 'male'); assert.equal(w.tab, 'outfit');
+assert.deepEqual(w.tabs.map(t => [t.id, t.label, t.count]), [['head', 'Head', 2], ['outfit', 'Outfit', 6], ['dueldisk', 'Disk', 1]]);
+// outfits: worn first, then the wearable ones rarest first, the other body's last; the uniforms after them
+assert.deepEqual(w.items.map(t => t.id), ['outfit:black-suit', 'outfit:kaiba', 'outfit:jaden', 'outfit:tea']);
 assert.deepEqual(w.uniforms.map(t => t.id), ['uniform:slifer', 'uniform:ra', 'uniform:obelisk']);
 const byId = id => w.tiles.find(t => t.id === id);
-assert.equal(byId('uniform:slifer').equipped, true);           // the Academy look wears 0x80
-assert.equal(byId('uniform:ra').locked, false); assert.equal(byId('uniform:ra').status, 'Unlocked by reaching Ra Yellow');
-assert.equal(byId('uniform:obelisk').locked, true); assert.equal(byId('uniform:obelisk').status, 'Reach Obelisk Blue in ranked Autoduel to unlock');
-assert.match(canWear(byId('uniform:obelisk').item, 'male', 1, rank).reason, /^Locked: reach Obelisk Blue/);
-// Domino outfits in the Academy: not before graduating, with the reason
+// no world rule: a Domino outfit is worn in the Academy, by a student not graduated
 const bs = byId('outfit:black-suit');
-assert.equal(bs.wearable, false); assert.match(bs.reason, /outside Duel Academy until you graduate/);
-assert.deepEqual(bs.equippedIn, [0]); assert.equal(bs.equipped, false);   // worn in Domino, not here
-assert.equal(bs.spares, 2); assert.equal(bs.where, 'Domino City');
-// a female-only item on a male character: its notice; a male-only one is fine for him
+assert.deepEqual([bs.equipped, bs.wearable, bs.reason, bs.where], [true, true, '', 'Both worlds']);
+assert.deepEqual(bs.equippedIn, [0, 1]); assert.equal(bs.spares, 2);
+assert.equal(canWear(kaiba, 'male', 1, rank).ok, true);
+// the rank gate stays on the dorm uniforms
+assert.equal(byId('uniform:ra').locked, false); assert.equal(byId('uniform:ra').status, 'Unlocked by reaching Ra Yellow');
+assert.equal(byId('uniform:obelisk').locked, true); assert.equal(byId('uniform:obelisk').status, 'Reach Obelisk Blue in ranked to unlock');
+assert.equal(canWear(byId('uniform:obelisk').item, 'male', 1, rank).reason, 'Reach Obelisk Blue in ranked to unlock.');
+// the other body's item: one short line
 const t1 = byId('outfit:tea');
-assert.equal(t1.wearable, false); assert.equal(t1.reason, tea.notice); assert.equal(t1.single, 'female'); assert.equal(t1.otherBody, true);
-assert.equal(t1.where, 'Female body only for now');
+assert.deepEqual([t1.wearable, t1.reason, t1.single, t1.otherBody, t1.where], [false, 'Female body only for now.', 'female', true, 'Female body only for now']);
 assert.equal(byId('outfit:kaiba').single, 'male'); assert.equal(byId('outfit:kaiba').otherBody, false);
 // the selection: the first unlocked tile by default, a focused id when it is there
-assert.equal(w.selected.id, 'outfit:jaden');
+assert.equal(w.selected.id, 'outfit:black-suit');
 assert.equal(wardrobeView(info, { selectedId: 'uniform:ra' }).selected.id, 'uniform:ra');
 
-// Domino City: the suit is worn and wearable; Afro II counts as the Afro worn; the uniforms are wearable everywhere
-w = wardrobeView(info, { world: 0 });
-assert.equal(w.tiles.find(t => t.id === 'outfit:black-suit').equipped, true);
-assert.equal(w.items[0].id, 'outfit:black-suit');   // the equipped one first
-assert.equal(isEquipped(afro, 'male', domino), true);
-assert.equal(isEquipped(afro, 'female', domino), false);   // a look of the other body never matches
-const hair = wardrobeView(info, { world: 0, tab: 'hair' });
-assert.deepEqual(hair.tiles.map(t => [t.id, t.equipped, t.wearable]), [['hair:afro', true, true]]);
-assert.equal(hair.uniforms.length, 0);
-assert.equal(wardrobeView(info, { world: 0, tab: 'dueldisk' }).tiles[0].equipped, true);
-assert.equal(wardrobeView(info, { world: 1, tab: 'dueldisk' }).tiles[0].equipped, false);
-assert.equal(wardrobeView(info, { world: 1, tab: 'dueldisk' }).tiles[0].where, 'Both worlds');
+// Head: hair and accessories; Afro II counts as the Afro worn; glasses worn can be taken off, hair can't
+const head = wardrobeView(info, { tab: 'head' });
+assert.deepEqual(head.tiles.map(t => [t.id, t.equipped, t.canTakeOff]), [['accessory:sunglasses', true, true], ['hair:afro', true, false]]);
+assert.equal(isEquipped(afro, 'male', look), true);
+assert.equal(isEquipped(afro, 'female', look), false);   // a look of the other body never matches
+assert.deepEqual(takeOffParts(info, head.tiles[0], 1), [...look.slice(0, 9), 0x20, ...look.slice(10)]);
+assert.equal(takeOffParts(info, head.tiles[1], 1), null);
+assert.equal(wardrobeView(info, { tab: 'dueldisk' }).tiles[0].equipped, true);
+assert.equal(head.uniforms.length, 0);
 
-// graduated: any owned outfit in either world
+// graduation: a status line only
 const grad = { ...rank, graduated: true };
-assert.equal(canWear(suit, 'male', 1, grad).ok, true);
-assert.equal(tileOf(suit, { ...info, rank: grad }, 1).where, 'Both worlds');
-assert.equal(canWear(sun, 'male', 1, grad).ok, true);
-assert.equal(graduationOf(grad).graduated, true); assert.match(graduationOf(grad).text, /^Graduated/);
+assert.equal(graduationOf(grad).graduated, true); assert.equal(graduationOf(grad).text, 'Graduated');
 const g = graduationOf(rank);
 assert.deepEqual([g.level, g.levelRequired, g.opponents, g.opponentsRequired, g.levelPct, g.opponentsPct], [12, 20, 5, 25, 60, 20]);
 assert.match(g.text, /LV 12\/20 · 5\/25 rivals beaten/);
@@ -79,43 +72,40 @@ assert.equal(graduationOf(undefined).levelRequired, 20);
 // a beginner: only Slifer Red unlocked
 const fresh = { ...info, rank: { bestSchool: 'beginner', uniforms: ['slifer'], graduated: false } };
 assert.deepEqual(wardrobeView(fresh).uniforms.map(t => t.locked), [false, true, true]);
-assert.equal(wardrobeView(fresh).tabs[0].count, 5);
+assert.equal(wardrobeView(fresh).tabs[1].count, 5);
 
 // the empty wardrobe: the hint, no selection but the earned uniform (outfits tab)
 const empty = { ...info, inventory: [] };
-w = wardrobeView(empty, { tab: 'hair' });
+w = wardrobeView(empty, { tab: 'head' });
 assert.equal(w.empty, true); assert.equal(w.emptyAll, true); assert.equal(w.hint, EMPTY_HINT); assert.equal(w.selected, null);
-assert.equal(EMPTY_HINT, 'Open boxes in the Card Shop to get wearables.');
 assert.equal(wardrobeView(empty).selected.id, 'uniform:slifer');
 
-// openWardrobe({ focusId }): the reward's tab; a uniform's appearance parts (the world's look, the clothes replaced)
-assert.equal(tabOfId(info, 'dueldisk:3417'), 'dueldisk'); assert.equal(tabOfId(info, 'uniform:ra'), 'outfit'); assert.equal(tabOfId(info, 'nope'), null);
+// openWardrobe({ focusId }): the reward's tab; a uniform's appearance parts (the look, the clothes replaced)
+assert.equal(tabOfId(info, 'dueldisk:3417'), 'dueldisk'); assert.equal(tabOfId(info, 'hair:afro'), 'head'); assert.equal(tabOfId(info, 'accessory:sunglasses'), 'head');
+assert.equal(tabOfId(info, 'uniform:ra'), 'outfit'); assert.equal(tabOfId(info, 'nope'), null);
 const ra = uniformItem(SCHOOLS[1]);
-assert.deepEqual(uniformParts(info, ra, 0), [0, 0xb, 0x20, 0, 0x40, 0x60, 0x81, 0x90, 0xb4, 0x50, 0, 0, 0, 0, 0, 0]);
+assert.deepEqual(uniformParts(info, ra, 0), [...look.slice(0, 6), 0x81, ...look.slice(7)]);
 assert.equal(uniformParts({}, ra, 0), null);
 // a female character: the female rows decide
-const her = { ...info, appearance: { gender: 'female', world: 0, parts: [1, 5, 0x20, 0, 0x40, 0x60, 0x74, 0x90, 0xb1, 0x20, 0, 0, 0, 0, 0, 0],
-  looks: { 0: [1, 5, 0x20, 0, 0x40, 0x60, 0x74, 0x90, 0xb1, 0x20, 0, 0, 0, 0, 0, 0], 1: academy } } };
+const herLook = [1, 5, 0x20, 0, 0x40, 0x60, 0x74, 0x90, 0xb1, 0x20, 0, 0, 0, 0, 0, 0];
+const her = { ...info, appearance: { gender: 'female', world: 0, parts: herLook, looks: { 0: herLook, 1: herLook } } };
 w = wardrobeView(her);
-assert.equal(w.world, 0); assert.equal(w.body, 'female');
+assert.equal(w.body, 'female');
 assert.equal(w.tiles.find(t => t.id === 'outfit:black-suit').equipped, true);   // female 0x74
 assert.equal(w.tiles.find(t => t.id === 'outfit:tea').wearable, true);
 assert.equal(w.tiles.find(t => t.id === 'outfit:kaiba').wearable, false);
-assert.equal(wardrobeView(her, { tab: 'hair' }).tiles[0].equipped, true);       // female Afro 0x5
+assert.equal(wardrobeView(her, { tab: 'head' }).tiles.find(t => t.id === 'hair:afro').equipped, true);       // female Afro 0x5
 // the bust's try-on (previewOf): the saved look with the item's own row put on; worn / refused / locked: unchanged
-const pv = (item, world) => previewOf(info, tileOf(item, info, world), world);
-assert.deepEqual(pv(jaden, 1), { parts: [...academy.slice(0, 6), 0x87, ...academy.slice(7)], saved: academy, state: 'preview' });
-assert.deepEqual(pv(suit, 0).state, 'wearing');
-assert.deepEqual([pv(suit, 1).state, pv(suit, 1).parts], ['cant', academy], 'a Domino outfit in the Academy: unchanged');
-assert.match(pv(suit, 1).reason, /until you graduate/);
-assert.deepEqual([pv(tea, 0).state, pv(tea, 0).parts], ['cant', domino], 'the other body\'s item: unchanged');
-assert.deepEqual(pv(gold, 1).parts[8], 0xb4);
-assert.deepEqual(pv(sun, 1).parts[9], 0x50);
-assert.deepEqual(pv(afro, 1).parts[1], 0xa, 'Afro: its first row (Afro I)');
+const pv = item => previewOf(info, tileOf(item, info, 1), 1);
+assert.deepEqual(pv(jaden), { parts: [...look.slice(0, 6), 0x87, ...look.slice(7)], saved: look, state: 'preview' });
+assert.equal(pv(suit).state, 'wearing');
+assert.deepEqual(pv(kaiba).parts[6], 0x7a, 'a Domino outfit tried on in the Academy');
+assert.deepEqual([pv(tea).state, pv(tea).parts], ['cant', look], 'the other body\'s item: unchanged');
+assert.deepEqual(pv(afro).parts[1], 0xb, 'Afro worn (Afro II): wearing');
 const obeliskT = tileOf(uniformItem(SCHOOLS[2]), info, 1), raT = tileOf(uniformItem(SCHOOLS[1]), info, 1);
-assert.deepEqual(previewOf(info, obeliskT, 1).state, 'cant');
-assert.deepEqual(previewOf(info, raT, 1).parts[6], 0x81);
-assert.deepEqual(previewOf(info, null, 0), { parts: domino, saved: domino, state: 'wearing' });
-// no saved look for a world yet: the default one of the body and world
+assert.equal(previewOf(info, obeliskT, 1).state, 'cant');
+assert.equal(previewOf(info, raT, 1).parts[6], 0x81);
+assert.deepEqual(previewOf(info, null, 0), { parts: look, saved: look, state: 'wearing' });
+// no saved look yet: the default one of the body
 assert.deepEqual(previewOf({ ...info, appearance: { gender: 'female', world: 0, looks: {} } }, null, 1).parts, defaultLook('female', 1));
 console.log('wardrobe_test: ok');

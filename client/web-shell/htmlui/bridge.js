@@ -15,6 +15,7 @@ import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
 import { tradeOverlayFrame } from './cosmetics/trade-cosmetics.js';
+import { wardrobeLauncherFrame } from './cosmetics/wardrobe-launcher.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -412,6 +413,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)
     // Card Swap's cosmetics (cosmetics/trade-cosmetics.js): over the trade window whoever draws it; never the frame's end
     try { tradeOverlayFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: trade cosmetics', e); }
+    // the Wardrobe's button on the menu bar (cosmetics/wardrobe-launcher.js), whoever draws the bar
+    try { wardrobeLauncherFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: wardrobe launcher', e); }
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {
