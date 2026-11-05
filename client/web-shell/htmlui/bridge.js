@@ -227,9 +227,13 @@ function clip(rects, box) {
 
 // The game side: start(Module) once the runtime exists (web-shell injects bridge.js as a module after loader.js).
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
-  // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle)
-  const bd = canvas ? backdrop(canvas) : null;
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle): only
+  // with htmlui.json "backdrop": true. Off, the engine draws its own (the original). Over the page-drawn one the game's
+  // clear canvas didn't fade with it: leaving Select Player the menu mark's exit animation became dark ring shapes over
+  // a backdrop that stayed lit (owner: "weird black stuff" loading the room; live screencasts, the engine's own backdrop
+  // fades clean)
+  const bd = canvas && defaults.backdrop === true ? backdrop(canvas) : null;
   let on = switches(spec, defaults.on || []);
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
   let barsOn = defaults.scrollbars !== false && new URLSearchParams(location.search).get('HTML_SCROLL') !== '0';
