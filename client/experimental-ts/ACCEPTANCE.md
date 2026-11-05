@@ -18,6 +18,11 @@ real Worker, better-auth, D1, WorldDO, duel engine). Each asserted flow appends 
 3. A test: `ACCEPTANCE_CLIENT=http://localhost:<port> tools/acceptance.sh tests/acceptance/<file>.test.ts`. It waits for
    memory (the shared Chromium launcher refuses below 25% free; other sessions run browsers too) and prints the result.
    Run one browser workload at a time per checkout and always close pages (`closeAll()` in `finally`).
+4. Many files: `ACCEPTANCE_STACK=<file> ACCEPTANCE_CLIENT=http://localhost:<port> tools/acceptance-parallel.sh -j 3
+   tests/acceptance/*.test.ts` runs them N at a time against one stack and client (files are independent: accounts are
+   per process). Each waits for 30% free memory; logs go to ~/.cache/de-scratch/acceptance (/tmp is RAM here).
+   Speed: start the stack with `STACK_VARS=SEND_PACE:0,DUEL_PAUSE:0.001` (no send pacing, near-zero duel pauses); the
+   harness already turns reduced motion on.
 
 ## Harness (`tests/acceptance/harness.ts`)
 
