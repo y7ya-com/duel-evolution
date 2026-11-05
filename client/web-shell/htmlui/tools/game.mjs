@@ -70,6 +70,8 @@ const srv = createServer((req, res) => {
   let st;
   try { st = statSync(f); } catch { res.writeHead(404, ISO); return res.end(); }
   const type = MIME[f.split('.').pop()] || 'application/octet-stream';
+  // Like the live range endpoint: stable across visits, changes when the file changes.
+  const fileHeaders = { ...ISO, ETag: `"${st.size}-${Math.trunc(st.mtimeMs)}"` };
   if (p === '/game/files.txt') {   // + the card table, served below
     const extra = `${statSync(CARDS).size}\tmerge/data/card_passcode.bin\n`;
     res.writeHead(200, { ...ISO, 'Content-Type': 'text/plain' });
@@ -82,10 +84,10 @@ const srv = createServer((req, res) => {
   const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
   if (m) {
     const a = +m[1], b = m[2] ? Math.min(+m[2], st.size - 1) : st.size - 1;
-    res.writeHead(206, { ...ISO, 'Content-Type': type, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1, 'Accept-Ranges': 'bytes' });
+    res.writeHead(206, { ...fileHeaders, 'Content-Type': type, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1, 'Accept-Ranges': 'bytes' });
     return createReadStream(f, { start: a, end: b }).pipe(res);
   }
-  res.writeHead(200, { ...ISO, 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes' });
+  res.writeHead(200, { ...fileHeaders, 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes' });
   if (req.method === 'HEAD') return res.end();
   createReadStream(f).pipe(res);
 });

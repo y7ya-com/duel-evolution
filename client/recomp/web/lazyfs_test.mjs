@@ -607,4 +607,44 @@ console.log("prefetch=0: ok");
         assert.equal(Object.keys(files).length, files0);
     }
 }
+// The shared room loading scene retains both destinations, rather than replacing the set on every short visit.
+{
+    const r = makeEnv(new Map(), new Map()); await r.ready();
+    r.Module.onYo2Scene("begin", 10, 25); r.read("/game/merge.dat", 10 * MB, 1);
+    r.Module.onYo2Scene("begin", 25, 10);
+    r.Module.onYo2Scene("begin", 12, 25); r.read("/game/merge.dat", 20 * MB, 1);
+    r.Module.onYo2Scene("begin", 25, 12);
+    const set = r.Module.yo2Lazy.learned().sets[25];
+    assert.ok(set.includes(10) && set.includes(20) && set.length <= 48);
+}
+// PE data sections join the bounded boot hold; executable code and discardable relocations never do.
+{
+    const old = files["game/yo2.exe"], exe = Buffer.alloc(6 * MB);
+    exe.writeUInt16LE(0x5a4d, 0); exe.writeUInt32LE(0x80, 0x3c); exe.writeUInt32LE(0x4550, 0x80);
+    exe.writeUInt16LE(3, 0x86); exe.writeUInt16LE(224, 0x94);
+    [[MB, 0x20], [4 * MB, 0x40], [5 * MB, 0x02000040]].forEach(([raw, flags], i) => {
+        const at = 0x80 + 24 + 224 + 40 * i;
+        exe.writeUInt32LE(4096, at + 8); exe.writeUInt32LE(4096, at + 16);
+        exe.writeUInt32LE(raw, at + 20); exe.writeUInt32LE(flags, at + 36);
+    });
+    files["game/yo2.exe"] = exe;
+    files["fonts/test.ttf"] = Buffer.alloc(4096, 42);
+    try {
+        const store = new Map(), ls = new Map(), r = makeEnv(store, ls, { search: "?fonts=fonts/" });
+        await r.ready();
+        const L = r.Module.yo2Lazy, keys = [...L.pinned.keys()].filter(k => k.includes("yo2.exe#"));
+        assert.deepEqual(keys, ["game/yo2.exe#4"], "only the required data section chunk");
+        const before = syncXhr;
+        assert.deepEqual(Buffer.from(r.read("/game/yo2.exe", 4 * MB, 4096)), exe.subarray(4 * MB, 4 * MB + 4096));
+        assert.equal(syncXhr, before, "exe data has no boot XHR");
+        r.read("/fonts/test.ttf", 0, 4096); await settle(L); L.savePins();
+        const warm = makeEnv(store, ls, { search: "?fonts=fonts/" }); await warm.ready();
+        const n = syncXhr;
+        assert.equal(warm.read("/fonts/test.ttf", 0, 1)[0], 42);
+        assert.equal(syncXhr, n, "small fonts restored from persistent storage");
+        exe.writeUInt32LE(0xffffffff, 0x3c);
+        await makeEnv(new Map(), new Map()).ready();   // malformed PE: normal lazy reads remain available
+        console.log("PE boot and small-file persistence: ok");
+    } finally { files["game/yo2.exe"] = old; delete files["fonts/test.ttf"]; }
+}
 console.log("lazyfs_test ok");
