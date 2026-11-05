@@ -28,6 +28,7 @@ describe("shared server chat", () => {
     expect(cstr((await b.room!.wait(0x4402,nb))!.subarray(26))).toBe("hello room");
     expect(cstr((await c.room!.wait(0x4402,nc))!.subarray(26))).toBe("hello room");
     expect(read(h,"user-c").messages.map(m=>m.text)).toEqual(["hello room"]);
+    expect(read(h,"user-c").now).toBeTypeOf("number");
     a.room!.send(0x4400,message(1,"old proximity")); await h.tick(100);
     expect(read(h,"user-b").messages.at(-1)?.channel).toBe("global");
   });

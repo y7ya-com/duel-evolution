@@ -1,8 +1,9 @@
 // One server-wide chat stream for native clients and the HTML room chat. Private audiences are decided server-side.
 import type { Game } from "./game.ts";
-import type { Session } from "./hub.ts";
+import { PID_BASE, type Session } from "./hub.ts";
 import { W } from "../net/proto.ts";
 import { isFree } from "./freemode.ts";
+import * as PP from "./persist.ts";
 
 export type ChatChannel = "global" | "trade" | "whisper" | "team";
 export type ChatMessage = { id: number; at: number; channel: ChatChannel; pid: number; name: string; text: string; targetPid?: number };
@@ -14,9 +15,13 @@ const NUMBERS: Record<ChatChannel, number> = { global: 0, trade: 2, whisper: 3, 
 export const channelFor = (kind: number): ChatChannel | null => kind === 0 || kind === 1 ? "global" : kind === 2 ? "trade" : kind === 3 ? "whisper" : kind === 5 ? "team" : null;
 const sessionFor = (g: Game, user: string) => g.hub.sessions.get(g.hub.acctOfUser(user));
 const online = (s: Session | undefined): s is Session => !!s && s.pid !== null && s.slot !== null && !!s.lobby && !s.lobby.closed && !isFree(s);
-function ignores(g: Game, receiver: Session, pid: number): boolean {
-  const p = g.store.peek().accounts?.[receiver.acct]?.profiles?.[String(receiver.slot ?? 0)];
-  return (p?.black ?? []).includes(pid);
+/** Whether the character with pid `by` has `pid` on its Ignore List (hBlack); account 0 keeps its profiles at the root. */
+export function ignores(g: Game, by: number | null, pid: number | null): boolean {
+  if (by === null || pid === null || by < PID_BASE) return false;
+  const st = g.store.peek(), idx = (by - PID_BASE) >> 2, slot = String((by - PID_BASE) & 3);
+  const a: any = idx === 0 ? st : Object.values(st.accounts ?? {}).find((x: any) => x && PP.int(x.idx ?? 0) === idx);
+  const l = a?.profiles?.[slot]?.black;
+  return Array.isArray(l) && l.includes(pid);
 }
 const plain = ({ audience: _audience, ...message }: Stored): ChatMessage => message;
 
@@ -47,7 +52,7 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
     if (!teamInfo || new DataView(teamInfo.buffer, teamInfo.byteOffset, teamInfo.byteLength).getUint32(0) === 0) return { error: "Join a team to use team chat." };
     recipients = [sender, ...team];
   } else recipients = [...g.hub.sessions.values()].filter(online);
-  recipients = [...new Set(recipients)].filter(s => online(s) && (s === sender || !ignores(g, s, sender.pid!)));
+  recipients = [...new Set(recipients)].filter(s => online(s) && (s === sender || !ignores(g, s.pid, sender.pid)));
   const message: Stored = { id: ++log.next, at: now, channel, pid: sender.pid!, name: sender.name || "Duelist", text,
     ...(channel === "whisper" && { targetPid }), audience: new Set(recipients.map(s => s.acct)) };
   log.messages.push(message); if (log.messages.length > 300) log.messages.shift();
@@ -64,8 +69,9 @@ export function chatGet(g: Game, user: string, after: number = 0) {
   if (!online(session)) return { error: "Join the online game before chatting." };
   const log = stream(g), reset = !Number.isSafeInteger(after) || after < 0 || after > log.next;
   const from = reset ? 0 : after;
-  const messages = log.messages.filter(m => m.id > from && m.audience?.has(session.acct) && !ignores(g, session, m.pid)).slice(-100).map(plain);
-  return { ok: { cursor: log.next, reset, pid: session.pid, name: session.name,
+  const messages = log.messages.filter(m => m.id > from && m.audience?.has(session.acct) && !ignores(g, session.pid, m.pid)).slice(-100).map(plain);
+  // now: the server's clock, so a client whose own clock is off still dates the lines (live-chat.js bubbles)
+  return { ok: { cursor: log.next, reset, now: Date.now(), pid: session.pid, name: session.name,
     players: [...g.hub.sessions.values()].filter(online).map(s => ({ pid: s.pid, name: s.name })), messages } };
 }
 

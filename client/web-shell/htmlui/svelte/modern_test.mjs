@@ -61,9 +61,17 @@ const win = (cls, controls, o = {}) => ({ id: id++, cls, x: 0, y: 0, w: 480, h: 
   w.mode = 1;
   w.pairs = [[1, 0], [0, 1], [2, 2]].map(([t, l]) => ({ tab: tabs[t].id, log: logs[l].id, visible: true }));
   const p = L.chatParts(w);
-  assert.deepEqual(p.tabs.map(t => [t.short, t.log.items[0], t.active]), [['All', '@0A:hi', true], ['Trade', 't', false]]);
-  assert.ok(p.input && p.expand && p.shrink && p.typing);
-  // the deck editor's chat, folded to its bar (its log parked, its line hidden): collapsed, no line drawn
+  assert.deepEqual(p.tabs.map(t => t.label), ['All Chat', 'TRADE']);
+  // no Proximity Chat tab (the server's channels: Global, Trade, Whisper, Team); its log keeps its partner by order
+  const near = L.chatParts(win('CChatWindow', [ctl('Tab', { x: 8, label: 'All Chat', active: true }), ctl('Tab', { x: 80, label: 'Proximity Chat' }),
+    ctl('Tab', { x: 192, label: 'TRADE' })]));
+  assert.deepEqual(near.tabs.map(t => t.label), ['All Chat', 'TRADE']);
+  assert.deepEqual(near.logTabs.map(t => t.label), ['All Chat', 'Proximity Chat', 'TRADE']);
+  assert.deepEqual(p.log.items, ['@0A:hi'], 'the shown log, not the first');
+  assert.ok(p.input && p.taller && p.shorter);
+  assert.ok(p.open && p.typing, 'the lobby chat: its log and line drawn');
+  // the deck editor's chat, folded to its bar: its log parked, its line hidden: neither drawn (they hung below the
+  // editor, cut by the screen's edge)
   const parked = L.chatParts(win('CChatWindow', [ctl('Iconbar', { w: 776, h: 24 }), ctl('Textlist', { y: 99999, h: -16, items: [] }),
     ctl('Input', { shown: false, w: 776, h: 32 })], { y: 712, w: 776, h: 32 }));
   assert.ok(parked.mode === 2 && !parked.typing, 'a folded chat draws its bar only');

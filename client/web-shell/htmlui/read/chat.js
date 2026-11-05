@@ -13,7 +13,8 @@ const MY_ROOM = 10, SIGN_IN_LAST = 7;   // SceneId (src/System/yo2SceneManager.h
 export const onlineAfter = (online, scene) => scene >= 1 && scene <= SIGN_IN_LAST ? false : scene === MY_ROOM ? true : online;
 let online = null, scene = 0;
 
-// Positions come from the player's actual name label in the avatar hierarchy, never map-grid guesses.
+// The players' avatars on the map (live-chat.js: speech bubbles over them): each CPlChibiAvatar under the scene's root
+// task (CSceneMng +0x70), its pid (+0xec) and its name label's place (+0xb8; its sprite +0x94), never map-grid guesses
 export function chatAvatars(h, root) {
   const out = [], seen = new Set();
   const walk = (task, depth) => {
@@ -40,6 +41,7 @@ export default h => {
   const sm = u32(SCENE_MNG);
   if (sm) online = onlineAfter(online, scene = i32(sm + 0x7c));
   return {
+    // chatOnline: in the online world past the sign-in (the server's chat stream is there); chatAvatars: who stands where
     snapshot: () => ({ chatOnline: online !== false && scene > SIGN_IN_LAST,
       chatAvatars: online !== false && sm ? chatAvatars(h, h.ptr(sm + 0x70)) : [] }),
     windows: {

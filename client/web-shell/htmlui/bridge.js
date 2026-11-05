@@ -21,6 +21,7 @@ import { cursorCss, ripple } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
+import chatReader from './read/chat.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -214,6 +215,9 @@ function holes(w, wins, owned, box = w) {
 export async function start(Module, { canvas = document.getElementById('canvas'), spec = new URLSearchParams(location.search).get('HTML_UI') } = {}) {
   // the start screens' backdrop, sharp, behind the canvas (backdrop.js; the runtime's Module.yo2TransparentTitle)
   const bd = canvas ? backdrop(canvas) : null;
+  // the chat's reader from the first frame, not only once the layer loads: the speech bubbles (live-chat.js) need its
+  // chatOnline and chatAvatars whether or not any window is in HTML (loadScreens adds the same reader: extend keeps one)
+  extend(chatReader);
   const defaults = await fetch(new URL('htmlui.json', location.href)).then(r => r.ok ? r.json() : {}).catch(() => ({}));
   let on = switches(spec, htmlDefaults(defaults));
   let cursorOn = defaults.cursor !== false && new URLSearchParams(location.search).get('HTML_CURSOR') !== '0';
@@ -374,7 +378,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     nativeInput.restore();
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
-    updateLiveChat(snap, mu.active());
+    updateLiveChat(snap);   // the speech bubbles over the avatars (live-chat.js), whichever screens draw the windows
     const want = c => forced.has(c) ? forced.get(c) : (mu.active() && mu.mods.has(c)) || on(c);
     // windows and non-window tasks (snapshot.tasks: the shop) a screen claims and the switches allow
     if (!render && [...snap.windows, ...snap.tasks].some(w => want(w.cls))) init();

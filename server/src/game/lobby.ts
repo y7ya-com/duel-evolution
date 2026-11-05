@@ -13,7 +13,7 @@ import * as PP from "./persist.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
 import { tagChat } from "../duel/tagRelay.ts";
-import { channelFor, sendChat } from "./chat.ts";
+import { channelFor, ignores, sendChat } from "./chat.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
 const i32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(at) : 0);
@@ -557,10 +557,12 @@ export class Lobby {
     const z = text.indexOf(0);
     text = text.subarray(0, z < 0 ? text.length : z).subarray(0, MAX_DATA - 27);
     if (tagChat(this.g, this.sess(c), c, text)) return true;
-    const channel = channelFor(kind), s = this.sess(c);
-    if (!channel || !s) return true;
-    // One server-wide public channel, including My Room. Legacy proximity sends become Global.
-    sendChat(this.g, s, channel, cstr(text).slice(0, 128), target);
+    const s = this.sess(c), channel = channelFor(kind);
+    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) this.log(`[AVISO] [admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`);
+    // One server-wide public channel, including My Room (chat.ts): legacy proximity sends (kind 1) become Global. A line
+    // the stream refuses (sanctioned, an NPC or offline whisper target) still comes back to its sender, as before.
+    const sent = s && channel ? sendChat(this.g, s, channel, cstr(text).slice(0, 128), target) : null;
+    if (!sent || "error" in sent) c.send(0x4402, cat(new W().u8(0).u8(kind).u32(this.pid()).u32(2).bytes(), S(this.me(), 16), text, Uint8Array.of(0)));
     const n = kind === 3 ? this.npcByPid(target) : null;
     if (n) c.send(0x4402, cat(new W().u8(0).u8(3).u32(FAKE_BASE + n[0]).u32(0).bytes(), S(n[1], 16), new W().s("Nos vemos en la sala de duelo.", 30).bytes(), Uint8Array.of(0)));
     return true;
@@ -665,13 +667,7 @@ export class Lobby {
     return true;
   }
   /** Whether the character with pid `by` has `pid` on its Ignore List (hBlack). */
-  private ignores(by: number | null, pid: number | null): boolean {
-    if (by === null || pid === null || by < PID_BASE) return false;
-    const st = this.g.store.peek(), idx = (by - PID_BASE) >> 2, slot = String((by - PID_BASE) & 3);
-    const a: any = idx === 0 ? st : Object.values(st.accounts ?? {}).find((x: any) => x && PP.int(x.idx ?? 0) === idx);
-    const l = a?.profiles?.[slot]?.black;
-    return Array.isArray(l) && l.includes(pid);
-  }
+  private ignores(by: number | null, pid: number | null): boolean { return ignores(this.g, by, pid); }
 
   private roomWhere(port: number | null, lang: number, s: Session | null = null): number[] | null {
     const base = this.g.ports.roomBase;

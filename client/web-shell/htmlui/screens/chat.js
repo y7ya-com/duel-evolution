@@ -1,6 +1,7 @@
 // The chat window (CChatWindow : CWindowModelChatWindow, src/System/window/yo2WindowChat.cpp), owned by the DOM.
 // Its tabs come from the game: All Chat | Duel Log | Proximity Chat | TRADE | Team (the Duel Log tab is ovr/duellog.c's,
-// shown on the duel screen only); chatTabs shows them as the owner wants (no Duel Log, 'Trade', unread counts).
+// shown on the duel screen only); chatTabs shows them as the owner wants (no Duel Log, no Proximity Chat, 'Trade',
+// unread counts).
 // Online only (owner): out of the online world (the title, Free Duel, the title's Deck Editor: read/chat.js online)
 // nothing of the chat is drawn, and the engine's chat is folded to its collapsed bar (fold) so its rect stays small.
 // - Drawing: each control redrawn only when its snapshot changes; the generic renderers (api.renderControl) for the
@@ -161,8 +162,10 @@ const CSS = () => `
 // changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
 // background(win, el), if given, draws what the window itself draws under its controls (its own picture)
 // The chat's tabs as the owner wants them (CChatWindow): the Duel Log tab left out (owner: of no use; ovr/duellog.c adds
-// it on the duel screen until the runtime drops it), the game's all-capitals names in plain case ('TRADE' -> 'Trade'),
-// and a tab whose log had lines while another was shown says how many until it is opened: 'Proximity Chat (2)'. A tab
+// it on the duel screen until the runtime drops it), and Proximity Chat too (the server has no proximity channel: a
+// line sent there goes to Global, server/src/game/chat.ts; ovr/chatfree.c hides the tab in a runtime built with it),
+// the game's all-capitals names in plain case ('TRADE' -> 'Trade'), and a tab whose log had lines while another was
+// shown says how many until it is opened: 'Trade (2)'. A tab
 // grows by its new text (the game's metrics) and the tabs after it move along, 8 px over each other as the game lays
 // them (yo2WindowChat.cpp layout). Each tab's log is the reader's pair (read/chat.js), else the logs in tab order.
 const unread = new Map();   // window id -> { seen: log id -> its items, n: tab id -> lines unread }. ponytail: never
