@@ -28,12 +28,11 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
     : Math.round(+/MemAvailable:\s+(\d+)/.exec(readFileSync('/proc/meminfo', 'utf8'))[1] * 1024 / totalmem() * 100);
   const min = +(process.env.CDP_MIN_FREE || 25);   // CDP_MIN_FREE=15: a big machine where 25 % is still gigabytes
   if (free < min) throw new Error(`only ${free}% memory free`);
-  // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
-  try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
-  const profile = dir || '/tmp/htmlui-chrome-' + process.pid;
+  // Refuse an occupied port; only this launch's child PID may be stopped.
+  try { await fetch(`http://127.0.0.1:${port}/json/version`); throw new Error(`CDP port ${port} is already in use`); } catch (e) { if (e.message.includes('already in use')) throw e; }
+  const profile = dir || process.env.HOME + '/.cache/de-scratch/shopdirect/chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), ...args, 'about:blank'], { stdio: 'ignore' });
-  // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
   // a SIGTERM / SIGINT (a stopped run, buildslot, Ctrl-C) ends the process without 'exit' handlers: make it an exit

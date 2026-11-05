@@ -58,3 +58,6 @@
 00ad5ab0  # CPbinDictionary::collect (worldparts.c: the appearance editor's list by the same rule; RC_WORLDPARTS=0)
 00afac40  # CShopAvatarWindow vf10, the avatar shop list (worldparts.c: clothes and disks by the same rule; RC_WORLDPARTS=0)
 008ae060  # CWindowDialogAvatarSwitch::refresh (worldparts.c: no LV gate on the rank uniforms when the server's bits are rank-authored; RC_WORLDPARTS=0)
+009fb8c0  # CAreaMap::receive: intercept the shop door before fade/push
+009cd5c0  # CChibiAvatarElm::moveStep: overlay movement lock and door latch
+0068eca0  # account trunk-complete: sync card case and open editor after HTTP purchases

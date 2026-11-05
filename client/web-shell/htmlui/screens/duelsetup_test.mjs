@@ -36,4 +36,54 @@ const fm = prep({ cls: 'CFindMenu', x: 230, y: 300, w: 256, h: 128, controls: [{
   { id: 6, cls: 'CWindowTaskBackStripe', parent: 5, alpha: 0.7 }] });
 assert.equal(fm.controls[0].cls, 'CWindowTaskFindRows');
 assert.ok(Math.abs(fm.controls[0].rowAlpha - 0.49) < 1e-9);
+// the three duel set-up pages (panelModel: the controls a page drives, from the live snapshots in mock/)
+import { readFileSync } from 'node:fs';
+import { panelModel, isPanel, searchingText, roomsText, rankLine, selfRank } from './duelsetup.js';
+const mock = n => JSON.parse(readFileSync(new URL(`../mock/duelsetup-${n}.json`, import.meta.url))).windows[0];
+assert.ok(isPanel('CWindowModelDuel') && isPanel('CWindowModelDuelFind') && isPanel('CWindowModelDuelWait'));
+assert.ok(!isPanel('CWindowModelDuelConfig') && !isPanel('CWindowModelMove'));
+// Duel menu: Auto Duel (left) and Create Duel (right) switches, Cancel; the counts in row order (Auto, Create, "Duel (n.)")
+const m = panelModel(mock('menu'));
+assert.equal(m.kind, 'menu');
+assert.deepEqual(m.rows.map(r => r.map(s => s.id)), [[482719752, 482875400]]);
+assert.deepEqual(m.counts, [0, 0, 0]);
+assert.equal(m.cancel.id, 167814408);
+assert.equal(m.ok, undefined);
+const live = mock('menu');
+for (const c of live.controls) if (c.cls === 'CWindowTaskShadowText' && c.x === 0 && c.y === 36) c.text = '12';
+for (const c of live.controls) if (c.cls === 'CWindowTaskShadowText' && c.x === 0 && c.y === 60) c.text = '3';
+assert.deepEqual(panelModel(live).counts, [12, 3, 0]);
+// Auto Duel: Single / Match, Both, Level Limit ON / OFF by row and column; OK is the left button, Cancel the right
+const f = panelModel(mock('find'));
+assert.deepEqual(f.rows.map(r => r.length), [2, 1, 2]);
+assert.deepEqual(f.rows.map(r => r.map(s => s.checked)), [[true, false], [false], [true, false]]);
+assert.equal(f.rows[1][0].id, 307732104);
+assert.equal(f.ok.id, 176334440);
+assert.equal(f.cancel.id, 208600936);
+// Create Duel: four ON / OFF rows (Single / Match, Time Limit, Watch, Surrender), the password input, OK, Cancel
+const w = panelModel(mock('wait'));
+assert.deepEqual(w.rows.map(r => r.length), [2, 2, 2, 2]);
+assert.equal(w.rows[0][1].id, 471074824);
+assert.deepEqual(w.input, { id: 172549320, value: '', maxLen: 8 });
+assert.equal(w.ok.id, 168808232);
+assert.equal(w.cancel.id, 167814408);
+// a switch the engine disables stays off
+const dis = mock('find');
+dis.controls.find(c => c.id === 176334440).state = 'disabled';
+assert.equal(panelModel(dis).ok.disabled, true);
+// words: the counts, the standing
+assert.equal(searchingText(0), 'No one yet');
+assert.equal(searchingText(1), '1 player searching');
+assert.equal(searchingText(12), '12 players searching');
+assert.equal(searchingText(null), '');
+assert.equal(roomsText(0), 'None yet');
+assert.equal(roomsText(1), '1 open room');
+assert.equal(roomsText(3), '3 open rooms');
+assert.equal(rankLine({ known: true, placed: false, placement: { played: 2, of: 5 } }), 'Placement 2/5');
+assert.equal(rankLine({ known: true, placed: false, placement: null }), 'Unranked');
+assert.equal(rankLine({ known: true, placed: true, label: 'Ra Yellow II', rating: 1612 }), 'Ra Yellow II \u00b7 1612');
+assert.equal(rankLine({ known: false }), '');
+const a1 = { known: true, name: 'A' }, a2 = { known: true, name: 'B' };
+assert.equal(selfRank([a1, { known: false }]), a1);
+assert.equal(selfRank([a1, a2]), null);
 console.log('duelsetup ok');

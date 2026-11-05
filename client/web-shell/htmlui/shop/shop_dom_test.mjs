@@ -89,7 +89,9 @@ assert.equal(await q(`document.querySelectorAll('[data-k=tab-singles], .ns .tile
 assert.equal(await q(`document.querySelector('.ns .tabs [aria-selected=true]').textContent`), 'Recommended');
 assert.deepEqual(await texts('.ns .side .bt'), ['Booster Packs4', 'Beginner Picks1']);
 assert.equal(await q(`document.querySelectorAll('.ns .redot').length`), 0);
-assert.deepEqual(await q(`[...document.querySelectorAll('.ns .banner')].map(b => +b.dataset.pack)`), [45, 1001, 43, 41, 37]);
+assert.equal(await q(`document.querySelectorAll('.ns .banner').length`), 0); // no highlights in this catalogue
+await q(`document.querySelector('[data-k=tab-packs]').click()`);
+await tick();
 assert.equal(await q(`document.querySelector('.ns .banner').querySelector('.tag:not(.cy)')?.textContent ?? ''`), '');   // the hero: no availability promise next to its kind
 assert.equal(await q(`document.querySelector('.ns .banner[data-pack="1001"] .bt').textContent`), '1 Pack100 MP');
 assert.ok(await q(`document.querySelector('.ns .wallet').getBoundingClientRect().right < document.querySelector('.ns .bt.nav').getBoundingClientRect().left`));
@@ -219,7 +221,7 @@ assert.deepEqual(await q(`out`), ['back']);
 assert.equal(await q(`document.querySelector('.ns .tabs [aria-selected=true]').textContent`), 'Cosmetic Boxes');
 
 // ---- the pack page: a banner opens it
-await q(`document.querySelector('[data-k=tab-recommended]').click()`);
+await q(`document.querySelector('[data-k=tab-packs]').click()`);
 await tick();
 await q(`document.querySelector('.ns .banner[data-pack="37"] .hit').click()`);
 await tick(400);
@@ -319,7 +321,7 @@ await tick(1700);
 assert.deepEqual(await q(`canvasEv`), [['down', 906, 566], ['up', 906, 566]]);   // the Exit swf's middle (1024 x 768 page, scale 1)
 await q(`SH.unmount(R.a, ST.a)`);
 assert.equal(await q(`document.querySelectorAll('.ns').length`), 1);   // the old menu gone: the shop stays with the new
-await q(`SH.unmount(R.b, ST.b)`);
+await q(`(async () => { SH.unmount(R.b, ST.b); (await import('/htmlui/shop/cover.js')).coverScene('begin', 14, 12); (await import('/htmlui/shop/cover.js')).down(); })()`);
 assert.equal(await q(`document.querySelectorAll('.ns').length`), 0);
 if (b.logs.some(l => l.startsWith('exception'))) { console.log(b.logs.join('\n')); process.exitCode = 1; }
 console.log('shop dom ok');

@@ -77,6 +77,7 @@ static void dropWs() {
 
 // No resume: every socket on the WebSocket is gone, and the next netConnect opens a fresh one
 static void closeAll() {
+    EM_ASM({ Module.onYo2ShopClose?.(); });
     dropWs();
     gPending.clear();
     gResuming = gResumeSent = false;
@@ -93,6 +94,7 @@ static void sendFrame(NetSocket* s, const uint8_t* buf, size_t len) {
 
 // The WebSocket dropped: keep the open sockets for a resume (one still opening can't be resumed), or give up.
 static void lostWs() {
+    EM_ASM({ Module.onYo2ShopClose?.(); });
     if (gResuming) { dropWs(); gResumeSent = false; return; }   // a reopen attempt failed: the next try is due
     bool any = false;
     for (auto& kv : gSockets) {

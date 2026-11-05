@@ -71,6 +71,15 @@ $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c 
 fuzzy_test: $(B)/fuzzy_test
 $(B)/fuzzy_test: rt/fuzzy_test.c ovr/fuzzy.h | $(B)
 	$(CC) -O1 -Wall rt/fuzzy_test.c -o $@
+shopinventory_test: $(B)/shopinventory_test
+$(B)/shopinventory_test: rt/shopinventory_test.c ovr/starterdeck.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -ffunction-sections -fdata-sections -Irt rt/shopinventory_test.c -Wl,--gc-sections -o $@
+shopdirect_test: $(B)/shopdirect_test
+$(B)/shopdirect_test: rt/shopdirect_test.c ovr/shopdirect.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/shopdirect_test.c -o $@
+htmlui_shoplook_test: $(B)/htmlui_shoplook_test
+$(B)/htmlui_shoplook_test: rt/htmlui_shoplook_test.c ovr/htmlui.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -Wall -Wno-unused-function -ffunction-sections -fdata-sections -Irt rt/htmlui_shoplook_test.c -Wl,--gc-sections -o $@
 worldparts_test: $(B)/worldparts_test   # ovr/worldparts.c's world rule: build/worldparts_test [rows] (the file says how)
 $(B)/worldparts_test: rt/worldparts_test.c ovr/worldparts.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/worldparts_test.c -o $@

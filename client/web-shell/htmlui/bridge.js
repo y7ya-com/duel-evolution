@@ -17,7 +17,8 @@ import { backdrop } from './backdrop.js';
 import { tradeOverlayFrame } from './cosmetics/trade-cosmetics.js';
 import { wardrobeLauncherFrame } from './cosmetics/wardrobe-launcher.js';
 import { missionsLauncherFrame } from './rewards/launcher.js';
-import { coverScene, coverFrame, coverPlace } from './shop/cover.js';
+import { coverScene, coverFrame, coverPlace, shopOn } from './shop/cover.js';
+import { mountCardShop } from './shop/index.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -274,10 +275,37 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   };
   const bars = engineBars(clip);
   document.body.append(bars.layer);
+  let directShop = null, directHost = null;
+  const closeShop = () => {
+    directShop?.destroy(); directShop = null;
+    directHost?.remove(); directHost = null;
+    Module.yo2ShopOverlayOpen = false;
+    canvas.focus?.();
+  };
+  Module.onYo2ShopClose = closeShop;
+  Module.yo2ShopOverlay = shopOn() && defaults.cardShop !== false;
+  Module.onYo2ShopOpen = () => {
+    if (!Module.yo2ShopOverlay || directShop) return;
+    Module.yo2ShopOverlayOpen = true;
+    // Release a held walk click before taking focus from SDL.
+    for (const button of [0, 2]) canvas.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button, buttons: 0 }));
+    directHost = document.createElement('div');
+    Object.assign(directHost.style, { position: 'fixed', width: '1024px', height: '768px', transformOrigin: '0 0', zIndex: 2147483500 });
+    document.body.append(directHost);
+    directShop = mountCardShop(directHost, { onBack: closeShop });
+    directShop.el.style.height = '768px';
+    place();
+    directShop.el.focus({ preventScroll: true });
+  };
+  // HTML events stop at the shop root. Keys targeted elsewhere must also stay out of the map/chat.
+  for (const type of ['keydown', 'keyup', 'keypress']) window.addEventListener(type, e => {
+    if (directShop && !directHost.contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  window.addEventListener('offline', closeShop);
   let stageScale = 1;
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
-    for (const el of [host, fx, bars.layer, mu.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    for (const el of [host, fx, bars.layer, mu.layer, directHost]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
     coverPlace(canvas);
   };
   new ResizeObserver(place).observe(canvas);
@@ -289,6 +317,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   // assigning adds a listener)
   let switching = false, endFrame = 0;
   Module.onYo2Scene = (kind, from, to) => {
+    if (kind === 'begin') closeShop();
     scene = to; switching = kind === 'begin';
     coverScene(kind, from, to, frameNo);   // the card shop's cover (shop/cover.js): up before the engine draws the shop scene, or its way out
     if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present

@@ -261,3 +261,20 @@ and log any byte that differs.
 Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it
 with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours; under
 ASan, Homebrew's sdl2-compat finds SDL3 only through the libSDL3.dylib link the build puts beside the binary).
+
+## HTML shop directly on the map
+
+`ovr/shopdirect.c` intercepts `CAreaMap::receive` (0x009fb8c0), `CTmAvatarOnExit` (tag 0x1d), when the current scene
+is AREA_MAP (12) and the map's door entry points at shop destination 11. It consumes that request before the original
+handler's fade (0x009fbb36) and `push(SCENE_SHOP)` (0x009fbb5e). No shop task or shopkeeper is created.
+The bridge enables `Module.yo2ShopOverlay` unless `?HTML_SHOP=0` or `cardShop:false`, and implements
+`Module.onYo2ShopOpen()`. `yo2ShopOverlayOpen` locks the player's moveStep; the HTML layer holds keyboard/pointer
+input. Back destroys the layer. The entering walk is stopped. The door stays latched until moveStep reports a non-exit colour at least 48 pixels
+from the entry point; leaving the map
+clears that latch. Scene changes and gateway loss call the bridge's close path (`Module.onYo2ShopClose`).
+The HTTP shop and HTML waist-up cosmetics renderer operate without native shop tasks. The native path (including
+its existing HTML window replacements) remains available with `HTML_SHOP=0`.
+HTTP account trunk completion (0x0068eca0, packet 0x3103) also syncs the card-case cache through the native
+`cardDbSyncTrunk`, and reuses starterdeck.c's open-editor delta handling. This keeps the next Deck Editor and an
+already-open editor current after a purchase without any native shop handler.
+Tests: `make shopdirect_test shopinventory_test htmlui_shoplook_test CC=gcc`, then run the three `build/*_test` binaries. The original receive body is included in `web/async-only.txt` for the native fallback.
