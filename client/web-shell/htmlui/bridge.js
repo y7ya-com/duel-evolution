@@ -17,6 +17,7 @@ import { backdrop } from './backdrop.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
+const SETTLE = 400;   // ms a scene load must stay over before the layer shows (start's frame)
 const HOLD = 3000;   // ms a window waits for the loading layer before the engine draws it (start's frame)
 
 // svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
@@ -238,7 +239,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const mu = modernUi({ defaults, canvas });
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
-  let initFailed = false, heldSince = 0;
+  let initFailed = false, heldSince = 0, settledAt = 0;
   const init = () => loading ||= (async () => {
     const mods = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
     host = document.createElement('div');
@@ -414,9 +415,14 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
     const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
     // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
-    // stays hidden through a scene load and while the loader's box (#loading: the boot, a scene's "Loading...") is up,
-    // and shows with the first frame the engine presents after the scene's end, as its own windows would
-    const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    // stays hidden through a scene load (to the first frame the engine presents after its end) and while the loader's
+    // box (#loading: the boot, a scene's "Loading...") is up,
+    const ld = document.getElementById('loading'), loadingNow = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    // and shows only once the load has stayed over for SETTLE ms: one scene change is often two loads with a gap of a
+    // few frames between them (the loader's box off for 20..250 ms, scene 25 between the two), and showing in that gap
+    // put every window up, took it away and put it back (players: "loads, disappears, loads again")
+    if (loadingNow) settledAt = 0; else if (!settledAt) settledAt = performance.now();
+    const wait = loadingNow || performance.now() - settledAt < SETTLE;
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
     // through a scene load
     const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
