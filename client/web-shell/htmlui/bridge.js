@@ -11,7 +11,7 @@ import { writeClasses, WINDOWS } from './tables.js';
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
-import { cursorCss, ripple } from './cursor.js';
+import { cursorCss, ripple, HD } from './cursor.js';
 import { engineBars } from './scrollbars.js';
 import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
@@ -275,14 +275,16 @@ export async function start(Module, { canvas = document.getElementById('canvas')
       if (!e) {
         e = fxEls[i] = document.createElement('div');
         Object.assign(e.style, { position: 'absolute', overflow: 'hidden' });
-        e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '' }));
+        // the HD redraw (cursor.js HD) when there is one, else the 1x art
+        e.append(Object.assign(document.createElement('img'), { decoding: 'async', alt: '', onerror() { this.dataset.hd = '0'; this.src = this.src.replace('/hd/', '/'); } }));
         Object.assign(e.firstChild.style, { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', maxWidth: 'none' });
         fx.append(e);
       }
-      const [sx, sy, sw, sh] = s.src, src = 'ui/' + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
+      const im = e.firstChild, r = im.dataset.hd === '0' ? 1 : HD;
+      const [sx, sy, sw, sh] = s.src, src = (r === 1 ? 'ui/' : 'ui/hd/') + s.tex.slice(s.tex.lastIndexOf('/') + 1).toLowerCase();
       Object.assign(e.style, { left: s.wx + 'px', top: s.wy + 'px', width: sw * s.wsx + 'px', height: sh * s.wsy + 'px', opacity: s.a });
-      if (e.firstChild.getAttribute('src') !== src) e.firstChild.src = src;
-      e.firstChild.style.transform = `scale(${s.wsx}, ${s.wsy}) translate(${-sx}px, ${-sy}px)`;
+      if (im.getAttribute('src') !== src) im.src = src;
+      im.style.transform = `scale(${s.wsx / r}, ${s.wsy / r}) translate(${-sx * r}px, ${-sy * r}px)`;
     });
   };
   const bars = engineBars(clip);

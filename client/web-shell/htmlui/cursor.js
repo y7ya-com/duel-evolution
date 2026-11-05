@@ -7,6 +7,10 @@
 // shows the browser's fallback while an image loads. A state seen for the first time keeps the last cursor up for the
 // frame or two it takes to build.
 const imgs = new Map();    // file name -> loaded Image (null while loading or failed)
+// the HD redraw of the cursor art (ui/hd/, HD x the original, same layout): drawn in place of the 1x art at any size but
+// the engine's exact 1x; a file it lacks (or a tree without hd/) keeps the original
+export const HD = 4;
+const hds = new Map();     // file name -> loaded HD Image (null while loading or missing)
 const cache = new Map();   // state + size -> { v: CSS value } once decoded ({} while building)
 const name = tex => tex.slice(tex.lastIndexOf('/') + 1).toLowerCase();
 const drawn = s => s.shown && s.a > 0;
@@ -64,6 +68,7 @@ export function cursorCss(c, base, scale, dpr) {
   for (const s of c.sprites) {   // every state's art loads the first time the manager is seen (all are built up front)
     const n = name(s.tex);
     if (n && !imgs.has(n)) { imgs.set(n, null); const i = new Image(); i.onload = () => imgs.set(n, i); i.src = base + n; }
+    if (n && !hds.has(n)) { hds.set(n, null); const i = new Image(); i.onload = () => hds.set(n, i); i.src = base + 'hd/' + n; }
   }
   if (!c.shown) return 'auto';
   const on = c.sprites.filter(s => drawn(s) && !isRipple(s)).sort((a, b) => a.wz - b.wz);   // back to front: the hand
@@ -90,21 +95,23 @@ export function cursorCss(c, base, scale, dpr) {
       g.drawImage(layer(img, a.s.src, a.s.col, a.s.add), a.x - x0, a.y - y0);
       continue;
     }
-    // any other size: the art scaled straight to it (crisp, not the 1x frame upscaled), half a game px down-right as the
-    // engine's sampling puts it
+    // any other size: the art (its HD redraw when loaded) scaled straight to it (crisp, not the 1x frame upscaled), half
+    // a game px down-right as the engine's sampling puts it
     const dx = (a.x - x0 + 0.5) * k, dy = (a.y - y0 + 0.5) * k;
     const tinted = a.s.col.slice(0, 3).some(v => v !== 1) || a.s.add.slice(0, 3).some(v => v !== 0);
-    let src = img;
+    const hd = hds.get(name(a.s.tex)), r = hd ? HD : 1;
+    let src = hd || img;
     if (tinted) {   // the white-flash frames: texel x col + add, unpremultiplied, before filtering (the engine's order)
       const t = document.createElement('canvas'), tg = t.getContext('2d');
-      t.width = sw; t.height = sh;
-      tg.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-      const d = tg.getImageData(0, 0, sw, sh);
+      t.width = sw * r; t.height = sh * r;
+      tg.drawImage(src, sx * r, sy * r, sw * r, sh * r, 0, 0, sw * r, sh * r);
+      const d = tg.getImageData(0, 0, sw * r, sh * r);
       for (let i = 0; i < d.data.length; i += 4) for (let ch = 0; ch < 3; ch++) d.data[i + ch] = d.data[i + ch] * a.s.col[ch] + 255 * a.s.add[ch];
       tg.putImageData(d, 0, 0);
       src = t;
     }
-    g.drawImage(src, tinted ? 0 : sx, tinted ? 0 : sy, sw, sh, dx, dy, a.w * k, a.h * k);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, tinted ? 0 : sx * r, tinted ? 0 : sy * r, sw * r, sh * r, dx, dy, a.w * k, a.h * k);
   }
   cv.toBlob(async blob => {
     const url = e.url = URL.createObjectURL(blob), img = new Image();
