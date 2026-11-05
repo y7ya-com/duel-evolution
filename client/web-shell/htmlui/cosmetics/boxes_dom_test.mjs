@@ -15,7 +15,7 @@ const PORT = 20000 + process.pid % 10000;   // its own server: never another ses
 const srv = spawn('node', [path.join(here, '../serve.mjs'), String(PORT)], { stdio: ['ignore', 'pipe', 'inherit'] });
 process.on('exit', () => srv.kill());
 await new Promise(ok => srv.stdout.once('data', ok));
-const b = await launch({ port: 9650 + process.pid % 40 });   // off the tools' 9440-9579 (launch() clears its port first)
+const b = await launch({ port: 9650 + process.pid % 40, profile: process.env.HOME + '/.cache/de-scratch/shopprev/dom-chrome-' + process.pid });   // off the tools' 9440-9579 (launch() clears its port first)
 await b.go(`http://127.0.0.1:${PORT}/htmlui/skin.html`);
 
 const v = (gender, worlds) => ({ gender, bit: 1, number: 1, worlds });
@@ -62,8 +62,8 @@ await b.ev(`(async () => {
   };
   window.Module = { yo2Lazy: { files: new Map(), files2: { has: n => /^data\\/(avatar\\/(chibi|wu)|map\\/map_switch)\\//.test(n) }, entry: async n => png(n) } };
   window.__B = await import('/htmlui/cosmetics/boxes.js');
-  window.__wallets = [];
-  window.__ctl = __B.mountBoxes(document.getElementById('root'), { onWallet: w => { __wallets.push(w); __B.drawWallet(document.getElementById('plate'), w); } });
+  window.__wallets = []; window.__previews = [];
+  window.__ctl = __B.mountBoxes(document.getElementById('root'), { onPreview: look => (window.__previews ||= []).push(look), onWallet: w => { __wallets.push(w); __B.drawWallet(document.getElementById('plate'), w); } });
 })()`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const q = (sel, f = 'e => e.textContent') => b.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); return e ? (${f})(e) : null; })()`);
@@ -105,46 +105,48 @@ assert.equal(await q('.bx-wd'), null);
 assert.equal(await qa('.bx-main [class*=chip], .bx-main .de-sex, .bx-new').then(x => x.length), 0, 'no chips, glyph badges or stickers');
 assert.doesNotMatch(await q('.bx-main'), /♂|♀|★/);
 assert.match(await q('#plate .bx-wallet .tot .sa-num', 'e => e.getAttribute("aria-label")'), /^6200 MP$/);
-assert.match(await q('#plate .bx-wallet .ern'), /Earned/);
-assert.match(await q('#plate .bx-wallet .ern .sa-num', 'e => e.getAttribute("aria-label")'), /^1200 MP$/);
+// one MP number; its (i) says how much is starter MP
+assert.equal(await q('#plate .bx-wallet .ern'), null, 'no second number');
+assert.equal(await q('#plate .bx-wallet .mpi .mpi-tip'), '6,200 MP total · 5,000 MP is starter MP: it buys card packs but not cosmetic boxes.');
 await aligned('showcase');
 // ---- the preview: a click tries the item on the player's waist-up bust, tagged Preview; nothing is called or saved
-assert.equal(await q('.bx-pv', 'e => e.hidden'), true, 'no preview until a click');
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), true, 'no preview until a click');
 const calls0 = (await b.ev('__calls')).length;
 await click('.bx-cell[data-id=u1]');
-assert.equal(await q('.bx-pv', 'e => [e.hidden, e.dataset.mode, e.dataset.id].join()'), 'false,bust,u1');
-assert.equal(await q('.bx-pv .pv-tag'), 'Preview');
+assert.equal(await q('.bx-preview-reset', 'e => [e.hidden, e.dataset.id].join()'), 'false,u1');
+assert.equal(await b.ev('__previews.at(-1).parts[1]'), 10);
+assert.equal(await b.ev('document.querySelectorAll(".bx-pv, .pv-wu, .pv-art").length'), 0, 'the boxes never add a second character');
+assert.match(await q('.bx-preview-reset'), /Reset/);
 assert.equal(await q('.bx-cell[data-id=u1]', 'e => e.getAttribute("aria-pressed")'), 'true');
-const until = async (js, ms = 4000) => { for (const t = Date.now(); Date.now() - t < ms; await sleep(50)) if (await b.ev(js)) return; throw new Error('timed out: ' + js); };
-await until(`document.querySelector('.bx-pv .pv-wu').dataset.state === 'ready'`);
-assert.equal(await q('.bx-pv .pv-wu', 'e => e.dataset.look.slice(0, 4)'), '000a', 'the hair (slot 1: 10) on the saved look');
-assert.match(await q('.bx-pv .pv-wu', 'e => e.dataset.layers'), /wm_h1_11_c01/, 'the bust drawn with the hair');
-assert.equal((await b.ev('__calls')).length, calls0, 'a preview calls nothing (no equip)');
 assert.deepEqual(await b.ev('__info.appearance.parts'), INFO.appearance.parts);
 await aligned('showcase', 'the showcase, previewing');
 // a second click on it clears it
 await click('.bx-cell[data-id=u1]');
-assert.equal(await q('.bx-pv', 'e => e.hidden'), true, 'a second click clears it');
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), true, 'a second click clears it');
+assert.equal(await b.ev('__previews.at(-1)'), null, 'the original portrait restores on toggle');
+await click('.bx-cell[data-id=u1]');
+await click('.bx-preview-reset');
+assert.equal(await b.ev('__previews.at(-1)'), null, 'Reset restores the current look');
 // a click elsewhere clears it (the pointer's down anywhere else: the game's canvas, a tab, the panel)
 await click('.bx-cell[data-id=u1]');
-assert.equal(await q('.bx-pv', 'e => e.hidden'), false);
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), false);
 await b.ev(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
-assert.equal(await q('.bx-pv', 'e => e.hidden'), true, 'a click elsewhere clears it');
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), true, 'a click elsewhere clears it');
 // a single-body item: dimmed for a body that can't wear it (not for this male body), the short WIP notice in the band
 await click('.bx-cell[data-id=s1]');
 assert.equal(await q('.bx-cell[data-on]', 'e => e.dataset.id'), 's1');
 assert.deepEqual(await qa('.bx-band > div'), ['Item s1', 'Super Rare hair', 'Female version coming soon']);
 assert.equal(await q('.bx-cell[data-id=s1] .de-rf', 'e => e.hasAttribute("data-dim")'), false);
-assert.equal(await q('.bx-pv', 'e => e.dataset.mode'), 'bust', 'the male body wears it: on the bust');
+assert.equal(await b.ev('__previews.at(-1).mode'), 'bust', 'the male body wears it on the original portrait');
 await b.ev(`document.querySelector('.bx-main').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
-assert.equal(await q('.bx-pv', 'e => e.hidden'), true, 'Esc clears it');
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), true, 'Esc clears it');
 // the arrows have one page here: hidden
 assert.equal(await q('.bx-next', 'e => e.disabled'), true);
 // the tabs: a click and the keyboard wrap round the three boxes; a box beyond the earned MP is disabled with one line why
 await click('.bx-tab:nth-child(2)');
 assert.equal(await q('.bx-tab[data-on] .nm'), 'Outfit');
 assert.equal(await q('.bx-open', 'e => e.disabled'), true);
-assert.equal(await q('.bx-why'), 'Needs 300 more earned MP');
+assert.equal(await q('.bx-why'), "Needs 300 more MP · starter MP can't open boxes");
 await aligned('showcase', 'the showcase, insufficient MP');
 assert.equal(await q('.bx-head .sa-banner', 'e => e.style.backgroundImage'), 'var(--sa-bnOutfit)');
 await b.ev(`document.querySelector('.bx-tab[data-on]').focus(); document.querySelector('.bx-tab[data-on]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))`);
@@ -174,6 +176,8 @@ assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
 assert.equal(await q('.bx-card', 'e => e.dataset.rarity'), 'ultra');
 assert.equal(await q('.bx-card .de-rf', 'e => e.dataset.rarity'), 'ultra');
 assert.ok(await q('.bx-card .sheen', 'e => !!e'), "the ultra's one flourish: the gold sheen");
+// the item worn: the player's look with the ultra's hair (10) on the sky well (no game files here: the item art after)
+assert.equal(await q('.bx-card .well.sky .de-wu', 'e => e.dataset.look.slice(0, 4)'), '000a');
 assert.equal(await q('.bx-rv .after .nm'), 'Item u1');
 assert.equal(await q('.bx-rv .after .rl'), 'Ultra Rare hair');
 assert.equal(await q('.bx-rv .news'), 'New');
@@ -205,7 +209,7 @@ assert.equal(await q('.bx-rv', 'e => e.dataset.tempo'), 'quick');
 assert.equal(await q('.bx-card .sheen'), null);
 assert.equal(await q('.bx-rv .news'), 'Duplicate ×2');
 assert.equal(await q('.bx-rv .again', 'e => e.disabled'), true, 'two opens left 200 earned MP: no third');
-assert.match(await q('.bx-rv .after'), /Needs 300 more earned MP$/);
+assert.match(await q('.bx-rv .after'), /Needs 300 more MP · starter MP can't open boxes$/);
 await sleep(400);   // the card's entrance (a scale) settled: measured at rest
 await aligned('reveal', 'the reveal, a duplicate, insufficient MP');
 // Escape closes it
@@ -220,15 +224,13 @@ assert.equal(await q('.bx-cell[data-id=s1] .de-rf', 'e => e.hasAttribute("data-d
 // its preview for this body: the item's art and the short body notice, not the bust
 await b.ev(`__info.boxes[0].pool[3].compatible = false`); await b.ev('__ctl.refresh()'); await sleep(100);
 await click('.bx-cell[data-id=s1]');
-assert.equal(await q('.bx-pv', 'e => [e.hidden, e.dataset.mode].join()'), 'false,art');
-assert.equal(await q('.bx-pv .pv-note'), 'Female version coming soon');
-assert.ok(await q('.bx-pv .pv-art .de-rf[data-rarity=super] .de-art', 'e => !!e'), 'the art in its rarity frame');
-assert.equal(await q('.bx-pv .pv-tag'), 'Preview');
+assert.equal(await b.ev('__previews.at(-1)'), null, 'an incompatible item leaves the original look on');
+assert.match(await q('.bx-preview-reset'), /Female version coming soon/);
 await aligned('showcase', "the showcase, previewing what this body can't wear");
 await click('.bx-open');
 await sleep(150);
 assert.equal(await q('.bx-rv', 'e => e.dataset.phase'), 'done');
-assert.equal(await q('.bx-pv', 'e => e.hidden'), true, 'opening a box clears the preview');
+assert.equal(await q('.bx-preview-reset', 'e => e.hidden'), true, 'opening a box clears the preview');
 assert.equal(await q('.bx-rv .notice'), 'Female version coming soon');
 assert.equal(await q('.bx-rv .equip', 'e => [e.disabled, e.textContent].join()'), "true,Can't wear yet");
 assert.equal(await q('.bx-rv .after .rl'), 'Super Rare hair');

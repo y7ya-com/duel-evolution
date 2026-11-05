@@ -17,6 +17,12 @@
 // def: [lo, hi], sort } with the cards' icon-strip cells for attr (0 Light .. 6 Divine), race (0 Dragon .. 20
 // Divine-Beast) and icon (0 counter .. 5 ritual, 6 normal); the game's values are the cells + 1, a normal spell /
 // trap's icon 0 (CWindowTaskImageCard*::setValue shows cell value - 1; search's ICON 0 = the plain ones).
+// f.pool: { mode, ids } widens the list past the cards owned (the deck editor's "All cards", crafting/editor.js): `all`
+// holds every card id with its count (DeckEntry.cpp fillFromDecks pushes 1..0xcb8, 0 for a card not owned) and
+// applyCategory leaves out the 0s not in the deck; after the category, mode 1 pushes each of ids (the collectible
+// cards in that category) that isn't shown, at its count (0: a missing card, the engine's own dimmed x000 row, which
+// can't be dragged); mode 2 keeps only ids, pushing the ones not shown (Missing, Craftable). The other criteria, the
+// text and the sort then run over the whole list, as the engine's own search does.
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
@@ -27,10 +33,10 @@
 #include <emscripten/threading.h>
 #endif
 
-enum { TEXT = 64, SETMAX = 24, NSETS = 5 };
+enum { TEXT = 64, SETMAX = 24, NSETS = 5, IDMAX = 4096, CARDS = 0xcb8 };
 enum { S_ATK = 1, S_DEF = 2, S_RACE = 3, S_ATTR = 4, S_ICON = 5, S_NAME = 6, S_TEXT = 7, S_LEVEL = 8, S_LIMIT = 9 };
 enum { UP = 0x1f, DOWN = 0x20, ATK_MAX = 0x1ff * 10 };
-enum { KABAN_LIST_VT = 0x00befe80, FACTORY = 0x0126fa8c, SET_CATEGORY = 0x971240, SEARCH = 0x9716e0 };
+enum { KABAN_LIST_VT = 0x00befe80, FACTORY = 0x0126fa8c, SET_CATEGORY = 0x971240, SEARCH = 0x9716e0, SORT_PUSH = 0x913e80 };
 static const int32_t SET_MODE[NSETS] = {S_ATTR, S_RACE, S_ICON, S_LEVEL, S_LIMIT};
 
 struct DeckSearchReq {             // written by Module.yo2KabanFilter (the offsets below), seq last
@@ -40,6 +46,8 @@ struct DeckSearchReq {             // written by Module.yo2KabanFilter (the offs
     int32_t set[NSETS][1 + SETMAX];    // attr, race, icon, level, limit: count, then the game's values
     int32_t atk[2], def[2];            // lo, hi; -1 = open
     int32_t sort;                      // 0 as listed, 1 name, 2 ATK down, 3 ATK up, 4 DEF down, 5 DEF up
+    int32_t pool, nids;                // 0 the cards owned, 1 also ids, 2 only ids (see the header)
+    int32_t ids[IDMAX];
 };
 static struct DeckSearchReq req;
 static uint32_t done_seq;
@@ -82,6 +90,51 @@ static size_t wread(const uint8_t *m, uint32_t p, uint16_t *out, size_t cap) {
     out[n] = 0;
     return n;
 }
+static void retotal(CPU *c, uint32_t list, uint32_t k) {
+    RC_LOCALS;
+    uint32_t kaban = RD32(G_KABAN);
+    CPU t = *c;
+    t.ecx = kaban;
+    if (k && kaban) rc_call(&t, SCROLL_TOTAL, 1, &k);   // none left: the total stays, as the engine's own search
+    t = *c;
+    t.ecx = list;
+    uint32_t top = 0;
+    rc_call(&t, SHOW_FROM, 1, &top);
+}
+// f.pool (the header): `shown` narrowed to ids (mode 2) in place, then each id not shown pushed with its `all` count
+// through SortItems::push (FUN_00913e80, thiscall on the vector's holder: it grows the guest storage itself)
+static void pool(CPU *c, uint32_t list, const struct DeckSearchReq *r) {
+    RC_LOCALS;
+    if (r->pool < 1 || r->pool > 2 || r->nids < 0 || r->nids > IDMAX) return;
+    static uint8_t want[CARDS + 1], seen[CARDS + 1];
+    memset(want, 0, sizeof want);
+    memset(seen, 0, sizeof seen);
+    for (int32_t i = 0; i < r->nids; i++) if (r->ids[i] > 0 && r->ids[i] <= CARDS) want[r->ids[i]] = 1;
+    uint32_t first = RD32(list + 0x404 + 8), last = RD32(list + 0x404 + 0xc), k = first;
+    for (uint32_t p = first; first && p < last; p += 16) {
+        int32_t id = (int32_t)RD32(p + 4);
+        int ok = id > 0 && id <= CARDS;
+        if (r->pool == 2 && !(ok && want[id])) continue;
+        if (ok) seen[id] = 1;
+        if (k != p) memmove(m + k, m + p, 16);
+        k += 16;
+    }
+    if (first) WR32(list + 0x404 + 0xc, k);
+    uint32_t af = RD32(list + 0x3f0 + 8), al = RD32(list + 0x3f0 + 0xc), na = al > af ? (al - af) / 16 : 0;
+    for (int32_t i = 0; i < r->nids; i++) {
+        int32_t id = r->ids[i];
+        if (id <= 0 || id > CARDS || seen[id]) continue;
+        seen[id] = 1;
+        uint32_t e = af + 16 * (uint32_t)(id - 1);   // `all` is pushed in id order: id at id - 1
+        int32_t count = (uint32_t)(id - 1) < na && (int32_t)RD32(e + 4) == id ? (int32_t)RD32(e + 8) : 0;
+        CPU t = *c;
+        t.ecx = list + 0x404;
+        uint32_t a[2] = {(uint32_t)id, (uint32_t)count};
+        rc_call(&t, SORT_PUSH, 2, a);
+    }
+    first = RD32(list + 0x404 + 8), last = RD32(list + 0x404 + 0xc);
+    retotal(c, list, last > first ? (last - first) / 16 : 0);
+}
 static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
     RC_LOCALS;
     FzQuery q;
@@ -118,14 +171,7 @@ static void fuzzy(CPU *c, uint32_t list, const uint16_t *text, int32_t ntext) {
         WR32(list + 0x404 + 0xc, first + 16 * k);   // the items are trivially destructible: the rest just drops out
         // the scroll total: FUN_00977150 is thiscall on g_kaban (DAT_012b3988; it adds 0x3b4 for its scroll TaskPtr
         // itself, then get() + setTotal: the decomp's free kabanScrollSetTotal), as the exe's callers load ECX
-        uint32_t kaban = RD32(G_KABAN);
-        CPU t = *c;
-        t.ecx = kaban;
-        if (k && kaban) rc_call(&t, SCROLL_TOTAL, 1, &k);   // none left: the total stays, as the engine's own search
-        t = *c;
-        t.ecx = list;
-        uint32_t top = 0;
-        rc_call(&t, SHOW_FROM, 1, &top);
+        retotal(c, list, k);
     }
     rc_hfree(buf);
     free(hits);
@@ -139,6 +185,7 @@ static void run(CPU *c, const struct DeckSearchReq *r) {
     t.ecx = r->list;
     uint32_t cat = r->cat;
     rc_call(&t, SET_CATEGORY, 1, &cat);
+    pool(c, r->list, r);
     for (int k = 0; k < NSETS; k++) {
         int32_t n = r->set[k][0];
         if (n > 0 && n <= SETMAX) search(c, r->list, SET_MODE[k], 0, &r->set[k][1], n, 0, 0, 0);
@@ -159,9 +206,9 @@ static void run(CPU *c, const struct DeckSearchReq *r) {
 
 #ifdef __EMSCRIPTEN__
 // the page's writer: the cells to the game's values, in DeckSearchReq's layout (base), seq last
-EM_JS(void, decksearch_install, (uint32_t base, int T, int S), {
+EM_JS(void, decksearch_install, (uint32_t base, int T, int S, int I), {
     Module.yo2KabanFilter = (list, f) => {
-        const H = new Int32Array(HEAPU8.buffer, base, 4 + T / 2 + 5 * (1 + S) + 5);
+        const H = new Int32Array(HEAPU8.buffer, base, 4 + T / 2 + 5 * (1 + S) + 7 + I);
         const W = new Uint16Array(HEAPU8.buffer, base + 16, T);
         const text = String(f.text || "").trim().slice(0, T);
         H[1] = list >>> 0; H[2] = f.cat ?? 6; H[3] = text.length;
@@ -173,8 +220,12 @@ EM_JS(void, decksearch_install, (uint32_t base, int T, int S), {
         const n = v => v == null || v === "" ? -1 : Math.max(0, v | 0);
         H[o] = n(f.atk?.[0]); H[o + 1] = n(f.atk?.[1]); H[o + 2] = n(f.def?.[0]); H[o + 3] = n(f.def?.[1]);
         H[o + 4] = Math.max(0, ["", "name", "atk-", "atk+", "def-", "def+"].indexOf(f.sort || ""));
+        const P = f.pool || {}, ids = Array.isArray(P.ids) ? P.ids.slice(0, I) : [];
+        H[o + 5] = P.mode === 1 || P.mode === 2 ? P.mode : 0; H[o + 6] = ids.length;
+        ids.forEach((v, i) => { H[o + 7 + i] = v | 0; });
         H[0] = (H[0] + 1) | 0;
     };
+    Module.yo2KabanPool = 1;   // this runtime takes f.pool (the page shows its All cards toggle only then)
 });
 #endif
 
@@ -183,7 +234,7 @@ void rc_decksearch_frame(CPU *c) {
 #ifdef __EMSCRIPTEN__
     static int installed;
     if (!installed && emscripten_is_main_runtime_thread())   // the page's Module (as htmlui.c's onYo2Frame)
-        installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX);
+        installed = 1, decksearch_install((uint32_t)(uintptr_t)&req, TEXT, SETMAX, IDMAX);
 #endif
     if (req.seq == done_seq) return;
     done_seq = req.seq;

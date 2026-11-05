@@ -2,9 +2,14 @@
 // composited in HTML from the game's own parts, read from the player's merge.dat at runtime (cosmetics/art.js
 // gameFile / pictureUrl: never bundled). The Wardrobe tries items on it; the box reveal shows the reward on it.
 //
-//   renderWaistUp(el, parts16, { gender, world, pose, crop })  draws the bust of a 16-byte look into `el` (its canvas
-//     kept across calls: the old bust stays until the new one is drawn) -> { ready: Promise<bool>, layers:
+//   renderWaistUp(el, parts16, { gender, world, pose, crop, focus })  draws the bust of a 16-byte look into `el` (its
+//     canvas kept across calls: the old bust stays until the new one is drawn) -> { ready: Promise<bool>, layers:
 //     Promise<Layer[]>, destroy }. el.dataset.layers: the layers' picture names, bottom first (tests, the checks).
+//     focus: a look byte (focusSteps): the crop framed on that part's drawn pixels instead (el.dataset.crop).
+//     Or an array of steps (the Wardrobe's thumbnails: one part); min / pad: focusCrop's.
+//   focusSteps(slot)                         -> the steps a look byte's part is drawn by (with the face round a head
+//     item), null for the outfit (the whole bust is the outfit)
+//   focusCrop(boxes, { aspect, min, pad })   -> the canvas box round the drawn boxes [x0, y0, x1, y1] (pure)
 //   waistUpLayers(rows, parts16, { pose })  -> Layer[] { step, kind, number, image, path, x, y, w, h } (pure)
 //   parseWaistUp(csvText)                    -> rows { kind, number, images[7], rect[4] } (pure)
 //
@@ -44,12 +49,35 @@ export const POSE = { editor: 0, select: 1 };
 // the bust's box on the canvas (the widest figure, hair to the canvas's foot, the disk's far end): the default crop
 export const BUST = [72, 0, 624, 768];
 const CSV = ['wm_data.csv', 'ww_data.csv'];
-// CAvatarData::setDefault (DM; GX wears 0x80 and 0xb8): the part a byte with no row falls back to, per kind
-const DEF = { 0: 0x90, 2: 0, 3: 0x40, 4: 0x60, 5: 0x40, 6: 0x30, 7: 0x40, 8: 0x20, 10: 0x70, 11: 0, 12: 0xb0 };
-export const DEFAULT_LOOK = (sex = 0, world = 0) => [sex ? 1 : 0, 0, 0x20, 0x30, 0x40, 0x60, world === 1 ? 0x80 : 0x70, 0x90,
+// Default parts per kind. Missing clothes use the one beginner outfit, Slifer Red (0x80), in either world.
+const DEF = { 0: 0x90, 2: 0, 3: 0x40, 4: 0x60, 5: 0x40, 6: 0x30, 7: 0x40, 8: 0x20, 10: 0x80, 11: 0, 12: 0xb0 };
+export const DEFAULT_LOOK = (sex = 0, world = 0) => [sex ? 1 : 0, 0, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90,
   world === 1 ? 0xb8 : 0xb0, 0x20, 0, 0, 0, 0, 0, 0];
 export const STEP_NAMES = ['back hair', 'body', 'hair shade', 'eye shade', 'mouth', 'eyes', 'nose', 'eyebrows', 'face mark',
   'glasses', 'clothes', 'front hair', 'duel disk'];
+
+// What a reveal frames for a look byte (CAvatarData, the slot an item fills): the part loop's steps that draw it, a head
+// item with the eyes and eyebrows, so the item sits on a face. The outfit (6) is the whole bust.
+const FOCUS = { 1: [0, 2, 11, 5, 7], 7: [0, 11, 5, 7], 2: [8, 5, 6], 3: [6, 5], 4: [3, 5, 7], 5: [4, 6], 9: [9, 5], 8: [12] };
+export const focusSteps = slot => FOCUS[slot] || null;
+/** The crop round the union of the drawn boxes ([x0, y0, x1, y1], canvas px): padded by `pad` of its size, at least
+ *  `min` canvas px tall (a small item never fills the frame: no blown-up pixels, its wearer's face around it), widened
+ *  or heightened to the element's `aspect` (w / h), kept on the canvas. -> [x, y, w, h] (whole px) */
+export function focusCrop(boxes, { aspect = BUST[2] / BUST[3], min = 432, pad = 0.14 } = {}) {
+  const bs = (boxes || []).filter(b => b && b[2] > b[0] && b[3] > b[1]);
+  if (!bs.length) return [...BUST];
+  let x0 = Math.min(...bs.map(b => b[0])), y0 = Math.min(...bs.map(b => b[1]));
+  let x1 = Math.max(...bs.map(b => b[2])), y1 = Math.max(...bs.map(b => b[3]));
+  const p = pad * Math.max(x1 - x0, y1 - y0);
+  let w = x1 - x0 + 2 * p, h = Math.max(min, y1 - y0 + 2 * p);
+  if (w / h > aspect) h = w / aspect; else w = h * aspect;
+  // taller than the canvas: the canvas's height, and still as wide as the item (a duel disk's whole length): the
+  // picture is then wider than the element and fitted to its width, the sky above it
+  if (h > CANVAS) { h = CANVAS; w = Math.min(CANVAS, Math.max(h * aspect, x1 - x0 + p)); }
+  const fit = (c, size) => Math.max(0, Math.min(CANVAS - size, c - size / 2));
+  const x = fit((x0 + x1) / 2, w), y = fit((y0 + y1) / 2, h);
+  return [Math.round(x), Math.round(y), Math.round(w), Math.round(h)];
+}
 
 const atoi = s => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : 0; };
 /** CWADictionary::load: one row per line that is not empty or a // comment; strtok on ',' (empty fields vanish). */
@@ -85,7 +113,7 @@ export function waistUpLayers(rows, parts, { pose = 0 } = {}) {
   const out = [];
   const add = (step, number, colour) => {
     let r = find(step, number), fallback = false;
-    if (!r && DEF[step] !== undefined) { r = find(step, step === 10 && sex ? 0x70 : DEF[step]); fallback = !!r; }
+    if (!r && DEF[step] !== undefined) { r = find(step, DEF[step]); fallback = !!r; }
     if (!r) return;
     const image = r.images[col[colour]];
     if (!image || image[0] === '*') return;
@@ -134,9 +162,20 @@ async function picture(path) {
   const g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(img, 0, 0);
   const d = g.getImageData(0, 0, c.width, c.height);
+  d.box = opaqueBox(d);
   pixels.set(path, d);
   while (pixels.size > 28) pixels.delete(pixels.keys().next().value);
   return d;
+}
+/** The box of a picture's visible pixels (alpha over 24): [x0, y0, x1, y1], null if it has none. */
+export function opaqueBox(img) {
+  const { data, width, height } = img;
+  let x0 = width, y0 = height, x1 = -1, y1 = -1;
+  for (let y = 0; y < height; y++) for (let x = 0, i = y * width * 4 + 3; x < width; x++, i += 4) {
+    if (data[i] <= 24) continue;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return x1 < 0 ? null : [x0, y0, x1 + 1, y1 + 1];
 }
 /** AvatarTexMaker::blendLayer + blendPixel: layer L's picture onto the canvas's RGBA bytes. */
 export function blendInto(dst, size, src, L) {
@@ -163,15 +202,21 @@ async function compose(layers) {
   if (busts.has(key)) return busts.get(key);
   const pics = await Promise.all(layers.map(l => picture(l.path).catch(() => null)));
   if (!pics.some(Boolean)) return null;
+  // each layer's drawn box on the canvas (its picture's visible pixels, inside its w x h, at its x, y): the focus crops
+  const boxes = layers.map((l, i) => {
+    const b = pics[i]?.box;
+    return b && b[0] < l.w && b[1] < l.h ? [l.x + b[0], l.y + b[1], l.x + Math.min(b[2], l.w), l.y + Math.min(b[3], l.h)] : null;
+  });
   const c = document.createElement('canvas');
   c.width = c.height = CANVAS;
   const g = c.getContext('2d');
   const img = g.createImageData(CANVAS, CANVAS);
   layers.forEach((l, i) => { if (pics[i]) blendInto(img.data, CANVAS, pics[i], l); });
   g.putImageData(img, 0, 0);
-  busts.set(key, c);
+  const out = { canvas: c, boxes };
+  busts.set(key, out);
   while (busts.size > 10) busts.delete(busts.keys().next().value);
-  return c;
+  return out;
 }
 
 // ---- drawing
@@ -193,7 +238,7 @@ function injectCss(doc) {
 
 /** Draw the bust of `parts16` into `el` (game px: the el's size; `crop` the canvas box shown, fitted and centred).
  *  Called again on the same el: the new look replaces the old once it is drawn (no flash). -> { ready, layers, destroy } */
-export function renderWaistUp(el, parts16, { gender, world = 0, pose = 0, crop = BUST, scale } = {}) {
+export function renderWaistUp(el, parts16, { gender, world = 0, pose = 0, crop = BUST, scale, focus, min, pad } = {}) {
   const doc = el.ownerDocument || document;
   injectCss(doc);
   el.classList.add('de-wu');
@@ -216,11 +261,15 @@ export function renderWaistUp(el, parts16, { gender, world = 0, pose = 0, crop =
     if (!live()) return false;
     el.dataset.layers = L.map(l => l.image.replace(/\.png$/, '')).join(' ');
     if (!L.length) { el.dataset.state = 'none'; return false; }
-    const bust = await compose(L);
+    const made = await compose(L);
     if (!live()) return false;
-    if (!bust) { el.dataset.state = 'none'; return false; }
+    if (!made) { el.dataset.state = 'none'; return false; }
+    const bust = made.canvas;
     // the backing store at the device's pixels: the element's CSS size x the stage's scale x the DPR, measured
     const r = el.getBoundingClientRect(), w = el.clientWidth || r.width || 160, h = el.clientHeight || r.height || 200;
+    const steps = Array.isArray(focus) ? focus : focus != null ? focusSteps(focus) : null;
+    if (steps) crop = focusCrop(L.map((l, i) => steps.includes(l.step) ? made.boxes[i] : null), { aspect: w / h, ...(min && { min }), ...(pad != null && { pad }) });
+    el.dataset.crop = crop.join(' ');
     const k = scale || Math.min(4, Math.max(1, (r.width && w ? r.width / w : 1) * (globalThis.devicePixelRatio || 1)));
     canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
     const g = canvas.getContext('2d');

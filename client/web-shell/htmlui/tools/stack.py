@@ -2,11 +2,12 @@
 session gate, the test sign-in, production's PROGRESSION), then one test user's session cookie printed as JSON.
 Runs until killed.
 
-  python3.12 -I client/web-shell/htmlui/tools/stack.py [port] [--player NAME [--deck ID]] [--player2 NAME2]   # default 8799
+  python3.12 -I client/web-shell/htmlui/tools/stack.py [port] [--player NAME [--deck ID] [--mp N]] [--player2 NAME2]   # default 8799
   -> {"origin": "http://127.0.0.1:8799", "cookie": "__Secure-de.session_token=...", "player": NAME[, "cookie2": ..., "player2": NAME2]}
 --player: the test user also gets a character called NAME in slot 0 (created as parity/predeploy.py's player() does:
 fake_client through bridge.mjs with the session cookie), and claims structure deck ID (default 8001) as its starter
-deck, so routes can go straight from Select Player row 0 to My Room.
+deck. --mp N gives --player N earned MP in this isolated local stack (DEV:1 state seeding only),
+so routes can go straight from Select Player row 0 to My Room.
 
 Needs server/node_modules (pnpm install) and server/gamedata (infra/fetch-private.sh).
 """
@@ -35,17 +36,21 @@ ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 OPT = {k: v for k, v in zip(sys.argv[1:], sys.argv[2:]) if k.startswith("--")}
 PORT = int(ARGS[0]) if ARGS else 8800 + 10 * SLOT if SLOT >= 0 else 8799
 PLAYER, DECK = OPT.get("--player"), int(OPT.get("--deck", 8001))
+MP = int(OPT["--mp"]) if "--mp" in OPT else None
+if MP is not None and (not PLAYER or not 0 <= MP <= 0xffffffff):
+    sys.exit("stack.py: --mp requires --player and an integer from 0 to 4294967295")
 PLAYER2 = OPT.get("--player2")   # a second test user with its own character (two-player flows: invites, trade)
 LOCAL_OFFSET = 4600 + 200 * SLOT if SLOT >= 0 else 4400   # bridge.mjs's local ports (5730 + offset ...): predeploy uses 4300
 ORIGIN = f"http://127.0.0.1:{PORT}"
 SECRET = secrets.token_urlsafe(36)
-D = os.path.join(R.OUT, f"htmlui-{PORT}")
+D = os.path.expanduser(f"~/.cache/de-scratch/rules/htmlui-{PORT}")
 
 
 def main():
     # every child (the d1 / r2 wrangler calls, the bridge) in this process group, killed with it on the way out, however
     # it ends (wrangler dev has its own session: stopped by `finally`); an orphan (its flip died) stops itself
-    os.setpgrp()
+    if os.getpgrp() != os.getpid():
+        os.setpgrp()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))   # flip.mjs stops us: let `finally` stop wrangler too
     signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
     import atexit, threading
@@ -71,6 +76,7 @@ def main():
     wr = subprocess.Popen(["nice", "npx", "wrangler", "dev", "--local", "--port", str(PORT), "--persist-to", os.path.join(D, "wr"),
                            "--var", f"PUBLIC_ORIGIN:{ORIGIN}", "--var", f"TEST_SIGNIN_SECRET:{SECRET}",
                            "--var", f"BETTER_AUTH_SECRET:{secrets.token_urlsafe(48)}", "--var", "DEPLOY_ENV:staging",
+                           *(["--var", "DEV:1"] if MP is not None else []),
                            "--var", "PROGRESSION:" + os.environ.get("STACK_PROGRESSION", "1"), "--var", "LOG:1",
                            # STACK_VARS=K:V,K:V: more server vars (e.g. DEV:1,NPC_CHALLENGE:2 for a dev NPC duel)
                            *[x for kv in os.environ.get("STACK_VARS", "").split(",") if kv for x in ("--var", kv)]],
@@ -80,6 +86,18 @@ def main():
         cookie = sign_in("TestStgHtml")
         if PLAYER:
             make_player(cookie, PLAYER)
+        if MP is not None:
+            with urllib.request.urlopen(ORIGIN + "/__dev/state") as r:
+                state = json.load(r)
+            for account in state.get("accounts", {}).values():
+                for profile in account.get("profiles", {}).values():
+                    if profile.get("name") == PLAYER:
+                        profile["rec"]["mp"] = MP
+                        profile["mp_wallet"] = {"version": 1, "bound": 0}
+            req = urllib.request.Request(ORIGIN + "/__dev/state", data=json.dumps(state).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req) as r:
+                r.read()
         out = {"origin": ORIGIN, "cookie": cookie, "player": PLAYER, "log": os.path.join(D, "server.out")}
         if PLAYER2:
             out["cookie2"] = sign_in("TestStgHtml2")

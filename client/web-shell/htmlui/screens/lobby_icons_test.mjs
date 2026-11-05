@@ -66,4 +66,23 @@ STRIP.forEach(([y, h], i) => i && assert.equal(y, STRIP[i - 1][0] + STRIP[i - 1]
   assert.equal(noticeHole(bar([])), null);
   assert.deepEqual(noticeHole(bar([notice(true, [])])), { x: 216, w: 72 });   // no parts: its own place, 48 wide
 }
+// the message field (lobby.js fieldLeft): the art's x 391 until the page's own buttons (reserveBar) reach past it, then a
+// plate's gap (8 px) after the last; its right edge stays at 1017
+{
+  const { fieldLeft } = await import('./lobby.js');
+  const { reserveBar, barReserve, onBarReserve } = await import('./lobby_icons.js');
+  const win = { x: 0 };
+  assert.equal(fieldLeft(win, 0), 391);
+  assert.equal(fieldLeft(win, 320), 391, 'My Room: Wardrobe and Missions end at 320, the field stays');
+  assert.equal(fieldLeft(win, 400), 408, "a lobby's three buttons, then Wardrobe and Missions: 8 px after 400");
+  assert.equal(fieldLeft(win, 480), 488, 'a notice slot more');
+  let calls = 0;
+  const off = onBarReserve(() => calls++);
+  reserveBar('wardrobe', 320); reserveBar('missions', 400); reserveBar('missions', 400);
+  assert.equal(barReserve(), 400); assert.equal(calls, 2, 'a change only');
+  reserveBar('missions', 0);
+  assert.equal(barReserve(), 320);
+  reserveBar('wardrobe', 0); off();
+  assert.equal(barReserve(), 0);
+}
 console.log('lobby_icons_test: ok');

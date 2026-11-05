@@ -16,6 +16,8 @@
 // Pass mode: the game takes the input; hover and the chosen looks come from the snapshot (the shown art's column).
 import { textBox } from '../controls/basic.js';
 
+import { starterUniform } from '../controls/avatar-uniform.js';
+
 // :is(#htmlui-host, body): an id's weight, as skin.js's plates (the bridge resets #htmlui-host button.btn's background)
 const CSS = `
 .av-plate, .av-arrow { position: absolute; box-sizing: border-box; margin: 0; padding: 0; border: 0; cursor: inherit; }
@@ -119,6 +121,6 @@ export default {
   // the bust is built from parts each frame (CAvatarTexMaker): a plain CElement under the window, if it has one, passes
   passthrough: x => x.cls === 'CElement',
   mount: () => { inject(); return {}; },
-  update(win, prev, root, api, st) { draw(win, root, st); },
-  unmount(root) { root.replaceChildren(); },
+  update(win, prev, root, api, st) { starterUniform(win, api, st); draw(win, root, st); },
+  unmount(root, st) { st.uniformWindow = null; root.replaceChildren(); },
 };

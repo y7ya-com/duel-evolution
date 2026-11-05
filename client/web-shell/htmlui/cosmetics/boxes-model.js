@@ -92,7 +92,7 @@ export function itemLines(item) {
 }
 
 /** The showcase's try-on of a box item on the player's waist-up bust (a preview only: nothing is saved). The player's
- *  look (the current world's, else the last saved) with the item's part put in its slot: the variant for this body,
+ *  current look (before any legacy per-world copy) with the item's part put in its slot: the variant for this body,
  *  the current world's if it has one (a character has one look, worn in both worlds). An item this body can't wear:
  *  its art and the short body notice instead. -> { mode: 'bust', parts, gender, world } | { mode: 'art', notice } */
 export function previewLook(info, item) {
@@ -101,13 +101,42 @@ export function previewLook(info, item) {
   const vs = (item?.variants || []).filter(v => v.gender === gender);
   const v = vs.find(x => (x.worlds || []).includes(world)) || vs[0];
   if (!item || !v || item.compatible === false || item.slot == null) return { mode: 'art', notice: wipNotice(item) || `${BODY_LABEL[gender]} body can't wear it` };
-  const saved = a.looks?.[String(world)] || a.parts;
+  const saved = a.parts || a.looks?.[String(world)];
   const parts = Array.isArray(saved) && saved.length >= 10 ? [...saved] : defaultParts(gender, world);
+  // Older/new profiles may store zero for the starter slots; the native renderer resolves those to GX defaults.
+  if (!parts[6]) parts[6] = 0x80;
+  if (!parts[8]) parts[8] = 0xb8;
   parts[item.slot] = v.number;
   return { mode: 'bust', parts, gender, world };
 }
-// CAvatarData::setDefault (cosmetics/waistup.js DEFAULT_LOOK): the look of a character with none saved
-const defaultParts = (gender, world) => [gender === 'female' ? 1 : 0, 0, 0x20, 0x30, 0x40, 0x60, world === 1 ? 0x80 : 0x70, 0x90,
+/** The reveal's (and any sales picture's) waist-up: the item worn on the player's own current look (previewLook), or,
+ *  for an item this body can't wear yet, on the default look of the body it is made for. `focus`: the look byte the
+ *  picture frames (cosmetics/waistup.js focusSteps: a head item on its face, a disk on its arm, an outfit whole).
+ *  -> { parts, gender, world, focus, own } | null (an item with no part to draw) */
+export function bustLook(info, item) {
+  if (!item || item.slot == null || !item.variants?.length) return null;
+  const pv = previewLook(info, item);
+  if (pv.mode === 'bust') return { parts: pv.parts, gender: pv.gender, world: pv.world, focus: item.slot, own: true };
+  const a = info?.appearance || {}, world = a.world === 1 ? 1 : 0;
+  const v = item.variants.find(x => (x.worlds || []).includes(world)) || item.variants[0];
+  const gender = v.gender === 'female' ? 'female' : 'male';
+  const parts = defaultParts(gender, world);
+  parts[item.slot] = v.number;
+  return { parts, gender, world, focus: item.slot, own: false };
+}
+/** The player's own look as the try-on shows it with nothing selected. -> { parts, gender, world } */
+export function ownLook(info) {
+  const a = info?.appearance || {}, gender = a.gender === 'female' || (!a.gender && a.parts?.[0] === 1) ? 'female' : 'male';
+  const world = a.world === 1 ? 1 : 0, saved = a.parts || a.looks?.[String(world)];
+  const parts = Array.isArray(saved) && saved.length >= 10 ? [...saved] : defaultParts(gender, world);
+  if (!parts[6]) parts[6] = 0x80;
+  if (!parts[8]) parts[8] = 0xb8;
+  return { parts, gender, world };
+}
+/** A cosmetic rarity as the card shop's rarity code (its frames, badges and diamonds: shop/css.js). */
+export const RCODE = { common: 'N', rare: 'R', super: 'SR', ultra: 'UR' };
+// One beginner look everywhere: Slifer Red, including a missing/zero starter outfit.
+const defaultParts = (gender, world) => [gender === 'female' ? 1 : 0, 0, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90,
   world === 1 ? 0xb8 : 0xb0, 0x20, 0, 0, 0, 0, 0, 0];
 
 /** The strip's items: the whole pool, rarest first (the pool's own order within a rarity). */
@@ -141,9 +170,10 @@ export function boxView(info, id) {
   const wallet = info?.wallet || { total: 0, bound: 0, earned: 0 };
   if (!box) return { id, box: null, wallet, tab: TABS.find(t => t.id === id), look: BOX_LOOK[id] || BOX_LOOK.head };
   const pool = box.pool || [], owned = pool.filter(i => i.owned).length;
+  // boxes take MP that isn't starter MP (wallet.bound): the shortfall counts only that, and says why when starter MP is held
   const short = Math.max(0, box.price - (wallet.earned || 0));
   const disabled = box.available === false ? 'Closed for restocking'
-    : short > 0 ? `Needs ${short.toLocaleString('en-US')} more earned MP` : '';
+    : short > 0 ? `Needs ${short.toLocaleString('en-US')} more MP${wallet.bound > 0 ? " · starter MP can't open boxes" : ''}` : '';
   const ultra = pool.find(i => i.rarity === 'ultra') || pool.find(i => i.rarity === 'super') || null;
   return { id, box, wallet, tab: TABS.find(t => t.id === id), look: BOX_LOOK[id] || BOX_LOOK.head,
     name: box.name, price: box.price, priceText: mp(box.price), priceDigits: mpDigits(box.price), affordable: !disabled, short, disabled,

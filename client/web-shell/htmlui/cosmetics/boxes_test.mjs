@@ -2,7 +2,7 @@
 // bar, the pity meters and line, the showcase's state (affordable, short of earned MP, closed), the strip, the selected
 // item's detail, the contents sheet, the reveal's card; the shop skin's pieces and digits. Synthetic items only.
 import assert from 'node:assert/strict';
-import { wearWorld, pct, pityMeters, previewLook, wipNotice, oddsBar, pityActive, boxView, contents, revealView, worldsText, bodiesText, featured,
+import { wearWorld, pct, pityMeters, previewLook, bustLook, ownLook, RCODE, wipNotice, oddsBar, pityActive, boxView, contents, revealView, worldsText, bodiesText, featured,
   itemLines, stripItems, TABS, BOX_LOOK, STRIP } from './boxes-model.js';
 import { RARITY, rarityColor, rarityLabel, THEME_CSS, mpDigits } from './theme.js';
 import { PIECES, BANNER, SHOP_SKIN_CSS, digitsWidth } from './shopart.js';
@@ -76,7 +76,9 @@ assert.equal(wipNotice({ bodies: ['female'] }), 'Male version coming soon'); ass
 assert.equal(head.notice, 'Some items exist for one body only for now.');
 const outfit = boxView(info, 'outfit');
 assert.equal(outfit.affordable, false); assert.equal(outfit.short, 400);
-assert.equal(outfit.disabled, 'Needs 400 more earned MP');
+assert.equal(outfit.disabled, "Needs 400 more MP · starter MP can't open boxes");
+assert.equal(boxView({ ...info, wallet: { total: 800, bound: 0, earned: 800 } }, 'outfit').disabled, 'Needs 400 more MP', 'no starter MP: no word of it');
+assert.equal(boxView({ ...info, wallet: { total: 2000, bound: 1200, earned: 800 } }, 'outfit').disabled, "Needs 400 more MP · starter MP can't open boxes");
 assert.match(boxView(info, 'head', 0) && boxView({ ...info, boxes: [{ ...box, available: false }] }, 'head').disabled, /^Closed/);
 assert.equal(boxView(null, 'head').box, null, 'loading');
 assert.deepEqual(TABS.map(t => t.id), ['head', 'outfit', 'dueldisk']);
@@ -118,11 +120,32 @@ const pinfo = { appearance: { gender: 'male', world: 1, parts: look, looks: { 0:
 const hair = it('h', 'rare', { slot: 1, variants: [{ gender: 'male', number: 10, worlds: [0, 1] }, { gender: 'female', number: 5, worlds: [0, 1] }] });
 const pl = previewLook(pinfo, hair);
 assert.equal(pl.mode, 'bust'); assert.equal(pl.gender, 'male'); assert.equal(pl.world, 1);
-assert.equal(pl.parts[1], 10, 'the hair in its slot'); assert.equal(pl.parts[6], 0x80, "the current world's look under it");
+assert.equal(pl.parts[1], 10, 'the hair in its slot'); assert.equal(pl.parts[6], 0x70, "the actual current look wins over a stale per-world copy");
 assert.equal(pinfo.appearance.looks[1][1], 0, 'the saved look untouched');
 const domOnly = it('o', 'super', { kind: 'outfit', slot: 6, variants: [{ gender: 'male', number: 0x77, worlds: [0] }] });
 assert.equal(previewLook(pinfo, domOnly).parts[6], 0x77, 'one look for both worlds: an item of the other world still tries on');
 assert.equal(previewLook({ appearance: { gender: 'female', world: 0 } }, hair).parts[0], 1, 'no saved look: the default female one');
+assert.equal(previewLook({ appearance: { gender: 'male', world: 0 } }, hair).parts[6], 0x80, 'a new character starts in Slifer Red, even in Domino');
 const male = previewLook({ appearance: { gender: 'female', world: 0 } }, { ...pool[3], compatible: false });
 assert.deepEqual(male, { mode: 'art', notice: 'Female version coming soon' }, "a body that can't wear it: the art and the notice");
+const zeroStarter = previewLook({ appearance: { gender: 'male', world: 1, parts: look.map((n,i) => i === 6 || i === 8 ? 0 : n) } }, hair);
+assert.equal(zeroStarter.parts[6], 0x80, 'native zero starter outfit resolves to Slifer Red');
+assert.equal(zeroStarter.parts[8], 0xb8, 'native zero starter disk resolves to Academy disk');
+// the item worn wherever it is sold (the reveal, the box page, the sheet): the player's look with it in its slot, framed
+// on its slot; an item for the other body only on that body's default look (own: false)
+const bl = bustLook(pinfo, hair);
+assert.deepEqual([bl.own, bl.focus, bl.gender, bl.parts[1], bl.parts[6]], [true, 1, 'male', 10, 0x70]);
+const fem = it('p', 'rare', { slot: 1, bodies: ['female'], compatible: false, variants: [{ gender: 'female', number: 8, worlds: [0, 1] }] });
+const bf = bustLook(pinfo, fem);
+assert.deepEqual([bf.own, bf.gender, bf.world, bf.focus], [false, 'female', 1, 1]);
+assert.deepEqual(bf.parts, [1, 8, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0], 'the female default (Slifer Red, the Academy disk) with her ponytail');
+const disk = it('d', 'common', { kind: 'dueldisk', slot: 8, variants: [{ gender: 'male', number: 0xb4, worlds: [0, 1] }] });
+assert.equal(bustLook(pinfo, disk).focus, 8);
+assert.equal(bustLook(pinfo, { ...hair, variants: [] }), null, 'nothing to draw: the art instead');
+assert.equal(bustLook(pinfo, null), null);
+// the try-on with nothing selected: the player's own look (a zero starter part resolved as the native renderer does)
+assert.deepEqual(ownLook(pinfo), { parts: look, gender: 'male', world: 1 });
+assert.deepEqual(ownLook({ appearance: { gender: 'female', world: 0 } }).parts.slice(0, 1), [1]);
+assert.equal(ownLook({ appearance: { gender: 'male', world: 1, parts: look.map((n, i) => i === 8 ? 0 : n) } }).parts[8], 0xb8);
+assert.deepEqual(Object.values(RCODE), ['N', 'R', 'SR', 'UR']);
 console.log('cosmetics/boxes model ok');

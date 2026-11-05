@@ -37,18 +37,9 @@ export const BOXES_CSS = `
 .bx-fail { position: absolute; left: 0; top: 30px; width: 488px; text-align: center; white-space: normal; }
 .bx-prev { left: -6px; top: 326px; } .bx-next { left: 518px; top: 326px; }
 
-/* the preview: the player's bust in the selection frame over the left of the screen (the Wardrobe's bust), its cyan
-   Preview plate on the frame's foot; an item this body can't wear: its art and the body notice instead */
-.bx-pv { position: absolute; pointer-events: none; animation: bx-fade .15s ease-out; }
-.bx-pv[hidden] { display: none; }
-.bx-pv > .pv-bg, .bx-pv > .sa-glass, .bx-pv > .pv-wu, .bx-pv > .pv-art { position: absolute; left: 17px; top: 18px; width: 202px; height: 264px; }
-.bx-pv > .pv-bg { background: linear-gradient(#eef2f4, #d3dce1); }
-.bx-pv > .sa-frame { left: 0; top: 0; width: 236px; height: 300px; }
-.bx-pv[data-mode=art] > .pv-wu, .bx-pv[data-mode=bust] > .pv-art { display: none; }
-.bx-pv .pv-art > .de-rf { padding: 4px; }
-.bx-pv .pv-note { position: absolute; left: 8px; top: 204px; width: 186px; text-align: center; white-space: normal; line-height: 16px;
-  color: #5a1d00; text-wrap: balance; }
-.bx-pv > .pv-tag { left: 58px; top: 284px; width: 120px; height: 28px; display: flex; align-items: center; justify-content: center; }
+/* A reset below the original engine portrait; no extra bust or frame. */
+.bx-preview-reset { position: absolute; left: -246px; top: 568px; width: 220px; min-height: 32px; pointer-events: auto; }
+.bx-preview-reset[hidden] { display: none; }
 
 /* the foot: the pity bars, why Open can't be pressed, the small button */
 .bx-why { position: absolute; left: 28px; width: 488px; top: 508px; text-align: center; white-space: nowrap; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
@@ -97,9 +88,7 @@ export const BOXES_CSS = `
 
 /* the wallet in the MP plate (its root at 795, 390): the shop's digits */
 .bx-wallet { position: absolute; left: 0; top: 0; width: 229px; height: 84px; pointer-events: none; }
-.bx-wallet .tot { position: absolute; right: 24px; top: 13px; }
-.bx-wallet .ern { position: absolute; right: 24px; top: 54px; display: flex; align-items: center; gap: 8px; }
-.bx-wallet .ern .sa-t { line-height: 14px; }
+.bx-wallet .tot { position: absolute; right: 24px; top: 13px; display: flex; align-items: center; gap: 8px; }
 
 /* the category menu's banner, named */
 .bx-cat { position: absolute; width: 194px; height: 30px; font-size: 17px; }
@@ -118,6 +107,10 @@ export const BOXES_CSS = `
 .bx-card[data-rarity=super] .glow { filter: hue-rotate(95deg) saturate(1.2); }
 .bx-card[data-rarity=ultra] .glow { filter: hue-rotate(-140deg) saturate(1.5) brightness(1.15); }
 .bx-card .de-rf { padding: 4px; }
+/* the item worn on the waist-up, on the Wardrobe's sky */
+.bx-card .well.sky { background: radial-gradient(ellipse 85% 60% at 50% 58%, #f4fcff, #bfe6fa 60%, #8dcbf0); }
+.bx-card .well.sky > .wu { position: absolute; inset: 0; }
+.bx-card .well.sky > .wu[hidden] { display: none; }
 .bx-card .sheen { position: absolute; left: 18px; top: 22px; width: 192px; height: 256px; overflow: hidden; pointer-events: none; }
 .bx-card .sheen::before { content: ''; position: absolute; top: -20%; bottom: -20%; left: -60%; width: 55%; transform: translateX(-100%) skewX(-18deg);
   background: linear-gradient(to right, transparent, rgba(255,240,190,.55) 40%, rgba(255,255,255,.85) 50%, rgba(255,240,190,.55) 60%, transparent); }

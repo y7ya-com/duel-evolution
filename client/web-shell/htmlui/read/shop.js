@@ -67,7 +67,10 @@ export default h => {
       // frame (280, 84), intro (270, 70), MP plate (795, 390), leave button (795, 540): decomp 0xae61c0. chosen 0x130
       CShopCategoryWindow: t => gate(t, { x: 270, y: 70, w: 754, h: 530, chosen: i32(t + 0x130), mouse: mouse() }),
       CShopCardWindow: t => gate(t, { ...ITEMS, page: i32(t + 0x258), maxPage: i32(t + 0x25c), holes: cardHoles(t), mouse: mouse() }),
-      CShopPackWindow: t => gate(t, { ...ITEMS, page: i32(t + 0x2b8), maxPage: i32(t + 0x2bc), mouse: mouse() }),
+      // packs: the window's item list 0x2a8 (vector<ShopItem>, catalogue order, ten a page; scanned live), each one's
+      // param +8 (the pack id): screens/pack-contents.js names the pack under a clicked art by it
+      CShopPackWindow: t => gate(t, { ...ITEMS, page: i32(t + 0x2b8), maxPage: i32(t + 0x2bc), mouse: mouse(),
+        packs: vec(t + 0x2a8, 0x14).map(a => u32(a + 8)) }),
       CShopAvatarWindow: t => gate(t, { ...ITEMS, page: i32(t + 0x258), maxPage: i32(t + 0x25c), mouse: mouse() }),
       // the plate's base element 0x80 at its slot; one slot is 99 x 234 (col / row pitch, @0xaf5730). state 0x8c
       // (0 up, 1 hover, 2 selected), price 0xb8 MP, rate 0xc4 (pack completion %, -1 unset)

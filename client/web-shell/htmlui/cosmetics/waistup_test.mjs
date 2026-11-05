@@ -5,7 +5,7 @@
 // game's wm_data.csv / ww_data.csv> it checks the real tables too. Exit 1 on the first failure.
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { parseWaistUp, waistUpLayers, lookBytes, blendInto, STEP_NAMES, BUST, CANVAS } from './waistup.js';
+import { parseWaistUp, waistUpLayers, lookBytes, blendInto, STEP_NAMES, BUST, CANVAS, focusSteps, focusCrop, opaqueBox } from './waistup.js';
 import { WM_CSV, WW_CSV } from './waistup_fixture.mjs';
 
 const M = parseWaistUp(WM_CSV), F = parseWaistUp(WW_CSV);
@@ -98,4 +98,33 @@ if (dir && existsSync(`${dir}/wm_data.csv`)) {
   for (const rows of [RM, RF]) for (const r of rows) assert.ok(r.kind >= 0 && r.kind <= 12 && r.rect[0] + r.rect[2] <= 768 && r.rect[1] + r.rect[3] <= 768);
   console.log('waistup_test: the game\'s tables too');
 }
+assert.equal(lookBytes(null, { world: 0 })[6], 0x80, 'a missing look wears Slifer Red in either world');
+assert.equal(waistUpLayers(M, [0,0,32,48,64,96,0,144,0,32,0,0,0,0,0,0]).find(l => l.step === 10).number, 0x80, 'zero starter clothes use Slifer Red, not the blue Domino fallback');
+// framing an item (the box reveal, the box page's tiles): the steps a slot is drawn by, a head item with the eyes
+// and eyebrows round it; the outfit is the whole bust
+assert.deepEqual(focusSteps(1), [0, 2, 11, 5, 7]);
+assert.deepEqual(focusSteps(9), [9, 5]);
+assert.deepEqual(focusSteps(8), [12]);
+assert.equal(focusSteps(6), null);
+// the crop round the drawn boxes: padded, at least `min` tall (glasses on a face, not a blown-up pair), at the element's
+// aspect, on the canvas; nothing drawn: the bust
+assert.deepEqual(focusCrop([]), BUST);
+const glasses = focusCrop([[300, 200, 470, 250]], { aspect: 0.75, min: 432 });
+assert.deepEqual(glasses, [223, 9, 324, 432]);
+assert.ok(glasses[0] < 300 && glasses[0] + glasses[2] > 470 && glasses[1] < 200 && glasses[1] + glasses[3] > 250, 'the item inside');
+assert.equal(glasses[2] / glasses[3], 0.75);
+// near the top: kept on the canvas (moved down, not cut)
+assert.equal(focusCrop([[300, 10, 470, 60]], { aspect: 0.75 })[1], 0);
+// a big item: padded past min
+const hairBox = focusCrop([[150, 20, 620, 420]], { aspect: 0.75, min: 300, pad: 0.1 });
+assert.ok(hairBox[2] >= 470 + 94 - 1 && hairBox[3] === Math.round(hairBox[2] / 0.75));
+// a duel disk wider than the card's aspect allows at the canvas's height: the full height and still its whole length
+const disk = focusCrop([[90, 380, 760, 700]], { aspect: 0.75 });
+assert.equal(disk[3], CANVAS);
+assert.ok(disk[0] <= 90 && disk[0] + disk[2] >= 760 && disk[0] + disk[2] <= CANVAS, 'the whole disk, on the canvas');
+// a picture's visible pixels (alpha over 24)
+const px = { width: 4, height: 3, data: new Uint8ClampedArray(4 * 3 * 4) };
+px.data[(1 * 4 + 1) * 4 + 3] = 200; px.data[(2 * 4 + 2) * 4 + 3] = 255; px.data[(0 * 4 + 3) * 4 + 3] = 10;
+assert.deepEqual(opaqueBox(px), [1, 1, 3, 3]);
+assert.equal(opaqueBox({ width: 2, height: 2, data: new Uint8ClampedArray(16) }), null);
 console.log('waistup_test: ok');

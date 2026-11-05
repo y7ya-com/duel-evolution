@@ -16,6 +16,8 @@ import { modernUi } from './modern.js';
 import { backdrop } from './backdrop.js';
 import { tradeOverlayFrame } from './cosmetics/trade-cosmetics.js';
 import { wardrobeLauncherFrame } from './cosmetics/wardrobe-launcher.js';
+import { missionsLauncherFrame } from './rewards/launcher.js';
+import { coverScene, coverFrame, coverPlace } from './shop/cover.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
@@ -276,6 +278,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const place = () => {
     const r = canvas.getBoundingClientRect(), s = stageScale = r.width / 1024 || 1;
     for (const el of [host, fx, bars.layer, mu.layer]) if (el) Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
+    coverPlace(canvas);
   };
   new ResizeObserver(place).observe(canvas);
   addEventListener('resize', place);
@@ -287,6 +290,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let switching = false, endFrame = 0;
   Module.onYo2Scene = (kind, from, to) => {
     scene = to; switching = kind === 'begin';
+    coverScene(kind, from, to, frameNo);   // the card shop's cover (shop/cover.js): up before the engine draws the shop scene, or its way out
     if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
   };
 
@@ -305,6 +309,11 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const fire = (type, [x, y], extra = {}) => canvas.dispatchEvent(new (type === 'wheel' ? WheelEvent : MouseEvent)(type,
     { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0, ...extra }));
   const api = {
+    // Local try-on: redraw CShopScene's existing bust, without touching player/network state.
+    previewShopLook(parts, shop) {
+      if (!Array.isArray(parts) || parts.length !== 16 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+      queue.push([4, shop, String.fromCharCode(...parts)]); return true;
+    },
     // gp: a game point [x, y] inside the control to click instead of its centre (a list's row)
     async click(id, gp) {
       const r = canvas.getBoundingClientRect(), k = r.width / 1024, p = gp ? [r.left + gp[0] * k, r.top + gp[1] * k] : at(id);
@@ -339,10 +348,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     let n = 0, used = 0;
     while (queue.length && n < QN) {
       const [kind, a, b, c] = queue[0], o = t + QBASE + 1 + 4 * n;
-      if (kind === 2) {
+      if (kind === 2 || kind === 4) {
         if (used + b.length > TEXT) break;
         for (let i = 0; i < b.length; i++) T[used + i] = b.charCodeAt(i);
-        H[o] = 2; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
+        H[o] = kind; H[o + 1] = a; H[o + 2] = used; H[o + 3] = b.length; used += b.length;
       } else { H[o] = kind; H[o + 1] = a; H[o + 2] = b; H[o + 3] = c; }
       queue.shift(); n++;
     }
@@ -406,6 +415,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
+    coverFrame(frameNo, switching, snap);
     if (host && host.hidden !== wait) host.hidden = wait;
     if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
     render?.(snap, owned, api);
@@ -415,6 +425,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     try { tradeOverlayFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: trade cosmetics', e); }
     // the Wardrobe's button on the menu bar (cosmetics/wardrobe-launcher.js), whoever draws the bar
     try { wardrobeLauncherFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: wardrobe launcher', e); }
+    // and the Missions button beside it, with its claimable count (rewards/launcher.js)
+    try { missionsLauncherFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: missions launcher', e); }
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

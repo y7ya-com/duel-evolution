@@ -46,13 +46,14 @@ const spacingGuess = s => [...s].length;
 export const labelWidth = (s, px = 16) => basic && s ? basic.textWidth(s, px) + basic.spacing(s, px) * [...s].length : 0;   // the engine's +1 per glyph (controls/basic.js spacing()): at most 1 px each
 /** The standing as game text at x, y (align 0 left, 2 right, in w): the school's colour, outlined in its dark shade
  *  as the game's ShadowText captions are (skin.js: 1 px each way). -> the element, or null for nothing to show. */
-export function rankTag(parent, r, { x = 0, y = 0, w, align = 0, px = 16, text } = {}) {
+// plain: set in the surrounding text's own look (a list row's dark Arial), not the outlined name-tag style
+export function rankTag(parent, r, { x = 0, y = 0, w, align = 0, px = 16, text, plain = false } = {}) {
   const s = text ?? rankText(r);
   if (!s) return null;
-  const { fill, edge } = rankLook(r), d = basic.textBox(parent, s, { x, y, w, align, px, white: true, color: [1, 1, 1, 1] });
+  const { fill, edge } = rankLook(r), d = basic.textBox(parent, s, { x, y, w, align, px, white: !plain, color: plain ? [0, 0, 0, 1] : [1, 1, 1, 1] });
   d.classList.add('yo2-rank');
   d.dataset.school = r.placed ? r.school : 'unranked';
-  Object.assign(d.style, { color: fill, textShadow: `1px 0 ${edge}, -1px 0 ${edge}, 0 1px ${edge}, 0 -1px ${edge}`, pointerEvents: 'none' });
+  Object.assign(d.style, plain ? { pointerEvents: 'none' } : { color: fill, textShadow: `1px 0 ${edge}, -1px 0 ${edge}, 0 1px ${edge}, 0 -1px ${edge}`, pointerEvents: 'none' });
   return d;
 }
 

@@ -32,6 +32,17 @@ export const plateBackground = ({ rows, sides: [l1, l2, r2, r1] }) =>
   `linear-gradient(to right, ${l1} 0 1px, ${l2} 1px 2px, transparent 2px calc(100% - 2px), ${r2} calc(100% - 2px) calc(100% - 1px), ${r1} calc(100% - 1px)),
    linear-gradient(to bottom, ${rows.map((c, i) => `${c} ${i}px ${i + 1}px`).join(', ')})`;
 
+// The page's own buttons on the bar (cosmetics/wardrobe-launcher.js, rewards/launcher.js): each reports the right end of
+// its slot (screen x, 0 when away), and screens/lobby.js starts the message field a plate's gap (8 px) after the last.
+const reserved = new Map(), reserveWatch = new Set();
+export function reserveBar(key, end) {
+  if ((reserved.get(key) || 0) === (end || 0)) return;
+  if (end) reserved.set(key, end); else reserved.delete(key);
+  reserveWatch.forEach(f => { try { f(); } catch {} });
+}
+export const barReserve = () => Math.max(0, ...reserved.values());
+export const onBarReserve = f => { reserveWatch.add(f); return () => reserveWatch.delete(f); };
+
 const PAL = {
   normal: { halo: '#fff', line: '#0068f2', top: '#ffffff', bottom: '#dbffff', soft: '#4c9fff', band: '#a3c9fa' },
   hover: { halo: '#fcff00', line: '#535353', top: '#f8f8f8', bottom: '#f8f8f8', soft: '#8b9494', band: '#a7a7a7' },

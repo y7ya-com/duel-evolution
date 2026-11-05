@@ -32,8 +32,8 @@ function ranks(win, st) {
     if (!r) continue;
     // between the name (the caption, 8 in from the row's left) and the level text, 8 px clear of each
     const from = row.x + 8 + labelWidth((row.label || '').trim(), 16) + 8, to = lv.x - 8;
-    const s = rankFit(r, to - from, 14);
-    if (s) rankTag(st.rankLayer, r, { x: from, y: lv.y + 1, w: to - from, align: 2, px: 14, text: s });
+    const s = rankFit(r, to - from, 16);
+    if (s) rankTag(st.rankLayer, r, { x: from, y: lv.y, w: to - from, align: 2, px: 16, text: s, plain: true });
   }
 }
 

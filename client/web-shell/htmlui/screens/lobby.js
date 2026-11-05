@@ -11,10 +11,15 @@ import { textBox, shownLines, textWidth, spacing } from '../controls/basic.js';
 import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
 import { rankByPid, peekRank, pidKey, rankTag, rankFit, labelWidth, cardHeader, PID_BASE } from '../rank.js';
-import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas } from './lobby_icons.js';
+import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas, barReserve, onBarReserve } from './lobby_icons.js';
 import * as ui from '../../ui.js';
 import { pieceCss } from './trade.js';
 
+// The strip's art has the field from x 391; when the page's own buttons push the field right (fieldLeft), the strip shows
+// there: rows 7..24 then continue as rows 4..6 do past x 390 (the art's nearest band, within a few levels at x 386)
+const after = (stops, x) => stops.split(', ').filter(t => parseFloat(t.split(' ')[1]) > x);
+const BANDS = STRIP.map(([y, h, stops]) => y !== 7 ? [y, h, stops]
+  : [y, h, [...stops.split(', ').filter(t => parseFloat(t.split(' ')[1]) <= 390.5), ...after(STRIP.find(b => b[0] === 4)[2], 390.5)].join(', ')]);
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
   border-color: #cbb598 #894009 #893b06 #a57f4e; background: #f2e14f;
@@ -24,11 +29,12 @@ const CSS = `
     linear-gradient(to right, #0985ff 0, #7deffc 219px, #7deffc 100%); }
 .lb-shadow { color: #fff; text-shadow: 1px 0 #4a4a4a, -1px 0 #4a4a4a, 0 1px #4a4a4a, 0 -1px #4a4a4a; }   /* skin.js's outline */
 .lb-bar { position: absolute; left: 0; top: 0; width: 1024px; height: 32px;
-  background: ${STRIP.map(([y, h, stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${h}px no-repeat`).join(',\n    ')};
+  background: ${BANDS.map(([y, h, stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${h}px no-repeat`).join(',\n    ')};
   -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
 .lb-field { position: absolute; left: 391px; top: 7px; width: 626px; height: 18px; box-sizing: border-box;
   border: 1px solid #fff; background: rgba(255, 255, 255, .698); }
+.lb-field[data-engine] { background: none; }   /* the engine's field under it: only the left edge is new */
 .lb-icon { position: absolute; width: 80px; height: 32px; margin: 0; padding: 0; border: 0; background: none; }
 .lb-icon > i { position: absolute; left: 8px; top: 4px; width: 72px; height: 24px; box-sizing: border-box; border: 1px solid;
   clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
@@ -180,9 +186,14 @@ export function noticeHole(win) {
   const x0 = Math.max(0, Math.floor(Math.min(...rs.map(r => r.x)) - 16)), x1 = Math.min(1024, Math.ceil(Math.max(...rs.map(r => r.x + r.w)) + 8));
   return x1 > x0 ? { x: x0, w: x1 - x0 } : null;
 }
-const BAR_MASK = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat';
+// The message field's left edge: x 391 (the art's), or 8 px (a plate's gap) after the page's own buttons when they reach
+// past it (lobby_icons.js reserveBar: the Wardrobe and Missions slots); the right edge stays at 1017
+export const fieldLeft = (win, reserve = barReserve()) => Math.min(1016 - 64, Math.max(391, reserve ? reserve - (win?.x || 0) + 8 : 0));
+const barMask = x => `linear-gradient(#000 0 0), linear-gradient(#000 0 0) ${x}px 7px / ${1017 - x}px 18px no-repeat`;
+onBarReserve(() => { for (const st of bars) if (st.win && st.root) menuBar(st.win, st.root, st); });
 function menuBar(win, root, st) {
   bars.add(st);
+  st.root = root;
   const hole = noticeHole(win), strip = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
   kept.set(win.id, new Set([...win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id),
     ...(hole ? (strip?.parts?.sprites || []).map(s => s.id) : [])]));
@@ -195,16 +206,21 @@ function menuBar(win, root, st) {
     root.append(st.bar, st.field, st.clip);   // not in the masked strip
     st.icons = new Map();
   }
-  const holeKey = hole ? `${hole.x},${hole.w}` : '';
+  const left = fieldLeft(win), holeKey = (hole ? `${hole.x},${hole.w}` : '') + '@' + left;
   if (st.hole !== holeKey) {
     st.hole = holeKey;
     // one more layer xor'ed out of the strip: the hole (never over the field: the notices sit at x 232..)
-    const m = hole ? `${BAR_MASK}, linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 6px), transparent) ${hole.x}px 0 / ${hole.w}px 32px no-repeat` : '';
+    const m = barMask(left) + (hole ? `, linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 6px), transparent) ${hole.x}px 0 / ${hole.w}px 32px no-repeat` : '');
     st.bar.style.webkitMask = st.bar.style.mask = m;
     // (the shorthands reset the composite: set it again)
-    st.bar.style.webkitMaskComposite = hole ? 'xor' : '';
-    st.bar.style.maskComposite = hole ? 'exclude' : '';
-    st.field.style.display = hole ? 'none' : '';
+    st.bar.style.webkitMaskComposite = 'xor';
+    st.bar.style.maskComposite = 'exclude';
+    // the engine's own field shows through the cut while it draws its strip (doubled, the white would be too bright):
+    // the DOM field is then only its frame (its left edge where the engine's has none)
+    st.field.toggleAttribute('data-engine', !!hole);
+    Object.assign(st.field.style, { left: left + 'px', width: 1017 - left + 'px' });
+    Object.assign(st.clip.style, { left: left + 1 + 'px', width: 1016 - left - 1 + 'px' });
+    st.text = null;
   }
   const seen = new Set();
   for (const c of win.controls) {
@@ -230,16 +246,16 @@ function menuBar(win, root, st) {
   const bar = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
   const own = win.controls.find(c => c.cls === 'CWindowTaskText' && top(c));
   const m = bar?.shown ? bar.message || '' : '', o = own?.shown ? own.text || '' : '';
-  const key = JSON.stringify([m, bar?.scroll || 0, o, own?.x, own?.y]);
+  const key = JSON.stringify([m, bar?.scroll || 0, o, own?.x, own?.y]), dx = 391 - left;   // the engine's places are from x 392
   if (st.text !== key) {
     st.text = key;
     st.clip.replaceChildren();
     if (m) {
       const w = textW(m), sc = bar.scroll || 0;
-      textBox(st.clip, m, { x: sc });
-      if (w > 624) textBox(st.clip, m, { x: w + sc + 704 - 392 });
+      textBox(st.clip, m, { x: sc + dx });
+      if (w > 624) textBox(st.clip, m, { x: w + sc + 704 - 392 + dx });
     }
-    if (o) textBox(st.clip, o, { x: own.x - 392, y: own.y - 8 });
+    if (o) textBox(st.clip, o, { x: own.x - 392 + dx, y: own.y - 8 });
   }
 }
 

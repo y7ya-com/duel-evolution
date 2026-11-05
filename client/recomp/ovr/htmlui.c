@@ -35,7 +35,7 @@ void o_0060f9e0(CPU *restrict c);
 void o_005932f0(CPU *restrict c);
 
 enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 1024 };
-enum { Q_DISPATCH = 1, Q_SETTEXT = 2, Q_SETVALUE = 3 };
+enum { Q_DISPATCH = 1, Q_SETTEXT = 2, Q_SETVALUE = 3, Q_SHOPLOOK = 4 };
 struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the address onYo2Frame gets)
     uint32_t slots;                // SLOTS, set before every call: the layout's check (see 2. above)
     uint32_t nhide, hide[SLOTS];   // windows the DOM draws (CWindowTaskModel addresses)
@@ -115,6 +115,19 @@ static void play(CPU *c) {
             for (uint32_t k = 0; k < len; k++) WR8(buf + 2 * k, tab.text[tab.q[i].b + k]), WR8(buf + 2 * k + 1, tab.text[tab.q[i].b + k] >> 8);
             t.ecx = ctl;
             rc_call(&t, RD32(RD32(ctl) + 0x44), 1, &buf);
+            rc_hfree(buf);
+        } else if (tab.q[i].kind == Q_SHOPLOOK && tab.q[i].c == 16 && tab.q[i].b + 16 <= TEXT) {
+            // The avatar category shows its own cached sample bust in the original shop portrait position.
+            // CShopAvatarWindow owns the visible CWaistUpAvatar in its CTaskPtr at +0xb0 (task +0xb4).
+            uint32_t manager = RD32(0x1271790), shop = tab.q[i].a;
+            if (!manager || RD32(manager + 0x7c) != 14 || !shop || RD32(shop) != 0xbf44ec) continue;
+            uint32_t avatar = RD32(shop + 0xb4);
+            if (!avatar || RD32(avatar) != 0xbf0cf8) continue;
+            uint32_t buf = rc_halloc(20, 1);
+            WR32(buf, 0xbe9d78); // CAvatarData: vtable, then its sixteen part bytes
+            for (uint32_t k = 0; k < 16; k++) WR8(buf + 4 + k, tab.text[tab.q[i].b + k]);
+            t.ecx = avatar;
+            rc_call(&t, 0x9e6e30, 1, &buf); // the same rebuild used by the native shop's try-on
             rc_hfree(buf);
         } else if (tab.q[i].kind == Q_SETVALUE && tab.q[i].a && tab.q[i].c && RD32(tab.q[i].a) == tab.q[i].c) {
             uint32_t ctl = tab.q[i].a, v = tab.q[i].b, msg[8] = {0x200};   // WindowMsg {WM_MOUSEMOVE}

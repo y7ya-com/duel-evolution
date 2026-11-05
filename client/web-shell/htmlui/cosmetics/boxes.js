@@ -9,10 +9,8 @@
 //   the header    the box's category banner in the selection frame (the category menu's selected look)
 //   the strip     the box's items, rarest first, five to a page as the pack display's row: the rarity on each art's
 //                 frame, the name on its tag, the selected one in the yellow corner brackets; the orange arrows page it.
-//                 A click previews the item on the player's waist-up bust (cosmetics/waistup.js, as the Wardrobe tries
-//                 items on) in the selection frame over the left of the screen, tagged Preview: nothing is saved, no
-//                 call is made. A second click, a click anywhere else, Esc, a box or page change clear it. An item this
-//                 body can't wear shows its art and the short body notice there instead.
+//                 A click tries an item on the original engine portrait. Click again, Reset, elsewhere or Esc
+//                 to restore the current look. No appearance change is sent to the server.
 //   the foot      the pity bars (one per guarantee: a segment per open, filled with the opens without that tier, in the
 //                 tier's frame colour; the bar glows when the next open lands it); when Open can't be pressed, one line
 //                 why; Contents & odds (a small button)
@@ -24,11 +22,12 @@
 // the engine's Back pill (left uncovered on the showcase) is the game's.
 import * as api from './api.js';
 import { injectTheme, RARITY, mpDigits } from './theme.js';
-import { TABS, STRIP, boxView, contents, revealView, pct, wearWorld, itemLines, previewLook, pityMeters } from './boxes-model.js';
+import { TABS, STRIP, boxView, contents, revealView, pct, wearWorld, itemLines, previewLook, pityMeters, bustLook } from './boxes-model.js';
 import { renderItemArt } from './art.js';
 import { renderWaistUp } from './waistup.js';
 import { injectShopSkin, digits } from './shopart.js';
 import { BOXES_CSS } from './boxes-css.js';
+import { mpInfo } from '../shop/mpinfo.js';
 
 export const ORIGIN = { x: 264, y: 0 };   // CShopAvatarWindow's rect (read/shop.js ITEMS): the root's place on screen
 // the panel's centre line (root px): the engine's glass (23..521) and band, the banner frame, the box tabs, the strip,
@@ -36,9 +35,6 @@ export const ORIGIN = { x: 264, y: 0 };   // CShopAvatarWindow's rect (read/shop
 export const AXIS = 272;
 // the engine's side pills (screen px, from its 1x render): Confirm (now Open Box) and Back
 export const PILLS = { confirm: { x: 795, y: 481, w: 223, h: 48 }, back: { x: 795, y: 541, w: 223, h: 49 } };
-// the preview's selection frame (root px: over the left of the screen, beside the panel; the Wardrobe's bust frame)
-export const PREVIEW = { x: -252, y: 112, w: 236, h: 300 };
-
 const reduced = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function h(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
@@ -67,7 +63,7 @@ function injectCss() {
 }
 
 /** The wallet in the shop's MP plate (screens/shop.js: CShopMileagePlate's root, at 795, 390), in the shop's digits:
- *  the whole wallet on the top half, the earned MP (what boxes take) on the bottom one. -> the element. */
+ *  the one MP number, its (i) before it (how much is starter MP: shop/mpinfo.js). -> the element. */
 export function drawWallet(el, wallet) {
   injectCss();
   let w = el.querySelector(':scope > .bx-wallet');
@@ -76,9 +72,7 @@ export function drawWallet(el, wallet) {
     el.append(w);
   }
   if (!wallet) { w.replaceChildren(h('div', { class: 'tot' }, digits('0MP'))); return w; }
-  w.replaceChildren(h('div', { class: 'tot' }, digits(mpDigits(wallet.total))),
-    h('div', { class: 'ern' }, h('span', { class: 'sa-t sa-w' }, 'Earned'), digits(mpDigits(wallet.earned))));
-  w.title = 'Boxes take earned MP. Starter MP buys cards.';
+  w.replaceChildren(h('div', { class: 'tot' }, mpInfo(wallet), digits(mpDigits(wallet.total))));
   return w;
 }
 
@@ -97,7 +91,7 @@ export function drawCategoryLabel(root, at) {
 /** Mount the box shop in `root` (the CShopAvatarWindow root). opts.onWallet(wallet): the wallet changed (shop.js
  *  redraws the MP plate); opts.onView(view): 'showcase' | 'contents' (shop.js hides the engine Back label on contents).
  *  -> { el, destroy(), get wallet, get view } */
-export function mountBoxes(root, { onWallet, onView } = {}) {
+export function mountBoxes(root, { onWallet, onView, onPreview } = {}) {
   injectCss();
   const el = h('div', { class: 'bx de-c', role: 'region', 'aria-label': 'Cosmetic Boxes' });
   const main = h('div', { class: 'bx-main' });   // the screens; the reveal goes beside it (a rebuild keeps its focus)
@@ -159,39 +153,24 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     render();
   };
 
-  // ---- the preview: the clicked item on the player's waist-up bust, in the selection frame; never saved
-  const pvWu = h('div', { class: 'pv-wu', role: 'img' });
-  const pvArt = h('div', { class: 'pv-art' });
-  const pv = h('div', { class: 'bx-pv', hidden: true, 'aria-live': 'polite', style: at(PREVIEW.x, PREVIEW.y, PREVIEW.w, PREVIEW.h) },
-    h('div', { class: 'pv-bg' }), h('div', { class: 'sa-glass' }), pvWu, pvArt, h('div', { class: 'sa-frame' }),
-    h('div', { class: 'sa-plate pv-tag', data: { on: true } }, h('span', { class: 'sa-t' }, 'Preview')));
+  // Preview the engine's existing shop character; never mount another character here.
+  const pv = h('button', { class: 'bx-preview-reset sa-btn2', hidden: true,
+    'aria-live': 'polite', onclick: () => { S.pv = null; render(); } });
   el.append(pv);
-  let pvDraw = null;
+  let previewKey = '';
   const togglePreview = (v, it) => { S.sel[v.id] = it.id; S.pv = S.pv === it.id ? null : it.id; render(); };
   function drawPreview(v) {
     const it = S.view === 'showcase' && S.pv ? (v.items || []).find(i => i.id === S.pv) : null;
+    const look = it ? previewLook(S.info, it) : null;
+    const next = look?.mode === 'bust' ? look : null;
+    const key = JSON.stringify(next);
+    if (key !== previewKey) { previewKey = key; onPreview?.(next, S.info?.appearance?.parts); }
     pv.hidden = !it;
-    if (!it) { delete pv.dataset.id; return; }
-    const L = previewLook(S.info, it);
-    pv.dataset.id = it.id;
-    pv.dataset.mode = L.mode;
-    if (L.mode === 'bust') {
-      const hex = L.parts.map(n => (n & 255).toString(16).padStart(2, '0')).join('');
-      if (pvWu.dataset.want !== hex) {
-        pvDraw?.destroy();
-        pvWu.dataset.want = hex;
-        pvDraw = renderWaistUp(pvWu, L.parts, { gender: L.gender, world: L.world });
-      }
-      pvWu.setAttribute('aria-label', `Preview: your look wearing ${it.name}`);
-      pvArt.replaceChildren(); pvArt.removeAttribute('aria-label');
-    } else {
-      pvArt.replaceChildren(framed({ ...it, compatible: true, bodies: [] }, 112, 'pv', at(37, 52, 128, 128), 2),
-        h('div', { class: 'pv-note sa-t' }, L.notice));
-      pvArt.setAttribute('aria-label', `Preview: ${it.name}. ${L.notice}`);
-    }
+    pv.replaceChildren(h('span', { class: 'sa-t' }, look?.mode === 'art' ? `${look.notice} · Reset` : 'Previewing · Reset look'));
+    if (it) pv.dataset.id = it.id; else delete pv.dataset.id;
   }
   // a click anywhere but on an item clears the preview (the game's canvas too: seen, never stopped)
-  const outside = ev => { if (S.pv && !ev.target?.closest?.('.bx-cell')) { S.pv = null; render(); } };
+  const outside = ev => { if (S.pv && !ev.target?.closest?.('.bx-cell, .bx-preview-reset')) { S.pv = null; render(); } };
   document.addEventListener('pointerdown', outside, true);
 
   // ---- the band: the selected item (or, on the sheet, the box), white on the dark band
@@ -375,10 +354,19 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
       const left = Math.max(0, r.anticipation - (performance.now() - t0));
       later(() => { set('card'); later(() => set('done'), r.tempo === 'special' ? 1300 : r.tempo === 'quick' ? 500 : 800); }, left);
     }
+    // the item worn (the player's look with it swapped in, or the default look of the body it is made for), framed
+    // on the item in its rarity frame; the chibi art only when the waist-up can't be drawn
     function card(r) {
+      const look = bustLook(S.info, r.item), well = h('div', { class: 'well sky' });
+      const rf = h('div', { class: 'de-rf', data: { rarity: r.rarity }, style: at(18, 22, 192, 256) }, well);
+      const chibi = () => { const art = h('div', { class: 'art' }); for (const c of well.children) c.hidden = true; well.append(art); renderItemArt(art, { ...r.item, compatible: true, bodies: [] }, { body: body(), size: 176, max: 2.5 }); };
+      if (look) {
+        const wu = h('div', { class: 'wu' });
+        well.append(wu);
+        renderWaistUp(wu, look.parts, { gender: look.gender, world: look.world, focus: look.focus }).ready.then(ok => { if (!ok) chibi(); });
+      } else chibi();
       return h('div', { class: 'bx-card', data: { rarity: r.rarity } },
-        h('div', { class: 'glow' }),
-        framed({ ...r.item, compatible: true, bodies: [] }, 176, 'reveal', at(18, 22, 192, 256), 2.5),
+        h('div', { class: 'glow' }), rf,
         r.rarity === 'ultra' ? h('div', { class: 'sheen' }) : null);
     }
     function after(r, v0) {
@@ -421,10 +409,11 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
     get wallet() { return S.info?.wallet || null; },
     get view() { return S.view; },
     refresh: () => load(true),
+    resetPreview() { if (S.pv) { S.pv = null; render(); } },
     destroy() {
       S.dead = true; off(); clearTimeout(S.msgTimer);
       document.removeEventListener('pointerdown', outside, true);
-      pvDraw?.destroy();
+      onPreview?.(null, S.info?.appearance?.parts);
       for (const a of arts.values()) a.r?.destroy?.();
       arts.clear(); el.remove();
     },
@@ -435,6 +424,6 @@ export function mountBoxes(root, { onWallet, onView } = {}) {
 function focusKey(e) {
   if (e.classList.contains('bx-tab')) return '.bx-tab[data-on]';
   if (e.classList.contains('bx-cell')) return '.bx-cell[data-on]';
-  for (const c of ['bx-prev', 'bx-next', 'bx-open', 'bx-link', 'bx-sidebtn', 'bx-list', 'bx-retry']) if (e.classList.contains(c)) return '.' + c;
+  for (const c of ['bx-preview-reset', 'bx-prev', 'bx-next', 'bx-open', 'bx-link', 'bx-sidebtn', 'bx-list', 'bx-retry']) if (e.classList.contains(c)) return '.' + c;
   return null;
 }

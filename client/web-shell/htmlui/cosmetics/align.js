@@ -155,32 +155,59 @@ function reveal(rv, S, C) {
 function wardrobe(root, S, C) {
   const win = box(root.querySelector('.wd-win'), S), A = win.cx;
   C.centred('the window (on the stage)', win, 512);
-  const bust = box(root.querySelector('.wd-bust'), S);
-  C.centred('the bust (on the window)', bust, A);
-  const tabs = [...root.querySelectorAll('.wd-tab')].map(e => box(e, S));
+  C.same('the window (on the stage, vertically)', [win.t, 768 - win.b]);
+  const tabs = [...root.querySelectorAll('.wd-tab')].map(e => box(e, S)), bar = box(root.querySelector('.wd-tabs'), S);
   C.same('the tabs\' widths', tabs.map(b => b.w));
   C.same('the tabs\' gaps', tabs.slice(1).map((b, i) => b.l - tabs[i].r));
   for (const t of root.querySelectorAll('.wd-tab')) { const p = box(t, S), tb = textBox(t, S); C.centred('tab text ' + t.textContent, tb, p.cx); C.vcentred('tab text ' + t.textContent, tb, p); }
+  const bust = box(root.querySelector('.wd-bust'), S), side = box(root.querySelector('.wd-side'), S), grid = box(root.querySelector('.wd-grid'), S);
   const tiles = [...root.querySelectorAll('.wd-tile')].filter(shown).map(e => box(e, S));
   if (tiles.length) {
-    C.leftOn('the grid (on the tabs\' left)', tiles[0], union(tabs).l);
-    const row = tiles.filter(b => Math.abs(b.t - tiles[0].t) < 1).slice(0, 4);
+    C.leftOn('the grid (on the tabs\' left)', tiles[0], bar.l);
+    const subs = [...root.querySelectorAll('.wd-sub')].filter(shown).map(e => box(e, S));
+    if (subs.length) C.same('the grid under the sub-categories (8 px)', [tiles[0].t - Math.max(...subs.map(b => b.b)), 8]);
+    else C.same('the grid under the tabs (16 px)', [tiles[0].t - bar.b, 16]);
+    const row = tiles.filter(b => Math.abs(b.t - tiles[0].t) < 1).slice(0, 3);
     C.same('a row\'s tops', row.map(b => b.t));
     C.same('a row\'s gaps', row.slice(1).map((b, i) => b.l - row[i].r));
-    if (row.length === 4) C.rightOn('a full row (on the tabs\' right)', row[3], union(tabs).r);
+    if (row.length === 3) C.rightOn('a full row (on the tabs\' right)', row[2], bar.r);
+    C.same('the cards\' sizes', tiles.flatMap(b => [b.w - tiles[0].w, b.h - tiles[0].h]).concat(0));
   }
+  // the sub-categories: 8 px under the tabs, on the tabs' left, inside their width, one height, their text centred
+  const subEls = [...root.querySelectorAll('.wd-sub')].filter(shown);
+  if (subEls.length) {
+    const sb = subEls.map(e => box(e, S));
+    C.same('the sub-categories under the tabs (8 px)', [sb[0].t - bar.b, 8]);
+    C.leftOn('the sub-categories (on the tabs\' left)', sb[0], bar.l);
+    C.same('the sub-categories\' heights', sb.map(b => b.h));
+    for (const [i, e] of subEls.entries()) { C.within('sub-category ' + e.textContent, sb[i], { l: bar.l, r: bar.r, t: bar.b, b: grid.b }); C.vcentred('sub-category text ' + e.textContent, textBox(e, S), sb[i]); }
+  }
+  // the columns: one top, one bottom, 16 px gutters, the window's 24 px padding on both sides
+  C.same('the columns\' tops (tabs, try-on, details)', [bar.t, bust.t, side.t]);
+  C.same('the columns\' bottoms (grid, try-on, details)', [grid.b, bust.b, side.b]);
+  C.same('the gutters (16 px)', [bust.l - bar.r, side.l - bust.r, 16]);
+  C.same('the window\'s side padding (24 px)', [bar.l - win.l, win.r - side.r, win.b - side.b, 24]);
+  // the header band: the title plate 24 px in, Back on the details' right, both centred on the band, the meta's text too
+  const band = box(root.querySelector('.wd-win > .sa-band'), S), title = box(root.querySelector('.wd-header > .sa-title'), S), close = box(root.querySelector('.wd-close'), S);
+  C.leftOn('the title plate (24 px in)', title, win.l + 24);
+  C.rightOn('Back (on the details\' right)', close, side.r);
+  C.vcentred('the title plate on the band', title, band);
+  C.vcentred('Back on the band', close, band);
+  C.vcentred('Back\'s text', textBox(root.querySelector('.wd-close > span'), S), close);
+  const meta = root.querySelector('.wd-meta');
+  if (meta?.textContent) C.vcentred('the meta on the band', textBox(meta, S), band);
+  C.same('the columns under the band (16 px)', [bar.t - band.b, 16]);
   const stateEl = root.querySelector('.wd-state');
-  C.centred('the bust\'s state plate', box(stateEl, S), bust.cx);
-  C.centred('the bust\'s state text', textBox(stateEl, S), bust.cx);
-  C.vcentred('the bust\'s state text', textBox(stateEl, S), box(stateEl, S));
-  const foot = root.querySelector('.wd-foot');
-  if (foot.textContent) C.centred('the graduation line', textBox(foot, S), bust.cx);
-  const stack = ['.wd-side > .sa-band', '.wd-equip', '.wd-off', '.wd-close'].map(s => root.querySelector(s)).filter(shown).map(e => box(e, S));
-  C.edges('the detail band and the buttons', stack);
-  C.same('the window\'s margins (grid left, side right)', [union(tabs).l - win.l, win.r - stack[0].r]);
-  for (const p of root.querySelectorAll('.wd-side > .sa-pill')) if (shown(p)) { const pb = box(p, S), t = textBox(p.querySelector('span'), S); C.centred('button text ' + p.textContent, t, pb.cx); C.vcentred('button text ' + p.textContent, t, pb); }
+  if (shown(stateEl)) { const sb = box(stateEl, S); C.same('the try-on\'s state chip (16 px in)', [sb.l - bust.l, sb.t - bust.t, 16]); C.vcentred('the state chip\'s text', textBox(stateEl, S), sb); }
+  // the bust: on the try-on's foot, its top (where the tallest hair reaches) 8 px under the state chip
+  const wu = box(root.querySelector('.wd-wu'), S);
+  C.same('the bust on the try-on\'s foot', [wu.b, bust.b]);
+  if (shown(stateEl)) C.same('the bust under the state chip (8 px)', [wu.t - box(stateEl, S).b, 8]);
+  for (const p of root.querySelectorAll('.wd-side .wd-btn')) if (shown(p)) { const pb = box(p, S), t = textBox(p.querySelector('span'), S); C.vcentred('button text ' + p.textContent, t, pb); C.within('button ' + p.textContent, pb, side); }
+  const btns = [...root.querySelectorAll('.wd-actions .wd-btn')].filter(shown).map(e => box(e, S));
+  if (btns.length) { C.leftOn('the buttons (16 px in)', btns[0], side.l + 16); C.rightOn('the buttons (16 px in)', btns.at(-1), side.r - 16); }
   const head = root.querySelector('.wd-head'), rf = root.querySelector('.wd-info > .de-rf');
-  if (head && rf) C.vcentred('the item\'s art beside its name', box(rf, S), box(head, S));
+  if (head && rf) { C.vcentred('the item\'s art beside its name', box(head, S), box(rf, S)); C.leftOn('the item\'s art (16 px in)', box(rf, S), side.l + 16); }
 }
 // Card Swap's cosmetics (cosmetics/trade-cosmetics.js): each side's tiles on one row and one grid mirrored on its area's
 // centre (16 px from both edges, the Cosmetics button's face ending where the partner's last column does), the button

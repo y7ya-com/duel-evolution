@@ -47,8 +47,11 @@ export function errorText(error, extra = {}) {
         return `This item can only be worn in ${extra.worlds.map(w => WORLD_NAME[w] || `world ${w}`).join(' and ')}.`;
       return extra.notice || "Your character's body can't wear this item yet.";
     case 'not-owned': return "You don't own this item yet.";
-    case 'unowned-or-invalid-appearance': case 'invalid-appearance':
-      return "You can't wear that look yet: a rank uniform needs its dorm reached first.";
+    case 'slifer-until-lv5': return 'You can change out of the Slifer Red uniform at level 5.';
+    case 'rank-uniform-locked': return 'Reach this uniform’s dorm in ranked to unlock it.';
+    case 'appearance-not-owned': return "You don't own every item in that look yet.";
+    case 'unowned-or-invalid-appearance': return 'That look contains an unavailable or unowned part. Refresh the wardrobe and try again.';
+    case 'invalid-appearance': return 'That look contains an invalid avatar part or colour. Refresh the wardrobe and try again.';
     case 'server-restarting': return 'The server is restarting. Please try again in a few seconds.';
     case 'temporarily-unavailable': return 'The server is busy right now. Please try again in a moment.';
     case 'network': return "Couldn't reach the server. Check your connection and try again.";

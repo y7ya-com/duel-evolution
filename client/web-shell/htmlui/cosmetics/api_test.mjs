@@ -133,5 +133,10 @@ assert.deepEqual(calls[0].body, { world: 1, parts });
 assert.deepEqual(a1.appearance.parts, parts);
 assert.equal(ap.length, 1);
 replies = [json(403, { error: 'unowned-or-invalid-appearance' })];
-await assert.rejects(api.setAppearance(1, parts), e => e.error === 'unowned-or-invalid-appearance' && /dorm reached first/.test(e.message));
+await assert.rejects(api.setAppearance(1, parts), e => e.error === 'unowned-or-invalid-appearance' && /unavailable or unowned/.test(e.message));
 console.log('cosmetics/api ok');
+
+assert.match(api.errorText('slifer-until-lv5'), /level 5/);
+assert.match(api.errorText('rank-uniform-locked'), /ranked/);
+assert.match(api.errorText('appearance-not-owned'), /own every item/);
+assert.match(api.errorText('invalid-appearance'), /invalid avatar part/);
