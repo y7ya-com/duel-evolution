@@ -15,13 +15,14 @@ Windows only: Mac and Linux players use the browser.
 
 ## Updates
 
-At launch, behind the splash, the shell fetches `https://github.com/y7ya-com/duel-evolution/releases/latest/download/latest.json`, with
-5 seconds for the check. If that release is newer, it downloads the signed installer, runs it in passive mode
-(a progress bar, no questions) and relaunches. This happens before the game loads, so no session is cut short.
-Offline or on any error, it opens the game as it is.
+Players download from https://download.ygoevolution.com/, a separate Worker (`download/`) that redirects to the
+newest release's installer. At launch, behind the splash, the shell fetches `https://download.ygoevolution.com/latest.json`
+(GitHub's `releases/latest/download/latest.json` if that fails), with 5 seconds for the check. If that release is
+newer, it downloads the signed installer, runs it in passive mode (a progress bar, no questions) and relaunches.
+This happens before the game loads, so no session is cut short. Offline or on any error, it opens the game as it is.
 
 `releases/latest` is the repo's newest non-draft, non-prerelease release. Keep other releases drafts or
-prereleases, or point `endpoints` at a fixed URL.
+prereleases. Publishing a prerelease first and promoting it once tested is how a release goes out.
 
 ## Releasing
 

@@ -1,0 +1,9 @@
+{
+  // download.ygoevolution.com (worker.js). Deploy: `npx wrangler deploy` here (the OAuth login, not the API key).
+  "name": "duel-evolution-download",
+  "account_id": "b8772d7be936c70234ce641c0ec7728b", // the game server's account (server/wrangler.jsonc)
+  "main": "worker.js",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "download.ygoevolution.com", "custom_domain": true }]
+}

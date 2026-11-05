@@ -29,7 +29,10 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCRDM0MTlDODY1RjBEMDkKUldRSkRWK0duRUhURzZFaEVjSG9PNG5iYmRDZmJPd3RXcDA3SVh2eEU2d2Y3L1IxNUZJcEsrV3kK",
-      "endpoints": ["https://github.com/y7ya-com/duel-evolution/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://download.ygoevolution.com/latest.json",
+        "https://github.com/y7ya-com/duel-evolution/releases/latest/download/latest.json"
+      ],
       "windows": {
         "installMode": "passive"
       }
