@@ -72,7 +72,7 @@ assert n == 1
 s = s.replace('</title>', '</title>\n<meta name="yo2-build" content="%s">' % os.environ['BUILDID'], 1)
 open(p, 'w').write(s)
 PY
-echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
+echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(date -u -r $B/yo2rc.wasm '+%Y-%m-%d %H:%M:%S UTC')" > $O/BUILD.txt
 cat $O/BUILD.txt
 cp $C/web-shell/index.html $O/
 # for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
@@ -84,19 +84,45 @@ UI=$(cd $C/html-ui/assets && find . -type f ! -name '.*' | sed 's#^\./##' | sort
 [ -n "$UI" ] && [ -s $C/html-ui/assets/glyphs-dejavu16.json ] || { echo "no html-ui/assets (run infra/fetch-private.sh)"; exit 1; }
 for f in $UI; do mkdir -p $(dirname $O/ui/$f); cp $C/html-ui/assets/$f $O/ui/$f; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters
-up() {
-  for f in "$@"; do
-    [ -n "${DRY:-}" ] && { echo "would upload $X/$f ($(wc -c < $O/$f | tr -d ' ') bytes)"; continue; }
-    (cd $R/server && npx wrangler r2 object put "ygo-original/$X/$f" --file $O/$f --remote 2>&1) | grep -q "Upload complete" || { echo "upload $f failed"; exit 1; }
-    echo "uploaded $X/$f"
-  done
-}
-# each wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9 is
-# ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). Up before the page, checked live below like the rest.
-for f in $(grep '\.wasm$' $O/HASHED); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
-up $(grep '\.wasm$' $O/HASHED | sed 's/$/.br/') $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED) $(for f in $UI; do echo ui/$f; done)
 SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 md5() { python3 -c 'import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())'; }
+# Only what changed goes up. A release used to send every file one by one (~610 of them: ~17 min for a few changed
+# ones): each upload is its own wrangler process, ~1.5 s of start-up for milliseconds of transfer.
+# changed: the arguments $SITE doesn't already serve with this content (R2's ETag is the MD5 of a single-part upload;
+# a multipart one's never matches, so that file just goes up again), 16 HEADs at a time, under a User-Agent of our own
+# (the edge answers Python-urllib's with 403, which read as changed: everything went up); FORCE=1: all of them
+changed() {
+  if [ -z "$SITE" ] || [ -n "${FORCE:-}" ]; then printf '%s\n' "$@"; return; fi
+  python3 - "$SITE" "$O" "$@" <<'PY'
+import hashlib, sys, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+site, o, files = sys.argv[1], sys.argv[2], sys.argv[3:]
+def same(f):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f'{site}/{f}', method='HEAD', headers={'User-Agent': 'ship-client'}), timeout=20) as r:
+            tag = (r.headers.get('ETag') or '').strip('"')
+    except Exception:
+        return False
+    return tag == hashlib.md5(open(f'{o}/{f}', 'rb').read()).hexdigest()
+with ThreadPoolExecutor(16) as ex:
+    for f, s in zip(files, ex.map(same, files)):
+        if not s: print(f)
+PY
+}
+# up: the arguments to R2, 8 wrangler processes at a time; any failure stops the release before the page
+export R X O
+up() {
+  [ $# = 0 ] && return 0
+  if [ -n "${DRY:-}" ]; then for f in "$@"; do echo "would upload $X/$f ($(wc -c < $O/$f | tr -d ' ') bytes)"; done; return; fi
+  printf '%s\n' "$@" | xargs -P 8 -I{} sh -c '(cd "$R/server" && npx wrangler r2 object put "ygo-original/$X/$1" --file "$O/$1" --remote 2>&1) | grep -q "Upload complete" && echo "uploaded $X/$1" || { echo "upload $1 failed"; exit 255; }' _ {} \
+    || { echo "uploads failed: page not swapped"; exit 1; }
+}
+NEW=$(changed $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED) $(for f in $UI; do echo ui/$f; done))
+echo "$(printf '%s\n' $NEW | grep -c .) of $(( $(grep -c . $O/HASHED) + $(echo "$UI" | grep -c .) )) files changed"
+# each new wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9
+# is ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). An unchanged wasm's .br is live already (checked below).
+for f in $(printf '%s\n' $NEW | grep '\.wasm$'); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
+up $(printf '%s\n' $NEW | grep '\.wasm$' | sed 's/$/.br/') $NEW
 if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   for f in $(cat $O/HASHED); do
     [ "$(curl -sf "$SITE/$f" | md5)" = "$(md5 < $O/$f)" ] || { echo "live $SITE/$f does not match: page not swapped"; exit 1; }
@@ -106,4 +132,4 @@ if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   echo "hashed files live and checked"
 fi
 # the page last: yo2rc.html names the hashed files; index.html is what lets new browsers (phones) in
-up BUILD.txt robots.txt sitemap.txt yo2rc.html index.html
+up $(changed BUILD.txt robots.txt sitemap.txt yo2rc.html index.html)
