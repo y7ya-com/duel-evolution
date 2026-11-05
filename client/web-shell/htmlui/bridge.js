@@ -7,6 +7,7 @@
 // are native boxes (scrollbars.js) unless htmlui.json has "scrollbars": false or the page ?HTML_SCROLL=0.
 // Live: yo2Html.toggle(cls). Off = the engine draws it again from the next frame.
 // vtables.js is generated from include/yo2 (the snippet is in the htmlui-bridge commit that added it).
+import { writeClasses, WINDOWS } from './tables.js';
 import { read, extend } from './read.js';
 import { renderControl, syncWindow } from './controls/basic.js';
 import { loadGlyphs } from '../ui.js';
@@ -240,8 +241,11 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
   let initFailed = false, heldSince = 0, settledAt = 0;
+  let loadStarted = 0;
   const init = () => loading ||= (async () => {
+    loadStarted = performance.now();
     const mods = await loadScreens(undefined, switches(new URLSearchParams(location.search).get('HTML_SVELTE'), defaults.svelte || []));
+    legacy = mods;   // known owners while the layer loads: class holds obey the same HOLD deadline
     host = document.createElement('div');
     host.id = 'htmlui-host';
     document.body.append(host);
@@ -249,7 +253,6 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // preload(): a screen's own art (the menu bar's HD icons), there before its first window instead of swapped in
     // under it; it never fails the layer
     await Promise.all([...new Set(mods.values())].map(m => m.preload?.().catch(() => {})));
-    legacy = mods;
     ({ render } = layer);
     place();
   })().catch(e => { initFailed = true; console.warn('htmlui', e); });
@@ -370,12 +373,20 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let failed = 0;
   // never throws: this runs inside the game's Present, where an exception is a crash
   // slots: the runtime's table size, after a header word that holds it (htmlui.c checks the word is still there: an
-  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header
-  Module.onYo2Frame = (tables, heap, slots) => {
+  // older bridge's layout would overwrite it); no slots: an older runtime, 63, no header. classes: an optional
+  // appended count + primary-vtable table; no fourth argument means address-only suppression
+  Module.onYo2Frame = (tables, heap, slots, classes) => {
     SLOTS = slots || 63;
-    try { frame(slots ? tables + 4 : tables, heap); } catch (e) { if (failed++ < 5) console.warn('htmlui: frame failed', e); }
+    if (classes) new Uint32Array(heap.buffer)[classes >>> 2] = 0;
+    try { frame(slots ? tables + 4 : tables, heap, classes); } catch (e) {
+      // A broken layer must never leave class ownership latched in the runtime.
+      const H = new Uint32Array(heap.buffer), t = (slots ? tables + 4 : tables) >>> 2;
+      if (classes) H[classes >>> 2] = 0;
+      H[t] = H[t + 1 + SLOTS] = 0;
+      if (failed++ < 5) console.warn('htmlui: frame failed', e);
+    }
   };
-  function frame(tables, heap) {
+  function frame(tables, heap, classes) {
     if (!dv || dv.buffer !== heap.buffer) dv = new DataView(heap.buffer), H32 = new Uint32Array(heap.buffer);
     const snap = read(dv, ++frameNo, scene, { parts: wantParts });
     last = snap;
@@ -447,6 +458,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     }
     H[t + 1 + SLOTS] = Math.min(pass.length, SLOTS);
     pass.slice(0, SLOTS).forEach((id, i) => { H[t + 2 + SLOTS + i] = id; });
+    // Advertised separately: old runtimes keep their exact layout. Publish future owners too, while no instance
+    // exists yet; only primary vtables, never a control's secondary interface. A failed/late layer releases holds.
+    writeClasses(H, classes, SLOTS, c => want(c) && (screens.has(c) || WINDOWS.has(c)),
+      !!render || (!!loading && !initFailed && performance.now() - loadStarted < HOLD));
     for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i][0] <= frameNo) waiters.splice(i, 1)[0][1]();
   }
 
