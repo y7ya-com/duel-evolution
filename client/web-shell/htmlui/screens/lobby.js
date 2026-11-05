@@ -23,8 +23,11 @@ const CSS = `
     linear-gradient(to right, #0985ff 0, #7deffc 219px, #7deffc 100%); }
 .lb-shadow { color: #fff; text-shadow: 1px 0 #4a4a4a, -1px 0 #4a4a4a, 0 1px #4a4a4a, 0 -1px #4a4a4a; }   /* skin.js's outline */
 .lb-bar { position: absolute; left: 0; top: 0; width: 1024px; height: 32px;
-  background: ${STRIP.map(([y, h, stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${h}px no-repeat`).join(',\n    ')};
-  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat;
+  /* each row's band runs on to the bottom, under the rows after it (listed first: on top). 1-px bands edge to edge
+     left a seam at every row boundary at a fractional scale (the canvas showed through: dark lines, players'
+     screenshot); the field's hole sits under its border */
+  background: ${STRIP.toReversed().map(([y, , stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${32 - y}px no-repeat`).join(',\n    ')};
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 624px 16px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
 .lb-field { position: absolute; left: 391px; top: 7px; width: 626px; height: 18px; box-sizing: border-box;
   border: 1px solid #fff; background: rgba(255, 255, 255, .698); }
@@ -139,14 +142,16 @@ function icons() {
 }
 // The pictograms redrawn at 4x (menuicon_hd.png: the atlas's layout, 960 x 768, the plates left out: they are the CSS
 // above; Gemini image from the atlas's own cells, keyed and aligned to them: never in git, beside the atlas in the art
-// folder): sharp at any scale, so they replace the traced ones once loaded; until then (or without it) the traced ones
-let hd = null, hdLoading = false;
+// folder): sharp at any scale, so they replace the traced ones once loaded; until then (or without it) the traced ones.
+// The bridge waits for it (preload, below) before the first bar: the icons came up traced and changed under the player
+let hd = null, hdLoading = null;
 function hdSheet() {
   if (hd || hdLoading || typeof Image === 'undefined') return hd;
-  hdLoading = true;
   const url = ui.SHEET.window.url.replace(/[^/]*$/, '') + 'menuicon_hd.png', img = new Image();
-  img.onload = () => { hd = url; for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b); };
-  img.onerror = () => console.warn('htmlui lobby: no HD menu icons');
+  hdLoading = new Promise(done => {
+    img.onload = () => { hd = url; for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b); done(); };
+    img.onerror = () => { console.warn('htmlui lobby: no HD menu icons'); done(); };
+  });
   img.src = url;
   return null;
 }
@@ -179,7 +184,7 @@ export function noticeHole(win) {
   const x0 = Math.max(0, Math.floor(Math.min(...rs.map(r => r.x)) - 16)), x1 = Math.min(1024, Math.ceil(Math.max(...rs.map(r => r.x + r.w)) + 8));
   return x1 > x0 ? { x: x0, w: x1 - x0 } : null;
 }
-const BAR_MASK = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat';
+const BAR_MASK = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 624px 16px no-repeat';
 function menuBar(win, root, st) {
   bars.add(st);
   const hole = noticeHole(win), strip = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
@@ -421,6 +426,7 @@ export default {
   mode: 'pass',
   clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, the Duel tab over the card
   parts: true,   // the cards' planes: their sprites' drawn colours
+  preload: () => (hdSheet(), hdLoading || Promise.resolve()),
   mount: (win) => { inject(); return { id: win.id }; },
   // what the engine keeps drawing: the cards' extras (flag, pictures), the bar's notice icons, with their subtrees
   passthrough: (x, parent) => [...kept.values()].some(k => k.has(x.id) || (parent && k.has(parent.id))),
