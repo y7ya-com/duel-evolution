@@ -201,7 +201,8 @@ function catalog(): CosmeticFamily[] {
     const [box, keyId, name, rarity] = def, id = `${box}:${keyId}`;
     let family = families.get(id);
     if (!family) families.set(id, family = { id, name, kind: box, rarity, slot, variants: [], ...(artwork ? { artwork } : {}) });
-    family.variants.push({ gender: kind === 1 ? "male" : "female", bit: Number(key), number, worlds: avatarRowWorlds(row) });
+    // one look for both worlds (owner, 2026-11-05): every item is worn in either (npcs.ts keeps avatarRowWorlds for NPCs)
+    family.variants.push({ gender: kind === 1 ? "male" : "female", bit: Number(key), number, worlds: [0, 1] });
   }
   return [...families.values()];
 }

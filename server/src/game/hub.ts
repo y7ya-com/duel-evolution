@@ -6,7 +6,7 @@ import { accountId, legacyId } from "../util/cifrado.ts";
 import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
 import { modeAgrees } from "./freemode.ts";
-import { avatarParts, profile } from "./persist.ts";
+import { avatarParts, profile, setLook } from "./persist.ts";
 import { entryKind } from "./gate.ts";
 import { lawfulLook, syncCosmeticOwnership } from "./cosmetics.ts";
 
@@ -243,13 +243,11 @@ export class Hub {
       const before = JSON.stringify([p.pbin, p.avatar]);
       syncCosmeticOwnership(this.g, s, p);
       s.partsW.clear();
-      for (const world of [0, 1]) {
-        // a look the world rule forbids (a saved look from before a rule change) comes back with the slot's defaults;
-        // rank unlocks and graduation are for good, so a rank never takes one back
-        const look = lawfulLook(p, world, avatarParts(p, world));
-        if (look.changed && typeof p.avatar?.[world === 0 ? "a" : "b"] === "string") p.avatar[world === 0 ? "a" : "b"] = Buffer.from(look.parts).toString("hex");
-        s.partsW.set(world, look.changed ? look.parts : avatarParts(p, world));
-      }
+      // one look for both worlds (owner, 2026-11-05; persist.ts unifyLook migrates two different saved looks); a part
+      // the rank rule forbids comes back with the slot's default (rank unlocks are for good: this never takes one back)
+      const look = lawfulLook(p, 1, avatarParts(p, 1));
+      if (look.changed && typeof p.avatar?.a === "string") setLook(p, look.parts);
+      for (const world of [0, 1]) s.partsW.set(world, look.changed ? look.parts : avatarParts(p, world));
       if (before !== JSON.stringify([p.pbin, p.avatar])) this.g.saveState(st);
       s.parts = s.partsW.get(s.world ?? 1)!;
     });
@@ -471,9 +469,10 @@ export class Hub {
       s.world = new DataView(data.buffer, data.byteOffset).getUint32(0) & 0xff;
       const was = s.partsW.get(s.world);
       s.parts = data.slice(4, 20);
-      s.partsW.set(s.world, s.parts);
+      // one look for both worlds (owner, 2026-11-05): both copies, and the others' clients get both worlds' copy
+      s.partsW.set(0, s.parts); s.partsW.set(1, s.parts);
       if (inblock) {
-        for (const o of this.others(s)) this.post(o, 0x4181, cat(new W().u32(s.pid!).u32(s.world).bytes(), s.parts));
+        for (const o of this.others(s)) for (const w of [0, 1]) this.post(o, 0x4181, cat(new W().u32(s.pid!).u32(w).bytes(), s.parts));
         if (was && !sameBytes(was, s.parts)) this.redraw(s);
       }
     } else if (msgId === 0x4172 && data.length >= 33) {

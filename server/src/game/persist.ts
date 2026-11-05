@@ -158,6 +158,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     progressionReset(p);
     legacyBind(p);
     if (Array.isArray(p.pbin)) p.pbin = expandCosmeticBits(p.pbin);
+    unifyLook(p);   // one look for both worlds (2026-11-05): a character saved with two keeps one
   }
   return p;
 }
@@ -472,8 +473,28 @@ export function pbinBytes(p: P, rank?: { bestSchool: RankSchool; graduated: bool
 export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit));
 
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
-/** Protocol world 0 = Domino (a), 1 = Academy (b). Never borrow the other world's uniform. */
+const LOOK_HEX = /^[0-9a-f]{32}$/i;
+/** One look per character (owner, 2026-11-05: no Domino / Academy split): p.avatar.a and .b, the protocol's world 0
+ *  and 1 copies, are kept the same. A character saved with two different looks keeps the one of the world it was
+ *  last in (p.avatar.w, recorded from then on), else Domino's (a). -> whether it changed p. */
+export function unifyLook(p: P): boolean {
+  const v = p?.avatar;
+  if (!v || typeof v !== "object") return false;
+  const a = typeof v.a === "string" && LOOK_HEX.test(v.a) ? v.a.toLowerCase() : null, b = typeof v.b === "string" && LOOK_HEX.test(v.b) ? v.b.toLowerCase() : null;
+  const keep = a && b ? (v.w === 1 ? b : a) : a || b;
+  if (!keep || (v.a === keep && v.b === keep)) return false;
+  v.a = keep; v.b = keep;
+  return true;
+}
+/** The character's one look, written for both worlds; `world`: the world it was put on in (the last world). */
+export function setLook(p: P, parts: Uint8Array, world?: number): void {
+  const hex = Buffer.from(parts).toString("hex");
+  p.avatar = { ...(p.avatar ?? {}), a: hex, b: hex, ...(world === 0 || world === 1 ? { w: world } : {}) };
+}
+/** The look for protocol world 0 (Domino) or 1 (Academy): the character's one look either way. A character with no
+ *  saved look yet gets the world's default (the Academy's red uniform and disk). */
 export function avatarParts(p: P, world: number): Uint8Array {
+  unifyLook(p);
   const saved = p.avatar?.[world === 1 ? "b" : "a"];
   if (typeof saved === "string" && /^[0-9a-f]{32}$/i.test(saved)) return new Uint8Array(Buffer.from(saved, "hex"));
   const parts = new Uint8Array(Buffer.from("0000203040607090b020000000000000", "hex"));
@@ -1133,7 +1154,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       if (data.length >= 20) {
         const st = g.loadState(); const p = profile(st, activeSlot(st))!;
         const style = new DataView(data.buffer, data.byteOffset).getUint32(0);
-        (p.avatar ??= {})[style === 0 ? "a" : "b"] = Buffer.from(data.subarray(4, 20)).toString("hex");
+        setLook(p, data.subarray(4, 20), style === 0 ? 0 : 1);   // one look for both worlds
         g.saveState(st);
       }
       c.send(0x4171, new W().u32(0).bytes());

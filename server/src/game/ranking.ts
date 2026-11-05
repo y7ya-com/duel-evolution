@@ -18,7 +18,7 @@
 // the rank is the same in both: nothing here (or in pvpMatch.rate) reads the world. The record lives on the character, p.rank (D1 state_extras, like p.econ: no migration); one per slot.
 // Pure: no store, no clock.
 import { createHash } from "node:crypto";
-import { AVATAR_ROWS, avatarRowWorlds } from "./cosmetics-catalog.ts";
+import { AVATAR_ROWS } from "./cosmetics-catalog.ts";
 
 // ─────────────────────────────── Glicko-2 (duelforge glicko2.ts, verbatim math) ───────────────────────────────
 export interface Glicko { rating: number; rd: number; vol: number }
@@ -214,13 +214,13 @@ export function gradProgress(p: { grad?: unknown; rec?: { lv?: unknown } } | nul
   return { level: Number.isFinite(lv) ? lv : 1, levelRequired: GRADUATION_LEVEL, opponents: gradOf(p).n, opponentsRequired: GRAD_OPPONENTS };
 }
 
-/** The world and rank rule for one avatar_pbin row (ownership is checked separately): its worlds
- *  (avatarRowWorlds), any outfit in either world for a graduated student, and a rank uniform only once its school
- *  was reached (`bestSchool`: Rank.best). */
+/** The rank rule for one avatar_pbin row (ownership is checked separately): a rank uniform only once its school was
+ *  reached (`bestSchool`: Rank.best). There is no world rule any more (owner, 2026-11-05): a character has one look,
+ *  worn in both worlds, so `world` is not read. */
 export function rankRowAllowed(bit: number, world: number, view: { bestSchool: RankSchool; graduated: boolean }): boolean {
   const row = AVATAR_ROWS[String(bit)];
   if (!row) return false;
-  if (!avatarRowWorlds(row).includes(world) && !(view.graduated && row[3] === 6)) return false;
+  void world;   // one look for both worlds (owner, 2026-11-05): no world rule; only the dorm uniforms' rank gate
   return uniformAllowed(bit, view.bestSchool);
 }
 

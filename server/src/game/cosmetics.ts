@@ -301,16 +301,14 @@ export function cosmeticEquip(g: Game, who: string | Session, body: unknown) {
   if (!l.owned.includes(item.id)) return fail("not-owned", 403);
   if (!item.variants.some((v) => v.gender === gender))
     return fail("no-compatible-variant", 409, { reason: "body", id: item.id, bodies: itemBodies(item), notice: bodyNotice(item) });
-  // A graduated student may wear any owned outfit in either world (ranking.ts GRADUATION_LEVEL).
-  const graduated = item.slot === 6 && rankView(p).graduated;
-  // the body's first variant is the item's own (Afro: Afro I's row; the merged sizes stay wearable, see MERGED_FAMILIES)
-  const variant = item.variants.find((v) => v.gender === gender && (v.worlds.includes(world) || graduated));
-  if (!variant) return fail("no-compatible-variant", 409, { reason: "world", id: item.id, worlds: item.variants.find((v) => v.gender === gender)!.worlds });
+  // the body's first variant is the item's own (Afro: Afro I's row; the merged sizes stay wearable, see MERGED_FAMILIES);
+  // one look for both worlds (owner, 2026-11-05): no world rule
+  const variant = item.variants.find((v) => v.gender === gender)!;
   project(p, l); parts[item.slot] = variant.number;
-  (p.avatar ??= {})[world === 0 ? "a" : "b"] = Buffer.from(parts).toString("hex");
+  PP.setLook(p, parts, world);
   g.store.commit({}, { [s.acct]: a });
   pushOwnership(g, s, p);
-  showLooks(g, s, [{ world, parts }]);
+  showLooks(g, s, [{ world: 0, parts }, { world: 1, parts }]);
   return { ...state(g, s, a, l), equipped: { id: item.id, world, parts: [...parts] } };
 }
 /** `body` resolves an old paired id from a stale client to the half that account's copies went to. */
@@ -501,9 +499,11 @@ export function cosmeticAppearance(g: Game, who: string | Session, body: unknown
     updates.push({ world, parts });
   }
   if (!updates.length) return fail("bad-request", 400);
-  for (const u of updates) (p.avatar ??= {})[u.world === 0 ? "a" : "b"] = Buffer.from(u.parts).toString("hex");
+  // one look for both worlds (owner, 2026-11-05): the last update (the parts asked for, else the new body's) is it
+  const look = updates[updates.length - 1].parts;
+  PP.setLook(p, look, world as number);
   g.store.commit({}, { [s.acct]: a }); pushOwnership(g, s, p);
-  showLooks(g, s, updates);
+  showLooks(g, s, [{ world: 0, parts: look }, { world: 1, parts: look }]);
   return { ...state(g, s, a, l), appearanceUpdated: true };
 }
 /** New looks to the player's own client (0x4181 with its own pid) and to everyone in its block: the world it is in
@@ -524,14 +524,17 @@ function showLooks(g: Game, s: Session, updates: { world: number; parts: Uint8Ar
     }
   }
 }
-/** The first default row of this body and slot that may be worn in `world` (the world's default outfit, 0x70 / 0x80). */
+/** The Slifer Red uniform's part number (both bodies): the dorm uniform everyone may wear. */
+const SLIFER = 0x80;
+/** The first default row of this body and slot this character may wear (a body change's stand-in for a part with no
+ *  version for the new body). One look for both worlds (owner, 2026-11-05): `world` is not a rule any more. */
 function fallbackRow(p: PP.P, gender: number, slot: number, world: number, view: RankView) {
   return Object.entries(AVATAR_ROWS).find(([bit, row]) => row[1] && row[2] === gender + 1 && row[3] === slot && rowAllowed(p, Number(bit), world, view))?.[1];
 }
-/** A look checked against the world and rank rules. `owned` false: some part is not this character's (the caller
- *  refuses the whole look, as before). Otherwise every part the rules forbid (a Domino outfit in the Academy for a
- *  student not graduated, a uniform of a school never reached) is replaced by the slot's default; `changed` says if
- *  any was. Rank unlocks and graduation are for good, so a look that passed once always passes again. */
+/** A look checked against the rank rule. `owned` false: some part is not this character's (the caller refuses the
+ *  whole look, as before). Otherwise a dorm uniform of a school never reached is replaced by Slifer Red;
+ *  `changed` says if any part was. There is no world rule (one look for both worlds, owner 2026-11-05), and rank
+ *  unlocks are for good, so a look that passed once always passes again. */
 export function lawfulLook(p: PP.P, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
   const out = parts.slice(), view = rankView(p), w = world === 0 ? 0 : 1;
   if (!PP.avatarOwned(p, parts)) return { owned: false, changed: false, parts: out };
@@ -542,7 +545,9 @@ export function lawfulLook(p: PP.P, world: number, parts: Uint8Array): { owned: 
     if ([2, 9].includes(i) && out[i] === 32) continue;
     const bit = base + out[i], row = AVATAR_ROWS[String(bit)];
     if (!row || row[3] !== i || row[2] !== kind || rankRowAllowed(bit, w, view)) continue;   // not an item of the slot: the client's own check
-    const fallback = fallbackRow(p, out[0], i, w, view);
+    // the clothes (a dorm uniform of a school not reached): Slifer Red, the uniform everyone may wear
+    const slifer = AVATAR_ROWS[String(base + SLIFER)];
+    const fallback = i === 6 && slifer?.[3] === 6 ? slifer : fallbackRow(p, out[0], i, w, view);
     out[i] = fallback?.[0] ?? ([2, 9].includes(i) ? 32 : out[i]);
     changed = true;
   }

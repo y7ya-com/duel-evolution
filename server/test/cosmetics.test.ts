@@ -170,15 +170,18 @@ describe("a design owns every real body equivalent", () => {
     expect(pbin).toHaveBeenCalledWith(0x3114, expect.any(Uint8Array));
     expect(f.sessions[0].messages.some(([id, bytes]) => id === 0x4181 && bytes.length === 24 && bytes[8] === 1 && bytes[14] === 0x77)).toBe(true);
   });
-  it("updates an inactive world's appearance without changing the visible current world", () => {
+  it("one look: equipping from the other world changes both worlds' looks, the visible current one too", () => {
     const f = fixture(); f.a.world = 1;
     mutate(f, st => { st.accounts.alice.profiles["0"].pbin.push(119); });
     cosmeticInfo(f.game, f.a);
     const current = new Uint8Array(16); current[6] = 0x80; f.a.parts = current;
     const out = cosmeticEquip(f.game, f.a, { id: "outfit:black-suit", world: 0 }) as any;
-    expect(out.equipped.parts[6]).toBe(0x77); expect(f.a.world).toBe(1); expect(f.a.parts).toEqual(current);
-    expect(f.a.partsW.get(0)?.[6]).toBe(0x77);
-    expect(cosmeticEquip(f.game, f.a, { id: "outfit:black-suit", world: 1 })).toMatchObject({ error: "no-compatible-variant" });
+    expect(out.equipped.parts[6]).toBe(0x77); expect(f.a.world).toBe(1); expect(f.a.parts[6]).toBe(0x77);
+    expect([f.a.partsW.get(0)?.[6], f.a.partsW.get(1)?.[6]]).toEqual([0x77, 0x77]);
+    const saved = raw(f).accounts.alice.profiles["0"].avatar;
+    expect(saved.a).toBe(saved.b); expect(saved.w).toBe(0);                  // both copies; the world it was put on in
+    expect(cosmeticEquip(f.game, f.a, { id: "outfit:black-suit", world: 1 })).toMatchObject({ equipped: { id: "outfit:black-suit" } });
+    expect(raw(f).accounts.alice.profiles["0"].avatar.w).toBe(1);
   });
   it("has no free default migration or tradable copy for counterpart projection on a new character", () => {
     const f = fixture(); mutate(f, st => { st.accounts.alice.profiles["0"].pbin.push(119); });
@@ -520,13 +523,9 @@ describe("2026-11 owner rules: split pairs, single-body drops, rarities, worlds 
     const out = cosmeticEquip(f.game, f.a, { id: "outfit:fitted-duelist", world: 0 }) as any; // male: Yami Yugi's garms
     expect(out).toMatchObject({ equipped: { id: "outfit:yugi", parts: expect.any(Array) } }); expect(out.equipped.parts[6]).toBe(0x79);
   });
-  it("worlds: every disk and every Academy outfit in both worlds, Domino outfits in Domino only", () => {
-    for (const item of COSMETICS) for (const v of item.variants) {
-      const series = AVATAR_ROWS[String(v.bit)][5];
-      const want = item.kind === "dueldisk" ? [0, 1] : item.kind === "outfit" ? (item.artwork!.startsWith("ac_") ? [0, 1] : [0]) : series === 1 ? [0, 1] : series === 2 ? [0] : [1];
-      expect(v.worlds, `${item.id} ${v.bit}`).toEqual(want);
-    }
-    expect(COSMETIC_BY_ID.get("outfit:qualifier-robe")!.variants.map((v) => v.worlds)).toEqual([[0], [0]]); // its row says series 1
+  it("worlds: one look for both worlds, every item (Domino outfits too) worn in either", () => {
+    for (const item of COSMETICS) for (const v of item.variants) expect(v.worlds, `${item.id} ${v.bit}`).toEqual([0, 1]);
+    expect(COSMETIC_BY_ID.get("outfit:qualifier-robe")!.variants.map((v) => v.worlds)).toEqual([[0, 1], [0, 1]]);
     const f = fixture();
     mutate(f, st => { st.accounts.alice.profiles["0"].pbin.push(177, 187, 135, 119, 120); });
     cosmeticInfo(f.game, f.a);
@@ -537,22 +536,26 @@ describe("2026-11 owner rules: split pairs, single-body drops, rarities, worlds 
     }
     const academy = cosmeticEquip(f.game, f.a, { id: "outfit:jaden", world: 0 }) as any;
     expect(academy.error).toBeUndefined(); expect(academy.equipped.parts[6]).toBe(0x87);
-    for (const id of ["outfit:black-suit", "outfit:qualifier-robe"])
-      expect(cosmeticEquip(f.game, f.a, { id, world: 1 })).toMatchObject({ error: "no-compatible-variant", reason: "world", worlds: [0] });
+    for (const [id, value] of [["outfit:black-suit", 0x77], ["outfit:qualifier-robe", 0x78]] as const) {
+      const out = cosmeticEquip(f.game, f.a, { id, world: 1 }) as any;           // a Domino outfit in the Academy
+      expect(out.error, id).toBeUndefined(); expect(out.equipped.parts[6]).toBe(value);
+      for (const world of [0, 1]) expect(PP.avatarParts(raw(f).accounts.alice.profiles["0"], world)[6]).toBe(value);
+    }
     const info = cosmeticInfo(f.game, f.a) as any;
     const values = (world: string, slot: number) => info.appearanceOptionsByWorld[world].find((o: any) => o.index === slot).choices.map((c: any) => c.value);
-    expect(values("0", 6)).toEqual(expect.arrayContaining([0x70, 0x77, 0x78, 0x80, 0x87])); expect(values("1", 6)).not.toContain(0x77);
+    for (const w of ["0", "1"]) expect(values(w, 6)).toEqual(expect.arrayContaining([0x70, 0x77, 0x78, 0x80, 0x87]));
     expect(values("0", 8)).toEqual(expect.arrayContaining([0xb0, 0xb1, 0xb8, 0xbb])); expect(values("1", 8)).toEqual(expect.arrayContaining([0xb0, 0xb1, 0xb8, 0xbb]));
-    // The full-look editor and the native ownership check agree: an allowed look is kept, a Domino outfit in Academy is not.
+    // The full-look editor and the native ownership check agree: an owned look is kept in either world, a Domino outfit in the Academy too.
     const look = info.appearance.looks["0"].slice(); look[6] = 0x87; look[8] = 0xb8;
     expect(cosmeticAppearance(f.game, f.a, { world: 0, parts: look })).toMatchObject({ appearanceUpdated: true });
     const academyLook = info.appearance.looks["1"].slice(); academyLook[6] = 0x78; academyLook[8] = 0xb1;
-    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts: academyLook })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.game, f.a, { world: 1, parts: academyLook })).toMatchObject({ appearanceUpdated: true });
+    expect([...PP.avatarParts(raw(f).accounts.alice.profiles["0"], 0)]).toEqual([...academyLook]);   // the one look, both worlds
     academyLook[6] = 0x80;
     expect(cosmeticAppearance(f.game, f.a, { world: 1, parts: academyLook })).toMatchObject({ appearanceUpdated: true });
-    // A body change keeps a both-worlds disk in both looks instead of resetting it.
+    // A body change keeps the disk instead of resetting it, the same look in both worlds.
     const switched = cosmeticAppearance(f.game, f.a, { gender: "female" }) as any;
-    expect(switched.error).toBeUndefined(); expect(switched.appearance.looks["0"][8]).toBe(0xb8); expect(switched.appearance.looks["1"][8]).toBe(0xb1);
+    expect(switched.error).toBeUndefined(); expect(switched.appearance.looks["0"][8]).toBe(0xb1); expect(switched.appearance.looks["1"]).toEqual(switched.appearance.looks["0"]);
   });
 });
 

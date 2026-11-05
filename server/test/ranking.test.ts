@@ -237,21 +237,26 @@ describe("graduated students (LV GRADUATION_LEVEL)", () => {
     expect((cosmeticInfo(f.g, f.b) as any).rank).toMatchObject({ graduated: false,
       graduation: { level: expect.any(Number), levelRequired: 20, opponents: 0, opponentsRequired: 25 } });
   });
-  it("may wear a Domino outfit in the Academy (equip, full look); a student not graduated is refused", () => {
+  it("anyone may wear an owned Domino outfit in the Academy (equip, full look), graduated or not; one look in both worlds", () => {
     const f = fixture();
     graduate(f, "alice"); graduate(f, "bob", RK.GRADUATION_LEVEL - 1);
     f.mutate((st) => { for (const n of ["alice", "bob"]) st.accounts[n].profiles["0"].pbin.push(119); });   // Black Suit (Domino)
     const ia = cosmeticInfo(f.g, f.a) as any, ib = cosmeticInfo(f.g, f.b) as any;
-    expect(choices(ia, "1", 6)).toEqual(expect.arrayContaining([0x70, 0x77, 0x80])); expect(choices(ib, "1", 6)).not.toContain(0x77);
-    expect(choices(ia, "1", 6)).not.toContain(0x82);                         // graduation is not a school: Obelisk Blue still needs Obelisk
-    const out = cosmeticEquip(f.g, f.a, { id: "outfit:black-suit", world: 1 }) as any;
-    expect(out.error).toBeUndefined(); expect(out.equipped.parts[6]).toBe(0x77); expect(look(f, "alice", 1)[6]).toBe(0x77);
-    expect(cosmeticEquip(f.g, f.b, { id: "outfit:black-suit", world: 1 })).toMatchObject({ error: "no-compatible-variant", reason: "world" });
+    for (const i of [ia, ib]) {
+      expect(choices(i, "1", 6)).toEqual(expect.arrayContaining([0x70, 0x77, 0x80]));
+      expect(choices(i, "1", 6)).not.toContain(0x82);                        // graduation is not a school: Obelisk Blue still needs Obelisk
+    }
+    for (const [s, n] of [[f.a, "alice"], [f.b, "bob"]] as const) {
+      const out = cosmeticEquip(f.g, s, { id: "outfit:black-suit", world: 1 }) as any;
+      expect(out.error).toBeUndefined(); expect(out.equipped.parts[6]).toBe(0x77);
+      expect([look(f, n, 0)[6], look(f, n, 1)[6]]).toEqual([0x77, 0x77]);
+    }
     const parts = ib.appearance.looks["1"].slice(); parts[6] = 0x70;          // Domino: White, a default row
-    expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
-    expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
+    expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ appearanceUpdated: true });
+    expect([look(f, "bob", 0)[6], look(f, "bob", 1)[6]]).toEqual([0x70, 0x70]);
     parts[6] = 0x78;                                                          // QUALIFIER's Robe: not owned, graduated or not
     expect(cosmeticAppearance(f.g, f.a, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
+    expect(cosmeticAppearance(f.g, f.b, { world: 1, parts })).toMatchObject({ error: "unowned-or-invalid-appearance" });
   });
   it("a demotion takes nothing back: no look reset, no re-dress, the uniform still in both worlds", () => {
     const f = fixture();
@@ -266,15 +271,17 @@ describe("graduated students (LV GRADUATION_LEVEL)", () => {
     const parts = look(f, "alice", 0); parts[6] = 0x81;                      // Ra Yellow, in Domino
     expect(cosmeticAppearance(f.g, f.a, { world: 0, parts })).toMatchObject({ appearanceUpdated: true });
     f.g.hub.select(f.a.lobby as any, 0, 0, "alice");                         // and at character select
-    expect([f.a.partsW.get(0)![6], f.a.partsW.get(1)![6]]).toEqual([0x81, 0x82]);
+    expect([f.a.partsW.get(0)![6], f.a.partsW.get(1)![6]]).toEqual([0x81, 0x81]);   // one look: both worlds
   });
   it("a uniform never reached is still put right at character select (a saved look from an old client)", () => {
     const f = fixture();
     f.mutate((st) => { st.accounts.alice.profiles["0"].avatar = { b: "0000203040608290b820000000000000" }; });   // Obelisk Blue, a Beginner
     f.g.hub.select(f.a.lobby as any, 0, 0, "alice");
-    expect(f.a.partsW.get(1)![6]).toBe(0x80); expect(f.a.parts[6]).toBe(0x80);
-    expect(look(f, "alice", 1)[6]).toBe(0x80);
-    expect(f.raw().accounts.alice.profiles["0"].avatar.a).toBeUndefined();   // an unsaved look stays unsaved
+    // Slifer Red, the uniform everyone may wear (no world rule any more), in both worlds
+    expect([f.a.partsW.get(0)![6], f.a.partsW.get(1)![6]]).toEqual([0x80, 0x80]); expect(f.a.parts[6]).toBe(0x80);
+    expect([look(f, "alice", 0)[6], look(f, "alice", 1)[6]]).toEqual([0x80, 0x80]);
+    const saved = f.raw().accounts.alice.profiles["0"].avatar;               // the one look, corrected, for both worlds
+    expect([saved.a, saved.b]).toEqual(["0000203040608090b820000000000000", "0000203040608090b820000000000000"]);
   });
 });
 
@@ -286,27 +293,28 @@ describe("the native 0x4170 (the 2008 editor, room entry)", () => {
     await h.tick(200);
     return { self: a.room!.all(0x4181, n).map((d: Uint8Array) => [...d.subarray(8)]), others: b.room!.all(0x4181, nb).map((d: Uint8Array) => [...d.subarray(8)]) };
   };
-  it("a uniform of a school not reached, or a Domino outfit in the Academy, is kept and shown as the default; with the rank or graduation it goes through", async () => {
+  it("a uniform of a school not reached is kept and shown as the default, with the rank it goes through; a Domino outfit in the Academy goes through (one look)", async () => {
     const h = harness({ players: {} }, { DEV: "0" });
     const a = h.client("alice", "alice", "pw", "user-a"), b = h.client("bob", "bob", "pw", "user-b");
     await a.account(0, "Alice"); await b.account(0, "Bob");
     await a.enterRoom(); await b.enterRoom();
-    const A = "u:user-a", stored = () => h.state().accounts[A].profiles["0"].avatar.b as string;
+    const A = "u:user-a", stored = () => {
+      const v = h.state().accounts[A].profiles["0"].avatar;
+      expect(v.a).toBe(v.b);                                                 // one look: both worlds' copies the same
+      return v.b as string;
+    };
     const parts = Uint8Array.from([0, 0x00, 0x20, 0x30, 0x40, 0x60, 0x82, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0]);   // Obelisk Blue
-    const fixed = parts.slice(); fixed[6] = 0x80;
+    const fixed = parts.slice(); fixed[6] = 0x80;                            // Slifer Red, the uniform everyone may wear
     let r = await send(h, a, b, 1, parts);
     expect(stored()).toBe(Buffer.from(fixed).toString("hex"));
-    expect(r.others).toEqual([[...fixed]]); expect(r.self).toEqual([[...fixed]]);
+    expect(r.others).toEqual([[...fixed], [...fixed]]); expect(r.self).toEqual([[...fixed]]);
     const edit = (fn: (st: any) => void) => { const st = h.state(); fn(st); h.game.store.saveRaw(st); };
     edit((st) => { st.accounts[A].profiles["0"].rank = placed(1900, { last: Date.now() }); });
     r = await send(h, a, b, 1, parts);
-    expect(stored()).toBe(Buffer.from(parts).toString("hex")); expect(r.others).toEqual([[...parts]]); expect(r.self).toEqual([]);
-    const domino = parts.slice(); domino[6] = 0x70;                          // Domino: White in the Academy
+    expect(stored()).toBe(Buffer.from(parts).toString("hex")); expect(r.others).toEqual([[...parts], [...parts]]); expect(r.self).toEqual([]);
+    const domino = parts.slice(); domino[6] = 0x70;                          // Domino: White in the Academy, not graduated
     r = await send(h, a, b, 1, domino);
-    expect(stored()).toBe(Buffer.from(fixed).toString("hex")); expect(r.others).toEqual([[...fixed]]);
-    edit((st) => { Object.assign(st.accounts[A].profiles["0"], { graduated: 1 }); st.accounts[A].profiles["0"].rec.lv = RK.GRADUATION_LEVEL; });
-    r = await send(h, a, b, 1, domino);                                       // alice has graduated
-    expect(stored()).toBe(Buffer.from(domino).toString("hex")); expect(r.others).toEqual([[...domino]]);
+    expect(stored()).toBe(Buffer.from(domino).toString("hex")); expect(r.others).toEqual([[...domino], [...domino]]); expect(r.self).toEqual([]);
   });
 });
 

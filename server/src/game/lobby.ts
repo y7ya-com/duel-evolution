@@ -1073,7 +1073,8 @@ function avatarInfo(g: Game, pid: number): Uint8Array {
   return new W().u32(0).u32(pid).s(myName(g), 16).u16(400).u16(300).u8(0).bytes();
 }
 
-/** 0x4170's look against this character: ownership, then the world and rank rules (cosmetics.ts lawfulLook). */
+/** 0x4170's look against this character: ownership, then the dorm uniforms' rank rule (cosmetics.ts lawfulLook; no world
+ *  rule: one look for both worlds). */
 function avatarCheck(g: Game, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
   try {
     const st = g.loadState(), p = PP.profile(st, PP.activeSlot(st), false);
@@ -1101,9 +1102,9 @@ export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data:
       return;
     }
     if (look.changed) {
-      // a part the world or rank rule forbids (a Domino outfit in the Academy for a student not graduated, a school
-      // uniform never reached): the slot's default is kept and shown instead, and the player's client told so below
-      g.log(`[avatar] 0x4170 with parts the world or rank rule forbids: kept with the defaults`);
+      // a dorm uniform of a school never reached (the rank rule; there is no world rule): Slifer Red is kept and shown
+      // instead, and the player's client told so below
+      g.log(`[avatar] 0x4170 with a uniform the rank rule forbids: kept with Slifer Red`);
       data = cat(data.subarray(0, 4), look.parts, data.subarray(20));
       corrected = look.parts;
     }

@@ -235,6 +235,8 @@ Excluded for having only one body: Quiff I-III, Bald, Ponytail, Plaster (slot 2)
 Kaiba, Joey, the fitted-duelist (Yugi/Tea) design, and every `ac_*` costume. Every disk has both bodies, but 12 equip
 only in Domino and 15 only in Academy (`worlds`). A player who only uses one world therefore cannot wear about half of
 the disk drops there.
+(Superseded on 2026-11-05: a character has one look for both worlds and every item is worn in either, so every disk
+drop is wearable everywhere; see `WORLDS.md` section 5.)
 (Since then single-body items drop for both bodies too, and on 2026-11-05 Shaved Hair became **Bald**, Rare, and
 Bakura's Garms **Bakura's Eyepatch**: the live pool and its odds are `cosmetics-catalog.ts`'s, disclosed in the shop.)
 
@@ -297,7 +299,8 @@ Deployed catalog, projected pools (cross-check):
   - Outfits: 10,000 direct vs 14,150-15,720.
   - Without protection, the premium is 1.7-4.9x, worst for the disk box.
 - **If protection is not adopted:** use the proposed odds and pity anyway, and consider a disk box per world (Domino
-  12, Academy 15). That halves the pool and also fixes the unwearable-drop problem.
+  12, Academy 15). That halves the pool and also fixes the unwearable-drop problem. (Moot since 2026-11-05: no world
+  rule, every disk is worn in both worlds.)
 
 ## 8. Recommendations
 

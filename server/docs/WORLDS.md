@@ -42,7 +42,8 @@ Paths below are repo-relative. "Inference" marks anything no source states.
   - It let Konami ship each era's cast, outfits and events as content drops. Domino's famous NPCs were added in
     2007-2008.
   - It gave the Academy a school-progression fantasy: start in the Beginner's Lobby, then dorm uniforms by level.
-- The revival already merged the two into **one connected world**. The look stays per world.
+- The revival already merged the two into **one connected world**. Since 2026-11-05 it also has **one look**: a
+  character wears the same look in both worlds (section 5).
 - **Recommendation:** keep one character and one progression. Give each world a role:
   - **the Academy is the ranked school:** rated ladder, dorm uniforms by rating, the top 1% "star students" dress
     freely;
@@ -174,11 +175,11 @@ Paths below are repo-relative. "Inference" marks anything no source states.
 | Travel | **Ship crossing:** Domino Pier's gangway lands on the Slifer Red dorm's sea cliff, and back. The blocklist gives each other-world area that world's main kind, so walking across switches the avatar's world. | My Room doors only | `client/recomp/ovr/crossing.c:1-9`; `hub.ts:305-308` |
 | Doors | One room per door, entered straight from My Room. CHAMPIONSHIP is announced only while a tournament runs. GUNSLINGER and the Beginner's Lobby are no longer announced (their ports still work). | Lists of rooms per world | `client/recomp/rt/gate.c`; `server/src/game/gate.ts:11-17` |
 | Level gates on rooms | Removed: every room shows at any level | LV 0-1 Beginner's Lobby only | `client/recomp/ovr/allrooms.c` |
-| Two looks | Kept: `avatar_a` / `avatar_b`, with LIST2 sent in the asker's world. If one look is missing it borrows the other's features, never its uniform. | Same | `server/src/game/persist.ts:416-427`; `hub.ts:272-280` |
-| Dress code | **Changed** (owner, 2026-11-04): any disk in both worlds; Academy outfits (ac_*, the uniforms included) in both; Domino outfits (and the QUALIFIER's Robe) Domino only; other slots keep the series | Strict per series | `client/recomp/ovr/worldparts.c:1-5`; `server/src/game/cosmetics-catalog.ts:170-181` (`avatarRowWorlds`) |
+| One look | **Changed** (owner, 2026-11-05): a character has one look for both worlds. `avatar_a` / `avatar_b` (the protocol's world 0 and 1 copies) are always the same; any change, from either world, writes both (`persist.ts` `setLook`; `avatar.w` records the world it was made in), and the others get a 0x4181 for both worlds. A character saved with two different looks keeps the one of the world it was last in (`avatar.w`), else Domino's; one saved look is copied to the other (`persist.ts` `unifyLook`). | Two looks, one per world | `server/src/game/persist.ts` (`unifyLook`, `setLook`, `avatarParts`); `hub.ts` (`select`, 0x4170) |
+| Dress code | **Changed** (owner, 2026-11-05): no world rule. Anything owned (and made for the body) is worn in either world, Domino outfits in the Academy included. The one remaining rule is the rank gate on the dorm uniforms: Slifer Red for everyone, Ra Yellow and Obelisk Blue once that school was reached. Graduation is a status only, it unlocks no outfit. (2026-11-04 had a per-world rule, Domino outfits Domino only.) | Strict per series | `server/src/game/cosmetics-catalog.ts` (every variant `worlds: [0, 1]`); `server/src/game/ranking.ts` `rankRowAllowed` |
 | Rank uniforms | **In progress in this worktree** (untracked `ranking.ts`): <ul><li>Glicko-2 from duelforge; schools Slifer / Ra / Obelisk / Master from rating;</li><li>Slifer is open to everyone; a 50-point demotion buffer;</li><li>the top 1% of the active ladder (once it has 20 or more players) may wear any owned outfit in the Academy;</li><li>enforcement: `0x3114` masks uniforms not yet unlocked, and flag bits 1022 / 1023 tell the client editor to drop its LV gate and allow leeway.</li></ul> | Uniforms by LV 10 / 20, owned by default | `server/src/game/ranking.ts:1-11, 48-112, 170-209`; `server/src/game/persist.ts:409-421`; `server/src/game/cosmetics.ts:138` |
-| Cosmetic boxes | Paid pools exclude school uniforms and ac_* costumes. Disks drop from one pool, but 12 equip only in Domino and 15 only in the Academy (before the "any disk anywhere" rule). | Shop sold per-world items | `server/docs/ECONOMY.md:223-237, 297` |
-| NPCs | Same cast and placement as 2008. Normal NPCs get a look valid in the asker's world. | Same | `server/src/game/npcs.ts:84-93, 141-170` |
+| Cosmetic boxes | Paid pools exclude school uniforms and ac_* costumes. Every drop is wearable in both worlds (one look). | Shop sold per-world items | `server/docs/ECONOMY.md:223-237, 297` |
+| NPCs | Same cast and placement as 2008. Normal NPCs get a look valid in the asker's world (NPC looks still use the per-row worlds, `avatarRowWorlds`). | Same | `server/src/game/npcs.ts:84-93, 141-170` |
 | Progression | One per character, as the original. PROGRESSION mode: cards from the shop, prizes and trades; one free starter deck, no era choice. | Same shape | `server/src/game/persist.ts:177-195`; `server/src/game/starter.ts:1-29` |
 | Chat | Global and Trade are server-wide; whispers and team chat work across areas | Per room block | `server/DESIGN.md:205` |
 | Free Duel | Runs in Academy-kind blocks of its own | n/a | `client/recomp/ovr/freemode.c:4`; `server/src/game/freemode.ts` |
@@ -202,6 +203,10 @@ Paths below are repo-relative. "Inference" marks anything no source states.
   - disks with a DM or Academy art slot and a selling shop, but no world-restricted wearing that I found.
 
 ## 6. Design options
+
+(Written 2026-11-04. Since 2026-11-05 the owner chose one look for both worlds with no world dress code, only the
+dorm uniforms' rank gate (section 5); the options below that rely on per-world looks or dress codes are superseded on
+that point.)
 
 ### A. Keep the strict 2008 split
 

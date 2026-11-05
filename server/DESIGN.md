@@ -211,8 +211,8 @@ INTENTIONAL):
   verified native artwork identities, so all real body variants share ownership. New Outfit Box drops require both
   male and female artwork; school uniforms and one-body costumes stay outside the paid pool. Yugi/Téa also stay
   out: sharing an internal artwork index does not establish matching-body versions of the same named costume.
-  Existing owners keep their items. Native wear-location restrictions remain enforced: the shop discloses each
-  reward's supported world and the next opening's chance of a style wearable in the current world before payment.
+  Existing owners keep their items. There are no wear-location restrictions any more (owner, 2026-11-05): a character
+  has one look for both worlds, and anything owned is worn in either.
   NPC chains retain card, title, recipe and other non-outfit rewards; future outfit rewards are retired.
 - **Rank uniforms follow a PvP rating, not LV** (`game/ranking.ts`, after duelforge's `ranking.ts`/`glicko2.ts`
   and its world-protocol tier table). 2008 gated Ra Yellow at LV 10 and Obelisk Blue at LV 20. Now every finished
@@ -243,8 +243,10 @@ INTENTIONAL):
     shown still go up and down; the school shown is demoted only 50 points below its threshold, so the badge does not
     flicker.
   - The "2" variants (Red/Yellow/Blue 2) follow the same schools and still have to be owned.
-  - Both worlds: a ranked (Autoduel) match is rated wherever it was made, and the rank is the same in both. Rank
-    uniforms are Academy outfits, worn in both worlds.
+  - Both worlds: a ranked (Autoduel) match is rated wherever it was made, and the rank is the same in both. A
+    character has one look for both worlds (owner, 2026-11-05), so the uniforms are worn in both. The rank gate on
+    the dorm uniforms (Slifer Red for everyone; Ra Yellow and Obelisk Blue once reached) is the only rule on a look
+    besides ownership and body.
   - Rating is per character slot (`p.rank`), not per account.
   - NPC duels, free mode (an autoduel there included), unranked PvP matches and server-restart voids are never
     rated.
@@ -253,8 +255,9 @@ INTENTIONAL):
     Bo3. If the match was also short (under 3 turns and 2 minutes), only the leaver is rated.
   - After 5 rated results in one UTC day between the same two accounts, nothing more is rated that day.
 
-  **Graduated students** may wear any owned outfit in the Academy, Domino outfits included. It is a placeholder until
-  a story lets players finish the GX story and graduate. Owner, 2026-11-04: "it needs to be wins but not abusable
+  **Graduation** is a status only (owner, 2026-11-05). It used to let a graduate wear Domino outfits in the Academy;
+  with one look for both worlds anyone may, so it unlocks nothing. It is a placeholder until a story lets players
+  finish the GX story and graduate. Owner, 2026-11-04: "it needs to be wins but not abusable
   win trading with alts etc." A character graduates once it has **both** (`ranking.ts` "graduation", every number
   a named constant there):
   - **character LV 20** (`GRADUATION_LEVEL`): where the 2008 editor gave the last school's uniform. On the XP curve
@@ -303,16 +306,17 @@ INTENTIONAL):
   match's sessions are compared); and an admin report of the opponents behind each graduation.
 
   The record is `p.rank` per character, kept in D1 `state_extras` like `p.econ`, so it needs no migration. The
-  server enforces both rules wherever a look is accepted: the wardrobe API, the native 0x4170 and character select.
-  A look a player may not wear is not refused. Its outfit is replaced by the world's default, kept and shown that
-  way, and the player's own client gets a 0x4181. As unlocks and graduation are for good, a look accepted once is
-  never taken back. `/api/de/cosmetics` returns `rank`: rating, rd, games, wins, losses, draws, peak, placed,
+  server enforces the rank rule wherever a look is accepted: the wardrobe API, the native 0x4170 and character
+  select. A look a player may not wear is not refused. A uniform of a school not reached is replaced by the slot's
+  default, kept and shown that way, and the player's own client gets a 0x4181. As unlocks are for good, a look
+  accepted once is never taken back. `/api/de/cosmetics` returns `rank`: rating, rd, games, wins, losses, draws, peak, placed,
   school, division, label, placementLeft, `bestSchool`, `uniforms` (unlocked by `bestSchool`), `graduated`,
   `graduationLevel` and `graduation: { level, levelRequired, opponents, opponentsRequired }` (progress). The 0x3114 bits tell the recompiled client the rank (`client/recomp/README.md`).
-- **Every look change reaches everyone in the block** (`test/look-visibility.test.ts`). The native 0x4170 (after the
-  world/rank check), the wardrobe's equip and appearance edits, character select and a world switch all update the
-  session's per-world looks (`partsW`, `parts`), the saved look (the duel, watch and log screens read it) and the
-  other players: a 0x4181 for each changed world, since the client keeps every player's look per world and draws its
+- **Every look change reaches everyone in the block** (`test/look-visibility.test.ts`). A character has one look for
+  both worlds (owner, 2026-11-05; `persist.ts` `setLook`, `unifyLook`). The native 0x4170 (after the rank check),
+  the wardrobe's equip and appearance edits, character select and a world switch all update the session's looks
+  (`partsW` for both worlds, `parts`), the saved look in both copies (the duel, watch and log screens read it) and
+  the other players: a 0x4181 for both worlds, since the client keeps every player's look per world and draws its
   own world's. The 2008 client never redraws a chibi already on screen from a 0x4181 (seen live 2026-11-04: the other
   player kept the old look until it left and came back), so a changed look in the world the player is in also goes
   to everyone in that world as a leave and a join (0x3112 op 0, op 1: new parts, same position and state;
@@ -338,7 +342,7 @@ INTENTIONAL):
 - **The HTML shop uses authenticated game APIs.** `/api/de/shop` lists the native catalogue and buys through the
   same validated purchase path, with persisted retry tokens. `/api/de/cosmetics` handles boxes, wardrobe, appearance
   and duplicate trades. The Worker verifies the session and mutation Origin; the WorldDO serializes mutations and
-  waits for D1 before acknowledging purchases. Appearance edits update both server world looks and native client
+  waits for D1 before acknowledging purchases. Appearance edits update the one look (both world copies) and native client
   caches. The menu provides Appearance and Cosmetic Boxes shortcuts in both UI modes.
 - **Chat is server-wide.** Global and Trade work in rooms and across lobby areas. Whisper and Team recipients are
   enforced server-side, including ignores and account restrictions. Proximity chat is removed. The HTML chat uses
