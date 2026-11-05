@@ -15,7 +15,6 @@
 // For skin.js once promoted: DS_CSS's .ds-btn (the duel button's hover / pressed, sampled; skin.js's are filters).
 import { owned } from './chat.js';
 import * as plist from './playerlist.js';
-import { rankSelf } from '../rank.js';
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
@@ -57,12 +56,96 @@ export function moveFrame(win) {
 // row under the mouse): the game point at row i's centre, for api.click
 export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 2), win.y + list.y + 16 * i + 8];
 
+// --- The lobby's three duel windows relaid out in their own skin (the owner: "the legacy UI but with better layout"):
+// the engine's switches, captions, buttons and window size, moved onto an even grid and relabelled; ShadowTexts of our
+// own (negative ids) add the row labels, the counts and one help line. Every switch and button is still the engine's
+// (api.click aims at the control where the game has it, so where it's drawn here doesn't matter). Found by place, not
+// text: a switch's caption is the ShadowText 8 below it; the green ShadowTexts are the menu's rows and counts and Create
+// Duel's "Password". Ranked is the Auto Duel queue only (server ranking.ts isRankedOrigin).
+//   Duel menu (CWindowModelDuel, 492 x 216): Auto Duel | Create Duel, each count under its switch (the counts: right-
+//     aligned, top to bottom Auto Duel = players searching, Create Duel = open rooms; the third, "Duel (n.)", has no
+//     meaning the server's room list gives it, so it isn't shown)
+//   Auto Duel (CWindowModelDuelFind, 492 x 216): rows Single / Match, Both, Level Limit ON / OFF
+//   Create Duel (CWindowModelDuelWait, 492 x 360): rows Single / Match, Time Limit, Watch, Surrender (ON / OFF), password
+const LAYOUT = { CWindowModelDuel: 'menu', CWindowModelDuelFind: 'find', CWindowModelDuelWait: 'wait' };
+const GREEN = [0.2, 1, 0.2, 1];
+const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
+// a label as the game's: green over a black copy 2 px down-right (the menu's rows), white over one 1 px off (captions)
+const label = (id, text, x, y, w, align = 0, color = GREEN) =>
+  ({ id: -id, cls: 'CWindowTaskShadowText', parent: 0, x, y, w, h: 16, z: 4, shown: true, text, align, fontSize: 16, color,
+    sh: color === GREEN ? 2 : 1 });
+const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Created duels don\'t change your rating.' };
+const TITLE_TEXT = { find: 'Auto Duel (Ranked)', wait: 'Create Duel (Unranked)' };
+
+export function relayout(win) {
+  const kind = LAYOUT[win.cls];
+  if (!kind) return win;
+  const tops = win.controls.filter(c => top(c) && c.shown !== false), texts = tops.filter(c => fam(c) === 'ShadowText');
+  const sw = tops.filter(c => fam(c) === 'PictureSwitch');
+  const rows = [...new Set(sw.map(s => s.y))].sort((a, b) => a - b).map(y => sw.filter(s => s.y === y).sort((a, b) => a.x - b.x));
+  const to = new Map(), add = [];
+  // a switch and its caption to (x, y), w wide, the caption's words
+  const place = (s, x, y, w, words) => {
+    if (!s) return;
+    to.set(s.id, { x, y, w, label: words });
+    const cap = texts.find(t => t.x === s.x && t.y === s.y + 8);
+    if (cap) to.set(cap.id, { x, y: y + 8, w, text: words });
+  };
+  const title = texts.find(t => t.x === 0 && t.y === 4);
+  if (title && TITLE_TEXT[kind]) to.set(title.id, { text: TITLE_TEXT[kind] });
+  const green = texts.filter(isGreen);
+  for (const t of green) to.set(t.id, { shown: false });
+  const W = 466, L = 13;   // the well (FrameDuel: 13 .. w - 14)
+  if (kind === 'menu') {
+    const counts = green.filter(t => t.align === 2).sort((a, b) => a.y - b.y).map(t => parseInt(t.text, 10));
+    const n = i => Number.isFinite(counts[i]) ? counts[i] : 0;
+    place(rows[0]?.[0], 22, 53, 224, 'Auto Duel (Ranked)');
+    place(rows[0]?.[1], 246, 53, 224, 'Create Duel (Unranked)');
+    add.push(label(1, `Players searching: ${n(0)}`, 22, 97, 224, 1), label(2, `Open rooms: ${n(1)}`, 246, 97, 224, 1),
+      label(3, HELP.menu, L, 137, W, 1, [1, 1, 1, 1]));
+  } else if (kind === 'find') {
+    add.push(label(1, 'Duel mode', 38, 44, 200), label(2, 'Level limit', 38, 108, 200));
+    place(rows[0]?.[0], 21, 64, 150, 'Single');
+    place(rows[0]?.[1], 171, 64, 150, 'Match (best of 3)');
+    place(rows[1]?.[0], 321, 64, 150, 'Both');
+    place(rows[2]?.[0], 21, 128, 225, 'On (similar level)');
+    place(rows[2]?.[1], 246, 128, 225, 'Off');
+  } else {
+    // a label column, then the two choices; the password's field across both
+    const ROWS = [['Duel mode', 'Single', 'Match (best of 3)'], ['Time limit', 'On', 'Off'], ['Spectators', 'Allowed', 'Not allowed'],
+      ['Surrender', 'Allowed', 'Not allowed']];
+    ROWS.forEach(([name, a, b], i) => {
+      const y = 45 + 50 * i;
+      add.push(label(1 + i, name, 30, y + 8, 116));
+      place(rows[i]?.[0], 150, y, 160, a);
+      place(rows[i]?.[1], 310, y, 160, b);
+    });
+    const input = tops.find(c => fam(c) === 'InputDuel');
+    if (input) to.set(input.id, { x: 150, y: 245, w: 320 });
+    add.push(label(5, 'Password', 30, 253, 116), label(6, HELP.wait, L, 289, W, 1, [1, 1, 1, 1]));
+  }
+  const byId = new Map(win.controls.map(c => [c.id, c]));
+  const controls = win.controls.map(c => {
+    if (to.has(c.id)) return { ...c, ...to.get(c.id) };
+    // a part follows its parent (a caption's shadow: the same offset, width and words)
+    const up = byId.get(c.parent), m = up && to.get(up.id);
+    if (!m) return c;
+    const k = { ...c, x: c.x + (m.x ?? up.x) - up.x, y: c.y + (m.y ?? up.y) - up.y };
+    if (m.w != null && c.w === up.w) k.w = m.w;
+    if (m.text != null && c.text === up.text) k.text = m.text;
+    if (m.shown === false) k.shown = false;
+    return k;
+  });
+  return { ...win, controls: [...controls, ...add] };
+}
+
 // What a control is drawn from, so that hover / press (the DOM's in owned mode) and the engine's own bookkeeping (world
 // positions, the focus) don't redraw it: buttons keep only 'disabled' of the game's state; a switch its look (glow); the
 // frames the window's size (FrameDuel reads 0 x 0, DuelConfigFrame its 80 x 24 piece, FrameMove its layout's);
 // CFindMenu's list becomes rows of buttons (a class owned() doesn't take as a native list)
 export function prep(win) {
   if (win.cls === plist.CLS) return plist.prepList(win);
+  win = relayout(win);
   const frame = /Move$/.test(win.cls) ? moveFrame(win) : null;
   return { ...win, controls: win.controls.map(c => {
     const f = fam(c), { wx, wy, wz, focused, ...k } = c;
@@ -249,106 +332,11 @@ const DS_CSS = () => `
 .ds-row:hover > b, .ds-row:focus-visible > b { background: #0084ff; }
 .ds-row > .txt { position: absolute; }
 `;
-// The pages' CSS, every rule under .dm. The button system is shop/css.js's (mockup A: glossy pills with inward arrow caps,
-// chamfered plates for choices), the glass and band the shop's; colours are tokens on .dm so a rule never repeats a hex
-const FONT_STACK = `Arial, 'Liberation Sans', Arimo, Helvetica, sans-serif`;
-const PANEL_CSS = () => `
-.dm { position: absolute; left: 50%; top: 50%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
-  border-radius: 8px; background: rgba(236, 242, 245, .97); color: #000; font: 14.3px/20px ${FONT_STACK}; -webkit-font-smoothing: antialiased;
-  box-shadow: 0 0 0 1px rgba(30, 48, 58, .8), 0 0 0 3px rgba(255, 255, 255, .5), 0 16px 40px rgba(0, 20, 35, .55); outline: none;
-  --ring: #0b57d0; --sub: #3c4a52; text-align: center; cursor: inherit; }
-.dm *, .dm *::before, .dm *::after { box-sizing: border-box; }
-.dm :is(h2, p) { margin: 0; }
-.dm-band { flex: none; height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px;
-  background: linear-gradient(#6f8492, #566a77 55%, #4b5f6b); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), 0 1px 0 rgba(20, 35, 45, .6); }
-.dm-plate { height: 40px; padding: 0 24px; display: flex; align-items: center; font: bold 22px/1 ${FONT_STACK}; letter-spacing: .4px; color: #fff;
-  background: linear-gradient(#b4f7ff, #3cc9f5 52%, #12a8e6); box-shadow: 0 0 0 2px #0c3a5e, inset 0 1px 0 rgba(255, 255, 255, .75), inset 0 -2px 0 rgba(0, 70, 120, .25);
-  text-shadow: -1px -1px 0 #0c3a5e, 1px -1px 0 #0c3a5e, -1px 1px 0 #0c3a5e, 1px 1px 0 #0c3a5e, 0 2px 0 #0c3a5e; }
-.dm-chip { height: 32px; padding: 0 16px; display: flex; align-items: center; font-size: 14px; color: #fff; border-radius: 16px;
-  background: rgba(10, 24, 32, .38); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28); }
-.dm-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding: 24px 24px 16px; }
-.dm-body.cols { flex-direction: row; align-items: stretch; }
-.dm-foot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px 24px 24px; }
-.dm-p { font-size: 15px; line-height: 20px; color: #1a1a1a; }
-.dm-p.lead { padding: 0 8px; }
-.dm-h { font: bold 22px/24px ${FONT_STACK}; }
-.dm-h2 { font: bold 16px/24px ${FONT_STACK}; }
-.dm-cap { font-size: 13px; line-height: 16px; color: var(--sub); }
-.dm-card { flex: 1; display: flex; flex-direction: column; align-items: stretch; gap: 16px; padding: 24px 16px 16px; border-radius: 6px;
-  background: linear-gradient(rgba(255, 255, 255, .86), rgba(228, 240, 246, .8)); box-shadow: 0 0 0 1px rgba(80, 110, 125, .5), inset 0 1px 0 #fff; }
-.dm-card.ranked { box-shadow: 0 0 0 2px #e08a00, inset 0 1px 0 #fff; }
-.dm-card.custom { box-shadow: 0 0 0 2px #1f7fb8, inset 0 1px 0 #fff; }
-.dm-card .dm-p { flex: 1; }
-.dm-stats { display: grid; grid-auto-flow: row; gap: 0; min-height: 96px; align-content: start; border-radius: 3px; background: #f4f8fa;
-  box-shadow: inset 0 1px 3px rgba(0, 35, 55, .35), 0 0 0 1px rgba(30, 48, 58, .4); }
-.dm-stat { display: flex; flex-direction: column; justify-content: center; height: 48px; }
-.dm-stat + .dm-stat { box-shadow: inset 0 1px 0 rgba(60, 80, 95, .28); }
-.dm-stat[hidden] { display: none; }
-.dm-stat .k { font-size: 12.5px; line-height: 14px; color: var(--sub); }
-.dm-stat b { font-size: 15px; line-height: 20px; min-height: 20px; }
-.dm-sec { display: flex; flex-direction: column; gap: 8px; }
-.dm-grid { display: grid; gap: 16px; }
-.dm-grid.c3 { grid-template-columns: repeat(3, 1fr); }
-.dm-grid.c2 { grid-template-columns: repeat(2, 1fr); }
-.dm-cell { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
-.dm-cell .dm-cap { min-height: 32px; padding: 0 4px; }
-.dm-how { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; font-size: 13px; line-height: 16px; border-radius: 3px; background: #f4f8fa;
-  box-shadow: inset 0 1px 3px rgba(0, 35, 55, .3), 0 0 0 1px rgba(30, 48, 58, .4); }
-.dm-how b { font-size: 14px; }
-.dm-how span { color: var(--sub); }
-.dm-row { display: grid; grid-template-columns: 208px 1fr 1fr; align-items: center; gap: 16px; min-height: 56px; }
-.dm-row.pw { grid-template-columns: 208px 1fr; }
-.dm-lab { display: flex; flex-direction: column; gap: 2px; text-align: left; }
-.dm-lab b { font-size: 16px; line-height: 20px; }
-.dm-field { position: relative; height: 40px; border-radius: 3px; background: linear-gradient(#e6eef2, #fff); box-shadow: inset 0 1px 3px rgba(0, 35, 55, .45), 0 0 0 1px rgba(30, 48, 58, .6); }
-.dm-field:focus-within { box-shadow: inset 0 1px 3px rgba(0, 35, 55, .45), 0 0 0 2px var(--ring); }
-.dm-in { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 12px; border: 0; background: none; outline: none;
-  font: 16px/40px ${FONT_STACK}; color: #000; text-align: left; letter-spacing: 1px; }
-/* the buttons: shop/css.js's A system under .dm */
-.dm .bt { position: relative; box-sizing: border-box; margin: 0; -webkit-appearance: none; appearance: none; cursor: inherit; isolation: isolate;
-  --h: 40px; --fs: 15px; --c: 6px; --capw: 9px; --caph: 17px; --capx: 10px;
-  --t: #f2f4f5; --b: #b4b8bb; --g: #e4e7e9; --rim: #5a6a74; --fg: #1a1a1a; --tsh: 0 1px 0 rgba(255, 255, 255, .6);
-  --cap: linear-gradient(#8a99a3, #5a6a74); --line: 30%;
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: var(--h); padding: 0 calc(var(--h) / 2);
-  font: bold var(--fs)/1 ${FONT_STACK}; color: var(--fg); text-shadow: var(--tsh); white-space: nowrap; border: 0; background: none;
-  --glass: linear-gradient(rgba(255, 255, 255, .75), rgba(255, 255, 255, .2) calc(var(--line) - 2%), rgba(255, 255, 255, 0) var(--line)),
-           linear-gradient(var(--t) 0, var(--t) var(--line), var(--b) var(--line), var(--b) calc(var(--line) + 36%), var(--g) 100%);
-  --bevel: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 -3px 3px -1px rgba(255, 255, 255, .45); }
-.dm .bt.h40 { --h: 40px; --fs: 15px; --capw: 8px; --caph: 15px; --capx: 10px; }
-.dm .bt.h48 { --h: 48px; --fs: 17px; --capw: 10px; --caph: 19px; --capx: 12px; }
-.dm .bt { flex: none; }
-.dm .bt > * { flex: none; }
-.dm .bt.primary, .dm .bt.secondary, .dm .bt.nav { border: 1px solid var(--rim); border-radius: calc(var(--h) / 2); background: var(--glass);
-  box-shadow: var(--bevel), 0 0 0 1px rgba(255, 255, 255, .8), 0 2px 3px rgba(0, 30, 50, .35); padding: 0 calc(var(--h) / 2 + var(--capw) + 8px); }
-.dm .bt.primary, .dm .bt.nav { align-self: stretch; }
-.dm .bt.secondary { min-width: 160px; }
-.dm .bt.primary::before, .dm .bt.secondary::before, .dm .bt.nav::before, .dm .bt.primary::after, .dm .bt.secondary::after, .dm .bt.nav::after {
-  content: ''; position: absolute; top: 50%; width: var(--capw); height: var(--caph); margin-top: calc(var(--caph) / -2); background: var(--cap); }
-.dm .bt.primary::before, .dm .bt.secondary::before, .dm .bt.nav::before { left: var(--capx); clip-path: polygon(0 0, 100% 50%, 0 100%); }
-.dm .bt.primary::after, .dm .bt.secondary::after, .dm .bt.nav::after { right: var(--capx); clip-path: polygon(100% 0, 0 50%, 100% 100%); }
-.dm .bt.seg { --oct: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
-  --h: 40px; padding: 0 12px; }
-.dm .bt.seg::before, .dm .bt.seg::after { content: ''; position: absolute; z-index: -1; clip-path: var(--oct); }
-.dm .bt.seg::before { inset: 0; background: linear-gradient(#b0c1c9, var(--rim)); }
-.dm .bt.seg::after { inset: 1px; background: var(--glass); box-shadow: var(--bevel); }
-.dm .bt.primary { --t: #ffc56e; --b: #ff9f00; --g: #ffe94d; --rim: #b35500; --fg: #3a1b00; --tsh: 0 1px 0 rgba(255, 240, 200, .5);
-  --cap: linear-gradient(#ffff8a, #ffff00 45%, #ffd400); }
-.dm .bt.nav { --t: #5cc6ec; --b: #116fa0; --g: #47c8f0; --rim: #0d4275; --fg: #fff; --tsh: 0 1px 0 rgba(0, 25, 50, .9), 0 0 2px rgba(0, 25, 50, .5);
-  --cap: linear-gradient(#e2ffff, #bcffff 40%, #98e0ff); }
-.dm .bt[aria-checked=true] { --t: #9ff8ff; --b: #52c6f7; --g: #a6f2ff; --rim: #0b6f9c; --fg: #06283a; --tsh: 0 1px 0 rgba(255, 255, 255, .45); }
-.dm-foot .bt.primary { align-self: center; min-width: 320px; }
-.dm .bt:hover:not(:disabled) { filter: brightness(1.08); }
-.dm .bt:active:not(:disabled) { filter: brightness(.92); transform: translateY(1px); }
-.dm .bt:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.dm .bt:disabled { opacity: .45; filter: grayscale(.6); transform: none; }
-.dm .bt .ck { position: relative; flex: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 1px solid #4e5e68; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
-.dm .bt[aria-checked=true] .ck::after { content: ''; position: absolute; left: 3px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: #06283a; }
-`;
 function inject() {
   if (document.getElementById('htmlui-duelsetup')) return;
   const st = document.createElement('style');
   st.id = 'htmlui-duelsetup';
-  st.textContent = DS_CSS() + PANEL_CSS();
+  st.textContent = DS_CSS();
   document.head.append(st);
 }
 
@@ -363,242 +351,6 @@ const shadowOf = (win, c) => win.controls.find(k => k.parent === c.id && k.shown
 // the duel arrows as SVG: a #fb168d triangle in a white glow (duel_arrow_01_c01: the glow 0.75 at its edge, fading
 // over 4 px)
 const arrow = up => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 16'><defs><filter id='g' x='-50%' y='-50%' width='200%' height='200%'><feGaussianBlur stdDeviation='1.2'/></filter></defs><g transform='${up ? '' : 'rotate(180 12 8)'}'><path d='M12 3.5 L20.5 12 L3.5 12 Z' fill='#fff' fill-opacity='.8' stroke='#fff' stroke-opacity='.8' stroke-width='2' stroke-linejoin='round' filter='url(#g)'/><path d='M12 4.6 L19 11.2 L5 11.2 Z' fill='#fb168d'/></g></svg>`)}")`;
-
-// --- The three duel set-up windows as plain pages (the owner: "Duel menu looks so confusing, make it more
-// understandable"). The game's windows are small boxes of unexplained switches; here each is one centred page that
-// says what it does, and every button still drives the same hidden engine control (api.click(id): the window's own
-// switches, its OK and Cancel; the password's text is the engine input's, set through api.setText). Nothing here is a
-// rule: ranked is the Auto Duel queue only (server ranking.ts isRankedOrigin); Create Duel rooms and direct invites never
-// change the rating. Style: the shop's approved A skin (shop/css.js's button system, the light glass, the slate band,
-// the outlined title plate), dark Arial text, an 8-px grid.
-//   Duel menu (CWindowModelDuel): its Auto Duel switch (left) and Create Duel switch (right), the counts beside them
-//     (text rows at y 36 / 60 / 84: Auto Duel = rooms of players searching, Create Duel = open rooms; the third,
-//     "Duel (n.)", has no meaning the server's room list gives it, so it isn't shown), Cancel
-//   Auto Duel (CWindowModelDuelFind): Single / Match, Both, Level Limit ON / OFF (lobby.ts autoTryMatch: ON = the pair
-//     is within 5 LV when either asked, AUTODUEL_LV_DIFF), OK, Cancel
-//   Create Duel (CWindowModelDuelWait): Single / Match, Time Limit, Watch, Surrender (each ON / OFF), the password
-//     (maxLen 8), OK, Cancel
-const PANEL = { CWindowModelDuel: 'menu', CWindowModelDuelFind: 'find', CWindowModelDuelWait: 'wait' };
-export const isPanel = cls => cls in PANEL;
-const CANCEL = /^\s*(cancel|キャンセル|閉じる|close)\s*$/i;
-
-/** The controls a page drives, from a window's snapshot: the switches by row (top to bottom, each row left to right), the
- *  OK and Cancel buttons, the numbers of the count rows, the password input. */
-export function panelModel(win) {
-  const tops = win.controls.filter(c => top(c) && c.shown !== false);
-  const sw = tops.filter(c => fam(c) === 'PictureSwitch').map(c => ({ id: c.id, x: c.x, y: c.y, checked: !!c.checked, disabled: c.state === 'disabled' }));
-  const rows = [...new Set(sw.map(s => s.y))].sort((a, b) => a - b).map(y => sw.filter(s => s.y === y).sort((a, b) => a.x - b.x));
-  const btns = tops.filter(c => fam(c) === 'ButtonDuel').sort((a, b) => a.x - b.x);
-  const cancel = btns.find(c => CANCEL.test(c.label || '')) || btns.at(-1);
-  const ok = btns.find(c => c !== cancel);
-  const counts = tops.filter(c => fam(c) === 'ShadowText' && c.x === 0 && /^\s*\d+\s*$/.test(c.text || ''))
-    .sort((a, b) => a.y - b.y).map(c => parseInt(c.text, 10));
-  const input = tops.find(c => fam(c) === 'InputDuel');
-  const btn = c => c && { id: c.id, disabled: c.state === 'disabled' };
-  return { kind: PANEL[win.cls], rows, cancel: btn(cancel), ok: btn(ok), counts, input: input && { id: input.id, value: input.value || '', maxLen: input.maxLen || 8 } };
-}
-
-const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-/** The queue's count in words: the Auto Duel row is the players searching for a ranked game now. */
-export const searchingText = n => n == null ? '' : n === 0 ? 'No one yet' : plural(n, 'player searching', 'players searching');
-/** The open rooms (the Create Duel row). */
-export const roomsText = n => n == null ? '' : n === 0 ? 'None yet' : plural(n, 'open room', 'open rooms');
-/** A player's standing (GET /api/de/rank, ../rank.js) as the Duel menu shows it: "Placement 2/5", "Ra Yellow II · 1612". */
-export function rankLine(r) {
-  if (!r?.known) return '';
-  if (!r.placed) return r.placement ? `Placement ${r.placement.played}/${r.placement.of}` : 'Unranked';
-  return r.rating == null ? r.label : `${r.label} · ${r.rating}`;
-}
-/** Which of the account's characters is the one in the lobby: the answer to ?self=1 lists them all (no marker of the
- *  active one), so only a lone character is certain. */
-export const selfRank = list => { const known = (list || []).filter(r => r?.known); return known.length === 1 ? known[0] : null; };
-
-// what each choice says, the engine's switches in the order panelModel lists them
-const FIND = {
-  title: 'Ranked Match',
-  lead: 'We pair you with the player closest to your rating in this lobby. The result changes your rating and rank.',
-  groups: [
-    { name: 'Format', slots: [[0, 0, 'Single game', 'One game decides it.'], [0, 1, 'Best of 3', 'First to win two games.'], [1, 0, 'Either', 'Plays single or best of 3.']] },
-    { name: 'Opponents', slots: [[2, 0, 'Similar level only', 'Only players within 5 levels of you.'], [2, 1, 'Anyone', 'Any level, unless they chose similar level.']] },
-  ],
-  how: ['How ranked works', 'Your first 5 games place you. Then you climb the Slifer, Ra and Obelisk ladder. Only this queue counts: Custom Duels never change your rating.'],
-};
-const WAIT = {
-  title: 'Custom Duel (unranked)',
-  lead: 'Open a room that other players can join. It never changes your rating.',
-  rows: [
-    ['Format', [[0, 0, 'Single game', 'One game decides it.'], [0, 1, 'Best of 3', 'First to win two games.']]],
-    ['Time limit', [[1, 0, 'On', 'Turns are timed.'], [1, 1, 'Off', 'No time limit.']]],
-    ['Spectators', [[2, 0, 'Allowed', 'Other players can watch.'], [2, 1, 'Not allowed', 'No one can watch.']]],
-    ['Surrender', [[3, 0, 'Allowed', 'Either player can give up.'], [3, 1, 'Not allowed', 'Play every duel to the end.']]],
-  ],
-};
-
-const el = (tag, cls = '', text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-};
-const button = (cls, label, onClick) => {
-  const b = el('button', 'bt ' + cls);
-  b.type = 'button';
-  b.append(el('span', '', label));
-  b.addEventListener('click', onClick);
-  return b;
-};
-// a choice: a radio-looking <button> whose engine switch is st.m.rows[row][col] (read when pressed: the ids stay, the
-// state moves)
-function choice(st, row, col, label) {
-  const b = button('seg', label, () => { const s = st.m.rows[row]?.[col]; if (s && !s.disabled) st.api.click(s.id); });
-  b.setAttribute('role', 'radio');
-  b.prepend(el('i', 'ck'));
-  st.choices.push({ b, row, col });
-  return b;
-}
-// the menu's two switches (the one row's left and right): Auto Duel, Create Duel
-const pick = (st, col) => () => { const s = st.m.rows[0]?.[col]; if (s && !s.disabled) st.api.click(s.id); };
-const press = (st, key) => () => { const c = st.m[key]; if (c && !c.disabled) st.api.click(c.id); };
-const band = (title, chip) => {
-  const b = el('div', 'dm-band');
-  b.append(el('div', 'dm-plate', title));
-  if (chip) b.append(el('div', 'dm-chip', chip));
-  return b;
-};
-const foot = (st, main, label) => {
-  const f = el('div', 'dm-foot');
-  if (main) { st.main = button('primary h48', label, press(st, 'ok')); f.append(st.main); }
-  f.append(button('secondary h40', 'Cancel', press(st, 'cancel')));
-  return f;
-};
-
-const BUILD = {
-  menu(st) {
-    const stat = (k, v) => { const d = el('div', 'dm-stat'), b = el('b', '', v); d.append(el('span', 'k', k), b); return [d, b]; };
-    const card = (cls, title, text, stats, action) => {
-      const c = el('section', 'dm-card ' + cls);
-      c.append(el('h2', 'dm-h', title), el('p', 'dm-p', text));
-      const s = el('div', 'dm-stats');
-      s.append(...stats);
-      c.append(s, action);
-      return c;
-    };
-    const [rankS, rank] = stat('Your rank', 'Changes with each game'), [queueS, queue] = stat('In the queue', '');
-    const [ratingS] = stat('Your rating', 'Not affected'), [roomsS, rooms] = stat('Open rooms', '');
-    st.rank = rank; st.rankS = rankS; st.queue = queue; st.rooms = rooms;
-        const ranked = card('ranked', 'Ranked Match', 'Find an opponent automatically. Wins and losses change your rating.', [rankS, queueS],
-      st.main = button('primary h48', 'Find Ranked Match', pick(st, 0)));
-    const custom = card('custom', 'Custom Duel', 'Open a room for others to join, or invite a player. It doesn’t affect your rating.',
-      [ratingS, roomsS], button('nav h48', 'Create a Room', pick(st, 1)));
-    const body = el('div', 'dm-body cols');
-    body.append(ranked, custom);
-    return { w: 704, h: 488, kids: [band('Duel Menu'), body, foot(st)] };
-  },
-  find(st) {
-    const body = el('div', 'dm-body');
-    body.append(el('p', 'dm-p lead', FIND.lead));
-    for (const g of FIND.groups) {
-      const sec = el('section', 'dm-sec'), grid = el('div', 'dm-grid c' + g.slots.length);
-      sec.append(el('h2', 'dm-h2', g.name));
-      for (const [row, col, label, help] of g.slots) {
-        const cell = el('div', 'dm-cell');
-        cell.append(choice(st, row, col, label), el('div', 'dm-cap', help));
-        grid.append(cell);
-      }
-      sec.append(grid);
-      body.append(sec);
-    }
-    const how = el('div', 'dm-how');
-    how.append(el('b', '', FIND.how[0]), el('span', '', FIND.how[1]));
-    body.append(how);
-    return { w: 640, h: 640, kids: [band(FIND.title, 'Counts toward your rating'), body, foot(st, true, 'Find Match')] };
-  },
-  wait(st) {
-    const body = el('div', 'dm-body');
-    body.append(el('p', 'dm-p lead', WAIT.lead));
-    for (const [name, slots] of WAIT.rows) {
-      const row = el('div', 'dm-row'), lab = el('div', 'dm-lab'), help = el('div', 'dm-cap');
-      lab.append(el('b', '', name), help);
-      row.append(lab);
-      for (const [r, c, label] of slots) row.append(choice(st, r, c, label));
-      st.helps.push({ help, slots });
-      body.append(row);
-    }
-    const pw = el('div', 'dm-row pw'), lab = el('div', 'dm-lab');
-    lab.append(el('b', '', 'Password (optional)'), el('div', 'dm-cap', 'Up to 8 characters. Only players who know it can join.'));
-    st.field = el('div', 'dm-field');
-    pw.append(lab, st.field);
-    body.append(pw);
-    return { w: 640, h: 636, kids: [band(WAIT.title), body, foot(st, true, 'Create Room')] };
-  },
-};
-
-// the password: the engine's InputDuel as a real <input> over a drawn field (chat.js's ownInput, in a box of its own)
-function passwordInput(st) {
-  const i = el('input', 'dm-in');
-  Object.assign(i, { type: 'text', spellcheck: false, autocomplete: 'off', maxLength: 8 });
-  i.setAttribute('aria-label', 'Room password');
-  st.field.append(i);
-  let entered = null;
-  const commit = () => st.m.input && st.api.setText(st.m.input.id, i.value);
-  i.addEventListener('focus', () => { if (st.m.input) { i.value = st.m.input.value; st.api.click(st.m.input.id); } });
-  i.addEventListener('input', e => { entered = null; if (!e.isComposing) commit(); });
-  i.addEventListener('compositionend', commit);
-  i.addEventListener('keydown', e => {
-    if (e.isComposing) return;
-    if (e.key === 'Enter') { e.preventDefault(); commit(); entered = i.value; st.api.char(13); }
-    else if (e.key === 'Escape') i.blur();
-  });
-  i.sync = () => {
-    const v = st.m.input?.value ?? '';
-    i.disabled = !st.m.input;
-    if (document.activeElement !== i || (entered !== null && v !== entered)) { i.value = v; entered = null; }
-  };
-  return i;
-}
-
-function mountPanel(win, root, api) {
-  inject();
-  const st = { panel: true, id: win.id, win, api, m: panelModel(win), choices: [], helps: [] };
-  const { w, h, kids } = BUILD[st.m.kind](st);
-  const page = el('div', 'dm');
-  page.tabIndex = -1;
-  page.setAttribute('role', 'dialog');
-  page.setAttribute('aria-label', { menu: 'Duel Menu', find: FIND.title, wait: WAIT.title }[st.m.kind]);
-  page.style.cssText = `width:${w}px;height:${h}px;margin:${-h / 2}px 0 0 ${-w / 2}px`;
-  page.append(...kids);
-  if (st.field) st.input = passwordInput(st);
-  root.replaceChildren(page);
-  st.page = page;
-  if (st.m.kind === 'menu') {
-    rankSelf().then(list => { st.self = selfRank(list); updatePanel(st); }, () => {});
-  }
-  updatePanel(st);
-  // the page takes the focus on its primary button, so Enter does what it says and Esc (the root's) leaves
-  queueMicrotask(() => { if (page.isConnected && !page.contains(document.activeElement)) (st.main || page).focus({ preventScroll: true }); });
-  return st;
-}
-
-function updatePanel(st) {
-  const m = st.m;
-  for (const { b, row, col } of st.choices) {
-    const s = m.rows[row]?.[col];
-    b.setAttribute('aria-checked', !!s?.checked);
-    b.disabled = !s || s.disabled;
-  }
-  for (const { help, slots } of st.helps) {
-    const on = slots.find(([r, c]) => m.rows[r]?.[c]?.checked);
-    help.textContent = on ? on[3] : slots.map(s => s[2]).join(' or ');
-  }
-  if (st.main && m.kind !== 'menu') st.main.disabled = !!m.ok?.disabled;
-  if (m.kind === 'menu') {
-    st.queue.textContent = searchingText(m.counts[0]);
-    st.rooms.textContent = roomsText(m.counts[1]);
-    const line = rankLine(st.self);
-    st.rank.textContent = line || 'Changes with each game';
-  }
-  st.input?.sync();
-}
 
 const DRAW = {
   FrameDuel(el, c) {
@@ -619,6 +371,7 @@ const DRAW = {
     const t = basic.textBox(el, basic.shownLines(c), { x: c.x, y: c.y, w: c.w, align: c.align, px: c.fontSize || 16, gap: c.lineGap,
       color: c.color, white: true });
     t.classList.add('ds-txt');
+    if (c.sh) return void (t.style.textShadow = `${c.sh}px ${c.sh}px 0 #000`);   // relayout's own labels
     const sh = shadowOf(win, c);
     if (sh) t.style.textShadow = `${sh.x - c.x}px ${sh.y - c.y}px 0 ${basic.textColor(sh.color, true)}`;
   },
@@ -706,7 +459,7 @@ export default {
   clip: false,
   mount(win, root, api) {
     inject();
-    const st = isPanel(win.cls) ? mountPanel(win, root, api) : base.mount(prep(win), root, api);
+    const st = base.mount(prep(win), root, api);
     st.win = win;
     st.id = win.id;
     if (win.cls === 'CFindMenu') mounted.add(win.id);
@@ -729,7 +482,6 @@ export default {
   },
   update(win, prev, root, api, st) {
     st.win = win;
-    if (st.panel) { st.m = panelModel(win); return updatePanel(st); }
     base.update(prep(win), prev, root, api, st);
     if (win.cls === plist.CLS) plist.rows(win, root, api, st);
   },
