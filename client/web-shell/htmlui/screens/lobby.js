@@ -8,7 +8,7 @@
 // Arial (textBox, spaced as the game), white captions outlined as skin.js's.
 // Pass mode: the game takes the input; hover and pressed come from the snapshot.
 import { textBox, shownLines, textWidth, spacing } from '../controls/basic.js';
-import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
+import { menuButton, titleBar, panel } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
 import { rankByPid, peekRank, pidKey, rankTag, rankFit, labelWidth, cardHeader, PID_BASE } from '../rank.js';
 import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas, barReserve, onBarReserve } from './lobby_icons.js';
@@ -303,9 +303,9 @@ function cardRank(win, root, st) {
 //    buttons (TextSwitch, 288 x 24 at x 24: the generic renderer's CSS plate and black caption, api.syncWindow).
 //  - the nation flag (CNationFlag "Duel国旗", a CTask child, not a control) and any other picture under the card: the
 //    window's extras, which the engine keeps drawing (passthrough).
-// The page adds one 2008 button on a tab above the player card's top right, Duel (../invite.js), when the game offers
-// no duel request of its own, and a refusal's reason in a box under the tab for a few seconds; and under the player's
-// "LV01  Name" the player's rank (cardRank).
+// The page adds one button, Duel (../invite.js), when the game offers no duel request of its own: a row of the card's
+// own under its last button, drawn as the others are (duelRow), and a refusal's reason over the card's top right for a
+// few seconds; and under the player's "LV01  Name" the player's rank (cardRank).
 const kept = new Map();   // window id -> the ids the engine keeps drawing (with their subtrees)
 // window_base_01_c0<style>: [outer top, left, right, bottom], [middle top, left, right, bottom], body
 const THIN = {
@@ -390,7 +390,8 @@ function frameSheet(tex, onReady) {
 // THIN's [top, left, right, bottom] as CSS's border-color order (top right bottom left)
 const trbl = ([t, l, r, b]) => `${t} ${r} ${b} ${l}`;
 function card(win, root, st) {
-  const art = cardArt(win), key = JSON.stringify(art);
+  const duel = win.cls === 'CPlayerListMenu' && duelOffered(win), art = duel ? growArt(cardArt(win), win.h - 8, DUEL_ROW) : cardArt(win);
+  const key = JSON.stringify(art);
   kept.set(win.id, new Set([...(win.extras || []).map(e => e.id), ...art.helps.map(h => h.engine).filter(Boolean)]));
   if (st.key !== key) {
     st.key = key;
@@ -435,24 +436,53 @@ function card(win, root, st) {
   st.btns ||= root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-card' }));
   st.btnMap ||= new Map();
   st.api.syncWindow(st.btns, { ...win, controls: win.controls.filter(c => top(c) && /TextSwitch$/.test(c.cls)) }, st.btnMap);
-  if (win.cls === 'CPlayerListMenu') { duelTab(win, root, st); cardRank(win, root, st); }
+  if (win.cls === 'CPlayerListMenu') { duelRow(win, root, st, duel); cardRank(win, root, st); }
 }
-function duelTab(win, root, st) {
-  const show = win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
-  if (!show) { if (st.btn) { st.btn.remove(); st.btn = null; } return; }
+// the page's Duel: a row of its own under the card's last button, as showInfo would add one (y += 36), so the
+// engine's buttons stay where the engine hit-tests them; the frame's bottom and the buttons' back plane move down a row
+const DUEL_ROW = 36;
+const duelOffered = win => win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
+// art with everything from y `at` down moved dy lower, and what spans `at` (the frame, its side edges, the back plane)
+// dy taller
+export function growArt(art, at, dy) {
+  const grow = r => r.y >= at ? { ...r, y: r.y + dy } : r.y + r.h >= at ? { ...r, h: r.h + dy } : r;
+  const f = art.frame && { ...grow(art.frame), pieces: art.frame.pieces.map(grow) };
+  return { ...art, frame: f, planes: art.planes.map(grow), helps: art.helps.map(grow) };
+}
+function duelRow(win, root, st, show) {
+  if (!show) { st.btn?.remove(); st.btn = null; st.strip?.remove(); st.strip = null; return; }
+  // the sibling buttons' place and size (showInfo: 288 x 24 at x 24, 36 apart), the last one's row + 36
+  const sib = win.controls.filter(c => c.shown && top(c) && /TextSwitch$/.test(c.cls));
+  const last = sib.reduce((a, c) => (c.y > a.y ? c : a), sib[0]), at = { x: last.x, y: last.y + DUEL_ROW, w: last.w, h: last.h };
+  if (st.btn && st.btnAt !== JSON.stringify(at)) { st.btn.remove(); st.btn = null; st.strip?.remove(); st.strip = null; }
   if (st.btn) return;
+  st.btnAt = JSON.stringify(at);
+  // the added row is the page's alone (the engine's card ends above it, often on the chat's tabs): a press there stays
+  // on the card, as one on the engine's card does
+  st.strip = root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-plane' }));
+  Object.assign(st.strip.style, { left: '0px', top: win.h + 'px', width: win.w + 'px', height: DUEL_ROW + 'px', pointerEvents: 'auto' });
+  // its caption the game's own Duel button's (hidden here: the player has no duel open), "Send Duel Request"
+  const label = win.controls.find(c => /TextSwitch$/.test(c.cls) && /Duel\s*Request/i.test(c.label || ''))?.label || 'Duel';
   const name = cardName(win.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && /^\s*LV\s*\d/i.test(c.text || ''))?.text);
-  st.btn = duelButton(root, { x: win.w - 128, y: -30, w: 120, h: 26, label: 'Duel' });
-  st.btn.style.pointerEvents = 'auto';
-  st.btn.onclick = async () => {
+  // the generic TextSwitch (its plate, its black caption) as the siblings draw, with its own hover / pressed looks
+  // (the engine has no button there to report them)
+  const b = st.btn = st.api.renderControl({ id: 'de-duel', cls: 'CWindowTaskTextSwitch', ...at, label, align: 1, shown: true, state: 'normal', alpha: 1 }, root);
+  b.style.pointerEvents = 'auto';
+  let over = false, down = false;
+  const look = () => { b.dataset.look = b.disabled ? 0 : down && over ? 2 : over ? 1 : 0; };
+  b.addEventListener('pointerenter', () => { over = true; look(); });
+  b.addEventListener('pointerleave', () => { over = false; look(); });
+  b.addEventListener('pointerdown', () => { down = true; look(); });
+  b.addEventListener('pointerup', () => { down = false; look(); });
+  b.onclick = async () => {
     if (st.busy) return;
     st.busy = true;
-    st.btn.disabled = true;
+    b.disabled = true;
     try {
       const r = await inviteDuel(st.api, name);
       if (!r.ok) {
         st.msg?.remove();
-        st.msg = textBox(root, r.message, { x: win.w - 268, y: -58, w: 260, align: 2, white: true, color: [1, 1, 1, 1] });
+        st.msg = textBox(root, r.message, { x: win.w - 268, y: -24, w: 260, align: 2, white: true, color: [1, 1, 1, 1] });
         st.msg.classList.add('lb-shadow');
         setTimeout(() => { st.msg?.remove(); st.msg = null; }, 4000);
       }
@@ -464,7 +494,7 @@ const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: 
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
-  clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, the Duel tab over the card
+  clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, a refusal's reason over the card
   parts: true,   // the cards' planes: their sprites' drawn colours
   preload: () => (hdSheet(), hdLoading || Promise.resolve()),
   mount: (win) => { inject(); return { id: win.id }; },

@@ -247,7 +247,7 @@ export class Lobby {
       c.send(0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }));
       this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
     }
-    for (const ch of chs) if (ch) { ch.done = true; this.post(ch.from, 0x4301, new W().u32(R_GONE).bytes()); }
+    for (const ch of chs) if (ch) this.endChallenge(ch, R_GONE);
     return true;
   }
 
@@ -255,7 +255,7 @@ export class Lobby {
     const rid = data.length >= 4 ? u32(data) : 0;
     const room = this.allRooms(this.sess(c)).find((r) => r.id === rid);
     if (room && this.humanRoom(room)) return this.challenge(c, room, data.subarray(4, 20));
-    if (!room || !room.npc) { if (!room) this.log(`[AVISO] [lobby] challenge to room ${rid}: no such room (from ${this.sess(c)?.acct.slice(0, 8) ?? "?"})`); c.send(0x4301, new W().u32(1).bytes()); return true; }
+    if (!room || !room.npc) { if (!room) this.log(`[AVISO] [lobby] challenge to room ${rid}: no such room (from ${this.sess(c)?.acct.slice(0, 8) ?? "?"})`); c.send(0x4301, new W().u32(R_NOROOM).bytes()); return true; }
     c.send(0x4301, new W().u32(0).bytes());
     this.duelNotice(c, room.npc);
     return true;
@@ -301,7 +301,10 @@ export class Lobby {
     const fail = (code: number, why: string) => {
       const o = room.conn, st = o ? (o.closed ? "closed" : o.stale() ? "stale" : (o.ext.lpClosed ? "lp-closed" : "open")) : "none";
       this.log(`[AVISO] [lobby] challenge to room ${room.id} refused: ${why} (${code}); room p1 ${room.p1} p2 ${room.p2} mstat ${room.mstat}, owner conn ${st}, from ${this.sess(c)?.acct.slice(0, 8) ?? "?"}`);
-      c.send(0x4301, new W().u32(code).bytes()); return true;
+      c.send(0x4301, new W().u32(code).bytes());
+      const a = this.sess(c), inv = a?.pid != null ? this.mem.invites.get(a.pid) : undefined;
+      if (inv?.room === room && !this.mem.challenges.has(room.id)) this.dropInvite(inv);
+      return true;
     };
     const a = this.sess(c), owner = room.conn!;
     const b = this.sess(owner);
@@ -313,6 +316,13 @@ export class Lobby {
     if (pvp && (pvp.byPid(b.pid!) || pvp.byPid(a.pid))) return fail(R_INDUEL, "already in a duel");
     if (this.isAuto(room)) return fail(R_AUTO, "the owner looks for an autoduel");
     if (room.pw && !sameBytes(pad(pw, 16), room.pwd ?? new Uint8Array(16))) return fail(R_NOROOM, "password");
+    // One offer per player, in either direction. A second 0x4300 must not replace a live wait or
+    // put another offer behind an existing popup. In particular, crossed challenges cannot both win.
+    const pending = this.challengeFrom(c);
+    if (pending?.room === room.id) return true; // duplicate packet: retain the original deadline
+    if (pending || this.challengeTo(c) || this.challengeFrom(owner) || this.challengeTo(owner)) return fail(R_FULL, "player busy with a challenge");
+    if (a.block !== b.block || a.block === null) return fail(R_GONE, "player left the block");
+    if (room.only && (this.busyHere(a) || this.busyHere(b))) return fail(R_FULL, "invite player became busy");
     const off = this.mem.offer;
     if (room.p2 || this.mem.challenges.has(room.id) || (off && off.room === room.id)) return fail(R_FULL, "room busy");
     const ch: Challenge = { room: room.id, from: c, to: owner, a, b, done: false };
@@ -362,7 +372,7 @@ export class Lobby {
     const mine = this.mem.invites.get(a.pid);
     if (mine && this.mem.challenges.has(mine.room.id)) return this.refuse("pending");
     if (mine) this.dropInvite(mine);   // an unused one (its card never pressed): replaced
-    if (this.busyHere(a) || this.challengeFrom(aConn)) return this.refuse("you-busy");
+    if (this.busyHere(a) || this.challengeFrom(aConn) || this.challengeTo(aConn)) return this.refuse("you-busy");
     const busy = this.busyHere(b);
     if (busy) return this.refuse(busy);
     if (this.challengeTo(bConn) || [...this.mem.invites.values()].some((v) => v.b === b)) return this.refuse("answering");
@@ -381,11 +391,24 @@ export class Lobby {
     this.later(INVITE_TTL, () => { if (this.mem.invites.get(a.pid!) === inv && !this.mem.challenges.has(r.id)) this.dropInvite(inv); });
     return [200, { ok: true, room: r.id }];
   }
-  /** s went busy (a state, a trade, left its block, gone): every direct invite to or from it that no challenge uses
-   *  yet goes now (one a challenge uses ends with that challenge) */
+  /** Called before leaving a block and when becoming busy. Pending offers must end too: a
+   *  popup hidden by another activity cannot be allowed to accept an obsolete request later. */
   inviteBusy(s: Session) {
+    for (const ch of [...this.mem.challenges.values()])
+      if (ch.a === s || ch.b === s) this.endChallenge(ch, R_GONE);
     for (const inv of [...this.mem.invites.values()])
-      if ((inv.a === s || inv.b === s) && !this.mem.challenges.has(inv.room.id)) this.dropInvite(inv);
+      if (inv.a === s || inv.b === s) this.dropInvite(inv);
+  }
+
+  private endChallenge(ch: Challenge, result: number, cool = false) {
+    if (ch.done) return;
+    ch.done = true;
+    if (this.mem.challenges.get(ch.room) === ch) this.mem.challenges.delete(ch.room);
+    // Resolve before removing the synthetic room the engine's request refers to.
+    this.post(ch.from, 0x4301, new W().u32(result).bytes());
+    this.post(ch.to, result === R_NOANSWER ? 0x4308 : 0x4305, new Uint8Array(0));
+    this.inviteEnded(ch, cool);
+    this.log(`[lobby] PvP challenge ended: room ${ch.room}, result ${result}`);
   }
   /** the invite's room gone for its challenger: the room's removal and the target as it really is */
   private dropInvite(inv: Invite) {
@@ -405,23 +428,23 @@ export class Lobby {
   }
 
   private challengeTimeout(ch: Challenge) {
-    if (ch.done) return;
-    ch.done = true;
-    this.mem.challenges.delete(ch.room);
-    this.inviteEnded(ch, true);
-    this.post(ch.to, 0x4308, new Uint8Array(0));
-    this.post(ch.from, 0x4301, new W().u32(R_NOANSWER).bytes());
+    this.endChallenge(ch, R_NOANSWER, true);
   }
 
   private challengeReply(c: Conn, ch: Challenge, ok: number): boolean {
     if (ch.done) return true;
+    if (ok && (!this.alive(ch.from) || !this.alive(ch.to) || ch.a.block === null || ch.a.block !== ch.b.block ||
+      this.g.pvp?.byPid(ch.a.pid!) || this.g.pvp?.byPid(ch.b.pid!))) {
+      this.endChallenge(ch, R_GONE);
+      return true;
+    }
     ch.done = true;
     this.mem.challenges.delete(ch.room);
     const r = this.mem.rooms.get(ch.room);
     const aConn = ch.from;
     const invite = !!r?.only;
-    this.inviteEnded(ch, !ok);
-    if (!ok) { this.post(aConn, 0x4301, new W().u32(R_REJECTED).bytes()); return true; }
+    if (!ok) { this.post(aConn, 0x4301, new W().u32(R_REJECTED).bytes()); this.inviteEnded(ch, true); return true; }
+    this.inviteEnded(ch, false);
     if (!r || !this.alive(aConn)) {
       c.send(0x4305);
       if (!r) this.post(aConn, 0x4301, new W().u32(R_GONE).bytes());
@@ -972,13 +995,9 @@ export class Lobby {
     const off = this.mem.offer;
     if (off && (goneIds.has(off.room) || !this.mem.rooms.has(off.room))) this.mem.offer = null;
     const mine = [...this.mem.challenges].filter(([k, ch]) => goneIds.has(k) || ch.from === c || ch.to === c).map(([, ch]) => ch);
-    for (const ch of mine) { this.mem.challenges.delete(ch.room); ch.done = true; }
+    for (const ch of mine) this.endChallenge(ch, R_GONE);
     if (gone.length) this.roomState(this.sess(c), 0);
     for (const r of gone) this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
-    for (const ch of mine) {
-      if (ch.from === c) this.post(ch.to, 0x4305, new Uint8Array(0));
-      else this.post(ch.from, 0x4301, new W().u32(R_GONE).bytes());
-    }
     if (this.g.lobbyRoom.c === c) this.g.lobbyRoom.c = null;
     return true;
   }

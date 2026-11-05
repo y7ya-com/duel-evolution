@@ -61,3 +61,5 @@
 009fb8c0  # CAreaMap::receive: intercept the shop door before fade/push
 009cd5c0  # CChibiAvatarElm::moveStep: overlay movement lock and door latch
 0068eca0  # account trunk-complete: sync card case and open editor after HTTP purchases
+
+006b69f0  # CNetLobby_OfferRoom::onMain: bounded duel request wait (duelrequest.c)
