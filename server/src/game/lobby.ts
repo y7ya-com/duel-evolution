@@ -476,6 +476,7 @@ export class Lobby {
     for (const r of cands) {
       const o = this.sess(r.conn)!;
       if (o.acct === s.acct || pvp.byPid(o.pid!)) continue;
+      if (!FREE.isFree(s) && RK.sameNetwork(s.ipbs, o.ipbs)) continue;   // the ranked queue never pairs one network with itself (its result would be unrated)
       if ((mine.x[2] || r.x[2]) && Math.abs(this.autoCard(s)[0] - this.autoCard(o)[0]) > AUTODUEL_LV_DIFF) continue;
       fits.push({ ...this.autoSeeker(o, r, at), r, o });
     }

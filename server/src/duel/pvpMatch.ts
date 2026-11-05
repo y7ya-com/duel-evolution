@@ -969,7 +969,8 @@ export class PvpMatch {
       const forfeit = why === DFM.WHY_SURRENDER || why === DFM.WHY_TIMEOUT || why === DFM.WHY_DISCONNECT;
       const secs = this.t0 ? now() - this.t0 : 0, short = turns < PP.ECON.PVP_MIN_TURNS && secs < PP.ECON.PVP_MIN_S;
       const o: RK.Outcome = { winner: winner === 0 || winner === 1 ? winner : null, forfeit, short }, at = Math.floor(this.g.clock.time() * 1000);
-      this.ratings = RK.rateMatch(pre[0], pre[1], [this.sess[0].acct, this.sess[1].acct], o, at);
+      const net = RK.sameNetwork(this.sess[0].ipbs, this.sess[1].ipbs);   // one connection on both sides: nobody is rated
+      this.ratings = net ? [null, null] : RK.rateMatch(pre[0], pre[1], [this.sess[0].acct, this.sess[1].acct], o, at);
       const line = (k: number) => { const r = this.ratings![k]; return r ? `${Math.round(pre[k].rating)}->${Math.round(r.rating)} ${RK.rankInfo(r).label}` : "unrated"; };
       // graduation's qualifying win: the sessions' network tags and account ages (hub.ts Session), the records before
       const side = (k: 0 | 1): RK.GradSide => ({ acct: this.sess[k].acct, ipbs: this.sess[k].ipbs, created: this.sess[k].userCreated, rank: pre[k] });
@@ -977,7 +978,7 @@ export class PvpMatch {
       const nogo = RK.gradQualifies(o, this.ratings, sides, at, this.origin);
       if (nogo === null && o.winner !== null) this.gradWin = { k: o.winner, opp: this.sess[1 - o.winner].acct, nets: [...this.sess[1 - o.winner].ipbs] };
       this.log(`[rank] ${this.name}: ${winner === null ? "draw" : `winner ${winner}`} (${why}${short ? ", short" : ""}): ranked (${this.origin}): 0 ${line(0)}, 1 ${line(1)}`
-        + `; graduation: ${nogo ?? "qualifying win"}`);
+        + `; graduation: ${nogo ?? "qualifying win"}` + (net ? "; same network: unrated" : ""));
     } catch (e) { this.ratings = null; this.log(`[EXC] ${this.name}: rating: ${errStr(e)}`); }
   }
   /** After finish() wrote the result: both duelists get their PBIN bits again (cosmetics.ts pushRankBits), for a school

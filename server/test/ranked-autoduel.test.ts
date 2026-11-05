@@ -205,6 +205,32 @@ describe("only Autoduel moves the rating and graduation", () => {
     expect(f.h.log.some((l) => /\[rank\] pvp-\d+: winner \d \(lp\): ranked \(autoduel\): .*graduation: qualifying win/.test(l))).toBe(true);
     expect(f.h.log.some((l) => /fin para 0 .*; ranked \(autoduel\)/.test(l))).toBe(true);
   });
+  it("an autoduel between two sessions on one network is unrated (rating, W/L record in p.rank and graduation untouched)", async () => {
+    const f = await lobby(2), [A, B] = f.cs;
+    seed(f);
+    await autoduel(f, A, B);
+    const sa = f.h.game.hub.byPid(A.pid!)!, sb = f.h.game.hub.byPid(B.pid!)!;
+    sa.ipbs = ["shared", "a2"]; sb.ipbs = ["b1", "shared"];                 // a tag in common: one network
+    const before = [A, B].map((c) => f.prof(c).rank);
+    await f.end(f.match(A)!, A);
+    const [pa, pb] = [A, B].map((c) => f.prof(c));
+    expect([pa.rank, pb.rank]).toEqual(before);
+    expect([pa.grad, pb.grad]).toEqual([undefined, undefined]);
+    expect(f.h.log.some((l) => /ranked \(autoduel\): 0 unrated, 1 unrated; graduation: unrated; same network: unrated/.test(l))).toBe(true);
+  });
+  it("the ranked queue never pairs two sessions of one network, and still pairs the others", async () => {
+    const f = await lobby(3), [A, B, C] = f.cs;
+    for (const c of f.cs) f.edit(c, (p) => { p.rank = placed(1600); });
+    const sess = (c: Client) => f.h.game.hub.byPid(c.pid!)!;
+    sess(A).ipbs = ["home"]; sess(B).ipbs = ["home"]; sess(C).ipbs = ["elsewhere"];
+    await openRoom(A, { mstat: 1, x: [1, 1, 0] }); await openRoom(B, { mstat: 1, x: [1, 1, 0] });
+    await f.h.tick(2000);
+    expect([f.match(A), f.match(B)]).toEqual([null, null]);                // same network: no pairing, however long they search
+    await openRoom(C, { mstat: 1, x: [1, 1, 0] });
+    await f.h.tick(2000);
+    expect(f.match(C)).not.toBeNull();
+    expect([f.match(C)!.origin, f.match(C)!.ranked]).toEqual(["autoduel", true]);
+  });
   it("graduation counts only autoduel wins: 24 opponents beaten, a room win over a 25th leaves it at 24; an autoduel win graduates", async () => {
     const f = await lobby(2), [A, B] = f.cs;
     seed(f);

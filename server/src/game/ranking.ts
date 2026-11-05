@@ -300,6 +300,11 @@ export function autoPick<T extends AutoSeeker>(me: AutoSeeker, cands: readonly T
 }
 
 // ─────────────────────────────── rated-result rules ───────────────────────────────
+/** Two sessions that share an IP-bucket tag (hub.ts Session.ipbs: keyed hashes) are one network: a household, a campus
+ *  or an alt ring behind one connection. Their matches are never rated (pvpMatch.rate) and the ranked queue doesn't pair
+ *  them (lobby.ts autoTryMatch); they can still duel in a room or by invite, unranked. An unknown network (no tag, the
+ *  DEV parity bridge) is not "the same". */
+export const sameNetwork = (a: readonly string[], b: readonly string[]): boolean => a.some((x) => b.includes(x));
 /** Rated results a UTC day between the same two accounts (ECON.PAIR_DAY_MAX's value): more is win-trading. */
 export const RATED_PAIR_DAY_MAX = 5;
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
