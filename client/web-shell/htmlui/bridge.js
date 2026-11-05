@@ -18,7 +18,6 @@ import { backdrop } from './backdrop.js';
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
-const SETTLE = 400;   // ms a scene load must stay over before the layer shows (start's frame)
 const HOLD = 3000;   // ms a window waits for the loading layer before the engine draws it (start's frame)
 
 // svelte(group): a screen group whose Svelte build (gen/<group>.js, npm run build) takes its classes over the plain
@@ -52,11 +51,10 @@ export function switches(spec, defaults = []) {
   return c => s.has(c);
 }
 
+// The layer sits where the engine's windows sit: over the canvas (1) and the native scroll bars (3), under the loader's
+// box (#loading, 5: the boot, a scene's "Loading..." veil), which covers HTML windows as it covers the game's
 const CSS = `#htmlui-host { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0;
-  pointer-events: none; z-index: 5; }
-/* hidden through a scene load by visibility, not display: none, which restarted every CSS animation in it (each window
-   played its entrance again after every load) */
-#htmlui-host[hidden] { display: block; visibility: hidden; }
+  pointer-events: none; z-index: 4; }
 #htmlui-host .win { position: absolute; overflow: hidden; isolation: isolate; }
 #htmlui-host .sp, #htmlui-host .tx, #htmlui-host .btn, #htmlui-host .chk, #htmlui-host .field, #htmlui-host .layer,
 #htmlui-host .frame { position: absolute; display: block; }
@@ -240,7 +238,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   const mu = modernUi({ defaults, canvas });
   let legacy = new Map(), host = null, render = null, loading = null;
   const screens = { get: c => (mu.active() && mu.mods.get(c)) || legacy.get(c), has: c => !!screens.get(c) };
-  let initFailed = false, heldSince = 0, settledAt = 0;
+  let initFailed = false, heldSince = 0;
   let loadStarted = 0;
   const init = () => loading ||= (async () => {
     loadStarted = performance.now();
@@ -304,7 +302,7 @@ export async function start(Module, { canvas = document.getElementById('canvas')
   let switching = false, endFrame = 0;
   Module.onYo2Scene = (kind, from, to) => {
     scene = to; switching = kind === 'begin';
-    if (switching) { if (host) host.hidden = true; bars.layer.hidden = true; } else endFrame = frameNo;   // hidden at once, not at the next Present
+    if (!switching) endFrame = frameNo;
   };
 
   // Owned-mode input. Mouse: real canvas events at the control, as a player's mouse (the game polls the mouse in its
@@ -427,24 +425,22 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     if (iso && !curHid && snap.cursor) extraPass.push(snap.cursor.id);   // isolate keeps an engine-drawn cursor
     // hide(win, snap): a screen's other elements the engine must not draw (its scene's backdrop pieces), after its windows
     const modHide = all.filter(w => owned.has(w.id) && screens.get(w.cls)?.hide).flatMap(w => screens.get(w.cls).hide(w, snap) || []);
-    // no HTML window before the scene is ready (owner: the chat came up while the place was still loading): the layer
-    // stays hidden through a scene load (to the first frame the engine presents after its end) and while the loader's
-    // box (#loading: the boot, a scene's "Loading...") is up,
-    const ld = document.getElementById('loading'), loadingNow = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
-    // and shows only once the load has stayed over for SETTLE ms: one scene change is often two loads with a gap of a
-    // few frames between them (the loader's box off for 20..250 ms, scene 25 between the two), and showing in that gap
-    // put every window up, took it away and put it back (players: "loads, disappears, loads again")
-    if (loadingNow) settledAt = 0; else if (!settledAt) settledAt = performance.now();
-    const wait = loadingNow || performance.now() - settledAt < SETTLE;
-    // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden; the engine's own
-    // through a scene load
-    const barIds = barsOn && !wait ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
+    // Through a scene load the HTML windows do what the engine's do: they stay (a window that lives on, the menu bar,
+    // never blinks), under the loader's veil (z-order, CSS above), darkened by the engine's screen fader (below). The
+    // layer used to hide from a scene's begin until a while after its end and the loader's box: over the veil it had to,
+    // but every persistent window then went away and came back, and popped in after the scene had faded in (players:
+    // "loads, disappears, loads again", "the bottom bar still flickers"). wait: Modern UI's own rule, unchanged
+    const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden
+    const barIds = barsOn ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
     const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...held, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
     H[t] = ids.length;
     ids.forEach((id, i) => { H[t + 1 + i] = id; });
     flush(t, H);
-    if (host && host.hidden !== wait) host.hidden = wait;
-    if (bars.layer.hidden !== wait) bars.layer.hidden = wait;
+    // the screen fader (read.js snapshot.fader): the engine multiplies its whole frame, windows included, by k; the
+    // HTML windows and the native bars get the same factor (a grey one: the fades measured are black)
+    const k = snap.fader ? (snap.fader.k[0] + snap.fader.k[1] + snap.fader.k[2]) / 3 : 1, dim = k < 0.998 ? `brightness(${k.toFixed(3)})` : '';
+    for (const el of [host, bars.layer]) if (el && el.style.filter !== dim) el.style.filter = dim;
     render?.(snap, owned, api);
     mu.frame(snap, scene, wait);
     bd?.frame(snap);   // the start screens' backdrop (backdrop.js)

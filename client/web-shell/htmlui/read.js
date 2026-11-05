@@ -213,6 +213,17 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   // tells only listeners already added: on a loaded machine the title came before start() and scene stayed 0)
   const sm = u32(SCENE_MNG);
   if (sm) scene = i32(sm + 0x7c);
+  // the screen fader (CSceneMng::fader_ +0xc0, a CTaskPtr to the CScreenFader; src/System/yo2SceneManager.cpp), which
+  // the engine draws over the whole frame, its windows included: a colour from (+0x344) to (+0x354), rgba, over its
+  // frames (+0x368 of +0x364), and the frame becomes dst * (1 - a + a * rgb). Leaving a scene it goes (1,1,1,1) to
+  // (0,0,0,1), arriving (0,0,0,1) to (0,0,0,0) (measured live). k: that factor per channel (1 untouched, 0 black)
+  const fader = (() => {
+    const f = sm && ptr(sm + 0xc0), tot = f ? i32(f + 0x364) : 0;
+    if (!f) return null;
+    const t = tot > 0 ? Math.min(1, Math.max(0, i32(f + 0x368) / tot)) : 1;
+    const c = [0, 4, 8, 12].map(o => f32(f + 0x344 + o) + (f32(f + 0x354 + o) - f32(f + 0x344 + o)) * t);
+    return { k: c.slice(0, 3).map(v => Math.min(1, Math.max(0, 1 - c[3] * (1 - v)))) };
+  })();
   // the title movie's four buttons (scene 4; src/title/titleEntry.cpp): CTitleScene::m_pBaseElm (under the root, beside
   // the CMouseManager) > CTitleScene::m_title (CSwfEngine) > Offset > CSwfButton2 btn_start, btn_option, btn_web,
   // btn_clear. Modern UI draws its own and hides these (their clicks still reach them)
@@ -241,7 +252,7 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
     return { shown: back.some(k => shown(k)) && !locked(found), ids: back };
   })();
   const fac = u32(FACTORY);
-  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title, backdrop };
+  if (!fac) return { v: 1, frame, scene, mouse: null, focus: 0, windows: [], tasks: [], cursor, title, backdrop, fader };
   const wins = list(fac + 0x10), winSet = new Set(wins);
   const byWin = new Map(wins.map(w => [w, []])), byTask = new Map();
   let focus = 0;
@@ -291,5 +302,5 @@ export function read(dv, frame = 0, scene = 0, opts = {}) {
   const tasks = [...byTask].map(([t, cs]) => ({ id: t, cls: cls(t), ...at(t), w: 0, h: 0, alpha: alpha(t),
     shown: shown(t) && !locked(t), controls: cs.reverse().sort(drawOrder), extras: [],
     ...(opts.parts?.has(t) && { parts: parts(t) }), ...XT[cls(t)]?.(t) }));
-  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, backdrop, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
+  return { v: 1, frame, scene, mouse: null, focus, windows, tasks, cursor, title, backdrop, fader, ...Object.assign({}, ...exts.map(e => e.snapshot?.())) };
 }
