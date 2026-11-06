@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as PP from "../src/game/persist.ts";
+import * as RK from "../src/game/ranking.ts";
+import { wearNewUniform } from "../src/game/cosmetics.ts";
 
 // The default outfit is Slifer Red at any LV (owner, 2026-11-06): the Domino starter clothes (0x70-0x73) of a look
 // that was never edited came back on every character past LV 5.
@@ -29,5 +31,26 @@ describe("Slifer Red is the default outfit", () => {
   });
   it("other outfits are untouched", () => {
     expect(outfit({ rec: { lv: 12 }, avatar: { a: hex(0x76), b: hex(0x76) } })).toBe(0x76);
+  });
+});
+
+describe("a school's uniform is put on when it is reached", () => {
+  const rank = (rating: number) => ({ ...RK.rankOf(null), rating, rd: 60, games: 20, wins: 10, losses: 10,
+    school: RK.schoolAfter("beginner", rating, true), best: RK.schoolAfter("beginner", rating, true), last: 0 });
+  const char = (rating: number, o = 0x80): PP.P => ({ rec: { lv: 12 }, rank: rank(rating), avatar: { a: hex(o), b: hex(o) } });
+  it("Ra Yellow, then Obelisk Blue, each once", () => {
+    const p = char(1500);
+    p.rank = rank(1600); expect(wearNewUniform(p, "slifer")).toBe(true); expect(outfit(p)).toBe(0x81);
+    p.rank = rank(1900); expect(wearNewUniform(p, "ra")).toBe(true); expect(outfit(p)).toBe(0x82);
+    const q = char(1900, 0x76);   // already Obelisk: a rated game changes nothing
+    expect(wearNewUniform(q, "obelisk")).toBe(false); expect(outfit(q)).toBe(0x76);
+  });
+  it("only the outfit changes", () => {
+    const p = char(1600, 0x76); p.avatar.a = p.avatar.b = hex(0x76).replace(/^0000/, "0004");   // hair 4
+    expect(wearNewUniform(p, "slifer")).toBe(true);
+    expect([...PP.avatarParts(p, 0).slice(0, 7)]).toEqual([0, 4, 0x20, 0x30, 0x40, 0x60, 0x81]);
+  });
+  it("a school not reached, or Slifer Red, puts nothing on", () => {
+    expect(wearNewUniform(char(1500, 0x76), "beginner")).toBe(false);
   });
 });

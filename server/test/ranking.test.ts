@@ -376,7 +376,7 @@ describe("Autoduel results move the rating (only Autoduel is ranked: test/ranked
       expect(w!.rating).toBeGreaterThan(1500);
     }
   });
-  it("after a match both duelists get their 0x3114 again: a school reached, graduation by the match's XP; no look is reset", async () => {
+  it("after a match both duelists get their 0x3114 again: a school reached (its uniform put on), graduation by the match's XP", async () => {
     const f = pvpSetup(), sent: [number, Uint8Array][][] = [[], []];
     f.players.forEach((pl, i) => pl.s.conns.set(f.g.ports.game, { closed: false, post: (id: number, d: Uint8Array) => sent[i].push([id, d]) } as any));
     const st = f.g.store.loadRaw();
@@ -395,7 +395,9 @@ describe("Autoduel results move the rating (only Autoduel is ranked: test/ranked
     const pbin = sent[0].filter(([id]) => id === 0x3114).at(-1)![1];
     expect([bitSet(pbin, 130), bitSet(pbin, RK.PBIN_GRADUATED)]).toEqual([true, true]);
     expect(sent[1].some(([id]) => id === 0x3114)).toBe(true);
-    expect(p1.avatar.b).toBe("0000203040607790b820000000000000");          // the Black Suit stays on in the Academy
+    // Obelisk Blue just reached: its uniform goes on over the Black Suit (owner, 2026-11-06), shown to the player
+    expect([p1.avatar.a, p1.avatar.b]).toEqual(["0000203040608290b820000000000000", "0000203040608290b820000000000000"]);
+    expect(f.players[0].s.partsW.get(1)?.[6]).toBe(0x82);
   });
   it("a short disconnection loss rates only the leaver; a voided (restart) match rates nobody", async () => {
     const f = pvpSetup(), m = f.match();

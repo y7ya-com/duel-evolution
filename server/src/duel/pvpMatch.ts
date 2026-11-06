@@ -12,7 +12,7 @@ import { entryKind } from "../game/gate.ts";
 import * as PP from "../game/persist.ts";
 import { freeRecord, isFree } from "../game/freemode.ts";
 import * as RK from "../game/ranking.ts";
-import { pushRankBits } from "../game/cosmetics.ts";
+import { pushRankBits, wearNewUniform } from "../game/cosmetics.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
 import { cardmap, type Deck } from "./data.ts";
 import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
@@ -951,6 +951,8 @@ export class PvpMatch {
   private ratings: [RK.Rank | null, RK.Rank | null] | null = null;
   /** The match's qualifying win for graduation (ranking.ts gradQualifies): the winner's side and the loser's account. */
   private gradWin: { k: number; opp: string; nets: readonly string[] } | null = null;
+  /** The accounts finish() put a just-reached school's uniform on (cosmetics.ts wearNewUniform): rated() shows it. */
+  private dressed = new Set<string>();
   /** Both new ratings from both records BEFORE the result (finish() writes each into its profile). `winner` is the
    *  match's (null = draw). Ranked = Autoduel only (this.ranked, ranking.ts isRankedOrigin): a room, a direct invite
    *  or a tournament game is unranked and leaves p.rank, the uniforms and graduation's qualifying wins alone (its MP,
@@ -983,12 +985,15 @@ export class PvpMatch {
   }
   /** After finish() wrote the result: both duelists get their PBIN bits again (cosmetics.ts pushRankBits), for a school
    *  just reached and for graduation (the match's XP or qualifying win can complete it: ranking.ts gradUpdate). Nothing is
-   *  taken back and no look reset: unlocks are for good. Not in free mode (no rating, no XP) or a restart. */
+   *  taken back and no look reset: unlocks are for good; a school's uniform put on in finish() is shown. Not in free mode
+   *  (no rating, no XP) or a restart. */
   private rated(): void {
+    const dressed = this.dressed;
     this.ratings = null;
     this.gradWin = null;
+    this.dressed = new Set();
     if (this.g.restarting || this.sess.some((s) => isFree(s))) return;
-    try { pushRankBits(this.g, this.sess.map((s) => s.acct)); }
+    try { pushRankBits(this.g, this.sess.map((s) => s.acct), dressed); }
     catch (e) { this.log(`[EXC] ${this.name}: rank bits: ${errStr(e)}`); }
   }
 
@@ -1026,7 +1031,7 @@ export class PvpMatch {
           pvpRecord(this.g, p, res, turns);
         }
         const rank = this.ratings?.[k];
-        if (rank) p.rank = rank;
+        if (rank) { const was = RK.rankView(p).bestSchool; p.rank = rank; if (wearNewUniform(p, was)) this.dressed.add(s.acct); }
         if (this.gradWin?.k === k) {
           const what = RK.gradWin(p, this.gradWin.opp, this.gradWin.nets), gp = RK.gradProgress(p);
           this.log(`[grad] ${this.name}: ${s.acct.slice(0, 6)}…: qualifying win ${what}, `

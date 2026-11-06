@@ -9,7 +9,7 @@ import { W } from "../net/proto.ts";
 import { BOXES, COSMETICS, FREE_COSMETICS, FREE_COSMETIC_BY_ID, COSMETIC_BY_ID, COSMETIC_BY_BIT, RARITIES, AVATAR_ROWS, MERGED_FAMILIES, resolveCosmeticId, ownedCosmeticIds, canonicalBoxId, cosmeticPool, expandCosmeticBits,
   boxById, boxAvailable, boxWeights, boxDisclosure, bodyInfo, bodyNotice, itemBodies,
   type Body, type Box, type CosmeticFamily, type CosmeticRarity, type BoxId, type Pity } from "./cosmetics-catalog.ts";
-import { rankRowAllowed, rankView, type RankView } from "./ranking.ts";
+import { RANK_SCHOOLS, rankRowAllowed, rankView, type RankSchool, type RankView, type UniformSchool } from "./ranking.ts";
 export { BOXES, COSMETICS, expandCosmeticBits } from "./cosmetics-catalog.ts";
 
 type Receipt = { boxId: BoxId; id: string; duplicate: boolean };
@@ -564,14 +564,33 @@ export function lawfulLook(p: PP.P, world: number, parts: Uint8Array): { owned: 
   }
   return { owned: true, changed, parts: out };
 }
+/** A school's dorm uniform, as an outfit part (both bodies: rows 0x80-0x82 and 0x180-0x182). */
+const UNIFORM_PART: Readonly<Record<UniformSchool, number>> = { slifer: 0x80, ra: 0x81, obelisk: 0x82 };
+/** The uniform of a school just reached is put on (owner, 2026-11-06: "when the user earns the ra/obelisk it auto
+ *  equips it"); `was`: the best school before the match. Only the outfit changes; the player may change it back. */
+export function wearNewUniform(p: PP.P, was: RankSchool): boolean {
+  const best = rankView(p).bestSchool, now = best === "master" ? "obelisk" : best;   // Master has no uniform of its own
+  if (now !== "ra" && now !== "obelisk" || RANK_SCHOOLS.indexOf(now) <= RANK_SCHOOLS.indexOf(was)) return false;
+  const parts = PP.avatarParts(p, 1);
+  parts[6] = UNIFORM_PART[now];
+  PP.outfitPicked(p, parts); PP.setLook(p, parts);
+  return true;
+}
 /** After a PvP result (ranking.ts, pvpMatch.rated): each listed online character gets its 0x3114 again, for the
  *  recompiled editor's rank bits (the uniforms of a school just reached, PBIN_GRADUATED once graduated:
- *  ranking.ts gradUpdate). Nothing is taken back: unlocks and graduation are for good, so no look is reset. */
-export function pushRankBits(g: Game, accts: Iterable<string>): void {
+ *  ranking.ts gradUpdate), and, for the `dressed` ones (wearNewUniform put a uniform on), its look. Nothing is taken
+ *  back: unlocks and graduation are for good. */
+export function pushRankBits(g: Game, accts: Iterable<string>, dressed: ReadonlySet<string> = new Set()): void {
   for (const acct of new Set(accts)) {
     const s = g.hub.sessions.get(acct);
     if (!s || s.slot === null) continue;
     const a = accountCopy(g, acct), p = a ? profile(a, s) : null;
-    if (p) pushOwnership(g, s, p);
+    if (!p) continue;
+    pushOwnership(g, s, p);
+    // a uniform put on for a school just reached: shown now, and to the player's own client, whose next 0x4170 (room
+    // entry) would otherwise send its old look back
+    if (!dressed.has(acct)) continue;
+    const look = PP.avatarParts(p, s.world ?? 1);
+    showLooks(g, s, [{ world: 0, parts: look }, { world: 1, parts: look }]);
   }
 }
