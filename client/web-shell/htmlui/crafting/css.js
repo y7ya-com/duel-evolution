@@ -76,7 +76,7 @@ ${badge}
 .cr-cardbar .own { flex: none; display: flex; align-items: center; gap: 2px; min-width: 30px; color: #fff; font: ${fontCss(13, 20)};
   text-shadow: 0 0 2px #000, 0 0 1px #000, 0 0 1px #000; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cr-cardbar .own svg.ic { stroke: #ffd862; filter: drop-shadow(0 0 1px #000); }
-.cr-cardbar .dk-btn { flex: 1 1 0; min-width: 0; height: 20px; padding: 0 4px; gap: 3px; font: bold ${fontCss(12, 20)}; letter-spacing: .2px; }
+.cr-cardbar .dk-btn { flex: 1 1 auto; min-width: 0; height: 20px; padding: 0 4px; gap: 3px; font: bold ${fontCss(12, 20)}; letter-spacing: .2px; }
 .cr-cardbar .dk-btn .shard { margin-left: 1px; }
 
 /* ---------------------------------------------------------------- popups: the editor's frame (dk-pop) */

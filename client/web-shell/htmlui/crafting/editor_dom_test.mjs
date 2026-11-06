@@ -114,8 +114,8 @@ const strip = () => q(`({ r: T.querySelector('.rb').hidden ? '' : T.querySelecto
   lock: !!T.querySelector('.own svg'), craft: [T.querySelectorAll('.dk-btn')[0].textContent, T.querySelectorAll('.dk-btn')[0].title, T.querySelectorAll('.dk-btn')[0].disabled],
   dis: [T.querySelectorAll('.dk-btn')[1].textContent, T.querySelectorAll('.dk-btn')[1].title, T.querySelectorAll('.dk-btn')[1].disabled] })`);
 let s = await strip();
-assert.deepEqual(s, { r: 'UR', own: '0/3', ownTip: 'Owned 0/3', lock: false, craft: ['1,500', 'Craft: costs 1,500 Shards', false],
-  dis: ['+500', 'Dismantle: gain 500 Shards. None owned', true] });
+assert.deepEqual(s, { r: 'UR', own: '0/3', ownTip: 'Owned 0/3', lock: false, craft: ['Craft', 'Craft: costs 1,500 Shards', false],
+  dis: ['Dismantle', 'Dismantle: gain 500 Shards. None owned', true] });
 assert.equal(await q('T.getBoundingClientRect().height'), 24, 'one 24 px row: the bar, not the text');
 await shot('bar-ur');
 await b.ev('__strip.show(2, 0, 175)');
@@ -123,9 +123,9 @@ s = await strip();
 assert.deepEqual([s.own, s.lock, s.dis[2]], ['2/3', true, false]);
 assert.match(s.ownTip, /Owned 2\/3 · 1 locked\nStructure Deck, Beginner's Pack and soulbound copies/);
 await b.ev('__strip.show(3, 0, 175)');
-assert.deepEqual((await strip()).craft, ['20', 'Craft: costs 20 Shards. 3 owned', true]);
+assert.deepEqual((await strip()).craft, ['Craft', 'Craft: costs 20 Shards. 3 owned', true]);
 await b.ev('__strip.show(5, 0, 175)');
-assert.deepEqual((await strip()).dis, ['+1', 'Dismantle: gain 1 Shards. Bound', true]);
+assert.deepEqual((await strip()).dis, ['Dismantle', 'Dismantle: gain 1 Shards. Bound', true]);
 await b.ev('__strip.show(6, 0, 175)');
 assert.match((await strip()).craft[1], /Can't be crafted/);
 

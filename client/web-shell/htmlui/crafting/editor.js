@@ -82,11 +82,12 @@ const icon = n => { const s = h('span'); s.innerHTML = SVG[n]; return s.firstChi
 // keys pressed on our controls are ours, never the game's (SDL listens on window, bubbling)
 const ownKeys = el => { for (const t of ['keydown', 'keyup', 'keypress']) el.addEventListener(t, e => e.stopPropagation()); return el; };
 
-// the detail bar's buttons: an icon and the price ("[+] ◆1,500" / "[split] +◆500"), the action and any reason it can't
-// in the tooltip and the aria-label
+// the detail bar's buttons: an icon and the action's name ("[+] Craft" / "[split] Dismantle"; an icon and a price alone
+// were missed: players couldn't tell what they did), the price and any reason it can't in the tooltip and the
+// aria-label, and the price again in the confirmation popup. A price beside the name doesn't fit the 248 px bar.
 function fillAction(b, kind, amount, why, busy) {
   const label = kind === 'make' ? 'Craft' : 'Dismantle', sign = kind === 'make' ? '' : '+';
-  b.replaceChildren(icon(kind === 'make' ? 'craft' : 'dismantle'), ...(amount == null ? [] : [h('span', null, { text: sign }), shard(), h('span', null, { text: M.fmt(amount) })]));
+  b.replaceChildren(icon(kind === 'make' ? 'craft' : 'dismantle'), h('span', null, { text: label }));
   b.disabled = !!why || !!busy;
   b.setAttribute('aria-busy', busy ? 'true' : 'false');
   const what = `${label}${amount != null ? `: ${sign === '+' ? 'gain' : 'costs'} ${M.fmt(amount)} Shards` : ''}`;
@@ -142,7 +143,7 @@ export function mountBar(parent) {
 // ---------------------------------------------------------------- the card detail's bar row
 // On the detail panel's own blue header bar (CWindowTaskIconbar, 248 x 24; its collapse arrow at x 229), so the card
 // text keeps all its room: the rarity tag, "2/3" owned (a lock when copies are locked: the reasons in its tooltip),
-// and the two small buttons. Shown with any card the panel shows, owned or not (the trunk's All lists every one).
+// and the Craft and Dismantle buttons. Shown with any card the panel shows, owned or not (the trunk's All lists every one).
 export const BAR_W = 226;
 export function mountStrip(parent) {
   start();
