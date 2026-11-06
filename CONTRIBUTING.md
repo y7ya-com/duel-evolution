@@ -34,6 +34,8 @@ used for Ghidra and Konami data work, and no code goes there. `duel-evolution-pr
 - **Secrets** go to `wrangler secret put`, never to files. Only `*.example` env files are committed, and they hold
   placeholders.
 - Keep the user-facing name "Duel Evolution".
+- **Only `main` ships.** Client ships and server deploys run from a clean checkout of `origin/main`, never from a
+  branch and never as a hand-uploaded file; `infra/ship-guard.sh` enforces it (`CLAUDE.md`).
 
 ## Working in a worktree
 
@@ -51,7 +53,7 @@ infra/fetch-private.sh                               # maintainers: server/gamed
   `YO2_DATA` (default `~/Documents/GitHub/yo2-decomp-data`). See `client/README.md` and `client/recomp/README.md`.
 - **Long builds and tests** go through `python3 -I client/tools/buildslot.py <cmd>`.
 - **When you're done:** rebase on `origin/main`, push the branch and open a PR, or fast-forward main if you own the
-  change. Deploys and client ships go from this repo (`server/DEPLOY.md`).
+  change. Deploys and client ships go from `main` only (`server/DEPLOY.md`, `CLAUDE.md`).
 
 ## Porting work from the old repos
 

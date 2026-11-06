@@ -6,6 +6,8 @@
 # DEPLOY_TOKEN is the Worker secret of the same name (wrangler secret put DEPLOY_TOKEN --env production).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# only origin/main deploys, and only when it already has what is live (../infra/ship-guard.sh), before players are warned
+. ../infra/ship-guard.sh; ship_guard server
 B=https://ygoevolution.com
 W=${1:-120}
 : "${DEPLOY_TOKEN:?DEPLOY_TOKEN}"
@@ -60,3 +62,4 @@ done
 [ "$v" = "$new" ] || { echo "FAIL: the WorldDO still answers ${v:-old code} after 10 min" >&2; exit 1; }
 scripts/post_deploy.sh
 scripts/prod_check.sh
+ship_guard_done server

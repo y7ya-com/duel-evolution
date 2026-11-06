@@ -10,12 +10,16 @@
 # (yo2rc-ios-<hash>.js loads yo2rc-ios-<hash>.wasm), those are checked live, and only then the page (yo2rc.html,
 # index.html) that names them. A tab that loads mid-ship gets one whole build, old or new. Earlier hashed files stay in
 # R2, so open tabs keep working. Needs `wrangler login` on the site's Cloudflare account.
-# DRY=1: prepare infra/out/<prefix>/ and list the uploads, upload nothing. SITE: where <prefix> is live (checked after
+# Only origin/main ships (infra/ship-guard.sh): HEAD must be origin/main and contain what is live; live/client is moved
+# to it after. DRY=1: prepare infra/out/<prefix>/ and list the uploads, upload nothing (any branch). SITE: where <prefix> is live (checked after
 # the hashed uploads; default https://original.ygoevolution.com for recomp-de, none for other prefixes).
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd); BUILD=0
 [ "${1:-}" = --build ] && { BUILD=1; shift; }
 X=${1:-recomp-de}; X=${X%/}; C=$R/client; B=$C/recomp/build-web; O=$R/infra/out/$X
+SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
+# only origin/main ships, and only when it already has what is live (infra/ship-guard.sh; DRY=1 builds any branch)
+. $R/infra/ship-guard.sh; ship_guard client
 [ $BUILD = 1 ] && (cd $C/recomp && python3 -I ../tools/buildslot.py make -j2 web web-async web-ios)
 # JSPI (Chrome), ASYNCIFY (Safari/Firefox, `make web-async`) and the 1 GB ASYNCIFY build (`make web-ios`: iPhone/iPad,
 # whose Safari refuses a 2 GB shared memory, and any browser that can't reserve the JSPI build's 2 GB): yo2rc.html picks
@@ -95,7 +99,6 @@ UI=$(cd $C/html-ui/assets && find . -type f ! -name '.*' | sed 's#^\./##' | sort
 [ -n "$UI" ] && [ -s $C/html-ui/assets/glyphs-dejavu16.json ] || { echo "no html-ui/assets (run infra/fetch-private.sh)"; exit 1; }
 for f in $UI; do mkdir -p $(dirname $O/ui/$f); cp $C/html-ui/assets/$f $O/ui/$f; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters
-SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 md5() { python3 -c 'import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())'; }
 # Only what changed goes up. A release used to send every file one by one (~610 of them: ~17 min for a few changed
 # ones): each upload is its own wrangler process, ~1.5 s of start-up for milliseconds of transfer.
@@ -144,3 +147,4 @@ if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
 fi
 # the page last: yo2rc.html names the hashed files; index.html is what lets new browsers (phones) in
 up $(changed BUILD.txt robots.txt sitemap.txt yo2rc.html index.html)
+if [ $X = recomp-de ]; then ship_guard_done client; fi
