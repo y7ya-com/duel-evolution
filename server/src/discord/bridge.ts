@@ -79,6 +79,9 @@ export function duelMessage(d: OpenDuel) {
 }
 
 type Posted = { msg: string | null };
+/** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
+type Profile = { id: string; avatar: string | null } | null;
+const PROFILE_TTL_MS = 30 * 60_000;
 
 export class DiscordBridge {
   private ws: WebSocket | null = null;
@@ -91,7 +94,8 @@ export class DiscordBridge {
   private fatal = false;
   private retries = 0;
   private emptySince: number | null = null;
-  private outQueue: { name: string; text: string }[] = [];
+  private outQueue: { name: string; text: string; who: Promise<Profile> }[] = [];
+  private profiles = new Map<string, { at: number; p: Promise<Profile> }>();
   private sending = false;
   /** room id -> its #duels message (msg null while its POST is in flight) */
   private posted = new Map<number, Posted>();
@@ -100,7 +104,7 @@ export class DiscordBridge {
   private botId: string | null = null;
   private swept = false;
 
-  constructor(private env: DiscordEnv & { PUBLIC_ORIGIN?: string }, private g: Game, private log: (s: string) => void) {
+  constructor(private env: DiscordEnv & { PUBLIC_ORIGIN?: string; DB?: D1Database }, private g: Game, private log: (s: string) => void) {
     g.duelsChanged = () => this.duelsChanged();
   }
 
@@ -109,22 +113,42 @@ export class DiscordBridge {
 
   // ---- All Chat -> #general
 
-  chatOut(name: string, text: string) {
+  /** An All Chat line out to #general; `userId`: the sender's DE user, whose linked Discord shows with the line. */
+  chatOut(name: string, text: string, userId: string | null = null) {
     if (!this.env.DISCORD_GENERAL_WEBHOOK_URL) return;
-    this.outQueue.push({ name, text });
+    this.outQueue.push({ name, text, who: this.profile(userId) });
     if (this.outQueue.length > OUT_QUEUE_MAX) this.outQueue.splice(0, this.outQueue.length - OUT_QUEUE_MAX);
     void this.pump();
   }
-  /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. */
+  /** The Discord account linked to a DE user, and its avatar (cached a while; null when none or unknown). */
+  private profile(userId: string | null): Promise<Profile> {
+    if (!userId || !this.env.DB) return Promise.resolve(null);
+    const hit = this.profiles.get(userId);
+    if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.p;
+    const p = (async (): Promise<Profile> => {
+      const row = await this.env.DB!.prepare("SELECT account_id FROM account WHERE provider_id = 'discord' AND user_id = ?").bind(userId).first<{ account_id: string }>();
+      if (!row) return null;
+      const u = await rest(this.env, "GET", `/users/${row.account_id}`);
+      return { id: row.account_id, avatar: u.ok && u.body?.avatar ? `https://cdn.discordapp.com/avatars/${row.account_id}/${u.body.avatar}.png?size=128` : null };
+    })().catch(() => null);
+    this.profiles.set(userId, { at: Date.now(), p });
+    if (this.profiles.size > 2000) this.profiles.delete(this.profiles.keys().next().value!);
+    return p;
+  }
+  /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. Under it, the
+   *  player's Discord as a mention (subtext; allowed_mentions off, so nobody is pinged): a click shows their profile. */
   private async pump() {
     if (this.sending) return;
     this.sending = true;
     try {
       while (this.outQueue.length) {
-        const name = this.outQueue[0].name, lines: string[] = [];
-        while (this.outQueue.length && this.outQueue[0].name === name && lines.join("\n").length < 1500) lines.push(this.outQueue.shift()!.text);
-        const body = { username: webhookName(name), content: lines.map(discordText).join("\n"), allowed_mentions: { parse: [] },
-          flags: SUPPRESS_EMBEDS, ...(this.env.PUBLIC_ORIGIN && { avatar_url: `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` }) };
+        const first = this.outQueue[0], who = await first.who, lines: string[] = [];
+        while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500)
+          lines.push(discordText(this.outQueue.shift()!.text));
+        if (who) lines.push(`-# <@${who.id}>`);
+        const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
+        const body = { username: webhookName(first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
+          flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };
         let r = await webhook(this.env.DISCORD_GENERAL_WEBHOOK_URL!, body);
         if (r.status === 429) { await sleep((r.retryAfter ?? 1) * 1000); r = await webhook(this.env.DISCORD_GENERAL_WEBHOOK_URL!, body); }
         if (!r.ok) this.log(`[AVISO] [discord] All Chat line not relayed: ${r.status} ${JSON.stringify(r.body)?.slice(0, 200)}`);
@@ -151,7 +175,7 @@ export class DiscordBridge {
       if (!ws) throw new Error(`no websocket (${r.status})`);
       ws.accept();
       this.ws = ws;
-      ws.addEventListener("message", (e) => { try { this.onFrame(JSON.parse(String(e.data))); } catch (err) { this.log(`[discord] gateway frame: ${err}`); } });
+      ws.addEventListener("message", (e) => { try { this.onFrame(JSON.parse(typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data as ArrayBuffer))); } catch (err) { this.log(`[AVISO] [discord] gateway frame: ${err}`); } });
       ws.addEventListener("close", (e) => this.onClose(ws, e.code));
       ws.addEventListener("error", () => this.onClose(ws, 1006));
       if (!this.idle) this.idle = setInterval(() => this.idleCheck(), 60_000);
@@ -185,7 +209,7 @@ export class DiscordBridge {
       this.session = { id: f.d.session_id, url: f.d.resume_gateway_url };
       this.botId = f.d.user?.id ?? this.botId;
       this.retries = 0;
-      this.log(`[discord] gateway ready as ${f.d.user?.username}`);
+      this.log(`[AVISO] [discord] gateway ready as ${f.d.user?.username}`);
     } else if (f.t === "RESUMED") this.retries = 0;
     else if (f.t === "MESSAGE_CREATE") this.onMessage(f.d);
   }
@@ -200,6 +224,7 @@ export class DiscordBridge {
     const text = gameText(m);
     if (!text) return;
     const author = gameAuthor(m);
+    this.log(`[AVISO] [discord] #general -> All Chat (${text.length} chars)`);
     void this.g.world.run(() => { for (const line of gameLines(author, text)) relayIn(this.g, author, line); });
   }
   /** Close this socket; reconnect (resuming if `resume`) unless the game has emptied. */
@@ -212,10 +237,11 @@ export class DiscordBridge {
   }
   private onClose(ws: WebSocket, code: number) {
     if (ws !== this.ws) return;
+    this.log(`[AVISO] [discord] gateway closed (${code})`);
     this.stop();
     if (FATAL.has(code)) {
       this.fatal = true;
-      this.log(`[discord] gateway refused (close ${code}${code === 4014 ? ": enable the Message Content intent" : ""}); #general won't reach the game until a restart`);
+      this.log(`[AVISO] [discord] gateway refused (close ${code}${code === 4014 ? ": enable the Message Content intent" : ""}); #general won't reach the game until a restart`);
       return;
     }
     if (code === 4007 || code === 4009) this.session = null;   // bad seq, session timed out: identify anew

@@ -87,6 +87,23 @@ describe("All Chat <-> #general", () => {
     expect(out[0].body).toMatchObject({ username: "Player0", content: "hello \\*all\\*", allowed_mentions: { parse: [] }, avatar_url: "https://de.test/apple-touch-icon.png" });
   });
 
+  it("a player with a linked Discord: their avatar, and their Discord as a mention under the line (nobody pinged)", async () => {
+    const calls = mockDiscord();
+    const [h, [a]] = await world(1);
+    const DB = { prepare: () => ({ bind: (u: string) => ({ first: async () => (u === "user-0" ? { account_id: "777" } : null) }) }) } as unknown as D1Database;
+    h.game.discord = new DiscordBridge({ ...ENV, DB }, h.game, () => {});
+    (globalThis.fetch as any).mockImplementation(async (input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      return url.endsWith("/users/777") ? Response.json({ id: "777", avatar: "abc" }) : Response.json({ id: "m1" });
+    });
+    a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hi", 2), [0]));
+    await h.tick(200);
+    const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_GENERAL_WEBHOOK_URL));
+    expect(out[0].body).toMatchObject({ username: "Player0", content: "hi\n-# <@777>", allowed_mentions: { parse: [] },
+      avatar_url: "https://cdn.discordapp.com/avatars/777/abc.png?size=128" });
+  });
+
   it("#general messages reach everyone online as [Discord] lines; bots, webhooks and other channels don't", async () => {
     mockDiscord();
     const [h, [a, b]] = await world(2);

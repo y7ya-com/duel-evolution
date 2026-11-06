@@ -56,7 +56,7 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
   // Every client gets the same canonical channel. Channel1 no longer means proximity.
   const wire = new W().u8(0).u8(CHAT_TAB[channel]).u32(sender.pid!).u32(2).s(message.name, 16).s([...text].map(c => c.charCodeAt(0) > 255 ? "?" : c).join(""), [...text].length).u8(0).bytes();
   for (const s of recipients) s.lobby!.post(0x4402, wire);
-  if (channel === "global") g.discord?.chatOut(message.name, text);   // All Chat is Discord's #general too
+  if (channel === "global") g.discord?.chatOut(message.name, text, sender.lobby?.userId ?? null);   // All Chat is Discord's #general too
   return { ok: plain(message) };
 }
 

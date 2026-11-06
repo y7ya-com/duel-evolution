@@ -347,6 +347,7 @@ export class WorldDO extends DurableObject<Env> {
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }
     if (url.pathname === "/__dev/discord-say" && this.env.DEV === "1") {
       // wrangler dev only: a #general line into All Chat as the gateway brings one (POST {author, text}), for the htmlui checks
       const b = (await request.json().catch(() => ({}))) as { author?: string; text?: string };
