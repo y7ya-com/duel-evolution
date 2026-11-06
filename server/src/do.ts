@@ -36,6 +36,8 @@ export class WorldDO extends DurableObject<Env> {
   /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
   private sockets = new Map<WebSocket, (hold?: boolean) => void>();
   private log: (s: string) => void;
+  /** wrangler dev only (/__dev/discord-online): a fixed answer for /api/de/discord-online */
+  private devDiscordOnline: string[] | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -291,7 +293,7 @@ export class WorldDO extends DurableObject<Env> {
       // the Worker forwards GET /api/de/discord-online (the Players window's "(Discord)" rows) with x-de-user: the duelists
       // online on Discord and not in the game (discord/bridge.ts discordOnline)
       if (!request.headers.get("x-de-user")) return Response.json({ error: "signed out" }, { status: 401 });
-      const names = await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([] as string[])).catch((e) => { console.error(`[discord online] ${e}`); return [] as string[]; });
+      const names = this.devDiscordOnline ?? await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([] as string[])).catch((e) => { console.error(`[discord online] ${e}`); return [] as string[]; });
       return Response.json({ players: names.map((name) => ({ name })) }, { headers: { "Cache-Control": "private, max-age=30" } });
     }
     if (url.pathname === "/__de/discord/duel") {
@@ -353,6 +355,12 @@ export class WorldDO extends DurableObject<Env> {
         else r = [405, { error: "method not allowed" }];
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__dev/discord-online" && this.env.DEV === "1") {
+      // wrangler dev only: what /api/de/discord-online answers (POST {names: [...]}, or {names: null} for the real list)
+      const b = (await request.json().catch(() => ({}))) as { names?: unknown };
+      this.devDiscordOnline = Array.isArray(b.names) ? b.names.map(String) : null;
+      return new Response("ok");
     }
     if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }
     if (url.pathname === "/__dev/discord-say" && this.env.DEV === "1") {
