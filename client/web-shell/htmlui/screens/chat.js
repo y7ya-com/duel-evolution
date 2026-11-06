@@ -142,6 +142,24 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
   el.setAttribute('role', stick ? 'log' : 'list');
   layer.append(el);
   let shown = [];
+  // a log follows its newest line unless the player scrolled up (pinned: kept from their own scrolls, never measured at
+  // an update: a tab's log that took lines while hidden (display: none scrolls nowhere), or one the window made taller
+  // or shorter, would read as scrolled up and stop following for good). Shown again or resized: back to the newest line,
+  // or to where the player left it.
+  let pinned = true, at = 0;
+  const follow = () => { if (stick && pinned) el.scrollTop = el.scrollHeight; };
+  if (stick) {
+    el.addEventListener('scroll', () => {
+      if (!el.clientHeight) return;   // hidden
+      pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+      at = el.scrollTop;
+    });
+    new ResizeObserver(() => {
+      if (!el.clientHeight) return;
+      if (pinned) follow();
+      else if (Math.abs(el.scrollTop - at) > 1) el.scrollTop = at;
+    }).observe(el);
+  }
   // a row with "@>N/" pen moves (the Team List's "@>16/<name>@>230/<where>") as its pieces, each at its x (rowRuns)
   const row = s => {
     const r = document.createElement('div');
@@ -174,7 +192,6 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
     Object.assign(el.style, { left: c2.x + 'px', top: c2.y + 'px', width: c2.w + 'px', height: c2.h + 'px' });
     const items = (c2.items || []).map(basic.untag), delta = itemsDelta(shown, items);
     if (delta && !delta[0] && !delta[1].length) return;
-    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
     if (delta) {
       for (let k = 0; k < delta[0]; k++) el.firstChild?.remove();
       el.append(...delta[1].map(row));
@@ -182,7 +199,7 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
       el.replaceChildren(...items.map(row));
     }
     shown = items;
-    if (stick && bottom) el.scrollTop = el.scrollHeight;
+    follow();
   };
   return el;
 }
