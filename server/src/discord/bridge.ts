@@ -142,8 +142,9 @@ export class DiscordBridge {
     if (this.profiles.size > 2000) this.profiles.delete(this.profiles.keys().next().value!);
     return p;
   }
-  /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. Under it, the
-   *  player's Discord as a link to their profile (subtext): not a mention, so nobody is tagged or pinged. */
+  /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. It goes under
+   *  the player's name, with their Discord picture when it's linked, and nothing is added to the text: a webhook's author
+   *  can't open a real profile (only a mention could, and that tags). */
   private async pump() {
     if (this.sending) return;
     this.sending = true;
@@ -152,7 +153,6 @@ export class DiscordBridge {
         const first = this.outQueue[0], who = await first.who, lines: string[] = [];
         while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500)
           lines.push(discordText(this.outQueue.shift()!.text));
-        if (who) lines.push(`-# [@${discordText(who.name)}](<https://discord.com/users/${who.id}>)`);
         const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
         const body = { username: webhookName(first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
           flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };

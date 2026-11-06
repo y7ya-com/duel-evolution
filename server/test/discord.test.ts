@@ -87,7 +87,7 @@ describe("All Chat <-> #general", () => {
     expect(out[0].body).toMatchObject({ username: "Player0", content: "hello \\*all\\*", allowed_mentions: { parse: [] }, avatar_url: "https://de.test/apple-touch-icon.png" });
   });
 
-  it("a player with a linked Discord: their avatar, and their Discord as a profile link under the line (no tag)", async () => {
+  it("a player with a linked Discord: their avatar, and their Discord picture, the text untouched", async () => {
     const calls = mockDiscord();
     const [h, [a]] = await world(1);
     const DB = { prepare: () => ({ bind: (u: string) => ({ first: async () => (u === "user-0" ? { account_id: "777" } : null) }) }) } as unknown as D1Database;
@@ -100,7 +100,7 @@ describe("All Chat <-> #general", () => {
     a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hi", 2), [0]));
     await h.tick(200);
     const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_GENERAL_WEBHOOK_URL));
-    expect(out[0].body).toMatchObject({ username: "Player0", content: "hi\n-# [@Jo\\_Jo](<https://discord.com/users/777>)", allowed_mentions: { parse: [] },
+    expect(out[0].body).toMatchObject({ username: "Player0", content: "hi", allowed_mentions: { parse: [] },
       avatar_url: "https://cdn.discordapp.com/avatars/777/abc.png?size=128" });
   });
 
