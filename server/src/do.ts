@@ -23,7 +23,8 @@ import { chatGet, chatSend, relayIn } from "./game/chat.ts";
 import { rankLookup, RANK_MAX_AGE } from "./game/rank-api.ts";
 import { tradeCosmeticsInfo, tradeCosmeticsPanel, tradeCosmeticsSet } from "./game/trade-cosmetics.ts";
 import { CREATED_HEADER, IPB_HEADER } from "./auth/binding.ts";
-import { DiscordBridge } from "./discord/bridge.ts";
+import { DiscordBridge, type DiscordDuelist } from "./discord/bridge.ts";
+import { publicRank } from "./game/rank-api.ts";
 import { isFree } from "./game/freemode.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
@@ -37,7 +38,7 @@ export class WorldDO extends DurableObject<Env> {
   private sockets = new Map<WebSocket, (hold?: boolean) => void>();
   private log: (s: string) => void;
   /** wrangler dev only (/__dev/discord-online): a fixed answer for /api/de/discord-online */
-  private devDiscordOnline: string[] | null = null;
+  private devDiscordOnline: DiscordDuelist[] | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -293,8 +294,8 @@ export class WorldDO extends DurableObject<Env> {
       // the Worker forwards GET /api/de/discord-online (the Players window's "(Discord)" rows) with x-de-user: the duelists
       // online on Discord and not in the game (discord/bridge.ts discordOnline)
       if (!request.headers.get("x-de-user")) return Response.json({ error: "signed out" }, { status: 401 });
-      const names = this.devDiscordOnline ?? await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([] as string[])).catch((e) => { console.error(`[discord online] ${e}`); return [] as string[]; });
-      return Response.json({ players: names.map((name) => ({ name })) }, { headers: { "Cache-Control": "private, max-age=30" } });
+      const players = this.devDiscordOnline ?? await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([])).catch((e) => { console.error(`[discord online] ${e}`); return []; });
+      return Response.json({ players }, { headers: { "Cache-Control": "private, max-age=30" } });
     }
     if (url.pathname === "/__de/discord/duel") {
       // the Worker's Discord interactions (discord/interactions.ts, a #duels Accept): is room ?id still open, and is it
@@ -357,9 +358,11 @@ export class WorldDO extends DurableObject<Env> {
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/__dev/discord-online" && this.env.DEV === "1") {
-      // wrangler dev only: what /api/de/discord-online answers (POST {names: [...]}, or {names: null} for the real list)
-      const b = (await request.json().catch(() => ({}))) as { names?: unknown };
-      this.devDiscordOnline = Array.isArray(b.names) ? b.names.map(String) : null;
+      // wrangler dev only: what /api/de/discord-online answers (POST {players: [{pid, name, lv, rank}]}, or {players: null}
+      // for the real list; {names: [...]} for names alone, LV 1 and unranked)
+      const b = (await request.json().catch(() => ({}))) as { players?: unknown; names?: unknown };
+      this.devDiscordOnline = Array.isArray(b.players) ? b.players as DiscordDuelist[]
+        : Array.isArray(b.names) ? b.names.map((n, i) => ({ pid: 90000 + i, name: String(n), lv: 1, rank: publicRank(90000 + i, String(n), {}) })) : null;
       return new Response("ok");
     }
     if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }

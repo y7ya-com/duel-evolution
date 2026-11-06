@@ -170,7 +170,13 @@ describe("duelists online on Discord", () => {
     frame("GUILD_CREATE", { id: "g1", presences: [{ user: { id: "601" }, status: "online" }, { user: { id: "602" }, status: "idle" }, { user: { id: "700" }, status: "online" }] });
     expect(await bridge.discordOnline()).toEqual([]);   // both are in the game; 700 isn't linked
     h.game.hub.sessions.delete(h.game.hub.byPid(b.pid!)!.acct);   // Player1 leaves the game
-    expect(await bridge.discordOnline()).toEqual(["Player1"]);
+    const [p1] = await bridge.discordOnline();
+    expect(p1).toMatchObject({ pid: b.pid, name: "Player1", lv: expect.any(Number), rank: { known: true, name: "Player1" } });
+    // a linked account without a created character isn't listed
+    const acct = h.game.store.accountOfUser("user-1")!, saved = h.game.store.peek().accounts[acct].profiles;
+    (h.game.store.peek().accounts[acct] as any).profiles = {};
+    expect(await bridge.discordOnline()).toEqual([]);
+    (h.game.store.peek().accounts[acct] as any).profiles = saved;
     frame("PRESENCE_UPDATE", { guild_id: "g1", user: { id: "602" }, status: "offline" });
     expect(await bridge.discordOnline()).toEqual([]);
     void a;

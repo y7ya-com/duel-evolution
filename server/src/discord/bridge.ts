@@ -15,6 +15,8 @@ import type { Game } from "../game/game.ts";
 import { DISCORD_NAME, relayIn } from "../game/chat.ts";
 import { SANCTION_CHAT } from "../game/lobby.ts";
 import type { OpenDuel } from "../game/lobby.ts";
+import { PID_BASE } from "../game/hub.ts";
+import { publicRank, type PublicRank } from "../game/rank-api.ts";
 import { rest, webhook, type DiscordEnv } from "./rest.ts";
 
 const GATEWAY = "https://gateway.discord.gg/?v=10&encoding=json";
@@ -88,6 +90,8 @@ export function duelMessage(d: OpenDuel) {
 }
 
 type Posted = { msg: string | null };
+/** A duelist online on Discord, not in the game: the Players window's row and profile card (htmlui playerlist.js). */
+export type DiscordDuelist = { pid: number; name: string; lv: number; rank: PublicRank };
 /** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
 type Profile = { id: string; name: string; avatar: string | null } | null;
 const PROFILE_TTL_MS = 30 * 60_000;
@@ -147,11 +151,12 @@ export class DiscordBridge {
       .finally(() => { this.links.loading = null; });
     return this.links.loading;
   }
-  /** The duelists online on Discord and not in the game: a linked account's active character, by name (sorted, at most
-   *  DISCORD_ONLINE_MAX). Empty while the gateway is down. */
-  async discordOnline(): Promise<string[]> {
+  /** The duelists online on Discord and not in the game: a linked account whose active character was really created
+   *  (a saved profile with a name), with what the Players window's row and profile card show. Sorted by name, at most
+   *  DISCORD_ONLINE_MAX. Empty while the gateway is down. */
+  async discordOnline(): Promise<DiscordDuelist[]> {
     if (Date.now() - this.links.at > LINKS_TTL_MS) await this.loadLinks();
-    const names = new Set<string>();
+    const out = new Map<string, DiscordDuelist>();
     await this.g.world.run(() => {
       const accounts = this.g.store.peek().accounts ?? {};
       for (const id of this.present) {
@@ -159,12 +164,14 @@ export class DiscordBridge {
         if (!acct) continue;
         const s = this.g.hub.sessions.get(acct);
         if (s && [...s.conns.values(), s.lobby].some((c) => c && !c.closed)) continue;   // in the game: the list has them already
-        const a = accounts[acct] as { active_slot?: number; profiles?: Record<string, { name?: string }>; players?: Record<string, string> } | undefined;
-        const slot = String(Number(a?.active_slot ?? 0) & 3), name = a?.profiles?.[slot]?.name || a?.players?.[slot];
-        if (name) names.add(name);
+        const a = accounts[acct] as { idx?: number; active_slot?: number; profiles?: Record<string, any> } | undefined;
+        const slot = Number(a?.active_slot ?? 0) & 3, p = a?.profiles?.[String(slot)];
+        if (!p || typeof p !== "object" || typeof p.name !== "string" || !p.name.trim() || !p.rec) continue;   // no character yet
+        const pid = PID_BASE + 4 * Number(a!.idx ?? 0) + slot;
+        out.set(p.name, { pid, name: p.name, lv: Number(p.rec.lv) || 1, rank: publicRank(pid, p.name, p) });
       }
     });
-    return [...names].sort((a, b) => a.localeCompare(b)).slice(0, DISCORD_ONLINE_MAX);
+    return [...out.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, DISCORD_ONLINE_MAX);
   }
 
   // ---- the player count
