@@ -68,7 +68,7 @@
         rot.id = "rotate";
         rot.innerHTML = '<svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round">' +
             '<rect x="14" y="4" width="20" height="40" rx="3"/><path d="M21 39h6"/></svg><div>Turn your device sideways to play.</div>';
-        stage.append(rot);   // inside the stage: in fullscreen nothing outside it shows
+        stage.append(rot);
         document.addEventListener("gesturestart", (e) => e.preventDefault());   // Safari pinch
     }
 
@@ -101,8 +101,9 @@
     const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
     const canFs = document.fullscreenEnabled || document.webkitFullscreenEnabled;
     if (!canFs) btn.hidden = true;   // iPhone Safari: elements can't go full screen
-    function enterFs() {
-        const p = stage.requestFullscreen ? stage.requestFullscreen({ navigationUI: "hide" }) : stage.webkitRequestFullscreen?.();
+    function enterFs() {   // the whole page, not the stage: the HTML UI's layers live on <body>, and fullscreen hides all
+        const root = document.documentElement;   // but the fullscreen element's subtree (the stage already fills the page)
+        const p = root.requestFullscreen ? root.requestFullscreen({ navigationUI: "hide" }) : root.webkitRequestFullscreen?.();
         Promise.resolve(p).then(() => coarse && screen.orientation?.lock?.("landscape")).catch(() => {});
     }
     function toggle() {   // must run inside the click / key handler: fullscreen needs a user gesture
@@ -172,7 +173,7 @@
     for (const [k, v] of [["autocorrect", "off"], ["autocapitalize", "none"], ["enterkeyhint", "done"], ["aria-label", "Text for the game"]]) kb.setAttribute(k, v);
     kb.value = SENT;
     let prev = SENT, composing = false;
-    if (coarse) stage.append(kb);   // inside the stage, or fullscreen makes it unfocusable
+    if (coarse) stage.append(kb);
     kb.addEventListener("keydown", (e) => {
         e.stopPropagation();   // the game gets the text from "input" below, and these keys from us, never twice
         if (e.isComposing || e.keyCode === 229) return;
