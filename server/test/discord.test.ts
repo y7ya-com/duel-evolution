@@ -100,7 +100,7 @@ describe("All Chat <-> #in-game", () => {
     a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hi", 2), [0]));
     await h.tick(200);
     const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_CHAT_WEBHOOK_URL));
-    expect(out[0].body).toMatchObject({ username: "Player0", content: "hi", allowed_mentions: { parse: [] },
+    expect(out[0].body).toMatchObject({ username: "Player0 (Jo_Jo)", content: "hi", allowed_mentions: { parse: [] },
       avatar_url: "https://cdn.discordapp.com/avatars/777/abc.png?size=128" });
   });
 

@@ -228,8 +228,9 @@ export class DiscordBridge {
     return p;
   }
   /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. It goes under
-   *  the player's name, with their Discord picture when it's linked, and nothing is added to the text: a webhook's author
-   *  can't open a real profile (only a mention could, and that tags). */
+   *  the player's name, and with a linked Discord their Discord name in brackets ("hus (nova)": who they are on both sides)
+   *  and their Discord picture; nothing is added to the text (a webhook's author can't open a real profile; only a
+   *  mention could, and that tags). */
   private async pump() {
     if (this.sending) return;
     this.sending = true;
@@ -239,7 +240,7 @@ export class DiscordBridge {
         while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500)
           lines.push(discordText(this.outQueue.shift()!.text));
         const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
-        const body = { username: webhookName(first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
+        const body = { username: webhookName(who ? `${first.name} (${who.name})` : first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
           flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };
         let r = await webhook(this.env.DISCORD_CHAT_WEBHOOK_URL!, body);
         if (r.status === 429) { await sleep((r.retryAfter ?? 1) * 1000); r = await webhook(this.env.DISCORD_CHAT_WEBHOOK_URL!, body); }
