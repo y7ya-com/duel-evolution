@@ -200,6 +200,14 @@ const duels = async (c: Context<E>) => {
   return toWorld(c.env, c.req.raw, new URL(c.req.url).pathname.replace("/api/de/", "/__de/"), fwd);
 };
 routes.get("/api/de/duels", duels);
+// the Players window's "(Discord)" rows: duelists online on Discord, not in the game (discord/bridge.ts discordOnline)
+routes.get("/api/de/discord-online", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/discord-online", fwd);
+});
 routes.post("/api/de/duels/join", duels);
 
 // the Discord bot's interactions (discord/interactions.ts): /verify, /reset, #duels' Accept; Discord's signature, no session

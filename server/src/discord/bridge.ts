@@ -6,6 +6,8 @@
 // - #duels: one message per open duel (lobby.ts openDuels: created in the game, nobody joined yet), with its Accept
 //   button (custom_id duel_join:<room id>, discord/interactions.ts). Each message goes when its duel does, so the channel
 //   is the live list. A restart forgets the messages, so the bot's old ones are swept at boot.
+// - Who is on Discord: the gateway's presences (GUILD_CREATE, PRESENCE_UPDATE), so the game's Players window can list the
+//   duelists online on Discord but not in the game (discordOnline; htmlui playerlist.js shows them as "(Discord)").
 // - The player count: the counter channel's name, "🟢 5 Players Online" (moved here from duelforge's discordRoles.ts).
 // Everything here is best effort: Discord down, slow or unconfigured never touches the game.
 import type { Game } from "../game/game.ts";
@@ -15,7 +17,8 @@ import type { OpenDuel } from "../game/lobby.ts";
 import { rest, webhook, type DiscordEnv } from "./rest.ts";
 
 const GATEWAY = "https://gateway.discord.gg/?v=10&encoding=json";
-const INTENTS = (1 << 9) | (1 << 15);   // GUILD_MESSAGES, MESSAGE_CONTENT (privileged: the app's Message Content intent)
+// GUILDS, GUILD_PRESENCES, GUILD_MESSAGES, MESSAGE_CONTENT (presences and content: the app's privileged intents)
+const INTENTS = 1 | (1 << 8) | (1 << 9) | (1 << 15);
 /** Close codes after which reconnecting can't help (bad token, disallowed intents...): logged, and the gateway stays off. */
 const FATAL = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
 /** Nobody in the game this long: the gateway closes (a player's next connection opens it again). */
@@ -87,6 +90,9 @@ type Posted = { msg: string | null };
 /** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
 type Profile = { id: string; name: string; avatar: string | null } | null;
 const PROFILE_TTL_MS = 30 * 60_000;
+const LINKS_TTL_MS = 5 * 60_000;
+/** The most Discord-only duelists the Players window lists. */
+const DISCORD_ONLINE_MAX = 200;
 /** The wire of a line from someone not in the game (an offline duelist, an unlinked Discord user). The engine drops any
  *  chat line from pid 0 and shows one from any other pid, known or not; channel 1 lands in the hidden Proximity log (live
  *  check, 2026-11-06). A pid no player (PID_BASE + 4 idx + slot) or NPC (FAKE_BASE + n) ever has, so no card or ignore
@@ -116,6 +122,10 @@ export class DiscordBridge {
   private swept = false;
 
   private counter: { shown: number | null; at: number; busy: boolean } = { shown: null, at: 0, busy: false };
+  /** Discord ids online, idle or busy on the server (not offline), while the gateway is up */
+  private present = new Set<string>();
+  /** Discord id -> DE user id, every linked account (D1), reloaded when older than LINKS_TTL_MS */
+  private links: { at: number; map: Map<string, string>; loading: Promise<void> | null } = { at: 0, map: new Map(), loading: null };
 
   constructor(private env: DiscordEnv & { PUBLIC_ORIGIN?: string; DB?: D1Database }, private g: Game, private log: (s: string) => void) {
     g.duelsChanged = () => this.duelsChanged();
@@ -123,6 +133,37 @@ export class DiscordBridge {
       setTimeout(() => void this.count(), 5000);
       setInterval(() => void this.count(), 60_000);
     }
+  }
+
+  // ---- who is on Discord
+
+  /** Every linked Discord account (one query; reloaded when stale). */
+  private loadLinks(): Promise<void> {
+    if (!this.env.DB || this.links.loading) return this.links.loading ?? Promise.resolve();
+    this.links.loading = this.env.DB.prepare("SELECT account_id, user_id FROM account WHERE provider_id = 'discord'").all<{ account_id: string; user_id: string }>()
+      .then((r) => { this.links.map = new Map(r.results.map((x) => [x.account_id, x.user_id])); this.links.at = Date.now(); })
+      .catch((e) => this.log(`[AVISO] [discord] linked accounts not read: ${e}`))
+      .finally(() => { this.links.loading = null; });
+    return this.links.loading;
+  }
+  /** The duelists online on Discord and not in the game: a linked account's active character, by name (sorted, at most
+   *  DISCORD_ONLINE_MAX). Empty while the gateway is down. */
+  async discordOnline(): Promise<string[]> {
+    if (Date.now() - this.links.at > LINKS_TTL_MS) await this.loadLinks();
+    const names = new Set<string>();
+    await this.g.world.run(() => {
+      const accounts = this.g.store.peek().accounts ?? {};
+      for (const id of this.present) {
+        const userId = this.links.map.get(id), acct = userId ? this.g.store.accountOfUser(userId) : null;
+        if (!acct) continue;
+        const s = this.g.hub.sessions.get(acct);
+        if (s && [...s.conns.values(), s.lobby].some((c) => c && !c.closed)) continue;   // in the game: the list has them already
+        const a = accounts[acct] as { active_slot?: number; profiles?: Record<string, { name?: string }>; players?: Record<string, string> } | undefined;
+        const slot = String(Number(a?.active_slot ?? 0) & 3), name = a?.profiles?.[slot]?.name || a?.players?.[slot];
+        if (name) names.add(name);
+      }
+    });
+    return [...names].sort((a, b) => a.localeCompare(b)).slice(0, DISCORD_ONLINE_MAX);
   }
 
   // ---- the player count
@@ -236,7 +277,7 @@ export class DiscordBridge {
         setTimeout(() => this.heartbeat(), Math.floor(every * Math.random()));
         this.beat = setInterval(() => this.heartbeat(), every);
         if (this.session) this.send(6, { token: this.env.DISCORD_BOT_TOKEN, session_id: this.session.id, seq: this.seq });
-        else this.send(2, { token: this.env.DISCORD_BOT_TOKEN, intents: INTENTS, properties: { os: "cloudflare", browser: "duel-evolution", device: "duel-evolution" } });
+        else this.send(2, { token: this.env.DISCORD_BOT_TOKEN, intents: INTENTS, large_threshold: 250, properties: { os: "cloudflare", browser: "duel-evolution", device: "duel-evolution" } });
         return;
       }
       case 11: this.acked = true; return;
@@ -253,6 +294,12 @@ export class DiscordBridge {
       this.log(`[AVISO] [discord] gateway ready as ${f.d.user?.username}`);
     } else if (f.t === "RESUMED") this.retries = 0;
     else if (f.t === "MESSAGE_CREATE") this.onMessage(f.d);
+    else if (f.t === "GUILD_CREATE" && f.d?.id === this.env.DISCORD_GUILD_ID) {
+      this.present = new Set((f.d.presences ?? []).filter((p: any) => p.status && p.status !== "offline").map((p: any) => String(p.user?.id)));
+      void this.loadLinks();
+    } else if (f.t === "PRESENCE_UPDATE" && f.d?.guild_id === this.env.DISCORD_GUILD_ID && f.d.user?.id) {
+      if (f.d.status && f.d.status !== "offline") this.present.add(String(f.d.user.id)); else this.present.delete(String(f.d.user.id));
+    }
   }
   private heartbeat() {
     if (!this.acked) { this.drop(4000, true); return; }   // a zombie connection: Discord's advice is to reconnect and resume
@@ -307,6 +354,7 @@ export class DiscordBridge {
     this.stop();
     if (FATAL.has(code)) {
       this.fatal = true;
+      this.present.clear();
       this.log(`[AVISO] [discord] gateway refused (close ${code}${code === 4014 ? ": enable the Message Content intent" : ""}); #general won't reach the game until a restart`);
       return;
     }
@@ -328,6 +376,7 @@ export class DiscordBridge {
     if (Date.now() - this.emptySince < IDLE_MS) return;
     const ws = this.ws;
     this.session = null;
+    this.present.clear();
     this.stop();
     try { ws?.close(1000, "idle"); } catch { /* closed */ }
     if (this.idle) clearInterval(this.idle);

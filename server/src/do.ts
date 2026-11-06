@@ -287,6 +287,13 @@ export class WorldDO extends DurableObject<Env> {
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__de/discord-online") {
+      // the Worker forwards GET /api/de/discord-online (the Players window's "(Discord)" rows) with x-de-user: the duelists
+      // online on Discord and not in the game (discord/bridge.ts discordOnline)
+      if (!request.headers.get("x-de-user")) return Response.json({ error: "signed out" }, { status: 401 });
+      const names = await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([] as string[])).catch((e) => { console.error(`[discord online] ${e}`); return [] as string[]; });
+      return Response.json({ players: names.map((name) => ({ name })) }, { headers: { "Cache-Control": "private, max-age=30" } });
+    }
     if (url.pathname === "/__de/discord/duel") {
       // the Worker's Discord interactions (discord/interactions.ts, a #duels Accept): is room ?id still open, and is it
       // ?user's own. Only the Worker reaches /__de/discord/*; a closed duel's #duels message is cleared now.

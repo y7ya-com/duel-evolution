@@ -159,6 +159,24 @@ describe("#general speakers are their duelists", () => {
   });
 });
 
+describe("duelists online on Discord", () => {
+  it("linked accounts present on Discord and not in the game, by their duelist's name; presence updates move them", async () => {
+    mockDiscord();
+    const [h, [a, b]] = await world(2);
+    const links = [{ account_id: "601", user_id: "user-0" }, { account_id: "602", user_id: "user-1" }, { account_id: "603", user_id: "user-nobody" }];
+    const DB = { prepare: () => ({ all: async () => ({ results: links }) }) } as unknown as D1Database;
+    const bridge = new DiscordBridge({ ...ENV, DB }, h.game, () => {});
+    const frame = (t: string, d: unknown) => (bridge as any).onFrame({ op: 0, t, s: 1, d });
+    frame("GUILD_CREATE", { id: "g1", presences: [{ user: { id: "601" }, status: "online" }, { user: { id: "602" }, status: "idle" }, { user: { id: "700" }, status: "online" }] });
+    expect(await bridge.discordOnline()).toEqual([]);   // both are in the game; 700 isn't linked
+    h.game.hub.sessions.delete(h.game.hub.byPid(b.pid!)!.acct);   // Player1 leaves the game
+    expect(await bridge.discordOnline()).toEqual(["Player1"]);
+    frame("PRESENCE_UPDATE", { guild_id: "g1", user: { id: "602" }, status: "offline" });
+    expect(await bridge.discordOnline()).toEqual([]);
+    void a;
+  });
+});
+
 describe("the player count channel", () => {
   it("renamed to the live count, not when it already shows it, and at most once per 5 minutes", async () => {
     const calls = mockDiscord();
