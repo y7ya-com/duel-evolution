@@ -569,7 +569,7 @@ const UNIFORM_PART: Readonly<Record<UniformSchool, number>> = { slifer: 0x80, ra
 /** The uniform of a school just reached is put on (owner, 2026-11-06: "when the user earns the ra/obelisk it auto
  *  equips it"); `was`: the best school before the match. Only the outfit changes; the player may change it back. */
 export function wearNewUniform(p: PP.P, was: RankSchool): boolean {
-  const best = rankView(p).bestSchool, now = best === "master" ? "obelisk" : best;   // Master has no uniform of its own
+  const now = rankView(p).bestSchool;   // Master is left alone (owner, 2026-11-06)
   if (now !== "ra" && now !== "obelisk" || RANK_SCHOOLS.indexOf(now) <= RANK_SCHOOLS.indexOf(was)) return false;
   const parts = PP.avatarParts(p, 1);
   parts[6] = UNIFORM_PART[now];

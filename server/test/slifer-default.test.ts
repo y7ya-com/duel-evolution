@@ -50,7 +50,9 @@ describe("a school's uniform is put on when it is reached", () => {
     expect(wearNewUniform(p, "slifer")).toBe(true);
     expect([...PP.avatarParts(p, 0).slice(0, 7)]).toEqual([0, 4, 0x20, 0x30, 0x40, 0x60, 0x81]);
   });
-  it("a school not reached, or Slifer Red, puts nothing on", () => {
+  it("a school not reached, Slifer Red or Master puts nothing on", () => {
     expect(wearNewUniform(char(1500, 0x76), "beginner")).toBe(false);
+    const m = char(2200, 0x76);   // Master: left alone, even straight from Ra Yellow
+    expect([wearNewUniform(m, "obelisk"), wearNewUniform(m, "ra"), outfit(m)]).toEqual([false, false, 0x76]);
   });
 });
