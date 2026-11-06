@@ -295,12 +295,13 @@ export function duelsView(win, on) {
     : !c.parent && (c.cls === 'CWindowTaskTextlist' || /Input$/.test(c.cls)) && c.shown ? { ...c, shown: false } : c);
   return { win: { ...win, controls }, panel: panel || null };
 }
+const DUELS_OVERLAP = 8;   // px over the last game tab (yo2WindowChat.cpp lays its tabs 8 px over each other)
 export function duelsTab(win, on, n = 0) {
   const tabs = win.controls.filter(c => c.cls === 'CWindowTaskTab' && c.shown && !c.parent).sort((a, b) => a.x - b.x), last = tabs.at(-1);
   if (!last) return null;
   const label = 'Duels' + (n ? ` (${n > 99 ? '99+' : n})` : '');
   const pad = Math.max(24, Math.round(last.w - textW(last.label || '')));
-  return { x: last.x + last.w - 8, y: last.y, w: Math.ceil(textW(label)) + pad, label, active: !!on };
+  return { x: last.x + last.w - DUELS_OVERLAP, y: last.y, w: Math.ceil(textW(label)) + pad, label, active: !!on };
 }
 
 // The page's one list of open duels (a chat window per scene; the tab's state outlives them): polled every 5 s while
@@ -358,6 +359,9 @@ function drawDuels(st) {
   D.layer.replaceChildren();
   if (!D.tab) return;
   const t = skin.tab(D.layer, D.tab);
+  // the game's tabs lie left over right, the current one over both neighbours: not current, the Duels tab goes under the
+  // last game tab, its first DUELS_OVERLAP px cut away (clicks there reach that tab, as the game's own overlaps do)
+  if (!D.tab.active) t.style.clipPath = `inset(0 0 0 ${DUELS_OVERLAP}px)`;
   t.addEventListener('click', () => { if (!hub.on) hub.open(); });
   if (!hub.on || !D.panel) return;
   scroll.inject();
