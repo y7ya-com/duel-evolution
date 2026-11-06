@@ -15,6 +15,7 @@ import { rowRuns } from './playerlist.js';
 //   is not touched (its own current tab stays; a game tab pressed brings its view back).
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 import * as duels from '../duels.js';
+import { DISCORD_LOGO } from '../discord-logo.js';
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
 const scroll = ui && await import('../controls/scroll.js');
@@ -133,7 +134,6 @@ export function itemsDelta(old, now) {   // [rows to drop at the top, items to a
 export const DISCORD_MARK = '\u00a4';
 const MARKS = [DISCORD_MARK, '\uff64'];
 export const discordLine = s => MARKS.includes(s[0]) ? s.slice(1) : null;
-const DISCORD_LOGO = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 127.14 96.36"><path fill="#5865F2" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>');
 function ownList(c, layer, { stick = false, stripes = false } = {}) {
   const el = document.createElement('div');
   scroll.inject();   // every native scroll bar looks alike (controls/scroll.js's rule)
@@ -306,7 +306,9 @@ export function duelsTab(win, on, n = 0) {
 // The page's one list of open duels (a chat window per scene; the tab's state outlives them): polled every 5 s while
 // the tab is open (or a Discord link waits), every 20 s otherwise, only while a chat in the online world is up.
 const HINT = 'Join sends the duelist your duel request; they accept or decline.';
-const MINE = 'Your duel stays listed here and on Discord until someone joins.';
+const MINE = 'Your duel stays listed here until someone joins.';
+const EMPTY = ['No open duels right now.', 'To list yours: Duel menu → Create Duel.'];
+export const DUELS_TEXT = { HINT, MINE, EMPTY };   // (pinned by the unit test)
 const hub = {
   on: false, list: [], loaded: false, seen: new Set(), msg: null, busy: false, st: null, running: false, gen: 0, timer: 0, q: false,
   unread() { return duels.unseen(this.list, this.seen); },
@@ -365,8 +367,8 @@ function drawDuels(st) {
   at(list, D.panel.list);
   if (!rows.length) {
     const e = node('div', 'dz-empty');
-    e.append(node('div', '', hub.loaded ? 'No open duels right now.' : 'Looking for open duels…'));
-    if (hub.loaded) e.append(node('div', '', 'To list yours: Duel menu → Create Duel. Open duels also show on Discord.'));
+    e.append(node('div', '', hub.loaded ? EMPTY[0] : 'Looking for open duels…'));
+    if (hub.loaded) e.append(node('div', '', EMPTY[1]));
     list.append(e);
   }
   for (const d of rows) {

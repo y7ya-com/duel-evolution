@@ -74,8 +74,9 @@ assert.equal(at(w, 172549320).shown, false);   // the password field
 assert.equal(at(w, 475382024).shown, false);   // the game's own "Password"
 assert.ok(['Duel mode', 'Time limit', 'Spectators', 'Surrender', 'Not allowed'].every(t => texts(w).includes(t)));
 assert.ok(!texts(w).some(t => /password/i.test(t)), 'no password label');
-const help = texts(w).find(t => /Discord/.test(t)), helpCtl = shown(w).find(c => c.text === help);
-assert.match(help, /Duels tab/);
+const help = texts(w).find(t => /Duels tab/.test(t)), helpCtl = shown(w).find(c => c.text === help);
+assert.equal(help.split('\n')[0], "Open duels show in the chat's Duels tab.");
+assert.doesNotMatch(help, /Discord/, 'no Discord mention (owner)');
 assert.match(help, /don't change your rating/);
 // no hole: the help starts 21 px under the last row (209 + 32) and ends (two lines) 23 px above the well's end (317)
 assert.deepEqual([helpCtl.y - (209 + 32), 317 - (helpCtl.y + 16 * help.split('\n').length)], [21, 23]);

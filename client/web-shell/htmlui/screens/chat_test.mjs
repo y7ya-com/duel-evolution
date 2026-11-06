@@ -1,6 +1,6 @@
 // node client/web-shell/htmlui/screens/chat_test.mjs: a list's update as a delta; the chat's tabs (chatTabs)
 import assert from 'node:assert/strict';
-import { discordLine, itemsDelta, chatTabs, duelsView, duelsTab } from './chat.js';
+import { DUELS_TEXT, discordLine, itemsDelta, chatTabs, duelsView, duelsTab } from './chat.js';
 
 assert.deepEqual(itemsDelta([], ['a']), [0, ['a']]);
 assert.deepEqual(itemsDelta(['a', 'b'], ['a', 'b']), [0, []]);
@@ -70,6 +70,10 @@ assert.deepEqual(itemsDelta(['a', 'b'], ['x']), [2, ['x']]);
   const labels = chatTabs(duelsView(items(['a', 'b']), true).win).controls.filter(c => c.cls === 'CWindowTaskTab' && c.shown).map(c => c.label);
   assert.deepEqual(labels, ['All Chat (1)', 'Trade', 'Team']);
 }
+// the Duels tab's words: no "also on Discord" (owner)
+assert.deepEqual(DUELS_TEXT.EMPTY, ['No open duels right now.', 'To list yours: Duel menu → Create Duel.']);
+assert.equal(DUELS_TEXT.MINE, 'Your duel stays listed here until someone joins.');
+assert.ok(![DUELS_TEXT.HINT, DUELS_TEXT.MINE, ...DUELS_TEXT.EMPTY].some(t => /Discord/.test(t)));
 console.log('chat ok');
 
 // a line from Discord: the sender's name marked (server discord/bridge.ts), shown with the Discord logo

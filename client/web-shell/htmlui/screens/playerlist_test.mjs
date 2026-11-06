@@ -1,7 +1,7 @@
 // screens/playerlist.js's pure parts under node: a row's tags (AtConverter's pen moves), the row brought into the
 // engine's view, the game point a row is pressed at, and prepList (what a redraw depends on)
 import assert from 'node:assert/strict';
-import { rowRuns, topFor, rowPoint, prepList, parts, listRows, discordOnline } from './playerlist.js';
+import { rowRuns, topFor, rowPoint, prepList, parts, listRows, discordOnline, discordPlayer, discordRowText, discordCardModel, ONLINE } from './playerlist.js';
 import screen from './duelsetup.js';
 
 // "@0Lv 1@>40/Card Partner" (the live list's row): the level at 0, the name at the pen's 40
@@ -38,25 +38,48 @@ assert.ok(screen.classes.includes('CPlayerListDlg'));
 assert.equal(screen.passthrough({ id: 9, cls: 'CFindMenu' }), true);
 assert.equal(screen.passthrough({ id: 9, cls: 'CDupSprite' }), false);   // only the list's own (seen by rows())
 // the scroller's rows: the game's items keep their engine indexes, the Discord duelists after them (the first marked),
-// then striped fill to the box's last row; no Discord names: exactly the game's rows as before
+// then striped fill to the box's last row; no Discord duelists: exactly the game's rows as before
+const yugi = { pid: 1005, name: 'Yugi', lv: 12, rank: null }, kaiba = { pid: 1009, name: 'Kaiba', lv: 3, rank: null };
 {
   const items = ['@0Lv 1@>40/A', '@0Lv 3@>40/B', '@0Lv 2@>40/C'];
-  const r = listRows(items, ['Yugi', 'Kaiba'], 6);
+  const r = listRows(items, [yugi, kaiba], 6);
   assert.deepEqual(r.filter(x => x.kind === 'player').map(x => [x.i, x.s]), items.map((s, i) => [i, s]), 'real rows: index i is item i');
   assert.deepEqual(r.map(x => x.kind), ['player', 'player', 'player', 'discord', 'discord', 'fill']);
-  assert.deepEqual(r.filter(x => x.kind === 'discord').map(x => [x.name, x.first]), [['Yugi', true], ['Kaiba', false]]);
+  assert.deepEqual(r.filter(x => x.kind === 'discord').map(x => [x.p.name, x.first]), [['Yugi', true], ['Kaiba', false]]);
   assert.deepEqual(listRows(items, [], 6).map(x => x.kind), ['player', 'player', 'player', 'fill', 'fill', 'fill']);
-  assert.deepEqual(listRows(items, ['a', 'b', 'c', 'd'], 6).length, 7, 'more rows than the box: no fill');
-  assert.deepEqual(listRows([], ['Yugi'], 2).map(x => x.kind), ['discord', 'fill']);
+  assert.equal(listRows(items, [yugi, kaiba, yugi, kaiba], 6).length, 7, 'more rows than the box: no fill');
+  assert.deepEqual(listRows([], [yugi], 2).map(x => x.kind), ['discord', 'fill']);
   // the game's own rows are pressed by their engine index whatever follows (rowPoint / topFor take n = items only)
   assert.equal(topFor(2, 0, 6, items.length), 0);
 }
-// the fetch: names from { players: [{ name }] }; any failure: none, quietly
+// a Discord row reads as the game's ("@0Lv 1@>40/Name": the level at 0, the name at 40)
+{
+  const game = rowRuns('@0Lv 12@>40/Yugi'), t = discordRowText(yugi);
+  assert.deepEqual([{ x: t.lvX, s: t.lv }, { x: t.nameX, s: t.name }], game);
+}
+// the server's duelists: name required, LV at least 1, rank kept when it is an object
+{
+  assert.deepEqual(discordPlayer({ pid: 1005, name: ' Yugi ', lv: 12, rank: { known: true } }), { pid: 1005, name: 'Yugi', lv: 12, rank: { known: true } });
+  assert.deepEqual(discordPlayer({ name: 'Joey', lv: 'x' }), { pid: 0, name: 'Joey', lv: 1, rank: null });
+  assert.equal(discordPlayer({ name: '' }), null);
+  assert.equal(discordPlayer(null), null);
+}
+// the card: "LV12  Name" as the game's card header, the rank's words, "Online on Discord, not in the game"
+{
+  const placed = { pid: 1005, name: 'Yugi', known: true, placed: true, school: 'ra', division: 2, label: 'Ra Yellow II', rating: 1612, placement: null };
+  const fresh = { pid: 1009, name: 'Kaiba', known: true, placed: false, school: 'beginner', division: 0, label: 'Unranked', rating: null, placement: { played: 2, of: 5 } };
+  assert.deepEqual(discordCardModel({ ...yugi, rank: placed }), { head: 'LV12  Yugi', rank: placed, rankText: 'Ra Yellow II (1612)', label: 'Status', status: ONLINE });
+  assert.equal(discordCardModel({ ...kaiba, rank: fresh }).rankText, 'Unranked · Placement 2/5');
+  assert.equal(discordCardModel({ ...kaiba, lv: 100 }).head, 'LV100  Kaiba');
+  assert.equal(discordCardModel(kaiba).rankText, 'Unranked', 'no rank: Unranked');
+  assert.equal(ONLINE, 'Online on Discord, not in the game');
+}
+// the fetch: duelists from { players: [{ pid, name, lv, rank }] }; any failure: none, quietly
 {
   const was = globalThis.fetch;
   try {
-    globalThis.fetch = async () => ({ ok: true, json: async () => ({ players: [{ name: 'Joey Wheeler' }, { name: '' }, {}, { name: 'Yugi' }] }) });
-    assert.deepEqual(await discordOnline(), ['Joey Wheeler', 'Yugi']);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ players: [{ pid: 1, name: 'Joey Wheeler', lv: 4 }, { name: '' }, {}, { pid: 2, name: 'Yugi', lv: 12, rank: { known: true } }] }) });
+    assert.deepEqual(await discordOnline(), [{ pid: 1, name: 'Joey Wheeler', lv: 4, rank: null }, { pid: 2, name: 'Yugi', lv: 12, rank: { known: true } }]);
     globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
     assert.deepEqual(await discordOnline(), []);
     globalThis.fetch = async () => { throw new Error('offline'); };

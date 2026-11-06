@@ -67,7 +67,7 @@ export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 
 //     meaning the server's room list gives it, so it isn't shown)
 //   Auto Duel (CWindowModelDuelFind, 492 x 216): rows Single / Match, Both, Level Limit ON / OFF
 //   Create Duel (CWindowModelDuelWait, 492 x 360): rows Single / Match, Time Limit, Watch, Surrender (ON / OFF); its
-//     password field not drawn (open duels: listed in the chat's Duels tab and on Discord)
+//     password field not drawn (open duels: listed in the chat's Duels tab)
 const LAYOUT = { CWindowModelDuel: 'menu', CWindowModelDuelFind: 'find', CWindowModelDuelWait: 'wait' };
 const GREEN = [0.2, 1, 0.2, 1];
 const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
@@ -75,7 +75,7 @@ const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
 const label = (id, text, x, y, w, align = 0, color = GREEN) =>
   ({ id: -id, cls: 'CWindowTaskShadowText', parent: 0, x, y, w, h: 16, z: 4, shown: true, text, align, fontSize: 16, color,
     sh: color === GREEN ? 2 : 1 });
-const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Open duels show in the chat\'s Duels tab and on Discord.\nCreated duels don\'t change your rating.' };
+const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Open duels show in the chat\'s Duels tab.\nCreated duels don\'t change your rating.' };
 const TITLE_TEXT = { find: 'Auto Duel (Ranked)', wait: 'Create Duel (Unranked)' };
 
 export function relayout(win) {
