@@ -13,9 +13,9 @@ sent anywhere. The game boots straight to its own title, and its own UI drives t
   username plugin, scrypt, 10-128 chars.
   1. The game registers: `POST /api/de/register {username, password}` answers `{code, inviteUrl}`. The code is 6
      unambiguous chars, valid 1 h, stored as SHA-256.
-  2. The player joins the Discord server and runs `/verify <code>` (or the Verify button) on the shared bot. The bot's
-     interactions endpoint (the other game's Worker) checks Discord's signature and forwards here
-     (`POST /api/de/discord-forward`, HMAC-signed).
+  2. The player joins the Discord server and runs `/verify <code>` (or the Verify button) on the bot, whose
+     interactions endpoint is this Worker (`POST /api/discord/interactions`, DISCORD.md). Until that endpoint is
+     switched over, the old shared endpoint (duelforge) forwards here (`POST /api/de/discord-forward`, HMAC-signed).
   3. Verification marks the user verified, links that Discord account (so "Sign in with Discord" reaches the same
      user), and the bot grants the Verified role. One Discord account per game account.
   4. Until then, sign-in answers **403 `EMAIL_NOT_VERIFIED`** ("verify first"). Registering the same unverified name

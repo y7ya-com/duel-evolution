@@ -183,17 +183,17 @@ describe("PvP challenges (V05/P0-5)", () => {
     expect(h.game.lp.mem.rooms.size).toBe(0);
   });
 
-  it("−495: wrong password (no code of its own: «Ya no existe esa sala»); also for a room that is gone", async () => {
+  it("no passwords: a room created with one is open to anyone (the Duels list replaced codes); −495 for a room that is gone", async () => {
     const h = harness();
     const [A, B] = await players(h, 2);
     const rid = await openRoom(h, B, { pw: "secret" });
-    let n = A.room!.mark();
+    expect(h.game.lp.mem.rooms.get(rid)?.pw).toBe(false);
+    const m = B.room!.mark();
     challenge(A, rid, "nope");
-    expect(await result(A, n)).toBe(-495);
-    n = A.room!.mark(); const m = B.room!.mark();
-    challenge(A, rid, "secret");
     expect(await B.room!.wait(0x4302, m)).not.toBeNull();
-    void n;
+    const n = A.room!.mark();
+    challenge(A, 999999);
+    expect(await result(A, n)).toBe(-495);
   });
 
   it("−492: a room with a challenge pending is busy for a third player", async () => {

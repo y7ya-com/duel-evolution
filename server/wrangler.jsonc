@@ -39,7 +39,14 @@
         "DEPLOY_ENV": "production",
         "NPC_AI": "ai", // board-aware timing, replay reassessment and bounded lookahead (src/duel/ai)
         "CLIENT_PREFIX": "recomp-de/", // the sign-in client build; game data from recomp/ (src/worker.ts)
-        "PROGRESSION": "1" // the 2008 card progression and the MP economy (config.ts, persist.ts ECON)
+        "PROGRESSION": "1", // the 2008 card progression and the MP economy (config.ts, persist.ts ECON)
+        // The Discord bot (discord/, moved here from duelforge): ids only; scripts/setup-discord.mjs fills them. Secrets
+        // DISCORD_BOT_TOKEN, DISCORD_GENERAL_WEBHOOK_URL and DISCORD_PUBLIC_KEY (public, but a secret keeps it out of the repo's leak guard). Without the token the bot is off (no relay, no #duels).
+        "DISCORD_GUILD_ID": "1518907812967743579",
+        "DISCORD_VERIFIED_ROLE_ID": "1519492097185419395",
+        "DISCORD_PASSWORD_ROLE_ID": "1519507803830747198",
+        "DISCORD_GENERAL_CHANNEL_ID": "1518907813772918806",
+        "DISCORD_DUELS_CHANNEL_ID": "1568260405284048898"
       },
       "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],

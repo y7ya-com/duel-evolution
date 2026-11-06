@@ -56,7 +56,25 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
   // Every client gets the same canonical channel. Channel1 no longer means proximity.
   const wire = new W().u8(0).u8(NUMBERS[channel]).u32(sender.pid!).u32(2).s(message.name, 16).s([...text].map(c => c.charCodeAt(0) > 255 ? "?" : c).join(""), [...text].length).u8(0).bytes();
   for (const s of recipients) s.lobby!.post(0x4402, wire);
+  if (channel === "global") g.discord?.chatOut(message.name, text);   // All Chat is Discord's #general too
   return { ok: plain(message) };
+}
+
+/** The game's name for a Discord line: no game name has a space or brackets, so it can't pass for a player. */
+export const DISCORD_NAME = "[Discord]";
+/** A #general line from Discord into All Chat (discord/bridge.ts): "author: text" under DISCORD_NAME, pid 0 (no card),
+ *  to everyone online, in the HTTP feed too. The text is already Latin-1 and short (bridge.ts gameText). */
+export function relayIn(g: Game, author: string, text: string): ChatMessage | null {
+  if (g.restarting) return null;
+  const line = `${author}: ${text}`;
+  const recipients = [...g.hub.sessions.values()].filter(online);
+  const log = stream(g);
+  const message: Stored = { id: ++log.next, at: Date.now(), channel: "global", pid: 0, name: DISCORD_NAME, text: line,
+    audience: new Set(recipients.map(s => s.acct)) };
+  log.messages.push(message); if (log.messages.length > 300) log.messages.shift();
+  const wire = new W().u8(0).u8(NUMBERS.global).u32(0).u32(2).s(DISCORD_NAME, 16).s(line, line.length).u8(0).bytes();
+  for (const s of recipients) s.lobby!.post(0x4402, wire);
+  return plain(message);
 }
 
 export function chatGet(g: Game, user: string, after: number = 0) {
