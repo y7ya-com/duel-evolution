@@ -24,6 +24,7 @@ const skin = ui && await import('../controls/skin.js');
 const scroll = ui && await import('../controls/scroll.js');
 import { discordLogo } from '../discord-logo.js';
 import { rankText, rankFit, rankTag } from '../rank.js';
+import { renderWaistUp } from '../cosmetics/waistup.js';
 
 export const CLS = 'CPlayerListDlg';
 const ROW = 16;   // CWindowTaskActiveListbox::onMain: 16-pixel rows; BackStripe rowH_ 16
@@ -87,8 +88,14 @@ export function discordPlayer(p) {
   const name = String(p?.name ?? '').trim();
   if (!name) return null;
   const lv = Math.max(1, Math.floor(Number(p.lv)) || 1);
-  return { pid: Number(p.pid) || 0, name, lv, rank: p.rank && typeof p.rank === 'object' ? p.rank : null };
+  // parts: the 16-byte look (byte 0 the sex); short or missing: waistup.js lookBytes draws that sex's default look
+  const parts = Array.isArray(p.parts) ? p.parts.slice(0, 16).map(n => (Number(n) | 0) & 0xff) : [];
+  return { pid: Number(p.pid) || 0, name, lv, rank: p.rank && typeof p.rank === 'object' ? p.rank : null, parts };
 }
+// Where the game's card shows the player's bust (CPlayerListMenu::open: duelAvaShowNpc(1), the duel conversation's
+// avatar): its 768 x 768 waist-up canvas at 1:1, from (530, 0) on the screen (matched to the engine's frame pixel for
+// pixel), cut at the screen's right edge, under the windows (the chat's translucent log lets it show through)
+export const BUST_AT = { x: 530, y: 0, size: 768 };
 // a Discord row's text as the game's rows read ("@0Lv 1@>40/Name": the level at 0, the name at the pen's 40)
 export const discordRowText = p => ({ lv: `Lv ${p.lv}`, lvX: 0, name: p.name, nameX: 40 });
 // GET /api/de/discord-online -> the duelists (none on any failure, silently)
@@ -186,6 +193,7 @@ const CSS = () => `
 .pl-card > .fr > i { position: absolute; inset: 0; border: 1px solid; border-color: #ffff5c #faf23b #f8ea35 #ffff50; border-bottom-right-radius: 3px;
   box-shadow: inset 0 0 0 3px #fdff44, inset 0 0 0 4px #fff; }
 .pl-card > .pn { position: absolute; }
+.pl-bust { position: absolute; overflow: hidden; pointer-events: none; }
 .pl-card > .pn.w { background: rgb(255 255 255 / .63); }
 .pl-card > .pn.g { background: rgb(204 204 204 / .63); }
 .pl-card .on { position: absolute; color: #000; display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: pre; }
@@ -408,5 +416,22 @@ function discordCard(p, api, win) {
   addEventListener('pointerdown', outside, true);
   addEventListener('keydown', esc, true);
   host.append(el);
-  card = { el, p, close() { removeEventListener('pointerdown', outside, true); removeEventListener('keydown', esc, true); el.remove(); if (card?.el === el) card = null; } };
+  // the bust, under every window (first in the layer), drawn from the look; a failed picture leaves nothing there
+  let bust = null, wrap = null;
+  try {
+    wrap = document.createElement('div');
+    wrap.className = 'pl-bust';
+    Object.assign(wrap.style, { left: BUST_AT.x + 'px', top: BUST_AT.y + 'px', width: Math.max(0, 1024 - BUST_AT.x) + 'px', height: Math.min(768, BUST_AT.size) + 'px' });
+    const wu = document.createElement('div');
+    Object.assign(wu.style, { position: 'absolute', left: 0, top: 0, width: BUST_AT.size + 'px', height: BUST_AT.size + 'px' });
+    wrap.append(wu);
+    host.prepend(wrap);
+    bust = renderWaistUp(wu, p.parts, { world: 1, crop: [0, 0, BUST_AT.size, BUST_AT.size] });
+    bust.ready.then(ok => { if (!ok) wrap.hidden = true; }, () => { wrap.hidden = true; });
+  } catch { wrap?.remove(); wrap = null; bust = null; }
+  card = { el, p, close() {
+    removeEventListener('pointerdown', outside, true); removeEventListener('keydown', esc, true);
+    el.remove(); bust?.destroy(); wrap?.remove();
+    if (card?.el === el) card = null;
+  } };
 }
