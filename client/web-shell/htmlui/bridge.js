@@ -21,6 +21,7 @@ import { missionsLauncherFrame } from './rewards/launcher.js';
 import { chatBubblesFrame } from './chat-bubbles.js';
 import { coverScene, coverFrame, coverPlace, shopOn } from './shop/cover.js';
 import { mountCardShop } from './shop/index.js';
+import './duels.js';   // a Discord link's ?duel=<id> kept from the first load (the chat's Duels tab joins it in the world)
 
 const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)

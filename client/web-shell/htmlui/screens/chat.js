@@ -9,7 +9,12 @@
 //   game's control; the input line is a real, visible <input> (typing, IME, paste, selection, copy) that commits
 //   through the control's setText, Enter as the game's own WM_CHAR '\r'; the wheel and the scroll bar scroll the log.
 import { rowRuns } from './playerlist.js';
+// - Duels (duelsView, duelsTab, DuelsPanel): a tab of the DOM's own after the game's, drawn as theirs, that isn't a
+//   chat: the open duels of the player's world (../duels.js, /api/de/duels) with Join, over the log and input line's
+//   place. While it is open our log and input layers are off and no game tab is drawn as current; the engine's chat
+//   is not touched (its own current tab stays; a game tab pressed brings its view back).
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
+import * as duels from '../duels.js';
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
 const scroll = ui && await import('../controls/scroll.js');
@@ -171,6 +176,18 @@ const CSS = () => `
 .htmlui-own .list { font: ${basic.fontCss()}; color: #000; user-select: text; cursor: text; }
 .htmlui-own .list.yo2-stripes { background-attachment: local; }
 .htmlui-own .list > .row { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; }
+.htmlui-own .dz-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.htmlui-own .dz-layer > * { pointer-events: auto; }
+.htmlui-own .dz-list, .htmlui-own .dz-status { position: absolute; box-sizing: border-box; font: ${basic.fontCss()}; color: #000; }
+.htmlui-own .dz-list { overflow-y: auto; overflow-x: hidden; padding-top: 2px; }
+.htmlui-own .dz-row { display: grid; grid-template-columns: 160px 48px minmax(0, 1fr) 72px; column-gap: 16px; align-items: center;
+  height: 25px; box-sizing: border-box; padding: 0 8px; border-bottom: 1px solid rgba(0, 0, 0, .16); white-space: pre; }
+.htmlui-own .dz-row > span { overflow: hidden; text-overflow: ellipsis; }
+.htmlui-own .dz-row > .wait { grid-column: 3 / 5; }
+.htmlui-own .dz-row > .act { position: relative; height: 20px; overflow: visible; }
+.htmlui-own .dz-empty { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; text-align: center; white-space: pre; }
+.htmlui-own .dz-status { white-space: pre; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
+.htmlui-own .dz-status.error { color: #c00000; }
 .htmlui-own .chat-in { font: ${basic.fontCss()}; color: #000; background: none; outline: none; resize: none; overflow: hidden; }
 `;
 
@@ -245,6 +262,122 @@ function teamNote(win, root, st) {
   if (!st.teamless) st.teamNote.hidden = true;
 }
 
+// --- The Duels tab (DOM only; ../duels.js): after the last game tab, as wide as its caption plus the room the game's
+// own tabs give theirs, 8 px over it as the game lays its tabs; 'Duels (2)': open duels of others that appeared since
+// the tab was last open. While open, the panel takes the log's place and the input line's (its text line: the status).
+export function duelsView(win, on) {
+  if (!on) return { win, panel: null };
+  const top = win.controls.filter(c => !c.parent);
+  const log = top.find(c => c.cls === 'CWindowTaskTextlist' && c.shown), input = top.find(c => /Input$/.test(c.cls) && c.shown);
+  const panel = log && {
+    list: { x: log.x, y: log.y, w: log.w, h: input ? Math.min(log.h, input.y + 8 - log.y) : log.h },
+    status: input ? { x: input.x + 8, y: input.y + 8, w: input.w - 16, h: input.h - 16 } : null,
+  };
+  // our layers only: the log and the input line not drawn, no game tab drawn as the current one
+  const controls = win.controls.map(c => c.cls === 'CWindowTaskTab' ? (c.active ? { ...c, active: false } : c)
+    : !c.parent && (c.cls === 'CWindowTaskTextlist' || /Input$/.test(c.cls)) && c.shown ? { ...c, shown: false } : c);
+  return { win: { ...win, controls }, panel: panel || null };
+}
+export function duelsTab(win, on, n = 0) {
+  const tabs = win.controls.filter(c => c.cls === 'CWindowTaskTab' && c.shown && !c.parent).sort((a, b) => a.x - b.x), last = tabs.at(-1);
+  if (!last) return null;
+  const label = 'Duels' + (n ? ` (${n > 99 ? '99+' : n})` : '');
+  const pad = Math.max(24, Math.round(last.w - textW(last.label || '')));
+  return { x: last.x + last.w - 8, y: last.y, w: Math.ceil(textW(label)) + pad, label, active: !!on };
+}
+
+// The page's one list of open duels (a chat window per scene; the tab's state outlives them): polled every 5 s while
+// the tab is open (or a Discord link waits), every 20 s otherwise, only while a chat in the online world is up.
+const HINT = 'Join sends the duelist your duel request; they accept or decline.';
+const MINE = 'Your duel stays listed here and on Discord until someone joins.';
+const hub = {
+  on: false, list: [], loaded: false, seen: new Set(), msg: null, busy: false, st: null, running: false, gen: 0, timer: 0, q: false,
+  unread() { return duels.unseen(this.list, this.seen); },
+  see() { this.seen = new Set(this.list.map(d => d.id)); },
+  start(st) { this.st = st; if (!this.running) { this.running = true; this.loop(); } },
+  stop(st) { if (st && this.st !== st) return; this.st = null; this.running = false; this.gen++; clearTimeout(this.timer); },
+  async loop() {
+    clearTimeout(this.timer);
+    const gen = ++this.gen, r = await duels.fetchDuels();
+    if (gen !== this.gen || !this.running) return;
+    if (r) { this.list = r.duels; this.loaded = true; if (this.on) this.see(); }
+    this.refresh();
+    this.timer = setTimeout(() => this.loop(), this.on || duels.readPending() ? 5000 : 20000);
+  },
+  // the chat redrawn from its last snapshot (deferred: called from inside its update too)
+  refresh() {
+    if (this.q) return;
+    this.q = true;
+    queueMicrotask(() => { this.q = false; const D = this.st?.duels; if (D?.raw) D.screen.update(D.raw, null, D.root, D.api, this.st); });
+  },
+  open() { this.on = true; this.see(); if (this.running) this.loop(); this.refresh(); },
+  close() { this.on = false; this.refresh(); },
+  // a status line for 30 s (the poll redraws), then the hint again: the request's answer is the game's own prompt
+  status(text, kind = 'info') { hub.msg = text ? { text, kind, until: Date.now() + 30000 } : null; hub.refresh(); },
+  async join(d) {
+    const api = this.st?.duels?.api;
+    if (this.busy || !api) return;
+    this.busy = true;
+    this.status(`Sending a duel request to ${d.name}…`);
+    const r = await duels.joinDuel(api, d.id);
+    this.busy = false;
+    this.status(r.ok ? `Duel request sent to ${r.name}. Waiting for their answer.` : r.message, r.ok ? 'info' : 'error');
+    if (this.running) this.loop();
+  },
+};
+
+// one line of text in the game's Arial and spacing
+const txt = (el, s) => { el.textContent = s; el.style.letterSpacing = basic.spacing(s) + 'px'; return el; };
+const node = (tag, cls, s) => { const e = document.createElement(tag); e.className = cls; if (s != null) txt(e, s); return e; };
+const at = (el, r) => Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+function drawDuels(st) {
+  const D = st.duels, rows = duels.duelRows(hub.list), msg = hub.busy || hub.msg?.until > Date.now() ? hub.msg : null;
+  const k = JSON.stringify([D.tab, D.panel, hub.on && rows, hub.loaded, msg, hub.busy]);
+  if (k === D.k) return;
+  D.k = k;
+  const keep = D.layer.querySelector('.dz-list')?.scrollTop || 0;
+  D.layer.replaceChildren();
+  if (!D.tab) return;
+  const t = skin.tab(D.layer, D.tab);
+  t.addEventListener('click', () => { if (!hub.on) hub.open(); });
+  if (!hub.on || !D.panel) return;
+  scroll.inject();
+  const list = node('div', 'dz-list yo2-scroll-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Open duels');
+  at(list, D.panel.list);
+  if (!rows.length) {
+    const e = node('div', 'dz-empty');
+    e.append(node('div', '', hub.loaded ? 'No open duels right now.' : 'Looking for open duels…'));
+    if (hub.loaded) e.append(node('div', '', 'To list yours: Duel menu → Create Duel. Open duels also show on Discord.'));
+    list.append(e);
+  }
+  for (const d of rows) {
+    const r = node('div', 'dz-row');
+    r.setAttribute('role', 'listitem');
+    r.append(node('span', 'nm', d.name), node('span', 'lv', d.lv));
+    if (d.mine) r.append(node('span', 'wait', 'Your duel: waiting for an opponent'));
+    else {
+      const act = node('span', 'act');
+      r.append(node('span', 'ru', d.rules), act);
+      const b = skin.menuButton(act, { x: 0, y: 0, w: 72, h: 20, label: 'Join', state: null });
+      b.disabled = hub.busy;
+      b.setAttribute('aria-label', `Join ${d.name}'s duel`);
+      b.addEventListener('click', () => hub.join(d));
+    }
+    list.append(r);
+  }
+  D.layer.append(list);
+  list.scrollTop = keep;
+  if (D.panel.status) {
+    const hint = rows.some(d => !d.mine) ? HINT : rows.length ? MINE : '';
+    const m = msg || { text: hint, kind: 'hint' }, s = node('div', 'dz-status ' + m.kind, m.text);
+    s.setAttribute('role', 'status');
+    at(s, D.panel.status);
+    D.layer.append(s);
+  }
+}
+
 // The engine's chat folded to its collapsed bar (mode 2), one press per snapshot: short -> tall by △, tall -> collapsed
 // by ▽ (a chat without its tab row: short -> collapsed by ▽, its △ off). The pointer goes to the icon bar first: a press
 // where the pointer already was is ignored by the engine.
@@ -276,6 +409,18 @@ export function owned(classes, draw, background) {
       if (background) { const bg = document.createElement('div'); background(win, bg); root.append(bg); }
       root.append(vis, own);
       const st = { vis, own, drawn: new Map(), owned: new Map() };
+      if (win.cls === 'CChatWindow') {
+        const layer = document.createElement('div');
+        layer.className = 'dz-layer';
+        // presses stay here, as the game tabs' do (SDL hears releases on the document): the Duels tab sits over a game
+        // tab's place (chatTabs shifts them) and the panel over the log
+        for (const t of ['mousedown', 'mouseup']) layer.addEventListener(t, e => e.stopPropagation());
+        root.append(layer);
+        st.duels = { layer, screen };
+        hub.on = false;   // a new chat (a new scene) opens on the game's own tab
+        // a game tab pressed: its view back (the engine's click goes on to the game as before)
+        vis.addEventListener('click', e => { if (hub.on && e.target.closest?.('.yo2-tab')) hub.close(); }, true);
+      }
       screen.update(win, null, root, api, st);
       return st;
     },
@@ -283,10 +428,20 @@ export function owned(classes, draw, background) {
     update(win, prev, root, api, st) {
       if (win.cls === 'CChatWindow') {
         offProximity(win, api, st);
+        const raw = win, D = st.duels;
+        if (D) {
+          Object.assign(D, { raw, root, api });
+          if (win.online !== false && win.world) {
+            hub.start(st);
+            duels.deeplinkStep({ scene: win.scene, api, status: hub.status, show: () => { if (!hub.on) hub.open(); } });
+          } else hub.stop(st);
+          ({ win, panel: D.panel } = duelsView(win, hub.on));
+        }
         win = chatTabs(win);
         st.vis.hidden = st.own.hidden = win.online === false;
         if (win.online === false && win.world !== false) fold(win, api, st);   // never pressed during the sign-in
-        teamNote(win, root, st);
+        teamNote(win, root, st);   // (with the Duels tab open no game tab is current: no note)
+        if (D) { D.tab = win.online !== false && win.world ? duelsTab(win, hub.on, hub.unread()) : null; D.layer.hidden = !D.tab; drawDuels(st); }
       }
       const seen = new Set(), order = [];
       const byId = new Map(win.controls.map(k => [k.id, k]));
@@ -333,7 +488,8 @@ export function owned(classes, draw, background) {
         for (const [id, d] of m) if (!seen.has(id)) { (d.el || d).remove(); m.delete(id); }
     },
 
-    unmount(root) {
+    unmount(root, st) {
+      if (st?.duels) hub.stop(st);
       root.replaceChildren();
     },
   };

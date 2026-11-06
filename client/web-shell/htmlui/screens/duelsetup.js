@@ -61,12 +61,13 @@ export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 
 // own (negative ids) add the row labels, the counts and one help line. Every switch and button is still the engine's
 // (api.click aims at the control where the game has it, so where it's drawn here doesn't matter). Found by place, not
 // text: a switch's caption is the ShadowText 8 below it; the green ShadowTexts are the menu's rows and counts and Create
-// Duel's "Password". Ranked is the Auto Duel queue only (server ranking.ts isRankedOrigin).
+// Duel's "Password" (hidden, as its field). Ranked is the Auto Duel queue only (server ranking.ts isRankedOrigin).
 //   Duel menu (CWindowModelDuel, 492 x 216): Auto Duel | Create Duel, each count under its switch (the counts: right-
 //     aligned, top to bottom Auto Duel = players searching, Create Duel = open rooms; the third, "Duel (n.)", has no
 //     meaning the server's room list gives it, so it isn't shown)
 //   Auto Duel (CWindowModelDuelFind, 492 x 216): rows Single / Match, Both, Level Limit ON / OFF
-//   Create Duel (CWindowModelDuelWait, 492 x 360): rows Single / Match, Time Limit, Watch, Surrender (ON / OFF), password
+//   Create Duel (CWindowModelDuelWait, 492 x 360): rows Single / Match, Time Limit, Watch, Surrender (ON / OFF); its
+//     password field not drawn (open duels: listed in the chat's Duels tab and on Discord)
 const LAYOUT = { CWindowModelDuel: 'menu', CWindowModelDuelFind: 'find', CWindowModelDuelWait: 'wait' };
 const GREEN = [0.2, 1, 0.2, 1];
 const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
@@ -74,7 +75,7 @@ const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
 const label = (id, text, x, y, w, align = 0, color = GREEN) =>
   ({ id: -id, cls: 'CWindowTaskShadowText', parent: 0, x, y, w, h: 16, z: 4, shown: true, text, align, fontSize: 16, color,
     sh: color === GREEN ? 2 : 1 });
-const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Created duels don\'t change your rating.' };
+const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Open duels show in the chat\'s Duels tab and on Discord.\nCreated duels don\'t change your rating.' };
 const TITLE_TEXT = { find: 'Auto Duel (Ranked)', wait: 'Create Duel (Unranked)' };
 
 export function relayout(win) {
@@ -111,18 +112,20 @@ export function relayout(win) {
     place(rows[2]?.[0], 21, 128, 225, 'On (similar level)');
     place(rows[2]?.[1], 246, 128, 225, 'Off');
   } else {
-    // a label column, then the two choices; the password's field across both
+    // a label column, then the two choices, evenly down the well (33 .. 317: 20 px between rows), the help under
+    // them. No password (open duels replace it: anyone joins from the chat's Duels tab or Discord): its field isn't
+    // drawn (the game's stays empty), so the room is open
     const ROWS = [['Duel mode', 'Single', 'Match (best of 3)'], ['Time limit', 'On', 'Off'], ['Spectators', 'Allowed', 'Not allowed'],
       ['Surrender', 'Allowed', 'Not allowed']];
     ROWS.forEach(([name, a, b], i) => {
-      const y = 45 + 50 * i;
+      const y = 53 + 52 * i;
       add.push(label(1 + i, name, 30, y + 8, 116));
       place(rows[i]?.[0], 150, y, 160, a);
       place(rows[i]?.[1], 310, y, 160, b);
     });
     const input = tops.find(c => fam(c) === 'InputDuel');
-    if (input) to.set(input.id, { x: 150, y: 245, w: 320 });
-    add.push(label(5, 'Password', 30, 253, 116), label(6, HELP.wait, L, 289, W, 1, [1, 1, 1, 1]));
+    if (input) to.set(input.id, { shown: false });
+    add.push(label(6, HELP.wait, L, 262, W, 1, [1, 1, 1, 1]));
   }
   const byId = new Map(win.controls.map(c => [c.id, c]));
   const controls = win.controls.map(c => {

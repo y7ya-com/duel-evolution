@@ -64,14 +64,21 @@ assert.deepEqual([307436296, 307576200, 307732104, 307870344, 308026888].map(id 
 assert.deepEqual([at(f, 307870344).checked, at(f, 307436296).checked], [true, true]);
 assert.ok(texts(f).includes('Match (best of 3)') && texts(f).includes('On (similar level)') && texts(f).includes('Level limit'));
 assert.deepEqual([f.w, f.h, at(f, 176334440).x, at(f, 208600936).x], [492, 216, 50, 299]);
-// Create Duel: four labelled rows, the password field beside its label
+// Create Duel: four labelled rows evenly down the well (20 px apart), no password (its field and label not drawn), the
+// help under the rows saying where open duels are listed
 const w = relayout(mock('wait'));
 assert.equal(at(w, 180042184).text, 'Create Duel (Unranked)');
 assert.deepEqual([178967240, 471074824, 471213064, 472029192, 472167432, 473633928, 473773960, 475242120].map(id => [at(w, id).x, at(w, id).y]),
-  [[150, 45], [310, 45], [150, 95], [310, 95], [150, 145], [310, 145], [150, 195], [310, 195]]);
-assert.deepEqual([at(w, 172549320).x, at(w, 172549320).y, at(w, 172549320).w], [150, 245, 320]);
-assert.equal(at(w, 475382024).shown, false);   // the game's own "Password" (ours is in the label column)
-assert.ok(['Duel mode', 'Time limit', 'Spectators', 'Surrender', 'Password', 'Not allowed'].every(t => texts(w).includes(t)));
+  [[150, 53], [310, 53], [150, 105], [310, 105], [150, 157], [310, 157], [150, 209], [310, 209]]);
+assert.equal(at(w, 172549320).shown, false);   // the password field
+assert.equal(at(w, 475382024).shown, false);   // the game's own "Password"
+assert.ok(['Duel mode', 'Time limit', 'Spectators', 'Surrender', 'Not allowed'].every(t => texts(w).includes(t)));
+assert.ok(!texts(w).some(t => /password/i.test(t)), 'no password label');
+const help = texts(w).find(t => /Discord/.test(t)), helpCtl = shown(w).find(c => c.text === help);
+assert.match(help, /Duels tab/);
+assert.match(help, /don't change your rating/);
+// no hole: the help starts 21 px under the last row (209 + 32) and ends (two lines) 23 px above the well's end (317)
+assert.deepEqual([helpCtl.y - (209 + 32), 317 - (helpCtl.y + 16 * help.split('\n').length)], [21, 23]);
 // prep relays them out; other windows pass through
 assert.equal(prep(mock('find')).controls.find(c => c.id === 307732104).x, 321);
 { const c = mock('config'); assert.equal(relayout(c), c); }

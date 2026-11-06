@@ -1,6 +1,6 @@
 // node client/web-shell/htmlui/screens/chat_test.mjs: a list's update as a delta; the chat's tabs (chatTabs)
 import assert from 'node:assert/strict';
-import { itemsDelta, chatTabs } from './chat.js';
+import { itemsDelta, chatTabs, duelsView, duelsTab } from './chat.js';
 
 assert.deepEqual(itemsDelta([], ['a']), [0, ['a']]);
 assert.deepEqual(itemsDelta(['a', 'b'], ['a', 'b']), [0, []]);
@@ -40,5 +40,34 @@ assert.deepEqual(itemsDelta(['a', 'b'], ['x']), [2, ['x']]);
   assert.equal(walk([1, 4, 6, 7, 11, 0x1c, 0x20, 11]), false, 'Free Duel, its duels too');
   assert.equal(walk([1, 4, 6, 7, 10, 11, 4, 6, 7, 11]), false, 'online, back to the title, then Free Duel');
   assert.equal(walk([11]), null, 'a reader started mid-session knows nothing (taken as online)');
+}
+// the Duels tab (DOM only): after the last shown game tab, 8 px over it, as wide as its caption plus the room the game
+// gives its own; '(n)' its unread; open: the log and the input line not drawn by us, no game tab drawn current, the
+// panel over the log's place and the input's text line; closed: the window untouched
+{
+  const ctl = (id, cls, extra = {}) => ({ id, cls, parent: 0, x: 0, y: 0, w: 10, h: 10, shown: true, ...extra });
+  const win = { id: 60, cls: 'CChatWindow', w: 776, h: 128, controls: [
+    ctl(1, 'CWindowTaskTab', { x: 8, w: 81, label: 'All Chat', active: true }), ctl(2, 'CWindowTaskTab', { x: 207, w: 72, label: 'TRADE' }),
+    ctl(3, 'CWindowTaskTab', { x: 271, w: 72, label: 'Team', active: false }), ctl(4, 'CWindowTaskTab', { x: 271, w: 126, label: 'Trade Partner', shown: false }),
+    ctl(5, 'CWindowTaskTextlist', { x: 8, y: 24, w: 760, h: 80 }), ctl(6, 'CWindowTaskTextlist', { x: 8, y: 99999, w: 760, h: 80, shown: false }),
+    ctl(7, 'CWindowTaskScroll', { parent: 5, x: 752, y: 24, w: 16, h: 80 }), ctl(8, 'CWindowTaskInput', { x: 0, y: 96, w: 776, h: 32 }),
+    ctl(9, 'CWindowTaskBackPlane', { x: 8, y: 24, w: 760, h: 96 })] };
+  const t = duelsTab(win, false), tw = 7 * 'Team'.length, pad = 72 - tw;   // (textW under node: 7 px a letter)
+  assert.deepEqual(t, { x: 271 + 72 - 8, y: 0, w: 7 * 'Duels'.length + pad, label: 'Duels', active: false });
+  assert.deepEqual(duelsTab(win, true, 2), { x: 335, y: 0, w: 7 * 'Duels (2)'.length + pad, label: 'Duels (2)', active: true });
+  assert.equal(duelsTab(win, false, 120).label, 'Duels (99+)');
+  assert.equal(duelsTab({ ...win, controls: win.controls.filter(c => c.cls !== 'CWindowTaskTab') }, false), null, 'no tab row: no tab');
+  assert.deepEqual(duelsView(win, false), { win, panel: null });
+  const v = duelsView(win, true), by = id => v.win.controls.find(c => c.id === id);
+  assert.deepEqual(v.panel, { list: { x: 8, y: 24, w: 760, h: 80 }, status: { x: 8, y: 104, w: 760, h: 16 } });
+  assert.deepEqual([by(5).shown, by(8).shown, by(9).shown, by(7).shown], [false, false, true, true], 'log and input off, the plane kept');
+  assert.ok(v.win.controls.filter(c => c.cls === 'CWindowTaskTab').every(c => !c.active), 'no game tab current');
+  assert.equal(win.controls[0].active, true, 'the snapshot itself untouched');
+  assert.equal(duelsView({ ...win, controls: win.controls.filter(c => c.id !== 5) }, true).panel, null, 'collapsed (no log): no panel');
+  // the tab after chatTabs: the game tab hidden by the Duels view counts lines again ('All Chat (1)')
+  const items = it => ({ ...win, pairs: [{ tab: 1, log: 5 }], controls: win.controls.map(c => c.id === 5 ? { ...c, items: it } : c) });
+  chatTabs(duelsView(items(['a']), true).win);
+  const labels = chatTabs(duelsView(items(['a', 'b']), true).win).controls.filter(c => c.cls === 'CWindowTaskTab' && c.shown).map(c => c.label);
+  assert.deepEqual(labels, ['All Chat (1)', 'Trade', 'Team']);
 }
 console.log('chat ok');

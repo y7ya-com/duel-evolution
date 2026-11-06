@@ -6,7 +6,8 @@
 // or the title's Deck Editor). Every online sign-in goes through My Room; Free mode (ovr/freemode.c) goes from Select
 // Player straight to the deck scene or the Free Duel lobby, and the title ends it. null: not known yet (the reader
 // started after the sign-in), taken as online. world: in a game scene (past the title and the sign-in, whose scenes
-// keep a chat window too): only there is the engine's chat folded, never pressed during the sign-in.
+// keep a chat window too): only there is the engine's chat folded, never pressed during the sign-in. scene: the SceneId
+// (the Duels tab's deeplink joins in a lobby area only).
 import { SCENE_MNG, APP } from '../read.js';
 
 const MY_ROOM = 10, SIGN_IN_LAST = 7;   // SceneId (src/System/yo2SceneManager.h): 1 patcher ... 4 title ... 7 Select Player
@@ -48,7 +49,7 @@ export default h => {
   return {
     snapshot: () => ({ chatAvatars: online !== false && sm ? chatAvatars(h, h.ptr(sm + 0x70)) : [] }),
     windows: {
-      CChatWindow: w => ({ mode: i32(w + 0x414), online: online !== false, world: scene > SIGN_IN_LAST, inTeam: inTeam(),
+      CChatWindow: w => ({ mode: i32(w + 0x414), online: online !== false, world: scene > SIGN_IN_LAST, inTeam: inTeam(), scene,
         pairs: vec(w + 0x3e0, 0x1c).map(t => ({ tab: u32(t + 8), log: u32(t + 4), visible: !!u8(t) })) }),
     },
   };
