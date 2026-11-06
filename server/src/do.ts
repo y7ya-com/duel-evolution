@@ -362,7 +362,7 @@ export class WorldDO extends DurableObject<Env> {
       // for the real list; {names: [...]} for names alone, LV 1 and unranked)
       const b = (await request.json().catch(() => ({}))) as { players?: unknown; names?: unknown };
       this.devDiscordOnline = Array.isArray(b.players) ? b.players as DiscordDuelist[]
-        : Array.isArray(b.names) ? b.names.map((n, i) => ({ pid: 90000 + i, name: String(n), lv: 1, rank: publicRank(90000 + i, String(n), {}) })) : null;
+        : Array.isArray(b.names) ? b.names.map((n, i) => ({ pid: 90000 + i, name: String(n), lv: 1, rank: publicRank(90000 + i, String(n), {}), parts: [] })) : null;
       return new Response("ok");
     }
     if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }

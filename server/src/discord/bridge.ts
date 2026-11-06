@@ -16,6 +16,7 @@ import { DISCORD_NAME, relayIn } from "../game/chat.ts";
 import { SANCTION_CHAT } from "../game/lobby.ts";
 import type { OpenDuel } from "../game/lobby.ts";
 import { PID_BASE } from "../game/hub.ts";
+import { avatarParts } from "../game/persist.ts";
 import { publicRank, type PublicRank } from "../game/rank-api.ts";
 import { rest, webhook, type DiscordEnv } from "./rest.ts";
 
@@ -91,7 +92,8 @@ export function duelMessage(d: OpenDuel) {
 
 type Posted = { msg: string | null };
 /** A duelist online on Discord, not in the game: the Players window's row and profile card (htmlui playerlist.js). */
-export type DiscordDuelist = { pid: number; name: string; lv: number; rank: PublicRank };
+/** `parts`: the character's 16-byte look (persist.ts avatarParts; byte 0 the sex), for the card's waist-up bust. */
+export type DiscordDuelist = { pid: number; name: string; lv: number; rank: PublicRank; parts: number[] };
 /** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
 type Profile = { id: string; name: string; avatar: string | null } | null;
 const PROFILE_TTL_MS = 30 * 60_000;
@@ -168,7 +170,7 @@ export class DiscordBridge {
         const slot = Number(a?.active_slot ?? 0) & 3, p = a?.profiles?.[String(slot)];
         if (!p || typeof p !== "object" || typeof p.name !== "string" || !p.name.trim() || !p.rec) continue;   // no character yet
         const pid = PID_BASE + 4 * Number(a!.idx ?? 0) + slot;
-        out.set(p.name, { pid, name: p.name, lv: Number(p.rec.lv) || 1, rank: publicRank(pid, p.name, p) });
+        out.set(p.name, { pid, name: p.name, lv: Number(p.rec.lv) || 1, rank: publicRank(pid, p.name, p), parts: [...avatarParts(p, 1)] });   // one look in both worlds
       }
     });
     return [...out.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, DISCORD_ONLINE_MAX);

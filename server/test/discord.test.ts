@@ -172,6 +172,7 @@ describe("duelists online on Discord", () => {
     h.game.hub.sessions.delete(h.game.hub.byPid(b.pid!)!.acct);   // Player1 leaves the game
     const [p1] = await bridge.discordOnline();
     expect(p1).toMatchObject({ pid: b.pid, name: "Player1", lv: expect.any(Number), rank: { known: true, name: "Player1" } });
+    expect(p1.parts).toHaveLength(16);
     // a linked account without a created character isn't listed
     const acct = h.game.store.accountOfUser("user-1")!, saved = h.game.store.peek().accounts[acct].profiles;
     (h.game.store.peek().accounts[acct] as any).profiles = {};
