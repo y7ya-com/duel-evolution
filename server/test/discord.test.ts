@@ -1,4 +1,4 @@
-// The Discord bridge's game side (discord/bridge.ts): All Chat <-> #general, the open duels Discord's #duels and the chat's
+// The Discord bridge's game side (discord/bridge.ts): All Chat <-> #in-game, the open duels Discord's #duels and the chat's
 // Duels tab list (Lobby.openDuels / duelJoinCheck). Discord's REST is a mocked fetch; the gateway's frames are fed in.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, be32, cat, str, cstr, type Client, type Harness } from "./notes-harness.ts";
@@ -26,8 +26,8 @@ async function world(n: number): Promise<[Harness, Client[]]> {
   for (const c of cs) await c.enterRoom();
   return [h, cs];
 }
-const ENV = { DISCORD_BOT_TOKEN: "bot", DISCORD_GUILD_ID: "g1", DISCORD_GENERAL_CHANNEL_ID: "gen", DISCORD_DUELS_CHANNEL_ID: "duels",
-  DISCORD_GENERAL_WEBHOOK_URL: "https://discord.com/api/webhooks/1/tok", PUBLIC_ORIGIN: "https://de.test" };
+const ENV = { DISCORD_BOT_TOKEN: "bot", DISCORD_GUILD_ID: "g1", DISCORD_CHAT_CHANNEL_ID: "gen", DISCORD_DUELS_CHANNEL_ID: "duels",
+  DISCORD_CHAT_WEBHOOK_URL: "https://discord.com/api/webhooks/1/tok", PUBLIC_ORIGIN: "https://de.test" };
 
 /** fetch as Discord: every call recorded; POST messages answer ids m1, m2...; GET /users/@me the bot. */
 function mockDiscord() {
@@ -73,7 +73,7 @@ describe("Discord text both ways", () => {
   });
 });
 
-describe("All Chat <-> #general", () => {
+describe("All Chat <-> #in-game", () => {
   it("All Chat goes out through the webhook under the player's name; other channels stay in the game", async () => {
     const calls = mockDiscord();
     const [h, [a]] = await world(2);
@@ -81,7 +81,7 @@ describe("All Chat <-> #general", () => {
     a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hello *all*", 11), [0]));
     a.room!.send(0x4400, cat([0, 2], be32(0), be32(0), be32(0), str("wts cards", 9), [0]));
     await h.tick(200);
-    const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_GENERAL_WEBHOOK_URL));
+    const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_CHAT_WEBHOOK_URL));
     expect(out).toHaveLength(1);
     expect(out[0].url).toContain("wait=true");
     expect(out[0].body).toMatchObject({ username: "Player0", content: "hello \\*all\\*", allowed_mentions: { parse: [] }, avatar_url: "https://de.test/apple-touch-icon.png" });
@@ -99,12 +99,12 @@ describe("All Chat <-> #general", () => {
     });
     a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hi", 2), [0]));
     await h.tick(200);
-    const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_GENERAL_WEBHOOK_URL));
+    const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_CHAT_WEBHOOK_URL));
     expect(out[0].body).toMatchObject({ username: "Player0", content: "hi", allowed_mentions: { parse: [] },
       avatar_url: "https://cdn.discordapp.com/avatars/777/abc.png?size=128" });
   });
 
-  it("#general messages reach everyone online as Discord lines; bots, webhooks and other channels don't", async () => {
+  it("#in-game messages reach everyone online as Discord lines; bots, webhooks and other channels don't", async () => {
     mockDiscord();
     const [h, [a, b]] = await world(2);
     const bridge = new DiscordBridge(ENV, h.game, () => {});
@@ -125,7 +125,7 @@ describe("All Chat <-> #general", () => {
   });
 });
 
-describe("#general speakers are their duelists", () => {
+describe("#in-game speakers are their duelists", () => {
   /** A D1 where Discord 501 is user-0 and 502 is user-1. */
   const DB = { prepare: () => ({ bind: (d: string) => ({ first: async () => (({ "501": { user_id: "user-0" }, "502": { user_id: "user-1" } } as Record<string, unknown>)[d] ?? null) }) }) } as unknown as D1Database;
   const say = (bridge: DiscordBridge, id: string, content: string) =>

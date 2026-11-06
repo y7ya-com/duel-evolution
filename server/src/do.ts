@@ -88,7 +88,7 @@ export class WorldDO extends DurableObject<Env> {
     });
   }
 
-  /** The Discord bridge (discord/bridge.ts) on the game just built: All Chat <-> #general, #duels. */
+  /** The Discord bridge (discord/bridge.ts) on the game just built: All Chat <-> #in-game, #duels. */
   private discord() {
     const g = this.srv.game;
     g.discord = this.env.DISCORD_BOT_TOKEN ? new DiscordBridge(this.env, g, this.log) : null;
@@ -367,7 +367,7 @@ export class WorldDO extends DurableObject<Env> {
     }
     if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }
     if (url.pathname === "/__dev/discord-say" && this.env.DEV === "1") {
-      // wrangler dev only: a #general line into All Chat as the gateway brings one (POST {name, pid, channel, text}), for the htmlui checks
+      // wrangler dev only: a #in-game line into All Chat as the gateway brings one (POST {name, pid, channel, text}), for the htmlui checks
       const b = (await request.json().catch(() => ({}))) as { name?: string; pid?: number; channel?: number; text?: string };
       const out = await new Promise<unknown>((res) => this.srv.world.run(() => res(relayIn(this.srv.game, { name: String(b.name ?? "[Discord]"), pid: Number(b.pid ?? 0), channel: Number(b.channel ?? 0), text: String(b.text ?? "Tester: hello from Discord") }))));
       return Response.json(out);
@@ -401,7 +401,7 @@ export class WorldDO extends DurableObject<Env> {
     if (!this.srv.world.canOpen(request.headers.get("x-de-user"))) return new Response("too many game connections", { status: 429 });
     const { 0: client, 1: ws } = new WebSocketPair();
     ws.accept();
-    this.srv.game.discord?.wake();   // someone to read #general: the Discord gateway comes up
+    this.srv.game.discord?.wake();   // someone to read #in-game: the Discord gateway comes up
     (ws as unknown as { binaryType: string }).binaryType = "arraybuffer"; // newer compat dates default to Blob
     const id = `ws${this.nextPeer++}`;
     const world = this.srv.world;

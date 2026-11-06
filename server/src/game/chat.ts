@@ -56,7 +56,7 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
   // Every client gets the same canonical channel. Channel1 no longer means proximity.
   const wire = new W().u8(0).u8(CHAT_TAB[channel]).u32(sender.pid!).u32(2).s(message.name, 16).s([...text].map(c => c.charCodeAt(0) > 255 ? "?" : c).join(""), [...text].length).u8(0).bytes();
   for (const s of recipients) s.lobby!.post(0x4402, wire);
-  if (channel === "global") g.discord?.chatOut(message.name, text, sender.lobby?.userId ?? null);   // All Chat is Discord's #general too
+  if (channel === "global") g.discord?.chatOut(message.name, text, sender.lobby?.userId ?? null);   // All Chat is Discord's #in-game too
   return { ok: plain(message) };
 }
 
@@ -65,7 +65,7 @@ export const DISCORD_NAME = "Discord";
 /** The first character of a Discord line's sender name on the wire: Latin-1 ¤, which no duelist name can hold (names.ts).
  *  The HTML chat draws it as the Discord logo (htmlui screens/chat.js discordLine). */
 export const DISCORD_MARK = "\xa4";
-/** A #general line into All Chat (discord/bridge.ts) to everyone online, in the HTTP feed too: under `name` (marked on the
+/** A #in-game line into All Chat (discord/bridge.ts) to everyone online, in the HTTP feed too: under `name` (marked on the
  *  wire: DISCORD_MARK) from `pid`
  *  (the speaker's game character when their Discord is linked, bridge.ts speaker), on the wire's `channel`. A receiver
  *  who ignores that pid doesn't get it. The text is already Latin-1 and short (bridge.ts gameText / gameLines). */

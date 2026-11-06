@@ -1,5 +1,5 @@
 // Discord REST with the bot token (moved here from the owner's other game, duelforge clients/web/functions/_auth): role
-// grants after /verify, #duels posts, the #general webhook. Never throws: Discord being down must not break the game.
+// grants after /verify, #duels posts, the #in-game webhook. Never throws: Discord being down must not break the game.
 export const API = "https://discord.com/api/v10";
 
 /** The bot's settings (wrangler.jsonc vars; the token and the webhook URL are secrets). */
@@ -11,10 +11,10 @@ export interface DiscordEnv {
   DISCORD_VERIFIED_ROLE_ID?: string;
   /** Granted at /verify to name + password players: it opens #reset-password. */
   DISCORD_PASSWORD_ROLE_ID?: string;
-  /** #general: its messages come into All Chat (the gateway, bridge.ts). */
-  DISCORD_GENERAL_CHANNEL_ID?: string;
-  /** A webhook of #general (secret: the URL holds its token): All Chat goes out through it, each line under its player's name. */
-  DISCORD_GENERAL_WEBHOOK_URL?: string;
+  /** #in-game: its messages come into All Chat (the gateway, bridge.ts). */
+  DISCORD_CHAT_CHANNEL_ID?: string;
+  /** A webhook of #in-game (secret: the URL holds its token): All Chat goes out through it, each line under its player's name. */
+  DISCORD_CHAT_WEBHOOK_URL?: string;
   /** #duels: one message per open duel, with its Join button. */
   DISCORD_DUELS_CHANNEL_ID?: string;
   /** A voice channel only for show, whose name is the live count: "🟢 5 Players Online" (bridge.ts counter). */

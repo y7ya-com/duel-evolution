@@ -8,13 +8,15 @@ only its Interactions Endpoint URL moves to `https://ygoevolution.com/api/discor
 
 - **`/verify <code>`, `/reset`, and the #verify and #reset-password buttons:** the same flows as before (AUTH.md).
   A verified name + password player gets the Verified and Password User roles.
-- **All Chat ↔ #general.**
-  - Every All Chat line is posted to #general through a webhook, under the player's name, with markdown and
+- **All Chat ↔ #in-game** (#general stays Discord's own).
+  - Every All Chat line is posted to #in-game through a webhook, under the player's name, with markdown and
     mentions inert.
-  - Every #general message from a person (not bots or webhooks) appears in All Chat as `[Discord] author: text`.
+  - Every #in-game message from a person (not bots or webhooks) appears in All Chat with the Discord logo, under the
+    speaker's duelist when their Discord is linked (online: their character; offline: its name; chat bans and ignore
+    lists apply), else as `Discord: their Discord name: text`.
     Mentions and custom emoji become names, attachments become `[image]` / `[file]`, emoji are dropped, and long
     messages are cut to three 128-character lines.
-  - The game side of #general is the Discord gateway (an outbound WebSocket from the WorldDO, intents
+  - The game side of #in-game is the Discord gateway (an outbound WebSocket from the WorldDO, intents
     GUILD_MESSAGES + MESSAGE_CONTENT). It's up only while someone is in the game, and closes after 10 minutes
     with nobody online.
 - **#duels.**
@@ -37,20 +39,20 @@ Different languages, an overflow block (48+ players) or My Room get a reason ins
 ## Configuration
 
 `wrangler.jsonc` `env.production.vars`: `DISCORD_GUILD_ID`, `DISCORD_VERIFIED_ROLE_ID`,
-`DISCORD_PASSWORD_ROLE_ID`, `DISCORD_GENERAL_CHANNEL_ID`, `DISCORD_DUELS_CHANNEL_ID`.
+`DISCORD_PASSWORD_ROLE_ID`, `DISCORD_CHAT_CHANNEL_ID`, `DISCORD_DUELS_CHANNEL_ID`.
 
 Secrets:
 - `DISCORD_PUBLIC_KEY`: the app's public key (hex). It isn't sensitive, but the repo's leak guard refuses it in the repo.
 - `DISCORD_BOT_TOKEN`: without it, everything above is off. `/verify` and `/reset` still answer, but grant no roles.
-- `DISCORD_GENERAL_WEBHOOK_URL`: without it, All Chat isn't posted to #general.
+- `DISCORD_CHAT_WEBHOOK_URL`: without it, All Chat isn't posted to #in-game.
 
 ## Setup (once, idempotent)
 
 ```bash
 cd server
-DISCORD_BOT_TOKEN=... node scripts/setup-discord.mjs   # Message Content intent, #duels, #general's webhook, commands; ids into wrangler.jsonc
+DISCORD_BOT_TOKEN=... node scripts/setup-discord.mjs   # Message Content intent, #duels, #in-game's webhook, commands; ids into wrangler.jsonc
 npx wrangler secret put DISCORD_BOT_TOKEN --env production
-echo '<webhook url it printed>' | npx wrangler secret put DISCORD_GENERAL_WEBHOOK_URL --env production
+echo '<webhook url it printed>' | npx wrangler secret put DISCORD_CHAT_WEBHOOK_URL --env production
 # deploy (DEPLOY.md), then point Discord's interactions here:
 DISCORD_BOT_TOKEN=... node scripts/setup-discord.mjs --endpoint
 ```

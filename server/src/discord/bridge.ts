@@ -1,5 +1,5 @@
 // The Discord side of the game, inside the WorldDO (one per world, like the game it serves):
-// - All Chat <-> #general. Out: every All Chat line through #general's webhook, under its player's name. In: #general's
+// - All Chat <-> #in-game. Out: every All Chat line through #in-game's webhook, under its player's name. In: #in-game's
 //   messages over the Discord gateway (an outbound WebSocket, intents GUILD_MESSAGES + MESSAGE_CONTENT), into All Chat
 //   under the speaker's duelist (bridge.ts speaker), marked as from Discord (chat.ts relayIn, DISCORD_MARK: a logo in the
 //   HTML chat). The gateway is up only while someone is in the game: with nobody to
@@ -200,14 +200,14 @@ export class DiscordBridge {
     } finally { c.busy = false; }
   }
 
-  get chatOn() { return !!(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_GENERAL_CHANNEL_ID); }
+  get chatOn() { return !!(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_CHAT_CHANNEL_ID); }
   get duelsOn() { return !!(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_DUELS_CHANNEL_ID); }
 
-  // ---- All Chat -> #general
+  // ---- All Chat -> #in-game
 
-  /** An All Chat line out to #general; `userId`: the sender's DE user, whose linked Discord shows with the line. */
+  /** An All Chat line out to #in-game; `userId`: the sender's DE user, whose linked Discord shows with the line. */
   chatOut(name: string, text: string, userId: string | null = null) {
-    if (!this.env.DISCORD_GENERAL_WEBHOOK_URL) return;
+    if (!this.env.DISCORD_CHAT_WEBHOOK_URL) return;
     this.outQueue.push({ name, text, who: this.profile(userId) });
     if (this.outQueue.length > OUT_QUEUE_MAX) this.outQueue.splice(0, this.outQueue.length - OUT_QUEUE_MAX);
     void this.pump();
@@ -241,14 +241,14 @@ export class DiscordBridge {
         const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
         const body = { username: webhookName(first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
           flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };
-        let r = await webhook(this.env.DISCORD_GENERAL_WEBHOOK_URL!, body);
-        if (r.status === 429) { await sleep((r.retryAfter ?? 1) * 1000); r = await webhook(this.env.DISCORD_GENERAL_WEBHOOK_URL!, body); }
+        let r = await webhook(this.env.DISCORD_CHAT_WEBHOOK_URL!, body);
+        if (r.status === 429) { await sleep((r.retryAfter ?? 1) * 1000); r = await webhook(this.env.DISCORD_CHAT_WEBHOOK_URL!, body); }
         if (!r.ok) this.log(`[AVISO] [discord] All Chat line not relayed: ${r.status} ${JSON.stringify(r.body)?.slice(0, 200)}`);
       }
     } finally { this.sending = false; }
   }
 
-  // ---- #general -> All Chat (the gateway)
+  // ---- #in-game -> All Chat (the gateway)
 
   /** A player connected: the gateway (re)opens if it is down. */
   wake() {
@@ -317,7 +317,7 @@ export class DiscordBridge {
     this.send(1, this.seq);
   }
   private onMessage(m: any) {
-    if (m.channel_id !== this.env.DISCORD_GENERAL_CHANNEL_ID || m.guild_id !== this.env.DISCORD_GUILD_ID) return;
+    if (m.channel_id !== this.env.DISCORD_CHAT_CHANNEL_ID || m.guild_id !== this.env.DISCORD_GUILD_ID) return;
     if (m.webhook_id || m.author?.bot || (m.type !== 0 && m.type !== 19)) return;   // our own relays, bots, joins and pins
     const text = gameText(m);
     if (!text || !m.author?.id) return;
@@ -337,7 +337,7 @@ export class DiscordBridge {
     if (this.linked.size > 2000) this.linked.delete(this.linked.keys().next().value!);
     return p;
   }
-  /** Who a #general line is from in the game. A linked account speaks as its duelist: online, its character's pid and name
+  /** Who a #in-game line is from in the game. A linked account speaks as its duelist: online, its character's pid and name
    *  (its card opens from the line, ignore lists apply); offline, its active character's name. An unlinked Discord user
    *  is "Discord: author: text". null: the account is chat-banned. `author`: the name gameLines leaves room for. */
   private speaker(userId: string | null, discordName: string): { author: string; line: (t: string) => { name: string; pid: number; text: string; channel?: number } } | null {
@@ -365,7 +365,7 @@ export class DiscordBridge {
     if (FATAL.has(code)) {
       this.fatal = true;
       this.present.clear();
-      this.log(`[AVISO] [discord] gateway refused (close ${code}${code === 4014 ? ": enable the Message Content intent" : ""}); #general won't reach the game until a restart`);
+      this.log(`[AVISO] [discord] gateway refused (close ${code}${code === 4014 ? ": enable the Message Content intent" : ""}); #in-game won't reach the game until a restart`);
       return;
     }
     if (code === 4007 || code === 4009) this.session = null;   // bad seq, session timed out: identify anew
