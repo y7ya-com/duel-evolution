@@ -313,6 +313,7 @@ export function cosmeticEquip(g: Game, who: string | Session, body: unknown) {
   project(p, l); parts[item.slot] = variant.number;
   const error = appearanceError(p, world, parts, rankView(p));
   if (error) return fail(error, 403);
+  PP.outfitPicked(p, parts);
   PP.setLook(p, parts, world);
   g.store.commit({}, { [s.acct]: a });
   pushOwnership(g, s, p);
@@ -509,6 +510,7 @@ export function cosmeticAppearance(g: Game, who: string | Session, body: unknown
   if (!updates.length) return fail("bad-request", 400);
   // one look for both worlds (owner, 2026-11-05): the last update (the parts asked for, else the new body's) is it
   const look = updates[updates.length - 1].parts;
+  PP.outfitPicked(p, look);
   PP.setLook(p, look, world as number);
   g.store.commit({}, { [s.acct]: a }); pushOwnership(g, s, p);
   showLooks(g, s, [{ world: 0, parts: look }, { world: 1, parts: look }]);

@@ -103,12 +103,17 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     save({ a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex") });
     session.partsW.set(0, new Uint8Array(16));
     h.game.hub.select(session.lobby!, 0, 5, "Alice");
-    expect(session.partsW.get(0)).toEqual(domino);                 // no record of the last world: Domino's (a) is kept
-    expect(session.partsW.get(1)).toEqual(domino);
+    // no record of the last world, and Domino's (a) still in its starter clothes: the Academy's (b) is kept
+    expect(session.partsW.get(0)).toEqual(academy);
+    expect(session.partsW.get(1)).toEqual(academy);
     h.game.withCtx(session, () => {
-      expect(h.game.duelParts(null, 0)).toEqual(domino);
-      expect(h.game.duelParts(null, 1)).toEqual(domino);
+      expect(h.game.duelParts(null, 0)).toEqual(academy);
+      expect(h.game.duelParts(null, 1)).toEqual(academy);
     });
+    const dressed = domino.slice(); dressed[6] = 0x76;                // a Domino look in other clothes: Domino's (a) is kept
+    save({ a: Buffer.from(dressed).toString("hex"), b: Buffer.from(academy).toString("hex") });
+    h.game.hub.select(session.lobby!, 0, 5, "Alice");
+    expect(session.partsW.get(1)).toEqual(dressed);
     save({ a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex"), w: 1 });
     h.game.hub.select(session.lobby!, 0, 5, "Alice");
     expect(session.partsW.get(0)).toEqual(academy);                // last in the Academy: its look (b) is kept
@@ -127,14 +132,17 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     expect(p.avatar.a).toBe(p.avatar.b);
   });
 
-  it("unifyLook: differing looks keep b when last in the Academy (w = 1), else a; one present is copied to the other", () => {
+  it("unifyLook: differing looks keep b when last in the Academy (w = 1) or a is in Domino's starter clothes, else a; one present is copied to the other", () => {
     const A = "0102203040607090b020000000000000", B = "0102203040608090b820000000000000";
     const p: any = { avatar: { a: A, b: B, w: 1 } };
     expect(PP.unifyLook(p)).toBe(true);
     expect([p.avatar.a, p.avatar.b]).toEqual([B, B]);
     const q: any = { avatar: { a: A, b: B } };
     expect(PP.unifyLook(q)).toBe(true);
-    expect([q.avatar.a, q.avatar.b]).toEqual([A, A]);
+    expect([q.avatar.a, q.avatar.b]).toEqual([B, B]);                 // A wears Domino's starter 0x70
+    const D = "0102203040607690b020000000000000", d: any = { avatar: { a: D, b: B } };
+    expect(PP.unifyLook(d)).toBe(true);
+    expect([d.avatar.a, d.avatar.b]).toEqual([D, D]);
     const r: any = { avatar: { b: B } };
     expect(PP.unifyLook(r)).toBe(true);
     expect([r.avatar.a, r.avatar.b]).toEqual([B, B]);

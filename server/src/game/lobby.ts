@@ -1101,7 +1101,10 @@ function avatarInfo(g: Game, pid: number): Uint8Array {
 function avatarCheck(g: Game, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
   try {
     const st = g.loadState(), p = PP.profile(st, PP.activeSlot(st), false);
-    return p ? lawfulLook(p, world, parts) : { owned: true, changed: false, parts };
+    if (!p) return { owned: true, changed: false, parts };
+    // the outfit in it is the player's pick (a Domino starter one is kept: persist.ts outfitPicked), on a copy: h_avatar records it
+    const q = { ...p }; PP.outfitPicked(q, parts);
+    return lawfulLook(q, world, parts);
   } catch { return { owned: true, changed: false, parts }; }
 }
 

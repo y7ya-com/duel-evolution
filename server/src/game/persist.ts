@@ -486,6 +486,17 @@ export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit))
 
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
 const LOOK_HEX = /^[0-9a-f]{32}$/i;
+/** The Domino starter clothes (the default outfit rows of the Domino series: 0x70-0x73, a girl's 0x70), what the 2008
+ *  client gave a new character in Domino. The default outfit is Slifer Red (owner, 2026-11-06: players were
+ *  wearing these once past LV 5): a character wears one only after picking it (p.avatar.pick, outfitPicked). */
+const DOMINO_STARTER = new Set(Object.entries(AV_PBIN).filter(([, r]) => r[1] && r[3] === 6 && r[5] === 2).map(([bit]) => Number(bit)));
+const dominoStarter = (parts: Uint8Array) => DOMINO_STARTER.has((parts[0] === 1 ? 256 : 0) + parts[6]);
+/** A look the player put on (the appearance editor, the cosmetics page): records whether its outfit is a Domino
+ *  starter one, which normalizeLook then keeps. Call it before normalizeLook. */
+export function outfitPicked(p: P, parts: Uint8Array): void {
+  p.avatar = { ...(p.avatar ?? {}) };
+  if (dominoStarter(parts)) p.avatar.pick = 1; else delete p.avatar.pick;
+}
 /** One look per character (owner, 2026-11-05: no Domino / Academy split): p.avatar.a and .b, the protocol's world 0
  *  and 1 copies, are kept the same. A character saved with two different looks keeps the one of the world it was
  *  last in (p.avatar.w, recorded from then on), else Domino's (a). -> whether it changed p. */
@@ -493,7 +504,8 @@ export function unifyLook(p: P): boolean {
   const v = p?.avatar;
   if (!v || typeof v !== "object") return false;
   const a = typeof v.a === "string" && LOOK_HEX.test(v.a) ? v.a.toLowerCase() : null, b = typeof v.b === "string" && LOOK_HEX.test(v.b) ? v.b.toLowerCase() : null;
-  const keep = a && b ? (v.w === 1 ? b : a) : a || b;
+  // with no world recorded, a Domino look still in its starter clothes was never picked: the Academy's is kept
+  const keep = a && b ? (v.w === 1 || (v.w !== 0 && dominoStarter(Buffer.from(a, "hex"))) ? b : a) : a || b;
   if (!keep || (v.a === keep && v.b === keep)) return false;
   v.a = keep; v.b = keep;
   return true;
@@ -512,7 +524,7 @@ export function normalizeLook(p: P, input: Uint8Array): Uint8Array {
     const row = AV_PBIN[String(base + parts[slot])];
     if (!row || row[3] !== slot || row[2] !== (parts[0] === 1 ? 2 : 1)) parts[slot] = defaults[slot];
   }
-  if (Number(p.rec?.lv ?? 1) < 5) parts[6] = 0x80;
+  if (Number(p.rec?.lv ?? 1) < 5 || (dominoStarter(parts) && !p.avatar?.pick)) parts[6] = 0x80;
   return parts;
 }
 /** One saved look in both worlds. Missing or native placeholder slots start in Slifer Red. */
@@ -1178,6 +1190,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       if (data.length >= 20) {
         const st = g.loadState(); const p = profile(st, activeSlot(st))!;
         const style = new DataView(data.buffer, data.byteOffset).getUint32(0);
+        outfitPicked(p, data.slice(4, 20));
         const parts = normalizeLook(p, data.slice(4, 20));
         setLook(p, parts, style === 0 ? 0 : 1);   // one look for both worlds
         g.saveState(st);
