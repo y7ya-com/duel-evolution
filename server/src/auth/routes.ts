@@ -3,6 +3,7 @@
 import { Hono, type Context } from "hono";
 import { hit, ipBucket, makeAuth, rolesOf, sha256hex, verifySession } from "./auth.ts";
 import { hasLiveCode, issueCode, peekCode, RESET_TTL_MS, takeCode, VERIFY_TTL_MS } from "./codes.ts";
+import { resetCode, verifyByCode } from "./discord-link.ts";
 import type { AuthEnv } from "./env.ts";
 import { nameProblem } from "./names.ts";
 
@@ -195,8 +196,8 @@ authApp.post("/api/de/reset", async (c) => {
 });
 
 /**
- * The shared Discord bot's interactions endpoint forwards DE's /verify and /reset here (it checks Discord's signature;
- * this checks its HMAC). Body {action, code?, discord: {id, username}, ts}; header x-de-signature = hex
+ * The old shared bot's endpoint (duelforge) forwarded DE's /verify and /reset here (it checked Discord's signature;
+ * this checks its HMAC); the bot's interactions now come to this Worker itself (discord/interactions.ts). Body {action, code?, discord: {id, username}, ts}; header x-de-signature = hex
  * HMAC-SHA256(DE_FORWARD_SECRET, raw body), ts within 60 s. Answers {ok, message, grantVerified?}; ok:false makes the
  * bot say "invalid or expired". Must answer in about 1.5 s.
  */
@@ -213,33 +214,8 @@ authApp.post("/api/de/discord-forward", async (c) => {
   const m = JSON.parse(raw) as { action?: string; code?: unknown; discord?: { id?: unknown; username?: unknown }; ts?: number };
   const who = { id: String(m.discord?.id ?? ""), username: String(m.discord?.username ?? "") };
   if (!m.ts || Math.abs(Date.now() - m.ts) > 60_000 || !/^\d{5,25}$/.test(who.id)) return c.json({ ok: false, message: "stale or malformed" }, 400);
-  const db = c.env.DB;
-
-  if (m.action === "verify") {
-    const userId = await peekCode(db, "verify-code", m.code);
-    if (!userId) return c.json({ ok: false, message: "unknown code" });
-    // one Discord account per game account
-    const other = await db.prepare("SELECT user_id FROM account WHERE provider_id = 'discord' AND account_id = ? AND user_id != ?").bind(who.id, userId).first();
-    if (other) return c.json({ ok: true, message: "This Discord account is already linked to another Duel Evolution player.", grantVerified: false });
-    if (!(await takeCode(db, "verify-code", m.code))) return c.json({ ok: false, message: "unknown code" });
-    const now = Date.now();
-    await db.batch([
-      db.prepare("UPDATE user SET email_verified = 1, updated_at = ? WHERE id = ?").bind(now, userId),
-      // a real linked account, so "Sign in with Discord" later reaches this same user
-      db.prepare(`INSERT INTO account (id, account_id, provider_id, user_id, created_at, updated_at)
-        SELECT ?, ?, 'discord', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM account WHERE provider_id = 'discord' AND account_id = ?)`)
-        .bind(crypto.randomUUID(), who.id, userId, now, now, who.id),
-    ]);
-    return c.json({ ok: true, message: `✅ Verified! Your Discord **${who.username}** is now linked. Head back to Duel Evolution and hit Continue.`, grantVerified: true });
-  }
-
-  if (m.action === "reset") {
-    const u = await db.prepare(`SELECT a.user_id AS id FROM account a WHERE a.provider_id = 'discord' AND a.account_id = ?
-      AND EXISTS (SELECT 1 FROM account p WHERE p.user_id = a.user_id AND p.provider_id = 'credential')`).bind(who.id).first<{ id: string }>();
-    if (!u) return c.json({ ok: false, message: "no linked account" });
-    const code = await issueCode(db, "reset-code", u.id, RESET_TTL_MS);
-    return c.json({ ok: true, message: `Duel Evolution reset code: **${code}**` });
-  }
+  if (m.action === "verify") return c.json(await verifyByCode(c.env.DB, who, m.code));
+  if (m.action === "reset") return c.json(await resetCode(c.env.DB, who));
   return c.json({ ok: false, message: "unknown action" }, 400);
 });
 

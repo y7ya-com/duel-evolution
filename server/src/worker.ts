@@ -12,6 +12,7 @@ import { gateUpgrade, originAllowed, safeGameQuery, USER_HEADER } from "./auth/b
 import { buildReport, recordLogin, runTradeReport } from "./db/audit.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 import { cardRarityCatalog } from "./game/card-rarity.ts";
+import { handleInteraction } from "./discord/interactions.ts";
 
 export { WorldDO } from "./do.ts";
 
@@ -187,6 +188,30 @@ routes.post("/api/de/duel/challenge", async (c) => {
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/duel/challenge", fwd);
 });
+
+// the chat's Duels tab: GET the open duels of the player's world; POST /join {id} checks the player may join one from where
+// they are (Lobby.openDuels, Lobby.duelJoinCheck; htmlui duels.js then sends the game's own duel request)
+const duels = async (c: Context<E>) => {
+  if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, new URL(c.req.url).pathname.replace("/api/de/", "/__de/"), fwd);
+};
+routes.get("/api/de/duels", duels);
+// the Players window's "(Discord)" rows: duelists online on Discord, not in the game (discord/bridge.ts discordOnline)
+routes.get("/api/de/discord-online", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/discord-online", fwd);
+});
+routes.post("/api/de/duels/join", duels);
+
+// the Discord bot's interactions (discord/interactions.ts): /verify, /reset, #duels' Accept; Discord's signature, no session
+routes.post("/api/discord/interactions", (c) => handleInteraction(c.req.raw, c.env as unknown as Parameters<typeof handleInteraction>[1]));
 
 // Shared card classifications contain no account data and are independent of random box rarities.
 routes.get("/api/de/card-rarities", (c) => c.json(cardRarityCatalog(), 200, { "Cache-Control": "public, max-age=1800" }));

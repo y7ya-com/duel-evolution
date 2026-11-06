@@ -19,10 +19,13 @@ import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
 import { cosmeticInfo, cosmeticOpen, cosmeticEquip, cosmeticAppearance, cosmeticTrade, cosmeticTradeAccept, cosmeticTradeCancel } from "./game/cosmetics.ts";
 import { shopView, shopPurchaseApi, shopPackView } from "./game/shop-api.ts";
-import { chatGet, chatSend } from "./game/chat.ts";
+import { chatGet, chatSend, relayIn } from "./game/chat.ts";
 import { rankLookup, RANK_MAX_AGE } from "./game/rank-api.ts";
 import { tradeCosmeticsInfo, tradeCosmeticsPanel, tradeCosmeticsSet } from "./game/trade-cosmetics.ts";
 import { CREATED_HEADER, IPB_HEADER } from "./auth/binding.ts";
+import { DiscordBridge, type DiscordDuelist } from "./discord/bridge.ts";
+import { publicRank } from "./game/rank-api.ts";
+import { isFree } from "./game/freemode.ts";
 
 const KEEPALIVE = '{"type":"ka"}', KEEPALIVE_S = 30;
 
@@ -33,18 +36,22 @@ export class WorldDO extends DurableObject<Env> {
   private nextPeer = 1;
   /** Every open gateway WebSocket: /__admin/shutdown closes them with 4012 before a deploy (the client reconnects). */
   private sockets = new Map<WebSocket, (hold?: boolean) => void>();
+  private log: (s: string) => void;
+  /** wrangler dev only (/__dev/discord-online): a fixed answer for /api/de/discord-online */
+  private devDiscordOnline: DiscordDuelist[] | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // without LOG=1 (production) only errors, protocol anomalies and the economy reach Workers Logs (util/loglevel.ts)
     const log = env.LOG === "1" ? (s: string) => console.log(s)
       : (s: string) => { const l = logLevel(s); if (l === "error") console.error(s); else if (l) console.warn(s); };
+    this.log = log;
     const cfg = configFrom(env as unknown as Record<string, unknown>);
     const db = env.DB;
     // the duel engine (async once; src/duel/boot.ts) boots AFTER the state, never beside it: a cold boot holds the D1
     // rows, the state and the projector at once, and with the engine too it went over the 128 MB isolate limit
     // ("internal error" / "Internal error in Durable Object storage caused object to be reset", 2026-10-29)
-    if (!db) { this.srv = buildServer(cfg, null, log); void ctx.blockConcurrencyWhile(() => bootDuel(env.BUCKET, log)); return; }
+    if (!db) { this.srv = buildServer(cfg, null, log); this.discord(); void ctx.blockConcurrencyWhile(() => bootDuel(env.BUCKET, log)); return; }
     // the state lives in D1: nothing is served until it is loaded; every save then writes the changed rows
     void ctx.blockConcurrencyWhile(async () => {
       try {
@@ -56,6 +63,7 @@ export class WorldDO extends DurableObject<Env> {
         const st = fresh ? { players: {}, schema: SCHEMA } : convert ? structuredClone(loaded) : loaded;
         const up = upgradeCards(st);
         this.srv = buildServer(cfg, st, log);
+        this.discord();
         this.sink = attach(this.srv.game.store, db, { baseline: convert ? loaded : this.srv.game.store.peek() });
         // the trade ledger (db/audit.ts): every confirmed trade, done or refused, as it happens
         if (this.srv.game.tp) this.srv.game.tp.ledger = (e) => { void recordTrade(db, e).catch((err) => console.error(`[trade_log] ${err}`)); };
@@ -74,9 +82,16 @@ export class WorldDO extends DurableObject<Env> {
         // e.g. wrangler dev without `d1 migrations apply` (parity runs): run on memory only
         console.error(`[d1] game state not loaded (${e}); running without D1`);
         this.srv = buildServer(cfg, null, log);
+        this.discord();
       }
       await bootDuel(env.BUCKET, log);
     });
+  }
+
+  /** The Discord bridge (discord/bridge.ts) on the game just built: All Chat <-> #in-game, #duels. */
+  private discord() {
+    const g = this.srv.game;
+    g.discord = this.env.DISCORD_BOT_TOKEN ? new DiscordBridge(this.env, g, this.log) : null;
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -259,6 +274,41 @@ export class WorldDO extends DurableObject<Env> {
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__de/duels" || url.pathname === "/__de/duels/join") {
+      // the Worker forwards GET /api/de/duels (the chat's Duels tab: the open duels of the viewer's world, Lobby.openDuels)
+      // and POST /api/de/duels/join {id} (may this player join it from here: Lobby.duelJoinCheck) with x-de-user
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const body = request.method === "POST" ? (await request.json().catch(() => ({}))) as { id?: unknown } : null;
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try {
+          const g = this.srv.game, acct = g.store.accountOfUser(user), s = acct ? g.hub.sessions.get(acct) : undefined;
+          if (body) return res(g.lp.duelJoinCheck(user, Number(body.id) || 0));
+          const free = isFree(s ?? null);
+          res([200, { you: s?.pid ?? null, duels: g.lp.openDuels().filter((d) => d.free === free).map((d) => ({ ...d, mine: d.pid === s?.pid })) }]);
+        } catch (e) { console.error(`[duels] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/discord-online") {
+      // the Worker forwards GET /api/de/discord-online (the Players window's "(Discord)" rows) with x-de-user: the duelists
+      // online on Discord and not in the game (discord/bridge.ts discordOnline)
+      if (!request.headers.get("x-de-user")) return Response.json({ error: "signed out" }, { status: 401 });
+      const players = this.devDiscordOnline ?? await (this.srv.game.discord?.discordOnline() ?? Promise.resolve([])).catch((e) => { console.error(`[discord online] ${e}`); return []; });
+      return Response.json({ players }, { headers: { "Cache-Control": "private, max-age=30" } });
+    }
+    if (url.pathname === "/__de/discord/duel") {
+      // the Worker's Discord interactions (discord/interactions.ts, a #duels Accept): is room ?id still open, and is it
+      // ?user's own. Only the Worker reaches /__de/discord/*; a closed duel's #duels message is cleared now.
+      const id = Number(url.searchParams.get("id")), user = url.searchParams.get("user");
+      const out = await new Promise<unknown>((res) => this.srv.world.run(() => {
+        const g = this.srv.game, d = g.discord?.openDuels().find((o) => o.id === id) ?? null;
+        if (!d) g.duelsChanged?.();
+        const acct = user ? g.store.accountOfUser(user) : null;
+        res({ duel: d, self: !!d && !!acct && g.hub.sessions.get(acct)?.pid === d.pid });
+      }));
+      return Response.json(out, { headers: { "Cache-Control": "no-store" } });
+    }
     if (url.pathname === "/__de/starter" || url.pathname === "/__de/starter/claim") {
       // the Worker forwards /api/de/starter(/claim) here with x-de-user (a checked session); starter.ts
       const user = request.headers.get("x-de-user");
@@ -307,6 +357,21 @@ export class WorldDO extends DurableObject<Env> {
       } catch (e) { console.error(`[decks] ${e}`); r = [500, { error: "server error" }]; }
       return Response.json(r[1], { status: r[0], headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/__dev/discord-online" && this.env.DEV === "1") {
+      // wrangler dev only: what /api/de/discord-online answers (POST {players: [{pid, name, lv, rank}]}, or {players: null}
+      // for the real list; {names: [...]} for names alone, LV 1 and unranked)
+      const b = (await request.json().catch(() => ({}))) as { players?: unknown; names?: unknown };
+      this.devDiscordOnline = Array.isArray(b.players) ? b.players as DiscordDuelist[]
+        : Array.isArray(b.names) ? b.names.map((n, i) => ({ pid: 90000 + i, name: String(n), lv: 1, rank: publicRank(90000 + i, String(n), {}), parts: [] })) : null;
+      return new Response("ok");
+    }
+    if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }
+    if (url.pathname === "/__dev/discord-say" && this.env.DEV === "1") {
+      // wrangler dev only: a #in-game line into All Chat as the gateway brings one (POST {name, pid, channel, text}), for the htmlui checks
+      const b = (await request.json().catch(() => ({}))) as { name?: string; pid?: number; channel?: number; text?: string };
+      const out = await new Promise<unknown>((res) => this.srv.world.run(() => res(relayIn(this.srv.game, { name: String(b.name ?? "[Discord]"), pid: Number(b.pid ?? 0), channel: Number(b.channel ?? 0), text: String(b.text ?? "Tester: hello from Discord") }))));
+      return Response.json(out);
+    }
     if (url.pathname === "/__dev/cut" && this.env.DEV === "1") {
       // wrangler dev only: the server side cuts one player's virtual socket (POST {acct, port: 5760}), as a duel-socket
       // drop does: phase2-net's duel re-attach test
@@ -325,6 +390,7 @@ export class WorldDO extends DurableObject<Env> {
         const st = await request.json() as Record<string, unknown>;
         upgradeCards(st);   // py's states carry the 2008 card ids (schema 2)
         this.srv.reset(st);
+        this.discord();
         if (this.sink) { this.sink.attach(this.srv.game.store); this.sink.save(this.srv.game.store.loadRaw()); await this.sink.flush(); }
         return new Response("ok");
       }
@@ -335,6 +401,7 @@ export class WorldDO extends DurableObject<Env> {
     if (!this.srv.world.canOpen(request.headers.get("x-de-user"))) return new Response("too many game connections", { status: 429 });
     const { 0: client, 1: ws } = new WebSocketPair();
     ws.accept();
+    this.srv.game.discord?.wake();   // someone to read #in-game: the Discord gateway comes up
     (ws as unknown as { binaryType: string }).binaryType = "arraybuffer"; // newer compat dates default to Blob
     const id = `ws${this.nextPeer++}`;
     const world = this.srv.world;

@@ -60,6 +60,10 @@ export class Game {
   pvpHookMatch: ((m: unknown, onFinish: (w: number | "draw") => void, onClose: (present: number[]) => void) => void) | null = null;
   pvpByPid: (pid: number) => boolean = (pid) => !!this.pvp?.byPid(pid);
   lpOnClose: ((c: Conn) => void) | null = null;
+  /** The open duels may have changed (lobby.ts openDuels): Discord's #duels catches up (discord/bridge.ts). */
+  duelsChanged: (() => void) | null = null;
+  /** The Discord bridge (discord/bridge.ts), when the bot is configured: All Chat relay and #duels. */
+  discord: import("../discord/bridge.ts").DiscordBridge | null = null;
   blockPlayer!: (pid: number, name?: string | null, sess?: Session | null) => Uint8Array;
   gameReply!: (c: Conn, msgId: number, param: number, data: Uint8Array) => void;
   onConnClosed!: (c: Conn, why?: string) => void;

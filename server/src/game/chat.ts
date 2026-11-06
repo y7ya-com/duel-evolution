@@ -56,7 +56,30 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
   // Every client gets the same canonical channel. Channel1 no longer means proximity.
   const wire = new W().u8(0).u8(CHAT_TAB[channel]).u32(sender.pid!).u32(2).s(message.name, 16).s([...text].map(c => c.charCodeAt(0) > 255 ? "?" : c).join(""), [...text].length).u8(0).bytes();
   for (const s of recipients) s.lobby!.post(0x4402, wire);
+  if (channel === "global") g.discord?.chatOut(message.name, text, sender.lobby?.userId ?? null);   // All Chat is Discord's #in-game too
   return { ok: plain(message) };
+}
+
+/** The name for a line from a Discord account with no game account (the text is "<their Discord name>: ..."). */
+export const DISCORD_NAME = "Discord";
+/** The first character of a Discord line's sender name on the wire: Latin-1 ¤, which no duelist name can hold (names.ts).
+ *  The HTML chat draws it as the Discord logo (htmlui screens/chat.js discordLine). */
+export const DISCORD_MARK = "\xa4";
+/** A #in-game line into All Chat (discord/bridge.ts) to everyone online, in the HTTP feed too: under `name` (marked on the
+ *  wire: DISCORD_MARK) from `pid`
+ *  (the speaker's game character when their Discord is linked, bridge.ts speaker), on the wire's `channel`. A receiver
+ *  who ignores that pid doesn't get it. The text is already Latin-1 and short (bridge.ts gameText / gameLines). */
+export function relayIn(g: Game, from: { name: string; pid: number; text: string; channel?: number }): ChatMessage | null {
+  if (g.restarting) return null;
+  const recipients = [...g.hub.sessions.values()].filter(s => online(s) && !(from.pid && ignores(g, s, from.pid)));
+  const log = stream(g);
+  const message: Stored = { id: ++log.next, at: Date.now(), channel: "global", pid: from.pid, name: from.name, text: from.text,
+    audience: new Set(recipients.map(s => s.acct)) };
+  log.messages.push(message); if (log.messages.length > 300) log.messages.shift();
+  const wireName = (DISCORD_MARK + from.name).slice(0, 16);   // a 16-character name loses its last one
+  const wire = new W().u8(0).u8(from.channel ?? CHAT_TAB.global).u32(from.pid).u32(2).s(wireName, 16).s(from.text, from.text.length).u8(0).bytes();
+  for (const s of recipients) s.lobby!.post(0x4402, wire);
+  return plain(message);
 }
 
 export function chatGet(g: Game, user: string, after: number = 0) {

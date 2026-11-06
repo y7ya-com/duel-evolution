@@ -1,4 +1,6 @@
-export interface Env {
+import type { DiscordEnv } from "./discord/rest.ts";
+
+export interface Env extends DiscordEnv {
   WORLD: DurableObjectNamespace;
   DB?: D1Database;
   /** The site's R2 bucket: the recomp client under recomp/, the duel engine data under duel-evolution/engine/. */

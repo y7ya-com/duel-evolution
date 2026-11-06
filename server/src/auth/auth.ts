@@ -8,12 +8,14 @@
 // Built per request because it closes over the request's env.
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import { username } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../db/auth-schema.ts";
 import type { AuthEnv } from "./env.ts";
 import { NAME_MAX, NAME_MIN, nameProblem } from "./names.ts";
+import { takeDuelLink } from "./discord-link.ts";
 
 export type Role = "admin" | "moderator";
 
@@ -87,11 +89,35 @@ export function makeAuth(env: AuthEnv, opts: AuthOptions = {}) {
     plugins: [
       username({ minUsernameLength: NAME_MIN, maxUsernameLength: NAME_MAX, usernameValidator: (n) => nameProblem(n) === null }),
       guard(env),
+      duelLink(env),
     ],
   });
 }
 
 export type Auth = ReturnType<typeof makeAuth>;
+
+/**
+ * GET /api/auth/de/duel-link?t=<token>: a #duels Accept's private link (discord/interactions.ts). The one-time token
+ * (auth/discord-link.ts) signs its player in, as a magic link does, and opens the game with ?duel=<room id>; the game
+ * sends the duel request once the player is in the world (htmlui duels.js). A used or expired link opens the game
+ * without signing anyone in.
+ */
+function duelLink(env: AuthEnv): BetterAuthPlugin {
+  return {
+    id: "de-duel-link",
+    endpoints: {
+      deDuelLink: createAuthEndpoint("/de/duel-link", { method: "GET" }, async (ctx) => {
+        const t = ctx.request ? new URL(ctx.request.url).searchParams.get("t") : null;
+        const link = await takeDuelLink(env.DB, t);
+        const user = link && await ctx.context.internalAdapter.findUserById(link.userId);
+        if (!link || !user) throw ctx.redirect("/?online=1");
+        const session = await ctx.context.internalAdapter.createSession(user.id);
+        await setSessionCookie(ctx, { session, user });
+        throw ctx.redirect(`/?online=1&duel=${link.duel}`);
+      }),
+    },
+  };
+}
 
 /**
  * - sign-up (server-side only) takes {username, password}; the server picks the email and name;

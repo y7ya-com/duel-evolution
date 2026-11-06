@@ -76,7 +76,10 @@ const TRADE: Record<number, [number, Uint8Array][]> = {
 /** `since`: when an autoduel room started searching (g.clock seconds: the rating window widens from it); `retry`: a
  *  widening retry is armed for it (autoRetry). */
 interface Room { id: number; p1: number; p2: number; mstat: number; mstat0?: number; dstyle: number; wmode: number; pw: boolean;
-  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session; since?: number; retry?: boolean }
+  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session; since?: number; retry?: boolean; at?: number }
+/** A created duel anyone may join (openDuels): the Duels chat tab and Discord's #duels list it. */
+export interface OpenDuel { id: number; pid: number; name: string; lv: number; match: boolean; timeLimit: boolean; surrender: boolean;
+  spectators: boolean; at: number; free: boolean }
 /** a direct duel invite (duelInvite): b's room as only a sees it, until the challenge it allows ends */
 interface Invite { room: Room; a: Session; b: Session }
 interface Challenge { room: number; from: Conn; to: Conn; a: Session; b: Session; done: boolean }
@@ -189,9 +192,9 @@ export class Lobby {
     const s = this.sess(c);
     const rid = this.mem.next_room++;
     const r: Room = { id: rid, p1: me, p2: 0, mstat: data.length > 2 ? data[2] : 0, mstat0: data.length > 2 ? data[2] : 0,
-      dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: data.length > 3 ? !!data[3] : false,
-      pwd: pad(data.subarray(4, 20), 16), x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null,
-      since: this.g.clock.time() };
+      dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: false, pwd: new Uint8Array(16),
+      x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null,
+      since: this.g.clock.time(), at: Date.now() };
     const old = [...this.mem.rooms.values()].filter((v) => v.p1 === me && !v.only);
     for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me && !v.only) this.mem.rooms.delete(k);
     this.mem.rooms.set(rid, r);
@@ -204,6 +207,7 @@ export class Lobby {
       if (AUTODUEL_MATCH) this.later(AUTODUEL_MATCH_DELAY, () => this.autoTryMatch(c));
     } else this.roomState(s, ROOM_STATE);
     this.later(CHALLENGE_DELAY, () => this.npcChallenge(c, rid));
+    this.g.duelsChanged?.();
     return true;
   }
 
@@ -248,6 +252,7 @@ export class Lobby {
       this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
     }
     for (const ch of chs) if (ch) this.endChallenge(ch, R_GONE);
+    if (gone.length) this.g.duelsChanged?.();
     return true;
   }
 
@@ -391,6 +396,39 @@ export class Lobby {
     this.later(INVITE_TTL, () => { if (this.mem.invites.get(a.pid!) === inv && !this.mem.challenges.has(r.id)) this.dropInvite(inv); });
     return [200, { ok: true, room: r.id }];
   }
+  // ---- open duels (the Duels chat tab, Discord's #duels): a created room, not an autoduel search, not a private
+  // invite, no opponent yet, its owner still connected. Anyone joins one the game's own way: the owner's card's
+  // "Send Duel Request" (htmlui duels.js), so the owner still gets Accept / Decline.
+  openDuels(): OpenDuel[] {
+    const out: OpenDuel[] = [];
+    for (const r of this.mem.rooms.values()) {
+      if (r.only || r.npc || r.p2 || this.isAuto(r) || !r.conn || !this.alive(r.conn)) continue;
+      const o = this.sess(r.conn);
+      if (!o || o.pid === null || o.pid !== r.p1 || this.g.pvp?.byPid(o.pid)) continue;
+      out.push({ id: r.id, pid: o.pid, name: o.name || "Duelist", lv: this.autoCard(o)[0], match: r.dstyle === 4, timeLimit: !!r.x[1],
+        surrender: !!r.x[0], spectators: !!r.wmode, at: r.at ?? Date.now(), free: FREE.isFree(o) });
+    }
+    return out.sort((a, b) => a.at - b.at);
+  }
+  /** Whether `userId`'s player can join open duel `id` from where they are now: {ok, pid, name} or a reason to show. */
+  duelJoinCheck(userId: string, id: number): [number, Record<string, unknown>] {
+    const say = (error: string, message: string): [number, Record<string, unknown>] => [409, { error, message }];
+    const acct = this.g.store.accountOfUser(userId);
+    const a = acct ? this.g.hub.sessions.get(acct) : undefined;
+    if (!a || a.pid === null || !a.lobby || a.lobby.closed) return say("not-in-game", "Enter the game world first.");
+    const d = this.openDuels().find((o) => o.id === id), r = this.mem.rooms.get(id);
+    if (!d || !r?.conn) return say("gone", "That duel is no longer open.");
+    if (d.pid === a.pid) return say("self", "That is your own duel.");
+    const b = this.sess(r.conn)!;
+    if (FREE.isFree(a) !== d.free) return say("elsewhere", d.free ? "That duel is in Free Mode." : "That duel is in the online world, not Free Mode.");
+    if (a.block === null) return say("my-room", "Leave My Room to join a duel.");
+    if (a.block !== b.block) return say("elsewhere", "That duelist is in another lobby.");
+    if (this.ignores(b.pid!, a.pid)) return say("refused", "That player is not accepting duel requests.");
+    if ([...this.mem.rooms.values()].some((v) => !v.only && v.p1 === a.pid)) return say("own-room", "Close your own duel first.");
+    if (this.busyHere(a) || this.challengeFrom(a.lobby) || this.challengeTo(a.lobby)) return say("you-busy", "Finish what you are doing first.");
+    return [200, { ok: true, id, pid: d.pid, name: d.name }];
+  }
+
   /** Called before leaving a block and when becoming busy. Pending offers must end too: a
    *  popup hidden by another activity cannot be allowed to accept an obsolete request later. */
   inviteBusy(s: Session) {
@@ -459,6 +497,7 @@ export class Lobby {
     this.roomState(a, DUEL_STATE, b.name, b);
     this.roomState(b, DUEL_STATE, a.name, a);
     r.p2 = a.pid!; r.mstat = 1;
+    this.g.duelsChanged?.();
     this.post(aConn, 0x4301, new W().u32(0).bytes());
     if (!invite) {   // an invite's room was never anyone else's to see
       c.send(0x3113, this.roomEntry(r));
@@ -1002,6 +1041,7 @@ export class Lobby {
     if (gone.length) this.roomState(this.sess(c), 0);
     for (const r of gone) this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
     if (this.g.lobbyRoom.c === c) this.g.lobbyRoom.c = null;
+    if (gone.length) this.g.duelsChanged?.();
     return true;
   }
 
