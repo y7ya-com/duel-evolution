@@ -1,6 +1,6 @@
 // node client/web-shell/htmlui/screens/chat_test.mjs: a list's update as a delta; the chat's tabs (chatTabs)
 import assert from 'node:assert/strict';
-import { itemsDelta, chatTabs, duelsView, duelsTab } from './chat.js';
+import { discordLine, itemsDelta, chatTabs, duelsView, duelsTab } from './chat.js';
 
 assert.deepEqual(itemsDelta([], ['a']), [0, ['a']]);
 assert.deepEqual(itemsDelta(['a', 'b'], ['a', 'b']), [0, []]);
@@ -71,3 +71,7 @@ assert.deepEqual(itemsDelta(['a', 'b'], ['x']), [2, ['x']]);
   assert.deepEqual(labels, ['All Chat (1)', 'Trade', 'Team']);
 }
 console.log('chat ok');
+
+// a line from Discord: the sender's name marked (server discord/bridge.ts), shown with the Discord logo
+assert.equal(discordLine('\u00a4Yugi:hi there'), 'Yugi:hi there');
+assert.equal(discordLine('Yugi:hi there'), null);
