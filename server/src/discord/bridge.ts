@@ -81,7 +81,7 @@ export function duelMessage(d: OpenDuel) {
 
 type Posted = { msg: string | null };
 /** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
-type Profile = { id: string; avatar: string | null } | null;
+type Profile = { id: string; name: string; avatar: string | null } | null;
 const PROFILE_TTL_MS = 30 * 60_000;
 /** The wire of a line from someone not in the game (an offline duelist, an unlinked Discord user). The engine drops any
  *  chat line from pid 0 and shows one from any other pid, known or not; channel 1 lands in the hidden Proximity log (live
@@ -136,14 +136,14 @@ export class DiscordBridge {
       const row = await this.env.DB!.prepare("SELECT account_id FROM account WHERE provider_id = 'discord' AND user_id = ?").bind(userId).first<{ account_id: string }>();
       if (!row) return null;
       const u = await rest(this.env, "GET", `/users/${row.account_id}`);
-      return { id: row.account_id, avatar: u.ok && u.body?.avatar ? `https://cdn.discordapp.com/avatars/${row.account_id}/${u.body.avatar}.png?size=128` : null };
+      return { id: row.account_id, name: String((u.ok && (u.body?.global_name || u.body?.username)) || "Discord"), avatar: u.ok && u.body?.avatar ? `https://cdn.discordapp.com/avatars/${row.account_id}/${u.body.avatar}.png?size=128` : null };
     })().catch(() => null);
     this.profiles.set(userId, { at: Date.now(), p });
     if (this.profiles.size > 2000) this.profiles.delete(this.profiles.keys().next().value!);
     return p;
   }
   /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. Under it, the
-   *  player's Discord as a mention (subtext; allowed_mentions off, so nobody is pinged): a click shows their profile. */
+   *  player's Discord as a link to their profile (subtext): not a mention, so nobody is tagged or pinged. */
   private async pump() {
     if (this.sending) return;
     this.sending = true;
@@ -152,7 +152,7 @@ export class DiscordBridge {
         const first = this.outQueue[0], who = await first.who, lines: string[] = [];
         while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500)
           lines.push(discordText(this.outQueue.shift()!.text));
-        if (who) lines.push(`-# <@${who.id}>`);
+        if (who) lines.push(`-# [@${discordText(who.name)}](<https://discord.com/users/${who.id}>)`);
         const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
         const body = { username: webhookName(first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
           flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };
