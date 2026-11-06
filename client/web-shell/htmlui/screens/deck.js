@@ -232,6 +232,9 @@ export const vectorArt = s => {
   if (n === 'font_k_star.png') return { kind: 'level', i: u / 14 + 1 };
   if (n === 'scroll_01_c00.png') return { kind: 'scroll', u, v, w, h };
   if (n === 'icon_syuzoku_01.png') return { kind: 'pixel', n, u, v };
+  // the limit marks (icon_seigen_01, a 16 x 16 cell per limit: DeckWindow.cpp limitIconRect, the trunk rows' Forbi
+  // icon): the shipped art is cell 0 only, so 1 and 2 drew nothing (owner: "how many can I put in")
+  if (n === 'icon_seigen_01.png' && u / 16 < 4) return { kind: 'limit', i: u / 16 };
   return null;
 };
 function drawVector(el, a, x, y, w, h, alpha) {
@@ -246,6 +249,7 @@ function drawVector(el, a, x, y, w, h, alpha) {
     return box;
   }
   if (a.kind === 'scroll') return scrollPart(box, a, w, h);
+  if (a.kind === 'limit') return limitMark(box, a.i);
   if (a.kind === 'pixel') {   // the 21 monster-type pictures stay pixel art (owner): the cell, nearest-neighbour, crisp
     Object.assign(box.style, { backgroundImage: `url(${base()}${a.n})`, backgroundPosition: `${-a.u}px ${-a.v}px`,
       backgroundRepeat: 'no-repeat', imageRendering: 'pixelated' });
@@ -272,6 +276,17 @@ function drawVector(el, a, x, y, w, h, alpha) {
       <path d="M12.6 10.6 17.4 15.4M17.4 10.6 12.6 15.4" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>`;
   }
   box.innerHTML = `<svg xmlns="${SVGNS}" viewBox="0 0 ${a.kind === 'star' ? 19 : 16} 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">${body}</svg>`;
+  return box;
+}
+// a limit mark, as the game draws them: 0 forbidden (a red "no" sign), else the copies allowed (a red disc, white ring,
+// white digit)
+function limitMark(box, i) {
+  const body = i === 0
+    ? `<circle cx="8" cy="8" r="7.6" fill="#000"/><circle cx="8" cy="8" r="6.8" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="#d80000"/>
+      <circle cx="8" cy="8" r="3.4" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M5.6 10.4 10.4 5.6" stroke="#fff" stroke-width="1.4"/>`
+    : `<circle cx="8" cy="8" r="7.6" fill="#000"/><circle cx="8" cy="8" r="6.8" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="#d80000"/>
+      <text x="8" y="11.6" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#fff" font-family="${FONT.replace(/"/g, "'")}">${i}</text>`;
+  box.innerHTML = `<svg xmlns="${SVGNS}" viewBox="0 0 16 16" width="100%" height="100%" aria-hidden="true">${body}</svg>`;
   return box;
 }
 // scroll_01_c00's cells as CSS (#92979a lines on white, the track #d4e2e4): the arrow buttons (columns 0 / 16 / 32:
@@ -820,14 +835,24 @@ function quickInstall() {
   const canvas = document.getElementById('canvas');
   if (quickOn || !canvas) return;
   quickOn = true;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const snap = () => globalThis.yo2Html?.snapshot?.();
+  // the game's own frames (the snapshot's counter), not wall-clock sleeps: a step costs one game frame, and the press
+  // and release end as soon as the game's drag (deckDrag) shows it picked the card up / dropped it. ms: a cap, so a
+  // refused move (no copies left, a full deck) never hangs the queue
+  const until = (ok, ms = 400) => new Promise(r => {
+    const t = performance.now(), f = snap()?.frame;
+    const tick = () => (ok(f) || performance.now() - t > ms ? r() : requestAnimationFrame(tick));
+    requestAnimationFrame(tick);
+  });
+  const nextFrame = () => until(f0 => snap()?.frame !== f0);
+  const dragging = () => snap()?.deckDrag?.state > 0;
   const game = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * 1024 / r.width, (e.clientY - r.top) * 1024 / r.width]; };
   const client = ([x, y]) => { const r = canvas.getBoundingClientRect(), k = r.width / 1024; return [r.left + x * k, r.top + y * k]; };
   const fire = (type, p) => { const [x, y] = client(p); canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
     clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0 })); };
-  // the game reads the mouse once a frame: each step held ~3 frames
-  const press = async p => { fire('mousemove', p); await sleep(50); fire('mousedown', p); await sleep(50); };
-  const release = async p => { fire('mousemove', p); await sleep(50); fire('mouseup', p); await sleep(50); };
+  // the game reads the mouse once a frame: the pointer is there a frame before the button changes
+  const press = async p => { fire('mousemove', p); await nextFrame(); fire('mousedown', p); await until(dragging, 200); };
+  const release = async p => { fire('mousemove', p); await nextFrame(); fire('mouseup', p); await until(() => !dragging(), 200); };
   const act = e => {
     if (!live.size || !inEditor()) return;
     const at = game(e), wins = [...live.values()].map(L => L.win), m = quickMove(wins, ...at);
@@ -835,7 +860,10 @@ function quickInstall() {
     e.preventDefault?.();
     quickBusy = quickBusy.then(async () => {
       const deck = wins.find(w => w.cls === 'CWindowModelDeck'), view = deck?.controls.find(c => c.cls === 'CWindowTaskDeck')?.view;
-      if (m.fusion && view !== 'extra') { await press(FUSION_TAB); await release(FUSION_TAB); await sleep(100); }
+      if (m.fusion && view !== 'extra') {   // the Fusion tab first: a plain click, then the deck shows Extra
+        fire('mousemove', FUSION_TAB); await nextFrame(); fire('mousedown', FUSION_TAB); await nextFrame(); fire('mouseup', FUSION_TAB);
+        await until(() => [...live.values()].some(L => L.win.controls.some(c => c.cls === 'CWindowTaskDeck' && c.view === 'extra')), 300);
+      }
       await press(m.press);
       await release(m.drop);
       fire('mousemove', at);   // the pointer back where the player has it
@@ -970,6 +998,9 @@ export default {
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
+    // the trunk's controls come in a new order every frame (same set): by id, so an unchanged trunk keeps its key and
+    // isn't rebuilt each frame (it was: ~5000 nodes a second while the player only moved the mouse)
+    win = { ...win, controls: [...win.controls].sort((a, b) => a.id - b.id) };
     // the scene's mouse (the side buttons' hover, drawn by backdrop()) changes every frame the pointer moves: a window
     // is rebuilt only when anything else in it changed
     const key = JSON.stringify(win, (k, v) => k === 'mouse' ? undefined : v);
