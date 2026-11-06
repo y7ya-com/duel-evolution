@@ -15,7 +15,7 @@ import { lawfulLook } from "./cosmetics.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
 import * as RK from "./ranking.ts";
-import { channelFor, sendChat } from "./chat.ts";
+import { channelFor, sendChat, CHAT_TAB } from "./chat.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
 const i32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(at) : 0);
@@ -670,8 +670,11 @@ export class Lobby {
     const channel = channelFor(kind), s = this.sess(c);
     if (!channel || !s) return true;
     // One server-wide public channel, including My Room. Legacy proximity sends become Global.
-    sendChat(this.g, s, channel, cstr(text).slice(0, 128), target);
+    const sent = sendChat(this.g, s, channel, cstr(text).slice(0, 128), target);
     const n = kind === 3 ? this.npcByPid(target) : null;
+    // A line the server refuses (Team with no team, a whisper to someone offline, a muted account) says why in the tab
+    // it was typed in, rather than vanishing; an NPC's whisper has its own answer below.
+    if ("error" in sent && !n) c.send(0x4402, cat(new W().u8(0).u8(CHAT_TAB[channel]).u32(0).u32(2).bytes(), S("Notice", 16), new W().s(sent.error, sent.error.length).bytes(), Uint8Array.of(0)));
     if (n) c.send(0x4402, cat(new W().u8(0).u8(3).u32(FAKE_BASE + n[0]).u32(0).bytes(), S(n[1], 16), new W().s("Nos vemos en la sala de duelo.", 30).bytes(), Uint8Array.of(0)));
     return true;
   }

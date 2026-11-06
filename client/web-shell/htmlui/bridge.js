@@ -18,6 +18,7 @@ import { backdrop } from './backdrop.js';
 import { tradeOverlayFrame } from './cosmetics/trade-cosmetics.js';
 import { wardrobeLauncherFrame } from './cosmetics/wardrobe-launcher.js';
 import { missionsLauncherFrame } from './rewards/launcher.js';
+import { chatBubblesFrame } from './chat-bubbles.js';
 import { coverScene, coverFrame, coverPlace, shopOn } from './shop/cover.js';
 import { mountCardShop } from './shop/index.js';
 
@@ -495,6 +496,8 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     try { wardrobeLauncherFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: wardrobe launcher', e); }
     // and the Missions button beside it, with its claimable count (rewards/launcher.js)
     try { missionsLauncherFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: missions launcher', e); }
+    // All Chat lines as speech bubbles over the speakers (chat-bubbles.js)
+    try { chatBubblesFrame(snap, wait); } catch (e) { if (failed++ < 5) console.warn('htmlui: chat bubbles', e); }
     // after render: a screen's passthrough may use what its update just worked out
     const pass = [...extraPass];
     for (const w of all) {

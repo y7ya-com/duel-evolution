@@ -8,6 +8,7 @@
 // - Input: tabs and the taller / shorter icons are real <button>s (CSS skin, the label text) that click the
 //   game's control; the input line is a real, visible <input> (typing, IME, paste, selection, copy) that commits
 //   through the control's setText, Enter as the game's own WM_CHAR '\r'; the wheel and the scroll bar scroll the log.
+import { rowRuns } from './playerlist.js';
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
@@ -24,6 +25,9 @@ const DRAW = {
   Tab(el, c, api) {
     const b = skin.tab(el, { x: c.x, y: c.y, w: c.w, label: c.label, active: c.active });
     b.disabled = !c.enabled;
+    // the press and release stay here (the runtime, SDL, hears releases on the document): a tab moved over another
+    // one's place (chatTabs: Duel Log and Proximity Chat left out) would press the engine's tab under it too
+    for (const t of ['mousedown', 'mouseup']) b.addEventListener(t, e => e.stopPropagation());
     b.addEventListener('click', () => api.click(c.id));
   },
   Icon(el, c, api, [kind, label]) {
@@ -85,6 +89,7 @@ function ownInput(c, layer, api) {
     if (e.isComposing) return;
     if (e.key === 'Enter' && !snap.multiLine) {   // the game's own Enter (CWindowTaskInput: WM_CHAR '\r'; the chat sends)
       e.preventDefault();
+      el.dispatchEvent(new CustomEvent('htmlui-chat-send', { bubbles: true, detail: el.value }));   // teamNote
       commit();
       entered = el.value;   // what the game does with it (the chat sends and empties the line) comes back in a snapshot
       api.char(13);
@@ -123,9 +128,21 @@ function ownList(c, layer, { stick = false, stripes = false } = {}) {
   el.setAttribute('role', stick ? 'log' : 'list');
   layer.append(el);
   let shown = [];
+  // a row with "@>N/" pen moves (the Team List's "@>16/<name>@>230/<where>") as its pieces, each at its x (rowRuns)
   const row = s => {
     const r = document.createElement('div');
     r.className = 'row';
+    if (/[@＠]>/.test(s)) {
+      r.textContent = '\u00a0';
+      r.style.position = 'relative';
+      for (const { x, s: t } of rowRuns(s)) {
+        const p = document.createElement('span');
+        Object.assign(p.style, { position: 'absolute', left: x + 'px', top: 0, whiteSpace: 'pre', letterSpacing: basic.spacing(t) + 'px' });
+        p.textContent = t;
+        r.append(p);
+      }
+      return r;
+    }
     r.textContent = s;
     r.style.letterSpacing = basic.spacing(s) + 'px';
     return r;
@@ -161,8 +178,10 @@ const CSS = () => `
 // changes; lists, a lone scroll bar and inputs owned (ownList: native scrollers, ownScroll, ownInput);
 // background(win, el), if given, draws what the window itself draws under its controls (its own picture)
 // The chat's tabs as the owner wants them (CChatWindow): the Duel Log tab left out (owner: of no use; ovr/duellog.c adds
-// it on the duel screen until the runtime drops it), the game's all-capitals names in plain case ('TRADE' -> 'Trade'),
-// and a tab whose log had lines while another was shown says how many until it is opened: 'Proximity Chat (2)'. A tab
+// it on the duel screen until the runtime drops it), and Proximity Chat too (owner: removed entirely; the server sends
+// nothing on it and takes what is typed there as All Chat; All Chat lines show as speech bubbles, chat-bubbles.js), the
+// game's all-capitals names in plain case ('TRADE' -> 'Trade'), and a tab whose log had lines while another was shown
+// says how many until it is opened: 'Team (2)'. A tab
 // grows by its new text (the game's metrics) and the tabs after it move along, 8 px over each other as the game lays
 // them (yo2WindowChat.cpp layout). Each tab's log is the reader's pair (read/chat.js), else the logs in tab order.
 const unread = new Map();   // window id -> { seen: log id -> its items, n: tab id -> lines unread }. ponytail: never
@@ -182,13 +201,48 @@ export function chatTabs(win) {
       st.n.set(t.id, t.active ? 0 : (st.n.get(t.id) || 0) + (d ? d[1].length : 0));
     }
     const name = (t.label || '').replace(/[@＠]\d/g, '').trim();
-    if (/^duel log$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
+    if (/^(duel log|proximity chat)$/i.test(name)) { if (t.shown) shift -= t.w - 8; out.set(t.id, null); return; }
     const n = st.n.get(t.id) || 0, label = plainCase(name) + (n ? ` (${n > 99 ? '99+' : n})` : '');
     const grow = label === name ? 0 : Math.ceil(textW(label) - textW(name));
     if (label !== t.label || shift || grow) out.set(t.id, { ...t, x: t.x + shift, w: t.w + grow, label });
     if (t.shown) shift += grow;
   });
   return out.size ? { ...win, controls: win.controls.map(c => out.has(c.id) ? out.get(c.id) : c).filter(Boolean) } : win;
+}
+
+// The engine's Proximity Chat tab active (chatTabs leaves it out: no tab would look selected over an empty log): All
+// Chat, the first tab, pressed instead, once per snapshot
+function offProximity(win, api, st) {
+  const tabs = win.controls.filter(c => c.cls === 'CWindowTaskTab' && c.shown).sort((a, b) => a.x - b.x);
+  const on = tabs.find(t => t.active);
+  if (st.unprox || !on || !/^proximity chat$/i.test((on.label || '').replace(/[@＠]\d/g, '').trim()) || !tabs[0] || tabs[0] === on) return;
+  st.unprox = true;
+  Promise.resolve(api.click(tabs[0].id)).finally(() => setTimeout(() => { st.unprox = false; }, 300));
+}
+
+// Enter on the Team tab outside a team: the game drops the line without a word (it sends team chat only with
+// CNetLobby::inTeam, read/chat.js), so a note says why, at the foot of the log, until another tab or a few seconds
+const TEAM_NOTE = 'You are not in a team. Form one or accept an invite: Main Menu > Team List.';
+function teamNote(win, root, st) {
+  const tab = win.controls.find(c => c.cls === 'CWindowTaskTab' && c.active);
+  const log = tab && win.controls.find(c => c.id === win.pairs?.find(p => p.tab === tab.id)?.log);
+  st.teamless = win.inTeam === false && /^team$/i.test((tab?.label || '').replace(/[@＠]\d/g, '').trim()) && log;
+  if (!st.teamNote) {
+    const n = st.teamNote = document.createElement('div');
+    Object.assign(n.style, { position: 'absolute', color: '#008000', whiteSpace: 'nowrap', pointerEvents: 'none' });
+    n.hidden = true;
+    n.textContent = TEAM_NOTE;
+    st.own.append(n);
+    root.addEventListener('htmlui-chat-send', e => {
+      if (!st.teamless || !e.detail.trim()) return;
+      const c = st.teamless;
+      Object.assign(n.style, { left: c.x + 4 + 'px', top: c.y + c.h - 18 + 'px', font: basic.fontCss() });
+      n.style.letterSpacing = basic.spacing(TEAM_NOTE) + 'px';
+      n.hidden = false;
+      clearTimeout(st.teamNoteT); st.teamNoteT = setTimeout(() => { n.hidden = true; }, 6000);
+    });
+  }
+  if (!st.teamless) st.teamNote.hidden = true;
 }
 
 // The engine's chat folded to its collapsed bar (mode 2), one press per snapshot: short -> tall by △, tall -> collapsed
@@ -228,9 +282,11 @@ export function owned(classes, draw, background) {
 
     update(win, prev, root, api, st) {
       if (win.cls === 'CChatWindow') {
+        offProximity(win, api, st);
         win = chatTabs(win);
         st.vis.hidden = st.own.hidden = win.online === false;
         if (win.online === false && win.world !== false) fold(win, api, st);   // never pressed during the sign-in
+        teamNote(win, root, st);
       }
       const seen = new Set(), order = [];
       const byId = new Map(win.controls.map(k => [k.id, k]));
