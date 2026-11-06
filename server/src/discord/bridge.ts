@@ -1,7 +1,8 @@
 // The Discord side of the game, inside the WorldDO (one per world, like the game it serves):
 // - All Chat <-> #general. Out: every All Chat line through #general's webhook, under its player's name. In: #general's
 //   messages over the Discord gateway (an outbound WebSocket, intents GUILD_MESSAGES + MESSAGE_CONTENT), into All Chat
-//   as "[Discord] author: text" (chat.ts relayIn). The gateway is up only while someone is in the game: with nobody to
+//   under the speaker's duelist (bridge.ts speaker), marked as from Discord (chat.ts relayIn, DISCORD_MARK: a logo in the
+//   HTML chat). The gateway is up only while someone is in the game: with nobody to
 //   read it, a line has nowhere to go.
 // - #duels: one message per open duel (lobby.ts openDuels: created in the game, nobody joined yet), with its Accept
 //   button (custom_id duel_join:<room id>, discord/interactions.ts). Each message goes when its duel does, so the channel
@@ -329,7 +330,7 @@ export class DiscordBridge {
   }
   /** Who a #general line is from in the game. A linked account speaks as its duelist: online, its character's pid and name
    *  (its card opens from the line, ignore lists apply); offline, its active character's name. An unlinked Discord user
-   *  is "[Discord] author: text". null: the account is chat-banned. `author`: the name gameLines leaves room for. */
+   *  is "Discord: author: text". null: the account is chat-banned. `author`: the name gameLines leaves room for. */
   private speaker(userId: string | null, discordName: string): { author: string; line: (t: string) => { name: string; pid: number; text: string; channel?: number } } | null {
     const g = this.g, acct = userId ? g.store.accountOfUser(userId) : null;
     if (acct && g.admin.flagsOf(acct) & SANCTION_CHAT) return null;

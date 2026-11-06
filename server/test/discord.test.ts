@@ -2,7 +2,7 @@
 // Duels tab list (Lobby.openDuels / duelJoinCheck). Discord's REST is a mocked fetch; the gateway's frames are fed in.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, be32, cat, str, cstr, type Client, type Harness } from "./notes-harness.ts";
-import { chatGet, DISCORD_NAME } from "../src/game/chat.ts";
+import { chatGet, DISCORD_MARK, DISCORD_NAME } from "../src/game/chat.ts";
 import { counterName, DiscordBridge, discordText, duelMessage, gameAuthor, gameLines, gameText, webhookName } from "../src/discord/bridge.ts";
 
 const u32 = (d: Uint8Array, o = 0) => new DataView(d.buffer, d.byteOffset + o, 4).getUint32(0);
@@ -104,7 +104,7 @@ describe("All Chat <-> #general", () => {
       avatar_url: "https://cdn.discordapp.com/avatars/777/abc.png?size=128" });
   });
 
-  it("#general messages reach everyone online as [Discord] lines; bots, webhooks and other channels don't", async () => {
+  it("#general messages reach everyone online as Discord lines; bots, webhooks and other channels don't", async () => {
     mockDiscord();
     const [h, [a, b]] = await world(2);
     const bridge = new DiscordBridge(ENV, h.game, () => {});
@@ -117,7 +117,7 @@ describe("All Chat <-> #general", () => {
     await h.tick(200);
     const lines = b.room!.all(0x4402, n);
     expect(lines).toHaveLength(1);
-    expect(cstr(lines[0].subarray(10, 26))).toBe(DISCORD_NAME);
+    expect(cstr(lines[0].subarray(10, 26))).toBe(DISCORD_MARK + DISCORD_NAME);
     expect(cstr(lines[0].subarray(26))).toBe("Dave: gg everyone");
     const r = chatGet(h.game, "user-0");
     expect("ok" in r && r.ok!.messages.map((m) => [m.pid, m.name, m.text])).toEqual([[99999999, DISCORD_NAME, "Dave: gg everyone"]]);
@@ -130,7 +130,7 @@ describe("#general speakers are their duelists", () => {
   const DB = { prepare: () => ({ bind: (d: string) => ({ first: async () => (({ "501": { user_id: "user-0" }, "502": { user_id: "user-1" } } as Record<string, unknown>)[d] ?? null) }) }) } as unknown as D1Database;
   const say = (bridge: DiscordBridge, id: string, content: string) =>
     (bridge as any).onFrame({ op: 0, t: "MESSAGE_CREATE", s: 1, d: { guild_id: "g1", channel_id: "gen", type: 0, author: { id, username: `d${id}` }, content } });
-  it("online: their character's pid and name; offline: their duelist's name; unlinked: [Discord]; chat-banned: nothing", async () => {
+  it("online: their character's pid and name; offline: their duelist's name; unlinked: Discord; chat-banned: nothing", async () => {
     mockDiscord();
     const [h, [a, b]] = await world(2);
     const bridge = new DiscordBridge({ ...ENV, DB }, h.game, () => {});
@@ -140,7 +140,7 @@ describe("#general speakers are their duelists", () => {
     let lines = b.room!.all(0x4402, n);
     expect(lines).toHaveLength(1);
     expect(u32(lines[0], 2)).toBe(a.pid);
-    expect(cstr(lines[0].subarray(10, 26))).toBe("Player0");
+    expect(cstr(lines[0].subarray(10, 26))).toBe(DISCORD_MARK + "Player0");
     expect(cstr(lines[0].subarray(26))).toBe("from discord");
 
     a.room!.close?.(); h.game.hub.sessions.delete(h.game.hub.byPid(a.pid!)!.acct);   // Player0 leaves the game
@@ -149,7 +149,7 @@ describe("#general speakers are their duelists", () => {
     say(bridge, "999", "who am i");
     await h.tick(200);
     lines = b.room!.all(0x4402, m);
-    expect(lines.map((l) => [u32(l, 2), cstr(l.subarray(10, 26)), cstr(l.subarray(26))])).toEqual([[99999999, "Player0", "still me"], [99999999, DISCORD_NAME, "d999: who am i"]]);
+    expect(lines.map((l) => [u32(l, 2), cstr(l.subarray(10, 26)), cstr(l.subarray(26))])).toEqual([[99999999, DISCORD_MARK + "Player0", "still me"], [99999999, DISCORD_MARK + DISCORD_NAME, "d999: who am i"]]);
 
     h.game.admin.data.flags.set(h.game.store.accountOfUser("user-1")!, 0x20);   // Player1 chat-banned
     const k = b.room!.mark();
