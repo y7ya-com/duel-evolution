@@ -490,7 +490,7 @@ export default {
   },
   unmount(root, st) {
     mounted.delete(st.id);
-    if (st.pl) plist.stars.clear();
+    if (st.pl) { plist.stars.clear(); plist.stopRows(st); }
     base.unmount?.(root, st);
   },
 };

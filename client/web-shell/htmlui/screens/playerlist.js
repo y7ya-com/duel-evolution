@@ -13,6 +13,9 @@
 //   CWindowTaskScrollBase::setValue), then a press at that row's game point (CWindowTaskActiveListbox::onMain picks the
 //   row under the mouse; a press there opens the player's card, CPlayerListMenu). Hover is the DOM's (:hover), as the
 //   engine's follows its mouse. The native scroller keeps the engine's list on the same first row (setValue).
+// - Discord: duelists online on Discord but not in the game (GET /api/de/discord-online, on opening and every 30 s)
+//   follow the game's rows in our scroller only, as "Name (Discord)": not the engine's items, never pressed, no card.
+//   The game's rows keep their item indexes (listRows), so a pick still presses the engine's own row.
 const ui = await import('../../ui.js').catch(() => null);   // null under node (the unit test needs no DOM)
 const basic = ui && await import('../controls/basic.js');
 const skin = ui && await import('../controls/skin.js');
@@ -66,6 +69,24 @@ export function topFor(i, top, rows, n) {
 // the game point at item i's row (its first item shown: top), 40 in (as invite.js and tools/flip.mjs ROW press it)
 export const rowPoint = (win, list, i, top = list.top || 0) =>
   [win.x + list.x + Math.min(40, Math.floor(list.w / 2)), win.y + list.y + ROW * (i - top) + ROW / 2];
+
+// The scroller's rows: the game's items (their engine index i), then the Discord duelists (the first marked, for the
+// separator over it), then empty striped rows down to the box's last. Stripes go by the row's place, so they run on.
+export function listRows(items = [], discord = [], nrows = 1) {
+  const out = items.map((s, i) => ({ kind: 'player', i, s }));
+  discord.forEach((name, k) => out.push({ kind: 'discord', name, first: k === 0 }));
+  while (out.length < nrows) out.push({ kind: 'fill' });
+  return out;
+}
+// GET /api/de/discord-online -> the names (none on any failure, silently)
+export async function discordOnline() {
+  try {
+    const r = await fetch((globalThis.ENV?.YO2_DE_HTTP || '') + '/api/de/discord-online', { credentials: 'same-origin' });
+    const j = r.ok ? await r.json() : null;
+    return Array.isArray(j?.players) ? j.players.map(p => String(p?.name ?? '')).filter(Boolean).slice(0, 200) : [];
+  } catch { return []; }
+}
+const POLL = 30000;
 
 // What owned() redraws from (screens/chat.js: a control redrawn when its snapshot changes): the list is this file's own
 // scroller (CWindowTaskPlayerRows: no drawing there, no native list of owned()'s), the search switch drawn from its
@@ -131,6 +152,12 @@ const CSS = () => `
 .pl-row[data-sel], .pl-row:focus-visible, .pl-row[data-even][data-sel] { outline: none;
   background: linear-gradient(to right, rgb(45 165 255 / .7), rgb(0 132 255 / .7) 14.5px, rgb(0 132 255 / .7) calc(100% - 14.5px), rgb(128 135 197 / .7)); }
 .pl-row > .txt { position: absolute; pointer-events: none; }
+/* a Discord duelist: the row's own stripe, no highlight, not a button; "(Discord)" quieter; a hairline over the first */
+.pl-row.pl-dc { cursor: default; }
+.pl-row.pl-dc[data-first] { box-shadow: inset 0 1px rgb(0 0 0 / .22); }
+.pl-row.pl-dc > .txt { display: flex; }
+.pl-row.pl-dc .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* a long name gives way; "(Discord)" stays whole */
+.pl-row.pl-dc .tag { flex: none; color: #6a6f78; }
 `;
 function inject() {
   if (!ui || document.getElementById('htmlui-plist')) return;
@@ -211,7 +238,16 @@ export function rows(win, root, api, st) {
       const b = parts(st.win).bar;
       if (b && b.max > 0) { api.setValue?.(b.id, Math.max(0, Math.min(b.max, i))); st.pl.sent = performance.now(); }
     };
-    st.pl = { list: l, items: null };
+    st.pl = { list: l, items: null, discord: [] };
+    // the Discord duelists: now and every 30 s while the window is open (stopRows on unmount)
+    const poll = async () => {
+      const names = await discordOnline();
+      if (st.pl.stopped) return;
+      st.pl.discord = names;
+      rows(st.win || win, root, api, st);
+      st.pl.timer = setTimeout(poll, POLL);
+    };
+    poll();
   }
   const l = st.pl.list;
   l.el.style.display = list?.shown ? '' : 'none';
@@ -219,30 +255,53 @@ export function rows(win, root, api, st) {
   Object.assign(l.el.style, { left: list.x + 'px', top: list.y + 'px', width: list.w + 'px', height: list.h + 'px' });
   const items = list.items || [], nrows = Math.max(1, list.rows || Math.floor(list.h / ROW));
   const tw = list.w - 16;   // the list's text (CWindowTaskListbox text_): w - 16, the scroll bar's column
-  const key = JSON.stringify([items, nrows]);
+  const discord = st.pl.discord || [];
+  const key = JSON.stringify([items, nrows, discord]);
   if (key !== st.pl.items) {
     st.pl.items = key;
-    // the items, then empty rows down to the box's last (striped, not buttons)
-    l.set([...items, ...Array(Math.max(0, nrows - items.length)).fill(null)], (s, i) => {
-      if (s === null) {
+    l.set(listRows(items, discord, nrows), (r, n) => {
+      if (r.kind === 'fill') {
         const f = document.createElement('div');
         f.className = 'pl-fill';
-        if (i % 2 === 0) f.dataset.even = '';
+        if (n % 2 === 0) f.dataset.even = '';
         return f;
       }
+      if (r.kind === 'discord') {
+        // the name where the game's rows have theirs (the pen's 40), "(Discord)" after it, to 4 px short of the row's end
+        // (no engine scroll bar column to keep: the rows past the game's are ours); nothing to press
+        const d = document.createElement('div');
+        d.className = 'pl-row pl-dc';
+        if (n % 2 === 0) d.dataset.even = '';
+        if (r.first) d.dataset.first = '';
+        d.setAttribute('role', 'listitem');
+        d.setAttribute('aria-label', r.name + ' (on Discord, not in the game)');
+        const t = document.createElement('div'), nm = document.createElement('span'), tag = document.createElement('span');
+        t.className = 'txt';
+        Object.assign(t.style, { left: '40px', top: '1px', width: Math.max(0, list.w - 44) + 'px', height: ROW - 1 + 'px', overflow: 'hidden',
+          whiteSpace: 'pre', font: basic.fontCss(ROW, ROW) });
+        nm.className = 'nm';
+        nm.textContent = r.name;
+        tag.className = 'tag';
+        tag.textContent = '\u00a0(Discord)';
+        for (const e of [nm, tag]) e.style.letterSpacing = basic.spacing(e.textContent) + 'px';
+        t.append(nm, tag);
+        d.append(t);
+        return d;
+      }
+      const { i, s } = r;
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'pl-row';
       b.dataset.i = i;
-      if (i % 2 === 0) b.dataset.even = '';
+      if (n % 2 === 0) b.dataset.even = '';
       b.setAttribute('role', 'listitem');
       // the text a pixel down (the engine's glyphs sit 1.5 px lower in the row than Arial's on a 16-px line)
-      for (const r of rowRuns(s)) basic.textBox(b, r.s, { x: r.x, y: 1, w: Math.max(0, tw - r.x), h: ROW - 1 });
+      for (const q of rowRuns(s)) basic.textBox(b, q.s, { x: q.x, y: 1, w: Math.max(0, tw - q.x), h: ROW - 1 });
       b.addEventListener('pointerenter', () => select(st, i));
       b.setAttribute('aria-label', basic.untag(s).replace(/@>\d+\/?/g, ' ').replace(/\s+/g, ' ').trim());
       b.addEventListener('click', () => pick(st, api, i));
       return b;
-    }, (s, i) => i + '\u0000' + (s ?? '\u0001'));
+    }, (r, n) => r.kind === 'player' ? 'p' + r.i + '\u0000' + r.s : r.kind === 'discord' ? 'd' + n + '\u0000' + r.name + (r.first ? '1' : '') : 'f' + n);
   }
   // the highlighted row: the engine's own (its mouse moved over the list: a press there) when it changes, else the
   // last row the DOM's pointer was on
@@ -255,3 +314,6 @@ export function rows(win, root, api, st) {
   if (bar && top !== st.pl.top && top !== shown && !ours) l.top(top);
   st.pl.top = top;
 }
+
+// the window closed: no more polling
+export function stopRows(st) { if (!st.pl) return; st.pl.stopped = true; clearTimeout(st.pl.timer); }

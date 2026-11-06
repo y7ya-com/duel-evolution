@@ -1,7 +1,7 @@
 // screens/playerlist.js's pure parts under node: a row's tags (AtConverter's pen moves), the row brought into the
 // engine's view, the game point a row is pressed at, and prepList (what a redraw depends on)
 import assert from 'node:assert/strict';
-import { rowRuns, topFor, rowPoint, prepList, parts } from './playerlist.js';
+import { rowRuns, topFor, rowPoint, prepList, parts, listRows, discordOnline } from './playerlist.js';
 import screen from './duelsetup.js';
 
 // "@0Lv 1@>40/Card Partner" (the live list's row): the level at 0, the name at the pen's 40
@@ -37,4 +37,32 @@ assert.ok(screen.classes.includes('CPlayerListDlg'));
 // the search menu (a child task of the list) stays the engine's while no HTML draws it
 assert.equal(screen.passthrough({ id: 9, cls: 'CFindMenu' }), true);
 assert.equal(screen.passthrough({ id: 9, cls: 'CDupSprite' }), false);   // only the list's own (seen by rows())
+// the scroller's rows: the game's items keep their engine indexes, the Discord duelists after them (the first marked),
+// then striped fill to the box's last row; no Discord names: exactly the game's rows as before
+{
+  const items = ['@0Lv 1@>40/A', '@0Lv 3@>40/B', '@0Lv 2@>40/C'];
+  const r = listRows(items, ['Yugi', 'Kaiba'], 6);
+  assert.deepEqual(r.filter(x => x.kind === 'player').map(x => [x.i, x.s]), items.map((s, i) => [i, s]), 'real rows: index i is item i');
+  assert.deepEqual(r.map(x => x.kind), ['player', 'player', 'player', 'discord', 'discord', 'fill']);
+  assert.deepEqual(r.filter(x => x.kind === 'discord').map(x => [x.name, x.first]), [['Yugi', true], ['Kaiba', false]]);
+  assert.deepEqual(listRows(items, [], 6).map(x => x.kind), ['player', 'player', 'player', 'fill', 'fill', 'fill']);
+  assert.deepEqual(listRows(items, ['a', 'b', 'c', 'd'], 6).length, 7, 'more rows than the box: no fill');
+  assert.deepEqual(listRows([], ['Yugi'], 2).map(x => x.kind), ['discord', 'fill']);
+  // the game's own rows are pressed by their engine index whatever follows (rowPoint / topFor take n = items only)
+  assert.equal(topFor(2, 0, 6, items.length), 0);
+}
+// the fetch: names from { players: [{ name }] }; any failure: none, quietly
+{
+  const was = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ players: [{ name: 'Joey Wheeler' }, { name: '' }, {}, { name: 'Yugi' }] }) });
+    assert.deepEqual(await discordOnline(), ['Joey Wheeler', 'Yugi']);
+    globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
+    assert.deepEqual(await discordOnline(), []);
+    globalThis.fetch = async () => { throw new Error('offline'); };
+    assert.deepEqual(await discordOnline(), []);
+    globalThis.fetch = async () => ({ ok: true, json: async () => { throw new Error('bad json'); } });
+    assert.deepEqual(await discordOnline(), []);
+  } finally { globalThis.fetch = was; }
+}
 console.log('playerlist ok');
