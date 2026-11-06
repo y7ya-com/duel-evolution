@@ -8,7 +8,8 @@
 //   is the live list. A restart forgets the messages, so the bot's old ones are swept at boot.
 // Everything here is best effort: Discord down, slow or unconfigured never touches the game.
 import type { Game } from "../game/game.ts";
-import { relayIn } from "../game/chat.ts";
+import { DISCORD_NAME, relayIn } from "../game/chat.ts";
+import { SANCTION_CHAT } from "../game/lobby.ts";
 import type { OpenDuel } from "../game/lobby.ts";
 import { rest, webhook, type DiscordEnv } from "./rest.ts";
 
@@ -82,6 +83,11 @@ type Posted = { msg: string | null };
 /** A player's linked Discord account (D1 account, provider discord) and its avatar, for their All Chat lines. */
 type Profile = { id: string; avatar: string | null } | null;
 const PROFILE_TTL_MS = 30 * 60_000;
+/** The wire of a line from someone not in the game (an offline duelist, an unlinked Discord user). The engine drops any
+ *  chat line from pid 0 and shows one from any other pid, known or not; channel 1 lands in the hidden Proximity log (live
+ *  check, 2026-11-06). A pid no player (PID_BASE + 4 idx + slot) or NPC (FAKE_BASE + n) ever has, so no card or ignore
+ *  entry matches it. */
+const OFFLINE = { pid: 99_999_999, channel: 0 };
 
 export class DiscordBridge {
   private ws: WebSocket | null = null;
@@ -96,6 +102,7 @@ export class DiscordBridge {
   private emptySince: number | null = null;
   private outQueue: { name: string; text: string; who: Promise<Profile> }[] = [];
   private profiles = new Map<string, { at: number; p: Promise<Profile> }>();
+  private linked = new Map<string, { at: number; p: Promise<string | null> }>();
   private sending = false;
   /** room id -> its #duels message (msg null while its POST is in flight) */
   private posted = new Map<number, Posted>();
@@ -222,10 +229,35 @@ export class DiscordBridge {
     if (m.channel_id !== this.env.DISCORD_GENERAL_CHANNEL_ID || m.guild_id !== this.env.DISCORD_GUILD_ID) return;
     if (m.webhook_id || m.author?.bot || (m.type !== 0 && m.type !== 19)) return;   // our own relays, bots, joins and pins
     const text = gameText(m);
-    if (!text) return;
-    const author = gameAuthor(m);
-    this.log(`[AVISO] [discord] #general -> All Chat (${text.length} chars)`);
-    void this.g.world.run(() => { for (const line of gameLines(author, text)) relayIn(this.g, author, line); });
+    if (!text || !m.author?.id) return;
+    void this.linkedUser(String(m.author.id)).then((userId) => this.g.world.run(() => {
+      const who = this.speaker(userId, gameAuthor(m));
+      if (!who) return;   // chat-banned in the game: not in the game's chat from Discord either
+      for (const line of gameLines(who.author, text)) relayIn(this.g, who.line(line));
+    }));
+  }
+  /** The DE user a Discord account is linked to (/verify, Discord sign-in), cached a while; null when none. */
+  private linkedUser(discordId: string): Promise<string | null> {
+    const hit = this.linked.get(discordId);
+    if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.p;
+    const p = !this.env.DB ? Promise.resolve(null) : this.env.DB.prepare("SELECT user_id FROM account WHERE provider_id = 'discord' AND account_id = ?")
+      .bind(discordId).first<{ user_id: string }>().then((r) => r?.user_id ?? null, () => null);
+    this.linked.set(discordId, { at: Date.now(), p });
+    if (this.linked.size > 2000) this.linked.delete(this.linked.keys().next().value!);
+    return p;
+  }
+  /** Who a #general line is from in the game. A linked account speaks as its duelist: online, its character's pid and name
+   *  (its card opens from the line, ignore lists apply); offline, its active character's name. An unlinked Discord user
+   *  is "[Discord] author: text". null: the account is chat-banned. `author`: the name gameLines leaves room for. */
+  private speaker(userId: string | null, discordName: string): { author: string; line: (t: string) => { name: string; pid: number; text: string; channel?: number } } | null {
+    const g = this.g, acct = userId ? g.store.accountOfUser(userId) : null;
+    if (acct && g.admin.flagsOf(acct) & SANCTION_CHAT) return null;
+    const s = acct ? g.hub.sessions.get(acct) : undefined;
+    if (s && s.pid !== null && s.name) return { author: s.name, line: (t) => ({ name: s.name, pid: s.pid!, text: t }) };
+    const a = acct ? g.store.peek().accounts?.[acct] as { active_slot?: number; profiles?: Record<string, { name?: string }>; players?: Record<string, string> } | undefined : undefined;
+    const slot = String(Number(a?.active_slot ?? 0) & 3), name = a?.profiles?.[slot]?.name || a?.players?.[slot];
+    if (name) return { author: name, line: (t) => ({ ...OFFLINE, name, text: t }) };
+    return { author: `${DISCORD_NAME}:${discordName}`, line: (t) => ({ ...OFFLINE, name: DISCORD_NAME, text: `${discordName}: ${t}` }) };
   }
   /** Close this socket; reconnect (resuming if `resume`) unless the game has emptied. */
   private drop(code: number, resume: boolean) {

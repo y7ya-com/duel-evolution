@@ -349,9 +349,9 @@ export class WorldDO extends DurableObject<Env> {
     }
     if (url.pathname === "/__dev/discord-wake" && this.env.DEV === "1") { this.srv.game.discord?.wake(); return new Response("ok"); }
     if (url.pathname === "/__dev/discord-say" && this.env.DEV === "1") {
-      // wrangler dev only: a #general line into All Chat as the gateway brings one (POST {author, text}), for the htmlui checks
-      const b = (await request.json().catch(() => ({}))) as { author?: string; text?: string };
-      const out = await new Promise<unknown>((res) => this.srv.world.run(() => res(relayIn(this.srv.game, String(b.author ?? "Tester"), String(b.text ?? "hello from Discord")))));
+      // wrangler dev only: a #general line into All Chat as the gateway brings one (POST {name, pid, channel, text}), for the htmlui checks
+      const b = (await request.json().catch(() => ({}))) as { name?: string; pid?: number; channel?: number; text?: string };
+      const out = await new Promise<unknown>((res) => this.srv.world.run(() => res(relayIn(this.srv.game, { name: String(b.name ?? "[Discord]"), pid: Number(b.pid ?? 0), channel: Number(b.channel ?? 0), text: String(b.text ?? "Tester: hello from Discord") }))));
       return Response.json(out);
     }
     if (url.pathname === "/__dev/cut" && this.env.DEV === "1") {

@@ -60,19 +60,20 @@ export function sendChat(g: Game, sender: Session, channel: ChatChannel, text: s
   return { ok: plain(message) };
 }
 
-/** The game's name for a Discord line: no game name has a space or brackets, so it can't pass for a player. */
+/** The game's name for a line from a Discord account with no game account: no game name has brackets, so it can't pass
+ *  for a player. */
 export const DISCORD_NAME = "[Discord]";
-/** A #general line from Discord into All Chat (discord/bridge.ts): "author: text" under DISCORD_NAME, pid 0 (no card),
- *  to everyone online, in the HTTP feed too. The text is already Latin-1 and short (bridge.ts gameText). */
-export function relayIn(g: Game, author: string, text: string): ChatMessage | null {
+/** A #general line into All Chat (discord/bridge.ts) to everyone online, in the HTTP feed too: under `name` from `pid`
+ *  (the speaker's game character when their Discord is linked, bridge.ts speaker), on the wire's `channel`. A receiver
+ *  who ignores that pid doesn't get it. The text is already Latin-1 and short (bridge.ts gameText / gameLines). */
+export function relayIn(g: Game, from: { name: string; pid: number; text: string; channel?: number }): ChatMessage | null {
   if (g.restarting) return null;
-  const line = `${author}: ${text}`;
-  const recipients = [...g.hub.sessions.values()].filter(online);
+  const recipients = [...g.hub.sessions.values()].filter(s => online(s) && !(from.pid && ignores(g, s, from.pid)));
   const log = stream(g);
-  const message: Stored = { id: ++log.next, at: Date.now(), channel: "global", pid: 0, name: DISCORD_NAME, text: line,
+  const message: Stored = { id: ++log.next, at: Date.now(), channel: "global", pid: from.pid, name: from.name, text: from.text,
     audience: new Set(recipients.map(s => s.acct)) };
   log.messages.push(message); if (log.messages.length > 300) log.messages.shift();
-  const wire = new W().u8(0).u8(CHAT_TAB.global).u32(0).u32(2).s(DISCORD_NAME, 16).s(line, line.length).u8(0).bytes();
+  const wire = new W().u8(0).u8(from.channel ?? CHAT_TAB.global).u32(from.pid).u32(2).s(from.name, 16).s(from.text, from.text.length).u8(0).bytes();
   for (const s of recipients) s.lobby!.post(0x4402, wire);
   return plain(message);
 }

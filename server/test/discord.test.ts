@@ -110,7 +110,7 @@ describe("All Chat <-> #general", () => {
     const bridge = new DiscordBridge(ENV, h.game, () => {});
     const feed = (d: Record<string, unknown>) => (bridge as any).onFrame({ op: 0, t: "MESSAGE_CREATE", s: 1, d: { guild_id: "g1", channel_id: "gen", type: 0, ...d } });
     const n = b.room!.mark();
-    feed({ author: { username: "dave", global_name: "Dave" }, content: "gg everyone" });
+    feed({ author: { id: "1", username: "dave", global_name: "Dave" }, content: "gg everyone" });
     feed({ author: { username: "hook", bot: true }, webhook_id: "1", content: "Player0: echo" });
     feed({ author: { username: "bot", bot: true }, content: "beep" });
     feed({ author: { username: "dave" }, content: "elsewhere", channel_id: "other" });
@@ -120,8 +120,42 @@ describe("All Chat <-> #general", () => {
     expect(cstr(lines[0].subarray(10, 26))).toBe(DISCORD_NAME);
     expect(cstr(lines[0].subarray(26))).toBe("Dave: gg everyone");
     const r = chatGet(h.game, "user-0");
-    expect("ok" in r && r.ok!.messages.map((m) => [m.pid, m.name, m.text])).toEqual([[0, DISCORD_NAME, "Dave: gg everyone"]]);
+    expect("ok" in r && r.ok!.messages.map((m) => [m.pid, m.name, m.text])).toEqual([[99999999, DISCORD_NAME, "Dave: gg everyone"]]);
     void a;
+  });
+});
+
+describe("#general speakers are their duelists", () => {
+  /** A D1 where Discord 501 is user-0 and 502 is user-1. */
+  const DB = { prepare: () => ({ bind: (d: string) => ({ first: async () => (({ "501": { user_id: "user-0" }, "502": { user_id: "user-1" } } as Record<string, unknown>)[d] ?? null) }) }) } as unknown as D1Database;
+  const say = (bridge: DiscordBridge, id: string, content: string) =>
+    (bridge as any).onFrame({ op: 0, t: "MESSAGE_CREATE", s: 1, d: { guild_id: "g1", channel_id: "gen", type: 0, author: { id, username: `d${id}` }, content } });
+  it("online: their character's pid and name; offline: their duelist's name; unlinked: [Discord]; chat-banned: nothing", async () => {
+    mockDiscord();
+    const [h, [a, b]] = await world(2);
+    const bridge = new DiscordBridge({ ...ENV, DB }, h.game, () => {});
+    const n = b.room!.mark();
+    say(bridge, "501", "from discord");
+    await h.tick(200);
+    let lines = b.room!.all(0x4402, n);
+    expect(lines).toHaveLength(1);
+    expect(u32(lines[0], 2)).toBe(a.pid);
+    expect(cstr(lines[0].subarray(10, 26))).toBe("Player0");
+    expect(cstr(lines[0].subarray(26))).toBe("from discord");
+
+    a.room!.close?.(); h.game.hub.sessions.delete(h.game.hub.byPid(a.pid!)!.acct);   // Player0 leaves the game
+    const m = b.room!.mark();
+    say(bridge, "501", "still me");
+    say(bridge, "999", "who am i");
+    await h.tick(200);
+    lines = b.room!.all(0x4402, m);
+    expect(lines.map((l) => [u32(l, 2), cstr(l.subarray(10, 26)), cstr(l.subarray(26))])).toEqual([[99999999, "Player0", "still me"], [99999999, DISCORD_NAME, "d999: who am i"]]);
+
+    h.game.admin.data.flags.set(h.game.store.accountOfUser("user-1")!, 0x20);   // Player1 chat-banned
+    const k = b.room!.mark();
+    say(bridge, "502", "banned words");
+    await h.tick(200);
+    expect(b.room!.all(0x4402, k)).toEqual([]);
   });
 });
 
