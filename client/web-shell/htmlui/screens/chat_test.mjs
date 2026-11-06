@@ -74,4 +74,5 @@ console.log('chat ok');
 
 // a line from Discord: the sender's name marked (server discord/bridge.ts), shown with the Discord logo
 assert.equal(discordLine('\u00a4Yugi:hi there'), 'Yugi:hi there');
+assert.equal(discordLine('\uff64Yugi:hi there'), 'Yugi:hi there', 'as the game widens it (Shift-JIS 0xA4)');
 assert.equal(discordLine('Yugi:hi there'), null);
