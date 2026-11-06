@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { harness, be32, cat, str, cstr, type Client, type Harness } from "./notes-harness.ts";
 import { chatGet, DISCORD_NAME } from "../src/game/chat.ts";
-import { DiscordBridge, discordText, duelMessage, gameAuthor, gameLines, gameText, webhookName } from "../src/discord/bridge.ts";
+import { counterName, DiscordBridge, discordText, duelMessage, gameAuthor, gameLines, gameText, webhookName } from "../src/discord/bridge.ts";
 
 const u32 = (d: Uint8Array, o = 0) => new DataView(d.buffer, d.byteOffset + o, 4).getUint32(0);
 /** 0x4288: duel style (3 single, 4 match), watch, mstat (1 = autoduel), a password flag and 16 bytes, then x = [surrender, time, LV limit] */
@@ -156,6 +156,30 @@ describe("#general speakers are their duelists", () => {
     say(bridge, "502", "banned words");
     await h.tick(200);
     expect(b.room!.all(0x4402, k)).toEqual([]);
+  });
+});
+
+describe("the player count channel", () => {
+  it("renamed to the live count, not when it already shows it, and at most once per 5 minutes", async () => {
+    const calls = mockDiscord();
+    const [h] = await world(2);
+    let name = "🟢 0 Players Online";
+    (globalThis.fetch as any).mockImplementation(async (input: unknown, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      calls.push({ method: init?.method ?? "GET", url: String(input), body });
+      if (init?.method === "PATCH") name = body.name;
+      return Response.json({ name });
+    });
+    const bridge = new DiscordBridge({ ...ENV, DISCORD_COUNTER_CHANNEL_ID: "cnt" }, h.game, () => {});
+    expect(counterName(1)).toBe("🟢 1 Player Online");
+    await (bridge as any).count();
+    expect(name).toBe("🟢 2 Players Online");
+    const patches = () => calls.filter((c) => c.method === "PATCH").length;
+    await (bridge as any).count();
+    expect(patches()).toBe(1);
+    (bridge as any).counter.shown = 7;   // the count moved, but the last rename is recent
+    await (bridge as any).count();
+    expect(patches()).toBe(1);
   });
 });
 

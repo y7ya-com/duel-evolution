@@ -46,7 +46,8 @@
         "DISCORD_VERIFIED_ROLE_ID": "1519492097185419395",
         "DISCORD_PASSWORD_ROLE_ID": "1519507803830747198",
         "DISCORD_GENERAL_CHANNEL_ID": "1518907813772918806",
-        "DISCORD_DUELS_CHANNEL_ID": "1568260405284048898"
+        "DISCORD_DUELS_CHANNEL_ID": "1568260405284048898",
+        "DISCORD_COUNTER_CHANNEL_ID": "1520069862922260630" // the "🟢 N Players Online" voice channel
       },
       "durable_objects": { "bindings": [{ "name": "WORLD", "class_name": "WorldDO" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldDO"] }],

@@ -17,6 +17,8 @@ export interface DiscordEnv {
   DISCORD_GENERAL_WEBHOOK_URL?: string;
   /** #duels: one message per open duel, with its Join button. */
   DISCORD_DUELS_CHANNEL_ID?: string;
+  /** A voice channel only for show, whose name is the live count: "🟢 5 Players Online" (bridge.ts counter). */
+  DISCORD_COUNTER_CHANNEL_ID?: string;
 }
 
 export type Rest = { ok: boolean; status: number; body: any; retryAfter?: number };

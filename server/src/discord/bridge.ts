@@ -6,6 +6,7 @@
 // - #duels: one message per open duel (lobby.ts openDuels: created in the game, nobody joined yet), with its Accept
 //   button (custom_id duel_join:<room id>, discord/interactions.ts). Each message goes when its duel does, so the channel
 //   is the live list. A restart forgets the messages, so the bot's old ones are swept at boot.
+// - The player count: the counter channel's name, "🟢 5 Players Online" (moved here from duelforge's discordRoles.ts).
 // Everything here is best effort: Discord down, slow or unconfigured never touches the game.
 import type { Game } from "../game/game.ts";
 import { DISCORD_NAME, relayIn } from "../game/chat.ts";
@@ -23,6 +24,9 @@ const IDLE_MS = 10 * 60_000;
 const LINE_MAX = 128, LINES_MAX = 3;
 const OUT_QUEUE_MAX = 100;
 const SUPPRESS_EMBEDS = 1 << 2;
+/** Discord allows a channel 2 renames per 10 minutes: the counter is renamed at most this often (it may lag that much). */
+const COUNTER_RENAME_MS = 5 * 60_000;
+export const counterName = (n: number) => `🟢 ${n} ${n === 1 ? "Player" : "Players"} Online`;
 
 /** A Discord message as All Chat can show it: mentions and custom emoji as names, attachments as [image] / [file], one
  *  line, Latin-1 only (emoji dropped, typographic punctuation made plain), no game colour tags ("@1"). "" = nothing. */
@@ -111,8 +115,38 @@ export class DiscordBridge {
   private botId: string | null = null;
   private swept = false;
 
+  private counter: { shown: number | null; at: number; busy: boolean } = { shown: null, at: 0, busy: false };
+
   constructor(private env: DiscordEnv & { PUBLIC_ORIGIN?: string; DB?: D1Database }, private g: Game, private log: (s: string) => void) {
     g.duelsChanged = () => this.duelsChanged();
+    if (env.DISCORD_BOT_TOKEN && env.DISCORD_COUNTER_CHANNEL_ID) {
+      setTimeout(() => void this.count(), 5000);
+      setInterval(() => void this.count(), 60_000);
+    }
+  }
+
+  // ---- the player count
+
+  /** Players connected to the game (as /__admin/online counts them). */
+  online(): number {
+    let n = 0;
+    for (const s of this.g.hub.sessions.values()) if ([...s.conns.values(), s.lobby].some((c) => c && !c.closed)) n++;
+    return n;
+  }
+  /** The counter channel renamed when the count moved and the last rename is old enough. Its current name is read
+   *  first (not rate-limited): a restart forgets what it set, and renaming to the same name would waste a rename. */
+  private async count() {
+    const c = this.counter, n = this.online();
+    if (c.busy || n === c.shown || Date.now() - c.at < COUNTER_RENAME_MS) return;
+    c.busy = true;
+    try {
+      const path = `/channels/${this.env.DISCORD_COUNTER_CHANNEL_ID}`, name = counterName(n);
+      const cur = await rest(this.env, "GET", path);
+      if (cur.ok && cur.body?.name === name) { c.shown = n; return; }
+      const r = await rest(this.env, "PATCH", path, { name });
+      if (r.ok) Object.assign(c, { shown: n, at: Date.now() });
+      else { c.at = Date.now(); this.log(`[AVISO] [discord] player count not renamed: ${r.status}`); }   // 429: the next window
+    } finally { c.busy = false; }
   }
 
   get chatOn() { return !!(this.env.DISCORD_BOT_TOKEN && this.env.DISCORD_GENERAL_CHANNEL_ID); }
@@ -171,7 +205,7 @@ export class DiscordBridge {
     if (this.chatOn && !this.fatal && !this.ws && !this.connecting) void this.connect();
     if (this.duelsOn && !this.swept) this.duelsChanged();
   }
-  private online() { for (const s of this.g.hub.sessions.values()) if (s.lobby && !s.lobby.closed) return true; return false; }
+  private anyone() { for (const s of this.g.hub.sessions.values()) if (s.lobby && !s.lobby.closed) return true; return false; }
 
   private async connect() {
     this.connecting = true;
@@ -265,7 +299,7 @@ export class DiscordBridge {
     if (!resume) this.session = null;
     this.stop();
     try { ws?.close(code, "reconnect"); } catch { /* closed */ }
-    if (this.online()) this.retry();
+    if (this.anyone()) this.retry();
   }
   private onClose(ws: WebSocket, code: number) {
     if (ws !== this.ws) return;
@@ -277,7 +311,7 @@ export class DiscordBridge {
       return;
     }
     if (code === 4007 || code === 4009) this.session = null;   // bad seq, session timed out: identify anew
-    if (this.online()) this.retry();
+    if (this.anyone()) this.retry();
   }
   private stop() {
     if (this.beat) clearInterval(this.beat);
@@ -286,10 +320,10 @@ export class DiscordBridge {
   }
   private retry() {
     const wait = Math.min(60_000, 1000 * 2 ** this.retries++) * (0.5 + Math.random() / 2);
-    setTimeout(() => { if (!this.ws && !this.connecting && !this.fatal && this.online()) void this.connect(); }, wait);
+    setTimeout(() => { if (!this.ws && !this.connecting && !this.fatal && this.anyone()) void this.connect(); }, wait);
   }
   private idleCheck() {
-    if (this.online()) { this.emptySince = null; return; }
+    if (this.anyone()) { this.emptySince = null; return; }
     this.emptySince ??= Date.now();
     if (Date.now() - this.emptySince < IDLE_MS) return;
     const ws = this.ws;
