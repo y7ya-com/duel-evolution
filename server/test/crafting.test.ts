@@ -28,7 +28,11 @@ async function setup() {
 }
 describe("shard crafting", () => {
   it("centralizes both owner tables and every tier loses value on recrafting", () => {
-    expect(SHIPPED_TABLE).toBe("economic");
+    expect(SHIPPED_TABLE).toBe("pull");
+    SHARDS.table = "pull";
+    expect(shardValues()).toEqual({ craft: { N: 5, R: 20, SR: 4500, UR: 8000 }, dismantle: { N: 1, R: 2, SR: 150, UR: 500 } });
+    expect(shardValues().craft.SR / shardValues().dismantle.SR).toBe(30);   // pulling, not dismantling, is the way to an SR / UR
+    expect(shardValues().craft.UR / shardValues().dismantle.UR).toBe(16);
     SHARDS.table = "economic";
     expect(shardValues()).toEqual({ craft: { N: 5, R: 20, SR: 450, UR: 1500 }, dismantle: { N: 1, R: 2, SR: 150, UR: 500 } });
     for (const r of ["SR", "UR"] as const) expect(shardValues().craft[r]).toBe(3 * shardValues().dismantle[r]);   // 3 dismantles = 1 craft
