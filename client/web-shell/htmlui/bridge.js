@@ -23,7 +23,7 @@ import { coverScene, coverFrame, coverPlace, shopOn } from './shop/cover.js';
 import { mountCardShop } from './shop/index.js';
 import './duels.js';   // a Discord link's ?duel=<id> kept from the first load (the chat's Duels tab joins it in the world)
 
-const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result'];
+const SCREENS = ['select', 'avatar', 'lobby', 'chat', 'social', 'deck', 'shop', 'trade', 'duel', 'dialog', 'duelsetup', 'result', 'packselect'];
 let SLOTS = 63;   // the runtime's table size: htmlui.c passes it (255), an older runtime doesn't (63)
 const HOLD = 3000;   // ms a window waits for the loading layer before the engine draws it (start's frame)
 
@@ -149,8 +149,10 @@ export async function makeLayer(host, screens, art = 'ui/') {
     }
     for (const id of [...live.keys()]) if (!seen.has(id)) unmount(id);
     // backdrop(win, el, api, state): the first owned window or task whose module has one draws into the layer under
-    // every window (its DOM kept between frames); none: the layer is cleared
-    const bw = [...snap.windows, ...snap.tasks || []].find(w => owned.has(w.id) && screens.get(w.cls)?.backdrop);
+    // every window (its DOM kept between frames), a shown one first (the pack picker stays, hidden, under the card
+    // reveal's CCardDetailViewDlg, whose backdrop is the one to draw); none: the layer is cleared
+    const hasBack = w => owned.has(w.id) && screens.get(w.cls)?.backdrop, all = [...snap.windows, ...snap.tasks || []];
+    const bw = all.find(w => hasBack(w) && w.shown !== false) || all.find(hasBack);
     if (bw) {
       screens.get(bw.cls).backdrop(bw, back, live.get(bw.id)?.api || api, live.get(bw.id)?.state, snap);
       // every engine-drawn window draws above the backdrop (the lowest layer): cut where each one draws (the deck's
