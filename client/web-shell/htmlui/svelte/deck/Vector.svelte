@@ -3,7 +3,7 @@
   // frame scaled with it: attribute discs, spell / trap symbols, the level star and number, the scroll bar's cells;
   // the 21 monster-type pictures stay pixel art (owner), nearest-neighbour.
   import * as ui from '../../../ui.js';
-  import { fontCss } from '../../controls/basic.js';
+  import { FONT, fontCss } from '../../controls/basic.js';
   import { ATTR_SVG, ICON_PATH } from './art.js';
   let { a, x, y, w, h, alpha = 1 } = $props();
   const id = $props.id();
@@ -53,6 +53,13 @@
         {#if ICON_PATH[a.i]}
           <path d={ICON_PATH[a.i]} fill={a.i === 2 || a.i === 0 || a.i === 3 ? 'none' : '#fffffd'} stroke="#fffffd"
             stroke-width={a.i === 2 ? 1.8 : a.i === 1 || a.i === 4 || a.i === 5 ? 0.4 : 1.4} stroke-linecap="round" stroke-linejoin="round"/>
+        {/if}
+      {:else if a.kind === 'limit'}
+        <circle cx="8" cy="8" r="7.6" fill="#000"/><circle cx="8" cy="8" r="6.8" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="#d80000"/>
+        {#if a.i === 0}
+          <circle cx="8" cy="8" r="3.4" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M5.6 10.4 10.4 5.6" stroke="#fff" stroke-width="1.4"/>
+        {:else}
+          <text x="8" y="11.6" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#fff" font-family={FONT}>{a.i}</text>
         {/if}
       {:else}
         <defs><radialGradient id={id} cx=".45" cy=".45" r=".6"><stop offset="0" stop-color="#e5f41e"/><stop offset=".55" stop-color="#e8701c"/><stop offset=".85" stop-color="#9e2728"/><stop offset="1" stop-color="#3f0607"/></radialGradient></defs>

@@ -5,6 +5,7 @@
   // is the snapshot's deck (CWindowTaskDeck grids, read/deck.js) and the trunk's counts (yo2Deck.trunk).
   import { deckCheck } from '../logic.js';
   import Icon from '../Icon.svelte';
+  import Vector from '../../deck/Vector.svelte';
   import GameButton from '../game/GameButton.svelte';
   import GamePanel from '../game/GamePanel.svelte';
   import GameTabs from '../game/GameTabs.svelte';
@@ -183,6 +184,14 @@
   <img class="face {extra}" use:picture={id} alt="" draggable="false" src={cached(id)} />
 {/snippet}
 
+{#snippet restriction(c)}
+  {#if c && c.limit >= 0 && c.limit < 3}
+    <span class="restriction" role="img" aria-label={limitTag(c)} title={limitTag(c)}>
+      <Vector a={{ kind: 'limit', i: c.limit }} x={0} y={0} w={16} h={16} />
+    </span>
+  {/if}
+{/snippet}
+
 <div class="mu ed" style:left="{-win.x}px" style:top="{-win.y}px" style:clip-path={holes} class:waiting={dialogs.length} aria-busy={busy > 0}>
   {#if busy && dialogs.length}<div class="veil" role="status"><span class="spin" aria-hidden="true"></span>{saving ? 'Saving…' : 'Working…'}</div>{/if}
   <!-- the bar: the screen's name, the deck's, its check, the file actions -->
@@ -274,6 +283,7 @@
               oncontextmenu={e => { e.preventDefault(); e.shiftKey ? swap(id, key) : take(id, key); }}
               ondragstart={e => dragStart(e, id, key)} onkeydown={e => deckKey(e, id, key)}>
               {@render face(id)}
+              {@render restriction(c)}
             </button>
           {:else}
             <p class="none">{key === 'main' ? 'Add 40 to 60 cards from the trunk.' : key === 'extra' ? 'Fusion monsters go here.' : 'Up to 15 cards to switch in between duels.'}</p>
@@ -325,7 +335,7 @@
             ondragstart={e => dragStart(e, c.id, 'pool')} onkeydown={e => poolKey(e, c)}>
             {@render face(c.id)}
             <span class="counts">{#if used}<b class="used">{used} in deck</b>{/if}<b class="have" class:zero={!n}>{n || used ? `${n} left` : 'not owned'}</b></span>
-            {#if c.limit < 3}<span class="lim l{c.limit}">{c.limit === 0 ? 'Forbidden' : 'Limit ' + c.limit}</span>{/if}
+            {@render restriction(c)}
           </button>
         </div>
       {:else}
@@ -458,12 +468,11 @@
   .card.notown .face { filter: grayscale(.9) brightness(.8); }
   .card.notown, .card.spent { cursor: default; }
   .counts { position: absolute; right: 3px; bottom: 3px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; pointer-events: none; }
-  .counts b, .lim { font-size: 9px; font-weight: 800; line-height: 15px; height: 15px; padding: 0 4px; letter-spacing: -.01em; border-radius: 8px; white-space: nowrap; }
+  .counts b { font-size: 9px; font-weight: 800; line-height: 15px; height: 15px; padding: 0 4px; letter-spacing: -.01em; border-radius: 8px; white-space: nowrap; }
   .counts .used { color: var(--n0); background: var(--sel); box-shadow: 0 0 0 1px var(--n0); }
   .counts .have { color: var(--n0); background: color-mix(in srgb, var(--ink-strong) 82%, transparent); }
   .counts .have.zero { color: var(--ink-strong); background: color-mix(in srgb, var(--n0) 90%, transparent); }
-  .lim { position: absolute; left: 3px; top: 3px; color: var(--n0); background: var(--bad); box-shadow: 0 0 0 1px var(--n0); }
-  .lim.l2 { background: var(--warm); }
+  .restriction { position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; pointer-events: none; }
   .empty-pool { grid-column: 1 / -1; display: grid; justify-items: center; gap: 10px; padding: 40px 0; color: var(--ink-2); font-weight: 700; }
   .empty-pool p { margin: 0; }
 </style>
