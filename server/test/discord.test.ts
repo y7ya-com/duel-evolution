@@ -74,17 +74,21 @@ describe("Discord text both ways", () => {
 });
 
 describe("All Chat <-> #in-game", () => {
-  it("All Chat goes out through the webhook under the player's name; other channels stay in the game", async () => {
+  it("All Chat and TRADE go out through the webhook under the player's name, TRADE marked; whispers and Team stay in the game", async () => {
     const calls = mockDiscord();
     const [h, [a]] = await world(2);
     h.game.discord = new DiscordBridge(ENV, h.game, () => {});
     a.room!.send(0x4400, cat([0, 0], be32(0), be32(0), be32(0), str("hello *all*", 11), [0]));
+    await h.tick(200);
     a.room!.send(0x4400, cat([0, 2], be32(0), be32(0), be32(0), str("wts cards", 9), [0]));
+    a.room!.send(0x4400, cat([0, 3], be32(0), be32(0), be32(0), str("psst", 4), [0]));
+    a.room!.send(0x4400, cat([0, 5], be32(0), be32(0), be32(0), str("team only", 9), [0]));
     await h.tick(200);
     const out = calls.filter((c) => c.url.startsWith(ENV.DISCORD_CHAT_WEBHOOK_URL));
-    expect(out).toHaveLength(1);
+    expect(out).toHaveLength(2);
     expect(out[0].url).toContain("wait=true");
     expect(out[0].body).toMatchObject({ username: "Player0", content: "hello \\*all\\*", allowed_mentions: { parse: [] }, avatar_url: "https://de.test/apple-touch-icon.png" });
+    expect(out[1].body).toMatchObject({ username: "Player0", content: "**[Trade]** wts cards" });
   });
 
   it("a player with a linked Discord: their avatar, and their Discord picture, the text untouched", async () => {

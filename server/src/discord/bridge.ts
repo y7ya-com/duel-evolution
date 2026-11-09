@@ -1,5 +1,7 @@
 // The Discord side of the game, inside the WorldDO (one per world, like the game it serves):
-// - All Chat <-> #in-game. Out: every All Chat line through #in-game's webhook, under its player's name. In: #in-game's
+// - All Chat <-> #in-game. Out: every All Chat line through #in-game's webhook, under its player's name, and every TRADE
+//   line too, marked [Trade] (else #in-game reads one side of a talk held across both tabs; whispers and Team stay
+//   private). In: #in-game's
 //   messages over the Discord gateway (an outbound WebSocket, intents GUILD_MESSAGES + MESSAGE_CONTENT), into All Chat
 //   under the speaker's duelist (bridge.ts speaker), marked as from Discord (chat.ts relayIn, DISCORD_MARK: a logo in the
 //   HTML chat). The gateway is up only while someone is in the game: with nobody to
@@ -117,7 +119,7 @@ export class DiscordBridge {
   private fatal = false;
   private retries = 0;
   private emptySince: number | null = null;
-  private outQueue: { name: string; text: string; who: Promise<Profile> }[] = [];
+  private outQueue: { name: string; text: string; who: Promise<Profile>; trade: boolean }[] = [];
   private profiles = new Map<string, { at: number; p: Promise<Profile> }>();
   private linked = new Map<string, { at: number; p: Promise<string | null> }>();
   private sending = false;
@@ -205,10 +207,11 @@ export class DiscordBridge {
 
   // ---- All Chat -> #in-game
 
-  /** An All Chat line out to #in-game; `userId`: the sender's DE user, whose linked Discord shows with the line. */
-  chatOut(name: string, text: string, userId: string | null = null) {
+  /** An All Chat (or TRADE: `trade`) line out to #in-game; `userId`: the sender's DE user, whose linked Discord shows
+   *  with the line. */
+  chatOut(name: string, text: string, userId: string | null = null, trade = false) {
     if (!this.env.DISCORD_CHAT_WEBHOOK_URL) return;
-    this.outQueue.push({ name, text, who: this.profile(userId) });
+    this.outQueue.push({ name, text, who: this.profile(userId), trade });
     if (this.outQueue.length > OUT_QUEUE_MAX) this.outQueue.splice(0, this.outQueue.length - OUT_QUEUE_MAX);
     void this.pump();
   }
@@ -229,16 +232,18 @@ export class DiscordBridge {
   }
   /** One webhook message at a time; a player's lines that queued up behind a rate limit go as one message. It goes under
    *  the player's name, and with a linked Discord their Discord name in brackets ("hus (nova)": who they are on both sides)
-   *  and their Discord picture; nothing is added to the text (a webhook's author can't open a real profile; only a
-   *  mention could, and that tags). */
+   *  and their Discord picture; nothing is added to the text but a TRADE line's **[Trade]** (a webhook's author can't
+   *  open a real profile; only a mention could, and that tags). */
   private async pump() {
     if (this.sending) return;
     this.sending = true;
     try {
       while (this.outQueue.length) {
         const first = this.outQueue[0], who = await first.who, lines: string[] = [];
-        while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500)
-          lines.push(discordText(this.outQueue.shift()!.text));
+        while (this.outQueue.length && this.outQueue[0].name === first.name && this.outQueue[0].who === first.who && lines.join("\n").length < 1500) {
+          const q = this.outQueue.shift()!;
+          lines.push((q.trade ? "**[Trade]** " : "") + discordText(q.text));
+        }
         const avatar = who?.avatar ?? (this.env.PUBLIC_ORIGIN ? `${this.env.PUBLIC_ORIGIN}/apple-touch-icon.png` : undefined);
         const body = { username: webhookName(who ? `${first.name} (${who.name})` : first.name), content: lines.join("\n"), allowed_mentions: { parse: [] },
           flags: SUPPRESS_EMBEDS, ...(avatar && { avatar_url: avatar }) };
