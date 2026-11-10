@@ -80,6 +80,10 @@ $(B)/shopdirect_test: rt/shopdirect_test.c ovr/shopdirect.c $(RT_HDRS) | $(B)
 htmlui_shoplook_test: $(B)/htmlui_shoplook_test
 $(B)/htmlui_shoplook_test: rt/htmlui_shoplook_test.c ovr/htmlui.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -g -Wall -Wno-unused-function -ffunction-sections -fdata-sections -Irt rt/htmlui_shoplook_test.c -Wl,--gc-sections -o $@
+liveappearance_test: $(B)/liveappearance_test
+$(B)/liveappearance_test: rt/liveappearance_test.c ovr/liveappearance.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -g -Wall -fsanitize=address,undefined -Irt rt/liveappearance_test.c -o $@
+
 worldparts_test: $(B)/worldparts_test   # ovr/worldparts.c's world rule: build/worldparts_test [rows] (the file says how)
 $(B)/worldparts_test: rt/worldparts_test.c ovr/worldparts.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -g -Wall -Wno-unused-function -fsanitize=address,undefined -Irt rt/worldparts_test.c -o $@

@@ -63,3 +63,5 @@
 0068eca0  # account trunk-complete: sync card case and open editor after HTTP purchases
 
 006b69f0  # CNetLobby_OfferRoom::onMain: bounded duel request wait (duelrequest.c)
+006b9930  # UPDATE_PLAYERAVATAR: keep our active character in sync after wardrobe equips
+00a02ad0  # CAreaMap player sync: reload our chibi when its appearance changes
