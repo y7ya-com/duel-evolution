@@ -543,6 +543,12 @@ Module.preRun.push(() => {
     L.entry = (name) => fileBytes(name);
     L.cardArt = async (id) => {
         await loadCardNames();
+        const legacy = Module.yo2EraCards?.cards?.[id];
+        if (legacy) {
+            const r = await fetch(Module.yo2EraCards.base + legacy.face);
+            if (!r.ok) throw new Error(`2008 card face ${id}: ${r.status}`);
+            return new Uint8Array(await r.arrayBuffer());
+        }
         const e = artEntry((cardNames || [])[id] || "");
         return e[1] ? entryBytes(e[0], e[1]) : null;
     };
@@ -930,6 +936,8 @@ Module.preRun.push(() => {
     // The 2x card art (merge/data/card.dat, mini.dat) has its own manifest: the exe opens those archives before
     // merge.dat, so only a build that can show 2x art (ovr/decode.c) may mount them; a tab of an older one never sees them
     try { mount("/game", q.get("cards") || "cards/"); } catch (e) { console.log("yo2rc: no 2x card art:", e.message); }
+    // Loose original card faces win over modern card.dat art.
+    if (Module.yo2EraCards) mount("/game", Module.yo2EraCards.base);
     if (q.get("fonts")) mount("/fonts", q.get("fonts"));
     if (prefetchOn) {
         addRunDependency("lazy");

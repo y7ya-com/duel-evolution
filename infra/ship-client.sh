@@ -26,6 +26,9 @@ SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 for f in yo2rc.html yo2rc.js yo2rc.wasm yo2rc-async.js yo2rc-async.wasm yo2rc-ios.js yo2rc-ios.wasm; do
   [ -s $B/$f ] || { echo "no $B/$f (build it, or pass --build)"; exit 1; }
 done
+for js in yo2rc.js yo2rc-async.js yo2rc-ios.js; do
+  grep -q yo2EraCards "$B/$js" || { echo "$B/$js predates 2008 card text support: rebuild with --build"; exit 1; }
+done
 rm -rf $O; mkdir -p $O; cp $B/yo2rc.html $O/
 # the HTML UI's Svelte screens (htmlui/gen/, gitignored): built here, shipped with the rest of htmlui/ below
 (cd $C/web-shell/htmlui && npm ci --no-audit --no-fund --silent && npm run --silent build)
@@ -89,6 +92,30 @@ open(p, 'w').write(s)
 PY
 echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(date -u -r $B/yo2rc.wasm '+%Y-%m-%d %H:%M:%S UTC')" > $O/BUILD.txt
 cat $O/BUILD.txt
+# Original printed text and faces for the legacy effect catalog. Build them from the owner's game, never an API.
+# Hash the complete set so older open tabs keep their own release's assets.
+ERA_TMP=$(mktemp -d)
+"${YO2_ASSET_PYTHON:-python3}" "$C/tools/era2008_assets.py" \
+  --merge "${YO2_MERGE:-${YO2_GAME:-$HOME/.cache/yo2-game}/merge.dat}" --gamedata "$R/server/gamedata" --out "$ERA_TMP"
+python3 - "$ERA_TMP" "$O" <<'PYERA'
+import hashlib, json, os, shutil, sys
+src, out = sys.argv[1:]
+files = sorted(os.path.relpath(os.path.join(d, f), src) for d, _, fs in os.walk(src) for f in fs)
+h = hashlib.sha256()
+for f in files:
+    h.update(f.encode()); h.update(open(os.path.join(src, f), 'rb').read())
+folder = 'c-' + h.hexdigest()[:16]
+shutil.copytree(src, os.path.join(out, folder))
+with open(os.path.join(out, 'HASHED'), 'a') as f:
+    for name in files: f.write(folder + '/' + name + '\n')
+# This configuration is part of the page loaded before lazyfs's preRun hook.
+cards = json.load(open(os.path.join(src, 'cards.json')))
+config = json.dumps({'base': folder + '/', 'cards': cards}, ensure_ascii=True, separators=(',', ':')).replace('<', r'\u003c')
+p = os.path.join(out, 'yo2rc.html')
+s = open(p).read().replace('<script id="pick">', '<script>Module.yo2EraCards=' + config + ';</script>\n<script id="pick">')
+open(p, 'w').write(s)
+PYERA
+rm -rf "$ERA_TMP"
 cp $C/web-shell/index.html $O/
 # for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
 cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
@@ -131,7 +158,7 @@ up() {
   printf '%s\n' "$@" | xargs -P 8 -I{} sh -c '(cd "$R/server" && npx wrangler r2 object put "ygo-original/$X/$1" --file "$O/$1" --remote 2>&1) | grep -q "Upload complete" && echo "uploaded $X/$1" || { echo "upload $1 failed"; exit 255; }' _ {} \
     || { echo "uploads failed: page not swapped"; exit 1; }
 }
-NEW=$(changed $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED) $(for f in $UI; do echo ui/$f; done))
+NEW=$(changed $(cat $O/HASHED) $(for f in $UI; do echo ui/$f; done))
 echo "$(printf '%s\n' $NEW | grep -c .) of $(( $(grep -c . $O/HASHED) + $(echo "$UI" | grep -c .) )) files changed"
 # each new wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9
 # is ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). An unchanged wasm's .br is live already (checked below).
