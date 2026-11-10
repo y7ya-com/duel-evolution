@@ -74,7 +74,7 @@ function makeEnv(store, ls, opts = {}) {
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
         if (!files[p]) return { status: 404, headers: h, arrayBuffer: async () => new ArrayBuffer(0) };
-        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
+        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, ok: true, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
         netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
         await sleep(1).finally(() => flying--);
         if (o.signal && o.signal.aborted) { aborted++; throw (abortReason = o.signal.reason); }
@@ -94,7 +94,7 @@ function makeEnv(store, ls, opts = {}) {
     };
     const PATH = { dirname: (p) => p.slice(0, p.lastIndexOf("/")), basename: (p) => p.slice(p.lastIndexOf("/") + 1) };
     let deps = 0;
-    const Module = {}, ENV = {};
+    const Module = { ...(opts.era ? { yo2EraCards: opts.era } : {}) }, ENV = {};
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, DOMException, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
@@ -646,5 +646,16 @@ console.log("prefetch=0: ok");
         await makeEnv(new Map(), new Map()).ready();   // malformed PE: normal lazy reads remain available
         console.log("PE boot and small-file persistence: ok");
     } finally { files["game/yo2.exe"] = old; delete files["fonts/test.ttf"]; }
+}
+// Legacy faces override both native loose-file reads and the modern editor's async art reads.
+{
+    const path = "c-test/merge/data/card/83555666.png", old = Buffer.from("original 2008 Ring of Destruction face");
+    files[path] = old;
+    const r = makeEnv(new Map(), new Map(), { search: "?prefetch=0", era: { base: "c-test/", cards: { 1: { face: "merge/data/card/83555666.png" } } } });
+    await r.ready();
+    assert.deepEqual(Buffer.from(r.read("/game/merge/data/card/83555666.png", 0, old.length)), old);
+    assert.deepEqual(Buffer.from(await r.Module.yo2Lazy.cardArt(1)), old);
+    delete files[path];
+    console.log("2008 printed card text: ok");
 }
 console.log("lazyfs_test ok");

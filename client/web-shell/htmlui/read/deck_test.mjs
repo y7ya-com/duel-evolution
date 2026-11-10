@@ -92,4 +92,15 @@ assert.deepEqual(strip(282), [false, [], 1]);   // a trap
 assert.deepEqual(strip(248, ' 3 ATK1000/DEF 600'), [true, [' 3 ATK1000/DEF 600'], 4]);
 assert.deepEqual(strip(15), [false, [], 1]);
 assert.deepEqual(strip(-1), [false, [], 0]);    // nothing shown
+// Legacy descriptions follow the selected language and leave ordinary cards on the native table.
+const nativeDesc = globalThis.yo2Deck.desc(221);
+globalThis.Module = { yo2EraCards: { cards: { 221: { text: { E: 'Original English effect', G: 'Original German effect' } } } } };
+const config = alloc(0x1c8);
+w32(0x0127188c, config); w32(config + 0x24, 1);
+assert.equal(globalThis.yo2Deck.desc(221), 'Original English effect');
+w32(config + 0x24, 2);
+assert.equal(globalThis.yo2Deck.desc(221), 'Original German effect');
+assert.equal(globalThis.yo2Deck.desc(222), '');
+delete globalThis.Module; w32(0x0127188c, 0);
+assert.equal(globalThis.yo2Deck.desc(221), nativeDesc);
 console.log('read/deck_test: ok');

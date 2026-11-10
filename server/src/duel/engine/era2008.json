@@ -1,0 +1,129 @@
+{
+  "8131171": {
+    "name": "Sinister Serpent",
+    "packed": true
+  },
+  "4906301": {
+    "name": "Necro Gardna",
+    "packed": true
+  },
+  "14878871": {
+    "name": "Rescue Cat",
+    "packed": true
+  },
+  "16226786": {
+    "name": "Night Assailant",
+    "packed": true
+  },
+  "21502796": {
+    "name": "Ryko, Lightsworn Hunter",
+    "packed": true
+  },
+  "21593977": {
+    "name": "Makyura the Destructor",
+    "packed": true
+  },
+  "26202165": {
+    "name": "Sangan",
+    "packed": true
+  },
+  "37383714": {
+    "name": "Soul Rope",
+    "packed": true
+  },
+  "40737112": {
+    "name": "Dark Magician of Chaos",
+    "packed": true
+  },
+  "41006930": {
+    "name": "Strike Ninja",
+    "packed": true
+  },
+  "47297616": {
+    "name": "Light and Darkness Dragon",
+    "packed": true
+  },
+  "56570271": {
+    "name": "Destiny HERO - Disk Commander",
+    "packed": true
+  },
+  "57728570": {
+    "name": "Crush Card Virus",
+    "packed": true,
+    "aliases": [
+      57728571
+    ]
+  },
+  "78010363": {
+    "name": "Witch of the Black Forest",
+    "packed": true
+  },
+  "93431518": {
+    "name": "Gateway to Dark World",
+    "packed": true
+  },
+  "95727991": {
+    "name": "Catapult Turtle",
+    "packed": true
+  },
+  "82301904": {
+    "name": "Chaos Emperor Dragon - Envoy of the End",
+    "source": 511000819
+  },
+  "83555666": {
+    "name": "Ring of Destruction",
+    "source": 511000824
+  },
+  "29762407": {
+    "name": "Temple of the Kings",
+    "source": 511000821
+  },
+  "88264978": {
+    "name": "Red-Eyes Darkness Metal Dragon",
+    "source": 88264988
+  },
+  "47355498": {
+    "name": "Necrovalley",
+    "source": 511002998
+  },
+  "87910978": {
+    "name": "Brain Control",
+    "patch": "brain"
+  },
+  "17484499": {
+    "name": "Exchange of the Spirit",
+    "patch": "exchange"
+  },
+  "61740673": {
+    "name": "Imperial Order",
+    "patch": "order"
+  },
+  "77565204": {
+    "name": "Future Fusion",
+    "patch": "fusion"
+  },
+  "80168720": {
+    "name": "Darkness Approaches",
+    "patch": "darkness"
+  },
+  "65622692": {
+    "name": "Y-Dragon Head",
+    "patch": "union"
+  },
+  "64500000": {
+    "name": "Z-Metal Tank",
+    "patch": "union"
+  },
+  "96300057": {
+    "name": "W-Wing Catapult",
+    "patch": "union"
+  },
+  "23265594": {
+    "name": "Heavy Mech Support Platform",
+    "patch": "union"
+  },
+  "67159705": {
+    "name": "Armored Cybern",
+    "patch": "union"
+  }
+}
