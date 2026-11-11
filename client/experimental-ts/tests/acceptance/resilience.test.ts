@@ -431,18 +431,23 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const busyNote = await page.ev(`${SHOP}.querySelector('[role=status][aria-live]')?.textContent ?? ''`);
       expect(before - after).toBe(pack.price);
       await leaveShop(page);
-      // Navigation while a reply is pending: the shop is requested, the player opens the deck editor, the late
-      // shop reply does not take the screen back.
+      // Navigation while a reply is pending: the shop is requested with its catalogue reply held. Main's card shop opens
+      // before its catalogue arrives and its bar has no Main Menu: the player leaves through the shop's own Leave the
+      // shop, and the late reply does not take the screen back.
       await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/shop/`);
-      // Shop is a Main Menu entry: open the menu, then click without the pointer (the reply is being held).
       await menuClick(page,'Shop');
       await until(page,`window.__net.http.release`,10000);
-      await openMenu(page);
-      const navBusy = await page.ev(`[...document.querySelectorAll('button')].filter(b=>['Edit Deck','Return to Lobby'].includes(b.textContent)).map(b=>b.disabled).join()`);
+      const leave = `${SHOP}?.querySelector('[aria-label="Leave the shop"]')`;
+      await until(page,leave,30000);
+      const heldShop = await page.ev(`Boolean(${SHOP}.querySelector('[data-k^="buy-"]'))`) ? 'its packs already listed' : 'no packs listed yet';
+      await press(page,leave);
+      await until(page,lobbyShown,30000);
       await page.ev(`window.__net.http.delay=null;window.__net.http.release();window.__net.http.release=null`);
-      await until(page,`${SHOP}?.querySelector('[aria-label="Card Shop"] .banner')`,30000);
-      await leaveShop(page);
+      await sleep(2500);
+      const afterShop = { scene:await page.ev(`document.querySelector('.de-client').dataset.scene`), shop:await page.ev(`Boolean(${SHOP})`), lobby:await page.ev(lobbyShown) };
+      expect(afterShop).toEqual({ scene:'lobby',shop:false,lobby:true });
+      const navBusy = `the shop opened with ${heldShop}; Leave the shop returned to the lobby and the late reply left it there`;
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
       await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
@@ -456,9 +461,9 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`window.__net.http.release?.()`); await sleep(2500);
       const late = { scene:await page.ev(`document.querySelector('.de-client').dataset.scene`), alerts:await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) };
       expect(late).toEqual({ scene:'lobby',alerts:'' });
-      record('errors.concurrency',{ actions:'Double-click Go Online, the starter deck and Purchase; request the shop with its reply held and try to navigate; open the deck editor with its reply held, Disconnect, go online again, then let the old reply arrive',
+      record('errors.concurrency',{ actions:'Double-click Go Online, the starter deck and Purchase; request the shop with its reply held and leave it through its Leave the shop; open the deck editor with its reply held, Disconnect, go online again, then let the old reply arrive',
         expected:'Busy state, duplicate clicks, navigation and late replies cannot apply to the wrong session',
-        observed:`Go Online ×2 → ${goOnline} connection; Purchase ×2 → MP ${before} → ${after} (aria-busy/disabled ${busy} a frame after the first click${busyNote ? `, "${busyNote}"` : ''}); while the shop reply was held Edit Deck/Lobby disabled = ${navBusy}; ${pending} held replies across a Disconnect/Go Online: after release the new session stayed on ${late.scene}${late.alerts ? ` ("${late.alerts}")` : ' with no alert'}` });
+        observed:`Go Online ×2 → ${goOnline} connection; Purchase ×2 → MP ${before} → ${after} (aria-busy/disabled ${busy} a frame after the first click${busyNote ? `, "${busyNote}"` : ''}); while the shop reply was held ${navBusy}; ${pending} held replies across a Disconnect/Go Online: after release the new session stayed on ${late.scene}${late.alerts ? ` ("${late.alerts}")` : ' with no alert'}` });
     } finally { closeAll(); }
   },600000);
 });
