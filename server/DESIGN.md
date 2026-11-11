@@ -184,6 +184,15 @@ INTENTIONAL):
   the report in R2 (`GET /__trade-report`, admin) and posts a summary to `REPORT_WEBHOOK` when set. It flags; a
   person decides.
 - **Login is the web session, not 0x3003** (see Auth).
+- **A look at a deck is private** (translator `_m_CONFIRM_CARDS`). An OCGcore MSG_CONFIRM_CARDS of deck cards (a
+  private look: "look at the top card of your/your opponent's deck") reaches only the view of the player who looks
+  (`ev.player`), as ygopro/EDOPro send it only to that player. py, and the port until 2026-11-11, wrote the card's real
+  identity (0x6202 set card) into every view: the opponent's client and the spectators' public view got each private
+  deck look. Every other view now gets nothing for those cards (the card keeps the form that client had, as with any
+  message it never received), so there is no message the 2008 client could choke on. Hand, field and extra deck
+  confirms, and an excavation (MSG_CONFIRM_DECKTOP), stay public. No py-recorded fixture has a deck look by anyone but
+  view 0's own player, so the parity replays are unchanged; `test/duel-confirm-privacy.test.ts` covers the rule. The
+  archived EDOPro replay (.yrpX) records the engine's raw messages and still shows everything.
 - **Picking several cards from a pile shows the cards** (translator `unselect_list`). An OCGcore SELECT_UNSELECT_CARD
   (`aux.SelectUnselectGroup`: Chaos Sorcerer, Black Luster Soldier - Envoy, Dark Necrofear, Future Fusion…) with
   candidates in the deck, graveyard, banished zone or extra deck opens the client's card list (0x6610 + 0x1b B=0x33,

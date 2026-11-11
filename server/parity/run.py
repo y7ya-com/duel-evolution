@@ -228,6 +228,9 @@ def load(d, tail=None):
 
 
 # Intentional divergences from py (DESIGN.md "Deliberate changes from 2008"): message id -> (byte range, reason).
+# Not maskable by a byte range, so not listed: a deck look (CONFIRM_CARDS of deck cards) by the other player is a
+# missing 0x6202 set-card in this view, where py leaked the card (DESIGN.md "A look at a deck is private"); the
+# translator fixtures have none (a scenario that makes one shows up as a diff here).
 INTENTIONAL = {
     0x4101: ((8, 12), "no duel-point economy: PSELECTRESULT's balance field carries WIRE_UNUSED_DP"),
     0x4140: ((19, 23), "no duel-point economy: PLAYERDATAUPDATE's balance field carries WIRE_UNUSED_DP"),
