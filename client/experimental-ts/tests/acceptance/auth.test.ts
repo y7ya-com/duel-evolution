@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown, openDeckEditor, exitDeckEditor } from './harness';
 
 const titleSignedOut = `document.body.innerText.includes('Sign In')&&document.querySelector('input[name="password"],[data-key="password"]')`;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
@@ -96,17 +96,19 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       // character.create + character.list
       await enterWorld(a,name);
       // The claim must show up as a deck, owned cards and a level/wallet from the server.
-      await click(a,'Edit Deck');
-      await until(a,`/Main Deck/.test(document.body.innerText)&&document.querySelectorAll('[data-key^="deck-card:main:"]').length>=40`,60000);
-      const mainCount = await a.ev(`document.querySelectorAll('[data-key^="deck-card:main:"]').length`) as number;
-      const owned = await a.ev(`[...document.querySelectorAll('[data-key^="collection-card:"] .de-card-count')].filter(c=>c.textContent!=='×0').length`) as number;
+      // main's HTML deck screen (canvas grids): the loaded deck and the trunk, as the screen holds them
+      const deck = await openDeckEditor(a,40);
+      const mainCount = deck.main.length;
+      const owned = deck.collection.filter(c=>c.owned>0).length;
+      await exitDeckEditor(a);
       await click(a,'Shop'); await until(a,`/[0-9,]+ MP/.test(document.body.innerText)`,60000);
       const wallet = /([0-9,]+) MP/.exec(await text(a))?.[0];
       const level = /Lv (\d+)/.exec(await a.ev(`document.querySelector('.de-status')?.textContent ?? ''`) as string)?.[0];
       expect(mainCount).toBeGreaterThanOrEqual(40); expect(owned).toBeGreaterThan(0); expect(wallet).toBeTruthy();
-      await click(a,'Return to Lobby'); await until(a,lobbyShown,60000);
+      // main's HTML shop (shop/index.js) leaves through its Back button
+      await click(a,'Back'); await until(a,lobbyShown,60000);
       expect(await a.ev(`document.body.innerText.includes('Choose your Starter Deck')`)).toBe(false);
-      record('character.starter',{ actions:'Fresh character claims the offered starter; open deck editor and shop; return to lobby', expected:'Claimed once; deck, inventory, level and wallet reflect it', observed:`starter claimed; main deck ${mainCount} cards; ${owned} owned collection entries on page 1; wallet ${wallet}; ${level}; not offered again` });
+      record('character.starter',{ actions:'Fresh character claims the offered starter; open deck editor and shop; return to lobby', expected:'Claimed once; deck, inventory, level and wallet reflect it', observed:`starter claimed; main deck ${mainCount} cards; ${owned} owned trunk entries; wallet ${wallet}; ${level}; not offered again` });
       await click(a,'Return to Title');
       await click(a,'Go Online',60000);
       await until(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes(${JSON.stringify(name)}))`,30000);

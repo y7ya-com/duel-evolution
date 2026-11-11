@@ -323,13 +323,50 @@ export async function prepareDuel(page:Page,hand:'Rock'|'Scissors'|'Paper' = 'Ro
   }
   await until(page,`document.querySelectorAll('.de-field-card').length>0`,60000);
 }
-/** The owned copies of a card, read from the deck editor's collection search. */
-export async function ownedCopies(page:Page,name:string):Promise<number> {
+/** main's HTML deck screen (src/ui/htmlui/deck.ts) draws its trunk and deck grids on the game canvas, so there is no
+ * per-card DOM: the harness reads what the screen shows from the app's view (window.__deApp, dev builds). */
+const DECK_VIEW = `(()=>{const v=window.__deApp?.getState();const e=v?.deckEditor;if(v?.scene!=='deck'||!e?.current)return null;
+  const by=new Map();for(const c of [...(e.allCards??[]),...(e.collection??[])])if(c.passcode!=null)by.set(c.passcode,c);
+  const nm=p=>by.get(p)?.name??String(p);
+  return {name:e.current.name,main:e.current.main.map(nm),side:e.current.side.map(nm),extra:e.current.extra.map(nm),
+    collection:(e.collection??[]).map(c=>({name:c.name,owned:c.owned??0})),dirty:!!e.dirty,decks:e.decks.map(d=>d.name)};})()`;
+export interface DeckScreen { name:string; main:string[]; side:string[]; extra:string[]; collection:{ name:string; owned:number }[]; dirty:boolean; decks:string[]; }
+export const deckScreen = (page:Page) => page.ev(DECK_VIEW) as Promise<DeckScreen|null>;
+/** The deck screen is up (scene 'deck', a deck loaded) and main's EDIT DECK window is in the HTML layer. */
+export const deckShown = `Boolean(${DECK_VIEW})`;
+/** Main menu → Edit Deck, until main's deck screen has a deck loaded. */
+export async function openDeckEditor(page:Page,minMain = 0):Promise<DeckScreen> {
   await click(page,'Edit Deck');
-  await until(page,byKey('collection-search'),60000);
-  await type(page,byKey('collection-search'),name);
-  await sleep(600);
-  return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].filter(b=>${JSON.stringify(!name)}||b.title.startsWith(${JSON.stringify(name + ' ·')})).reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
+  await until(page,`(()=>{const d=${DECK_VIEW};return !!d&&d.main.length>=${minMain};})()`,60000);
+  await sleep(500);
+  return (await deckScreen(page))!;
+}
+/** A real mouse click at a point of the 1024 x 768 game screen (the stage, scaled). */
+export async function clickGame(page:Page,x:number,y:number) {
+  const r = await page.ev(`(()=>{const b=document.querySelector('.de-stage').getBoundingClientRect();return {x:b.left,y:b.top,w:b.width}})()`) as { x:number; y:number; w:number };
+  const point = { x:r.x + x * r.w / 1024,y:r.y + y * r.w / 1024 };
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
+  await sleep(120);
+  await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
+  await sleep(80);
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
+}
+/** The deck screen's side menu (DeckEntry.cpp: five buttons at 0, 40 + 27 i): LOAD, SAVE, STRUCTURE, CLEAR, EXIT. */
+export const DECK_SIDE = { load:0,save:1,structure:2,clear:3,exit:4 } as const;
+export const deckSide = (page:Page,button:keyof typeof DECK_SIDE) => clickGame(page,50,40 + 27 * DECK_SIDE[button] + 10);
+/** EXIT the deck screen back to the lobby (answering a keep/discard question with Yes when there are edits). */
+export async function exitDeckEditor(page:Page) {
+  for (let i = 0; i < 5 && await page.ev(`Boolean(${DECK_VIEW})`); i++) {
+    await deckSide(page,'exit'); await sleep(800);
+    for (const label of ['Yes','OK']) if (await page.ev(`Boolean(${byText(label)})`)) { await press(page,byText(label)).catch(() => {}); await sleep(500); }
+  }
+  await until(page,lobbyShown,60000);
+}
+/** The owned copies of a card (all cards with no name), as the deck screen's trunk counts them. */
+export async function ownedCopies(page:Page,name:string):Promise<number> {
+  const deck = await openDeckEditor(page);
+  await exitDeckEditor(page);
+  return deck.collection.filter(c => !name || c.name === name).reduce((n,c) => n + c.owned,0);
 }
 /** Surrender the current duel (confirming the server's question) and wait for the result. */
 export async function surrender(page:Page) {
