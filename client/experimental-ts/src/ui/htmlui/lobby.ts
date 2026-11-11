@@ -17,6 +17,7 @@ import playerListMock from '@htmlui/mock/duelsetup-plist.json';
 import npcCardMock from '@htmlui/mock/lobby-npc.json';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
+import { wrapDialogText } from './dialog-text';
 
 /** The original's words these windows say (yo2text_?), by text id; the rewrite's stand in without the original data. */
 export const LOBBY_TEXT = { cancelRoom: 0x1484, seeking: 0x13cb, searching: 0xfbf, password: 0x13c3, noMove: 0x13e4 } as const;
@@ -276,8 +277,9 @@ function joinPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   return b.spec();
 }
 function cancelPrompt(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
-  const { b, cs } = start(ctx, 'room-close', dialogYesNo, 51503), text = say(ctx, 'cancelRoom');
-  const field = cs.find(c => c.cls === 'CWindowTaskTextField'); if (field) field.text = text;
+  const { b, cs } = start(ctx, 'room-close', dialogYesNo, 51503), field = cs.find(c => c.cls === 'CWindowTaskTextField');
+  const inner = cs.find(c => c.parent === field?.id && c.cls === 'CWindowTaskText');
+  const text = wrapDialogText(say(ctx, 'cancelRoom'), inner?.w ?? field?.w ?? 320); if (field) field.text = text;
   for (const c of cs) if (c.parent === field?.id && c.cls === 'CWindowTaskText') c.text = text;
   const close = () => { deps.ui.cancel = false; ctx.rerender(); };
   const yes = cs.find(c => c.cls === 'CWindowTaskTextSwitch' && c.label === 'Yes'), no = cs.find(c => c.cls === 'CWindowTaskTextSwitch' && c.label === 'No');
