@@ -11,13 +11,19 @@ export interface CardShopHost {
 
 export function cardShopHost(doc: Document, onBack: () => void, onError: (e: unknown) => void): CardShopHost {
   let host: HTMLElement | null = null, shop: { el: HTMLElement; destroy(): void } | null = null, dead = false;
+  // the game's 1024 x 768 at the stage's origin, scaled to its width (bridge.js place(): the canvas's rect), not inside
+  // the scene's padding
+  const fit = () => { const h = host, p = h?.parentElement; if (h && p?.offsetWidth) h.style.transform = `scale(${p.offsetWidth / 1024})`; };
+  const onResize = () => fit();
   return {
     node() {
-      if (host) return host;
+      if (host) { queueMicrotask(fit); return host; }
+      doc.defaultView?.addEventListener('resize', onResize);
+      queueMicrotask(fit);
       dead = false;
       const h = host = doc.createElement('div');
       h.className = 'de-card-shop'; h.dataset.key = 'card-shop';
-      Object.assign(h.style, { position: 'relative', width: '1024px', height: '768px', maxWidth: '100%' });
+      Object.assign(h.style, { position: 'absolute', left: '0', top: '0', width: '1024px', height: '768px', transformOrigin: '0 0' });
       import('@htmlui/shop/index.js').then(({ mountCardShop }) => {
         if (dead || host !== h) return;
         shop = mountCardShop(h, { onBack });
@@ -26,6 +32,6 @@ export function cardShopHost(doc: Document, onBack: () => void, onError: (e: unk
       }, onError);
       return h;
     },
-    dispose() { dead = true; shop?.destroy(); shop = null; host?.remove(); host = null; },
+    dispose() { doc.defaultView?.removeEventListener('resize', onResize); dead = true; shop?.destroy(); shop = null; host?.remove(); host = null; },
   };
 }
