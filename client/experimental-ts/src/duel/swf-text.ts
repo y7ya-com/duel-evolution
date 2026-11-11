@@ -10,7 +10,9 @@ export interface SwfMatrix { a: number; b: number; c: number; d: number; tx: num
 export interface SwfColor { mult: [number, number, number, number]; add: [number, number, number, number] }
 export interface SwfShape { kind: 'shape'; bitmap: number | null; fill: SwfMatrix; bounds: [number, number, number, number] }
 export interface SwfSprite { kind: 'sprite'; timeline: SwfTimeline }
-export type SwfCharacter = SwfShape | SwfSprite;
+/** DefineButton2: its records, each shown in the states of its ButtonStates bits (1 up, 2 over, 4 down, 8 hit test). */
+export interface SwfButton { kind: 'button'; records: { states: number; character: number; matrix: SwfMatrix; depth: number }[] }
+export type SwfCharacter = SwfShape | SwfSprite | SwfButton;
 export type SwfOp =
   | { op: 'place'; depth: number; move: boolean; character?: number; matrix?: SwfMatrix; color?: SwfColor }
   | { op: 'remove'; depth: number }
@@ -102,9 +104,16 @@ function shape(n: Node): SwfShape {
   const styles = node(n.fields.Shapes)?.fields ?? {};
   const fills = list(styles.FillStyles).map(node);
   // The rectangle's StyleChange record names its fill (1-based into the fill array; the dumps keep a dummy at 0).
-  const change = list(styles.ShapeRecords).map(node).find(r => r?.type.endsWith('STYLECHANGERECORD'));
-  const index = num(change?.fields.FillStyle1, 0);
-  const fill = fills[index - 1] ?? fills.find(f => f && num(f.fields.BitmapID, 65535) !== 65535) ?? null;
+  // A shape drawn in several rectangles (a button's hover: its normal bitmap, then a new style array's over it) shows
+  // its last: the last StyleChange that names a fill, in the style array current there.
+  let current = fills, chosen: Node | null | undefined;
+  for (const r of list(styles.ShapeRecords).map(node)) {
+    if (!r?.type.endsWith('STYLECHANGERECORD')) continue;
+    if (r.fields.FillStyles) current = list(r.fields.FillStyles).map(node);
+    const index = num(r.fields.FillStyle1, 0);
+    if (index > 0 && current[index - 1]) chosen = current[index - 1];
+  }
+  const fill = chosen ?? fills.find(f => f && num(f.fields.BitmapID, 65535) !== 65535) ?? null;
   const id = fill ? num(fill.fields.BitmapID, 65535) : 65535;
   return { kind: 'shape', bitmap: id === 65535 ? null : id, fill: matrix(fill?.fields.BitmapMatrix) ?? { ...IDENTITY, a: 20, d: 20 },
     bounds: [num(bounds.Xmin), num(bounds.Ymin), num(bounds.Xmax), num(bounds.Ymax)] };
@@ -120,6 +129,10 @@ function timeline(tags: Node[], movie: Pick<SwfMovie, 'bitmaps' | 'characters'>,
     switch (tag.type) {
       case 'Tag::DefineBitsLossless': movie.bitmaps.set(num(f.CharacterID), num(f.FileName)); break;
       case 'Tag::DefineShape': case 'Tag::DefineShape2': case 'Tag::DefineShape3': movie.characters.set(num(f.ShapeID), shape(tag)); break;
+      case 'Tag::DefineButton2': case 'Tag::DefineButton': {
+        const records = list(f.Characters).map(node).filter((n): n is Node => !!n).map(r => ({ states: num(r.fields.ButtonStates), character: num(r.fields.CharacterID), matrix: matrix(r.fields.PlaceMatrix) ?? IDENTITY, depth: num(r.fields.PlaceDepth) }));
+        movie.characters.set(num(f.ButtonID), { kind: 'button', records: records.sort((a, b) => a.depth - b.depth) }); break;
+      }
       case 'Tag::DefineSprite': {
         const inner = list(f.ControlTags).map(node).filter((n): n is Node => !!n);
         movie.characters.set(num(f.SpriteID), { kind: 'sprite', timeline: timeline(inner, movie, depth + 1) }); break;
@@ -176,6 +189,8 @@ interface Placed { character: number; matrix: SwfMatrix; color: SwfColor; sprite
  * timeline ends after its last frame (CSwfEngine's "ended" flag). */
 export class SwfInstance {
   frame = -1; stopped = false; ended = false;
+  /** A placed button's state by its depth (1 up, 2 over, 4 down); up when not given. */
+  buttonState: ((depth: number) => number) | null = null;
   readonly list = new Map<number, Placed>();
   constructor(private readonly movie: SwfMovie, private readonly line: SwfTimeline, private readonly loop: boolean) {}
   /** Advance one frame (the first call shows frame 0). */
@@ -215,6 +230,16 @@ export class SwfInstance {
       const p = this.list.get(key)!, c = this.movie.characters.get(p.character), m = multiply(parent, p.matrix), color = combine(tint, p.color);
       if (!c) continue;
       if (c.kind === 'sprite') { p.sprite?.draw(out, m, color, depth + 1); continue; }
+      if (c.kind === 'button') {
+        const want = this.buttonState?.(key) ?? 1;
+        for (const r of c.records) {
+          const s = this.movie.characters.get(r.character);
+          if (!(r.states & want) || s?.kind !== 'shape' || s.bitmap === null) continue;
+          const file = this.movie.bitmaps.get(s.bitmap), rm = multiply(m, r.matrix);
+          if (file !== undefined) out.push({ bitmap: file, matrix: multiply(rm, s.fill), color, clip: s.bounds, clipMatrix: rm });
+        }
+        continue;
+      }
       if (c.bitmap === null) continue;
       const file = this.movie.bitmaps.get(c.bitmap);
       if (file === undefined) continue;

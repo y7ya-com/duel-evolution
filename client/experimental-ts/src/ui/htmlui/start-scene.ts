@@ -87,7 +87,7 @@ export class StartScene {
 }
 
 /** Draws one frame's bitmap items of a movie (twips, each clipped to its shape's bounds) with its origin at `at`. */
-export function drawSwfItems(ctx: CanvasRenderingContext2D, items: Parameters<SwfInstance['draw']>[0], movie: SwfMovie, image: (file: string) => HTMLImageElement | null | undefined, at: { x: number; y: number }): void {
+export function drawSwfItems(ctx: CanvasRenderingContext2D, items: Parameters<SwfInstance['draw']>[0], movie: SwfMovie, image: (file: string) => CanvasImageSource | null | undefined, at: { x: number; y: number }): void {
   for (const item of items) {
     const file = movie.files[item.bitmap]; if (!file) continue;
     const img = image(file); if (!img) continue;

@@ -59,7 +59,7 @@ import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
-import { TitleScene } from './htmlui/title-scene';
+import { TitleScene, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
@@ -302,7 +302,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the title's sign-in, signed out: live's CWindowLogin (rt/session.cpp's panel, htmlui/login.ts)
   const loginUi = loginLocal();
-  const showsLogin = () => !!htmlUi && state.scene === 'title' && !!state.auth && !state.auth.signedIn;
+  const showsLogin = () => !!htmlUi && state.scene === 'title' && !!state.auth && !state.auth.signedIn && (!!loginUi.open || !controller.loadArchiveImage);
   const loginSpecs = (): WindowSpec[] => showsLogin() ? [loginWindow({ state, ui: loginUi, ids: htmlIds, send, rerender: () => showHtml(),
     discord: () => { globalThis.location.href = '/api/auth/sign-in/discord?return=/'; },
     open: url => { globalThis.open?.(url, '_blank', 'noopener,noreferrer'); } })] : [];
@@ -376,7 +376,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
   let optionsUi: OptionsUi | null = null;
   const optionsSpecs = (): WindowSpec[] => {
-    if (!optionsUi || state.scene === 'title' || state.scene === 'settings') { optionsUi = null; return []; }
+    if (!optionsUi || state.scene === 'settings') { optionsUi = null; return []; }
     const display = browserDisplay.state, a = state.audio;
     const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading,
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
@@ -734,12 +734,32 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (!state.unavailable?.[scene]) panel.append(button('Refresh', () => send({ type: 'refresh', scene }), !!state.busy));
     panel.append(button('Back', () => open(state.player ? 'lobby' : 'title'))); n.append(panel);
   };
+  // the title's movie buttons (htmlui/title-scene.ts), as live: ONLINE signs in (the sign-in window, signed out) and
+  // goes online, OPTIONS opens DUEL OPTIONS, DECK EDITOR and FREE DUEL start free mode (ovr/freemode.c)
+  let freeTarget: 'deck' | null = null;
+  const titlePress = (name: TitleButton) => {
+    if (state.busy) return;
+    if (name === 'online') {
+      if (state.auth && !state.auth.signedIn) { loginUi.open = true; showHtml(); return; }
+      if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
+    } else if (name === 'options') { optionsUi = { kind: 'options' }; showHtml(); }
+    else {
+      freeTarget = name === 'deck' ? 'deck' : null;
+      if (state.connection === 'online' && state.mode === 'free') { if (freeTarget) { freeTarget = null; open('deck'); } else open(state.player ? 'lobby' : 'characters'); }
+      else send({ type: 'connect', freeMode: true });
+    }
+  };
   function renderTitle(): void {
     const n = sceneRoot('Title'), panel = el('section', 'de-panel de-center de-stack');
-    // the engine's title movie under the controls (htmlui/title-scene.ts), over the 2008 backdrop
-    if (controller.loadArchiveImage) { titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller)); n.append(titleScene.element); titleScene.show(!!state.settings.reducedMotion); }
-    // signed out: live's sign-in window over the title (loginSpecs); the title keeps only its Options and the
-    // account panel (registration's long form, password recovery, linking) in a strip at its foot
+    // the engine's title movie and its buttons (htmlui/title-scene.ts), over the 2008 backdrop; signed out, ONLINE
+    // opens live's sign-in window over it (loginSpecs)
+    if (controller.loadArchiveImage) {
+      titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller));
+      n.append(titleScene.element, titleScene.controls); titleScene.show(!!state.settings.reducedMotion);
+      titleScene.wire(titlePress, name => !state.busy && (name === 'options' || name === 'online' || !(state.connection === 'online' && state.mode !== 'free')));
+      return;
+    }
+    // without the game's art: the sign-in window over a plain title, its Options and the account panel at its foot
     if (showsLogin()) {
       const foot = el('section', 'de-title-foot');
       if (state.accountDetail) { const account = el('details', 'de-account-details'); account.dataset.key = `title-account:${state.accountDetail.panel}`; account.open = !!loginUi.foot; account.ontoggle = () => { loginUi.foot = account.open; }; account.append(el('summary', '', 'Registration, password recovery & account options'), renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action }))); foot.append(account); }
@@ -1232,6 +1252,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (capture.reason) recording.append(el('p', 'de-error', capture.reason));
       recording.append(el('div', 'de-row', button('Start Recording', () => { if (!capture.records) send({ type: 'captureStart' }); else confirmAction('Start a new recording? This replaces the current recording.', () => send({ type: 'captureStart' }), 'recording'); }, capture.recording || !!state.busy), button('Stop Recording', () => send({ type: 'captureStop' }), !capture.recording), button('Download Recording', () => send({ type: 'captureDownload' }), capture.recording || !capture.records))); panel.append(recording);
     }
+    // the account's options (refresh, link Discord, registration and recovery also in the sign-in window) and Sign Out
+    if (state.accountDetail || state.auth?.signedIn) {
+      const account = el('details', 'de-account-details'); account.dataset.key = 'options-account'; account.append(el('summary', '', 'Account'));
+      if (state.auth?.signedIn) account.append(note(`Signed in${state.auth.name ? ` as ${state.auth.name}` : ''}.`), button('Sign Out', () => send({ type: 'signOut' }), !!state.busy || state.connection === 'online'));
+      if (state.accountDetail) account.append(renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action })));
+      panel.append(account);
+    }
     if (state.audio) { const audio = el('details', 'de-audio-details'); audio.dataset.key = 'options-audio'; audio.append(el('summary', '', 'Audio files & playback'), renderAudioFeature(state.audio, action => send({ type: 'audioAction', action }))); panel.append(audio); }
     panel.append(button('Back', () => open(state.sideboarding || state.preparation || state.match && !state.match.complete || state.duel && !state.duel.ended ? 'duel' : state.player ? 'lobby' : 'title'))); n.append(panel);
   }
@@ -1268,6 +1295,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (state.scene !== 'title') titleScene?.hide();
+      if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
+      if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();

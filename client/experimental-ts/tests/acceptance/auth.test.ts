@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown, openDeckEditor, exitDeckEditor } from './harness';
+import { signInWindow, signedIn, RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown, openDeckEditor, exitDeckEditor } from './harness';
 
-// the title signed out: live's sign-in window (CWindowLogin, src/ui/htmlui/login.ts) with its Sign in button and inputs
-const titleSignedOut = `document.querySelector('[data-key="login-submit"]')&&document.querySelector('input[name="password"],[data-key="password"]')`;
+// the title signed out: ONLINE opens live's sign-in window (CWindowLogin, src/ui/htmlui/login.ts), its Sign in and inputs
+const titleSignedOut = signInWindow;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
   await type(page,byKey('username'),user);
   await page.ev(`(()=>{const p=document.querySelector('[data-key="password"]')||[...document.querySelectorAll('input[type=password]')].find(i=>i.closest('form')?.querySelector('[data-key="username"]'));p.value=${JSON.stringify(password)};p.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -29,14 +29,17 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       record('auth.invalid',{ actions:'Sign-in form with a wrong password, then the right one', expected:'Actionable failure; retry possible', observed:`refusal shown: "${alert}"; the Sign In form stayed available` });
       // auth.login: the right password binds the account; the password is never kept in the page
       await signInForm(page,user,password);
-      await until(page,`document.body.innerText.includes('Signed in as ${user}')`,30000);
+      await until(page,signedIn(user),30000);
       const html = await page.ev('document.documentElement.outerHTML') as string, storage = await page.ev('JSON.stringify({...localStorage,...sessionStorage})') as string;
       expect(html).not.toContain(password); expect(storage).not.toContain(password); expect(page.logs.join('\n')).not.toContain(password);
       const session = await page.ev(`fetch('/api/de/session').then(r=>r.json())`) as { signedIn:boolean; name?:string };
       expect(session).toMatchObject({ signedIn:true });
       record('auth.login',{ actions:'Real sign-in form against better-auth', expected:'Account bound; no credential in DOM, storage or console', observed:`Signed in as ${user}; /api/de/session signedIn=true; password absent from DOM/storage/logs`, accounts:'1 test user' });
       // auth.session: reload restores the session; Sign Out clears identity and access
-      await page.go(page === page ? `${(await page.ev('location.href'))}` : '',`document.body.innerText.includes('Signed in as ${user}')`);
+      await page.go(page === page ? `${(await page.ev('location.href'))}` : '',signedIn(user));
+      // Sign Out: OPTIONS, More Options, Account (the rewrite's options page; live signs out by closing the page)
+      await press(page,byKey('title-options')); await press(page,byKey('opt-more'));
+      await until(page,byKey('options-account'),20000); await page.ev(`${byKey('options-account')}.open=true`);
       await click(page,'Sign Out');
       // the page drops the identity at once and stays busy until the server's sign-out answers ('Signed out.')
       await until(page,`${titleSignedOut}&&!window.__deApp?.getState().busy`,30000);
@@ -88,7 +91,7 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       const verified = await discordForward('verify',code!,`${Date.now()}`.slice(-12));
       expect(verified.ok).toBe(true);
       await press(page,byKey('login-submit'));
-      await until(page,`document.body.innerText.includes('Signed in as')`,30000);
+      await until(page,signedIn(),30000);
       record('auth.register',{ actions:'Sign-in window Create account; invalid name; duplicate name from a second browser; Discord /verify forward; Continue', expected:'Valid account created and usable; duplicate and invalid refused', observed:`code shown; invalid: "${invalid}"; duplicate: "${duplicate}"; verified and signed in as ${account}`, accounts:'1 new account, 1 second browser' });
     } finally { closeAll(); }
   },240000);

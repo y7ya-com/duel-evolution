@@ -122,7 +122,13 @@ export const SKIN_CSS = `
 .de-client .de-duel-prompt[role=dialog][aria-label='Duel Invitation']>.de-panel-title { margin:-7px -7px 10px!important; }
 
 /* Title and character select. */
-.de-client[data-scene=title] .de-stage { background:radial-gradient(ellipse at 50% 30%,#bff4ff 0%,#4fb6ee 40%,#0f5fb0 100%); }
+/* the title: main's 2008 backdrop (backdrop.js, the layer's) shows through, as on live; and as live's stage.js the 4:3
+   stage fills the window, letterboxed on black, with no bars (phones: ui/phone.ts frames it) */
+.de-client[data-scene=title] .de-stage { background:transparent; }
+html:has(.de-client[data-scene=title]:not(.de-phone)), html:has(.de-client[data-scene=title]:not(.de-phone)) body { background:#000; overflow:hidden; margin:0; }
+.de-client[data-scene=title]:not(.de-phone) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
+.de-client[data-scene=title]:not(.de-phone)>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; border:0; }
+.de-client[data-scene=title]:not(.de-phone)>.de-nav { display:none; }
 /* where live's sign-in panel stands: CWindowLogin at 256, 256, 464 wide (rt/session.cpp), under the title movie's logo */
 .de-client[data-scene=title] .de-scene>.de-panel { position:absolute; z-index:1; left:25%; top:33.333%; width:45.3125%; margin:0; box-sizing:border-box; }
 .de-client[data-scene=title] .de-scene .de-panel>button { min-height:36px; font:italic bold 16px Arial,sans-serif; letter-spacing:.05em; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); padding:0 24px; }

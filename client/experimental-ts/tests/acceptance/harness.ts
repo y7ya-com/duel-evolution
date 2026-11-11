@@ -147,7 +147,16 @@ export async function openNpcCard(page:Page,npc:string) {
 const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Duel Log','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title'];
 const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
 /** Presses the visible control with this text; a Main Menu entry is reached through the MAIN key, as a player would. */
+/** The title's sign-in window, as live: ONLINE (the title movie's button, htmlui/title-scene.ts) opens it signed out.
+ * Polled by until(): presses ONLINE once it can be pressed, true once the window's Sign in and Password show. */
+export const signInWindow = `(()=>{if(document.querySelector('[data-key="login-submit"]'))return !!document.querySelector('input[name="password"],[data-key="password"]');const o=document.querySelector('[data-key="title-online"]');if(o&&!o.disabled&&o.style.pointerEvents==='auto')o.click();return false;})()`;
+/** Signed in (the title shows no account line: live's title is the movie and its buttons). */
+export const signedIn = (name?:string) => `(window.__deApp?.getState().auth?.signedIn===true${name ? `&&window.__deApp.getState().auth.name===${JSON.stringify(name)}` : ''})`;
+// the title movie's buttons for the rewrite's former title keys
+const TITLE_KEYS:Record<string,string> = { 'Go Online':'ONLINE','Free Duel & Deck Editor':'FREE DUEL' };
 export async function click(page:Page,text:string,timeout = 30000) {
+  const alias = TITLE_KEYS[text];
+  if (alias) { await until(page,`${byText(text)}||${byText(alias)}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = alias; }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
   // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
