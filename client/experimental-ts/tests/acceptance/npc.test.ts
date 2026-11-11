@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, byKey, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
 
 const npcPanel = `document.querySelector('[aria-label="NPC interaction"]')`;
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -58,10 +58,8 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
-      await click(page,'Surrender');
-      const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
-      await until(page,`${yes}||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,30000);
-      if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
+      // Surrender: the client's own Yes / No (main's YesNo, surrender-yes), then the server's question when it asks one
+      await surrender(page);
       await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
       const rematch = await page.ev(`window.__duelEnd()`);
       expect(rematch).toBe('Defeat');
