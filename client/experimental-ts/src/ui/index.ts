@@ -48,6 +48,7 @@ import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
+import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
@@ -291,7 +292,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const titleSpecs = (): WindowSpec[] => {
     if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') { titleUi = null; return []; }
     const p = state.profileDetail;
-    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.selfPid === p?.selectedPid ? p?.comments[1] ?? undefined : undefined, busy: !!state.busy || p?.pending != null,
+    return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.details && p.selfPid === p.details.pid ? titleName(p.details.titleId) || undefined : undefined, busy: !!state.busy || p?.pending != null,
       wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
   };
   // Duel Log (CWindowModelDuellogTop / List / Search) over the scene, opened from the Main Menu: main's duel archive

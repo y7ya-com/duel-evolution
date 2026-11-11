@@ -136,6 +136,8 @@ export interface ClientView {
   profileDetail?: ProfileState;
   /** The titles the character has earned (the PBIN snapshot, features/titles.ts): Change Title's list. */
   titles?: import('../features/titles').OwnedTitle[];
+  /** My Profile's '% of Cards Collected': the card types owned, as a percentage of the catalogue. */
+  cardsCollected?: number | undefined;
   /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
   tournament?: import('../network/tournament').TournamentState | null;
   eventInfo?: import('../network/tournament').EventInfo | null;

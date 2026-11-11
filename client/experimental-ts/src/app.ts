@@ -410,9 +410,11 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined };
-    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions' | 'cardsCollected'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined, cardsCollected: undefined };
+    // My Profile's '% of Cards Collected': the card types the trunk holds of the catalogue's cards
+    const cardsCollected = this.project('cardsCollected', game.collection, c => { const total = (this.catalogCards ??= this.catalog.allCards()).length; return total ? [...c].filter(([, n]) => n > 0).length * 100 / total : 0; });
+    return { cardsCollected, titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
       tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null, sanctions: game.sanctions };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {

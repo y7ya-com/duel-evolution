@@ -6,6 +6,7 @@ import type { ClientCommand, ClientView } from '../contracts';
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
+import { titleName } from '../../features/titles';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
 import playerSelectLive from '@htmlui/mock/playerselect-live.json';
@@ -388,9 +389,11 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   const s = p.summary, d = p.details, self = true;
   const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
   const rows: [string, string][] = [
-    ['Name', s?.name ?? d?.name ?? ''], ['Title', p.comments[1] ?? ''], ['LV', String(s?.level ?? d?.level ?? '')],
+    ['Name', s?.name ?? d?.name ?? ''], ['Title', d ? titleName(d.titleId) : ''], ['LV', String(s?.level ?? d?.level ?? '')],
     ['Tournament Points', d ? String(d.tp) : ''], ['Wins', String(wins)], ['Losses', String(losses)], ['Score', d ? String(d.score) : ''],
-    ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'], ['Miles', d ? String(d.mp) : ''],
+    ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'],
+    ...(ctx.state.cardsCollected !== undefined ? [['% of Cards Collected', `${ctx.state.cardsCollected.toFixed(2)}%`] as [string, string]] : []),
+    ['Miles', d ? String(d.mp) : ''],
     ...(p.comments[0] ? [['Comment', p.comments[0]] as [string, string]] : []),
   ];
   const b = new WindowBuilder(ctx.ids, 'profile', 'CWindowModelProfile', { x: 212, y: 186, w: 600, h: 396 }, { z: 51453, modal: true });
