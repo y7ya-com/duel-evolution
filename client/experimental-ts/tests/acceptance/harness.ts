@@ -152,11 +152,24 @@ const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JS
 export const signInWindow = `(()=>{if(document.querySelector('[data-key="login-submit"]'))return !!document.querySelector('input[name="password"],[data-key="password"]');const o=document.querySelector('[data-key="title-online"]');if(o&&!o.disabled&&o.style.pointerEvents==='auto')o.click();return false;})()`;
 /** Signed in (the title shows no account line: live's title is the movie and its buttons). */
 export const signedIn = (name?:string) => `(window.__deApp?.getState().auth?.signedIn===true${name ? `&&window.__deApp.getState().auth.name===${JSON.stringify(name)}` : ''})`;
+/** A title movie button (htmlui/title-scene.ts: online, options, deck, free) once it can be pressed: shown, enabled
+ * and taking the pointer (the movie has played). */
+export const titleButton = (name:'online'|'options'|'deck'|'free') => `[...document.querySelectorAll('[data-key="title-${name}"]')].find(b=>!b.disabled&&b.style.pointerEvents==='auto'&&b.style.visibility==='visible'&&b.getClientRects().length)`;
+/** The title's way online: the movie's ONLINE (or the plain title's Go Online, without the game's art). */
+export const goOnlineButton = `(${byText('Go Online')}||${titleButton('online')})`;
 // the title movie's buttons for the rewrite's former title keys
-const TITLE_KEYS:Record<string,string> = { 'Go Online':'ONLINE','Free Duel & Deck Editor':'FREE DUEL' };
+const TITLE_KEYS:Record<string,'online'|'free'> = { 'Go Online':'online','Free Duel & Deck Editor':'free' };
 export async function click(page:Page,text:string,timeout = 30000) {
   const alias = TITLE_KEYS[text];
-  if (alias) { await until(page,`${byText(text)}||${byText(alias)}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = alias; }
+  if (alias) {
+    await until(page,`${byText(text)}||${titleButton(alias)}`,timeout);
+    if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,titleButton(alias)); return; }
+  }
+  // the title's OPTIONS opens DUEL OPTIONS; its More Options is the rewrite's options page (what Options opened before)
+  if (text === 'Options' && await page.ev(`document.querySelector('.de-client')?.dataset.scene==='title'&&!${byText('Options')}`)) {
+    await until(page,`${byText('Options')}||${titleButton('options')}`,timeout);
+    if (!await page.ev(`Boolean(${byText('Options')})`)) { await press(page,titleButton('options')); await until(page,byKey('opt-more'),timeout); await press(page,byKey('opt-more')); return; }
+  }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
   // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)

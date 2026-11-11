@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, byKey, type Page, lobbyShown,
-  deckScreen, openDeckEditor, deckSide, filesReady, type DeckScreen } from './harness';
+  deckScreen, openDeckEditor, titleButton, deckSide, filesReady, type DeckScreen } from './harness';
 
 /** Deck editor flows on main's HTML deck screen (src/ui/htmlui/deck.ts, deck-dom.ts, deck-scene.ts) against the real
  * server: the saved decks and active deck (user_decks / user_deck_current), the character's trunk, the deck check and
@@ -84,7 +84,7 @@ async function reload(page:Page,character:string) {
   await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
   for (let attempt = 0; attempt < 12 && !(await page.ev(`Boolean(${slot})`)); attempt++) {
-    const go = `[...document.querySelectorAll('button')].find(b=>['Go Online','Continue'].includes(b.textContent.trim())&&!b.disabled)`;
+    const go = `([...document.querySelectorAll('button')].find(b=>['Go Online','Continue'].includes(b.textContent.trim())&&!b.disabled)||${titleButton('online')})`;
     await until(page,`${go}||${slot}`,60000);
     if (await page.ev(`Boolean(${go})`)) await press(page,go);
     await until(page,`${slot}||/already logged in/.test(document.body.innerText)`,30000).catch(() => {});

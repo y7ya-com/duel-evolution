@@ -161,7 +161,7 @@ export class TitleScene {
     for (const b of TITLE_BUTTONS) {
       const el = this.buttons.get(b.name)!, p = instance.list.get(b.depth), c = p && movie.characters.get(p.character);
       const shape = c?.kind === 'button' ? c.records.map(r => movie.characters.get(r.character)).find(s => s?.kind === 'shape') : undefined;
-      if (!p || !shape || shape.kind !== 'shape') { el.style.visibility = 'hidden'; continue; }
+      if (!p || !shape || shape.kind !== 'shape') { Object.assign(el.style, { visibility: 'hidden', pointerEvents: 'none' }); el.tabIndex = -1; continue; }
       const [x0, y0, x1, y1] = shape.bounds, m = p.matrix;
       const left = (m.tx + x0 * m.a) / 20, top = (m.ty + y0 * m.d) / 20, w = (x1 - x0) * m.a / 20, h = (y1 - y0) * m.d / 20;
       Object.assign(el.style, { left: `${left / 10.24}%`, top: `${top / 7.68}%`, width: `${w / 10.24}%`, height: `${h / 7.68}%`, visibility: 'visible', pointerEvents: ready ? 'auto' : 'none' });

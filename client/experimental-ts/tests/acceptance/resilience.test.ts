@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { surrenderRow, RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
+import { surrenderRow, RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, goOnlineButton, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -75,7 +75,7 @@ async function inject(page:Page,build:string) {
 }
 const alerts = (page:Page) => page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as Promise<string>;
 async function lostToTitle(page:Page) {
-  await until(page,`document.querySelector('.de-client').dataset.scene==='title'&&${byText('Go Online')}`,30000);
+  await until(page,`document.querySelector('.de-client').dataset.scene==='title'&&${goOnlineButton}`,30000);
   return alerts(page);
 }
 /** main's error dialog (CWindowModelDialogError: a connection that failed, a refused request), as the original shows
@@ -260,12 +260,12 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // Timeout: the server accepts the connection and never answers.
       await page.ev(`window.__net.rewrite=u=>u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:${silentPort}/')`);
       let t = Date.now(); await goOnline(page);
-      await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/timed out/i.test(a.textContent))&&${byText('Go Online')}`,40000);
+      await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/timed out/i.test(a.textContent))&&${goOnlineButton}`,40000);
       const timeout = `${await alerts(page)} after ${Math.round((Date.now() - t) / 1000)} s`;
       // Refusal: nothing listens on the port.
       await page.ev(`window.__net.rewrite=u=>u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:1/')`);
       t = Date.now(); await goOnline(page);
-      await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/closed|refused|failed/i.test(a.textContent))&&${byText('Go Online')}`,30000);
+      await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/closed|refused|failed/i.test(a.textContent))&&${goOnlineButton}`,30000);
       const refused = `${await alerts(page)} after ${Math.round((Date.now() - t) / 1000)} s`;
       expect(await connection(page)).not.toBe('online');
       await page.ev(`window.__net.rewrite=null`);
@@ -401,7 +401,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // A double click on Go Online opens one connection.
       await until(page,byText('Go Online'),60000);
       const sockets0 = await page.ev(`window.__net.sockets.length`) as number;
-      await page.ev(`(()=>{const b=${byText('Go Online')};b.click();b.click();})()`);
+      await page.ev(`(()=>{const b=${goOnlineButton};b.click();b.click();})()`);
       await until(page,freeSlot,60000); await sleep(1000);
       const goOnline = (await page.ev(`window.__net.sockets.length`) as number) - sockets0;
       expect(goOnline).toBe(1);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, screenshot, click, press, until, type, byKey, byText, claimStarter, sleep, pressAvatar, createCharacter, freeSlot, say, lobbyShown, searchPlayers, openDeckEditor, exitDeckEditor } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, screenshot, click, press, until, type, byKey, byText, goOnlineButton, claimStarter, sleep, pressAvatar, createCharacter, freeSlot, say, lobbyShown, searchPlayers, openDeckEditor, exitDeckEditor } from './harness';
 
 /** A screenshot tour of every out-of-duel screen with original art (SKIN_SHOT names the set, e.g. before/after), for
  * comparison with the htmlui replica and original captures. Asserts each screen's own controls stay reachable. */
@@ -9,7 +9,7 @@ describe.skipIf(!enabled)('UI skin tour',() => {
     try {
       const page = await openPage(1280,900); await openClient(page,await signIn(`TestSk${RUN}`));
       const shot = (name:string) => screenshot(page,`${SET}-${name}`);
-      await until(page,byText('Go Online'),60000); await sleep(400); await shot('01-title');
+      await until(page,goOnlineButton,60000); await sleep(400); await shot('01-title');
       await click(page,'Go Online',60000); await until(page,freeSlot,60000);
       await createCharacter(page,`Skin ${RUN}`,{ wait:false });
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(`Skin ${RUN}`)})&&!b.disabled)`;
