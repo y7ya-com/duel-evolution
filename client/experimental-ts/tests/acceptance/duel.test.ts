@@ -160,6 +160,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       const prompts = tracker();
       const stats = { checkpoints:0, failed:[] as string[], leaks:[] as string[], artLeaks:[] as string[], bothInput:0, opponentActions:[] as string[], monsters:0, sets:0, ownSetNamed:0, flips:0, positions:0, lp:new Set<string>(), destroyed:0, banished:0, phases:new Set<string>(), log:0, logOrder:[] as string[], chains:0, counters:0, control:0, shuffles:0, secretChecks:0, artRequests:0, covered:[] as string[], piles:new Set<string>() };
       let previous:{ a:Snap; b:Snap } | null = null, lastTurn = 0, lastBar = '';
+      // per page (0 = a, 1 = b): the card names shown to it publicly, with how many art requests it had made before
+      const revealedAt = [new Map<string,number>(), new Map<string,number>()] as const, seenRequests = [0,0];
       const checkpoint = async (why:string) => {
         const s = await settle(a,b);
         stats.checkpoints++;
@@ -167,20 +169,27 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         if (hasInput(s.a) && hasInput(s.b)) stats.bothInput++;
         // cards.hidden: names on the owner's private cards appear nowhere on the other page (text or attributes), and
         // the other page never requested their art.
-        for (const [owner,other,otherPage,otherDeck] of [[s.a,s.b,b,decks.b],[s.b,s.a,a,decks.a]] as const) {
+        for (const [k,owner,other,otherPage,otherDeck] of [[1,s.a,s.b,b,decks.b],[0,s.b,s.a,a,decks.a]] as const) {
           const publicNames = new Set([...owner.cards,...other.cards].filter(c => !c.back).map(nameOf).filter(Boolean) as string[]);
           const logText = other.log.join('\n');
-          const secret = [...new Set(owner.cards.filter(c => c.side === 'your' && (c.zone === 'hand' || c.back && ['monster','spell','field'].includes(c.zone))).map(nameOf).filter((n):n is string => !!n))]
-            .filter(n => !publicNames.has(n) && !otherDeck.includes(n) && !logText.includes(n));
+          const requests = await otherPage.ev(`window.__art ?? []`) as string[];
+          const privateNames = [...new Set(owner.cards.filter(c => c.side === 'your' && (c.zone === 'hand' || c.back && ['monster','spell','field'].includes(c.zone))).map(nameOf).filter((n):n is string => !!n))];
+          // A card shown publicly (face up on the field, named in the log) and later back in a hand or set: its art was
+          // fetched when it was public. Remember from which request on that page it was public, for the whole duel
+          // (the log keeps only its last lines); requests made before the reveal still count as leaks.
+          const visibleToOther = new Set(other.cards.filter(c => !c.back).map(nameOf).filter(Boolean) as string[]);
+          for (const n of privateNames) if ((visibleToOther.has(n) || logText.includes(n)) && !revealedAt[k].has(n)) revealedAt[k].set(n,seenRequests[k]);
+          const secret = privateNames.filter(n => !publicNames.has(n) && !otherDeck.includes(n) && !logText.includes(n));
+          seenRequests[k] = requests.length;
           if (!secret.length) continue;
           stats.secretChecks += secret.length;
           const text = await exposed(otherPage);
           for (const n of secret) if (text.includes(n)) stats.leaks.push(`${n} exposed on the opponent's page @ ${owner.bar}`);
-          const requests = await otherPage.ev(`window.__art ?? []`) as string[];
           stats.artRequests = Math.max(stats.artRequests,requests.length);
-          for (const r of await artRanges(secret)) for (const q of requests) {
+          for (const r of await artRanges(secret)) requests.forEach((q,i) => {
+            if (i >= (revealedAt[k].get(r.name) ?? Infinity)) return;
             const m = /^merge\.dat bytes=(\d+)-(\d+)$/.exec(q); if (m && Number(m[1]) <= r.end && Number(m[2]) >= r.start && Number(m[2]) - Number(m[1]) < 4 * 1024 * 1024) stats.artLeaks.push(`${r.name} art requested by the opponent (${q})`);
-          }
+          });
         }
         // Observations for the evidence.
         for (const v of [s.a,s.b]) {
