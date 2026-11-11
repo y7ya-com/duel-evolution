@@ -33,7 +33,7 @@ import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/win
 import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
-import { duellogUi, duellogWindow, fetchDuellog, type DuellogUi } from './htmlui/duellog';
+import { duellogQuery, duellogUi, duellogWindow, fetchDuellog, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
@@ -281,21 +281,29 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.selfPid === p?.selectedPid ? p?.comments[1] ?? undefined : undefined, busy: !!state.busy || p?.pending != null,
       wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
   };
-  // Duel Log (CWindowModelDuellogTop / List / Search) over the scene, opened from the Main Menu: GET /api/de/duellog
+  // Duel Log (CWindowModelDuellogTop / List / Search) over the scene, opened from the Main Menu: main's duel archive
+  // (GET /api/de/replays, read once per opening; its pages and search are cut here) and this browser's duel records
   let duellog: DuellogUi | null = null, duellogAsk = 0;
   const loadDuellog: (search: DuellogUi['search'], page: number) => void = (search, page) => {
     const ui = duellog; if (!ui) return;
+    const cut = () => { ui.data = duellogQuery(ui.all ?? [], state.player?.name ?? '', search, page); ui.page = ui.data.page; };
+    if (ui.all) { cut(); showHtml(); return; }
     const ask = ++duellogAsk; ui.loading = true; ui.error = null; showHtml();
-    void fetchDuellog(search, page).then(out => {
+    void Promise.all([fetchDuellog(), controller.duelRecords?.().catch(() => []) ?? Promise.resolve([])]).then(([out, local]) => {
       if (duellog !== ui || ask !== duellogAsk) return;
-      ui.loading = false;
-      if ('error' in out) ui.error = out.error; else { ui.data = out; ui.page = out.page; }
+      ui.loading = false; ui.local = [...local];
+      if ('error' in out) ui.error = out.error; else { ui.all = out; cut(); }
       showHtml();
     });
   };
+  const openUrl = (url: string, download: boolean) => {
+    if (download) { const a = document.createElement('a'); a.href = url; a.download = ''; a.rel = 'noopener'; document.body.append(a); a.click(); a.remove(); }
+    else globalThis.open?.(url, '_blank', 'noopener');
+  };
   const duellogSpecs = (): WindowSpec[] => {
     if (!duellog || !state.player || state.scene === 'duel' || state.scene === 'title' || state.connection !== 'online') { duellog = null; return []; }
-    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml() })];
+    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml(),
+      open: openUrl, play: key => { duellog = null; send({ type: 'replayPlay', key }); } })];
   };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
@@ -399,8 +407,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const out: WindowSpec[] = [];
     // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over)
     const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
-    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
-    if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
+    if (duel.ended && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
+    if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
+    if (!duel.ended || state.replay || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }

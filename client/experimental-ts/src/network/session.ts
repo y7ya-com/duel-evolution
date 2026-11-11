@@ -3,6 +3,7 @@ import { avatarParts, defaultAvatar } from '../avatars/appearance';
 import { TM, TOURNAMENT_REQUESTS, decodeAutoDuel, decodeEventInfo, emptyTournament, isTournamentMessage, reduceTournament } from './tournament';
 import type { EventInfo, TournamentState } from './tournament';
 import { BinaryReader, BinaryWriter, latin1, md5, type WireMessage } from './codec';
+import { DuelRecordCollector, RECORD_ACK, RECORD_IDS, type DuelRecord } from '../duel/record';
 import { Channel, GatewayClient, type GatewayOptions, type GatewayStatus } from './gateway';
 
 export interface Character {
@@ -76,6 +77,8 @@ export interface SessionOptions extends Omit<GatewayOptions, 'onMessage' | 'onSt
   onState?: (state: SessionState) => void;
   onMessage?: (channel: Channel, message: WireMessage) => void;
   onDuelOffer?: (offer: DuelOffer) => void;
+  /** The duel record the server sends once a duel ends (duel/record.ts; live's client saves it in its Duel Record). */
+  onDuelRecord?: (record: DuelRecord) => void;
   /** A 32-byte DEV fixture login only. Live identity always comes from the authenticated WebSocket cookie. */
   loginBlob?: Uint8Array;
 }
@@ -211,6 +214,9 @@ export class GameSession {
   private listNpcs: Npc[] = [];
   private listRooms: DuelRoom[] = [];
   private readonly blob: Uint8Array;
+  /** The duel record being received at a duel's end (0x6010 .. 0x6012, each answered with 0x6013). */
+  private record = new DuelRecordCollector();
+  private recordDone: (() => void) | null = null;
   // ---- reconnect (live's ovr/duelreattach.c + ovr/lobbyretry.c)
   /** The duel's pid, its 0x6202s received since the booked check, its duel port, cuts so far; inDuel: a booked duel. */
   private duelRe = { pid:0, commands:0, port:0, cuts:0, inDuel:false, on:false, tries:0, deadline:0, epoch:0,
@@ -832,6 +838,9 @@ export class GameSession {
     if (this.state.match && !this.state.match.complete) throw new Error('Complete the match before returning to the lobby');
     this.stopWatchPolling(); this.state.spectating = false; this.state.relay = null; this.state.duelRole = 'player'; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null;
     this.duelRe.inDuel = false; this.duelRe.on = false; this.duelRe.epoch++;   // the client's own bye ends the duel (f_0068cf60)
+    // the duel record still arriving (its last chunks after the result screen): up to three seconds more for it
+    if (this.record.active && this.duel && !this.duel.closed) await new Promise<void>(res => { const t = setTimeout(() => { this.recordDone = null; res(); }, 3000); this.recordDone = () => { clearTimeout(t); this.recordDone = null; res(); }; });
+    this.record.reset();
     const duel = this.duel; this.duel = null; duel?.close();
     this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
     this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null };
@@ -840,6 +849,13 @@ export class GameSession {
   }
   private receive(channel: Channel, message: WireMessage): void {
     const { id, data } = message;
+    if (channel === this.duel && RECORD_IDS.has(id)) {
+      const got = this.record.receive(id, data);
+      if (got.ack && !channel.closed) channel.send(RECORD_ACK);
+      if (got.record) this.options.onDuelRecord?.(got.record);
+      if (got.record || got.error) this.recordDone?.();
+      return;
+    }
     if (id === 0x2003) this.state.servers.push(...decodeServers(data));
     else if (id === 0x3012) this.state.characters = decodeCharacters(data);
     else if (channel === this.lobby && id === 0x4306) {

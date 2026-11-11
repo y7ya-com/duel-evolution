@@ -153,6 +153,8 @@ export interface ClientView {
   sideboarding?: { deck: DeckView; original: DeckView; round: number; scores: [number, number, number]; deadline?: number | null; ready: boolean; error?: string };
   match?: { round: number; scores: [number, number, number]; complete: boolean };
   scene: Scene;
+  /** A duel record being replayed on the duel screen (the Duel Log's Play): its commands so far of all. */
+  replay?: { names: [string, string]; when: number; index: number; total: number; playing: boolean };
   auth?: { signedIn: boolean; name?: string };
   relay?: { active: [0 | 1, 0 | 1]; self: 0 | 1 | 255; players: { pid: number; name: string }[]; canAct: boolean };
   preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null };
@@ -182,6 +184,8 @@ export type DuelResponse =
   | { text: string }
   | { cancel: true };
 export type ClientCommand =
+  | { type: 'replayPlay'; key: string }
+  | { type: 'replayControl'; action: 'toggle' | 'step' | 'exit' }
   | { type: 'connect'; freeMode?: boolean }
   | { type: 'npcAnswer'; accept: boolean }
   | { type: 'npcAdvance' | 'npcClose' | 'npcRefreshInventory' }
@@ -263,6 +267,8 @@ export interface ClientController {
   gameText?(ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>>;
   /** A language's whole yo2text table by id (the English one indexes the labels the rewrite gives main's screens). */
   gameTextTable?(language: import('../features/language').GameLanguage, signal?: AbortSignal): Promise<readonly string[]>;
+  /** The duel records kept in this browser (services/duel-records.ts), newest first: what the Duel Log can Play. */
+  duelRecords?(): Promise<readonly { key: string; when: number; names: [string, string] }[]>;
   /** Whether `password` is the signed-in account's (asked before deleting a character); null when it has none. */
   checkPassword?(password: string, signal: AbortSignal): Promise<boolean | null>;
 }

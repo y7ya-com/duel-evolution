@@ -244,14 +244,6 @@ const tags = async (c: Context<E>) => {
 };
 routes.on(["GET", "POST"], "/api/de/tag", tags);
 routes.on(["GET", "POST"], "/api/de/tag/*", tags);
-// the Main Menu's Duel Log (game/duellogList.ts): the active character's games, searched (opp, result, from, to) and paged
-routes.get("/api/de/duellog", async (c) => {
-  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
-  if (!v) return c.json({ error: "signed out" }, 401);
-  const fwd = new Request(c.req.raw);
-  fwd.headers.set("x-de-user", v.userId);
-  return toWorld(c.env, c.req.raw, "/__de/duellog" + new URL(c.req.url).search, fwd);
-});
 routes.get("/api/de/wallet", async (c) => {
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
   if (!v) return c.json({ error: "signed out" }, 401);
@@ -268,7 +260,8 @@ routes.get("/api/de/replays", async (c) => {
   if (!v) return c.json({ error: "signed out" }, 401);
   const fwd = new Request(c.req.raw);
   fwd.headers.set("x-de-user", v.userId);
-  return toWorld(c.env, c.req.raw, "/__de/replays", fwd);
+  // ?limit= (the Duel Log reads the whole 90 days: its stats and its search are the client's)
+  return toWorld(c.env, c.req.raw, "/__de/replays" + new URL(c.req.url).search, fwd);
 });
 routes.get("/api/de/replays/:id", async (c) => {
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);

@@ -164,3 +164,10 @@ describe.skipIf(!haveData)("the duel archive", () => {
     expect((await replayFile(db, "u:b", b!.id, name))!.name).toMatch(/_Alfa-vs-Beta_game2\.yrpX$/);
   });
 });
+
+describe("GET /api/de/replays?limit= (the Duel Log reads the whole archive)", () => {
+  it("100 by default, a number up to REPLAYS_MAX, junk ignored", async () => {
+    const { replayLimit, REPLAYS_MAX } = await import("../src/duel/duelArchive.ts");
+    expect([replayLimit(null), replayLimit("5"), replayLimit("0"), replayLimit("99999"), replayLimit("-3"), replayLimit("x")]).toEqual([100, 5, 1, REPLAYS_MAX, 100, 100]);
+  });
+});

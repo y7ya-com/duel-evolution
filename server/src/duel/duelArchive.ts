@@ -78,6 +78,10 @@ export async function pruneArchive(db: D1Database, bucket: R2Bucket | undefined,
 export interface ReplayItem { id: number; at: number; kind: string; me: string | null; opponent: string | null; npc: number | null; game: number;
   result: string; reason: string | null; turns: number; secs: number; bytes: number | null }
 
+/** GET /api/de/replays?limit=: 100 by default (the /replays page), up to REPLAYS_MAX (the Duel Log's whole history). */
+export const REPLAYS_MAX = 1000;
+export const replayLimit = (v: string | null): number => (v && /^\d+$/.test(v) ? Math.min(REPLAYS_MAX, Math.max(1, Number(v))) : 100);
+
 /** The account's duels with a replay file, newest first (both sides of a PvP duel). */
 export async function listReplays(db: D1Database, acct: string, npcName: (id: number) => string, limit = 100): Promise<ReplayItem[]> {
   const rows = ((await db.prepare(`SELECT id, at, kind, a_acct, a_name, b_acct, b_name, rival, game, result, reason, turns, secs, file_bytes

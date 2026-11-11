@@ -5,6 +5,9 @@ import type { SessionState, SessionOptions } from './network/session';
 import type { Channel } from './network/gateway';
 import type { WireMessage } from './network/codec';
 import { createDuelState, reduceDuelMessage, acknowledgePresentation } from './duel/model';
+import { recordMessages, type DuelRecord } from './duel/record';
+import { idbRecordStore, type DuelRecordStore } from './services/duel-records';
+import { loadDuelSpeed } from './ui/htmlui/duel-dialogs';
 import type { DuelState } from './duel/types';
 import { encodeDuelResponse } from './duel/responses';
 import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
@@ -64,6 +67,8 @@ import { createNpcResultContext, npcResultLine, reduceNpcResultContext } from '.
 
 export interface AppOptions {
   gatewayUrl: string;
+  /** Where the server's duel records are kept (default: this browser's IndexedDB). */
+  duelRecords?: DuelRecordStore;
   /** Idle prefetch of the next likely scenes and a starting duel's art (features/preload.ts). */
   preloader?: Preloader;
   /** Scene loads (the overlay and the dev timing log). */
@@ -125,6 +130,10 @@ export class ClientApp implements ClientController {
   private connectionLostAt = 0;
   /** The other duelist of a player-versus-player duel, from the challenge either side made. */
   private duelIsPvp = false;
+  /** The Duel Log's Play: a record's 0x6202s fed through the duel model as a spectator sees them. */
+  private replay: { names: [string, string]; when: number; messages: WireMessage[]; index: number; playing: boolean; timer: ReturnType<typeof setTimeout> | null; back: Scene } | null = null;
+  private recordStore: DuelRecordStore | null = null;
+  private get records(): DuelRecordStore { return this.recordStore ??= this.options.duelRecords ?? idbRecordStore(); }
   private pvpOpponent: string | null = null;
   private chatSeen: SessionState['chat'] | null = null;
   private timerSeen: unknown = null; private timerSeenAt = 0;
@@ -511,9 +520,9 @@ export class ClientApp implements ClientController {
       status: state.phase === 'lobby' ? 'Online in Duel Academy.' : state.phase.replaceAll('-', ' '),
       ...(state.error ? { error: state.error } : {}),
     };
-    if (this.view.duel && this.view.duel.spectating !== state.spectating) {
-      this.view = { ...this.view, duel: { ...this.view.duel, spectating: state.spectating } };
-      if (this.settledDuel) this.settledDuel = { ...this.settledDuel, spectating: state.spectating };
+    if (this.view.duel && this.view.duel.spectating !== (state.spectating || !!this.replay)) {
+      this.view = { ...this.view, duel: { ...this.view.duel, spectating: state.spectating || !!this.replay } };
+      if (this.settledDuel) this.settledDuel = { ...this.settledDuel, spectating: state.spectating || !!this.replay };
     }
     this.syncEditor();
     if (this.settledDuel) this.renderDuelFrame(); else this.emit();
@@ -530,6 +539,11 @@ export class ClientApp implements ClientController {
     if (channel === this.game?.lobby) { this.social.receive(message); this.profile.receive(message); this.npc.receive(message); }
     if (channel === this.game?.lobby && message.id === 0x4140) { const record = pduNpcRecord(message.data); if (record) this.duelNpcRecord = record; }
     if ( !duelIds.has(message.id) || channel !== this.game?.duel) return;
+    if (this.replay) this.stopReplay();
+    this.applyDuel(message);
+  }
+  /** One duel message through the model, the log, the timeline and the cues (a live duel's or a replay's). */
+  private applyDuel(message: WireMessage): void {
     const previousPrompt = this.duelState.prompt?.id;
     const previous = this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
@@ -541,7 +555,7 @@ export class ClientApp implements ClientController {
     for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
     this.timeline.enqueue(previous, this.duelState); this.duelCues.collect(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
-    if (this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
+    if (!this.replay && this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
     if (this.npcResult.complete && !npcResult.complete) this.npc.refreshResultLine();
     if (this.duelState.prompt?.id !== previousPrompt) this.submittedPrompt = null;
     this.syncDuel();
@@ -594,6 +608,53 @@ export class ClientApp implements ClientController {
     }
     this.lastFrame = null;
   }
+  readonly duelRecords = async (): Promise<readonly { key: string; when: number; names: [string, string] }[]> =>
+    (await this.records.list().catch(() => [])).map(r => ({ key: r.key, when: r.when, names: r.names }));
+  private async saveRecord(record: DuelRecord): Promise<void> {
+    try { await this.records.save(record); } catch (e) { console.warn('[duel record] not saved', e); }
+  }
+  /** The Duel Log's Play: the record on the duel screen, from its first command, at the duel speed. */
+  private async startReplay(key: string): Promise<void> {
+    const stored = (await this.records.list()).find(r => r.key === key);
+    if (!stored) throw new Error('This duel was not saved in this browser.');
+    const messages = recordMessages(stored.record);
+    if (!messages.length) throw new Error('This duel record has no commands.');
+    if (this.view.scene === 'duel' && !this.replay) throw new Error('Finish the current duel first.');
+    this.stopReplay(); this.stopWorld(); this.resetDuel();
+    this.replay = { names: stored.names, when: stored.when, messages, index: 0, playing: true, timer: null, back: this.view.scene };
+    this.patch({ scene: 'duel' }); this.syncReplay(); this.syncDuel(); this.tickReplay();
+  }
+  private syncReplay(): void {
+    const r = this.replay;
+    this.patch({ replay: r ? { names: [...r.names], when: r.when, index: r.index, total: r.messages.length, playing: r.playing } : undefined });
+  }
+  /** One command, then the next once the board's animations have played (the duel speed paces both). */
+  private tickReplay(): void {
+    const r = this.replay; if (!r || !r.playing || r.timer) return;
+    r.timer = setTimeout(() => {
+      r.timer = null; if (this.replay !== r || !r.playing || this.disposed) return;
+      if (this.timeline.pending) { this.tickReplay(); return; }
+      this.stepReplay(); this.tickReplay();
+    }, Math.round(250 / loadDuelSpeed()));
+  }
+  private stepReplay(): void {
+    const r = this.replay; if (!r) return;
+    const m = r.messages[r.index]; if (!m) { r.playing = false; this.syncReplay(); return; }
+    r.index++; this.applyDuel(m);
+    if (r.index >= r.messages.length) r.playing = false;
+    this.syncReplay();
+  }
+  private controlReplay(action: 'toggle' | 'step' | 'exit'): void {
+    const r = this.replay; if (!r) return;
+    if (action === 'exit') { const back = r.back; this.stopReplay(); this.resetDuel(); this.patch({ scene: back === 'duel' ? 'lobby' : back, duel: null }); return; }
+    if (action === 'step') { r.playing = false; if (r.timer) clearTimeout(r.timer); r.timer = null; this.timeline.skip(); this.stepReplay(); return; }
+    r.playing = !r.playing && r.index < r.messages.length; this.syncReplay(); this.tickReplay();
+  }
+  private stopReplay(): void {
+    const r = this.replay; if (!r) return;
+    if (r.timer) clearTimeout(r.timer);
+    this.replay = null; this.patch({ replay: undefined });
+  }
   private resetDuel(): void {
     this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null; this.lastDuelAction = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
@@ -611,7 +672,7 @@ export class ClientApp implements ClientController {
   private syncDuel(): void {
     const background = this.duelBackground();
     this.settledDuel = { ...projectDuel(this.duelState, this.catalog, this.duelNames(), this.submittedPrompt, this.options.duelTexts, this.lastDuelAction), log: this.duelLog, ...(background ? { background } : {}), ...(this.duelNotice ? { notice: this.duelNotice } : {}),
-      spectating: this.game?.state.spectating ?? false, ...(this.duelState.timer ? { timer: { ...this.duelState.timer, at: this.timerAt() } } : {}) };
+      spectating: (this.game?.state.spectating ?? false) || !!this.replay, ...(this.duelState.timer ? { timer: { ...this.duelState.timer, at: this.timerAt() } } : {}) };
     this.renderDuelFrame(); this.scheduleAnimation();
   }
   /** Each duelist's avatar bytes for the waist-up portraits, kept from the first time they are known in this duel. */
@@ -626,6 +687,7 @@ export class ClientApp implements ClientController {
   /** When the duel's current clock reading arrived. */
   private timerAt(): number { if (this.duelState.timer !== this.timerSeen) { this.timerSeen = this.duelState.timer; this.timerSeenAt = Date.now(); } return this.timerSeenAt; }
   private duelNames(): [string, string] {
+    if (this.replay) return [...this.replay.names];
     const watched = this.game?.state.spectating ? this.game.state.watchNames : null; if (watched) return [...watched];
     // A tag relay shares each captain's field: each side is named by the partner piloting it (TAG1 order: own team first).
     const relay = this.game?.state.relay;
@@ -656,7 +718,9 @@ export class ClientApp implements ClientController {
       // Frame-timed sounds (the die's landings) play at their moment of the effect that starts now.
       if (cue.delay) setTimeout(play, cue.delay); else play();
     }
-    this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
+    // a replay answers nothing: its prompts are the record's, already answered by the commands after them
+    if (this.replay) { const { waiting: _w, ...rest } = duel; this.patch({ duel: { ...rest, prompt: null, actions: [] } }); }
+    else this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
   private scheduleAnimation(): void {
@@ -712,6 +776,7 @@ export class ClientApp implements ClientController {
       onState: state => { if (this.game === game && epoch === this.epoch) this.updateSession(state); },
       onMessage: (channel, message) => this.receive(channel, message),
       onOutgoing: (channel, message) => this.capture.outgoing(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account'),
+      onDuelRecord: record => { void this.saveRecord(record); },
       onDuelOffer: offer => {
         if (offer.source !== 'pvp' || this.attachingOffer) return;
         this.attachingOffer = true;
@@ -820,6 +885,8 @@ export class ClientApp implements ClientController {
     try {
       switch (command.type) {
         case 'connect': await this.connectAfterLoss(command.freeMode); break;
+        case 'replayPlay': await this.startReplay(command.key); break;
+        case 'replayControl': this.controlReplay(command.action); break;
         case 'disconnect': this.disconnect(); break;
         case 'tournamentRefresh': this.requireGame().requestTournament(); break;
         case 'signIn': {
@@ -907,7 +974,7 @@ export class ClientApp implements ClientController {
         case 'cancelChallenge': await this.requireGame().cancelChallenge(); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
-        case 'leaveDuel': if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
+        case 'leaveDuel': if (this.replay) { this.controlReplay('exit'); break; } if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
         case 'chooseHand': await this.requireGame().chooseHand(command.hand); break;
         case 'chooseFirst': await this.requireGame().chooseFirst(command.first); break;
         case 'beginDuel': this.requireGame().beginDuel(); break;
