@@ -3,7 +3,7 @@ import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
-async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) await press(page,byKey('menubar-duel')); await until(page,byKey('duel-cancel'),10000); }
+async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) { await until(page,`${byKey('menubar-duel')}&&!${byKey('menubar-duel')}.disabled`,30000); await press(page,byKey('menubar-duel')); } await until(page,byKey('duel-cancel'),10000); }
 /** The Duel menu's counts as main's duelsetup.js labels them: "Players searching: n" (Auto Duel) / "Open rooms: n" (Create Duel). */
 const COUNTS = `(()=>{const t=document.querySelector('[data-key="duel-cancel"]')?.closest('.win')?.innerText??'';const s=/Players searching: (\\d+)/.exec(t),r=/Open rooms: (\\d+)/.exec(t);return s&&r?s[1]+' / '+r[1]:'';})()`;
 const counts = (page:Page) => page.ev(COUNTS) as Promise<string>;
@@ -74,7 +74,9 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       const bLobby = await b.ev(placeName) as string;
 
       // pvp.end (time-out): a Single room with Time limit; the player to move does nothing and loses on time.
-      await duelMenu(b); await press(b,byKey('duel-create')); await until(b,byKey('room-ok'),10000); await press(b,byKey('room-ok'));
+      await duelMenu(b);
+      // Create Duel takes a press once the lobby's last request is answered (it is disabled while busy), as a player waits for it
+      await until(b,`${byKey('duel-create')}&&!${byKey('duel-create')}.disabled`,30000); await press(b,byKey('duel-create')); await until(b,byKey('room-ok'),10000); await press(b,byKey('room-ok'));
       await searchPlayers(a,'Search for Single Duels'); await until(a,listRow(names.b),30000);
       await playerMenu(a,names.b,'Send Duel Request');
       await until(b,invitation,20000);

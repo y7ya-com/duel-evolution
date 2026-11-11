@@ -2,7 +2,7 @@ import { describe, it } from 'vitest';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, sleep, type Page } from './harness';
 const OUT = process.env.DECK_SHOTS ?? '/home/y7ya/.cache/de-scratch/deck/rewrite';
-async function stage(page:Page) { return page.ev(`(()=>{const r=document.getElementById('canvas').getBoundingClientRect();return {x:r.left,y:r.top,w:r.width,h:r.height}})()`) as Promise<{x:number;y:number;w:number;h:number}>; }
+async function stage(page:Page) { return page.ev(`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect();return {x:r.left,y:r.top,w:r.width,h:r.height}})()`) as Promise<{x:number;y:number;w:number;h:number}>; }
 async function shot(page:Page,name:string) {
   const r = await stage(page); await mouse(page,'mouseMoved',2,2); await sleep(1500);
   const out = await page.send('Page.captureScreenshot',{ format:'png',clip:{ x:r.x,y:r.y,width:r.w,height:r.w*0.75,scale:1024/r.w } }) as { result:{ data:string } };

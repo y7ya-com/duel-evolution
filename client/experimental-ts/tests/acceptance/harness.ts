@@ -152,8 +152,12 @@ export async function type(page:Page,selector:string,value:string) {
 export const text = (page:Page) => page.ev('document.body.innerText') as Promise<string>;
 
 /** Signs a fresh test user in, gives this page its cookies and opens the client. */
-export async function openClient(page:Page,cookies:{ name:string; value:string }[] | null,options:{ assets?:boolean; settings?:Record<string,unknown> } = {}) {
+let networks = process.pid % 250;
+export async function openClient(page:Page,cookies:{ name:string; value:string }[] | null,options:{ assets?:boolean; settings?:Record<string,unknown>; network?:string } = {}) {
   await page.send('Page.enable'); await page.send('Network.enable');
+  // Each page is a player on its own network (the edge's CF-Connecting-IP; wrangler dev keeps one the request carries):
+  // the server never pairs one network with itself in the Auto Duel queue (ranking.ts sameNetwork), as for real players.
+  await page.send('Network.setExtraHTTPHeaders',{ headers:{ 'CF-Connecting-IP':options.network ?? `198.51.100.${++networks % 250 + 1}` } });
   for (const c of cookies ?? []) {
     const r = await page.send('Network.setCookie',{ name:c.name,value:c.value,url:CLIENT,path:'/',httpOnly:true,secure:c.name.startsWith('__Secure-'),sameSite:'Lax' });
     if (!r.result?.success) throw new Error('cookie refused: ' + c.name);
