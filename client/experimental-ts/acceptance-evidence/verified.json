@@ -1,22 +1,22 @@
 {
  "audio.lifecycle": [
   {
-   "at": "2026-11-04T17:41:51.947Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:12.693Z",
+   "commit": "490c989",
    "test": "tests/acceptance/settings.test.ts > Options: language, display, persistence and accessibility > unlocks audio on the first gesture, follows scenes without overlap, plays duel cues at the set volume and keeps mute",
    "actions": "Open the client (no gesture), first press, title → characters → lobby → deck editor → lobby → NPC duel (RPS, duel, result) → lobby",
    "expected": "Audio starts only after a gesture; each scene switches its track; duel cues end; nothing overlaps or stays stuck",
-   "observed": "before gesture: 0 contexts, 0 plays; after the first press: context running; tracks title:title.wav@0.60 → characters:login.wav@0.60 → lobby:gx-area.wav@0.60 → deck:deck.wav@0.60 → lobby:gx-area.wav@0.60 → duel:duel-1.wav → Defeat:lose.wav@0.60 → lobby:gx-area.wav@0.60; janken played true; at most 1 background track at once, peak 4 effect voices, 0 voices left after the duel"
+   "observed": "before gesture: 0 contexts, 0 plays; after the first press: context running; tracks title:title.wav@0.60 → characters:login.wav@0.60 → lobby:gx-area.wav@0.60 → deck:deck.wav@0.60 → lobby:gx-area.wav@0.60 → duel:duel-1.wav → Defeat:lose.wav@0.60 → lobby:gx-area.wav@0.60; janken played true; at most 1 background track at once, peak 11 effect voices, 0 voices left after the duel"
   }
  ],
  "audio.volume": [
   {
-   "at": "2026-11-04T17:41:51.941Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:12.684Z",
+   "commit": "490c989",
    "test": "tests/acceptance/settings.test.ts > Options: language, display, persistence and accessibility > unlocks audio on the first gesture, follows scenes without overlap, plays duel cues at the set volume and keeps mute",
    "actions": "Sound effects 80% and background audio 60% with local files per scene; duel cues from Sound.dat; mute effects mid-duel; reload",
    "expected": "Levels and mute persist and affect their own playback",
-   "observed": "4 duel cues at gain 0.800000011920929 (4 effects decoded from Sound.dat); background duel-1.wav@0.60 while effects muted; 0 cues after mute (gain 0); after reload: sound 0, background 0.6, files kept, playing title.wav@0.60"
+   "observed": "11 duel cues at gain 0.800000011920929 (1 effects decoded from Sound.dat); background duel-1.wav@0.60 while effects muted; 0 cues after mute (gain 0); after reload: sound 0, background 0.6, files kept, playing title.wav@0.60"
   }
  ],
  "auth.binding": [
@@ -74,32 +74,52 @@
  ],
  "avatars.appearance": [
   {
-   "at": "2026-11-04T17:08:57.452Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:17.899Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Two characters in one area with original assets",
    "expected": "Self and others rendered with their appearance parts",
-   "observed": "2 avatars drawn from original avatar art, self and Ben dfh37 included"
+   "observed": "5 avatars drawn from original avatar art, self and Ben 6y2xa included"
   }
  ],
  "avatars.titles": [
   {
-   "at": "2026-11-04T17:09:04.018Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:22.381Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Set own comment and personal title; another player opens the profile",
    "expected": "Read and change own profile/title; only owned choices offered",
-   "observed": "B read \"Hello from dfh37\" and \"Champ dfh37\" on A's profile; only own-profile edit controls offered"
+   "observed": "B read \"Hello from 6y2xa\" and \"Champ 6y2xa\" on A's profile; only own-profile edit controls offered"
+  }
+ ],
+ "cards.collection": [
+  {
+   "at": "2026-11-11T13:54:42.910Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "Search \"\"; search \"Kuriboh\"; Filters → Show: All cards; wheel over the trunk; Filters → Sort by: Name",
+   "expected": "Owned trunk, search, Show filter, scroll and order match the catalogue",
+   "observed": "owned trunk shows 11 owned names; \"Kuriboh\" → [Winged Kuriboh, Winged Kuriboh LV10, Transcendent Wings]; Show All adds unowned cards (11 visible); wheel moved the top from 0:Earthbound Spirit to 4:Ancient Tool; Sort by Name shows [\"A\" Cell Breeding Device, \"A\" Cell Incubator, \"A\" Cell Scatter Burst]"
   }
  ],
  "cards.hidden": [
   {
-   "at": "2026-11-04T17:50:29.126Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.451Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Each checkpoint reads the owner's hidden cards (hand, set cards) and searches the opponent's whole page (text and attributes) and its art requests",
    "expected": "Card backs and unknown assets reveal no private identity and remain usable.",
-   "observed": "97 hidden card names (hand and set cards, excluding names public or in the viewer's own deck) checked against the opponent's whole DOM text and attributes and against up to 158 archive range requests (merge.dat entries of their art) over 32 checkpoints: none exposed or requested; opponent's cards drawn as the original card back"
+   "observed": "46 hidden card names (hand and set cards, excluding names public or in the viewer's own deck) checked against the opponent's whole DOM text and attributes and against up to 316 archive range requests (merge.dat entries of their art) over 18 checkpoints: none exposed or requested; opponent's cards drawn as the original card back"
+  }
+ ],
+ "cards.inspect": [
+  {
+   "at": "2026-11-11T13:54:44.636Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "Search Kuriboh and press its trunk card",
+   "expected": "The detail shows the card: art, passcode, stats",
+   "observed": "detail {\"passcode\":\"40640057\",\"name\":\"Kuriboh\"}; text has ATK 300"
   }
  ],
  "character.create": [
@@ -152,90 +172,140 @@
    "observed": "starter claimed; main deck 40 cards; 42 owned collection entries on page 1; wallet 5,000 MP; Lv 1; not offered again"
   }
  ],
+ "deck.edit": [
+  {
+   "at": "2026-11-11T13:51:35.721Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "Clear Deck; drag The A. Forces (owned ×1) twice; double-click and right-click E - Emergency Call; drop the last Main card on the first; drag it to the Side Deck; double-click it back; drag a Main card to the Fusion tab",
+   "expected": "Add/remove/reorder Main, Side and Fusion cards by drag and quick moves; enforce ownership and zones",
+   "observed": "second The A. Forces refused (\"Rearrange EDIT DECK LOAD DECK SAVE DECK STRUCTURE DECK CLEAR DECK EXIT The A. Forces Increase the ATK of all Warrior-Typ\"); quick moves added 2× E - Emergency Call; reorder put \"E - Emergency Call\" first; Side move and quick move back applied (side now 0); Fusion placement: \"\"; main now 2"
+  }
+ ],
+ "deck.list": [
+  {
+   "at": "2026-11-11T13:51:25.795Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "Fresh character claims a starter deck; Edit Deck; LOAD DECK",
+   "expected": "Saved decks, active deck and trunk counts from authoritative data",
+   "observed": "LOAD DECK lists [E-HERO EVOLUTION DECK], active \"E-HERO EVOLUTION DECK\" (40 main/5 fusion/0 side); trunk 42 cards, owned per card equal to the starter deck"
+  }
+ ],
+ "deck.persist": [
+  {
+   "at": "2026-11-11T13:54:14.469Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "SAVE DECK → Save New \"Acc A6g4r3\"; reload; Save New \"Acc B6g4r3\" and Delete \"Acc A6g4r3\" (rename); reload; LOAD DECK \"E-HERO EVOLUTION DECK\"; Delete \"Acc B6g4r3\"; reload",
+   "expected": "Create, rename, save, reload and delete decks with correct active selection; the deck check on save",
+   "observed": "save of the short deck said \"Rearrange EDIT DECK LOAD DECK SAVE DECK STRUCTURE DECK CLEAR DECK EXIT The A. Forces Increase the ATK of all Warrior-Type monsters on your side of the field by \"; after reload \"Acc A6g4r3\" active with identical zones; after rename [Acc B6g4r3, E-HERO EVOLUTION DECK] with \"Acc B6g4r3\" active; after delete and reload [E-HERO EVOLUTION DECK], \"E-HERO EVOLUTION DECK\" active"
+  }
+ ],
+ "deck.recipes": [
+  {
+   "at": "2026-11-11T13:54:33.390Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "STRUCTURE DECK \"E-HERO EVOLUTION DECK\"; for YDK, JSON and YDC: LOAD DECK → Export, Clear Deck, LOAD DECK → Import the file",
+   "expected": "Structure decks load; deck files round-trip without losing identities",
+   "observed": "recipe loaded 40 main/5 fusion; YDK Acc F6g4r3.ydk 445 bytes → 40/5/0; JSON r.json 689 bytes → 40/5/0; YDC (the original deck file) r.ydc 250 bytes → 40/5/0"
+  }
+ ],
  "deck.test": [
   {
-   "at": "2026-11-04T17:21:08.825Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:01:59.394Z",
+   "commit": "490c989",
    "test": "tests/acceptance/free.test.ts > deck testing in Free Duel > builds a test deck from the whole pool, duels in free mode and leaves the world deck, collection and wallet untouched",
-   "actions": "World snapshot; Free Duel & Deck Editor; add Blue-Eyes White Dragon (not owned; pool shows ×3) to a free deck and save; free PvP duel to turn 10 and surrender; back to World mode",
+   "actions": "World snapshot; Free Duel & Deck Editor; add Blue-Eyes White Dragon (not owned; Show modes owned:Owned cards/all:All cards/missing:Missing/craftable:Craftable now; passcode 89631142 in the free trunk) to a free deck and save; free PvP duel to turn 10 and surrender; back to World mode",
    "expected": "Start and leave supported deck testing without spending cards or altering the saved deck",
-   "observed": "free deck held Blue-Eyes White Dragon; 15 cards on the free duel field; result Defeat; world deck \"E-HERO EVOLUTION DECK\" unchanged (40 main), Blue-Eyes White Dragon owned ×0 before and after, wallet 5,000 MP unchanged"
+   "observed": "free deck held Blue-Eyes White Dragon (saved false); 15 cards on the free duel field; result Defeat; world deck \"E-HERO EVOLUTION DECK\" unchanged (40 main), Blue-Eyes White Dragon owned ×0 before and after, wallet 0 MP unchanged"
+  }
+ ],
+ "deck.validate": [
+  {
+   "at": "2026-11-11T13:54:18.470Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/deck.test.ts > deck editor (main's HTML deck screen) against the real server > loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk",
+   "actions": "Save a short deck; import a YDK with 3 Pot of Greed and 2 Heavy Storm and save it",
+   "expected": "Size and forbidden/limited violations reported before a duel",
+   "observed": "short deck: \"Rearrange EDIT DECK LOAD DECK SAVE DECK STRUCTURE DECK CLEAR DECK EXIT The A. Forces Increase the ATK of all Warrior-Typ\"; imported: \"Rearrange EDIT DECK LOAD DECK SAVE DECK STRUCTURE DECK CLEAR DECK EXIT Craft Dismantle Trunk Rearrange 地 4 1200 / 1000 D.D. Warrior 罠 - / - Solemn Judgment 罠 - / - Negate Attack 魔 1 - / - Mystical Spa\""
   }
  ],
  "duel.actions": [
   {
-   "at": "2026-11-04T17:50:29.088Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.354Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Each checkpoint checks which screen holds input; opponent cards pressed on both the waiting and the acting screen",
    "expected": "Only current server-issued card/phase actions can generate valid responses.",
-   "observed": "never both screens offered input at once (32 checkpoints); opponent cards offered no actions and face-down opponent cards opened nothing"
+   "observed": "never both screens offered input at once (18 checkpoints); opponent cards offered no actions and face-down opponent cards opened nothing"
   }
  ],
  "duel.combat": [
   {
-   "at": "2026-11-04T17:50:29.078Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.325Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Bots enter the Battle Phase and attack each turn",
    "expected": "Render phases, chains, battle, LP, stats, counters and destruction correctly.",
-   "observed": "phases Main Phase 1 / Battle Phase / Main Phase 2 / Draw Phase / Standby Phase; LP and turn/phase bar equal on both screens throughout (last: Dub evc50: 5300 life points | Dua evc50: 5500 life points, their turn); 8 graveyard increases; 27 checkpoints with activations; result Defeat/Victory (natural result)"
+   "observed": "phases Main Phase 1 / Battle Phase; LP and turn/phase bar equal on both screens throughout (last: Dub 6ld28: 1350 life points, their turn | Dua 6ld28: 8000 life points); 0 graveyard increases; 9 checkpoints with activations; result Victory/Defeat (natural result)"
   }
  ],
  "duel.field": [
   {
-   "at": "2026-11-04T17:50:29.059Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.260Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
-   "actions": "PvP Dua evc50 vs Dub evc50, both bots summon/set/attack; 32 settled checkpoints",
+   "actions": "PvP Dua 6ld28 vs Dub 6ld28, both bots summon/set/attack; 18 settled checkpoints",
    "expected": "Deck, hand, monster, spell, grave, banish and extra zones preserve order and ownership.",
-   "observed": "at every checkpoint A's own zones (per index), hand count and deck/grave/banish/extra counts equalled B's mirrored opponent side and vice versa; up to 5 monsters on the field; piles seen: deck, extra, graveyard; 12 turns; result Defeat/Victory (natural result)"
+   "observed": "at every checkpoint A's own zones (per index), hand count and deck/grave/banish/extra counts equalled B's mirrored opponent side and vice versa; up to 7 monsters on the field; piles seen: deck, extra; 10 turns; result Victory/Defeat (natural result)"
   }
  ],
  "duel.log": [
   {
-   "at": "2026-11-04T17:50:29.106Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.409Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Scroll the duel log while a prompt waits; compare log order between screens and over time",
    "expected": "Open supported duel logs, retain ordering and card references, and close without affecting active prompts.",
-   "observed": "A: log of 18 lines scrolled 139→0 (of 139) under \"Solemn Judgment: Your opponent Summoned a monster. Activate the effect of a card?\"; prompt unchanged; logs of both screens agreed line by line (hidden names replaced by \"a card/a monster\"); earlier lines kept their order in later logs; 80 lines shown"
+   "observed": "A: log of 34 lines scrolled 385→0 (of 385) under \"Your opponent has declared battle. Activate the effect of a card?\"; prompt unchanged; logs of both screens agreed line by line (hidden names replaced by \"a card/a monster\"); earlier lines kept their order in later logs; 80 lines shown"
   }
  ],
  "duel.presentation": [
   {
-   "at": "2026-11-04T17:41:06.826Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T13:55:12.145Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duelfx.test.ts > duel presentation with original art > draws portraits, the card box and the original effects during a live NPC duel",
    "actions": "NPC duel (Yami Yugi) with motion on; bot summons, sets, attacks and ends turns; canvas sampled while effects run",
    "expected": "Original-art duel presentation: waist-up portraits both sides, card box, phase/turn banners, summon/set, attack, LP damage digits, other cue effects drawn",
-   "observed": "1 duel(s); cues played phase:10 summon:6 activate:2 chain-run:1 turn:2 set:1 attack:1 damage:1; portrait pixels 2447/2920; painted samples per effect {\"phase\":1816,\"summon\":1816,\"activate\":1515,\"chain\":580,\"turn\":2117,\"set\":1816,\"attack\":1251,\"damage\":1042}; card box \"D.D. Warrior [Warrior/Effect/EARTH] When this card battles a monster, after damage calculation remove from play that monster and this card. 4 ATK1200/DEF1000\""
+   "observed": "1 duel(s); cues played phase:15 summon:4 turn:4 set:5 attack:1 flip:1 damage:1; portrait pixels 2485/2920; painted samples per effect {\"phase\":1416,\"summon\":691,\"turn\":2465,\"set\":2465,\"attack\":703,\"flip\":700,\"damage\":967}; card box \"Morphing Jar [Rock/Effect/Flip/EARTH] FLIP: Both players discard their hands. Then both players draw 5 cards. 2 ATK700/DEF600\""
   },
   {
-   "at": "2026-11-04T17:50:29.116Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.435Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "A plays with animations on; A inspects a card while B acts",
    "expected": "Animations, card inspection and logs remain ordered while input waits appropriately.",
-   "observed": "no animation observed; A inspected Dust Tornado during B's actions: still open (Dust Tornado)"
+   "observed": "no animation observed; A inspected R - Righteous Justice during B's actions: still open (R - Righteous Justice)"
   }
  ],
  "duel.prompts": [
   {
-   "at": "2026-11-04T17:50:29.139Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.465Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Both bots answer every prompt the PvP duel raised",
    "expected": "Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.",
-   "observed": "PvP prompts: yes-no ×47 (47 accepted; e.g. \"Solemn Judgment: Your opponent Summoned a monster. Activate the effect of a card?\")"
+   "observed": "PvP prompts: yes-no ×7 (7 accepted; e.g. \"Your opponent has declared battle. Activate the effect of a card?\")"
   },
   {
-   "at": "2026-11-04T17:51:52.676Z",
-   "commit": "e11bca3",
+   "at": "2026-11-11T14:02:06.484Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > answers every prompt an NPC duel raises with a response the server accepts",
-   "actions": "NPC duels (Yami Yugi: Victory; Tea Gardner: Defeat; Joey Wheeler: Defeat) with a bot answering every prompt through the prompt dialogs",
+   "actions": "NPC duels (Yami Yugi: Defeat; Tea Gardner: Defeat; Joey Wheeler: Defeat) with a bot answering every prompt through the prompt dialogs",
    "expected": "Yes/no, options, position, race, attribute, number and announce-card map to correct bytes.",
-   "observed": "prompt kinds met and accepted by the server: yes-no ×17 (17 accepted; e.g. \"The A. Forces is activated. Chain another card?\"); cards ×7 (7 accepted; e.g. \"Choose cards\"); position ×1 (1 accepted; e.g. \"Select card position.\"); no refused or unsupported response"
+   "observed": "prompt kinds met and accepted by the server: yes-no ×7 (7 accepted; e.g. \"Mystical Space Typhoon: You drew card(s). Activate the effect of a card?\"); cards ×461 (460 accepted; e.g. \"Choose cards\"); position ×3 (3 accepted; e.g. \"Select card position.\"); no refused or unsupported response"
   },
   {
    "at": "2026-11-04T17:53:02.940Z",
@@ -248,12 +318,12 @@
  ],
  "duel.selection": [
   {
-   "at": "2026-11-04T17:51:52.694Z",
-   "commit": "e11bca3",
+   "at": "2026-11-11T14:02:06.499Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > answers every prompt an NPC duel raises with a response the server accepts",
    "actions": "Card and zone selection prompts answered by the bot (first candidate, confirm; or an on-field zone)",
    "expected": "Card, field, ritual and discard selection respect bounds, cancellation and hidden identities.",
-   "observed": "selection prompts: cards ×7, 7 accepted (\"Choose cards\")"
+   "observed": "selection prompts: cards ×461, 460 accepted (\"Choose cards\")"
   },
   {
    "at": "2026-11-04T17:53:02.947Z",
@@ -266,22 +336,22 @@
  ],
  "duel.stale": [
   {
-   "at": "2026-11-04T17:50:29.096Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.382Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "A captured prompt answer pressed after a newer prompt arrived; a phase button from an earlier turn pressed on a later turn",
    "expected": "Reject stale input and display unsupported prompts without fabricating a valid action.",
-   "observed": "A: old \"Solemn Judgment: Your opponent Summoned a monster. Activate the effect of a card?\" answer pressed under new \"Solemn Judgment: Your opponent Summoned a monster. Activate the effect of a card?\": This choice has expired.; prompt still active; B: \"Battle Phase\" button from turn 2 pressed on turn 4: This choice has expired.; phase unchanged; no \"Unsupported gameplay\" state seen"
+   "observed": "A: old \"Your opponent has declared battle. Activate the effect of a card?\" answer pressed under new \"Your opponent has declared battle. Activate the effect of a card?\": This choice has expired.; prompt still active; B: \"Battle Phase\" button from turn 2 pressed on turn 4: This choice has expired.; phase unchanged; no \"Unsupported gameplay\" state seen"
   }
  ],
  "duel.visibility": [
   {
-   "at": "2026-11-04T17:50:29.068Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T13:56:42.300Z",
+   "commit": "490c989",
    "test": "tests/acceptance/duel.test.ts > duel mechanics between two real players and against an NPC > keeps both screens in mirrored agreement, hides private cards, offers only server-issued input and refuses stale input",
    "actions": "Both players set and summon cards; each checkpoint compares face, position and names across the two screens",
    "expected": "Reveal/hide cards, tokens, control changes, shuffles and positions match server state.",
-   "observed": "face-up/face-down and attack/defense agreed per zone index at all 32 checkpoints; 4 flips, 0 position changes, 0 control changes, 0 shuffle checkpoints observed; own set cards named to their owner 159 times and never to the opponent"
+   "observed": "face-up/face-down and attack/defense agreed per zone index at all 18 checkpoints; 2 flips, 0 position changes, 0 control changes, 0 shuffle checkpoints observed; own set cards named to their owner 97 times and never to the opponent"
   },
   {
    "at": "2026-11-04T17:53:02.933Z",
@@ -314,68 +384,68 @@
  ],
  "errors.network": [
   {
-   "at": "2026-11-04T17:47:44.003Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:00:36.341Z",
+   "commit": "490c989",
    "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > turns timeouts, refusals, corrupt or truncated streams and malformed payloads into a clean, retryable state",
    "actions": "Go Online to a server that never answers, to a refused port; then in the lobby a packet with a bad digest, one with a skipped sequence number, and a truncated packet followed by chat",
    "expected": "Timeout, refusal, truncated packets, invalid digest and sequence gaps surface actionable errors",
-   "observed": "timeout: \"Gateway connection timed out after 15 s\"; refused: \"Gateway connection closed after 0 s\"; digest: \"Wire integrity check failed. Go Online to connect again.\"; gap: \"Wire sequence gap on port 5744: got 2147418112, expected 30. Go Online to connect again.\"; truncated: \"Wire integrity check failed. Go Online to connect again.\"; each left a title screen with Go Online, and Go Online re-entered as Err elvof"
+   "observed": "timeout: \"Gateway connection timed out after 15 s\"; refused: \"Gateway connection closed after 0 s\"; digest: \"Wire integrity check failed. Go Online to connect again.\"; gap: \"Wire sequence gap on port 5744: got 2147418112, expected 31. Go Online to connect again.\"; truncated: \"Wire integrity check failed. Go Online to connect again.\"; each left a title screen with Go Online, and Go Online re-entered as Err 6e9g2"
   }
  ],
  "errors.protocol": [
   {
-   "at": "2026-11-04T17:47:44.012Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:00:36.366Z",
+   "commit": "490c989",
    "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > turns timeouts, refusals, corrupt or truncated streams and malformed payloads into a clean, retryable state",
    "actions": "Server frames rewritten in flight with valid framing: a collection row block of the wrong width, an unknown message id, a truncated duel message",
    "expected": "Malformed/unsupported payloads fail transactionally without partial board or inventory mutation",
-   "observed": "collection {\"id\":\"3102\",\"param\":22,\"from\":210,\"to\":208,\"as\":\"3102\"}: \"Invalid card collection. Go Online to connect again.\", collection 45 before and 45 after re-entry; unknown {\"id\":\"4402\",\"param\":31,\"from\":46,\"to\":46,\"as\":\"7ff0\"}: ignored, connection online; duel {\"id\":\"6611\",\"param\":152,\"from\":110,\"to\":1,\"as\":\"6611\"}: rejected whole and shown as \"Unsupported gameplay: 0x6611: Truncated duel payload at 0: need 2 bytes\" (board as left by the previous packet), the duel went on from turn 4 to 5 with the connection online, then back to the lobby"
+   "observed": "collection {\"id\":\"3102\",\"param\":22,\"from\":210,\"to\":208,\"as\":\"3102\"}: \"Invalid card collection. Go Online to connect again.\", collection 45 before and 45 after re-entry; unknown {\"id\":\"4402\",\"param\":31,\"from\":46,\"to\":46,\"as\":\"7ff0\"}: ignored, connection online; duel {\"id\":\"6610\",\"param\":145,\"from\":25,\"to\":1,\"as\":\"6610\"}: rejected whole and shown as \"Unsupported gameplay: 0x6610: Truncated duel payload at 1: need 4 bytes\" (board as left by the previous packet), the duel went on from turn 3 to 4 with the connection online, then back to the lobby"
   }
  ],
  "lobby.enter": [
   {
-   "at": "2026-11-04T17:09:14.401Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:35.650Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Enter the world; leave for other screens and return",
    "expected": "Correct world, room, occupants; no stale listeners",
-   "observed": "entered Duel Academy · Area 5; after Friends & Mail and back each player appears once"
+   "observed": "entered Duel Academy · Area 5; after the Find a Player, Friend List, D-Mail and Team List windows each player appears once"
   }
  ],
  "lobby.interact": [
   {
-   "at": "2026-11-04T17:09:03.677Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:21.548Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
-   "actions": "Click another player's avatar, Talk / Interact",
+   "actions": "Click another player's avatar",
    "expected": "Occupant selected; profile and valid actions shown",
-   "observed": "context menu for Ben dfh37; profile with Add friend / Write mail / trade / team / ignore"
+   "observed": "Ben 6y2xa's card (main's CPlayerListMenu): level, title, wins / losses, comment; Send Duel / Friend / Trade Request, Chat Message, D-mail, Team, Ignore"
   }
  ],
  "lobby.move": [
   {
-   "at": "2026-11-04T17:09:02.942Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:19.766Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Arrow-key movement on the map",
    "expected": "Legal coordinates sent; others see the authoritative position",
-   "observed": "B saw A move from 35.8824%|22.7273% to 35.7843%|20.1299%"
+   "observed": "B saw A move from 39.5098%|87.1429% to 36.9118%|87.6623%"
   }
  ],
  "lobby.presence": [
   {
-   "at": "2026-11-04T17:09:03.436Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:21.358Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "B joins, A moves (seen by B), C joins then leaves",
    "expected": "Join, departure and movement update the correct avatar once",
-   "observed": "Ben dfh37 appeared once; A's move seen by B; Cy dfh37 appeared once"
+   "observed": "Ben 6y2xa appeared once; A's move seen by B; Cy 6y2xa appeared once"
   }
  ],
  "lobby.rooms": [
   {
-   "at": "2026-11-04T17:09:14.393Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:35.633Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Choose another area from the area list",
    "expected": "Change rooms and refresh player and NPC lists",
@@ -384,18 +454,18 @@
  ],
  "npc.play": [
   {
-   "at": "2026-11-04T17:49:03.541Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T14:02:47.878Z",
+   "commit": "490c989",
    "test": "tests/acceptance/npc.test.ts > NPC duels in the real world with the real duel engine > checks eligibility, starts with the correct field, plays to a natural result, grants rewards once and allows a rematch",
    "actions": "Bot plays the full duel through the duel screen (summons, sets, attacks, prompts)",
    "expected": "Full duel with server-issued actions and a win/lose/draw result",
-   "observed": "natural result: Defeat; 80 log lines incl. \"Yami Yugi's Gazelle the King of Mythical Beasts attacks!\""
+   "observed": "natural result: Defeat; 80 log lines incl. \"Yami Yugi's Gaia The Fierce Knight attacks!\""
   }
  ],
  "npc.rewards": [
   {
-   "at": "2026-11-04T17:49:13.293Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T14:03:02.537Z",
+   "commit": "490c989",
    "test": "tests/acceptance/npc.test.ts > NPC duels in the real world with the real duel engine > checks eligibility, starts with the correct field, plays to a natural result, grants rewards once and allows a rematch",
    "actions": "Rematch the same NPC and surrender",
    "expected": "Rematch lifecycle works",
@@ -404,22 +474,40 @@
  ],
  "npc.start": [
   {
-   "at": "2026-11-04T17:48:40.135Z",
-   "commit": "5ef4e80",
+   "at": "2026-11-11T14:02:06.083Z",
+   "commit": "490c989",
    "test": "tests/acceptance/npc.test.ts > NPC duels in the real world with the real duel engine > checks eligibility, starts with the correct field, plays to a natural result, grants rewards once and allows a rematch",
    "actions": "Special NPC without its right; then Yami Yugi: dialogue, Duel NPC, RPS, first player, start",
    "expected": "Eligibility validated; correct first turn and initial field",
-   "observed": "special NPC: Seto Kaiba This NPC requires a duel right that this character does not currently have. Who the hell are you? Get out of here! This is no place for the likes of ; start: hands 5/4, decks 35/36, LP 8,000/8,000"
+   "observed": "special NPC: Seto Kaiba This NPC requires a duel right that this character does not currently have. Who the hell are you? Get out of here! This is no place for the likes of ; start: hands 6/5, decks 34/37, LP 8,000/8,000"
   }
  ],
  "pvp.end": [
   {
-   "at": "2026-11-04T17:31:29.876Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:06:59.176Z",
+   "commit": "490c989",
    "test": "tests/acceptance/pvp-end.test.ts > PvP matchmaking, disconnect and time-out endings, and spectating an NPC duel > finds and cancels a search with live counts, pairs two players, resolves disconnect and time-out, and watches an NPC duel to its end",
    "actions": "Disconnect: B closes the browser at turn 2, then signs in again. Time-out: Single room with Time limit, the player to move does nothing",
    "expected": "Resolve each termination path and return both players to a usable lobby",
-   "observed": "disconnect: A was told \"Your opponent lost the connection. Waiting up to 45 s for them.\" and won (Victory) 47 s later; B re-entered Duel Academy · Area 5 with Create Duel available. Time-out: clock Time 3:00; after 184 s idle the idle player read Defeat, the other Victory (\"Time is up! | Time is up!OK\"); both back in the lobby with Create Duel available"
+   "observed": "disconnect: A was told \"Your opponent lost the connection. Waiting up to 45 s for them.\" and won (Victory) 92 s later; B re-entered Duel Academy · Area 5 with Create Duel available. Time-out: clock Time 3:00; after 184 s idle the idle player read Defeat, the other Victory (\"Time is up! | Time is up!OK\"); both back in the lobby with Create Duel available"
+  },
+  {
+   "at": "2026-11-11T14:03:32.770Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates an open Match room with options, plays a match with sideboarding to an overall result",
+   "actions": "Surrender before and from turn 10 in a hosted room; return to lobby",
+   "expected": "Resolve each termination path and return both players to a usable lobby",
+   "observed": "surrender: refused before turn 10 with \"You may surrender starting from the 10th turn.\", confirmed at turn 10 and 10; both players returned to a lobby with Create Duel available"
+  }
+ ],
+ "pvp.host": [
+  {
+   "at": "2026-11-11T14:02:55.892Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates an open Match room with options, plays a match with sideboarding to an overall result",
+   "actions": "Duel key → Create Duel (Match Mode, Surrender ON, Time Limit ON, Watch Off; open: main b70a104 has no password) → OK; B: Search for Match Duels lists A; A's card → Send Duel Request; A accepts",
+   "expected": "Create/join a duel with time, spectator and surrender options (rooms open, as main)",
+   "observed": "room listed for B and C; the request asked A, who accepted; clock shown (Time 3:00); C offered no Watch (menu: Send D-mail, Invite to Team, Chat Message, Send Friend Request, Send Trade Request, Add to Ignore List); surrender refused before turn 10 (\"You may surrender starting from the 10th turn.\") and accepted at turn 10"
   }
  ],
  "pvp.invite": [
@@ -432,14 +520,24 @@
    "observed": "B was asked \"Duel Invitation Pva dzl3d challenges you to a duel. Accept Duel Decline\", A saw \"Duel Request Request sent to Pvb dzl3d: waiting for an answer… Cancel\"; Cancel closed both dialogs; Decline closed both and A read \"Refused.\"; the re-challenge was refused with the cooldown message and opened no dialog; the unanswered challenge closed on both screens after 30 s with \"There is no response from your opponent.\""
   }
  ],
+ "pvp.match": [
+  {
+   "at": "2026-11-11T14:03:31.954Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates an open Match room with options, plays a match with sideboarding to an overall result",
+   "actions": "Match room: game 1 (B surrenders at turn 10), sideboarding (illegal Main → Side refused, restored, submitted), game 2 (B surrenders), result",
+   "expected": "Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result",
+   "observed": "after game 1: A \"Match score: 1 wins · 0 losses · 0 draws\", B \"Match score: 0 wins · 1 losses · 0 draws\"; B's short Main disabled Submit (\"Restore the original Main, Side and Fusion counts before continuing.\") until restored; game 2 HUD \"Match 2 · 1–0\"; game 2 surrendered at turn 10; overall A Victory / B Defeat (Match 2 · 2–0)"
+  }
+ ],
  "pvp.matchmaking": [
   {
-   "at": "2026-11-04T17:27:33.343Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:02:13.062Z",
+   "commit": "490c989",
    "test": "tests/acceptance/pvp-end.test.ts > PvP matchmaking, disconnect and time-out endings, and spectating an NPC duel > finds and cancels a search with live counts, pairs two players, resolves disconnect and time-out, and watches an NPC duel to its end",
-   "actions": "Duel Rooms → Automatic Matchmaking: A Find Opponent (Single), Cancel Search; then A Single and B Either, Prefer similar level",
+   "actions": "Duel key → Auto Duel: A Single Mode OK; the Duel key again, Yes to cancel; then A Single Mode and B Both with Level Limit OFF (a similar level)",
    "expected": "Find/cancel single or match opponents with level filters and correct searching/waiting counts",
-   "observed": "B's counts \"0 single · 0 match · 0 either rooms waiting\" → \"1 single · 0 match · 0 either rooms waiting\" while A searched → \"0 single · 0 match · 0 either rooms waiting\" after Cancel Search; the second search paired A and B (similar level) into one duel, both screens mirrored (Mma e3bmd vs Mmb e3bmd)"
+   "observed": "B's Duel menu counts (Players searching / Open rooms) \"0 / 0\" → \"1 / 1\" while A searched (A's bar: \"Dun 6ld28 Api 6e9g2 Con 6e9g2 Npc 6tyby Fra 6p9i6 Mmb 6u4es \") → \"0 / 0\" after \"Close the duel you created? No Yes\" Yes; the second search paired A and B (similar level) into one duel, both screens mirrored (Mma 6u4es vs Mmb 6u4es)"
   }
  ],
  "pvp.play": [
@@ -462,24 +560,34 @@
    "observed": "both dealt with their selected starter decks; A's hand 6 named (Elemental Hero Bubbleman, Elemental Hero Sparkman, Elemental Hero Avian…), B's hand 5 named; each sees 5/6 opponent card backs; none of A's hand names on B's page; LP 8,000/8,000; field and turn mirrored"
   }
  ],
+ "reconnect.expired": [
+  {
+   "at": "2026-11-11T13:52:59.810Z",
+   "commit": "490c989",
+   "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > reconnects on a clean new connection after a rejected or expired resume",
+   "actions": "Drop the tunnel and answer its resume with an unknown tunnel id; chat. Drop it again and refuse every resume connection; chat",
+   "expected": "A rejected or expired resume clears stale channels and reconnects on a working new connection (live: lobby retry, Go Online only after 15 failures)",
+   "observed": "rejected: connections resume,fresh,fresh,fresh,fresh,fresh,fresh,fresh, back in the lobby as Rex 6e9g2 on a fresh connection 52 s after the retry began, chatted once; expired: 23 refused resume connections, back on a fresh connection after 50 s (50 s of retry), chatted once; old chat lines shown 1 time(s)"
+  }
+ ],
  "reconnect.resume": [
   {
-   "at": "2026-11-04T17:42:20.137Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T13:50:56.655Z",
+   "commit": "490c989",
    "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > resumes the tunnel in the lobby, shop, deck editor and duel without duplicate chat, purchases or duel input",
    "actions": "Drop the game WebSocket: with a chat message in flight (lobby), right after Purchase (shop), in the deck editor, and in the duel on my main phase; then chat, re-read MP/collection, End Turn once, surrender",
    "expected": "Tunnel resume keeps channels and sequences; no duplicate chat, purchase or duel input",
-   "observed": "5 resumed tunnels; lobby offline → connecting → online → reconnecting → online; \"before-drop elvof\" ×1, \"after-resume elvof\" ×1; MP 5000 → 4800 (one 200 MP pack, \"Acquired Cards (5)\"), collection 45 → 50 copies, unchanged after the deck-editor drop (50); duel turn 1 → 2 after one End Turn pressed while the tunnel was reconnecting (0 chain questions declined) (board unchanged by an earlier drop, \"Res elvof ends the turn.\" ×1 in the log), surrender (2 presses) → Defeat"
+   "observed": "5 resumed tunnels; lobby offline → connecting → online → reconnecting → online; \"before-drop 6e9g2\" ×1, \"after-resume 6e9g2\" ×1; MP 5040 → 4840 (one 200 MP pack, \"5 new · R 3\"), collection 45 → 50 copies, unchanged after the deck-editor drop (50); duel turn 1 → 2 after one End Turn pressed while the tunnel was online (0 chain questions declined) (board unchanged by an earlier drop, \"Res 6e9g2 ends the turn.\" ×1 in the log), surrender (2 presses) → Defeat"
   }
  ],
  "reconnect.scenes": [
   {
-   "at": "2026-11-04T17:44:09.670Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T13:56:44.055Z",
+   "commit": "490c989",
    "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > reloads during the lobby, shop, deck editor and duel and re-enters without stale state",
    "actions": "Reload the page in the lobby, the shop, the deck editor and an NPC duel; Go Online and select the character each time; start a new duel",
    "expected": "Re-entry after reload restores each scene without stale subscriptions",
-   "observed": "lobby: lobby; shop: 5000 MP; deck: 45 copies; duel: reload (closing {\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":3}{\"type\":\"close\",\"id\":4}{\"type\":\"close\",\"id\":1}) → lobby with 0 field cards; new duel at 8,000/8,000 → Defeat (1 Surrender press); alerts: \"\""
+   "observed": "lobby: lobby; shop: 5040 MP; deck: 45 copies; duel: reload (closing {\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}{\"type\":\"close\",\"id\":2}{\"type\":\"close\",\"id\":1}) → lobby with 0 field cards; new duel at 8,000/8,000 → Defeat (1 Surrender press); alerts: \"\""
   }
  ],
  "settings.accessibility": [
@@ -494,12 +602,12 @@
  ],
  "settings.language-screen": [
   {
-   "at": "2026-11-04T17:41:18.433Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:04:00.782Z",
+   "commit": "490c989",
    "test": "tests/acceptance/settings.test.ts > Options: language, display, persistence and accessibility > switches game-text language from the original tables, recovers from refusals and keeps choices across reload",
-   "actions": "Options: list languages; Deutsch; deck editor and shop; 日本語; Deutsch; Français with the archive blocked, then again; fullscreen refused once, then enter and exit",
-   "expected": "The original seven languages; card and pack text switch from that language's tables; a refused load or fullscreen keeps the old state with a retryable message",
-   "observed": "offered 日本語/English/Deutsch/Français/Italiano/Español/한국어; first collection card \"98585345=Winged Kuriboh LV10\" → de \"98585345=Geflügelter Kuriboh LV10\" (38/40 changed) → ja \"98585345=ハネクリボー　ＬＶ１０\" → fr \"98585345=Kuriboh Ailé LV10\"; packs \"Pack 1: A rearranged pack comprising of season 1 Cards.\" → de \"Pack 1: Ein neu zusammengestelltes Pack mit Karten aus der 1. Saison.\" → ja \"パック1: 第１期のカードを再編成したパック\"; blocked: \"Could not load the French game text (Failed to fetch). Still showing German; choose Français again to retry.\" with Deutsch still selected, retry selected Français; fullscreen refusal \"Fullscreen was refused. Click Enter Fullscreen again, or open the game in a browser tab with fullscreen permission.\", then document.fullscreenElement set and cleared"
+   "actions": "DUEL OPTIONS' Language row: > to Deutsch; Main Menu and deck screen; < < to 日本語; Deutsch; Français with the archive blocked, OK, then again; More Options: fullscreen refused once, then enter and exit",
+   "expected": "The original seven languages; card text and main's labels switch from that language's tables; a refused load shows main's error dialog and keeps the old language; a refused fullscreen explains itself",
+   "observed": "first collection card \"37043180=D.D. Warrior\" → de \"37043180=D.D. Krieger\" (22/22 changed) → ja \"37043180=異次元の戦士\" → fr \"37043180=Guerrier D.D.\"; Main Menu Edit Deck/My Profile/Create Comment/Change Title/Tournament/Return to your Room/DUEL OPTIONS/D-Mail/Duel Log/Audio/Find Player/Ignore List/Friend List/Team List/Shop/Return to Lobby/Return to Title → de Deck bearbeiten/Mein Profil/Kommentar erstellen/Titel ändern/Tournament/Zurück zu deinem Zimmer/DUELL OPTIONEN/D-Mail/Duellprotokoll/Audio/Find Player/Blockliste/Kontaktliste/Team-Liste/Shop/Return to Lobby/Zurück zum Titelbildschirm (11 changed) → ja デッキ編集/プロフィール/コメント設定/称号の変更/Tournament/自分の部屋に戻る/デュエル詳細設定/D-メール/デュエルログ/Audio/Find Player/ブラックリスト/フレンドリスト/チームリスト/Shop/Return to Lobby/タイトルに戻る; blocked: error dialog \"Could not load the French game text (Failed to fetch). Still showing German; choose Français again to retry. OK\" with Deutsch still shown, retry chose Français; fullscreen refusal \"Fullscreen was refused. Click Enter Fullscreen again, or open the game in a browser tab with fullscreen permission.\", then document.fullscreenElement set and cleared"
   }
  ],
  "settings.persist": [
@@ -514,28 +622,28 @@
  ],
  "shops.catalog": [
   {
-   "at": "2026-11-04T17:21:53.291Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T13:49:53.504Z",
+   "commit": "490c989",
    "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > shows the catalogue, opens purchases once, refuses bad purchases clearly",
-   "actions": "Open the Shop on a new character; browse Booster Packs, Structure Decks, Single Cards and Accessories",
-   "expected": "Load packs, decks and singles with correct price, availability and ownership",
-   "observed": "wallet \"5,000 MP · 5,000 starter · 0 earned\"; 51 packs (e.g. Pack 1 200 MP, art and description), 9 structure decks (e.g. E-HERO EVOLUTION DECK 1000 MP), 46 singles drawn as cards (e.g. Earthbound Spirit 100 MP), 13 accessories; every Purchase enabled exactly when affordable and not owned"
+   "actions": "Open the Shop (Main Menu) on a new character; its Packs tab",
+   "expected": "Load packs with correct price and availability",
+   "observed": "wallet \"5040 MP\"; tabs Recommended, Card Packs, Structure Decks, Cosmetic Boxes; 24 packs on sale (e.g. Pack 48 · Light of Destruction 200 MP), Buy enabled exactly where the wallet covers it"
   }
  ],
  "shops.purchase": [
   {
-   "at": "2026-11-04T17:22:01.884Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T13:50:54.211Z",
+   "commit": "490c989",
    "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > shows the catalogue, opens purchases once, refuses bad purchases clearly",
-   "actions": "Buy 1 × Pack 1: turn the first card, Open All, EXIT; buy 2 × Earthbound Spirit; reload the page",
+   "actions": "Buy 1 × Pack 48 · Light of Destruction (reveal to Done); Buy clicked three times at once; reload",
    "expected": "Purchase/open products, update inventory/wallet once and render acquired cards",
-   "observed": "pack opened face down in the card-get board (banner \"Won cards!\", 12 original images loaded), cards [Karbonala Warrior, Uraby, Flame Manipulator, Hard Armor, Raigeki], 5 marked NEW!!; wallet 5000→4800; collection 45→50 with each card's count +copies; 2 × Earthbound Spirit: wallet →4600, Earthbound Spirit ×0→×2; after reload wallet 4600"
+   "observed": "\"Opening Light of Destruction\": 5 cards (\"5 new · R 2\"); wallet 5040→4840; triple click opened one pack (5 cards) → 4640; collection 45→55 copies; after reload the wallet is 4640"
   }
  ],
  "social.chat": [
   {
-   "at": "2026-11-04T17:09:05.729Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:24.165Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Global message from A; whisper A→B with C present",
    "expected": "Channel, ordering and duplicate suppression respected",
@@ -544,62 +652,62 @@
  ],
  "social.chat-policy": [
   {
-   "at": "2026-11-04T17:09:14.285Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:35.403Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Chat length limit and ignore applied",
    "expected": "Limits and ignore handled without leaking private messages",
-   "observed": "message box limited to 256 characters; ignored sender hidden; whispers never shown to third parties"
+   "observed": "message box limited to 128 characters; ignored sender hidden; whispers never shown to third parties"
   }
  ],
  "social.friends": [
   {
-   "at": "2026-11-04T17:09:08.511Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:27.011Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
-   "actions": "Find by name, Add friend, accept on the other side, reopen the list",
+   "actions": "Find a Player by name, Add to Friend List, accept the invitation in the other's Find a Player, open the Friend List",
    "expected": "Friend list, online state and invitations persist",
-   "observed": "Ben dfh37 listed online in A's friends after accepting"
+   "observed": "Ben 6y2xa listed online (not Offline) in A's Friend List after accepting"
   }
  ],
  "social.ignore": [
   {
-   "at": "2026-11-04T17:09:14.276Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:35.387Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "B ignores A by name; A sends a global message",
    "expected": "Ignored users hidden by visibility/contact rules",
-   "observed": "C saw \"ignored dfh37\", B (ignoring) did not"
+   "observed": "C saw \"ignored 6y2xa\", B (ignoring) did not"
   }
  ],
  "social.mail": [
   {
-   "at": "2026-11-04T17:09:10.146Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:27.634Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
-   "actions": "Mail from the friend row; recipient refreshes the mailbox",
+   "actions": "Friend List row -> Friend Options -> Send D-mail; recipient opens D-Mail",
    "expected": "Send, list and read supported mail; empty state shown",
-   "observed": "B received \"Note dfh37\" from Ann dfh37; empty mailbox reads \"Your mailbox is empty.\""
+   "observed": "B's D-Mail listed \"Note 6y2xa\" from Ann 6y2xa"
   }
  ],
  "social.profile": [
   {
-   "at": "2026-11-04T17:09:03.685Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:21.561Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Open another player's profile",
    "expected": "Correct identity, progression, title and status",
-   "observed": "Ben dfh37 Refresh Close Level 1 Wins 0 Losses 0 Win rate — Country US Status Online Player id: 1956 No personal title No comment Add friend Write mail Invite to trade Invite to team Ignore player"
+   "observed": "Win% Wins0/Losses0 LV01 Ben 6y2xa Title Comment Send D-mail Invite to Team Send Duel Request Chat Message Send Friend Request Send Trade Request Add to Ignore List Unranked · Placement 0/5"
   }
  ],
  "social.teams": [
   {
-   "at": "2026-11-04T17:09:11.598Z",
-   "commit": "cc0e0d8",
+   "at": "2026-11-11T14:05:32.262Z",
+   "commit": "490c989",
    "test": "tests/acceptance/social.test.ts > lobby, avatars and social features between real players > presence, movement, rooms, interaction, profiles, chat, friends, ignore, mail and teams",
    "actions": "Create team, invite by name, join, team chat",
    "expected": "Membership, presence and team-chat permissions correct",
-   "observed": "B joined Tdfh37; A's member list shows B; team chat reached B, not C"
+   "observed": "B joined T6y2xa from its invitation; both Team Lists show the other; team chat reached B, not C"
   }
  ],
  "spectate.join": [
