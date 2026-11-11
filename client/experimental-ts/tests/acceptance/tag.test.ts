@@ -214,7 +214,8 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       await click(pages[loser]!,'Surrender'); await until(pages[loser]!,byKey('surrender-yes'),20000); await press(pages[loser]!,byKey('surrender-yes'));
       const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
       await until(pages[loser]!,yes,60000);
-      const confirmOnly = await Promise.all(pages.map(p => p.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog]'))`) as Promise<boolean>));
+      // the server's confirmation (main's duel.js dialog: its prompt-option buttons) on the pilot's screen only
+      const confirmOnly = await Promise.all(pages.map(p => p.ev(`Boolean(${yes})`) as Promise<boolean>));
       expect(confirmOnly).toEqual(pages.map((_,i) => i === loser));
       await press(pages[loser]!,yes);
       turns.log.push(`turn ${turns.turn}: surrender confirmation (Yes/No) shown only to the pilot (${confirmOnly.map(String).join('/')})`);
