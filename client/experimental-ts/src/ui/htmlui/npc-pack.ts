@@ -40,7 +40,8 @@ export function npcPackSelect(npc: Readonly<NpcState> | null | undefined, deps: 
   if (ui.key !== key) Object.assign(ui, { key, selected: 0, top: 0 });
   ui.selected = Math.max(0, Math.min(ui.selected, packs.length - 1));
   const max = Math.max(0, packs.length - ROWS); ui.top = Math.max(0, Math.min(ui.top, max));
-  const b = new WindowBuilder(ids, 'npc-pack', 'CWindowPackSelect', { ...FRAME }, { z: 51200, modal: true });
+  // a modal over the chat (CChatWindow, z 51303), which its well overlaps at the bottom of the screen
+  const b = new WindowBuilder(ids, 'npc-pack', 'CWindowPackSelect', { ...FRAME }, { z: 51310, modal: true });
   const names = packs.map(id => deps.packName(id) ?? `Reward Pack ${id}`);
   const list = b.add('CWindowTaskNoBackList', 'list', { x: 8, y: 8, w: 744, h: ROWS * ROW_H }, {
     items: packs.map((id, i) => packLine(names[i]!, deps.completion?.(id))), selected: ui.selected, top: ui.top, topLine: ui.top, rows: ROWS,

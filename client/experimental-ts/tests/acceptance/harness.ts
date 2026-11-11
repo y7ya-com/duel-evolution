@@ -412,6 +412,9 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
     const other = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>['Continue','Receive Gift','Close NPC'].includes(b.textContent)&&!b.disabled)`;
     // main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) when the HTML UI is up: its first row, then OK
+    // the duel's last word (its result line as a duel.js dialog over the picker): acknowledged first, as a player would
+    const last = `[...document.querySelectorAll('#htmlui-host button[data-key^="prompt-"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+    if (await page.ev(`Boolean(${last})`)) { await press(page,last); await sleep(500); continue; }
     const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
     if (!pack && await page.ev(`Boolean(${htmlRow})&&Boolean(${htmlOk})`)) {
       pack = (await page.ev(`[...${htmlRow}.querySelectorAll('span')].map(s=>s.textContent)[0] ?? ${htmlRow}.textContent`) as string).trim();
