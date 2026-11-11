@@ -59,6 +59,10 @@ export class BrowserAudioManager {
   private readonly storage?: AudioStorage;
   private persistence: NonNullable<AudioState['persistence']>;
   private revision = 0;
+  /** Edits to slot files and modes only: the volumes alone (the app sets them from its settings at boot) never stop
+   * the stored files coming back. */
+  private slotRevision = 0;
+  private restoreBase = 0;
   private restoreTask?: Promise<boolean>;
   private restored = false;
   private saveTask?: Promise<void>;
@@ -146,7 +150,7 @@ export class BrowserAudioManager {
       if (!Number.isFinite(changes.volume) || changes.volume < 0 || changes.volume > 1) throw new RangeError('Invalid slot volume');
       mode.volume = changes.volume;
     }
-    this.modes.set(slot, mode); this.changed();
+    this.modes.set(slot, mode); this.slotRevision++; this.changed();
     if (slot === this.playing && (old.shuffle !== mode.shuffle || old.loop !== mode.loop)) { this.releaseMusic(); void this.updateMusic(); }
     else this.applyMusicVolume();
   }
@@ -175,7 +179,7 @@ export class BrowserAudioManager {
     this.files.clear(); for (const [k, v] of next) this.files.set(k, v);
     this.modes.clear(); for (const [k, v] of modes) this.modes.set(k, v);
     if (master !== undefined) this.musicVolume = master;
-    this.changed();
+    this.slotRevision++; this.changed();
     this.releaseMusic(); void this.updateMusic();
   }
   /** The setup as buildAudioPack's source. */
@@ -190,13 +194,14 @@ export class BrowserAudioManager {
     if (!this.storage) return Promise.resolve(false);
     if (this.restoreTask) return this.restoreTask;
     if (this.restored) return Promise.resolve(true);
-    if (this.revision > 0) return Promise.resolve(false);
-    const revision = this.revision;
+    if (this.slotRevision > 0) return Promise.resolve(false);
+    const revision = this.revision, slotRevision = this.slotRevision;
+    this.restoreBase = slotRevision;
     this.persistence = { status: 'restoring' };
     const task = (async () => {
       try {
         const raw = await this.storage!.read(this.abort.signal);
-        if (this.closed || this.revision !== revision) return false;
+        if (this.closed || this.slotRevision !== slotRevision) return false;
         const state = validateStoredAudio(raw, AUDIO_SLOTS.length);
         if (state) {
           this.files.clear(); this.modes.clear();
@@ -204,14 +209,15 @@ export class BrowserAudioManager {
             if (slot.files.length) this.files.set(slot.slot, slot.files);
             this.modes.set(slot.slot, { shuffle: slot.shuffle, loop: slot.loop, volume: slot.volume });
           }
-          this.musicVolume = state.music; this.soundVolume = state.sound;
+          // Volumes set meanwhile (the app's stored settings) win over the stored ones.
+          if (this.revision === revision) { this.musicVolume = state.music; this.soundVolume = state.sound; }
           if (this.output) this.output.gain.value = this.soundVolume;
           this.releaseMusic();
           // Do not attempt autoplay, even if an earlier gesture unlocked audio.
         }
         this.restored = true; this.persistence = { status: 'ready' }; return true;
       } catch (error) {
-        if (!this.closed && this.revision === revision) this.storageError(error);
+        if (!this.closed && this.slotRevision === slotRevision) this.storageError(error);
         return false;
       }
     })();
@@ -235,6 +241,9 @@ export class BrowserAudioManager {
     if (this.saveTask) return;
     // One in-flight snapshot plus one coalesced latest revision, without a write queue.
     const task = Promise.resolve().then(async () => {
+      // Never write before the stored setup is read back: an early snapshot (the boot volumes) would erase its files.
+      // (A slot edit meanwhile wins over the stored setup, so it need not wait.)
+      if (this.restoreTask && this.slotRevision === this.restoreBase) await this.restoreTask.catch(() => false);
       while (this.dirty && !this.closed) {
         this.dirty = false; this.persistence = { status: 'saving' };
         try { await this.storage!.write(this.snapshot(), this.abort.signal); if (!this.closed) this.persistence = { status: 'ready' }; }
@@ -290,7 +299,7 @@ export class BrowserAudioManager {
     if (count > AUDIO_FILE_LIMITS.totalFiles || bytes > AUDIO_FILE_LIMITS.totalBytes) throw new RangeError('Total audio file limit exceeded');
     const previous = this.resolve();
     if (files.length) this.files.set(slot, [...files]); else this.files.delete(slot);
-    this.changed();
+    this.slotRevision++; this.changed();
     const relevant = slot === this.playing || slot === this.requested || previous !== this.resolve();
     if (slot === this.playing) this.releaseMusic();
     if (relevant) void this.updateMusic();

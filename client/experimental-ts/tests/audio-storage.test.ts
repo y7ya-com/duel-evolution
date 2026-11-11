@@ -48,8 +48,18 @@ describe('bounded optional audio persistence', () => {
   });
   it('protects edits made before a restore call from stale disk data', async () => {
     const storage = new Storage(), manager = new BrowserAudioManager({ storage });
-    manager.setVolumes({ sound: .1 }); expect(await manager.restore()).toBe(false); expect(storage.read).not.toHaveBeenCalled();
+    manager.setSlotFiles(3, [file('mine.wav')]); expect(await manager.restore()).toBe(false); expect(storage.read).not.toHaveBeenCalled();
     await manager.flushPersistence(); manager.dispose();
+  });
+  it('keeps volumes set before or during a restore and still brings the stored files back, never saving over them first', async () => {
+    // The app sets the volumes from its own settings at boot (app.ts), while the stored setup is still being read.
+    const storage = new Storage(), read = deferred<unknown>(); storage.read.mockReturnValue(read.promise);
+    const manager = new BrowserAudioManager({ storage }); manager.setVolumes({ sound: .1 }); const restoring = manager.restore();
+    manager.setVolumes({ music: .6 }); await flush(); expect(storage.write).not.toHaveBeenCalled();
+    read.resolve(stored()); expect(await restoring).toBe(true); await manager.flushPersistence();
+    expect(manager.volumes).toEqual({ music: .6, sound: .1 }); expect(manager.getSlotFiles(0)[0].name).toBe('user.ogg');
+    const saved = storage.value as StoredAudio; expect(saved.slots[0].files[0].name).toBe('user.ogg'); expect(saved.sound).toBe(.1);
+    manager.dispose();
   });
   it('coalesces rapid edits behind one write and saves only the latest snapshot next', async () => {
     const storage = new Storage(), first = deferred<void>(); storage.write.mockImplementationOnce(async () => first.promise);
