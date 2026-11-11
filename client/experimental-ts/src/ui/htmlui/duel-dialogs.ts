@@ -7,8 +7,8 @@
 //  - more options (an effect, a position, a number from a list: CUSelectDialog): the thin frame, the question above,
 //    one 16-px row per option, the row under the pointer highlighted (CUSelectDialog::tick), a click answers
 //  - attributes (CUSelectAttributeDialog): the rows mark and unmark, OK answers once the count is right
-// A row's click lands through an undrawn hit control over it (duel.js draws the list as stripes only; on main the
-// engine's dialog hit-tests its rows itself). Card lists (CCardListView), free number entry and card declaration are
+// Each row is a TextSwitch button (duel.js draws a list as stripes only, and on main the engine hit-tests its rows; the
+// rewrite takes input on elements, so a row is a real <button>). Card lists (CCardListView), free number entry and card declaration are
 // not main's duel.js: the duel screen keeps drawing those itself (index.ts renderPrompt).
 import type { DuelPromptView, DuelResponse } from '../contracts';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
@@ -21,7 +21,7 @@ export interface DuelDialogContext {
   rerender(): void;
 }
 
-const LH = 16, ROW = 16;
+const LH = 16, ROW = 20;
 /** Whether main's duel dialogs show this prompt (else the duel screen's own panel does). */
 export function duelDialogCovers(p: DuelPromptView): boolean {
   if (p.candidates?.length || p.declarable?.length) return false;
@@ -61,14 +61,13 @@ export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpe
   const b = new WindowBuilder(ctx.ids, `duel-select:${p.id}`, multi ? 'CUSelectAttributeDialog' : 'CUSelectDialog', { x, y, w, h }, { modal: true, z });
   b.add('CWindowTaskFrameThin', 'frame', { x: 0, y: 0, w, h }, { style: 1, alpha: 0.7 });
   b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: p.text, align: 1, color: [1, 1, 1, 1] });
-  const hover = rows.findIndex(r => r.id === ctx.local.hover);
-  const marks = rows.map(r => ctx.local.selected.has(r.id));
-  const list = b.add('CWindowTaskListbox', 'list', { x: 8, y: listY, w: w - 16 + 16, h: shown * ROW }, { items: rows.map(r => r.disabled ? `@7${r.label}` : r.label), top: 0, rows: shown, selected: hover, marks });
-  void list;
+  // each row a real button (main's TextSwitch, a <button>: the pointer and the keys land on its own element), marked
+  // rows shown pressed; no undrawn hit rows (the layer finds a control by its element, never by position)
   rows.slice(0, shown).forEach((r, i) => {
-    const c = b.add('CWindowTaskHitRow', `row:${r.id}`, { x: 8, y: listY + i * ROW, w: w - 16, h: ROW }, { enabled: !r.disabled && !ctx.busy });
-    b.on(c, { hover: true, key: r.id === '\0cancel' ? `prompt-cancel:${p.id}` : `prompt-option:${p.id}:${r.id}`, label: r.label,
-      over: () => { if (ctx.local.hover !== r.id) { ctx.local.hover = r.id; ctx.rerender(); } },
+    const marked = ctx.local.selected.has(r.id), on = !r.disabled && !ctx.busy;
+    const c = b.add('CWindowTaskTextSwitch', `row:${r.id}`, { x: 8, y: listY + i * ROW, w: w - 16, h: ROW - 1 },
+      { label: r.label, align: 1, state: on ? marked ? 'pressed' : 'normal' : 'disabled', enabled: on, ...(multi ? { checked: marked } : {}) });
+    b.on(c, { hover: !marked, key: r.id === '\0cancel' ? `prompt-cancel:${p.id}` : `prompt-option:${p.id}:${r.id}`, label: multi ? `${r.label}${marked ? ' (marked)' : ''}` : r.label,
       click: () => {
         if (ctx.busy || r.disabled) return;
         if (r.id === '\0cancel') return ctx.respond({ cancel: true });
