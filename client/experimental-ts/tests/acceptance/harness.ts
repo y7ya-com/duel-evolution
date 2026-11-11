@@ -81,11 +81,9 @@ export async function until(page:Page,condition:string,timeout = 30000):Promise<
   const body = String(await page.ev('document.body.innerText').catch(() => ''));
   throw new Error(`Timed out: ${condition}\n--- page ---\n${body.slice(0,2000)}\n--- page end ---\n${body.slice(-1200)}\n--- logs ---\n${page.logs.slice(-20).join('\n')}`);
 }
-/** A real pointer press at the control's centre; an obstructed or vanished control fails rather than being skipped. A
- * control of a pass window (layer.ts PASS: Change Avatar, drawn by main's module, its clicks hit-tested by the scene)
- * takes no pointer itself: it is pressed where it is drawn, unless another HTML window covers it. */
+/** A real pointer press at the control's centre; an obstructed or vanished control fails rather than being skipped. */
 export async function press(page:Page,selector:string):Promise<void> {
-  const point = await page.ev(`(async()=>{let b=${selector};if(!b||b.disabled)return null;b.scrollIntoView({block:'center',inline:'center',behavior:'instant'});for(let f=0;f<10;f++){await new Promise(requestAnimationFrame);b=${selector};if(!b||b.disabled)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);if(hit&&(hit===b||b.contains(hit)))return{x,y};if(getComputedStyle(b).pointerEvents==='none'&&b.closest('#htmlui-host [data-window-class]')&&hit&&!hit.closest('#htmlui-host .win'))return{x,y};}return null})()`);
+  const point = await page.ev(`(async()=>{let b=${selector};if(!b||b.disabled)return null;b.scrollIntoView({block:'center',inline:'center',behavior:'instant'});for(let f=0;f<10;f++){await new Promise(requestAnimationFrame);b=${selector};if(!b||b.disabled)return null;const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);if(hit&&(hit===b||b.contains(hit)))return{x,y};}return null})()`);
   if (!point) {
     const cover = await page.ev(`(()=>{const b=${selector};if(!b)return 'gone';if(b.disabled)return 'disabled';const r=b.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);const d=e=>e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+(e.className&&typeof e.className==='string'?'.'+e.className.trim().replaceAll(' ','.'):'')+(e.dataset&&e.dataset.key?'[data-key='+e.dataset.key+']':'');const path=[];for(let e=h;e&&path.length<4;e=e.parentElement)path.push(d(e));return 'covered by '+(h?path.join(' < ')+' '+JSON.stringify(h.textContent.slice(0,40)):'nothing (off screen)');})()`).catch(() => '?');
     throw new Error(`Control is ${cover}: ${selector}\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,1500)}`);
