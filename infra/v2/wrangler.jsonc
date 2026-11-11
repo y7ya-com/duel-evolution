@@ -1,0 +1,29 @@
+// v2.ygoevolution.com: the TS client rewrite in front of LIVE's production Worker (README.md). Deploy only with
+// infra/ship-v2.sh. This Worker has no D1, R2 or Durable Object of its own: every game request goes to `duel-evolution`
+// (the production Worker) through the LIVE service binding. No `env` blocks: there is nothing but this one Worker.
+{
+  "$schema": "../../server/node_modules/wrangler/config-schema.json",
+  "name": "duel-evolution-v2",
+  "account_id": "b8772d7be936c70234ce641c0ec7728b", // the production Worker's account (server/wrangler.jsonc)
+  "main": "worker.ts",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "v2.ygoevolution.com", "custom_domain": true }],
+  "assets": {
+    "directory": "../../client/experimental-ts/dist",
+    "binding": "ASSETS",
+    // the worker decides first: the client's files (worker.ts CLIENT_FILE) from here, everything else to LIVE
+    "run_worker_first": true,
+    // the rewrite is one page with no client-side routes ("/" and its query: ?online=1, ?assets=...), so the SPA
+    // fallback is "/" itself (html_handling serves index.html there). A missing file answers 404 to the worker, which
+    // then asks LIVE, rather than every unknown path becoming the page.
+    "not_found_handling": "none"
+  },
+  "services": [{ "binding": "LIVE", "service": "duel-evolution" }],
+  "vars": {
+    "PUBLIC_ORIGIN": "https://v2.ygoevolution.com",
+    "LIVE_ORIGIN": "https://original.ygoevolution.com"
+  },
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

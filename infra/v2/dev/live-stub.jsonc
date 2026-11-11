@@ -1,0 +1,8 @@
+// Local testing only: `wrangler dev -c infra/v2/wrangler.jsonc -c infra/v2/dev/live-stub.jsonc` (README.md). Named like
+// production so the front's service binding resolves to it locally; never deployed (ship-v2.sh deploys only ../wrangler.jsonc).
+{
+  "name": "duel-evolution",
+  "main": "live-stub.ts",
+  "compatibility_date": "2026-06-01",
+  "workers_dev": false
+}
