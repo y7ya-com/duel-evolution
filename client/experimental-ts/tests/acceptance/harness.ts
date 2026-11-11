@@ -480,7 +480,7 @@ export const shopBuyKey = (k:string) => `${SHOP}.querySelector('[data-k="${k}"]'
 export const shopReveal = `${SHOP}?.querySelector('.rv')`;
 /** The reveal to its end (a click turns every card), its summary, its cards; Done closes it. */
 export async function takeReveal(page:Page):Promise<{ title:string; summary:string; slots:number }> {
-  await until(page,reveal,30000);
+  await until(page,shopReveal,30000);
   for (let i = 0; i < 60 && await page.ev(`${shopReveal}?.dataset.phase!=='done'`); i++) { if (await page.ev(`${shopReveal}?.dataset.phase==='flip'`)) await page.ev(`${shopReveal}.click()`); await sleep(250); }
   const out = await page.ev(`({title:${shopReveal}.getAttribute('aria-label'),summary:${shopReveal}.querySelector('[role=status]')?.textContent??'',slots:${shopReveal}.querySelectorAll('.slot').length})`) as { title:string; summary:string; slots:number };
   await press(page,`${shopReveal}.querySelector('[data-k=done]')`); await until(page,`!${shopReveal}`,10000);
