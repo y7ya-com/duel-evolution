@@ -1,5 +1,5 @@
 import type { Point, WorldMap, WorldPosition } from './maps';
-import { directionFromVector, findPath, segmentWalkable } from './pathfinding';
+import { PATH_STEP_REACHED, directionFromVector, findPath, findRoute, segmentWalkable } from './pathfinding';
 import type { ExitTrigger } from './exits';
 import type { WorldPhysics } from './runtime';
 export const WORLD_TICK_MS = 1000 / 30;
@@ -41,8 +41,9 @@ export class WorldNavigator {
     if (this.options.physics) {
       const width = this.options.physics.definition?.width ?? this.map.width ?? 65535, height = this.options.physics.definition?.height ?? this.map.height ?? 65535;
       if (!Number.isFinite(target.x) || !Number.isFinite(target.y) || target.x < 0 || target.y < 0 || target.x >= width || target.y >= height) return false;
-      // Coarse source grids assist routing; exact streamed pixels own collision.
-      this.route = this.map.grid ? findPath(this.map.grid, this.current, target) ?? [{ ...target }] : [{ ...target }];
+      // The original's click route (A* 0x00a04a30 over the source walk grid); exact streamed pixels own collision,
+      // so its diagonal steps past a wall corner slide on the foot probes as they do live.
+      this.route = this.map.grid ? findRoute(this.map.grid, this.current, target) ?? [{ ...target }] : [{ ...target }];
       const generation = this.routeGeneration;
       void this.options.physics.prepare(this.current).catch(error => { if (generation === this.routeGeneration) this.report(error); });
       return true;
@@ -69,7 +70,8 @@ export class WorldNavigator {
   }
   private tick(): void {
     if (this.options.physics) { this.tickPhysics(this.options.physics); return; }
-    const p = this.current!, grid = this.map!.grid!, target = this.route[this.routeIndex];
+    const p = this.current!, grid = this.map!.grid!;
+    const target = this.route[this.routeIndex];
     const dx = target.x - p.x, dy = target.y - p.y, length = Math.hypot(dx, dy);
     let next: Point;
     if (length < 6) {
@@ -94,7 +96,9 @@ export class WorldNavigator {
     if (!this.moving) this.cancel();
   }
   private tickPhysics(physics: WorldPhysics): void {
-    const p = this.current!, target = this.route[this.routeIndex], generation = this.routeGeneration;
+    const p = this.current!;
+    if (this.passWaypoint(p)) return;
+    const target = this.route[this.routeIndex], generation = this.routeGeneration;
     const input = { x: target.x - p.x, y: target.y - p.y }, length = Math.hypot(input.x, input.y);
     const result = physics.step(p, input, this.step, { snap: length < 6 });
     this.waitingForPixels = result.waiting; this.actuallyWalking = result.moved;
@@ -113,6 +117,15 @@ export class WorldNavigator {
       return;
     }
     if (!this.moving) this.cancel();
+  }
+  /** 0x009d9f70: a path step under 20 px away is passed (momentum kept); the clicked point itself is walked to exactly. */
+  private passWaypoint(p: Point): boolean {
+    while (this.routeIndex < this.route.length - 1) {
+      const w = this.route[this.routeIndex];
+      if (Math.hypot(w.x - p.x, w.y - p.y) >= PATH_STEP_REACHED) break;
+      this.routeIndex++;
+    }
+    return !this.moving;
   }
   private report(error: unknown): void {
     if (this.disposed) return;
