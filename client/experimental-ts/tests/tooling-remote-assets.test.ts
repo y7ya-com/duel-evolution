@@ -60,7 +60,8 @@ describe('development remote asset configuration and request fence', () => {
     const p = await proxy({ baseUrl:'https://assets.example.test/game', fetch:mocked });
     for (const name of ['merge.dat', 'Sound.dat', 'merge/data/card.dat', 'merge/data/mini.dat']) {
       expect((await get(p.port, '/game-assets/' + name)).status).toBe(206);
-      expect(mocked.mock.calls.at(-1)![0]).toBe('https://assets.example.test/game/' + name);
+      // the 2x card art comes from live's cards/ beside game/ (lazyfs.js mounts both)
+      expect(mocked.mock.calls.at(-1)![0]).toBe('https://assets.example.test/' + (name.startsWith('merge/data/') ? 'cards/' : 'game/') + name);
     }
     for (const name of ['', '../merge.dat', '%2e%2e/merge.dat', '%6derge.dat', 'merge.dat?url=https://evil.test/', 'merge.dat#x', '//evil.test/merge.dat', 'merge\\data\\card.dat', 'merge.dat%00', '%zz']) {
       expect((await get(p.port, '/game-assets/' + name)).status).toBe(404);
@@ -137,7 +138,7 @@ describe('checked partial responses and bounded streaming', () => {
       expect(seen.at(-1)!.headers['accept-encoding']!.split(',').every(x => x.trim() === 'identity')).toBe(true);
       expect(seen.at(-1)!.headers.cookie).toBeUndefined(); expect(seen.at(-1)!.headers.origin).toBeUndefined();
     }
-    expect(seen.map(req => req.url)).toEqual(['/game/merge.dat', '/game/Sound.dat', '/game/merge/data/card.dat', '/game/merge/data/mini.dat']);
+    expect(seen.map(req => req.url)).toEqual(['/game/merge.dat', '/game/Sound.dat', '/cards/merge/data/card.dat', '/cards/merge/data/mini.dat']);
   });
   it('maps a failed fetch to a bounded generic error without leaking configuration', async () => {
     const p = await proxy({ baseUrl:'https://private.example.test/game/', fetch:async () => { throw new Error('private upstream details'); } });

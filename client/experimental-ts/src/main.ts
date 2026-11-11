@@ -44,7 +44,12 @@ let storage: Storage | null = null; try { storage = localStorage; } catch { /* o
 const manifest = new SceneManifest('de-prefetch-v1', storage);
 let preloader: Preloader | undefined;
 const assetBase = params.get('assets') ?? (DEFAULT_ASSETS || null);
+// The 2x card art (merge/data/card.dat, mini.dat) has its own directory on live, cards/ beside game/ (lazyfs.js mounts
+// both): without it every card face fell back to merge.dat's 2008 art. ?cards= names another; a base that is not a
+// game/ directory (the dev middleware's /game-assets/) serves card.dat itself.
+const cardsBase = params.get('cards') ?? (assetBase !== null && /(^|\/)game\/?$/.test(assetBase) ? assetBase.replace(/game\/?$/, 'cards/') : null);
 const assets = assetBase !== null ? new AssetManager({ baseUrl: new URL(assetBase, location.href).href, mergeCardPaths: catalog.mergePaths,
+  ...(cardsBase !== null ? { cardsBaseUrl: new URL(cardsBase, location.href).href } : {}),
   ...(globalThis.caches ? { persistent: new CacheApiPersistence({ build: 'v1' }) } : {}), onScene: path => preloader?.record(path) }) : undefined;
 const mapScenes = assets ? new SceneLoader({ assets }) : null;
 if (assets) preloader = new Preloader({ assets, prefetcher, manifest,

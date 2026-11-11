@@ -2,7 +2,8 @@
 // cosmetics/art.js and cosmetics/waistup.js (the Wardrobe's item art, its try-on bust) call entry(name) for any name
 // files2 lists; card-pictures.js (the card shop's card faces) and crafting/editor.js call cardArt(id) by the card's YO2
 // id (merge.dat's data/card/list_card.txt names each id's picture). The rewrite answers both from its own archive reader
-// (app.ts readGameFile). `files` stays empty: the modules' own merge.dat range reads (no archive URL) are skipped.
+// (app.ts readGameFile), and cardArt as lazyfs does: card.dat's 2x art (app.ts readCardArt), merge.dat's data/card only
+// without it. `files` stays empty: the modules' own merge.dat range reads (no archive URL) are skipped.
 type Read = (path: string) => Promise<Uint8Array>;
 
 export interface LazyShim {
@@ -12,7 +13,7 @@ export interface LazyShim {
   cardArt(id: number): Promise<Uint8Array | null>;
 }
 
-export function lazyShim(read: Read): LazyShim {
+export function lazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>): LazyShim {
   let names: Promise<string[] | null> | null = null;
   const entry = (name: string) => read(name.toLowerCase()).catch(() => null);
   const list = () => names ??= entry('data/card/list_card.txt').then(b => {
@@ -23,13 +24,16 @@ export function lazyShim(read: Read): LazyShim {
     files: new Map(),
     files2: { has: () => true, get: () => undefined, set: () => {}, keys: () => [][Symbol.iterator]() },
     entry,
-    async cardArt(id: number) { const n = (await list())?.[id]; return n ? entry('data/card/' + n) : null; },
+    async cardArt(id: number) {
+      if (art) { const b = await art(id).catch(() => null); if (b) return b; }
+      const n = (await list())?.[id]; return n ? entry('data/card/' + n) : null;
+    },
   };
 }
 
 /** Puts the shim on globalThis.Module.yo2Lazy unless a runtime already has one (the engine's own lazyfs). */
-export function installLazyShim(read: Read): void {
+export function installLazyShim(read: Read, art?: (id: number) => Promise<Uint8Array | null>): void {
   const g = globalThis as { Module?: Record<string, unknown> };
   g.Module ??= {};
-  if (!g.Module.yo2Lazy) g.Module.yo2Lazy = lazyShim(read);
+  if (!g.Module.yo2Lazy) g.Module.yo2Lazy = lazyShim(read, art);
 }

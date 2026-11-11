@@ -156,6 +156,20 @@ describe('asset lifetime', () => {
     expect(art.value.mimeType).toBe('image/png'); expect(scene.value.width).toBe(1); expect(mini.value.width).toBe(3);
     art.release(); scene.release(); mini.release(); manager.dispose();
   });
+  it('reads the 2x card art from its own directory (live: cards/ beside game/), by passcode and by YO2 id', async () => {
+    const enc = (t: string) => new TextEncoder().encode(t);
+    const cards = server(archive([{ name:'123.jpg',data:jpeg() },{ name:'list_card.txt',data:enc('\r\n123.jpg\r\n') }]));
+    const merge = server(archive([{ name:'data/card/list_card.txt',data:enc('\r\nold.png\r\nold2.png') },{ name:'data/card/old.png',data:png },{ name:'data/card/old2.png',data:png }]));
+    const fetcher = vi.fn(async (...args: Parameters<typeof fetch>) => { const u = String(args[0]);
+      return u.startsWith('/cards/merge/data/card.dat') ? cards(...args) : u.startsWith('/game/merge.dat') ? merge(...args) : new Response(null,{status:404}); });
+    const manager = new AssetManager({baseUrl:'/game/',cardsBaseUrl:'/cards/',fetch:fetcher});
+    const art = await manager.loadCard(123);
+    expect(art.value.mimeType).toBe('image/jpeg'); art.release();
+    expect([...(await manager.readCardArt(1))!.subarray(0, 2)]).toEqual([255, 216]);
+    // an id card.dat does not list: merge.dat's own picture, as lazyfs falls back
+    expect([...(await manager.readCardArt(2))!.subarray(0, 4)]).toEqual(png.slice(0, 4));
+    manager.dispose();
+  });
   it('rejects oversized cache allocations without creating object URLs', async () => {
     const create = vi.spyOn(URL,'createObjectURL'), manager = new AssetManager({baseUrl:'/',fetch:server(archive([{ name:'123.jpg',data:jpeg() }])),cacheBytes:jpeg().length * 2});
     await expect(manager.loadCard(123)).rejects.toThrow('budget'); expect(create).not.toHaveBeenCalled(); manager.dispose();

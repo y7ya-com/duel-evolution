@@ -283,7 +283,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
   // main's Wardrobe previews and card shop faces read the game's files through lazyfs's Module.yo2Lazy on live
-  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller));
+  if (controller.readGameFile) installLazyShim(controller.readGameFile.bind(controller), controller.readCardArt?.bind(controller));
   // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
   let flagAtlas: Promise<string | null> | null = null;
   const nationFlag = (cell: readonly [number, number]): HTMLElement => {
