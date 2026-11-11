@@ -50,7 +50,13 @@ export class DuelFx {
   private frame = 0;
   private disposed = false;
   readonly played: Record<string, number> = {};
-  private readonly now: () => number;
+  private readonly clock: () => number;
+  /** The duel speed (main's duelspeed.js: 1x the 2008 pacing, 1.5x, 2x): the effects' clock runs this much faster.
+   * A virtual clock, so a change mid-animation carries on from where it is instead of jumping. */
+  private speedK = 1; private base = 0; private virt = 0;
+  private now(): number { const t = this.clock(); return this.virt + (t - this.base) * this.speedK; }
+  get speed(): number { return this.speedK; }
+  set speed(k: number) { const v = this.now(); this.base = this.clock(); this.virt = v; this.speedK = k > 0 ? k : 1; }
   private readonly requestFrame: (cb: FrameRequestCallback) => number;
   private readonly cancelFrame: (id: number) => void;
 
@@ -58,7 +64,7 @@ export class DuelFx {
     this.element = document.createElement('div'); this.element.className = 'de-duel-fx'; this.element.setAttribute('aria-hidden', 'true');
     this.canvas = document.createElement('canvas'); this.canvas.width = 1024; this.canvas.height = 768; this.element.append(this.canvas);
     this.ctx = this.canvas.getContext?.('2d') ?? null;
-    this.now = options.now ?? (() => performance.now());
+    this.clock = options.now ?? (() => performance.now()); this.base = this.virt = this.clock();
     this.requestFrame = options.requestFrame ?? (cb => requestAnimationFrame(cb));
     this.cancelFrame = options.cancelFrame ?? (id => cancelAnimationFrame(id));
   }
