@@ -656,6 +656,7 @@ export class ClientApp implements ClientController {
     this.replay = null; this.patch({ replay: undefined });
   }
   private resetDuel(): void {
+    this.stopReplay();   // a live duel (an offer, an NPC) takes the duel screen from a replay
     this.cancelAnimation(); this.duelState = createDuelState(); this.duelLog = []; this.submittedPrompt = null; this.lastDuelAction = null;
     this.timeline = new DuelTimeline(this.duelState, { reducedMotion: this.view.settings.reducedMotion || !this.frameRequest });
     this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
