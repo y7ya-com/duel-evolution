@@ -8,6 +8,8 @@ export interface NpcPanelOptions {
   renderCard?(card: CardView): HTMLElement;
   packName?(id: number): string | undefined;
   busy?: boolean;
+  /** main's pack picker (htmlui/npc-pack.ts, CWindowPackSelect) takes the pack pick: the panel leaves its buttons out. */
+  htmlPackSelect?: boolean;
 }
 /** State comes from acknowledged native dialogue/grant orchestration, never local outcomes. */
 export function renderNpcFeature(state: Readonly<NpcState>, dispatch: (command: NpcCommand) => void, options: NpcPanelOptions = {}): HTMLElement {
@@ -27,7 +29,7 @@ export function renderNpcFeature(state: Readonly<NpcState>, dispatch: (command: 
   if (state.dialogue?.known) text('p', state.dialogue.text, 'de-npc-dialogue');
   if (state.stage === 'after-duel' && !state.settlementReceived) text('p', 'Waiting for the server result and available rewards…').setAttribute('role', 'status');
   if (['opening', 'greeting', 'after-duel', 'won', 'lost', 'item'].includes(state.stage)) button(['won', 'lost', 'item'].includes(state.stage) ? 'Receive Gift' : 'Continue', { type: 'npcAdvance' }, state.stage === 'after-duel' && !state.settlementReceived);
-  if (state.settlementReceived && state.result && state.packs.length) {
+  if (state.settlementReceived && state.result && state.packs.length && !(options.htmlPackSelect && state.packStatus === 'idle')) {
     text('h3', 'Choose a Reward Pack');
     for (const pack of state.packs) button(options.packName?.(pack) ?? `Reward Pack ${pack}`, { type: 'npcSelectPack', pack }, state.packStatus !== 'idle');
   }
