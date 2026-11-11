@@ -372,6 +372,14 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
+  /** One original file's bytes for main's page modules (htmlui/lazy-shim.ts: the Wardrobe's item art and waist-up parts,
+   * the card shop's card faces and pack art), limited to the folders they read. */
+  async readGameFile(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+    if (!this.options.assets) throw new Error('Original artwork is not configured.');
+    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
+    try { return lease.value.bytes.slice(); } finally { lease.release(); }
+  }
   private gameTexts = new Map<string, Promise<readonly string[]>>();
   /** A language's whole UI string table (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by id. */
   readonly gameTextTable = (language: GameLanguage, signal?: AbortSignal): Promise<readonly string[]> => {

@@ -265,6 +265,8 @@ export interface ClientController {
   cardView?(passcode: number): CardView;
   /** A leased original image by archive path (shop packs, duel backdrop/field/phase sprites, card back). */
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
+  /** One original file's bytes for main's page modules (htmlui/lazy-shim.ts). */
+  readGameFile?(path: string, signal?: AbortSignal): Promise<Uint8Array>;
   /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */
   gameText?(ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>>;
   /** A language's whole yo2text table by id (the English one indexes the labels the rewrite gives main's screens). */
