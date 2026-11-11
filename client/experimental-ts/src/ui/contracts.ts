@@ -10,7 +10,7 @@ import type { SocialAction, SocialState } from '../features/social';
 import type { OnlineAction, OnlineState } from '../features/online';
 import type { TagLobbyAction, TagLobbyState } from '../features/tag';
 /** Render-only browser UI contract. No component reads guest memory or opens a socket. */
-export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'social' | 'settings';
+export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'settings';
 export type DeckZone = 'main' | 'side' | 'extra';
 export interface CharacterView { slot: number; name: string; level?: number; selected?: boolean; /** The 16 avatar bytes Select Player's waist-up portrait wears. */ parts?: number[]; }
 export interface PlayerView { id: number; name: string; level?: number; mp?: number; }
@@ -232,6 +232,8 @@ export type ClientCommand =
   | { type: 'deleteDeck'; name: string }
   | { type: 'buy'; itemId: number; count: number }
   | { type: 'refresh'; scene: Scene }
+  /** The Friend List's presence: who is online and where (GET /api/de/friends), loaded as the list opens. */
+  | { type: 'refreshFriends' }
   | { type: 'duelRespond'; promptId: string; response: DuelResponse }
   | { type: 'duelAction'; actionId: string; promptId?: string }
   | { type: 'inspectCard'; cardId: string }

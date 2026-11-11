@@ -92,6 +92,14 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('mail-reply')!.click!(); t.find('compose-subject')!.text!('Re: Hi'); t.find('compose-body')!.text!('Sure'); t.find('compose-send')!.click!();
     expect(calls.at(-1)).toBe('mail 2 Re: Hi Sure');
   });
+  it('the Friend List shows each friend online and where, or Offline, in the Team List\'s row columns', () => {
+    const social: Record<string, unknown> = { friends: [{ pid: 2, name: 'Bo', online: true, place: 'Domino City' }, { pid: 3, name: 'C@t', online: false }, { pid: 4, name: 'Di' }], ignored: [], team: null,
+      unignore: () => {}, formTeam: () => {}, leaveTeam: () => {}, disbandTeam: () => {}, removeFriend: () => {} };
+    const t = context(view({ scene: 'lobby' }), { social: social as never });
+    t.ctx.ui.lists = { kind: 'friends', selected: 0 };
+    const items = t.windows().find(s => s.win.cls === 'CWindowModelFriendlist')!.win.controls.find(c => c.cls === 'CWindowTaskListbox')!.items;
+    expect(items).toEqual(['> @>16/Bo@>230/Domino City', '@>16/C@@t@>230/Offline', 'Di']);
+  });
   it('Find a Player (FriendEnum), Ignore by name (BlacklistInput) and the team confirmations: the old Friends & Mail page\'s functions', () => {
     const calls: string[] = [];
     const social: Record<string, unknown> = { friends: [{ pid: 2, name: 'Bo' }], ignored: [], team: { name: 'Aces', members: [{ pid: 7, name: 'Me' }], leader: false }, lookup: null, error: null,

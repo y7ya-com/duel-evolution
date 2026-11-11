@@ -180,12 +180,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     };
   };
   // the list windows' content: the rewrite's social state (an ignored player's name from the players the client sees)
+  // the Friend List's presence, asked as it opens: the original's online query, and the server's friend list for places
+  const loadPresence = () => { send({ type: 'socialAction', action: { type: 'refreshOnline' } }); send({ type: 'refreshFriends' }); };
   const socialLists = (): SocialLists | null => {
     const sd = state.socialDetail; if (!sd) return null;
     const known = (pid: number) => state.lobby?.avatars.find(a => a.id === pid)?.name ?? sd.friends.find(f => f.pid === pid)?.name ?? `Player ${pid}`;
     const social = (action: import('../features/social').SocialAction) => send({ type: 'socialAction', action });
     return {
-      friends: [...sd.friends], ignored: sd.ignored.map(pid => ({ pid, name: known(pid) })),
+      // presence: online as the original's 0x3604 answers it; the place the server's friend list names (GET /api/de/friends)
+      friends: sd.friends.map(f => {
+        if (!sd.online) return { ...f };
+        const here = sd.online[f.pid], http = state.social?.friends.find(x => x.id === f.pid && x.online);
+        return { ...f, online: !!here, ...(here ? { place: http?.status ?? (here.kind === 12 ? 'My Room' : 'Online') } : {}) };
+      }), ignored: sd.ignored.map(pid => ({ pid, name: known(pid) })),
       team: sd.team ? { name: sd.team.name, members: sd.teamMembers.map(m => ({ pid: m.pid, name: m.name })), leader: sd.teamMembers.some(m => m.pid === state.player?.id && (m.authority & 2) !== 0) } : null,
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
@@ -1080,7 +1087,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
-            disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } })) : []),
+            disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),

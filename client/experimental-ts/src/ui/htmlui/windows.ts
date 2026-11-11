@@ -468,7 +468,9 @@ export function playerList(ctx: BuildContext, open: (pid: number) => void): Wind
 
 /** The Friend / Ignore / Team List windows' content (the rewrite's social state). */
 export interface SocialLists {
-  friends: { pid: number; name: string }[]; ignored: { pid: number; name: string }[];
+  /** A friend's presence (the original's 0x3604 answer, the place from the server's friend list): online and where;
+   * absent until the answer comes. */
+  friends: { pid: number; name: string; online?: boolean; place?: string }[]; ignored: { pid: number; name: string }[];
   team: { name: string; members: { pid: number; name: string }[]; leader: boolean } | null;
   unignore(pid: number): void; formTeam(name: string): void; leaveTeam(): void; disbandTeam(): void;
   /** Remove from Friend List (the character's own list, as the original's f0001.lst). */
@@ -501,7 +503,11 @@ export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
   b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   const title = { friends: 'Friend List', ignore: 'Ignore List', team: lists.team ? `Team List: ${lists.team.name}` : 'Team List' }[open.kind];
   b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 900, h: 204 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
-  const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: 874, h: 128 }, { items: rows.map((r, i) => `${i === open.selected ? '> ' : ''}${r.name}`), selected: open.selected, top: 0, topLine: 0, rows: 8 });
+  // a friend's row as the Team List's: the name at 16, where they are at 230 ("@>N/" pen moves, main's chat.js rowRuns),
+  // Offline when the server doesn't report them; a name's own "@" doubled so it can't read as a pen move
+  const line = (r: { name: string; online?: boolean; place?: string }) => open.kind === 'friends' && r.online !== undefined
+    ? `@>16/${r.name.replace(/[@＠]/g, '$&$&')}@>230/${r.online ? r.place || 'Online' : 'Offline'}` : r.name;
+  const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: 874, h: 128 }, { items: rows.map((r, i) => `${i === open.selected ? '> ' : ''}${line(r)}`), selected: open.selected, top: 0, topLine: 0, rows: 8 });
   b.on(list, { label: title, click: point => { if (!point) return; const i = Math.floor((point[1] - 282 - 32) / 16); if (i >= 0 && i < rows.length) { open.selected = i; ctx.rerender(); } } });
   const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null) =>
     b.add('CWindowTaskButtonDuel', name, { x, y: 173, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
@@ -654,7 +660,7 @@ export function composeWindow(ctx: BuildContext, send: (toPid: number, subject: 
     b.add('CWindowTaskTextSwitch', name, { x, y, w, h: 24 }, { label, align: 1, state: enabled ? 'normal' : 'disabled', checked: false, color }, { key, click: () => { if (enabled) run(); } });
   button('close', 395, 480, 100, 'Close', 'compose-close', () => { ctx.ui.compose = null; ctx.rerender(); });
   button('send', 206, 440, 103, 'Send D-mail', 'compose-send', () => { if (c.toPid === null) return; send(c.toPid, c.subject, c.body); ctx.ui.compose = null; ctx.rerender(); }, ready, [1, 0, 0, 1]);
-  button('friends', 395, 44, 100, 'Friend List', 'compose-friends', () => { ctx.ui.lists = { kind: 'friends', selected: -1, pick: true }; ctx.rerender(); });
+  button('friends', 395, 44, 100, 'Friend List', 'compose-friends', () => { ctx.ui.lists = { kind: 'friends', selected: -1, pick: true }; ctx.send({ type: 'socialAction', action: { type: 'refreshOnline' } }); ctx.send({ type: 'refreshFriends' }); ctx.rerender(); });
   const multi = b.add('CWindowTaskMultiInput', 'bodyBox', { x: 8, y: 96, w: 0, h: 0 });
   b.add('CWindowTaskInput', 'body', { x: 0, y: 0, w: 464, h: 272 }, { parent: multi.id, value: c.body, password: false, caret: null, caretOn: false, maxLen: 512, multiLine: true },
     { key: 'compose-body', label: 'Mail text', text: v => { c.body = v; ctx.rerender(); } });
