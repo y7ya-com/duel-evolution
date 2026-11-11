@@ -207,7 +207,7 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-wrench-art { position:absolute; left:0; top:-400%; width:300%; height:600%; pointer-events:none; }
 .de-duel-wrench.has-art:hover .de-duel-wrench-art { left:-100%; } .de-duel-wrench.has-art:active .de-duel-wrench-art { left:-200%; }
 .de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
-.de-duel-help { position:absolute; left:${392 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:12%; bottom:12%; overflow:hidden; white-space:nowrap; font:13px Arial,sans-serif; color:#20384f; background:linear-gradient(#fff5ea,#ffe9d6); border-radius:2px; box-shadow:inset 0 0 0 1px #ffffffb0; display:flex; align-items:center; }
+.de-duel-help { position:absolute; left:${388 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:0; bottom:0; overflow:hidden; white-space:nowrap; font:15px Arial,sans-serif; letter-spacing:.04em; color:#0b1f3a; display:flex; align-items:center; }
 .de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }

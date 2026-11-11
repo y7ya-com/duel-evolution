@@ -19,6 +19,9 @@ export const PORTRAIT_PLACE: Record<0 | 1, { x: number; y: number }> = { 0: { x:
 export const PORTRAIT_SCALE = 0.9;
 
 const CSS = `
+/* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
+   16 px Arial: name, kind, 3 of text, the stats) */
+.de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
 .de-duel-board>canvas.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx canvas { width:100%; height:100%; display:block; }
@@ -46,13 +49,15 @@ export function cardKindLine(card: CardView): string {
 }
 
 /** Whose decision the duel waits on (the original's "Now Thinking" plate): the player's while it has a question or
- * commands, else the opponent's on its turn or while the duel waits on it; none at the end or with nothing to wait for. A spectator
+ * commands, else the turn's duelist's; none at the end or with nothing to wait for. A spectator
  * sees the side whose clock runs. */
 export function thinkingSide(duel: DuelView): 0 | 1 | null {
   if (duel.ended || !duel.turn) return null;
   if (duel.spectating) return duel.timer && !duel.timer.paused ? duel.timer.player : null;
   if (duel.prompt || duel.actions?.length) return 0;
-  return duel.turnPlayer === 1 || duel.waiting ? 1 : null;
+  // between questions (the server answering, an effect playing) the plate stays with the turn's duelist: the server's
+  // own pauses never flick it across
+  return duel.turnPlayer;
 }
 
 export interface DuelPresentationOptions { random?: () => number; setTimer?: (cb: () => void, ms: number) => unknown; clearTimer?: (id: unknown) => void }
