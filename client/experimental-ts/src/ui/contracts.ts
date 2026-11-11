@@ -12,7 +12,7 @@ import type { TagLobbyAction, TagLobbyState } from '../features/tag';
 /** Render-only browser UI contract. No component reads guest memory or opens a socket. */
 export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'social' | 'settings';
 export type DeckZone = 'main' | 'side' | 'extra';
-export interface CharacterView { slot: number; name: string; level?: number; selected?: boolean; }
+export interface CharacterView { slot: number; name: string; level?: number; selected?: boolean; /** The 16 avatar bytes Select Player's waist-up portrait wears. */ parts?: number[]; }
 export interface PlayerView { id: number; name: string; level?: number; mp?: number; }
 export interface CardView {
   id: string;
@@ -39,7 +39,7 @@ export interface DeckView { name: string; main: number[]; side: number[]; extra:
 export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & { id: string })[]; decks: DeckView[]; current: DeckView | null; collection: CardView[]; dirty?: boolean; loading?: boolean; error?: string; }
 export interface LobbyAvatar { id: number; name: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; /** In a duel others may watch (the server's duelling states). */ duelling?: boolean; }
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
-export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
+export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** 3 single, 4 match. */ style?: number; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number; /** The area's room kind (13 Domino City, 14 Duel Academy). */ kind?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
 export interface ShopItem { id: number; name: string; price: number; category?: string; /** Accessories: the avatar part's ownership bit. */ avatarBit?: number; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
 /** One purchase's opened cards, for the card-get presentation: whether each was new to the collection, its rarity. */
 export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
@@ -234,4 +234,8 @@ export interface ClientController {
   cardView?(passcode: number): CardView;
   /** A leased original image by archive path (shop packs, duel backdrop/field/phase sprites, card back). */
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
+  /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */
+  gameText?(ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>>;
+  /** Whether `password` is the signed-in account's (asked before deleting a character); null when it has none. */
+  checkPassword?(password: string, signal: AbortSignal): Promise<boolean | null>;
 }

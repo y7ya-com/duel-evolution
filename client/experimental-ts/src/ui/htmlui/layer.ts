@@ -72,7 +72,7 @@ export class HtmlUiLayer {
       key: () => {},
       char: (code: number) => { if (code === 13) this.handlers.get(this.focus)?.enter?.(); },
       setText: (id: number, value: string) => { this.focus = id; this.handlers.get(id)?.text?.(value); },
-      setValue: () => {}, wheel: () => true, scroll: () => {}, text: () => '',
+      setValue: (id: number, v: number) => { this.handlers.get(id)?.value?.(v); }, wheel: () => true, scroll: () => {}, text: () => '',
       art: (path: string) => this.options.art + path,
     };
     // main's Main Menu asks the page's yo2Html for the scene (its Appearance entry) and a Modern UI switch: the
@@ -148,7 +148,7 @@ export class HtmlUiLayer {
   }
   private onMove = (e: PointerEvent): void => {
     const [x, y] = this.point(e), id = hitTest(this.specs, x, y, (h, w) => !!h.hover && this.declared.get(w.cls) !== 'owned')?.id ?? 0;
-    if (id !== this.hover) { this.hover = id; if (this.pressed && id !== this.pressed) this.pressed = 0; this.draw(); }
+    if (id !== this.hover) { this.hover = id; if (this.pressed && id !== this.pressed) this.pressed = 0; this.handlers.get(id)?.over?.(); this.draw(); }
   };
   private onDown = (e: PointerEvent): void => { if (e.button !== 0) return; this.onMove(e); if (this.hover) { this.pressed = this.hover; this.draw(); } };
   private onUp = (): void => { if (this.pressed) { this.pressed = 0; this.draw(); } };

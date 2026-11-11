@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender, claimNpcReward, byKey } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender, claimNpcReward, byKey, lobbyShown } from './harness';
 
 /** In the page: while the effects layer reports an active effect, how many pixels of its canvas are painted
  * (every 16th pixel's alpha), per effect kind. Proves the original-art effects are drawn, not only scheduled. */
@@ -34,7 +34,7 @@ describe.skipIf(!enabled)('duel presentation with original art',() => {
         attackLines = Math.max(attackLines, await page.ev(`[...document.querySelectorAll('.de-duel-log div')].filter(d=>/ attacks/.test(d.textContent)).length`) as number);
         if (done(seen)) break;
         // A duel can end without an attack (effect damage, deck-out): play another, at most three.
-        if (state === 'finished') { if (duels >= 3) break; duels++; await claimNpcReward(page); await until(page,byKey('lobby-npcs'),60000); await startNpcDuel(page,'Yami Yugi'); await until(page,`document.querySelectorAll('.de-field-card').length>5`,60000); }
+        if (state === 'finished') { if (duels >= 3) break; duels++; await claimNpcReward(page); await until(page,lobbyShown,60000); await startNpcDuel(page,'Yami Yugi'); await until(page,`document.querySelectorAll('.de-field-card').length>5`,60000); }
         await sleep(120);
       }
       const seen = await painted(page), error = await page.ev(`window.__fxError ?? ''`);

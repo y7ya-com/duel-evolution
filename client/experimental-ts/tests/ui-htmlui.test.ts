@@ -22,7 +22,10 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
     t.find('character-name')!.text!('Bob Duelist'); t.find('character-create-ok')!.click!();
     expect(t.sent.at(-1)).toEqual({ type: 'createCharacter', slot: 0, name: 'Bob Duelist' });
-    t.find('character-delete:1')!.click!(); t.find('character-delete-yes')!.click!();
+    t.find('character-delete:1')!.click!();
+    expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
+    t.find('character-delete-password')!.text!('secret'); t.find('character-delete-password-ok')!.click!();
+    t.find('character-delete-yes')!.click!();
     expect(t.sent.at(-1)).toEqual({ type: 'deleteCharacter', slot: 1 });
   });
   it('chat: a log per tab (All Chat has every line), Enter sends on the tab\'s channel, /w whispers', () => {

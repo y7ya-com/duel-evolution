@@ -26,6 +26,10 @@ export interface ControlHandlers {
   text?(value: string): void;
   /** api.char(13) while it has the focus: an input's Enter. */
   enter?(): void;
+  /** api.setValue: a scroll bar's value (the Move list's wheel). */
+  value?(v: number): void;
+  /** The pointer came over it (a pass-mode window's control: the engine's hitTest in its onMain). */
+  over?(): void;
   /** data-key and aria-label put on the element main's screen draws for it (tests and assistive technology). */
   key?: string; label?: string;
   /** Whether the pointer gives it hover / pressed looks (buttons, tabs, icons). */

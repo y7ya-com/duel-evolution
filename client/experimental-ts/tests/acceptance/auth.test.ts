@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, placeName } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown } from './harness';
 
 const titleSignedOut = `document.body.innerText.includes('Sign In')&&document.querySelector('input[name="password"],[data-key="password"]')`;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
@@ -104,7 +104,7 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       const wallet = /([0-9,]+) MP/.exec(await text(a))?.[0];
       const level = /Lv (\d+)/.exec(await a.ev(`document.querySelector('.de-status')?.textContent ?? ''`) as string)?.[0];
       expect(mainCount).toBeGreaterThanOrEqual(40); expect(owned).toBeGreaterThan(0); expect(wallet).toBeTruthy();
-      await click(a,'Return to Lobby'); await until(a,byKey('lobby-npcs'),60000);
+      await click(a,'Return to Lobby'); await until(a,lobbyShown,60000);
       expect(await a.ev(`document.body.innerText.includes('Choose your Starter Deck')`)).toBe(false);
       record('character.starter',{ actions:'Fresh character claims the offered starter; open deck editor and shop; return to lobby', expected:'Claimed once; deck, inventory, level and wallet reflect it', observed:`starter claimed; main deck ${mainCount} cards; ${owned} owned collection entries on page 1; wallet ${wallet}; ${level}; not offered again` });
       await click(a,'Return to Title');
@@ -130,7 +130,7 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       record('character.list',{ actions:'Reconnect and open Select Character', expected:'Occupied and empty slots with correct identity', observed:`occupied: ${slots.join(', ')}; 3 free slots offered` });
       // character.select: enters the lobby as that character
       await press(a,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)}))`);
-      await until(a,byKey('lobby-npcs'),60000);
+      await until(a,lobbyShown,60000);
       expect(await text(a)).toContain(name);
       const world = await a.ev(placeName) as string;
       record('character.select',{ actions:'Select the existing character', expected:'Loads the selected player and enters the correct world', observed:`entered ${world} as ${name}` });
@@ -144,9 +144,18 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       const doomed = `Temp ${RUN}`;
       await createCharacter(b,doomed,{ wait:false });
       await until(b,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
-      await deleteCharacter(b,doomed);
+      // a wrong password first: the original's refusal, the character kept
+      const doomedSlot = await b.ev(`(${characterSlot(doomed)})?.dataset.key.split(':')[1]`) as string;
+      await press(b,byKey(`character-delete:${doomedSlot}`)); await until(b,byKey('character-delete-password'),10000);
+      const prompt = await b.ev(`document.getElementById('htmlui-host').innerText`) as string;
+      await type(b,byKey('character-delete-password'),'not the password'); await press(b,byKey('character-delete-password-ok'));
+      await until(b,byKey('dialog-ok'),30000); const refused = await b.ev(`document.getElementById('htmlui-host').innerText`) as string; await press(b,byKey('dialog-ok'));
+      await until(b,characterSlot(doomed),10000);
+      const { warning, done } = await deleteCharacter(b,doomed,await testPassword(`TestCb${RUN}`));
       await until(b,`![...document.querySelectorAll('[data-key^="character-slot:"]')].some(s=>s.textContent===${JSON.stringify(doomed)})`,30000);
-      record('character.delete',{ actions:'Create then delete (confirmed) a character', expected:'Slot updates after confirmed deletion', observed:`"${doomed}" removed; slot free again` });
+      const one = (t:string) => t.replace(/\s+/g,' ').trim();
+      record('character.delete',{ actions:'Create a character; Delete with a wrong password, then with the account password and Yes', expected:'Slot updates after confirmed deletion',
+        observed:`prompt "${one(prompt)}"; wrong password: "${one(refused)}", "${doomed}" kept; right password: "${one(warning)}" → Yes → "${one(done)}", "${doomed}" removed; slot free again` });
     } finally { closeAll(); }
   },300000);
 });

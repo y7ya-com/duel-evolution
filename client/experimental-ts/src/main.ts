@@ -3,6 +3,7 @@ import { CardCatalog } from './catalog';
 import { loadClientData } from './data';
 import { AssetManager } from './assets';
 import { BrowserAudioManager } from './features/audio';
+import { browserSocialBox } from './features/social';
 import { mountClient } from './ui';
 import type { SettingsView } from './ui/contracts';
 import { isGameLanguage } from './features/language';
@@ -33,7 +34,8 @@ let audioRestoreTimer: ReturnType<typeof setTimeout> | undefined;
 try { await Promise.race([audio.restore(),new Promise<void>(resolve=>{audioRestoreTimer=setTimeout(resolve,5000);})]); }
 finally { clearTimeout(audioRestoreTimer); }
 settings = {sound:audio.volumes.sound,music:audio.volumes.music,...settings};
-const app = new ClientApp({ ...data, audio, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,
+const socialBox = browserSocialBox();
+const app = new ClientApp({ ...data, audio, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 const ui = mountClient(root, app);

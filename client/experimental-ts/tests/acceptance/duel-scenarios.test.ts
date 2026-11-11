@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown } from './harness';
 
 /** Duel cases ordinary play rarely reaches (control changes, tokens, counters, shuffles, declarations, ritual and
  * discard selections, cancellation), forced with tiny decks: a deck of 6 is the whole opening hand plus the first draw,
@@ -124,7 +124,7 @@ async function finish(a:Page,b:Page) {
   }
   const result = [await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`),await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)] as string[];
   for (const p of [a,b]) if (await p.ev(`Boolean(${byText('Return to Lobby')})`)) await click(p,'Return to Lobby');
-  for (const p of [a,b]) await until(p,byKey('lobby-npcs'),60000);
+  for (const p of [a,b]) await until(p,lobbyShown,60000);
   return result;
 }
 
@@ -141,7 +141,7 @@ async function chooseDeck(page:Page,name:string,size:number) {
   }
   expect(current).toBe(name);
   await until(page,`[...document.querySelectorAll('[data-key^="deck-card:main:"]')].length===${size}`,20000);
-  await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
+  await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
 }
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 /** B challenges A; A wins rock-paper-scissors and goes first. Retries while the previous duel is still closing. */
@@ -172,7 +172,7 @@ async function seed(pages:[Page,string][]) {
     await page.send('Page.reload',{}); await sleep(1500); await until(page,`document.querySelector('.de-client')`,30000);
     await click(page,'Go Online',60000);
     const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
-    await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
+    await until(page,slot,60000); await press(page,slot); await until(page,lobbyShown,60000);
   }
 }
 const putDeck = (page:Page,name:string,main:number[]) => page.ev(`fetch('/api/de/decks',{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(${JSON.stringify({ name,main,side:[],extra:[] })})}).then(r=>r.status)`) as Promise<number>;

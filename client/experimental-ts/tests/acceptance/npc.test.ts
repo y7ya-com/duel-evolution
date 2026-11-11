@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, byKey, claimNpcReward } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, byKey, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
 
 const npcPanel = `document.querySelector('[aria-label="NPC interaction"]')`;
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -11,12 +11,13 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       const page = await openPage(); await openClient(page,await signIn(`TestNp${RUN}`));
       await enterWorld(page,`Npc ${RUN}`);
       // npc.start (eligibility): a special NPC refuses a character without its duel right.
-      await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`);
-      const npcs = await page.ev(`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)`) as string[];
+      // the NPCs here: the player list's search, Show all (main's CFindMenu), its rows
+      const npcs = await listedNames(page);
       expect(npcs.length).toBeGreaterThan(0);
       let refusal = 'no special NPC listed in this area';
       if (npcs.includes('Seto Kaiba')) {
-        await press(page,`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].find(b=>b.textContent==='Seto Kaiba')`);
+        await openNpcCard(page,'Seto Kaiba'); await until(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].some(b=>!b.disabled)`,30000);
+        await press(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`);
         await until(page,npcPanel,20000);
         refusal = (await page.ev(`${npcPanel}.innerText`) as string).replace(/\s+/g,' ').slice(0,160);
         expect(await page.ev(`[...${npcPanel}.querySelectorAll('button')].some(b=>b.textContent==='Duel NPC')`)).toBe(false);
@@ -49,12 +50,12 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       await click(page,'Return to Title'); await click(page,'Go Online',60000);
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(`Npc ${RUN}`)})&&!b.disabled)`;
       await until(page,slot,60000); await press(page,slot);
-      await until(page,byKey('lobby-npcs'),60000);
+      await until(page,lobbyShown,60000);
       const again = await ownedCopies(page,card);
       expect(again).toBe(after);
       record('npc.rewards',{ actions:`Return to lobby after the duel; choose ${pack}; close; read the collection, reconnect, read it again`, expected:'Rewards and unlocks applied exactly once', observed:`received ${received.join(', ')}; ${card} owned ×${after}, still ×${again} after reconnecting; dialog: ${receipt}` });
       // Rematch lifecycle: the same NPC accepts another duel.
-      await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
+      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
       await click(page,'Surrender');

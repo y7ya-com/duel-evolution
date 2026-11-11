@@ -1,11 +1,11 @@
 /** Two- and three-player helpers for the PvP and spectator acceptance tests (see ACCEPTANCE.md). */
 import { expect } from 'vitest';
-import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard } from './harness';
+import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard, lobbyShown } from './harness';
 
 export const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 export const invitation = `document.querySelector('[aria-label="Duel Invitation"]')`;
 export const requesting = `document.querySelector('[aria-label="Requesting Duel"]')`;
-export const inLobby = `document.querySelector('[data-key="lobby-npcs"]')&&!document.querySelector('.de-duel-board')`;
+export const inLobby = `${lobbyShown}&&!document.querySelector('.de-duel-board')`;
 export const onDuel = `document.querySelectorAll('.de-field-card').length>0&&document.querySelector('.de-phase-bar')`;
 export const finished = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled)`;
 /** Opens a player's card from their avatar (main's CPlayerListMenu) and presses one of its actions. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -103,7 +103,7 @@ async function deckNames(page:Page):Promise<string[]> {
   await click(page,'Edit Deck');
   await until(page,`document.querySelector('[data-key^="deck-card:main:"]')`,60000);
   const names = await page.ev(`[...document.querySelectorAll('[data-key^="deck-card:"]')].map(b=>b.title.split(' · ')[0])`) as string[];
-  await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000);
+  await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
   return [...new Set(names)];
 }
 /** Go online and create a character; claim the starter deck at `starter` (so the two players hold different decks). */
@@ -113,7 +113,7 @@ async function enterWith(page:Page,name:string,starter:number) {
   await createCharacter(page,name,{ wait:false });
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(page,slot,30000); await press(page,slot);
-  await until(page,byKey('lobby-npcs'),60000);
+  await until(page,lobbyShown,60000);
   const deck = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelectorAll('button')[${starter}]`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${deck})`)); i++) await sleep(100);
   if (await page.ev(`Boolean(${deck})`)) { await until(page,`!(${deck})?.disabled`,30000); await press(page,deck); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
@@ -367,9 +367,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       const prompts = tracker();
       let duels = 0, results:string[] = [];
       for (const npc of ['Yami Yugi','Tea Gardner','Joey Wheeler','Jaden Yuki','Chazz Princeton']) {
-        await click(page,'Return to Lobby').catch(() => {}); await until(page,byKey('lobby-npcs'),60000);
-        await until(page,`document.querySelectorAll('[data-key="lobby-npcs"] button').length>0`,30000);
-        const listed = await page.ev(`[...document.querySelectorAll('[data-key="lobby-npcs"] button')].map(b=>b.textContent)`) as string[];
+        await click(page,'Return to Lobby').catch(() => {}); await until(page,lobbyShown,60000);
+        const listed = await listedNames(page);
         if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }
         try { await startNpcDuel(page,npc); } catch (error) { results.push(`${npc}: no duel (${String(error).slice(0,120)})`); continue; }
         duels++;

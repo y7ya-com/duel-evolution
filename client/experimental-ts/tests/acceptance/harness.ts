@@ -96,6 +96,28 @@ export async function press(page:Page,selector:string):Promise<void> {
 export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
+/** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art). */
+export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&document.querySelector('.de-world-view')?.dataset.mapReady!=='false')`;
+/** A row of the lobby's player list (main's CPlayerListDlg) by its name. */
+export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(name)}&&b.getClientRects().length)`;
+/** The player list's search (its magnifier) and one of its rows (main's CFindMenu): Show all lists the NPCs here too. */
+export async function searchPlayers(page:Page,row = 'Show all') {
+  await press(page,byKey('plist-search'));
+  const r = `[...document.querySelectorAll('#htmlui-host .ds-row')].find(b=>b.textContent.trim()===${JSON.stringify(row)})`;
+  await until(page,r,10000); await press(page,r);
+  await until(page,`!document.querySelector('#htmlui-host .ds-row')`,10000);
+}
+/** Every name the player list shows after Show all (the players here, then the NPCs). */
+export async function listedNames(page:Page):Promise<string[]> {
+  await searchPlayers(page,'Show all');
+  return page.ev(`[...document.querySelectorAll('#htmlui-host .pl-row')].map(b=>b.getAttribute('aria-label'))`) as Promise<string[]>;
+}
+/** An NPC's card (main's CNpcListMenu) from the player list's Show all; resolves when its Send Duel Request is there. */
+export async function openNpcCard(page:Page,npc:string) {
+  if (!await page.ev(`Boolean(${listRow(npc)})`)) await searchPlayers(page,'Show all');
+  await until(page,listRow(npc),20000); await press(page,listRow(npc));
+  await until(page,`document.querySelector('[data-key^="npc-duel:"]')`,20000);
+}
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
 const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Audio','Ignore List','Friend List','Team List','Find Player','Shop','Return to Duel','Return to Lobby','Return to Title'];
 const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
@@ -140,24 +162,30 @@ export async function createCharacter(page:Page,name:string,{ wait = true,timeou
   await until(page,`!${byKey('character-create-ok')}?.disabled`,5000); await press(page,byKey('character-create-ok'));
   if (wait) await until(page,characterSlot(name),30000);
 }
-/** Delete on a character's row, Yes in the game's confirmation. */
-export async function deleteCharacter(page:Page,name:string) {
+/** Delete on a character's row: the account's password (the original asks for it first), Yes in the game's warning, OK on
+ * its "deleted" box. Returns the warning and the box's words as shown. */
+export async function deleteCharacter(page:Page,name:string,password:string) {
   const slot = await page.ev(`(${characterSlot(name)})?.dataset.key.split(':')[1]`) as string;
-  await press(page,byKey(`character-delete:${slot}`)); await until(page,byKey('character-delete-yes'),10000); await press(page,byKey('character-delete-yes'));
+  const shown = () => page.ev(`document.getElementById('htmlui-host')?.innerText ?? ''`) as Promise<string>;
+  await press(page,byKey(`character-delete:${slot}`)); await until(page,byKey('character-delete-password'),10000);
+  await type(page,byKey('character-delete-password'),password); await press(page,byKey('character-delete-password-ok'));
+  await until(page,byKey('character-delete-yes'),30000); const warning = await shown(); await press(page,byKey('character-delete-yes'));
+  await until(page,byKey('dialog-ok'),30000); const done = await shown(); await press(page,byKey('dialog-ok'));
+  return { warning, done };
 }
 /** Go Online, create a character named `name` in the first free slot, select it, claim a starter if offered. */
 export async function enterWorld(page:Page,name:string) {
   await click(page,'Go Online',60000);
   await createCharacter(page,name);
   await press(page,characterSlot(name));
-  await until(page,byKey('lobby-npcs'),60000);
+  await until(page,lobbyShown,60000);
   await claimStarter(page);
 }
 /** Go Online again with an existing character (after a reload or a dropped connection). */
 export async function reenterWorld(page:Page,name:string) {
   await click(page,'Go Online',60000);
   await until(page,characterSlot(name),60000); await press(page,characterSlot(name));
-  await until(page,byKey('lobby-npcs'),60000);
+  await until(page,lobbyShown,60000);
 }
 /** The place banner's names (main's CWindowModelPlace: the world, then the area), as 'World · Area'. */
 export const placeName = `[...document.querySelectorAll('#htmlui-host .lb-shadow')].filter(t=>t.style.left==='20px').map(t=>t.textContent).join(' · ')`;
@@ -198,7 +226,8 @@ export function record(flow:string,observation:{ actions:string; expected:string
   appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),test,...observation }) + '\n');
 }
 function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
-export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/acceptance',{ recursive:true }); writeFileSync(`/tmp/acceptance/${name}.png`,await page.shot()); }
+/** A full-page capture to $ACCEPTANCE_SHOTS (default /tmp/acceptance). */
+export async function screenshot(page:Page,name:string) { const dir = process.env.ACCEPTANCE_SHOTS || '/tmp/acceptance'; mkdirSync(dir,{ recursive:true }); writeFileSync(`${dir}/${name}.png`,await page.shot()); }
 
 /** One move of a playing bot on the duel screen, through the same controls a player uses. On its own turn it inspects
  * each hand card once for a summon or set, enters the Battle Phase and attacks with each monster once, then ends the
@@ -262,11 +291,12 @@ export async function playDuel(page:Page,options:{ attack?:boolean; summon?:bool
   }
   return page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
 }
-/** NPC list → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
+/** The NPC's card → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
 export async function startNpcDuel(page:Page,npc:string) {
-  if (!(await page.ev(`document.querySelector('[data-key="lobby-npcs"]')?.open`))) await press(page,`document.querySelector('[data-key="lobby-npcs"] summary')`).catch(() => {});
-  // Several NPCs share a name (levels 4/6/8); take the first that is enabled and visible.
-  const entry = `[...document.querySelectorAll('[data-key="lobby-npcs"] button')].find(b=>b.textContent===${JSON.stringify(npc)}&&!b.disabled&&b.getClientRects().length)`;
+  // the player list's Show all, the NPC's row (several NPCs share a name, levels 4/6/8: the first), its card's
+  // Send Duel Request once eligibility allows it
+  await openNpcCard(page,npc);
+  const entry = `[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`;
   await until(page,entry,30000);
   await press(page,entry);
   const confirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;

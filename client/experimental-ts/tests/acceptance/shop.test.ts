@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton, lobbyShown } from './harness';
 
 /** The shop (GET /api/de/shop, POST /api/de/shop/buy), the card-get presentation, the cosmetic boxes and wardrobe
  * (/api/de/cosmetics) and the Main Menu's Appearance editor, against the real server. */
@@ -37,7 +37,7 @@ async function reload(page:Page,character:string) {
   await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
   await click(page,'Go Online',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-  await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
+  await until(page,slot,60000); await press(page,slot); await until(page,lobbyShown,60000);
 }
 const cardGet = `document.querySelector('.de-card-get')`;
 const cardGetState = (page:Page) => page.ev(`(()=>{const r=${cardGet};if(!r)return null;return { thumbs:[...r.querySelectorAll('[data-key^="card-get-thumb:"]')].map(t=>t.getAttribute('aria-label')), banner:r.querySelector('.de-card-get-banner')?.getAttribute('aria-label'), face:r.querySelector('.de-card-get-face')?.getAttribute('aria-label'), count:r.querySelector('.de-card-get-count')?.textContent, art:[...r.querySelectorAll('img')].filter(i=>i.naturalWidth>0).length };})()`) as Promise<{ thumbs:string[]; banner:string; face:string; count:string; art:number } | null>;
