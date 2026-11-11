@@ -5,8 +5,7 @@ import { DuelPresentation } from './duel-scene';
 import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
-import { WorldRenderer } from './world';
-import { avatarDepth } from '../world/depth';
+import { WorldRenderer, pictureTexture } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { giftItemName } from '../npcs/gift-names';
@@ -533,8 +532,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         // All Chat's bubbles (main's chat-bubbles.js) over each shown avatar's top, in game px of the stage
         const lobby = controller.getState().scene === 'lobby' ? controller.getState().lobby : null, box = stage?.getBoundingClientRect();
         if (!lobby || !box?.width || !box.height) return [];
-        return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const r = avatarNodes.get(a.id)!.getBoundingClientRect(); if (!r.width && !r.height) return [];
-          return [{ pid: a.id, name: a.name, x: (r.left + r.width / 2 - box.left) / box.width * 1024, y: (r.top - box.top) / box.height * 768 }]; });
+        const anchors = worldRenderer?.chatAnchors() ?? [], scale = 1;
+        return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const p = anchors.find(h => h.id === a.id); return p ? [{ pid: a.id, name: a.name, x: p.x * scale, y: p.y * scale }] : []; });
       } });
       // live's HD game cursor (main's cursor.js) and its click ripple, the busy hand while the app waits
       gameCursor?.dispose();
@@ -563,7 +562,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
-  const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
   let sideboardClock: ReturnType<typeof setInterval> | null = null;
   // The turn clock runs down between the server's readings; only its text changes each second.
@@ -574,25 +572,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const timeFraction = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000); return left / Math.max(180, timer.seconds); };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
-    for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
-      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; node.style.zIndex = String(avatarDepth(avatar.y)); }
-      else { node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
-    }
+    if (worldRenderer && lobby.mapId !== undefined) { worldRenderer.setAvatars(lobby.avatars); return; }
+    for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue; node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
   };
-  const worldRenderer = controller.loadWorldScene ? new WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal), onViewport: () => { const current = controller.getState(); if (current.scene === 'lobby' && current.lobby) positionAvatars(current.lobby); } }) : null;
+  // the overworld on PixiJS (ui/world.ts): map, objects, avatars, names and flags on one canvas under the HTML UI
+  const worldRenderer = controller.loadWorldScene ? new WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal),
+    ...(controller.loadAvatar ? { loadAvatar: (parts: Uint8Array, options: import('../avatars').AvatarLoadOptions) => controller.loadAvatar!(parts, options) } : {}),
+    loadFlagAtlas: async signal => pictureTexture(await pictureArt.resolve({ archive: FLAG_ATLAS }, signal), signal),
+    reducedMotion: () => !!controller.getState().settings.reducedMotion }) : null;
+  if (worldRenderer) (globalThis as { __deWorld?: () => unknown }).__deWorld = () => worldRenderer.inspect();
   worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('canvas[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
-  const showAvatarViews = (lobby: NonNullable<ClientView['lobby']>) => {
-    const self = lobby.avatars.find(a => a.self), origin = self ?? { x: 512, y: 384 }, viewport = worldRenderer?.viewport;
-    const candidates = controller.loadAvatar ? lobby.avatars.filter(a => a.parts?.length === 16 && (!viewport || a.x >= viewport.x - 128 && a.x <= viewport.x + viewport.width + 128 && a.y >= viewport.y - 160 && a.y <= viewport.y + viewport.height + 160)).sort((a, b) => Number(!!b.self) - Number(!!a.self) || Math.hypot(a.x - origin.x, a.y - origin.y) - Math.hypot(b.x - origin.x, b.y - origin.y) || a.id - b.id).slice(0, 24) : [];
-    const retained = new Set(candidates.map(a => a.id));
-    for (const [id, view] of avatarViews) if (!retained.has(id)) { view.dispose(); avatarViews.delete(id); const button = avatarNodes.get(id); if (button) button.className = button.className.replace(' has-original', ''); }
-    for (const actor of candidates) {
-      const button = avatarNodes.get(actor.id); if (!button) continue;
-      let view = avatarViews.get(actor.id); if (!view) { view = new AvatarView({ sourceOrigin: true, loadAvatar: (parts, options) => controller.loadAvatar!(parts, options), reducedMotion: () => controller.getState().settings.reducedMotion }); avatarViews.set(actor.id, view); }
-      button.className = button.className.replace(' has-original', '') + ' has-original'; button.prepend(view.element);
-      try { view.show(actor.parts!, actor.world ?? 0, actor.motion ?? 'stand', actor.direction ?? 0); } catch (error) { view.element.dataset.avatarError = error instanceof Error ? error.message.slice(0, 256) : 'Invalid avatar appearance'; }
-    }
-  };
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
   let renderedIdentity = '';
@@ -667,7 +656,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const presentLobby = (lobby: NonNullable<ClientView['lobby']>) => {
     if (worldRenderer && lobby.mapId !== undefined) { const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
     positionAvatars(lobby);
-    showAvatarViews(lobby);
   };
   const canPresent = (previous: ClientView, next: ClientView) => {
     const a = previous.duel, b = next.duel;
@@ -840,10 +828,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
-      const nameTag = el('span', 'de-avatar-name', avatar.name), cell = flagCell(avatar.country); if (cell) nameTag.prepend(nationFlag(cell)); b.append(nameTag); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
+      const nameTag = el('span', 'de-avatar-name', avatar.name), cell = useScene ? null : flagCell(avatar.country); if (cell) nameTag.prepend(nationFlag(cell)); b.append(nameTag); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
     }
+    if (useScene) worldRenderer.bindHits(avatarNodes);
     positionAvatars(lobby);
-    showAvatarViews(lobby);
     // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list; the chat,
     // the Duel menu, the Move list, the player list's search and an NPC's card are main's (src/ui/htmlui/lobby.ts)
     // the duel request (waiting, Cancel) and the invitation (Yes / No) are main's stock dialogs: duelPrompts()
@@ -1276,7 +1264,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       state = controller.getState();
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
-      if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
+      if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
       if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(timeFraction(timer)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
@@ -1423,5 +1411,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; if (packDragOver) globalThis.document?.removeEventListener?.('dragover', packDragOver); if (packDropped) globalThis.document?.removeEventListener?.('drop', packDropped); packDragOver = packDropped = null; packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect();  worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; if (packDragOver) globalThis.document?.removeEventListener?.('dragover', packDragOver); if (packDropped) globalThis.document?.removeEventListener?.('drop', packDropped); packDragOver = packDropped = null; packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

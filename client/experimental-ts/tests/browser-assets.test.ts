@@ -36,7 +36,7 @@ async function click(browser:Browser,text:string) {
   const up = browser.send('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
   await down; await up;
 }
-const readyMap = `document.querySelector('.de-world-view[data-map-ready="true"]')&&[...document.querySelectorAll('.de-world-image')].some(image=>image.complete&&image.naturalWidth>0)`;
+const readyMap = `document.querySelector('.de-world-view[data-map-ready="true"]')&&window.__deWorld?.().sprites>0&&window.__deWorld().renderer==='pixi'`;
 async function sample(browser:Browser) {
   await browser.send('HeapProfiler.collectGarbage');
   // Allow Blink's native DOM sweep to follow V8 collection before taking a second sample.
@@ -71,9 +71,9 @@ describe.skipIf(!process.env.YO2_ASSET_URL)('optional real original-asset browse
       const up = browser.send('Input.dispatchMouseEvent',{type:'mouseReleased',...character,button:'left',clickCount:1}); await down; await up;
       await until(browser,readyMap);
       const mapId = await evaluate(browser,`Number(document.querySelector('.de-world-view').dataset.mapId)`);
-      const initialImages = await evaluate(browser,`document.querySelectorAll('.de-world-image').length`);
+      const initialImages = await evaluate(browser,`window.__deWorld().sprites`);
       expect(initialImages).toBeGreaterThan(0);
-      expect(await evaluate(browser,`[...document.querySelectorAll('.de-world-image')].every(i=>i.complete&&i.naturalWidth>0&&i.naturalHeight>0)`)).toBe(true);
+      expect(await evaluate(browser,`window.__deWorld().textures>0&&!!document.querySelector('.de-world-view>canvas.de-world-canvas')`)).toBe(true);
       await writeFile('/tmp/duel-ts-original-assets-world.png',await browser.shot());
 
       // Select a nearby reachable direction from the original generated collision grid.

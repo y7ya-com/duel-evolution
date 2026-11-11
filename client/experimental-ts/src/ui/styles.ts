@@ -26,6 +26,9 @@ export const CLIENT_CSS = `
 /* objects and avatars z-sort together (src/world/depth.ts): their layers make no stacking context; the front layer's
    z-index is set by WorldRenderer (30724, the original's front-object key) */
 .de-world-avatars .de-avatar { pointer-events:auto; }
+/* the world is drawn on PixiJS's canvas (ui/world.ts); each avatar's button is its transparent hit target over it */
+.de-world-view>canvas.de-world-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; image-rendering:pixelated; }
+.de-world-avatars .de-avatar>* { visibility:hidden; }
 .de-world-image,.de-world-tile { position:absolute; display:block; pointer-events:none; max-width:none; }
 .de-world-tile { overflow:hidden; }
 .de-world-tile>.de-world-image { position:relative; left:0; top:0; }
