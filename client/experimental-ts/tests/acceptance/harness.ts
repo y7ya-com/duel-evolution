@@ -122,7 +122,9 @@ export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[
  * unreachable, the map's own failure with Retry Map). */
 export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'))`;
 /** A row of the lobby's player list (main's CPlayerListDlg) by its name. */
-export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(name)}&&b.getClientRects().length)`;
+/** A row's name: its label past the level live's rows lead with ("Lv 1 Name"; an NPC's row has none). */
+const rowName = `(b=>(b.getAttribute('aria-label')??'').replace(/^Lv \\d+ /,''))`;
+export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>${rowName}(b)===${JSON.stringify(name)}&&b.getClientRects().length)`;
 /** The player list's search (its magnifier) and one of its rows (main's CFindMenu): Show all lists the NPCs here too. */
 export async function searchPlayers(page:Page,row = 'Show all') {
   await press(page,byKey('plist-search'));
@@ -133,7 +135,7 @@ export async function searchPlayers(page:Page,row = 'Show all') {
 /** Every name the player list shows after Show all (the players here, then the NPCs). */
 export async function listedNames(page:Page):Promise<string[]> {
   await searchPlayers(page,'Show all');
-  return page.ev(`[...document.querySelectorAll('#htmlui-host .pl-row')].map(b=>b.getAttribute('aria-label'))`) as Promise<string[]>;
+  return page.ev(`[...document.querySelectorAll('#htmlui-host .pl-row')].map(${rowName})`) as Promise<string[]>;
 }
 /** An NPC's card (main's CNpcListMenu) from the player list's Show all; resolves when its Send Duel Request is there. */
 export async function openNpcCard(page:Page,npc:string) {
