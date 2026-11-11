@@ -114,10 +114,8 @@ async function enterWith(page:Page,name:string,starter:number) {
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(page,slot,30000); await press(page,slot);
   await until(page,lobbyShown,60000);
-  const deck = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelectorAll('button')[${starter}]`;
-  for (let i = 0; i < 30 && !(await page.ev(`Boolean(${deck})`)); i++) await sleep(100);
-  if (await page.ev(`Boolean(${deck})`)) { await until(page,`!(${deck})?.disabled`,30000); await press(page,deck); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
-  else await claimStarter(page);
+  // main's starter picker: each player its own deck (the hidden-card checks need names the other deck lacks)
+  await claimStarter(page,starter);
 }
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 const turnOf = (s:Snap) => Number(/Turn (\d+)/.exec(s.bar)?.[1] ?? 0);

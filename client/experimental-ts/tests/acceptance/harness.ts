@@ -234,9 +234,9 @@ export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'pro
   for (const t of ['keyDown','keyUp']) await page.send('Input.dispatchKeyEvent',{ type:t,key:'Enter',code:'Enter',windowsVirtualKeyCode:13,...(t === 'keyDown' ? { text:'\r' } : {}) });
 }
 
-export async function claimStarter(page:Page) {
-  // main's starter deck picker (web-shell/starter.js, #starter): a deck tile, "Choose this deck", "Yes, take it", OK
-  const tile = `document.querySelector('#starter .scroll .btn')`, btn = (label:string) => `document.querySelector('#starter .btn[aria-label=${JSON.stringify(label)}]')`;
+export async function claimStarter(page:Page,index = 0) {
+  // main's starter deck picker (web-shell/starter.js, #starter): a deck tile (the index-th), "Choose this deck", "Yes, take it", OK
+  const tile = `document.querySelectorAll('#starter .scroll .btn')[${index}]`, btn = (label:string) => `document.querySelector('#starter .btn[aria-label=${JSON.stringify(label)}]')`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${tile})`)); i++) await sleep(100);
   if (await page.ev(`Boolean(${tile})`)) {
     await press(page,tile); await until(page,btn('Choose this deck'),10000); await press(page,btn('Choose this deck'));
