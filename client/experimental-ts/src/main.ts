@@ -1,7 +1,11 @@
 import { ClientApp } from './app';
 import { CardCatalog } from './catalog';
 import { loadClientData } from './data';
-import { AssetManager } from './assets';
+import { AssetManager, CacheApiPersistence, IdlePrefetcher } from './assets';
+import { SceneManifest } from './assets/prefetch';
+import { SceneLoader, scenePaths } from './world/scene';
+import { decodeDuelPrefetch, Preloader } from './features/preload';
+import { SceneLoadingOverlay, SceneLoadTracker } from './ui/htmlui/scene-loading';
 import { BrowserAudioManager } from './features/audio';
 import { browserSocialBox } from './features/social';
 import { mountClient } from './ui';
@@ -28,17 +32,46 @@ const abort = new AbortController();
 const data=await loadClientData({signal:abort.signal}), catalog=data.catalog ?? new CardCatalog();
 const offset = Number(params.get('portOffset') ?? 1000);
 if (!Number.isInteger(offset) || offset < 0 || offset > 60000) throw new Error('Invalid port offset');
-const assets = params.has('assets') ? new AssetManager({ baseUrl: new URL(params.get('assets')!, location.href).href, mergeCardPaths: catalog.mergePaths }) : undefined;
+const dev = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
+// Archive chunks persist between sessions (Cache API, one cache per archive build); the next scenes warm at idle.
+const prefetcher = new IdlePrefetcher();
+let storage: Storage | null = null; try { storage = localStorage; } catch { /* optional */ }
+const manifest = new SceneManifest('de-prefetch-v1', storage);
+let preloader: Preloader | undefined;
+const assets = params.has('assets') ? new AssetManager({ baseUrl: new URL(params.get('assets')!, location.href).href, mergeCardPaths: catalog.mergePaths,
+  ...(globalThis.caches ? { persistent: new CacheApiPersistence({ build: 'v1' }) } : {}), onScene: path => preloader?.record(path) }) : undefined;
+const mapScenes = assets ? new SceneLoader({ assets }) : null;
+if (assets) preloader = new Preloader({ assets, prefetcher, manifest,
+  mapPaths: async (id, signal) => { const scene = await mapScenes!.load(id, signal); try { return scenePaths(scene.definition); } finally { scene.dispose(); } },
+  neighbours: id => data.worldMaps?.maps.find(m => m.id === id)?.exits.map(e => e.to) ?? [],
+  duelDeck: async signal => {
+    const response = await fetch('/api/de/prefetch/duel', { credentials: 'same-origin', signal });
+    return response.status === 200 ? decodeDuelPrefetch(await response.json()) : null;
+  } }, settings.language ?? 'E');
+// The scene-load overlay (main's loader look) and, in development, scene load times cold vs warm.
+let overlay: SceneLoadingOverlay | null = null;
+let lastStats = assets?.stats ?? { persisted: 0, network: 0 };
+const sceneLoads = new SceneLoadTracker(loading => overlay?.set(loading), dev ? (name, ms) => {
+  const now = assets?.stats ?? lastStats, network = now.network - lastStats.network, persisted = now.persisted - lastStats.persisted; lastStats = now;
+  console.info(`[scene-load] ${name} ${ms.toFixed(0)} ms ${network ? 'cold' : 'warm'} (network ${network}, persisted ${persisted}, memory ${(assets?.cacheBytes ?? 0) >> 10} KiB)`);
+} : undefined);
 const audio = new BrowserAudioManager(params.has('assets') ? { soundArchiveUrl: new URL(params.get('assets')!.replace(/\/?$/, '/') + 'Sound.dat', location.href).href } : {});
-let audioRestoreTimer: ReturnType<typeof setTimeout> | undefined;
-try { await Promise.race([audio.restore(),new Promise<void>(resolve=>{audioRestoreTimer=setTimeout(resolve,5000);})]); }
-finally { clearTimeout(audioRestoreTimer); }
+// Deferred audio (live: ovr/sedefer.c): startup waits for the stored audio pack only when the stored settings lack the
+// volumes; otherwise it restores in the background.
+const audioRestore = audio.restore().catch(() => false);
+if (typeof settings.sound !== 'number' || typeof settings.music !== 'number') {
+  let audioRestoreTimer: ReturnType<typeof setTimeout> | undefined;
+  try { await Promise.race([audioRestore,new Promise<void>(resolve=>{audioRestoreTimer=setTimeout(resolve,5000);})]); }
+  finally { clearTimeout(audioRestoreTimer); }
+}
 settings = {sound:audio.volumes.sound,music:audio.volumes.music,...settings};
 const socialBox = browserSocialBox();
-const app = new ClientApp({ ...data, audio, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
+const app = new ClientApp({ ...data, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 const ui = mountClient(root, app);
+overlay = new SceneLoadingOverlay(app.loadArchiveImage?.bind(app) ?? null, () => settings.reducedMotion === true || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
+root.append(overlay.element);
 // Development only: browser acceptance runs read the duel model when a duel stalls (tests/acceptance/duel.test.ts).
 if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __deApp?: ClientApp }).__deApp = app;
 void app.initialize();
@@ -53,7 +86,7 @@ let closed = false;
 function dispose(): void {
   if (closed) return; closed = true;
   for (const type of ['pointerdown', 'keydown'] as const) window.removeEventListener(type, unlock, true);
-  abort.abort(); ui.dispose(); app.dispose();
+  abort.abort(); prefetcher.dispose(); mapScenes?.dispose(); manifest.save(); overlay?.dispose(); ui.dispose(); app.dispose();
   window.removeEventListener('pagehide', pagehide);
 }
 function pagehide(event: PageTransitionEvent): void { if (!event.persisted) dispose(); }

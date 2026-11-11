@@ -103,6 +103,13 @@ export class WorldScene {
     this.sizes.clear(); this.onDispose();
   }
 }
+/** Every archive path a map draws (base tiles, objects, front objects): the neighbouring maps' prefetch. */
+export function scenePaths(d: SceneDefinition): string[] {
+  const paths = new Set<string>();
+  for (let x = 0; x < d.columns; x++) for (let y = 0; y < d.rows; y++) paths.add(sceneTilePath(d, x, y));
+  for (const o of [...d.objects, ...d.frontObjects]) paths.add(o.path);
+  return [...paths];
+}
 export class SceneLoader {
   private closed = false;
   private pending?: AbortController;
