@@ -14,7 +14,7 @@ window.WebSocket=class extends W{constructor(u,p){u=String(u);if(N.rewrite)u=N.r
 const send=this.send.bind(this);this.send=d=>{if(typeof d==='string'&&d.includes('"close"')){try{sessionStorage.setItem('net-closed',(sessionStorage.getItem('net-closed')??'')+d);}catch{}}return send(d);};this.addEventListener('message',e=>{if(e.data instanceof ArrayBuffer){const b=new Uint8Array(e.data);if(b[0]===1){const id=new DataView(e.data).getUint32(1);let a=N.frames.get(id);if(!a)N.frames.set(id,a=[]);a.push(b.slice(5));}}});}};
 const F=window.fetch;N.http={fail:null,delay:null,log:[]};window.fetch=async(input,init)=>{const url=String(input?.url??input);const h=N.http;
 if(h.fail&&h.fail.test(url)){h.log.push('fail '+url);return new Response(JSON.stringify({error:'Internal error'}),{status:500,headers:{'content-type':'application/json'}});}
-if(h.delay&&h.delay.test(url)){h.log.push('delay '+url);await new Promise(r=>h.release=r);}return F(input,init);};
+if(h.delay&&h.delay.test(url)){h.log.push('delay '+url);await new Promise(r=>{(h.held=h.held||[]).push(r);h.release=()=>h.held.splice(0).forEach(f=>f());});}return F(input,init);};
 setInterval(()=>{const c=window.__deApp?.getState?.().connection??(document.querySelector('[data-key="net-reconnecting"]')?'reconnecting':null);if(c&&N.statuses.at(-1)!==c)N.statuses.push(c);},10);})()`;
 /** The client's connection state (the app's, which its reconnect notice "Connection lost. Reconnecting…" shows). */
 const CONN = `window.__deApp?.getState?.().connection`;
@@ -441,13 +441,16 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const leave = `${SHOP}?.querySelector('[aria-label="Leave the shop"]')`;
       await until(page,leave,30000);
       const heldShop = await page.ev(`Boolean(${SHOP}.querySelector('[data-k^="buy-"]'))`) ? 'its packs already listed' : 'no packs listed yet';
-      await press(page,leave);
-      await until(page,lobbyShown,30000);
+      // Leave the shop while the app's shop request is still out: the rewrite leaves once that request settles
+      // (index.ts leaveCardShop), so the press is kept and the release lets it through.
+      await press(page,leave); await sleep(1000);
+      const leftEarly = await page.ev(lobbyShown) as boolean;
       await page.ev(`window.__net.http.delay=null;window.__net.http.release();window.__net.http.release=null`);
+      await until(page,lobbyShown,30000);
       await sleep(2500);
       const afterShop = { scene:await page.ev(`document.querySelector('.de-client').dataset.scene`), shop:await page.ev(`Boolean(${SHOP})`), lobby:await page.ev(lobbyShown) };
       expect(afterShop).toEqual({ scene:'lobby',shop:false,lobby:true });
-      const navBusy = `the shop opened with ${heldShop}; Leave the shop returned to the lobby and the late reply left it there`;
+      const navBusy = `the shop opened with ${heldShop}; Leave the shop returned to the lobby ${leftEarly ? 'at once' : 'as the held reply settled'} and the late reply left it there`;
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
       await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
