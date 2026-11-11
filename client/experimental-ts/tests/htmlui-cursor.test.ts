@@ -14,9 +14,7 @@ describe('the HD game cursor (main cursor.js, as live draws it)', () => {
     const live = mock.sprites.filter((p: { shown: boolean }) => p.shown);
     expect(s.sprites.filter(p => p.shown).map(p => ({ tex: p.tex, src: p.src, wz: p.wz, mode: p.mode }))).toEqual(live.map((p: { tex: string; src: number[]; wz: number; mode: number }) => ({ tex: p.tex, src: p.src, wz: p.wz, mode: p.mode })));
   });
-  it('points over a control, holds n02_c01 while pressed anywhere (live\'s engine), turns while busy', () => {
-    expect(shown(cursorSprites('hover', 10, 10, 0)).map(s => s[0])).toEqual(['mausuk_n02_s.png', 'mausuk_n02_c02.png']);
-    expect(shown(cursorSprites('hover', 10, 10, 0, [], true)).map(s => s[0])).toEqual(['mausuk_n02_s.png', 'mausuk_n02_c01.png']);
+  it('holds n02_c01 while pressed anywhere (live\'s engine), turns while busy', () => {
     // live's title, sampled: a press on nothing and on a plate both show n02_s + n02_c01
     expect(shown(cursorSprites('normal', 10, 10, 0, [], true)).map(s => s[0])).toEqual(['mausuk_n02_s.png', 'mausuk_n02_c01.png']);
     const frames = new Set([0, 140, 280, 420, 560].map(t => shown(cursorSprites('busy', 10, 10, t))[1]![0]));
@@ -25,7 +23,7 @@ describe('the HD game cursor (main cursor.js, as live draws it)', () => {
   });
   it('every state\'s art is named (hidden) in each snapshot, so cursor.js loads it all at the first frame', () => {
     const names = new Set(cursorSprites('normal', 0, 0, 0).sprites.map(s => s.tex.split('/').pop()));
-    for (const n of ['mausuk_n01_c01.png', 'mausuk_n02_c01.png', 'mausuk_n02_c02.png', 'mausuk_t01_s.png', 'mausuk_e01_c01.png', ...Array.from({ length: 8 }, (_, i) => `mausuk_t0${i + 1}_c01.png`)])
+    for (const n of ['mausuk_n01_c01.png', 'mausuk_n02_c01.png', 'mausuk_t01_s.png', 'mausuk_e01_c01.png', ...Array.from({ length: 8 }, (_, i) => `mausuk_t0${i + 1}_c01.png`)])
       expect(names.has(n), n).toBe(true);
     const loads: string[] = [], g = globalThis as { Image?: unknown };
     const had = g.Image; g.Image = class { onload: (() => void) | null = null; set src(v: string) { loads.push(v); } };
@@ -67,7 +65,7 @@ describe('the hand\'s timing is the original swfs\' (mausuk_a07_c01: 32 frames a
 });
 
 describe('GameCursor\'s state machine (a stub page: no art, so the CSS cursor stays unset)', () => {
-  it('rest -> pointing over a control -> held + ripple on any press -> rest; busy wins', () => {
+  it('hovering a control keeps the plain hand (live); held + ripple on any press -> rest; busy wins', () => {
     const el = (): Record<string, unknown> => { const o: Record<string, unknown> = { style: {}, dataset: {}, append(c: unknown) { o.firstChild ??= c; }, remove() {}, getAttribute() { return null; }, classList: { toggle() {} } }; return o; };
     const listeners = new Map<string, (e: unknown) => void>(), g = globalThis as Record<string, unknown>;
     const saved = ['document', 'addEventListener', 'removeEventListener', 'HTMLButtonElement', 'HTMLAnchorElement', 'HTMLSelectElement', 'Element', 'Image'].map(k => [k, g[k]] as const);
@@ -85,7 +83,7 @@ describe('GameCursor\'s state machine (a stub page: no art, so the CSS cursor st
       listeners.get('pointermove')!({ clientX: 10, clientY: 10, target: plain }); c.frame(0);
       expect(c.cursor.state).toBe('normal');
       listeners.get('pointermove')!({ clientX: 10, clientY: 10, target: button }); c.frame(10);
-      expect(c.cursor.state).toBe('hover');
+      expect(c.cursor.state).toBe('normal');
       // a press on the control: the held hand and a ripple (live ripples on plates too)
       listeners.get('pointerdown')!({ button: 0, clientX: 10, clientY: 10, target: button }); c.frame(performance.now() + 100);
       expect(fx).toHaveLength(1);

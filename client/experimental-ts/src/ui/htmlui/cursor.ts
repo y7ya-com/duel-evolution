@@ -8,12 +8,14 @@
 // live's title, 2026-11-11): the plain hand is n01_s + n01_c01 at rest; while the left button is held it is n02_s +
 // n02_c01 (on a plate or on nothing alike), and every press starts a click ripple (mausuk_e01_c01, 32 x 32, centred on
 // the press: 15 frames at 30 fps = 500 ms, fading in over 5 frames from 0.3x to 1x and alpha 0.8, then out over 9 to 2x
-// and alpha 0). The pointing hand (a02) is n02_c02 at rest over a control. The busy hand is a07 (t01..t08, each 4 frames
+// and alpha 0). Hovering changes nothing: live's engine keeps n01 over every control it was sampled on (title plates,
+// lobby menu bar, chat, player list, avatars and NPCs, Main Menu, the deck editor: main's warm harness, 2026-11-11), so
+// the rewrite has no pointing-on-hover state (a02's n02_c02 is never shown). The busy hand is a07 (t01..t08, each 4 frames
 // at 30 fps: 7.5 images a second, the turn 32 frames). Every state's art is in each snapshot (hidden), as the engine's
-// is, so cursor.js loads it all up front and no first press / hover / busy turn waits on a file.
+// is, so cursor.js loads it all up front and no first press or busy turn waits on a file.
 import { cursorCss, ripple, HD } from '@htmlui/cursor.js';
 
-export type CursorState = 'normal' | 'hover' | 'busy';
+export type CursorState = 'normal' | 'busy';
 export interface CursorSprite { id: number; name: string; tex: string; src: [number, number, number, number]; wx: number; wy: number; wz: number;
   a: number; col: [number, number, number, number]; add: [number, number, number, number]; shown: boolean; wsx: number; wsy: number; mode: number }
 export interface CursorSnap { id: number; shown: boolean; mx: number; my: number; sprites: CursorSprite[] }
@@ -34,15 +36,15 @@ export function rippleFrame(f: number): { s: number; a: number } {
   return f <= 5 ? { s: 0.3 + 0.14 * f, a: 0.16 * f } : { s: 1 + (f - 5) / 9, a: 0.8 * (14 - f) / 9 };
 }
 // every state's art, hidden: cursor.js loads what a snapshot names (the engine's snapshot names them all)
-const PRELOAD = ['n01_s', 'n01_c01', 'n02_s', 'n02_c01', 'n02_c02', 't01_s', ...Array.from({ length: BUSY_FRAMES }, (_, i) => `t0${i + 1}_c01`)];
+const PRELOAD = ['n01_s', 'n01_c01', 'n02_s', 'n02_c01', 't01_s', ...Array.from({ length: BUSY_FRAMES }, (_, i) => `t0${i + 1}_c01`)];
 
 /** The hand's sprites for a state at the mouse point (game px); t: ms, for the busy hand's turn and the ripple. */
 export function cursorSprites(state: CursorState, mx: number, my: number, t: number, clicks: readonly { x: number; y: number; at: number }[] = [], down = false): CursorSnap {
   const x = mx - 16, y = my - 16;
   const hand = state === 'busy'
     ? [sprite('mausuk_t01_s.png', x, y, 61013), sprite(`mausuk_t0${busyFrame(t)}_c01.png`, x, y, 61015)]
-    : down || state === 'hover'
-      ? [sprite('mausuk_n02_s.png', x, y, 61013), sprite(down ? 'mausuk_n02_c01.png' : 'mausuk_n02_c02.png', x, y, 61015)]
+    : down
+      ? [sprite('mausuk_n02_s.png', x, y, 61013), sprite('mausuk_n02_c01.png', x, y, 61015)]
       : [sprite('mausuk_n01_s.png', x, y, 61013), sprite('mausuk_n01_c01.png', x, y, 61015)];
   // the ripple: centred where the press landed, at the swf's 30 fps
   const rings = clicks.flatMap((c, i) => {
@@ -54,23 +56,13 @@ export function cursorSprites(state: CursorState, mx: number, my: number, t: num
   return { id: 1, shown: true, mx, my, sprites: [...hand, ...rings, ...hidden] };
 }
 
-/** What the pointer is over: something the player can press (the hand points), else the plain hand. */
-export function pointsAt(el: Element | null): boolean {
-  for (let e = el; e; e = e.parentElement) {
-    if (e instanceof HTMLButtonElement || e instanceof HTMLAnchorElement || e instanceof HTMLSelectElement) return !(e as HTMLButtonElement).disabled;
-    if (e.hasAttribute('data-key') || e.getAttribute('role') === 'button') return !e.hasAttribute('disabled') && e.getAttribute('aria-disabled') !== 'true';
-    if (e.id === 'htmlui-host') return false;
-  }
-  return false;
-}
-
 const CSS = 'html.yo2c, html.yo2c * { cursor: var(--yo2-cursor) !important; }';
 
 export interface GameCursorOptions { art: string; stage: () => HTMLElement | null; busy: () => boolean }
 
 /** Mounts the game cursor on the page: the CSS cursor on every element and the ripple layer, kept in step each frame. */
 export class GameCursor {
-  private state: CursorState = 'normal'; private down = false; private mx = 0; private my = 0; private over: Element | null = null;
+  private state: CursorState = 'normal'; private down = false; private mx = 0; private my = 0;
   private clicks: { x: number; y: number; at: number }[] = [];
   private now: string | null = null; private raf = 0; private disposed = false;
   private readonly fx: HTMLDivElement; private readonly fxEls: HTMLDivElement[] = []; private readonly style: HTMLStyleElement;
@@ -87,7 +79,7 @@ export class GameCursor {
     const r = this.o.stage()?.getBoundingClientRect(), s = r?.width ? r.width / 1024 : 1;
     return [(e.clientX - (r?.left ?? 0)) / s, (e.clientY - (r?.top ?? 0)) / s, s];
   }
-  private onMove = (e: PointerEvent): void => { [this.mx, this.my] = this.game(e); this.over = e.target instanceof Element ? e.target : null; };
+  private onMove = (e: PointerEvent): void => { [this.mx, this.my] = this.game(e); };
   // a press: the held hand and a ripple where it landed, on a control or on nothing alike (live's engine)
   private onDown = (e: PointerEvent): void => {
     if (e.button !== 0) return; this.down = true;
@@ -98,7 +90,7 @@ export class GameCursor {
   private loop = (): void => { if (this.disposed) return; this.frame(performance.now()); if (typeof requestAnimationFrame === 'function') this.raf = requestAnimationFrame(this.loop); };
   /** One frame: the state, its CSS cursor, the ripple. */
   frame(t: number): void {
-    this.state = this.o.busy() ? 'busy' : pointsAt(this.over) ? 'hover' : 'normal';
+    this.state = this.o.busy() ? 'busy' : 'normal';
     const r = this.o.stage()?.getBoundingClientRect(), scale = r?.width ? r.width / 1024 : 1;
     this.clicks = this.clicks.filter(c => t - c.at < RIPPLE_MS);
     const snap = cursorSprites(this.state, this.mx, this.my, t, this.clicks, this.down);
