@@ -166,7 +166,7 @@ export function prep(win) {
     }
     return k;
   }) };
-  return win.cls === 'CWindowModelDuel' ? tagRow(out) : out;
+  return win.cls === 'CWindowModelDuel' && tagDuelOn() ? tagRow(out) : out;
 }
 
 // The Duel menu's Tag Duel (CONTRACT.md: inside the Duel menu, beside Auto Duel and Create Duel; ../tag-lobby.js opens
@@ -174,6 +174,9 @@ export function prep(win) {
 // switches, the same switch and caption centred in it; the frame grows by the row (TAG_ROW) and what sat below the
 // switches (Cancel) moves down with it. Its controls are the page's own (ids 'tag-duel*'), never the game's
 export const TAG_ROW = 40;
+// Tag Duel is paused by the owner: the row stays off (the Duel menu at the game's own height, as live) unless the page
+// opts in with globalThis.YO2_TAG_DUEL = true
+export const tagDuelOn = () => globalThis.YO2_TAG_DUEL === true;
 export const tagBox = win => ({ x: win.x, y: win.y, w: win.w, h: win.h + TAG_ROW });
 function tagRow(win) {
   const cs = win.controls, choices = cs.filter(c => top(c) && c.shown && fam(c) === 'PictureSwitch');
@@ -488,7 +491,7 @@ export default {
   // 38: 327 with Clock Square's 289-wide button), as the engine draws them
   clip: false,
   // the Duel menu drawn a row taller than its window (tagRow): the bridge's holes and pointer catcher follow the frame
-  occlusionBox: win => win.cls === 'CWindowModelDuel' ? tagBox(win) : null,
+  occlusionBox: win => win.cls === 'CWindowModelDuel' && tagDuelOn() ? tagBox(win) : null,
   mount(win, root, api) {
     inject();
     const st = base.mount(prep(win), root, api);

@@ -37,7 +37,7 @@ import { duellogQuery, duellogUi, duellogWindow, fetchDuellog, replayWindow, typ
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
-import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
+import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT, WORLD_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 import { GameCursor } from './htmlui/cursor';
@@ -47,6 +47,7 @@ import { DeckDom } from './htmlui/deck-dom';
 import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
+import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
@@ -259,7 +260,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const leaveCardShop = () => { if (state.busy) { leaveShop = true; requestRender(); } else open('lobby'); };
   const cardShop = cardShopHost(globalThis.document, leaveCardShop, e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
   // main's Wardrobe and Missions buttons on the menu bar and the trade's Cosmetics panel (htmlui/page-modules.ts), online
-  const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
+  // online: the world server's connection (state.online is the HTTP account's presence, unset in the overworld)
+  const pageMods = pageModules({ online: () => state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
     trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
@@ -268,6 +270,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const useCardShop = () => state.scene === 'shop' && state.mode !== 'free' && (state.connection === 'online' || state.connection === 'reconnecting') && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
+  // the nation flag before a name over the head (nation-flag.ts: CNationFlag's small atlas cell), the atlas from the archive
+  let flagAtlas: Promise<string | null> | null = null;
+  const nationFlag = (cell: readonly [number, number]): HTMLElement => {
+    const f = el('i', 'de-avatar-flag'); f.setAttribute('aria-hidden', 'true'); f.style.backgroundPosition = `${-cell[0]}px ${-cell[1]}px`;
+    flagAtlas ??= pictureArt.resolve({ archive: FLAG_ATLAS }, new AbortController().signal).then(v => typeof v === 'string' ? v : v.toDataURL(), () => null);
+    void flagAtlas.then(url => { if (url) f.style.backgroundImage = `url("${url}")`; else flagAtlas = null; });
+    return f;
+  };
   // the trade (src/ui/htmlui/trade.ts): main's trade windows and dialogs over any scene but the title and Select Player
   const tradeUi = tradeLocal();
   const tradeSpecs = (): WindowSpec[] => {
@@ -441,7 +451,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const askGameTexts = () => {
     const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
     gameTextsFor = language;
-    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT)], new AbortController().signal)
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT)], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
     // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
     if (language === 'E') { uiText.install([], null, 'E'); return; }
@@ -752,7 +762,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
-      b.append(el('span', 'de-avatar-name', avatar.name)); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
+      const nameTag = el('span', 'de-avatar-name', avatar.name), cell = flagCell(avatar.country); if (cell) nameTag.prepend(nationFlag(cell)); b.append(nameTag); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
     }
     positionAvatars(lobby);
     showAvatarViews(lobby);
