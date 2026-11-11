@@ -23,7 +23,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       // a new character's starter MP (the server's: the wallet the shop's GET reports)
       expect(w0.total).toBeGreaterThan(0); expect(w0.total).toBe(await serverWallet());
       const tabs = await page.ev(`[...${SHOP}.querySelectorAll('.tabs [data-k^="tab-"]')].map(t=>t.textContent.trim())`) as string[];
-      expect(tabs).toEqual(expect.arrayContaining(['Recommended','Card Packs','Structure Decks','Cosmetic Boxes']));
+      for (const t of ['Recommended','Card Packs','Structure Decks','Cosmetic Boxes']) expect(tabs.some(x => x.startsWith(t)),t).toBe(true);   // a tab may carry its "!" badge
       await press(page,`${SHOP}.querySelector('[data-k=tab-packs]')`); await sleep(600);
       const onSale = await packs(page);
       expect(onSale.length).toBeGreaterThan(0);
