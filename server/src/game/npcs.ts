@@ -66,6 +66,10 @@ const FAMOUS_BASES = Array.from({ length: 12 }, (_, i) => 51 + 3 * i);
 const MID_WINS = 5, COMP_WINS_FAMOUS = 8, COMP_WINS_ORIGINAL = 9;
 const COMP_WINS: Record<number, number> = { 60: 9, 61: 9, 62: 9, 66: 9, 67: 9, 68: 9, 9: 8 }; // + research/mundo prizes
 export const nrChainBase = (nid: number) => FAMOUS_BASES.find((b) => b <= nid && nid < b + 3) ?? null;
+/** The map NPC a duel's NPC is: a famous one's level 6 / 8 recipe counts as that character. */
+export const mapNpc = (nid: number) => nrChainBase(nid) ?? nid;
+/** The NPCs on the map, once each: the famous ones by their first recipe (36 with the 2008 spots). */
+export const mapNpcs = (g: { npcs: Npc[] }): number[] => [...new Set(g.npcs.map((n) => mapNpc(n[0])))];
 export const nrCompWins = (nid: number) => COMP_WINS[nid] ?? (nrChainBase(nid) !== null ? COMP_WINS_FAMOUS : COMP_WINS_ORIGINAL);
 export const nrThreshold = (nid: number) => 1 + nrCompWins(nid);
 export const nrMidB3 = (_nid: number) => 1 + MID_WINS;

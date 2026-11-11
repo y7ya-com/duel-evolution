@@ -24,6 +24,9 @@ export { simStats, type ForkLink, type LoggedCmd } from "./simSearch.ts";
 
 export type Tier = "easy" | "hard" | "elite";
 
+/** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
+export const NPC_AI_REV = 1;
+
 /** Per-NPC tier overrides (NPC id -> tier), for later tuning. */
 export const TIER_BY_NPC: Record<number, Tier> = {};
 

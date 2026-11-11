@@ -16,6 +16,8 @@ import { tagApi } from "./duel/tagRelay.ts";
 import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
 import { recordTrade } from "./db/audit.ts";
+import { listReplays, recordDuel, replayFile } from "./duel/duelArchive.ts";
+import { npcName } from "./game/npcs.ts";
 import { upgradeCards } from "./game/passcodes.ts";
 import { SCHEMA } from "./game/persist.ts";
 import type { State } from "./game/store.ts";
@@ -69,6 +71,8 @@ export class WorldDO extends DurableObject<Env> {
         this.sink = attach(this.srv.game.store, db, { baseline: convert ? loaded : this.srv.game.store.peek() });
         // the trade ledger (db/audit.ts): every confirmed trade, done or refused, as it happens
         if (this.srv.game.tp) this.srv.game.tp.ledger = (e) => { void recordTrade(db, e).catch((err) => console.error(`[trade_log] ${err}`)); };
+        // the duel archive (duel/duelArchive.ts): every duel as it ends, its EDOPro replay in R2 for the players
+        this.srv.game.duelArchive = (e) => { void recordDuel(db, this.env.BUCKET, e).catch((err) => console.error(`[duel_archive] ${err}`)); };
         loaded = null;
         if (up) {
           console.warn(`[d1] card ids to passcodes: ${up.already ? "already passcodes, marked" : `${up.profiles} profiles`}` +
@@ -342,6 +346,21 @@ export class WorldDO extends DurableObject<Env> {
         catch (e) { console.error(`[duellog] ${e}`); res([500, { error: "server error" }]); }
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/replays" || url.pathname.startsWith("/__de/replays/")) {
+      // the Worker forwards GET /api/de/replays(/<id>) here with x-de-user: the list of the account's duels, or which
+      // file of theirs it may stream (it reads R2 itself)
+      const user = request.headers.get("x-de-user"), db = this.env.DB;
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      if (!db) return Response.json({ error: "no database" }, { status: 503 });
+      const acct = await new Promise<string | null>((res) => this.srv.world.run(() => res(this.srv.game.store.accountOfUser(user) ?? null)));
+      if (!acct) return Response.json({ error: "no game account" }, { status: 404 });
+      try {
+        const id = url.pathname.slice("/__de/replays/".length);
+        if (!id) return Response.json({ replays: await listReplays(db, acct, npcName) }, { headers: { "Cache-Control": "no-store" } });
+        const f = /^\d+$/.test(id) ? await replayFile(db, acct, Number(id), npcName) : null;
+        return f ? Response.json(f, { headers: { "Cache-Control": "no-store" } }) : Response.json({ error: "not found" }, { status: 404 });
+      } catch (e) { console.error(`[replays] ${e}`); return Response.json({ error: "server error" }, { status: 500 }); }
     }
     if (url.pathname === "/__de/wallet") {
       const user = request.headers.get("x-de-user");

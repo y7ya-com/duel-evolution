@@ -30,10 +30,12 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   if (free < min) throw new Error(`only ${free}% memory free`);
   // Refuse an occupied port; only this launch's child PID may be stopped.
   try { await fetch(`http://127.0.0.1:${port}/json/version`); throw new Error(`CDP port ${port} is already in use`); } catch (e) { if (e.message.includes('already in use')) throw e; }
-  const profile = dir || process.env.HOME + '/.cache/de-scratch/shopdirect/chrome-' + process.pid;
+  // YO2_CHROME_PROFILE: a profile kept on disk across runs (the page's IndexedDB with it: the game's own files)
+  const keep = !dir && !!process.env.YO2_CHROME_PROFILE;
+  const profile = dir || process.env.YO2_CHROME_PROFILE || process.env.HOME + '/.cache/de-scratch/shopdirect/chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), ...args, 'about:blank'], { stdio: 'ignore' });
-  const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
+  const kill = () => { ch.kill('SIGKILL'); try { if (!keep) rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
   // a SIGTERM / SIGINT (a stopped run, buildslot, Ctrl-C) ends the process without 'exit' handlers: make it an exit
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) if (!process.listenerCount(sig)) process.on(sig, () => process.exit(1));

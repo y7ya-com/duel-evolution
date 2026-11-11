@@ -1,13 +1,20 @@
 import { REWARDS } from "./rewards-config.ts";
 export type RewardEvent = "play" | "win" | "npc" | "pvp" | "extra" | "deck" | "pack" | "shop" | "days";
-export type Mission = { id: string; label: string; event: RewardEvent; target: number; progress: number; mp: number; kind: "daily" | "weekly" | "first" | "lifetime"; claimed: boolean };
+export type Mission = { id: string; label: string; event: RewardEvent; target: number; progress: number; mp: number; kind: "daily" | "weekly" | "first" | "lifetime" | "event"; claimed: boolean;
+  /** A limited-time event's reward in shards (mp 0) and its end (ISO, UTC). */
+  shards?: number; ends?: string };
 export type RewardState = {
   version: 1; started: string; day: string; week: string; issued: string[]; weeklyIssued: string[];
   login: { day: string; count: number; streak: number }; playedDay: string;
   missions: Mission[]; totals: Partial<Record<RewardEvent, number>>;
-  token: string; receipts: Record<string, { id: string; mp: number }>;
-  audit: { at: number; id: string; mp: number; earned: true; balance: number; requestId?: string }[];
+  token: string; receipts: Record<string, { id: string; mp: number; shards?: number }>;
+  audit: { at: number; id: string; mp: number; earned: true; balance: number; requestId?: string; shards?: number }[];
+  /** Limited-time NPC events: the map NPCs this character beat while each was on, by event key. */
+  beaten?: Record<string, number[]>;
 };
+/** A limited-time event (rewards-config.ts REWARDS.events): beat every map NPC once between from and until (UTC days,
+ *  until excluded); wins before it opened don't count. */
+export type NpcEvent = { key: string; label: string; from: string; until: string; shards: number };
 export const utcDay = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10);
 export function utcWeek(seconds: number) {
   const d = new Date(seconds * 1000); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
@@ -57,4 +64,29 @@ export function progress(r: RewardState, event: RewardEvent, count = 1) {
   if (!Number.isSafeInteger(count) || count <= 0) return;
   r.totals[event] = (r.totals[event] ?? 0) + count;
   for (const m of r.missions) if (!m.claimed && m.event === event) m.progress = Math.min(m.target, m.progress + count);
+}
+
+const dayStart = (d: string) => Date.parse(`${d}T00:00:00Z`) / 1000;
+export const eventOn = (e: NpcEvent, now: number) => now >= dayStart(e.from) && now < dayStart(e.until);
+/** Each event's mission while it is on, its progress the map NPCs beaten; after it ends an unfinished one goes and a
+ *  finished one stays until claimed. `map`: the map NPCs' ids (empty: nothing to track). */
+export function eventsRollover(r: RewardState, now: number, events: readonly NpcEvent[], map: readonly number[]) {
+  if (!map.length) return;
+  for (const e of events) {
+    const id = `event:${e.key}`, beaten = (r.beaten?.[e.key] ?? []).filter(n => map.includes(n)).length;
+    let m = r.missions.find(x => x.id === id);
+    if (!m && eventOn(e, now)) r.missions.push(m = { id, label: e.label.replace("{n}", String(map.length)), event: "npc", kind: "event",
+      target: map.length, progress: 0, mp: 0, shards: e.shards, ends: new Date(dayStart(e.until) * 1000).toISOString(), claimed: false });
+    if (!m) continue;
+    if (!m.claimed && eventOn(e, now)) m.progress = Math.min(m.target, beaten);
+    if (!eventOn(e, now) && !m.claimed && m.progress < m.target) r.missions = r.missions.filter(x => x !== m);
+  }
+}
+/** A win against map NPC `npc` (already the map's id) while events are on. */
+export function noteNpcWin(r: RewardState, now: number, events: readonly NpcEvent[], npc: number) {
+  for (const e of events) {
+    if (!eventOn(e, now)) continue;
+    const list = (r.beaten ??= {})[e.key] ??= [];
+    if (!list.includes(npc)) list.push(npc);
+  }
 }

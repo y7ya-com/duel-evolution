@@ -196,6 +196,33 @@ interface CoreWithMessages {
 const MARK = Symbol.for("yo2.parche_select_sum");
 
 /** Installs the fix on the core (idempotent). */
+/** The batch the last duelGetMessage read, exactly as the core wrote it (copied before the fixes below touch it):
+ *  [u32 length][u8 message][data]... The EDOPro replay (yrpx.ts) records these bytes. */
+let rawBatch: Uint8Array | null = null;
+export function takeRawBatch(): Uint8Array | null {
+  const b = rawBatch;
+  rawBatch = null;
+  return b;
+}
+
+/** The core's raw answer to a query made in fn: the first view the library makes over WASM memory (its own request
+ *  buffer, made first, is a small ArrayBuffer of its own). The library's parse of it may fail (0.1.2 cannot read some
+ *  of the flags EDOPro asks for: "eof"); the bytes are taken before that. Synchronous only. */
+export function rawOf(fn: () => unknown): Uint8Array | null {
+  const DV = globalThis.DataView;
+  const Base = DV as unknown as new (buffer: ArrayBufferLike, byteOffset?: number, byteLength?: number) => DataView;
+  let raw: Uint8Array | null = null;
+  class Grab extends Base {
+    constructor(buffer: ArrayBufferLike, byteOffset?: number, byteLength?: number) {
+      super(buffer, byteOffset, byteLength);
+      if (raw === null && this.buffer.byteLength >= 65536) raw = new Uint8Array(this.buffer, this.byteOffset, this.byteLength).slice();
+    }
+  }
+  (globalThis as { DataView: typeof DataView }).DataView = Grab as unknown as typeof DataView;
+  try { fn(); } catch { /* the bytes are what is wanted */ } finally { (globalThis as { DataView: typeof DataView }).DataView = DV; }
+  return raw;
+}
+
 export function installSelectSumPatch(core: CoreWithMessages): boolean {
   const c = core as CoreWithMessages & { [MARK]?: boolean };
   if (c[MARK]) return true;
@@ -207,6 +234,7 @@ export function installSelectSumPatch(core: CoreWithMessages): boolean {
     constructor(buffer: ArrayBufferLike, byteOffset?: number, byteLength?: number) {
       super(buffer, byteOffset, byteLength);
       if (fixes === null) {
+        rawBatch = new Uint8Array(this.buffer, this.byteOffset, this.byteLength).slice();
         fixes = [];
         try {
           fixes = fixBatch(this as DataView, true);

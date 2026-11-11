@@ -46,6 +46,7 @@ function entryFrom6202(side: number, data: Uint8Array): number[] {
   return w.raw(d.subarray(40, 43)).b;
 }
 
+/** listval: the "Lv" the client's Duel Record list shows beside the name (the player's level, an NPC's). */
 export interface LogPlayer { pid: number; listval: number; name: string; parts: Uint8Array[]; main: number; extra: number; country: Uint8Array; hand?: number | null }
 
 function playerBlock(pl: LogPlayer, hand: number | null): number[] {
@@ -110,7 +111,11 @@ function header6010(title: string, nSent: number, nDecoded: number, mode: number
   u16(MAGIC); u16(VERSION);
   b.push(...latin1(safeTitle(title, when)), 0);
   u32(nSent); u32(nDecoded); u32(mode); u32(listvals[0]); u32(listvals[1]);
-  b.push(...name16(names[0]), ...name16(names[1]));
+  // the client writes these names into duellogs/list.txt as space-separated columns and reads them back the same way:
+  // a space in a name ("Yami Marik") shifts every column after it (the list showed "Marik"). An underscore keeps the
+  // line whole (a no-break space did too, but the list draws it as a box).
+  const listName = (n: string) => name16(String(n ?? "").replace(/ /g, "_"));
+  b.push(...listName(names[0]), ...listName(names[1]));
   u32(when); u32(0); u32(0);
   b.push(0, 0, 0);
   return Uint8Array.from(b);

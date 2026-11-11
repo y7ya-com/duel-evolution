@@ -1,17 +1,25 @@
 // py npc_watch.py (NW): NPC duels seen from outside. The «in a duel» pose for the others of the block when the NPC duel
 // really starts (first 0x61fe), and «Watch» (spectator): 0x4320 -> 0x4321, then the 0x6700 of that peer gets 0x6006,
 // 0x6701 and, at each 0x6702, the next batch from an independent public translator (neither hidden hand).
-// The player's send tap records only the terminal command supplied by duelfin.
-// The server-side replay archive (REPLAY_ARCHIVE, rep_archivo.py: files on disk) is not ported.
+// The player's send tap records only the terminal command supplied by duelfin for the spectators, and every 0x6202 the
+// player received for the player's own duel record: once the duel's end goes out, the record follows it (duellog.ts:
+// 0x6010, 0x6011 x k, 0x6016, 0x6012, each after the client's 0x6013, as PvP sends it), and the 2008 client saves
+// the duel in its Duel Record menu (duellogs/). The server's own copy is the duel archive (duelArchive.ts).
 import { Conn } from "../net/conn.ts";
 import type { Game } from "../game/game.ts";
 import { DUEL_STATE, NPC_DUEL_STATE, type Session } from "../game/hub.ts";
 import { endDuelMsgs, isSurrender, surrenderConfirmMsgs, WHY_DISCONNECT } from "./duelfin.ts";
 import { COUNTRY, WATCH_BATCH, WATCH_REQ_TTL, WATCH_SEND_PREP, WATCH_SIN_DECISIONES, watchOculta } from "./pvpMatch.ts";
 import { X } from "./port.ts";
+import * as DL from "./duellog.ts";
+import * as PP from "../game/persist.ts";
+import { NPC_PROFILES } from "./data.ts";
+import { entryKind } from "../game/gate.ts";
 import type { OcgSession } from "./ocgSession.ts";
 
 const NPC_WATCH = true;
+/** The player's own duel record of an NPC duel (the 2008 client's Duel Record). */
+const NPC_DUEL_RECORD = true;
 const END_GRACE = 30.0, KEEP_DONE = 120.0, KEEP_DONE_IDLE = 10.0, TICK = 1.0, MAX_WATCHERS = 16, T_FINISH = 0x4d;
 const now = () => Date.now() / 1000;
 const isFinish = (d: Uint8Array) => d.length >= 8 && (new DataView(d.buffer, d.byteOffset).getUint32(0) & 0xff) === T_FINISH;
@@ -27,6 +35,10 @@ class NpcDuel {
   overT: number | null = null;
   ask = false;
   done = false;
+  /** Every 0x6202 the player received (the surrender dialogue left out), for the player's duel record. */
+  mine: Uint8Array[] = [];
+  /** The record's messages still to send, one per 0x6013 of the client. */
+  logQ: [number, Uint8Array][] | null = null;
   readonly pid: number;
   constructor(readonly c: Conn, readonly sess: Session, readonly rival: number, readonly name: string, readonly info: Uint8Array,
     readonly prep: Uint8Array | null, readonly hands: [number, number], readonly first: number) { this.pid = sess.pid!; }
@@ -59,6 +71,8 @@ export class NpcWatch {
       const d = c.ext.npcWatch as NpcDuel | undefined;
       if (d) { this.watchMsg(d, c, msgId, data); return true; }
       if (msgId === 0x6700) return this.attach(c);
+      const mine = c.ext.npcDuel as NpcDuel | undefined;
+      if (msgId === 0x6013 && mine?.logQ) { this.recordNext(mine); return true; }
       if (!NPC_WATCH || X(c).pvp || !c.sess || !X(c).ocg) return false;
       this.observe(c, msgId, data);
     } catch (e) {
@@ -94,6 +108,7 @@ export class NpcWatch {
     const d = c.ext.npcDuel as NpcDuel | undefined;
     if (!d || d.c !== c || d.endT !== null) return;
     if (d.ask && this.confirm().has(hx(data))) return;
+    if (NPC_DUEL_RECORD) d.mine.push(data.slice());
     const end = isFinish(data);
     // Public commands come from the independent public translator; only duelfin's terminal
     // command is observed on the player's connection. Never replay their private hand.
@@ -104,7 +119,41 @@ export class NpcWatch {
     if (end) {
       this.log(`[npcmirar] ${d}: fin (${d.entries.length} comandos, ${d.watchers.length} espectadores)`);
       this.unpose(d);
+      if (NPC_DUEL_RECORD) this.record(d);
     }
+  }
+
+  /** The player's duel record, as PvP's (pvpMatch duellogRecord): player 0 the human, 1 the NPC (its id as pid, its
+   *  name, deck sizes and parts as in 0x600c); side 0 only, the 0x6202 the human received. */
+  private record(d: NpcDuel): void {
+    try {
+      const o = X(d.c).ocg as OcgSession | null | undefined;
+      const pl = o?.player ?? { main: [], extra: [] }, npc = o?.npc ?? { main: [], extra: [] };
+      const z = new Uint8Array(16);
+      const players: DL.LogPlayer[] = [
+        { pid: d.pid, listval: this.level(d), name: d.sess.name || "Duelista", parts: [this.g.duelParts(null, 0), this.g.duelParts(null, 1), z],
+          main: pl.main.length, extra: pl.extra.length, country: COUNTRY, hand: d.hands[0] },
+        { pid: d.rival, listval: Number(NPC_PROFILES[String(d.rival)]?.nivel ?? 0) || 0, name: d.name, parts: [this.g.duelParts(d.rival, 0), this.g.duelParts(d.rival, 1), z],
+          main: npc.main.length, extra: npc.extra.length, country: COUNTRY, hand: d.hands[1] },
+      ];
+      const msgs = DL.messages(players, d.mine.map((x) => [0, x] as [number, Uint8Array]), { games: [d.first, 0xff, 0xff], roomKind: entryKind(this.g, d.sess), when: Math.floor(now()) });
+      d.mine = [];
+      d.logQ = msgs;
+      this.log(`[npcmirar] ${d}: registro de duelo, ${msgs.length - 3} trozos 0x6011`);
+      this.recordNext(d);
+    } catch (e) { this.log(`[npcmirar] ${d}: registro de duelo: ${e}`); }
+  }
+
+  /** The player's level (the Duel Record list's "Lv"). */
+  private level(d: NpcDuel): number {
+    try { return this.g.withCtx(d.sess, () => { const st = this.g.loadState(); return PP.int((PP.profile(st, PP.activeSlot(st))?.rec ?? {}).lv ?? 1) || 1; }); }
+    catch { return 1; }
+  }
+
+  private recordNext(d: NpcDuel): void {
+    const m = d.logQ?.shift();
+    if (!d.logQ?.length) d.logQ = null;
+    if (m && !d.c.closed) d.c.send(m[0], m[1]);
   }
 
   private arm(c: Conn): void {

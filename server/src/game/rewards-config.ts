@@ -1,3 +1,6 @@
+import { shardValues } from "./shards-config.ts";
+import type { NpcEvent } from "./missions.ts";
+
 /** All reward amounts and thresholds. Existing starter grants keep their existing binding. */
 export const REWARDS = {
   enabled: true,
@@ -27,4 +30,10 @@ export const REWARDS = {
     { key: "extra10", label: "Play 10 rewarded duels with an extra deck", event: "extra", target: 10, mp: 500 },
     { key: "packs100", label: "Open 100 packs", event: "pack", target: 100, mp: 500 },
   ],
+  // Limited-time events (missions.ts eventsRollover): shards, not MP; once per account (the first character to finish
+  // claims it, as First Steps). Owner, 2026-11-11: beat each of the map's NPCs once from today for 2 weeks, the reward
+  // worth 3 UR crafts at the shard table of the day.
+  events: [
+    { key: "npc-sweep-2026-11", label: "Beat all {n} NPCs on the map", from: "2026-11-11", until: "2026-11-25", shards: 3 * shardValues().craft.UR },
+  ] as NpcEvent[],
 } ;

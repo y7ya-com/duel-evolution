@@ -7,10 +7,12 @@
 // heuristic pilots on both seats up to a horizon, and the final board scored with evaluate().
 //
 // Two horizons:
-//   - honest (the default): only decisions in the NPC's own main phase are searched; the rollout ends when that main
-//     phase ends (battle or end phase, or the turn changes); the opponent's seat never answers optionally (no chains,
-//     no optional effects: its hidden cards stay out of the picture) and the end board is scored from the NPC's
-//     masked view. What remains: a rollout that draws a card draws the real top card of the NPC's own deck.
+//   - honest (the default): only decisions in the NPC's own main phase are searched; the rollout runs to the end of
+//     the NPC's own turn, so the battle a line leads to is scored (ending it with the main phase priced a summon as a
+//     card spent and nothing gained: the elite sat on its hand and summoned after the battle); the opponent's seat
+//     never answers optionally (no chains, no optional effects: its hidden cards stay out of the picture) and the
+//     end board is scored from the NPC's masked view. What remains: a rollout that draws a card draws the real top
+//     card of the NPC's own deck.
 //   - spy (the flag, off by default): every real decision, up to the start of the NPC's next turn, with full-vision
 //     pilots on both seats holding the opponent's ACTUAL hand, scored on the unmasked board.
 import type { Deck, DuelCore, Json, NewOptions } from "../engine/core.ts";
@@ -87,7 +89,7 @@ export function rolloutScore(access: SearchAccess, seat: number, live: Json, pro
   pol[seat]!.copyTurnState(liveBot);
   let open = false;
   try {
-    let evs = dc.new(id, L.decks, { ...L.opts, brain: [true, true] });
+    let evs = dc.new(id, L.decks, { ...L.opts, brain: [true, true], record: false });
     open = true;
     for (const c of L.log) evs = c.r ? dc.respond(id, c.r, c.p) : dc.auto(id);
     if (!sameSelect(evs[evs.length - 1], live)) { simStats.drift++; return null; }
@@ -105,7 +107,7 @@ export function rolloutScore(access: SearchAccess, seat: number, live: Json, pro
       const last = evs[evs.length - 1]!;
       if (last.ev === "end") { open = false; return last.winner === seat ? WIN : last.winner === 1 - seat ? -WIN : 0; }
       if (stop || last.ev !== "select") break;
-      if (!access.spy && (last.turn !== live.turn || last.phase !== live.phase)) break;
+      if (!access.spy && last.turn !== live.turn) break;
       if (++prompts > SIM_PROMPT_CAP) break;
       const p = Number(last.player);
       const r = last.retry ? null : !access.spy && p !== seat ? passive(pol[p]!, last) : pol[p]!.choose(last);

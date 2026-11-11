@@ -57,6 +57,13 @@
       "when": 1793822957526,
       "tag": "0007_trade_log_cosmetics",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794391029809,
+      "tag": "0008_duel_archive",
+      "breakpoints": true
     }
   ]
 }
