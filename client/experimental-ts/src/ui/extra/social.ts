@@ -141,62 +141,33 @@ export function renderSocialFeature(state: SocialState, dispatch: (action: Socia
 }
 
 /** The trade window: shown over any scene while a trade is in progress. Cards are shown, never typed. */
-export function renderTradeWindow(trade: SocialTrade, dispatch: (action: SocialAction) => void, state: SocialState, options: SocialUIOptions & { search?: string; onSearch?: (value: string) => void; reason?: string } = {}): HTMLElement | null {
-  if (trade.phase === 'idle') return null;
-  const { button, confirm } = make2(dispatch, state);
-  const root = make('section', undefined, 'de-panel de-trade-window'); root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'Card trade');
-  const partner = trade.partner?.name || (trade.partner ? `Player ${trade.partner.pid}` : 'another player');
-  root.append(make('h2', `Trade with ${partner}`, 'de-panel-title'));
+/** The trade scene's ground and its trunk (the cards this side may offer), under main's trade windows (src/ui/htmlui/
+ * trade.ts): main's deck-scene backdrop (screens/deck.js deckBackdrop) and the rewrite's picker where main's trunk
+ * (CWindowModelKaban, 736, 0, 288 x 608) stands, until the deck editor's trunk is ported. Only copies the server lets
+ * this side offer (tradeableCopies: the trunk less the soul-bound limit table and what is offered already). */
+export function renderTradeTrunk(trade: SocialTrade, dispatch: (action: SocialAction) => void, options: SocialUIOptions & { search?: string; onSearch?: (value: string) => void; backdrop?: (el: HTMLElement) => void; open: boolean }): HTMLElement {
+  const root = make('section', undefined, 'de-trade-scene'); root.setAttribute('aria-label', 'Card Swap');
+  options.backdrop?.(root);
+  if (!options.open) return root;
   const card = (passcode: number) => options.card?.(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` };
-  const tile = (passcode: number, extra?: HTMLElement): HTMLElement => {
-    const view = card(passcode), wrap = make('div', undefined, 'de-trade-card');
-    wrap.append(options.drawCard ? options.drawCard(view) : make('span', view.name)); wrap.title = view.name;
-    if (extra) wrap.append(extra); return wrap;
-  };
-  if (trade.phase === 'requesting' || trade.phase === 'waiting') root.append(make('p', `Waiting for ${partner} to answer…`));
-  if (trade.phase === 'offered') root.append(make('p', `${partner} wants to trade cards with you.`), make('div', undefined, 'de-row'), button('Accept trade', () => dispatch({ type: 'replyTrade', accept: true }), false, true), button('Decline trade', () => dispatch({ type: 'replyTrade', accept: false })));
-  const exchanged = trade.ownOffer.length > 0 || trade.view.otherOffer.length > 0;
-  if (trade.phase === 'finished' && !exchanged) root.append(make('p', state.status && /declined/.test(state.status) ? state.status : 'The trade ended without an exchange.', 'de-note'));
-  if (trade.phase === 'open' || trade.phase === 'finished' && exchanged) {
-    const editable = trade.phase === 'open' && !trade.view.ready && !trade.view.otherReady && !trade.pendingMove;
-    const columns = make('div', undefined, 'de-trade-columns');
-    const own = make('section', undefined, 'de-trade-side'); own.append(make('h3', `You give (${trade.ownOffer.length}/10)${trade.view.ready ? ' · Ready' : ''}`));
-    const ownCards = make('div', undefined, 'de-trade-cards');
-    trade.ownOffer.forEach((passcode, index) => ownCards.append(tile(passcode, button('Remove', () => dispatch({ type: 'removeTradeCard', index }), !editable))));
-    if (!trade.ownOffer.length) ownCards.append(make('p', 'Pick cards from your collection below.', 'de-note'));
-    own.append(ownCards);
-    const theirs = make('section', undefined, 'de-trade-side'); theirs.append(make('h3', `${partner} gives (${trade.view.otherOffer.length})${trade.view.otherReady ? ' · Ready' : ''}`));
-    const theirCards = make('div', undefined, 'de-trade-cards');
-    for (const passcode of trade.view.otherOffer) theirCards.append(tile(passcode));
-    if (!trade.view.otherOffer.length) theirCards.append(make('p', 'Nothing offered yet.', 'de-note'));
-    theirs.append(theirCards);
-    columns.append(own, theirs); root.append(columns);
-    if (trade.pendingMove) root.append(make('p', 'Updating your offer…', 'de-note'));
-    if (trade.phase === 'open') {
-      // The server's trunk for this trade: only cards it lets you offer, with the copies you still have.
-      const picker = make('section', undefined, 'de-trade-picker'), query = (options.search ?? '').toLowerCase();
-      const search = make('input'); search.type = 'search'; search.placeholder = 'Search your cards'; search.value = options.search ?? ''; search.dataset.key = 'trade-search'; search.setAttribute('aria-label', 'Search your cards');
-      search.oninput = () => options.onSearch?.(search.value);
-      picker.append(make('h3', 'Your collection'), search);
-      const grid = make('div', undefined, 'de-trade-cards de-trade-trunk');
-      const entries = trade.view.trunk.filter(entry => tradeableCopies(trade, entry.passcode) > 0 && (!query || card(entry.passcode).name.toLowerCase().includes(query))).slice(0, 60);
-      for (const entry of entries) {
-        const left = tradeableCopies(trade, entry.passcode), add = button(`Offer (×${left})`, () => dispatch({ type: 'addTradeCard', passcode: entry.passcode }), !editable || trade.ownOffer.length >= 10);
-        add.setAttribute('aria-label', `Offer ${card(entry.passcode).name}`); grid.append(tile(entry.passcode, add));
-      }
-      if (!entries.length) grid.append(make('p', query ? 'No matching cards.' : 'No tradeable cards.', 'de-note'));
-      picker.append(grid); root.append(picker);
-      const actions = make('div', undefined, 'de-row de-trade-actions');
-      if (!trade.view.ready) actions.append(confirm('Ready', 'Lock both offers? Changing them afterwards needs both players to go back to editing.', () => dispatch({ type: 'readyTrade' }), !!trade.pendingMove));
-      if (trade.view.allReady) actions.append(confirm('Complete trade', `Exchange your ${trade.ownOffer.length} card(s) for ${partner}'s ${trade.view.otherOffer.length}? This cannot be undone.`, () => dispatch({ type: 'confirmTrade', accept: true })), button('Back to editing', () => dispatch({ type: 'confirmTrade', accept: false })));
-      else if (trade.view.ready) actions.append(make('span', `Waiting for ${partner} to be ready…`, 'de-note'));
-      root.append(actions);
-    }
-    // The server explains a refused exchange in a system message (e.g. soul-bound cards); show it here.
-    if (trade.view.finished) root.append(make('p', trade.view.success ? 'Trade complete. Your collection has been updated.' : trade.reason ?? options.reason ?? 'The trade ended without an exchange.', trade.view.success ? 'de-trade-result' : 'de-note'));
+  const editable = trade.phase === 'open' && !trade.view.ready && !trade.view.otherReady && !trade.pendingMove;
+  const trunk = make('section', undefined, 'de-trade-trunk-panel'); trunk.setAttribute('aria-label', 'Trunk');
+  const head = make('header'); head.append(make('h3', 'Trunk'), make('span', `${trade.ownOffer.length}/10`, 'de-trade-count'));
+  const query = (options.search ?? '').toLowerCase(), search = make('input'); search.type = 'search'; search.placeholder = 'Search your cards'; search.value = options.search ?? '';
+  search.dataset.key = 'trade-search'; search.setAttribute('aria-label', 'Search your cards'); search.oninput = () => options.onSearch?.(search.value);
+  const list = make('div', undefined, 'de-trade-trunk'); list.setAttribute('role', 'list');
+  const entries = trade.view.trunk.filter(entry => tradeableCopies(trade, entry.passcode) > 0 && (!query || card(entry.passcode).name.toLowerCase().includes(query))).slice(0, 60);
+  for (const entry of entries) {
+    const view = card(entry.passcode), left = tradeableCopies(trade, entry.passcode), row = make('div', undefined, 'de-trade-card'); row.title = view.name; row.setAttribute('role', 'listitem');
+    row.dataset.key = `trade-trunk:${entry.passcode}`;
+    if (options.drawCard) { const art = make('span', undefined, 'de-trade-thumb'); art.append(options.drawCard(view)); row.append(art); }
+    const add = make('button', `Offer (×${left})`); add.type = 'button'; add.disabled = !editable || trade.ownOffer.length >= 10;
+    add.setAttribute('aria-label', `Offer ${view.name}`); add.onclick = () => dispatch({ type: 'addTradeCard', passcode: entry.passcode });
+    row.append(make('span', view.name, 'de-trade-name'), add); list.append(row);
   }
-  if (trade.phase === 'closing') root.append(make('p', 'Closing the trade…', 'de-note'));
-  else if (trade.phase === 'finished') root.append(button('Close', () => dispatch({ type: 'cancelTrade' })));
-  else root.append(confirm('Cancel trade', 'Close this trade? Offers on both sides are abandoned.', () => dispatch({ type: 'cancelTrade' })));
+  if (!entries.length) list.append(make('p', query ? 'No matching cards.' : 'No tradeable cards.', 'de-note'));
+  trunk.append(head, search, list);
+  if (trade.pendingMove) trunk.append(make('p', 'Updating your offer…', 'de-note'));
+  root.append(trunk);
   return root;
 }

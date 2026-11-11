@@ -13,11 +13,11 @@ import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderLanguageSettings } from './extra/language';
-import { renderSocialFeature, renderTradeWindow } from './extra/social';
+import { renderSocialFeature, renderTradeTrunk } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
-import { renderCardGet, CARD_GET_CSS } from './extra/card-get';
-import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
+import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
+import { accessoryName } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
@@ -26,6 +26,11 @@ import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './h
 import type { HtmlUiLayer } from './htmlui/layer';
 import { DeckScene } from './htmlui/deck-scene';
 import type { DeckStage } from './htmlui/deck-stage';
+import { shopLocal, shopWindows } from './htmlui/shop';
+import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
+import { deckBackdrop } from '@htmlui/screens/deck.js';
+import { PictureArt } from './htmlui/art';
+import { setPictureResolver, disposePictures } from './htmlui/pictures';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -78,7 +83,7 @@ interface LocalState {
   tradeSearch: string;
   message: string; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel';
   promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
-  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; shopCategory: string;
+  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; 
 }
 /** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
  * handlers the DOM's buttons and inputs call. */
@@ -93,11 +98,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
   let roomJoin: number | null = null, roomJoinPassword = '';
-  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
+  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
-  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + WALLET_CSS + COSMETICS_CSS;
+  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
@@ -158,7 +163,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       deckFile.onchange = () => { const file = deckFile?.files?.[0]; if (deckFile) deckFile.value = ''; if (file) then(file); };
       deckFile.click();
     } });
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }), deckWindows: () => deckScene.windows() });
+  // the shop (src/ui/htmlui/shop.ts): main's CShop* windows over the rewrite's pictures (htmlui/art.ts); the card-get
+  // reveal and the rewrite's own cosmetic departments are the rewrite's panels over the scene, the windows set aside
+  const shopUi = shopLocal(); let shopCosmetics: 'boxes' | 'wardrobe' | null = null, shopScene = false;
+  const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
+  setPictureResolver(pictureArt.resolve);
+  // the trade (src/ui/htmlui/trade.ts): main's trade windows and dialogs over any scene but the title and Select Player
+  const tradeUi = tradeLocal();
+  const tradeSpecs = (): WindowSpec[] => {
+    const sd = state.socialDetail; if (!sd || sd.trade.phase === 'idle' || ['title', 'characters'].includes(state.scene)) return [];
+    const reason = tradeReason();
+    return tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
+      name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
+  };
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs()];
+  const shopSpecs = (): WindowSpec[] => {
+    const shop = state.shop;
+    if (state.scene !== 'shop' || !shop || shopCosmetics || shop.opening && !cardGetClosed(shop.opening)) return [];
+    const self = state.lobby?.avatars.find(a => a.self), error = local.message || (state.error && !state.busy ? state.error : '');
+    return shopWindows({ shop, ui: shopUi, ids: htmlIds, busy: !!state.busy, world: self?.world ?? 1, portrait: self?.parts?.length === 16 ? `portrait:${Array.from(self.parts).join('.')}` : null,
+      name: item => accessoryName(item, state.online?.cosmetics ?? null), rerender: showHtml, error,
+      buy: (itemId, count) => send({ type: 'buy', itemId, count }), exit: () => open('lobby'),
+      ...(state.online ? { cosmetics: () => { shopCosmetics = 'boxes'; send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}) });
+  };
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }), deckWindows: () => deckScene.windows(), scene: sceneWindows(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade) });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
   // 12 Free Duel's lobby, 14 the shop, 0x24 the deck editor)
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
@@ -547,36 +575,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   function renderShop(): void {
     const shop = state.shop; if (!shop) return emptyPanel('shop', 'Card Shop', state.error && !state.busy ? 'The shop catalogue could not be loaded. Refresh to try again.' : 'Loading the shop catalogue.');
-    const n = sceneRoot('Card Shop'), panel = el('section', 'de-panel de-stack de-fill', title('Card Shop'));
-    const categories = ['all', ...new Set(shop.items.map(i => i.category ?? 'items')), ...(state.online ? ['cosmetic-boxes', 'wardrobe'] : [])], select = el('select'); select.setAttribute('aria-label', 'Shop department'); select.dataset.key = 'shop-category';
-    for (const category of categories) { const o = el('option', '', category === 'all' ? 'All departments' : SHOP_DEPARTMENTS[category] ?? category); o.value = category; select.append(o); }
-    select.value = local.shopCategory; select.onchange = () => { local.shopCategory = select.value; requestRender(); };
-    panel.append(el('div', 'de-row de-spread', select, renderWallet(shop)));
-    if (shop.error) panel.append(el('p', 'de-error', shop.error));
-    const cosmeticTab = local.shopCategory === 'cosmetic-boxes' ? 'boxes' as const : local.shopCategory === 'wardrobe' ? 'wardrobe' as const : null;
-    const grid = el('div', 'de-shop-grid de-scroll de-fill');
-    for (const item of cosmeticTab ? [] : shop.items.filter(i => local.shopCategory === 'all' || (i.category ?? 'items') === local.shopCategory).slice(0, 240)) {
-      const product = el('article', 'de-shop-item'), image = safeImageUrl(item.image);
-      if (item.card) product.append(el('div', 'de-shop-art', drawCard(item.card, false)));
-      else if (item.imagePath && controller.loadArchiveImage) { const img = el('img'); img.alt = ''; img.className = 'de-shop-art'; product.append(img); loadArchiveArt(item.imagePath, img); }
-      else if (image) { const img = el('img'); img.src = image; img.alt = ''; img.loading = 'lazy'; img.className = 'de-shop-art'; product.append(img); }
-      product.append(el('h3', '', accessoryName(item, state.online?.cosmetics ?? null)), el('strong', '', `${item.price.toLocaleString()} MP`));
-      if (item.description) { const about = el('p', 'de-note de-shop-about', item.description); about.title = item.description; product.append(about); }
-      const count = textField(`buy-count-${item.id}`, '1'); count.type = 'number'; count.min = '1'; count.max = '50'; count.setAttribute('aria-label', `${item.name} quantity`);
-      const buy = button(item.owned ? 'Owned' : 'Purchase', () => { const quantity = Number(count.value); if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 50) { local.message = 'Choose a quantity from 1 to 50.'; requestRender(); return; } if (item.price * quantity > shop.mp) { local.message = `Not enough MP: ${quantity} × ${item.price.toLocaleString()} MP is ${(item.price * quantity).toLocaleString()} MP and you have ${shop.mp.toLocaleString()} MP.`; requestRender(); return; } if (confirmAction(`Purchase ${quantity} × ${item.name} for ${(item.price * quantity).toLocaleString()} MP?`)) send({ type: 'buy', itemId: item.id, count: quantity }); }, !!item.owned || shop.available === false || !!shop.loading || !!state.busy || item.price > shop.mp, true);
-      product.append(count, buy); grid.append(product);
-    }
-    if (!shop.items.length) grid.append(note('No products have been received from the server.'));
-    panel.append(cosmeticTab && state.online ? renderCosmeticsShop(state.online, cosmeticTab, cosmeticsDeps()) : grid);
-    if (shop.purchased?.length) {
-      const receipt = el('details', 'de-shop-receipt'); receipt.dataset.key = 'shop-receipt'; receipt.open = true;
-      receipt.append(el('summary', '', `Acquired Cards (${shop.purchased.length})${shop.replayed ? ' · Previous receipt' : ''}`)); const cards = el('div', 'de-receipt-cards');
-      for (const card of shop.purchased.slice(0, 80)) { const preview = button('', () => { local.inspected = card; requestRender(); }); preview.append(drawCard(card)); preview.setAttribute('aria-label', `Inspect ${card.name}`); cards.append(preview); }
-      if (local.inspected && shop.purchased.some(card => card.id === local.inspected!.id && card.passcode === local.inspected!.passcode)) receipt.append(note(`${local.inspected.name}: ${local.inspected.description ?? 'Card description unavailable.'}`));
-      receipt.append(cards); if (shop.purchased.length > 80) receipt.append(note(`Showing 80 of ${shop.purchased.length} cards.`)); panel.append(receipt);
+    // entering the shop: Item Selection, an empty cart (the windows themselves are main's: htmlui/shop.ts)
+    if (!shopScene) { Object.assign(shopUi, shopLocal()); shopCosmetics = null; shopScene = true; }
+    const n = sceneRoot('Card Shop');
+    if (shopCosmetics && state.online) {
+      // the rewrite's own cosmetic departments (extra/cosmetics.ts), kept as they are while cosmetics are redesigned
+      const panel = el('section', 'de-panel de-stack de-fill de-shop-cosmetics-panel', title('Cosmetics')), tabs = el('div', 'de-row');
+      for (const [tab, label] of [['boxes', 'Cosmetic Boxes'], ['wardrobe', 'Wardrobe']] as const) { const b = button(label, () => { shopCosmetics = tab; requestRender(); }, shopCosmetics === tab); b.dataset.key = `shop-cosmetics:${tab}`; tabs.append(b); }
+      tabs.append(button('Back to the Shop', () => { shopCosmetics = null; requestRender(); }));
+      panel.append(tabs, renderCosmeticsShop(state.online, shopCosmetics, cosmeticsDeps())); n.append(panel);
     }
     if (shop.opening) { const opening = renderCardGet(shop.opening, { drawCard, art: controller.loadArchiveImage ? (path, className = '') => { const image = el('img', className); image.alt = ''; image.draggable = false; loadArchiveArt(path, image); return image; } : null, reducedMotion: state.settings.reducedMotion, rerender: requestRender }); if (opening) n.append(opening); }
-    n.append(panel);
   }
   /** Fallback field without original art: the same zone geometry as the original sheet. */
   function drawField(canvas: HTMLCanvasElement): void {
@@ -868,14 +877,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
+      if (state.scene !== 'shop') shopScene = false;
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
       if (appearanceOpen() && state.player && state.online && !['title', 'characters', 'duel'].includes(state.scene)) stage.append(renderAppearanceEditor(state.online, { ...cosmeticsDeps(), close: () => { openAppearance(false); requestRender(); } }));
-      if (state.socialDetail && state.socialDetail.trade.phase !== 'idle' && !['title', 'characters'].includes(state.scene)) {
-        const trade = renderTradeWindow(state.socialDetail.trade, action => send({ type: 'socialAction', action }), state.socialDetail, { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, ...(tradeReason() ? { reason: tradeReason()! } : {}) });
-        if (trade) stage.append(trade);
-      }
+      // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
+      if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
+        stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));
       if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
@@ -910,8 +919,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); } }] : []),
       ];
       const world = state.scene === 'lobby' && state.lobby;
-      // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it)
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && state.scene !== 'deck',
+      // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && state.scene !== 'deck' && state.scene !== 'shop',
         message: state.player ? `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
         ...(world ? { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } : {}) };
       nav.replaceChildren(status);
@@ -960,5 +969,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

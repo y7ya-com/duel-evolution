@@ -88,7 +88,9 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.game.enterArea).toHaveBeenCalledWith(3); expect(f.app.getState().lobby?.name).toContain('Area 3'); f.dispose();
   });
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
-    const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:shop')).toBe(true); await flush(); findButton(f.root, 'Purchase').onclick?.({}); await flush();
+    const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:shop')).toBe(true); await flush();
+    // main's HTML shop (screens/shop.js): the singles window, the product, Confirm, then Yes.
+    for (const key of ['shop-category:cards', 'shop-item:10', 'shop-confirm', 'shop-yes']) { expect(f.mounted.htmlUi.press(key)).toBe(true); await flush(); }
     expect(f.api.purchase).toHaveBeenCalledWith({ itemId: 10, count: 1, requestId: 'server-token' }, expect.any(Object));
     expect(f.app.getState().shop?.mp).toBe(900); f.dispose();
   });

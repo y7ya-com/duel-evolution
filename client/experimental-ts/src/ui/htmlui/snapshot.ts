@@ -32,6 +32,8 @@ export interface ControlHandlers {
   hover?: boolean;
   /** api.wheel: a notch on a list (main's native scrollers wheel the engine's list a line at a time). */
   wheel?(delta: number): void;
+  /** The pointer came over it (true) or left it (false): what the engine does on mouse-over (the shop's description). */
+  pointer?(over: boolean): void;
 }
 export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers> }
 
@@ -78,14 +80,18 @@ export class WindowBuilder {
 /** The pointer's looks on the snapshot (the engine sets them in each switch's onMain): hover over the control under
  * the pointer, pressed while the button is held on it; a disabled control keeps 'disabled'. */
 export function applyPointer(specs: readonly WindowSpec[], hover: number, pressed: number, looks: (win: HtmlWindow) => boolean = () => true): void {
-  for (const { win, handlers } of specs) if (looks(win)) for (const c of win.controls) {
-    if (!handlers.get(c.id)?.hover || !('state' in c) && !c.cls.includes('Tab') && !c.cls.includes('Icon')) continue;
-    if (c.cls.includes('Icon')) { c.pressed = c.id === pressed; continue; }
-    if (c.state === 'disabled' || !c.enabled) continue;
-    c.state = c.id === pressed ? 'pressed' : c.id === hover ? 'hover' : 'normal';
-    // a picture switch shows one of its four sprites (CWindowTaskPictureSwitch): pressed, checked, hover, normal
-    const art = c.art as Record<string, { shown: boolean } | null> | undefined;
-    if (art) { const look = c.state === 'pressed' ? 'pressed' : c.checked ? 'checked' : c.state === 'hover' ? 'hover' : 'normal'; for (const [k, v] of Object.entries(art)) if (v) v.shown = k === look; }
+  for (const { win, handlers } of specs) if (looks(win)) {
+    // a swf button tracks the game's mouse itself (the shop's pills, read/shop.js `mouse`): the point of the hovered one
+    if ('mouse' in win) { const at = win.controls.find(c => c.id === hover && Array.isArray(c.mouseAt))?.mouseAt as number[] | undefined; win.mouse = at ? [at[0], at[1], pressed === hover ? 1 : 0] : null; }
+    for (const c of win.controls) {
+      if (!handlers.get(c.id)?.hover || !('state' in c) && !c.cls.includes('Tab') && !c.cls.includes('Icon')) continue;
+      if (c.cls.includes('Icon')) { c.pressed = c.id === pressed; continue; }
+      if (c.state === 'disabled' || !c.enabled) continue;
+      c.state = c.id === pressed ? 'pressed' : c.id === hover ? 'hover' : 'normal';
+      // a picture switch shows one of its four sprites (CWindowTaskPictureSwitch): pressed, checked, hover, normal
+      const art = c.art as Record<string, { shown: boolean } | null> | undefined;
+      if (art) { const look = c.state === 'pressed' ? 'pressed' : c.checked ? 'checked' : c.state === 'hover' ? 'hover' : 'normal'; for (const [k, v] of Object.entries(art)) if (v) v.shown = k === look; }
+    }
   }
 }
 

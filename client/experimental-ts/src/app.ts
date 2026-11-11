@@ -318,8 +318,9 @@ export class ClientApp implements ClientController {
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
-    // the menu bar and windows use data/common/window and data/common/icon; card-get uses data/y/result and data/card_get.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|common\/window|common\/icon)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // the menu bar and windows use data/common/window and data/common/icon; card-get uses data/y/result and data/card_get;
+    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck.
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|shop|deck|common\/window|common\/icon)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }

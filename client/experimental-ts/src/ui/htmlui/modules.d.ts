@@ -19,6 +19,8 @@ interface HtmlUiScreen {
   classes: string[];
   mode?: 'pass' | 'owned';
   clip?: boolean;
+  /** The root's pointer-events (bridge.js: a screen's own, else 'auto' when owned). */
+  rootInput?: string;
   parts?: boolean;
   passthrough?: (x: unknown, parent?: unknown) => boolean;
   mount?(win: unknown, root: HTMLElement, api: HtmlUiApi): unknown;
@@ -43,6 +45,8 @@ declare module '@htmlui/screens/deck.js' {
   /** One window's drawing list: its items back to front, the holes the engine draws through, the items under them. */
   export function plan(win: unknown, editor?: boolean): { items: { id: number; z: number; rect: { x: number; y: number; w: number; h: number }; draw(el: HTMLElement): void }[];
     holes: { z: number; rect: { x: number; y: number; w: number; h: number } }[]; co: number[] };
+  /** The deck scene's brushed-metal ground (CDeckScene's deck_bg_01 as CSS): Card Swap's too. */
+  export function deckBackdrop(el: HTMLElement): HTMLElement;
 }
 declare module '@htmlui/screens/*.js' { const screen: HtmlUiScreen; export default screen; }
 declare module '@htmlui/mock/*.json' {

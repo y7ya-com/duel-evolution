@@ -51,6 +51,10 @@ export interface BuildContext {
   profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
   /** The deck editor's windows (deck-scene.ts), under the menu bar. */
   deckWindows?: () => WindowSpec[];
+  /** A scene's own windows (the shop: htmlui/shop.ts; the trade: htmlui/trade.ts), under the chat and the menu bar. */
+  scene?: WindowSpec[];
+  /** The trade scene covers the lobby (main's Card Swap: its windows and the chat, no place banner or player list). */
+  covered?: boolean;
 }
 
 const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name).sort((a, b) => a.y - b.y);
@@ -105,7 +109,8 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   if (cancel) b.on(cancel, { key: 'character-create-cancel', click: close });
   return b.spec();
 }
-function messageDialog(ctx: BuildContext, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>): WindowSpec {
+/** One of main's stock dialogs (dialog.js: mock/dialog-yesno.json, dialog-ok.json) with this text, its buttons by label. */
+export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>): WindowSpec {
   const t = template.windows[0]!, b = new WindowBuilder(ctx.ids, key, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51203 });
   const cs = b.fromTemplate(t, true);
   const field = named(cs, 'CWindowTaskTextField'); if (field) field.text = text;
@@ -465,14 +470,17 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   // the account dialogs stand alone: main's game hides Select Player under them (its create capture)
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
   if (state.scene === 'lobby' && state.connection === 'online') {
-    const place = placeBanner(ctx); if (place) out.push(place);
+    const place = !ctx.covered && placeBanner(ctx); if (place) out.push(place);
     const chat = chatWindow(ctx); if (chat) out.push(chat);
-    const list = ctx.openPlayer && playerList(ctx, ctx.openPlayer); if (list) out.push(list);
+    const list = !ctx.covered && ctx.openPlayer && playerList(ctx, ctx.openPlayer); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) out.push(card);
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else ui.comment = null;
+  if (ctx.scene) out.push(...ctx.scene);
+  // the shop keeps the chat (main's shop capture: the lobby's chat under the windows); not over the card-get reveal
+  if (state.scene === 'shop' && state.connection === 'online' && ctx.scene?.length) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
   const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient
