@@ -453,8 +453,9 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const navBusy = `the shop opened with ${heldShop}; Leave the shop returned to the lobby ${leftEarly ? 'at once' : 'as the held reply settled'} and the late reply left it there`;
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
       await backToLobby(page);
-      await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
-      await menuClick(page,'Edit Deck');
+      // a request that leaves the lobby on screen: the Friend List's presence (GET /api/de/friends) held
+      await page.ev(`window.__net.http.delay=/\\/api\\/de\\/friends/`);
+      await menuClick(page,'Friend List');
       await until(page,`window.__net.http.release`,10000);
       await menuClick(page,'Return to Title');
       await until(page,byText('Go Online'),30000);
@@ -464,7 +465,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`window.__net.http.release?.()`); await sleep(2500);
       const late = { scene:await page.ev(`document.querySelector('.de-client').dataset.scene`), alerts:await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) };
       expect(late).toEqual({ scene:'lobby',alerts:'' });
-      record('errors.concurrency',{ actions:'Double-click Go Online, the starter deck and Purchase; request the shop with its reply held and leave it through its Leave the shop; open the deck editor with its reply held, Disconnect, go online again, then let the old reply arrive',
+      record('errors.concurrency',{ actions:'Double-click Go Online, the starter deck and Purchase; request the shop with its reply held and leave it through its Leave the shop; open the Friend List with its reply held, Return to Title, go online again, then let the old reply arrive',
         expected:'Busy state, duplicate clicks, navigation and late replies cannot apply to the wrong session',
         observed:`Go Online ×2 → ${goOnline} connection; Purchase ×2 → MP ${before} → ${after} (aria-busy/disabled ${busy} a frame after the first click${busyNote ? `, "${busyNote}"` : ''}); while the shop reply was held ${navBusy}; ${pending} held replies across a Disconnect/Go Online: after release the new session stayed on ${late.scene}${late.alerts ? ` ("${late.alerts}")` : ' with no alert'}` });
     } finally { closeAll(); }

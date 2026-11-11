@@ -368,7 +368,9 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
       const prompts = tracker();
       let duels = 0, results:string[] = [];
       for (const npc of ['Yami Yugi','Tea Gardner','Joey Wheeler','Jaden Yuki','Chazz Princeton']) {
-        await click(page,'Return to Lobby').catch(() => {}); await until(page,lobbyShown,60000);
+        // after a duel its Return to Lobby; in the lobby the Main Menu has none (as live)
+        if (!await page.ev(lobbyShown)) await click(page,'Return to Lobby').catch(() => {});
+        await until(page,lobbyShown,60000);
         const listed = await listedNames(page);
         if (!listed.includes(npc)) { results.push(`${npc}: not in this area (${listed.join(', ')})`); continue; }
         try { await startNpcDuel(page,npc); } catch (error) { results.push(`${npc}: no duel (${String(error).slice(0,120)})`); continue; }

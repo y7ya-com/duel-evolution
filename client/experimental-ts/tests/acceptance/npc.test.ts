@@ -55,7 +55,8 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       expect(again).toBe(after);
       record('npc.rewards',{ actions:`Return to lobby after the duel; choose ${pack}; close; read the collection, reconnect, read it again`, expected:'Rewards and unlocks applied exactly once', observed:`received ${received.join(', ')}; ${card} owned ×${after}, still ×${again} after reconnecting; dialog: ${receipt}` });
       // Rematch lifecycle: the same NPC accepts another duel.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      if (!await page.ev(lobbyShown)) await click(page,'Return to Lobby');   // in the lobby the Main Menu has none (as live)
+      await until(page,lobbyShown,60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
       // Surrender: the client's own Yes / No (main's YesNo, surrender-yes), then the server's question when it asks one
