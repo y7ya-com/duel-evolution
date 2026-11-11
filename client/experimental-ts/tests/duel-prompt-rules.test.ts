@@ -134,3 +134,21 @@ describe('filtered card choices (SELECT_CARD over a subset)', () => {
     expect(a.send({ type: 'cards', indices: [1] })).toEqual([{ cmd: 'respond', response: { type: 'SELECT_CARD', indicies: [1] } }]);
   });
 });
+
+describe('face-down set cards (INDEPENDENT_REVIEW P1)', () => {
+  it('a set Spell/Trap keeps its server-issued activation, which the encoder accepts, without being turned face-up', () => {
+    const a = actor();
+    a.feed([{ ev: 'msg', type: 'DRAW', player: 0, drawn: CARDS.map(code => ({ code, position: 10 })) }]);
+    a.feed([{ ev: 'msg', type: 'MOVE', card: CARDS[0], from: { controller: 0, location: 2, sequence: 0, position: 10 },
+      to: { controller: 0, location: 8, sequence: 0, position: 10 } }, { ev: 'msg', type: 'SSET' }]);
+    const uid = a.state.sides[0].spell[0]!;
+    expect(uid).not.toBeNull(); expect(a.state.cards[uid]!.faceUp).toBe(false);
+    a.select({ type: 'SELECT_IDLECMD', summons: [], special_summons: [], pos_changes: [], monster_sets: [], spell_sets: [],
+      activates: [{ code: CARDS[0], controller: 0, location: 8, sequence: 0, description: 0 }], to_ep: true });
+    const activate = a.state.prompt!.actions.find(x => x.zone === 5 && x.player === 0);
+    expect(activate).toBeDefined();
+    expect(a.state.cards[uid]!.faceUp).toBe(false);
+    expect(a.send({ type: 'action', player: 0, zone: activate!.zone, index: 0, command: activate!.command })).toEqual([
+      { cmd: 'respond', response: { type: 'SELECT_IDLECMD', action: 'SELECT_ACTIVATE', index: 0 } }]);
+  });
+});
