@@ -213,7 +213,7 @@ export function nextDuelSpeed(speed: number): number {
   return k;
 }
 export function duelSpeedWindow(ids: Ids, speed: number, change: () => void): WindowSpec {
-  const W = 48, H = 24, b = new WindowBuilder(ids, 'duel-speed', 'CWindowDuelSpeed', { x: 1024 - W - 8, y: 8, w: W, h: H }, { z: 51100 });
+  const W = 48, H = 24, b = new WindowBuilder(ids, 'duel-speed', 'CWindowDuelSpeed', { x: 1024 - W - 8, y: 104, w: W, h: H }, { z: 51100 });
   const c = b.add('CWindowTaskTextSwitch', 'speed', { x: 0, y: 0, w: W, h: H }, { label: `${speed}×`, align: 1, state: 'normal' });
   b.on(c, { key: 'duel-speed', label: `Duel speed: ${speed}×${speed === 1 ? ' (original)' : ''}. Click to change`, click: change });
   return b.spec();

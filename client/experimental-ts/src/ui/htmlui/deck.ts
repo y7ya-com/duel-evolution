@@ -303,8 +303,10 @@ function trunkRow(b: WindowBuilder, t: Tree, ids: Ids, r: number, c: CardView | 
 // "Side" band at 584), the counters (deck_cardcount_01: main 402, 60, the spells / traps / normal / effect / ritual
 // boxes from 480, 29, Fusion 596, 60, side 318, 587), the Main / Fusion tabs (256 / 450, 56), the main frame and grey
 // plane (248, 80 / 256, 88), the side's (248, 608 / 256, 616; the Fusion view's main frame runs to 712), and the cards:
-// 16 to a row at 262 + 28 c, 96 + 80 r (the side's at 624), each a 50 x 72 picture (a hole) with its limit icon.
-export const GRID = { x: 262, y: 96, dx: 28, dy: 80, perRow: 16, sideY: 624 } as const;
+// 15 to a row at 262 + 28 c, 96 + 80 r (DeckWindowDeck.cpp layGrid), the side's one row at 624, 14 px apart past 15
+// cards (CWindowTaskDeck::rebuild), each a 50 x 72 picture (a hole) with its limit icon.
+export const GRID = { x: 262, y: 96, dx: 28, dy: 80, perRow: 15, sideY: 624 } as const;
+const sideDx = (count: number) => count > 15 ? 14 : 28;
 export function deckWindow(ctx: DeckContext): WindowSpec {
   const { ids, ui, deck } = ctx, extra = ui.view === 'extra';
   const b = new WindowBuilder(ids, 'deck-deck', 'CWindowModelDeck', { x: 248, y: 0, w: 488, h: 712 }, { z: WZ.deck, wz: WZ.deck + 43, modal: true, drawn: null, scene: scene(ids, ui.mouse) });
@@ -316,7 +318,7 @@ export function deckWindow(ctx: DeckContext): WindowSpec {
   control(b, ids, 'mainPlane', 'CWindowTaskBackPlane', 'CWindowTaskTextFieldの背景', { x: 256, y: 88, w: 472, h: mainH, z: z + 1 }, { parts: plane });
   const dragging = ui.drag?.moved && ui.drag.from !== 'trunk' ? ui.drag : null;
   const cards = (zone: DeckZone, list: readonly number[], y0: number) => list.forEach((pc, i) => {
-    const col = i % GRID.perRow, row = Math.floor(i / GRID.perRow), x = GRID.x + GRID.dx * col, y = y0 + GRID.dy * row, wz = z + 2 + col, c = ctx.card(pc), p = t.parts();
+    const one = zone === 'side', col = one ? i : i % GRID.perRow, row = one ? 0 : Math.floor(i / GRID.perRow), x = GRID.x + (one ? sideDx(list.length) : GRID.dx) * col, y = y0 + GRID.dy * row, wz = z + 2 + col, c = ctx.card(pc), p = t.parts();
     const lifted = dragging?.from === zone && dragging.index === i;
     if (!lifted) {
       t.sprite(p, 'picCard', cardTex(pc), [0, 0, 50, 72], x, y, wz);
@@ -386,7 +388,8 @@ export function deckCardAt(win: HtmlWindow, x: number, y: number): { zone: DeckZ
 }
 /** A grid's slot at a game point (a reorder's target), or the end of the grid. */
 export function gridIndex(zone: DeckZone, count: number, x: number, y: number): number {
-  const col = Math.max(0, Math.min(GRID.perRow - 1, Math.floor((x - GRID.x) / GRID.dx))), row = zone === 'side' ? 0 : Math.max(0, Math.floor((y - GRID.y) / GRID.dy));
+  if (zone === 'side') return Math.max(0, Math.min(count - 1, Math.floor((x - GRID.x) / sideDx(count))));
+  const col = Math.max(0, Math.min(GRID.perRow - 1, Math.floor((x - GRID.x) / GRID.dx))), row = Math.max(0, Math.floor((y - GRID.y) / GRID.dy));
   return Math.max(0, Math.min(count - 1, row * GRID.perRow + col));
 }
 /** The drop zones (DeckEntryMain.cpp deckDropTarget / inTrunkZone): the grids 256..728, the trunk 744..956. */

@@ -32,7 +32,8 @@ export const CLIENT_CSS = `
 .de-world-status:empty { display:none; }
 .de-world-status button { pointer-events:auto; }
 .de-stage-layer { position:absolute; inset:0; }
-.de-duel-options { position:absolute; right:8px; top:8px; z-index:9; display:flex; gap:6px; }
+/* under the opponent's LP plate (live's top corners are the two plates alone) */
+.de-duel-options { position:absolute; right:8px; top:8.6%; z-index:9; display:flex; gap:6px; }
 .de-scene { position:absolute; inset:0; padding:18px; display:flex; flex-direction:column; gap:12px; }
 .de-panel { border:3px solid #87e9ff; outline:1px solid #1268b2; border-radius:4px; background:linear-gradient(#e2fcff,#a9e8fb 45%,#77cff2); box-shadow:0 3px 12px #082f6755; padding:12px; }
 .de-panel-title { margin:-10px -10px 12px!important; padding:5px 8px; color:white; background:linear-gradient(#a1def9,#2585dc 49%,#1761bf); text-shadow:0 1px #114d91; }
@@ -175,7 +176,9 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-frames img { position:absolute; left:-100%; width:200%; height:200%; max-width:none; }
 .de-phase-bar { position:absolute; left:25%; top:35.807%; width:43.75%; height:5.2083%; display:grid; grid-template-columns:13.84% repeat(6,14.36%); grid-template-rows:100%; z-index:3; pointer-events:none; }
 .de-phase-bar>* { min-width:0; min-height:0; box-sizing:border-box; }
-.de-turn-box { display:flex; flex-direction:column; align-items:center; justify-content:center; margin:2px 3px; line-height:1; color:#fff; background:#2a3d58e6; border:1px solid #c8d8ee; border-radius:3px; }
+.de-phase-bar>.de-phase:nth-child(2) { grid-column-start:2; }
+/* the turn plate under the phase bar's left end, over the gap between the left column's zones (live: 262, 322, 52 x 28) */
+.de-turn-box { position:absolute; left:1.34%; top:117.5%; width:11.6%; height:70%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin:0; line-height:1; color:#fff; background:#2a3d58e6; border:1px solid #c8d8ee; border-radius:3px; }
 .de-turn-box small { font-size:9px; }
 .de-turn-box strong { font-size:15px; }
 .de-phase { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; font:bold 13px Arial; color:#4a2e00; }

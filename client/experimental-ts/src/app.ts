@@ -370,9 +370,17 @@ export class ClientApp implements ClientController {
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
     // the menu bar and windows use data/common/window and data/common/icon; card-get uses data/y/result and data/card_get;
     // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
+  }
+  /** One original file's bytes for main's page modules (htmlui/lazy-shim.ts: the Wardrobe's item art and waist-up parts,
+   * the card shop's card faces and pack art), limited to the folders they read. */
+  async readGameFile(path: string, signal?: AbortSignal): Promise<Uint8Array> {
+    if (!this.options.assets) throw new Error('Original artwork is not configured.');
+    if (!/^data\/(?:avatar\/chibi|avatar\/wu|map\/map_switch|shop|y\/result|card|cardpack)\/(?:[\w#.-]+\/)*[\w#.-]+\.(?:png|jpg|csv|txt)$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
+    try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
   private gameTexts = new Map<string, Promise<readonly string[]>>();
   /** A language's whole UI string table (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by id. */
