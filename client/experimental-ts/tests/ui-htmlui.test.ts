@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Ids, applyPointer, hitTest } from '../src/ui/htmlui/snapshot';
+import { Ids, applyPointer } from '../src/ui/htmlui/snapshot';
 import { chatCommand, htmlUiLocal, htmlWindows } from '../src/ui/htmlui/windows';
 import type { BuildContext } from '../src/ui/htmlui/windows';
 import type { ClientView } from '../src/ui/contracts';
@@ -88,11 +88,12 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('mail-reply')!.click!(); t.find('compose-subject')!.text!('Re: Hi'); t.find('compose-body')!.text!('Sure'); t.find('compose-send')!.click!();
     expect(calls.at(-1)).toBe('mail 2 Re: Hi Sure');
   });
-  it('pointer: hover and pressed looks on the control under the pointer; a modal window takes the point', () => {
+  it('pointer: the hover and pressed looks go to the control whose element the pointer is on (no hit test by position)', () => {
     const t = context(view({ scene: 'characters' })), specs = t.windows();
-    const back = hitTest(specs, 448 + 380, 256 + 250)!; expect(back.label).toBe('Back');
+    const back = specs.flatMap(s => s.win.controls).find(c => c.label === 'Back')!;
+    expect(specs.some(s => s.handlers.get(back.id)?.hover && s.handlers.get(back.id)?.click)).toBe(true);
     applyPointer(specs, back.id, 0); expect(back.state).toBe('hover');
     applyPointer(specs, back.id, back.id); expect(back.state).toBe('pressed');
-    expect(hitTest(specs, 448 + 470, 256 + 5)).toBeNull();
+    applyPointer(specs, 0, 0); expect(back.state).toBe('normal');
   });
 });
