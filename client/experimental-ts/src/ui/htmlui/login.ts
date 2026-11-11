@@ -116,7 +116,12 @@ export function loginWindow(d: LoginDeps): WindowSpec {
         if (name === 'input1') input.addEventListener('input', () => { if (ui.mode !== 'reset') ui.username = input!.value; });
         Object.assign(input.style, { position: 'absolute', left: `${LEFT}px`, top: `${(name === 'input1' ? 112 : 148) + 8}px`, width: `${WIDE}px`, height: '16px', padding: '0', margin: '0', border: '0', outline: 'none', background: 'transparent', color: '#000', caretColor: '#000', zIndex: '2' });
       }
-      if (input.parentNode !== root) root.append(input);
+      if (input.parentNode !== root) {
+        root.append(input);
+        // the dialog opens with its caret in the first field (live: CWindowTaskInput focused, caret on), unless the
+        // player is already in another control
+        if (name === 'input1' && (!document.activeElement || document.activeElement === document.body)) input.focus({ preventScroll: true });
+      }
       if (css) { input.style.font = css.font; input.style.letterSpacing = css.letterSpacing; }
       const reset = m === 'reset', secret = name === 'input2';
       const want = { type: secret ? 'password' : 'text', name: secret ? 'password' : reset ? 'code' : 'username', autocomplete: secret ? (m === 'signin' ? 'current-password' : 'new-password') : reset ? 'one-time-code' : 'username' };
