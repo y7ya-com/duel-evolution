@@ -23,6 +23,7 @@ import avatar from '@htmlui/screens/avatar.js';
 import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
+import { npcBalloonScreen, npcInfoScreen } from './npc-talk';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer, areaAt } from './snapshot';
@@ -37,11 +38,11 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade,
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
-const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon, CNpcTalkBalloon: npcBalloonScreen, CNpcTalkInfo: npcInfoScreen };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
-// result.js (pass mode on main) replaces its Next plate on each look too: Return to Lobby is clicked on release
+// result.js (pass mode on main) replaces its Next plate on each look too: Next is clicked on release
 const DECK_PANELS = /^(CWindowModelDeck|CWindowModelKaban|CCardDetailViewDlg)$/;
 const DUEL_DIALOGS = new Set([...duel.classes, ...result.classes]);
 const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$|CWindowResultNext$)/.test(cls) || DUEL_DIALOGS.has(cls) };

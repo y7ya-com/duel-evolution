@@ -26,20 +26,15 @@ describe('NPC result record (CWindowResultNpc)', () => {
     c.open({ id: 51, name: 'Jaden' }, 0, { record: [255, 0, 0] }); c.advance(); await c.answer(true); expect(c.state.stage).toBe('duel'); c.afterDuel(1); expect(c.state.stage).toBe('after-duel');
     expect(c.state.record).toEqual({ wins: 255, loses: 0, draws: 0 });
   });
-  it('draws the 512 board and the record in place of the two player records', () => {
+  it('draws the two records of live (the player\'s and the NPC\'s, WIN / LOSE against each other) with the record from the talk', () => {
     const specs = duelResultWindows({ ids: new Ids(), duel: duel('Victory'), next: () => {}, npc: { name: 'Jaden', record: { wins: 4, loses: 1, draws: 2 } } });
-    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResultNpc', 'CWindowResultNext']);
-    const win = specs[0]!.win, texts = win.controls.filter(k => k.cls === 'CWindowTaskShadowText').map(k => k.text);
-    expect(win).toMatchObject({ x: 256, y: 64, w: 512, h: 442 });
-    expect((win.extras[0] as { tex?: string }).tex).toBe('npc_result_dai_01_c01');
-    expect(texts).toEqual(['Jaden', 'WIN', 'Wins', '4', 'Losses', '1', 'Draws', '2']);
-    // each ShadowText has its 1, 1 black shadow half (result.js reads it as a text-shadow)
-    const name = win.controls.find(k => k.text === 'Jaden' && k.cls === 'CWindowTaskShadowText')!;
-    expect(win.controls.find(k => k.parent === name.id)).toMatchObject({ x: name.x + 1, y: name.y + 1, text: 'Jaden', color: [0, 0, 0, 1] });
+    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
+    expect(specs[0]!.win.controls[0]!.label).toBe('Me: WIN, WIN 4, LOSE 1, SCORE 0');
+    expect(specs[1]!.win.controls[0]!.label).toBe('Jaden: LOSE, WIN 1, LOSE 4, SCORE 0');
     expect(npcResultWindow({ ids: new Ids(), duel: duel('Defeat'), npc: { name: 'J', record: { wins: 0, loses: 1, draws: 0 } } }).win.controls[0]!.label).toContain('LOSE');
   });
   it('keeps the two player records for a PvP duel', () => {
-    expect(duelResultWindows({ ids: new Ids(), duel: duel('Victory') }).map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CWindowResultNext']);
+    expect(duelResultWindows({ ids: new Ids(), duel: duel('Victory') }).map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
   });
   it('main’s result.js draws CWindowResultNpc', async () => {
     const mod = (await import('@htmlui/screens/result.js')).default as { classes: string[] };

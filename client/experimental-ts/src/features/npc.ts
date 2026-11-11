@@ -142,8 +142,9 @@ export class NpcController {
     if (s.stage === 'opening') {
       if (this.openingBlocked) this.patch({ stage: 'done', dialogue: null });
       else if (this.authFlags & 0x100) this.patch({ stage: 'greeting', dialogue: this.dialogue(10) });
-      else this.patch({ stage: 'ask', dialogue: null });
-    } else if (s.stage === 'greeting') this.patch({ stage: 'done', dialogue: null });
+      else this.patch({ stage: 'ask', dialogue: this.acceptLine() });
+    } else if (s.stage === 'ask' && s.dialogue) this.patch({ dialogue: null });
+    else if (s.stage === 'greeting') this.patch({ stage: 'done', dialogue: null });
     else if (s.stage === 'after-duel' && s.settlementReceived) {
       if (s.present === 1) this.patch({ stage: s.result === 1 ? 'won' : 'lost', dialogue: this.dialogue(s.result === 1 ? 0x45 : 0x4a) });
       else if (s.present === 2) this.patch({ stage: 'item', dialogue: this.dialogue(0x4f) });
@@ -152,6 +153,17 @@ export class NpcController {
       this.patch({ stage: 'claiming', dialogue: null, giftStatus: 'pending' });
       this.sendClaim('giftStatus', 0x5204, new BinaryWriter().u16(3).u32(0).bytes());
     }
+  }
+  /** The NPC's yes to a duel (line 1: "Ok! Give it your best shot!"), spoken before the original's "Start Duel?"
+   * question; absent when the line is unknown (the question comes straight away). */
+  private acceptLine(): NpcDialogue | null { const d = this.dialogue(1); return d.known ? d : null; }
+  /** Leave the talk before a duel (the original's balloon and Start Duel? close with No, Escape or a click away):
+   * nothing was claimed, so nothing waits on the server. A first meeting still being confirmed stays. */
+  dismiss(): boolean {
+    const s = this.value;
+    if (this.disposed || !['opening', 'ask', 'greeting'].includes(s.stage) || ['pending', 'uncertain'].includes(s.firstContactStatus)) return false;
+    this.patch({ stage: 'done', dialogue: null });
+    return this.close();
   }
   selectPack(pack: number): void {
     if (this.disposed || !this.value.result || !this.value.settlementReceived || this.value.packStatus !== 'idle' || !this.value.packs.includes(pack)) return;

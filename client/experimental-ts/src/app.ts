@@ -971,6 +971,7 @@ export class ClientApp implements ClientController {
           break;
         case 'npcAnswer': await this.npc.answer(command.accept); break;
         case 'npcAdvance': this.npc.advance(); break;
+        case 'npcDismiss': this.npc.dismiss(); break;
         case 'npcSelectPack': this.npc.selectPack(command.pack); break;
         case 'npcRefreshInventory': await this.npc.refreshCollection(); break;
         case 'npcClose':

@@ -31,26 +31,24 @@ const texts = (specs: ReturnType<typeof duelResultWindows>) => specs.flatMap(s =
 const numbers = (specs: ReturnType<typeof duelResultWindows>) => specs.flatMap(s => (s.win.nums ?? []).map(n => n.text));
 
 describe('result board (main\'s result.js windows)', () => {
-  it('an NPC duel shows one CWindowResultNpc with the record against that NPC and the rewards', () => {
+  it('an NPC duel shows the two records (WIN / LOSE / SCORE, the NPC\'s the other way round), the titles\' art and Next, as live', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 }, rewards: { mp: 150, score: 90, level: [7, 8] } }), next: () => {} });
-    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResultNpc', 'CWindowResultNext']);
-    expect(specs[0]!.win.w).toBe(512);
-    expect(texts(specs)).toEqual(expect.arrayContaining(['Chumley', 'WIN', 'Wins', 'Losses', 'Draws', 'MP', 'Score', 'Level']));
-    // CWindowResultNpc's counts are ShadowText controls (main's read/result.js), right-aligned beside their captions.
-    expect(specs[0]!.win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && c.name.startsWith('n:')).map(c => [c.text, c.align])).toEqual(
-      [['3', 2], ['2', 2], ['1', 2], ['+150', 2], ['+90', 2], ['7 → 8', 2]]);
-    expect(numbers(specs)).toEqual([]);
+    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CEnginePictures', 'CWindowResultNext']);
+    expect(texts(specs)).toEqual(expect.arrayContaining(['Chumley', 'WIN', 'LOSE', 'SCORE', 'MP', 'Level']));
+    expect(specs[3]!.win.controls[0]!.label).toBe('Next');
+    expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3', '2', '90', '+150', '7 → 8']);
+    expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['2', '3', '0']);
+    expect(((specs[2]!.win as unknown as { pics: { source: { archive: string } }[] }).pics).map(p => p.source.archive)).toEqual(expect.arrayContaining([expect.stringMatching(/result_(winner|loser|draw)_01_\?\.png$/)]));
   });
   it('the server\'s 0x4140 record wins over the one counted from the talk; the talk\'s is the fallback until it arrives', () => {
     const talk = { name: 'Chumley', record: { wins: 1, loses: 0, draws: 0 } };
-    const counts = (d: DuelView) => duelResultWindows({ ids: ids as never, duel: d, npc: talk, next: () => {} })
-      .filter(s => s.win.cls === 'CWindowResultNpc').map(s => s.win.controls.filter(c => c.cls === 'CWindowTaskShadowText' && c.name.startsWith('n:')).map(c => c.text));
-    expect(counts(duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 } }))).toEqual([['3', '2', '1']]);
-    expect(counts(duel({}))).toEqual([['1', '0', '0']]);
+    const counts = (d: DuelView) => (duelResultWindows({ ids: ids as never, duel: d, npc: talk, next: () => {} })[0]!.win.nums ?? []).slice(0, 2).map(n => n.text);
+    expect(counts(duel({ npcRecord: { name: 'Chumley', wins: 3, losses: 2, draws: 1 } }))).toEqual(['3', '2']);
+    expect(counts(duel({}))).toEqual(['1', '0']);
   });
   it('a PvP duel keeps one record per side and adds the player\'s rewards on their own board', () => {
     const specs = duelResultWindows({ ids: ids as never, duel: duel({ rewards: { mp: 0, score: -20, level: [9, 9] } }), next: () => {} });
-    expect(specs.map(s => s.win.cls)).toEqual(['CWindowResult', 'CWindowResult', 'CWindowResultNext']);
+    expect(specs.map(s => s.win.cls).filter(c => c !== 'CEnginePictures')).toEqual(['CWindowResult', 'CWindowResult', 'CWindowResultNext']);
     expect((specs[0]!.win.nums ?? []).map(n => n.text)).toEqual(['3200', '9', '0', '-20']);
     expect((specs[1]!.win.nums ?? []).map(n => n.text)).toEqual(['0', '9']);
   });
