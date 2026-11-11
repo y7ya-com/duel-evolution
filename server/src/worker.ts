@@ -409,9 +409,10 @@ routes.on(["GET", "HEAD"], "*", async (c) => {
 });
 routes.all("*", (c) => c.text("method not allowed", 405));
 
-// The game is served on the apex and on original. (kept so players find it where they're used to): each request sees
-// its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
-const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
+// The game is served on the apex and on original. (kept so players find it where they're used to), and v2. (the TS rewrite's
+// front, infra/v2: it forwards here through a service binding with its own host): each request sees
+// its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on each. www -> apex.
+const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com", "v2.ygoevolution.com"]);
 // The daily trade report (db/audit.ts; wrangler.jsonc triggers): GET /__trade-report (admin) shows the latest, ?day=
 // one kept in R2, ?run=1 builds one now without keeping or posting it.
 routes.get("/__trade-report", async (c) => {
