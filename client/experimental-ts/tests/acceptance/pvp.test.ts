@@ -68,7 +68,10 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       expect(sa.lp).toEqual(['8,000','8,000']);
       // No hand card name of one player appears anywhere on the other's page (the text of their screen).
       const bText = await pageText(b);
-      const leaked = sa.hand.filter(n => !sb.hand.includes(n) && bText.includes(n));
+      // B's own hand names come out first (longest first), so a name of A's inside one of B's ("Winged Kuriboh" in
+      // B's "Winged Kuriboh LV10") is not taken for a leak; any other copy on B's page still is
+      const bOthers = [...sb.hand].sort((x,y) => y.length - x.length).reduce((t,own) => t.split(own).join('\n'),bText);
+      const leaked = sa.hand.filter(n => !sb.hand.includes(n) && bOthers.includes(n));
       expect(leaked).toEqual([]);
       record('pvp.start',{ actions:'Accept the challenge; rock-paper-scissors; first player; deal',
         expected:'Select legal decks and establish both perspectives with correct hidden information',
