@@ -132,6 +132,8 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,byText(text),timeout);
   }
   await press(page,byText(text));
+  // Return to Title asks first (the Main Menu's 'Disconnect from the game?' Yes / No): a player answers Yes
+  if (text === 'Return to Title') { await until(page,byKey('disconnect-yes'),timeout); await press(page,byKey('disconnect-yes')); }
 }
 export async function type(page:Page,selector:string,value:string) {
   await until(page,selector);
@@ -157,6 +159,8 @@ export const characterNames = (page:Page) => page.ev(`[...document.querySelector
 export const freeSlot = `document.querySelector('[data-key^="character-create:"]')`;
 /** Create Player on the first free row, the name typed into the game's name dialog, OK; then (wait) its row. */
 export async function createCharacter(page:Page,name:string,{ wait = true,timeout = 60000 }:{ wait?:boolean; timeout?:number } = {}) {
+  // a refusal of the last try (its error box) is closed first, with its OK, as a player would
+  for (const ok of ['error-ok','dialog-ok']) if (await page.ev(`Boolean(${byKey(ok)})`)) { await press(page,byKey(ok)); await until(page,`!${byKey(ok)}`,10000); }
   await until(page,freeSlot,timeout); await press(page,freeSlot);
   await until(page,byKey('character-name'),10000); await type(page,byKey('character-name'),name);
   await until(page,`!${byKey('character-create-ok')}?.disabled`,5000); await press(page,byKey('character-create-ok'));
@@ -220,7 +224,9 @@ export async function claimStarter(page:Page) {
   if (await page.ev(`Boolean(${tile})`)) {
     await press(page,tile); await until(page,btn('Choose this deck'),10000); await press(page,btn('Choose this deck'));
     await until(page,btn('Yes, take it'),10000); await press(page,btn('Yes, take it'));
-    await until(page,btn('OK'),30000); await press(page,btn('OK')); await until(page,`!document.getElementById('starter')`,10000);
+    await until(page,btn('OK'),30000);
+    const said = await page.ev(`document.getElementById('starter')?.innerText ?? ''`) as string;
+    await press(page,btn('OK')); await until(page,`!document.getElementById('starter')`,10000).catch(e => { throw new Error(`starter claim: ${said}\n${String(e)}`); });
   }
 }
 

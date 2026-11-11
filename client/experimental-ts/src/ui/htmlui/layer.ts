@@ -95,8 +95,10 @@ export class HtmlUiLayer {
     if (!document.getElementById('htmlui-rewrite-css')) {
       const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
       // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
-      // over everything the engine draws
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
+      // over everything the engine draws. Change Avatar is a pass-mode window (its root lets the pointer through to
+      // main's engine): here no engine stands under it, its plates take the pointer themselves
+      // main's starter picker (web-shell/starter.js, z 10) stands over main's windows (bridge.js's host, z 4): here too
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .win[data-window-class="CWindowDialogAvatarSwitch"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);
