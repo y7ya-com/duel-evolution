@@ -48,8 +48,12 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const a = await openPage(), b = await openPage();
       await openClient(a,await signIn(`TestTa${RUN}`),{ assets:false }); await openClient(b,await signIn(`TestTb${RUN}`),{ assets:false });
       await enterWorld(a,names.a); await enterWorld(b,names.b);
-      // Both earn tradeable cards (starter and starting-MP cards are soul-bound).
-      const rewardA = await earnCards(a), rewardB = await earnCards(b);
+      // Both earn tradeable cards (starter and starting-MP cards are soul-bound). The server records a duel's prize
+      // pack as bound or not when the pack is offered, from the duel before it (npcRules.ts nrLobbyAfterDuel reads
+      // prize_unbound before this duel's mpReward sets it): a new character's first prize stays soul-bound and the
+      // next one, after a duel that paid earned MP, is tradeable. So each plays two rewarded NPC duels, as live.
+      const earnTwice = async (p:Page) => { const first = await earnCards(p); const second = await earnCards(p); expect(first.length).toBeGreaterThan(0); return second; };
+      const rewardA = await earnTwice(a), rewardB = await earnTwice(b);
       expect(rewardA.length).toBeGreaterThan(0); expect(rewardB.length).toBeGreaterThan(0);
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       // trade.invite: decline first.
