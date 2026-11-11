@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, duelBot, type Page } from './harness';
-import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, stepBoth, backToLobby } from './pvp-helpers';
+import { avatar, invitation, requesting, inLobby, onDuel, finished, playerMenu, menuActions, pageText, startBoth, read, settled, mirrored, playBoth, stepBoth, backToLobby, createDuelOffered } from './pvp-helpers';
 
 async function challenge(from:Page,to:Page,name:string) {
   await playerMenu(from,name,'Send Duel Request');
   await until(from,requesting,20000);
   await until(to,invitation,20000);
 }
+// the game's message box (CWindowModelDialogError) is answered with its OK, as a player closes it
+async function dismiss(page:Page) { const ok = `document.querySelector('[data-key="error-ok"]')`; if (await page.ev(`Boolean(${ok})`)) { await press(page,ok); await until(page,`!${ok}`,10000); } }
 const reply = (page:Page,label:'Accept Duel'|'Decline') => press(page,`document.querySelector('[data-key="${label==='Accept Duel'?'duel-accept':'duel-decline'}"]')`);
 
 describe.skipIf(!enabled)('player-versus-player duels and spectators on the real stack',() => {
@@ -31,10 +33,10 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       await challenge(a,b,names.b);
       await reply(b,'Decline');
       await until(b,`!${invitation}`,20000); await until(a,`!${requesting}`,20000);
-      await until(a,`document.body.innerText.includes('Refused.')`,20000);
+      await until(a,`document.body.innerText.includes('Refused.')`,20000); await dismiss(a);
       // Right after a refusal the same challenge waits its cooldown; the server's message is shown.
       await playerMenu(a,names.b,'Send Duel Request');
-      await until(a,`document.body.innerText.includes('Wait a moment before challenging that player again.')`,20000);
+      await until(a,`document.body.innerText.includes('Wait a moment before challenging that player again.')`,20000); await dismiss(a);
       expect(await a.ev(`Boolean(${requesting})`)).toBe(false);
       expect(await b.ev(`Boolean(${invitation})`)).toBe(false);
       // Expiry: B challenges A and nobody answers; after the server's 30 s both dialogs close and B is told.
@@ -42,7 +44,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       await challenge(b,a,names.a);
       await until(a,`!${invitation}`,60000); await until(b,`!${requesting}`,60000);
       const expiredAfter = Math.round((Date.now() - sent) / 1000);
-      await until(b,`document.body.innerText.includes('There is no response from your opponent.')`,20000);
+      await until(b,`document.body.innerText.includes('There is no response from your opponent.')`,20000); await dismiss(b);
       expect(expiredAfter).toBeGreaterThanOrEqual(25);
       record('pvp.invite',{ actions:'Challenge from the player menu (avatar → Duel): cancel while asked; decline; immediate re-challenge; unanswered challenge',
         expected:'Challenge, accept, decline, cancel and expire invitations without stale state',
@@ -108,7 +110,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
           // After leaving, the lobby is usable and the duel no longer draws on C.
           await sleep(1500);
           expect(await c.ev(`Boolean(document.querySelector('.de-field-card'))`)).toBe(false);
-          await until(c,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&!b.disabled)`,30000);
+          await createDuelOffered(c);
         }
       } });
       expect(spectated,'the spectator joined').not.toBe('');
