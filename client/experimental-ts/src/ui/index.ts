@@ -327,8 +327,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       ...(a ? { audio: { music: a.music, sound: a.sound, activated: a.activated, slots: a.slots }, audioAction: (action: AudioAction) => send({ type: 'audioAction', action }) } : {}),
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
-    return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
+    const out = [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
+    // a language that could not load (CSystemConfigManager::applyLanguage refused): main's error dialog over DUEL
+    // OPTIONS; the previous language stays and < / > choose it again
+    const refused = state.languageStatus?.error;
+    if (refused && refused !== languageErrorSeen) out.push(stockDialog({ ids: htmlIds }, 'language-error', 'error', refused,
+      [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]));
+    else if (!refused) languageErrorSeen = '';
+    return out;
   };
+  let languageErrorSeen = '';
   const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
@@ -1161,6 +1169,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (e.key !== 'Escape') return;
     if (browserDisplay.state.active) return;
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
+    // DUEL OPTIONS / Audio (a modal over the scene): its language error first, then the window
+    if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else optionsUi = null; showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
     else if (state.scene === 'deck' && (deckScene.ui.dialog || deckScene.ui.files)) { e.preventDefault(); deckScene.ui.dialog = null; deckScene.ui.files = null; showHtml(); }

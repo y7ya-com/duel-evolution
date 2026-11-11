@@ -88,7 +88,8 @@ async function reload(page:Page,character:string) {
     await until(page,`${go}||${slot}`,60000);
     if (await page.ev(`Boolean(${go})`)) await press(page,go);
     await until(page,`${slot}||/already logged in/.test(document.body.innerText)`,30000).catch(() => {});
-    if (!(await page.ev(`Boolean(${slot})`))) await sleep(5000);
+    // the refusal shows in main's error dialog (its OK reads Close here): closed as a player would, then a later try
+    if (!(await page.ev(`Boolean(${slot})`))) { await sleep(5000); if (await page.ev(`Boolean(${byKey('error-ok')})`)) await press(page,byKey('error-ok')); }
   }
   await until(page,slot,10000); await press(page,slot); await until(page,lobbyShown,60000);
   await openDeckEditor(page); await captureDownloads(page);
