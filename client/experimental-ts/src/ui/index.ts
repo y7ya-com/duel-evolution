@@ -1168,7 +1168,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
-      // the same thing, then the rewrite's own scenes (Find Player, Shop), the way back to a duel or the lobby, and
+      // the same thing, then the rewrite's own scenes (Shop: the rewrite's world has no store door), the way back to a duel or the lobby, and
       // Return to Title (Disconnect). Before a character is chosen the bar is its strip alone, as on Select Player.
       const blocked = !!state.busy, sideboard = !!state.sideboarding;
       const go = (scene: Scene) => () => open(scene);
@@ -1195,15 +1195,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // Duel Log (CWindowModelDuellogTop): the character's duel history, its stats and the search
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
           { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; audioUi.message = undefined; showHtml(); } },
-          // Find a Player (CWindowModelFriendEnum): a player by name, and the friend and team invitations waiting
-          ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
+          // Find a Player (CWindowModelFriendEnum) is the Friend List's (its Find a Player button), as live: no entry here
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
-        { label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') },
+        // the way back from the rewrite's own scenes; in the lobby itself there is nothing to return to (live has no entry)
+        ...(state.scene !== 'lobby' ? [{ label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') }] : []),
         // Return to Title stays available while busy: it is how a player abandons a request that never answers
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
       ];
