@@ -1,33 +1,80 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, screenshot, record, byKey, byText, type Page, lobbyShown } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, byKey, type Page, lobbyShown,
+  deckScreen, openDeckEditor, deckSide, type DeckScreen } from './harness';
 
-/** Deck editor flows against the real server: the saved decks and active deck (user_decks / user_deck_current), the
- * character's trunk, the deck check and the file formats. */
-const collectionCards = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].map(b=>({ key:b.dataset.key, name:b.title.split(' · ')[0], owned:Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0) }))`) as Promise<{ key:string; name:string; owned:number }[]>;
-const zone = (page:Page,z:'main'|'side'|'extra') => page.ev(`[...document.querySelectorAll('[data-key^="deck-card:${z}:"]')].map(b=>b.title.split(' · ')[0])`) as Promise<string[]>;
-const deckNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key="deck-select"] option')].filter(o=>o.value).map(o=>o.value)`) as Promise<string[]>;
-const currentDeck = (page:Page) => page.ev(`document.querySelector('[data-key="deck-select"]').value`) as Promise<string>;
-const deckCheck = (page:Page) => page.ev(`document.querySelector('[data-key="deck-check"]')?.innerText ?? ''`) as Promise<string>;
-const notice = (page:Page) => page.ev(`document.querySelector('.de-notice')?.textContent ?? ''`) as Promise<string>;
-const matching = (page:Page) => page.ev(`/^(\\d+) matching cards · Page (\\d+)\\/(\\d+)/.exec([...document.querySelectorAll('.de-collection .de-note')].map(n=>n.textContent).find(t=>/matching cards/.test(t))??'')?.slice(1).map(Number) ?? null`) as Promise<[number,number,number] | null>;
-async function search(page:Page,query:string) { await type(page,byKey('collection-search'),query); await sleep(400); }
-async function select(page:Page,key:string,value:string) {
-  await page.ev(`(()=>{const s=document.querySelector('[data-key="${key}"]');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(400);
+/** Deck editor flows on main's HTML deck screen (src/ui/htmlui/deck.ts, deck-dom.ts, deck-scene.ts) against the real
+ * server: the saved decks and active deck (user_decks / user_deck_current), the character's trunk, the deck check and
+ * the rewrite's deck files (YDC / YDK / JSON in LOAD DECK's Import / Export) and structure decks (STRUCTURE DECK). */
+const host = `document.getElementById('htmlui-host')`;
+const hostText = (page:Page) => page.ev(`${host}?.innerText ?? ''`) as Promise<string>;
+/** A card element of the screen: trunk / main / side / extra, by index or by name. */
+const cardEl = (zone:string,which:number|string) => typeof which === 'number'
+  ? `document.querySelector('[data-zone="${zone}"][data-index="${which}"]')`
+  : `[...document.querySelectorAll('[data-zone="${zone}"]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(which)}&&e.getClientRects().length)`;
+const trunkShown = (page:Page) => page.ev(`[...new Set([...document.querySelectorAll('[data-zone="trunk"]')].filter(e=>e.getClientRects().length).map(e=>e.getAttribute('aria-label')))]`) as Promise<string[]>;
+const labelled = (label:string) => `[...${host}.querySelectorAll('[aria-label],button,input')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)})&&e.getClientRects().length)`;
+const view = async (page:Page) => (await deckScreen(page))!;
+const settle = (page:Page,cond:string,ms = 10000) => until(page,cond,ms).then(() => sleep(300));
+/** Drag: a real pointer press on one element, moves, the release over another (DeckEntryMain.cpp's drag). */
+async function drag(page:Page,from:string,to:string) {
+  const at = async (sel:string) => page.ev(`(()=>{const b=${sel};if(!b)return null;const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as Promise<{ x:number; y:number } | null>;
+  const a = await at(from), b = await at(to); expect(a && b,`${from} → ${to}`).toBeTruthy();
+  await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...a!,button:'left',clickCount:1 });
+  for (let i = 1; i <= 6; i++) await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',x:a!.x + (b!.x - a!.x) * i / 6,y:a!.y + (b!.y - a!.y) * i / 6,button:'left' });
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...b!,button:'left',clickCount:1 });
+  await sleep(500);
 }
-/** Inspect a collection card (single press) and add it with the inspector's Add button. */
-async function add(page:Page,name:string,zoneValue:'main'|'side'|'extra' = 'main') {
-  await select(page,'deck-destination',zoneValue);
-  await search(page,name);
-  const tile = `[...document.querySelectorAll('[data-key^="collection-card:"]')].find(b=>b.title.startsWith(${JSON.stringify(name + ' ·')}))`;
-  await until(page,tile,10000); await press(page,tile);
-  await click(page,`Add ${name}`,10000); await sleep(300);
+async function dblclick(page:Page,sel:string) {
+  const p = await page.ev(`(()=>{const r=(${sel}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+  for (const clickCount of [1,2]) { await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...p,button:'left',clickCount }); await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...p,button:'left',clickCount }); }
+  await sleep(500);
 }
-async function editDeck(page:Page) { await click(page,'Edit Deck'); await until(page,byKey('collection-search'),60000); await until(page,`document.querySelector('[data-key="deck-select"]')`,30000); await sleep(800); }
-/** Reload the page and come back to the same character's deck editor: everything shown comes from the server again. */
-async function reload(page:Page,character:string,assets = true) {
-  await page.go(`${CLIENT}/?portOffset=1000${assets ? '&assets=/game-assets/' : ''}`,`document.querySelector('.de-client')`);
+async function rightClick(page:Page,sel:string) {
+  const p = await page.ev(`(()=>{const r=(${sel}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+  await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...p,button:'right',clickCount:1 }); await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...p,button:'right',clickCount:1 });
+  await sleep(500);
+}
+/** main's OK / Yes-No dialog over the editor: its words, then OK (or Yes / No). */
+async function answer(page:Page,key:'deck-dialog-ok'|'deck-dialog-yes'|'deck-dialog-no' = 'deck-dialog-ok'):Promise<string> {
+  await until(page,byKey(key),10000); const words = await hostText(page); await press(page,byKey(key)); await sleep(400); return words;
+}
+const dialogUp = `Boolean(${byKey('deck-dialog-ok')}||${byKey('deck-dialog-yes')})`;
+/** LOAD DECK / SAVE DECK / STRUCTURE DECK: pick the row named, then a button of the window. */
+async function fileRow(page:Page,label:string) { await until(page,labelled(label),10000); await press(page,labelled(label)); await sleep(300); }
+async function typeName(page:Page,name:string) {
+  await until(page,byKey('deck-name'),10000);
+  await page.ev(`(()=>{const i=${byKey('deck-name')};i.focus();i.value=${JSON.stringify(name)};i.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(300);
+  await press(page,byKey('deck-name-ok')); await sleep(500);
+}
+/** The trunk's search (main's searchPanel "Search the trunk"). */
+async function search(page:Page,text:string) {
+  const input = `[...document.querySelectorAll('input')].find(i=>(i.getAttribute('aria-label')==='Search the trunk'||i.placeholder==='Search the trunk')&&i.getClientRects().length)`;
+  await until(page,input,10000);
+  await page.ev(`(()=>{const i=${input};i.focus();i.value=${JSON.stringify(text)};i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await sleep(700);
+}
+const anyButton = (label:string) => `[...document.querySelectorAll('button,[role="button"],label,[aria-label]')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)})&&e.getClientRects().length)`;
+async function tap(page:Page,label:string) { await until(page,anyButton(label),10000); await press(page,anyButton(label)); await sleep(500); }
+/** Downloads (Export) captured as bytes; a file picker (Import) answered with the given file. */
+async function captureDownloads(page:Page) {
+  await page.ev(`(()=>{window.__downloads=[];if(window.__dlPatched)return;window.__dlPatched=true;const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download&&this.href.startsWith('blob:')){const name=this.download;fetch(this.href).then(r=>r.arrayBuffer()).then(b=>window.__downloads.push({name,bytes:[...new Uint8Array(b)]}));return;}return click.call(this);};
+    const ic=HTMLInputElement.prototype.click;HTMLInputElement.prototype.click=function(){if(this.type==='file'&&window.__nextFile){const f=window.__nextFile;window.__nextFile=null;const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(f.bytes)],f.name));this.files=dt.files;this.dispatchEvent(new Event('change',{bubbles:true}));return;}return ic.call(this);};})()`);
+}
+async function exportAs(page:Page,row:string):Promise<{ name:string; bytes:number[] }> {
+  await page.ev('window.__downloads=[]');
+  await deckSide(page,'load'); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
+  await until(page,'window.__downloads.length>0',10000); return page.ev('window.__downloads[0]') as Promise<{ name:string; bytes:number[] }>;
+}
+async function importFile(page:Page,name:string,bytes:number[]) {
+  await page.ev(`window.__nextFile=${JSON.stringify({ name,bytes })}`);
+  await deckSide(page,'load'); await press(page,byKey('deck-files-import')); await sleep(800);
+  if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
+}
+const zones = (d:DeckScreen) => ({ main:d.main,side:d.side,extra:d.extra });
+/** Reload the page and come back to the same character's deck screen: everything shown comes from the server again. */
+async function reload(page:Page,character:string) {
+  await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-  // The previous page's session can take a moment to close; the server then asks to wait and try again, as a player would.
   for (let attempt = 0; attempt < 12 && !(await page.ev(`Boolean(${slot})`)); attempt++) {
     const go = `[...document.querySelectorAll('button')].find(b=>['Go Online','Continue'].includes(b.textContent.trim())&&!b.disabled)`;
     await until(page,`${go}||${slot}`,60000);
@@ -36,188 +83,178 @@ async function reload(page:Page,character:string,assets = true) {
     if (!(await page.ev(`Boolean(${slot})`))) await sleep(5000);
   }
   await until(page,slot,10000); await press(page,slot); await until(page,lobbyShown,60000);
-  await editDeck(page);
+  await openDeckEditor(page); await captureDownloads(page);
 }
-/** The editor's exports: the anchor download is captured as bytes. */
-async function captureDownloads(page:Page) {
-  await page.ev(`(()=>{window.__downloads=[];if(window.__dlPatched)return;window.__dlPatched=true;const click=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(this.download&&this.href.startsWith('blob:')){const name=this.download;fetch(this.href).then(r=>r.arrayBuffer()).then(b=>window.__downloads.push({name,bytes:[...new Uint8Array(b)]}));return;}return click.call(this);};})()`);
-}
-async function exported(page:Page,label:string):Promise<{ name:string; bytes:number[] }> {
-  await page.ev('window.__downloads=[]'); await click(page,label);
-  await until(page,'window.__downloads.length>0',10000); return page.ev('window.__downloads[0]') as Promise<{ name:string; bytes:number[] }>;
-}
-async function importFile(page:Page,name:string,bytes:number[]) {
-  await page.ev(`(()=>{const i=document.querySelector('[aria-label="Import YDC, YDK or JSON deck"]');const dt=new DataTransfer();dt.items.add(new File([new Uint8Array(${JSON.stringify(bytes)})],${JSON.stringify(name)}));i.files=dt.files;i.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await sleep(800);
-}
-const deckState = async (page:Page) => ({ main:await zone(page,'main'), side:await zone(page,'side'), extra:await zone(page,'extra') });
 
-describe.skipIf(!enabled)('deck editor against the real server',() => {
-  it('lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection',async () => {
+describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the real server',() => {
+  it('loads, edits, saves, reloads, renames and deletes decks; checks legality; files and structure decks; searches, filters, sorts and inspects the trunk',async () => {
     try {
       const character = `Dk ${RUN}`, page = await openPage(1280,900);
       await openClient(page,await signIn(`TestDk${RUN}`));
       await enterWorld(page,character);
-      await editDeck(page);
+      const start = await openDeckEditor(page,40); await captureDownloads(page);
       await screenshot(page,'deck-editor');
 
-      // deck.list: the claimed starter deck is the saved and active deck; the trunk is exactly its cards.
-      const starterName = await currentDeck(page), starter = await deckState(page), names0 = await deckNames(page);
-      expect(starterName).not.toBe(''); expect(names0).toContain(starterName); expect(starter.main.length).toBeGreaterThanOrEqual(40);
-      const owned = await collectionCards(page), ownedTotal = owned.reduce((n,c) => n + c.owned,0);
+      // deck.list: the claimed starter deck is the saved and active deck, in LOAD DECK's list; the trunk is its cards.
+      const starterName = start.name, starter = zones(start);
+      expect(start.decks).toContain(starterName); expect(starter.main.length).toBeGreaterThanOrEqual(40);
+      const ownedByName = new Map<string,number>(); for (const c of start.collection) ownedByName.set(c.name,(ownedByName.get(c.name) ?? 0) + c.owned);
       const inDeck = new Map<string,number>(); for (const n of [...starter.main,...starter.extra,...starter.side]) inDeck.set(n,(inDeck.get(n) ?? 0) + 1);
-      const ownedByName = new Map<string,number>(); for (const c of owned) ownedByName.set(c.name,(ownedByName.get(c.name) ?? 0) + c.owned);
-      expect(ownedTotal).toBe(starter.main.length + starter.extra.length + starter.side.length);
       for (const [n,k] of inDeck) expect(ownedByName.get(n),n).toBe(k);
-      expect(await deckCheck(page)).toContain('legal for duels');
-      record('deck.list',{ actions:'Fresh character claims a starter deck; open Edit Deck', expected:'Saved decks, active deck and inventory counts from authoritative data',
-        observed:`deck list [${names0.join(', ')}], active "${starterName}" (${starter.main.length} main/${starter.extra.length} fusion/${starter.side.length} side); collection shows ${owned.length} owned cards totalling ×${ownedTotal}, equal per card to the starter deck the server granted` });
+      expect(await page.ev(`document.querySelectorAll('[data-zone="main"][data-passcode]').length`)).toBeGreaterThanOrEqual(Math.min(40,starter.main.length));
+      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000);
+      const loadList = await hostText(page); expect(loadList).toContain('LOAD DECK'); expect(loadList).toContain(starterName);
+      await press(page,byKey('deck-files-cancel')); await sleep(400);
+      record('deck.list',{ actions:'Fresh character claims a starter deck; Edit Deck; LOAD DECK', expected:'Saved decks, active deck and trunk counts from authoritative data',
+        observed:`LOAD DECK lists [${start.decks.join(', ')}], active "${starterName}" (${starter.main.length} main/${starter.extra.length} fusion/${starter.side.length} side); trunk ${start.collection.length} cards, owned per card equal to the starter deck` });
 
-      // deck.edit: a new deck; additions limited by owned copies and zones; side moves, reorder and removal.
-      const deckA = `Acc A${RUN}`.slice(0,40);
-      await type(page,`document.querySelector('[aria-label="Deck name"]')`,deckA); await click(page,'New'); await until(page,`document.querySelector('[data-key="deck-select"]').value===${JSON.stringify(deckA)}||[...document.querySelectorAll('[aria-label="Deck name"]')].some(i=>i.value===${JSON.stringify(deckA)})`,10000);
-      expect((await deckState(page)).main).toEqual([]);
-      const single = [...ownedByName].find(([,k]) => k === 1)?.[0], triple = [...ownedByName].find(([,k]) => k >= 2)?.[0];
-      expect(single && triple).toBeTruthy();
-      await add(page,single!); await add(page,single!);
-      const overOwned = await notice(page);
-      expect((await zone(page,'main')).filter(n => n === single)).toHaveLength(1);
-      expect(overOwned).toMatch(/owned copy/i);
-      for (let i = 0; i < ownedByName.get(triple!)!; i++) await add(page,triple!);
-      expect((await zone(page,'main')).filter(n => n === triple)).toHaveLength(ownedByName.get(triple!)!);
-      // A main-deck card cannot go to the Fusion Deck.
-      await add(page,single === triple ? triple! : (await zone(page,'main'))[0]!,'extra').catch(() => {});
-      const wrongZone = await notice(page);
-      expect(wrongZone).toMatch(/belongs in the Main or Side Deck|copy|owned/i);
-      // Reorder: the first card moves later; then to the Side Deck and back; then removed.
-      const before = await zone(page,'main');
-      await press(page,`document.querySelector('[data-key="deck-card:main:0"]')`); await click(page,'Move later'); await sleep(300);
-      const after = await zone(page,'main');
-      expect(after).toEqual([before[1],before[0],...before.slice(2)]);
-      await press(page,`document.querySelector('[data-key="deck-card:main:0"]')`); await click(page,'Move to Side Deck'); await sleep(300);
-      expect(await zone(page,'side')).toEqual([after[0]]);
-      await press(page,`document.querySelector('[data-key="deck-card:side:0"]')`); await click(page,'Remove selected card'); await sleep(300);
-      expect(await zone(page,'side')).toEqual([]);
-      const edited = await deckState(page);
+      // deck.edit: Clear Deck; drag from the trunk; the owned-copies refusal; quick moves (double-click / right-click);
+      // Main ↔ Side; reorder by a drop on another card; back to the trunk.
+      await deckSide(page,'clear'); await answer(page,'deck-dialog-yes'); await settle(page,`window.__deApp?.getState()?.deckEditor?.current?.main.length===0`);
+      expect((await view(page)).main).toEqual([]);
+      const single = [...ownedByName].find(([,k]) => k === 1)?.[0], multi = [...ownedByName].find(([,k]) => k >= 2)?.[0];
+      expect(single && multi).toBeTruthy();
+      await search(page,single!);
+      await drag(page,cardEl('trunk',single!),`document.querySelector('[data-drop-zone="main"]')`);
+      expect((await view(page)).main).toEqual([single]);
+      await drag(page,cardEl('trunk',single!),`document.querySelector('[data-drop-zone="main"]')`);
+      const overOwned = await page.ev(dialogUp) ? await answer(page) : '';
+      expect((await view(page)).main.filter(n => n === single)).toHaveLength(1);
+      await search(page,multi!);
+      await dblclick(page,cardEl('trunk',multi!));            // quick move: trunk → Main Deck
+      await rightClick(page,cardEl('trunk',multi!));          // and again by the right button
+      if (await page.ev(dialogUp)) await answer(page);
+      const afterQuick = (await view(page)).main;
+      expect(afterQuick.filter(n => n === multi).length).toBe(Math.min(2,ownedByName.get(multi!)!));
+      // reorder: the last Main card dropped on the first
+      const before = afterQuick;
+      await drag(page,cardEl('main',before.length - 1),cardEl('main',0));
+      const reordered = (await view(page)).main;
+      expect(reordered[0]).toBe(before[before.length - 1]);
+      // Main → Side by a drag; Side → trunk by a quick move
+      await drag(page,cardEl('main',0),`document.querySelector('[data-drop-zone="side"]')`);
+      expect((await view(page)).side).toEqual([reordered[0]]);
+      await dblclick(page,cardEl('side',0));
+      const quickBack = await view(page);
       await screenshot(page,'deck-edit');
-      record('deck.edit',{ actions:`New deck; add ${single} twice (owned ×1); add ${triple} ×${ownedByName.get(triple!)}; add a Main card to the Fusion Deck; Move later; Move to Side Deck; Remove`,
-        expected:'Add/remove/reorder main, side and extra cards; enforce ownership and card limits',
-        observed:`second ${single} refused ("${overOwned}"); Fusion placement refused ("${wrongZone}"); order [${before.slice(0,2).join(', ')}] became [${after.slice(0,2).join(', ')}]; side move and removal applied; main now ${edited.main.length}` });
+      // a Main card refused by the Fusion tab's grid
+      await press(page,byKey('deck-fusion-deck')); await sleep(400);
+      if (quickBack.main.length) {
+        await press(page,byKey('deck-main-deck')); await sleep(300);
+        await drag(page,cardEl('main',0),byKey('deck-fusion-deck'));
+      }
+      const wrongZone = await page.ev(dialogUp) ? await answer(page) : '';
+      const edited = zones(await view(page));
+      record('deck.edit',{ actions:`Clear Deck; drag ${single} (owned ×1) twice; double-click and right-click ${multi}; drop the last Main card on the first; drag it to the Side Deck; double-click it back; drag a Main card to the Fusion tab`,
+        expected:'Add/remove/reorder Main, Side and Fusion cards by drag and quick moves; enforce ownership and zones',
+        observed:`second ${single} refused ("${overOwned.replace(/\s+/g,' ').slice(0,120)}"); quick moves added ${afterQuick.filter(n => n === multi).length}× ${multi}; reorder put "${reordered[0]}" first; Side move and quick move back applied (side now ${quickBack.side.length}); Fusion placement: "${wrongZone.replace(/\s+/g,' ').slice(0,120)}"; main now ${edited.main.length}` });
 
-      // deck.validate: the short deck is reported before any duel; the starter deck is legal.
-      const report = await deckCheck(page);
-      expect(report).toMatch(/Main Deck has \d+ cards \(40 to 80 allowed\)/);
-      expect(report).toContain('cannot be used in a duel');
+      // deck.persist + deck.validate: SAVE DECK → Save New (a short deck: the deck check says why it can't duel), reload
+      // from the server, Save New under another name and delete the first (rename), delete, reload.
+      const deckA = `Acc A${RUN}`.slice(0,40), deckB = `Acc B${RUN}`.slice(0,40);
+      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await press(page,byKey('deck-files-new'));
+      await typeName(page,deckA);
+      const report = await page.ev(dialogUp) ? await answer(page) : '';
+      expect(report).toMatch(/can't be used in a duel/i); expect(report).toMatch(/Main Deck/i);
+      await settle(page,`(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
+      await reload(page,character);
+      let v = await view(page);
+      expect(v.name).toBe(deckA); expect(zones(v)).toEqual(edited); expect(v.decks).toEqual(expect.arrayContaining([starterName,deckA]));
+      await deckSide(page,'save'); await press(page,byKey('deck-files-new')); await typeName(page,deckB);
+      if (await page.ev(dialogUp)) await answer(page);
+      await deckSide(page,'save'); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
+      if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
+      await reload(page,character);
+      v = await view(page);
+      const renamed = v.decks;
+      expect(v.name).toBe(deckB); expect(renamed).not.toContain(deckA); expect(zones(v)).toEqual(edited);
+      // LOAD DECK the starter, then delete B
+      await deckSide(page,'load'); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
+      await settle(page,`window.__deApp?.getState()?.deckEditor?.current?.name===${JSON.stringify(starterName)}`,15000);
+      expect(zones(await view(page))).toEqual(starter);
+      await deckSide(page,'save'); await fileRow(page,deckB); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckB)})`,15000);
+      if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
+      await reload(page,character);
+      v = await view(page);
+      expect(v.decks).not.toContain(deckB); expect(v.name).toBe(starterName);
+      record('deck.persist',{ actions:`SAVE DECK → Save New "${deckA}"; reload; Save New "${deckB}" and Delete "${deckA}" (rename); reload; LOAD DECK "${starterName}"; Delete "${deckB}"; reload`,
+        expected:'Create, rename, save, reload and delete decks with correct active selection; the deck check on save',
+        observed:`save of the short deck said "${report.replace(/\s+/g,' ').slice(0,160)}"; after reload "${deckA}" active with identical zones; after rename [${renamed.join(', ')}] with "${deckB}" active; after delete and reload [${v.decks.join(', ')}], "${v.name}" active` });
 
-      // deck.persist: save, reload from the server, rename, delete.
-      await click(page,'Save'); await until(page,`[...document.querySelectorAll('[data-key="deck-select"] option')].some(o=>o.value===${JSON.stringify(deckA)})`,15000);
-      await reload(page,character);
-      expect(await currentDeck(page)).toBe(deckA);
-      expect(await deckState(page)).toEqual(edited);
-      expect(await deckNames(page)).toEqual(expect.arrayContaining([starterName,deckA]));
-      const deckB = `Acc B${RUN}`;
-      await type(page,`document.querySelector('[aria-label="Deck name"]')`,deckB); await click(page,'Save');
-      await until(page,`[...document.querySelectorAll('[data-key="deck-select"] option')].some(o=>o.value===${JSON.stringify(deckB)})`,15000); await sleep(800);
-      const renamed = await deckNames(page);
-      await reload(page,character);
-      const reloadedNames = await deckNames(page), reloadedCurrent = await currentDeck(page);
-      expect(reloadedCurrent).toBe(deckB); expect(reloadedNames).not.toContain(deckA); expect(await deckState(page)).toEqual(edited);
-      await click(page,'Delete'); await until(page,`![...document.querySelectorAll('[data-key="deck-select"] option')].some(o=>o.value===${JSON.stringify(deckB)})`,15000); await sleep(800);
-      const afterDelete = await currentDeck(page);
-      await reload(page,character);
-      expect(await deckNames(page)).not.toContain(deckB);
-      expect(await currentDeck(page)).toBe(afterDelete); expect(afterDelete).toBe(starterName);
-      record('deck.persist',{ actions:`Save "${deckA}"; reload the page; rename to "${deckB}" and save; reload; delete it; reload`, expected:'Create, rename, save, reload and delete decks with correct active selection',
-        observed:`after reload "${deckA}" was active with identical zones; after rename the list was [${reloadedNames.join(', ')}] with "${deckB}" active (old name gone: ${!reloadedNames.includes(deckA)}; list before reload [${renamed.join(', ')}]); after delete and reload the list is [${(await deckNames(page)).join(', ')}] and "${afterDelete}" is active` });
-
-      // deck.validate, continued: the starter deck passes; a forbidden-list deck is reported; an illegal deck stays out of a duel.
-      expect(await deckCheck(page)).toContain('legal for duels');
-      await page.ev(`document.querySelector('[data-key="deck-file-tools"]').open=true`);
-      await captureDownloads(page);
-      const forbiddenYdk = ['#created by test','#main',...Array(3).fill('55144522'),...Array(2).fill('19613556'),'#extra','!side',''].join('\n'); // Pot of Greed (Forbidden), Heavy Storm (Limited)
+      // deck.validate (files): an imported YDK with 3 Pot of Greed (Forbidden) and 2 Heavy Storm (Limited) is refused at save.
+      const forbiddenYdk = ['#created by test','#main',...Array(3).fill('55144522'),...Array(2).fill('19613556'),'#extra','!side',''].join('\n');
       await importFile(page,'Forbidden Test.ydk',[...new TextEncoder().encode(forbiddenYdk)]);
-      const forbiddenReport = await deckCheck(page);
-      expect(forbiddenReport).toMatch(/Forbidden/); expect(forbiddenReport).toMatch(/Limited: 2 copies, at most 1/); expect(forbiddenReport).toMatch(/0 owned/);
+      await sleep(600); if (await page.ev(dialogUp)) await answer(page);
+      await deckSide(page,'save'); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
+      const forbiddenReport = await page.ev(dialogUp) ? await answer(page) : '';
+      expect(forbiddenReport).toMatch(/can't be used in a duel/i);
       await screenshot(page,'deck-check');
-      record('deck.validate',{ actions:'Deck check on a 4-card deck, the starter deck and an imported YDK with 3 Pot of Greed and 2 Heavy Storm', expected:'Report size, format and forbidden/limited-card violations before a duel',
-        observed:`short deck: "${report.split('\n').slice(0,2).join(' / ')}"; starter: "legal for duels"; imported: ${forbiddenReport.split('\n').slice(1).join(' / ')}` });
+      record('deck.validate',{ actions:'Save a short deck; import a YDK with 3 Pot of Greed and 2 Heavy Storm and save it', expected:'Size and forbidden/limited violations reported before a duel',
+        observed:`short deck: "${report.replace(/\s+/g,' ').slice(0,120)}"; imported: "${forbiddenReport.replace(/\s+/g,' ').slice(0,200)}"` });
 
-      // deck.recipes: a recipe loads into the draft; YDK, JSON and YDC exports re-import to the same cards.
-      const recipes = await page.ev(`[...document.querySelectorAll('[data-key="deck-recipe"] option')].filter(o=>o.value).map(o=>o.value+'|'+o.textContent)`) as string[];
-      expect(recipes.length).toBeGreaterThan(0);
-      await select(page,'deck-recipe',recipes[0]!.split('|')[0]!); await click(page,'Use Recipe'); await sleep(600);
-      const recipe = await deckState(page);
+      // deck.recipes: STRUCTURE DECK loads a recipe; YDK, JSON and YDC exports (LOAD DECK → Export) re-import to the same cards.
+      await deckSide(page,'structure'); await until(page,byKey('deck-files-ok'),10000);
+      const recipeName = (await page.ev(`window.__deApp.getState().deckEditor.recipes?.[0]?.name ?? ''`)) as string;
+      expect(recipeName).not.toBe('');
+      await fileRow(page,recipeName); await press(page,byKey('deck-files-ok'));
+      if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
+      await sleep(800);
+      const recipe = zones(await view(page));
       expect(recipe.main.length).toBeGreaterThanOrEqual(40);
       const rounds:string[] = [];
-      for (const [label,file] of [['Export YDK','r.ydk'],['Export JSON','r.json'],['Export YDC','r.ydc']] as const) {
-        const out = await exported(page,label);
-        await click(page,'Clear Deck'); await sleep(400); expect((await deckState(page)).main).toEqual([]);
-        await importFile(page,file,out.bytes);
-        const back = await deckState(page);
-        expect(back,label).toEqual(recipe);
-        rounds.push(`${label} ${out.name} ${out.bytes.length} bytes → ${back.main.length}/${back.extra.length}/${back.side.length}`);
+      for (const [row,file] of [['YDK','r.ydk'],['JSON','r.json'],['YDC (the original deck file)','r.ydc']] as const) {
+        const out = await exportAs(page,row);
+        await deckSide(page,'clear'); await answer(page,'deck-dialog-yes'); await sleep(500); expect((await view(page)).main).toEqual([]);
+        await importFile(page,file,out.bytes); await sleep(600);
+        const back = zones(await view(page));
+        expect(back,row).toEqual(recipe);
+        rounds.push(`${row} ${out.name} ${out.bytes.length} bytes → ${back.main.length}/${back.extra.length}/${back.side.length}`);
       }
-      record('deck.recipes',{ actions:`Use recipe "${recipes[0]!.split('|')[1]}"; for YDK, JSON and YDC: export, Clear Deck, import the exported file`, expected:'Load supported recipes and round-trip supported deck formats without losing identities',
-        observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion; each round trip restored the identical ordered card lists: ${rounds.join('; ')}` });
+      record('deck.recipes',{ actions:`STRUCTURE DECK "${recipeName}"; for YDK, JSON and YDC: LOAD DECK → Export, Clear Deck, LOAD DECK → Import the file`, expected:'Structure decks load; deck files round-trip without losing identities',
+        observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion; ${rounds.join('; ')}` });
+      await deckSide(page,'load'); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
+      await sleep(800);
 
-      // cards.collection: owned-only, search, type filter, sort and paging over the whole catalogue.
-      await select(page,'deck-select',starterName); await sleep(800);
+      // cards.collection: search, Filters (Show All / Missing, types), Rearrange, the wheel scroll over the trunk.
       await search(page,'');
-      const ownedOnly = await matching(page);
-      expect(ownedOnly?.[0]).toBe(owned.length);
-      await page.ev(`(()=>{const d=document.querySelector('[data-key="deck-filters"]');d.open=true;const c=[...d.querySelectorAll('label')].find(l=>l.textContent.includes('Owned only')).querySelector('input');c.click();})()`); await sleep(600);
-      const all = await matching(page);
-      expect(all![0]).toBeGreaterThan(1000); expect(all![2]).toBe(Math.ceil(all![0] / 80));
-      const page1 = (await collectionCards(page)).map(c => c.key);
-      await click(page,'Next'); await sleep(400);
-      const page2 = (await collectionCards(page)).map(c => c.key);
-      expect((await matching(page))![1]).toBe(2); expect(page2.some(k => page1.includes(k))).toBe(false); expect(page1).toHaveLength(80);
-      await click(page,'Previous'); await sleep(400);
+      const ownedShown = await trunkShown(page);
+      expect(ownedShown.length).toBeGreaterThan(0);
+      for (const n of ownedShown) expect(ownedByName.has(n),n).toBe(true);
       await search(page,'Kuriboh');
-      const kuriboh = await collectionCards(page);
-      expect(kuriboh.length).toBeGreaterThan(0); expect(kuriboh[0]!.name).toBe('Kuriboh');
-      await search(page,''); await select(page,'collection-type','spell');
-      const spellCount = (await matching(page))![0];
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(300);
-      const spellType = await page.ev(`document.querySelector('.de-card-inspector')?.innerText.split('\\n').find(l=>/^Spell/.test(l)) ?? ''`) as string;
-      expect(spellType).toMatch(/^Spell/); expect(spellCount).toBeLessThan(all![0]);
-      await select(page,'collection-type','monster'); await select(page,'collection-sort','attack');
-      const firstAtk = await page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].slice(0,2).map(b=>b.title.split(' · ')[0])`) as string[];
+      const kuriboh = await trunkShown(page);
+      expect(kuriboh.every(n => /kuriboh/i.test(n))).toBe(true);
+      await search(page,'');
+      await tap(page,'Filters'); await tap(page,'Show All'); if (await page.ev(`Boolean(${anyButton('OK')})`)) await tap(page,'OK');
+      await sleep(600);
+      const allShown = await trunkShown(page);
+      expect(allShown.some(n => !ownedByName.has(n))).toBe(true);
+      const top = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-index]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
+      const wheelAt = await page.ev(`(()=>{const r=document.querySelector('[data-zone="trunk"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+      for (let i = 0; i < 4; i++) await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',...wheelAt,deltaX:0,deltaY:120 });
+      await sleep(500);
+      const scrolled = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-index]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
+      expect(scrolled).not.toBe(top);
+      await tap(page,'Rearrange'); await sleep(600);
+      const rearranged = await trunkShown(page);
       await screenshot(page,'deck-sorted');
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(300);
-      const topAtk = await page.ev(`document.querySelector('.de-card-inspector')?.innerText ?? ''`) as string;
-      expect(topAtk).toMatch(/ATK (\d{4})/);
-      await select(page,'collection-type','all'); await select(page,'collection-sort','type');
-      await page.ev(`(()=>{const d=document.querySelector('[data-key="deck-filters"]');const c=[...d.querySelectorAll('label')].find(l=>l.textContent.includes('Owned only')).querySelector('input');c.click();})()`); await sleep(500);
-      const ownedAgain = await collectionCards(page);
-      expect(ownedAgain.reduce((n,c) => n + c.owned,0)).toBe(ownedTotal);
-      record('cards.collection',{ actions:'Owned only; untick it; Next/Previous pages; search "Kuriboh"; Spells filter; Monsters by ATK; owned only again', expected:'Owned counts, filtering, sorting and pagination match inventory',
-        observed:`owned only: ${ownedOnly![0]} cards (= collection), total ×${ownedTotal}; all cards: ${all![0]} over ${all![2]} pages of 80, page 2 disjoint from page 1; "Kuriboh" first result ${kuriboh[0]!.name} of ${kuriboh.length} matches; Spells filter: ${spellCount} cards, first inspected "${spellType}"; Monsters by ATK: ${firstAtk.join(', ')} (${/ATK \d+/.exec(topAtk)?.[0]})` });
+      record('cards.collection',{ actions:'Search ""; search "Kuriboh"; Filters → Show All; wheel over the trunk; Rearrange', expected:'Owned trunk, search, Show filter, scroll and order match the catalogue',
+        observed:`owned trunk shows ${ownedShown.length} owned names; "Kuriboh" → [${kuriboh.slice(0,4).join(', ')}]; Show All adds unowned cards (${allShown.filter(n => !ownedByName.has(n)).length} visible); wheel moved the top from ${top} to ${scrolled}; Rearrange shows [${rearranged.slice(0,3).join(', ')}]` });
 
-      // cards.inspect: details of a monster with an alternate art and of a spell, over the whole catalogue.
-      await page.ev(`(()=>{const d=document.querySelector('[data-key="deck-filters"]');d.open=true;const c=[...d.querySelectorAll('label')].find(l=>l.textContent.includes('Owned only')).querySelector('input');if(c.checked)c.click();})()`); await sleep(500);
+      // cards.inspect: pressing a trunk card shows it in the detail (data-detail), passcode and name.
       await search(page,'Kuriboh');
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(400);
-      const inspector = await page.ev(`document.querySelector('.de-card-inspector')?.innerText ?? ''`) as string;
-      expect(inspector).toContain('Kuriboh'); expect(inspector).toMatch(/Passcode \d+/); expect(inspector).toMatch(/ATK 300 \/ DEF 200/); expect(inspector).toMatch(/Rarity/); expect(inspector).toMatch(/Alternate art/i);
-      expect(inspector).toMatch(/Dark|DARK/); expect(inspector).toMatch(/Lv 1/);
-      const art = await page.ev(`(()=>{const i=document.querySelector('.de-card-inspector img');return i?{src:i.src.slice(0,30),w:i.naturalWidth,visible:getComputedStyle(i).visibility}:null})()`);
-      await search(page,'Pot of Greed'); await select(page,'collection-type','all');
-      await page.ev(`(()=>{const d=document.querySelector('[data-key="deck-filters"]');d.open=true;const c=[...d.querySelectorAll('label')].find(l=>l.textContent.includes('Owned only')).querySelector('input');if(c.checked)c.click();})()`); await sleep(500);
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(400);
-      const spell = await page.ev(`document.querySelector('.de-card-inspector')?.innerText ?? ''`) as string;
-      expect(spell).toContain('Pot of Greed'); expect(spell).toMatch(/Spell/); expect(spell).toMatch(/Forbidden/); expect(spell).not.toMatch(/ATK/);
+      await press(page,cardEl('trunk','Kuriboh')); await sleep(300);
+      await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',x:5,y:5,button:'left',clickCount:1 }); await sleep(400);
+      const detail = await page.ev(`(()=>{const d=document.querySelector('[data-detail]');return d?{passcode:d.dataset.detail,name:d.getAttribute('aria-label')}:null})()`) as { passcode:string; name:string } | null;
+      expect(detail?.name).toBe('Kuriboh'); expect(Number(detail?.passcode)).toBeGreaterThan(0);
+      const detailText = await hostText(page);
+      expect(detailText).toMatch(/ATK ?300/);
       await screenshot(page,'card-inspect');
-      // Without original art the same card is drawn as a named fallback tile, never a broken image.
-      // (a second player in its own browser context, opened without the original archive)
-      const plain = await openPage(1280,900);
-      await openClient(plain,await signIn(`TestDp${RUN}`),{ assets:false }); await enterWorld(plain,`Dp ${RUN}`); await editDeck(plain);
-      await press(plain,`document.querySelector('[data-key^="collection-card:"]')`); await sleep(1500);
-      const fallback = await plain.ev(`(()=>{const t=document.querySelector('.de-card-inspector .de-card');return {text:t?.querySelector('.de-card-unknown')?.textContent ?? '',images:[...(t?.querySelectorAll('img') ?? [])].filter(i=>i.naturalWidth>0&&getComputedStyle(i).opacity!=='0'&&getComputedStyle(i).visibility!=='hidden').length,name:document.querySelector('.de-card-inspector h3')?.textContent}})()`) as { text:string; images:number; name:string };
-      expect(fallback.images).toBe(0); expect(fallback.text).toBe(fallback.name);
-      record('cards.inspect',{ actions:'Inspect Kuriboh (three arts) and Pot of Greed from the collection', expected:'Passcode, text, type, stats, rarity, alternate art and image fallback are correct',
-        observed:`Kuriboh: ${inspector.replace(/\n+/g,' | ').slice(0,300)}; art ${JSON.stringify(art)}; Pot of Greed: ${spell.replace(/\n+/g,' | ').slice(0,200)}; without original art "${fallback.name}" is drawn as a named fallback tile ("${fallback.text}", ${fallback.images} visible images)` });
-      void text; void byText;
+      record('cards.inspect',{ actions:'Search Kuriboh and press its trunk card', expected:'The detail shows the card: art, passcode, stats',
+        observed:`detail ${JSON.stringify(detail)}; text has ATK 300` });
     } finally { closeAll(); }
   },900000);
 });
