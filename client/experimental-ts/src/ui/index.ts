@@ -16,7 +16,6 @@ import { audioWindow, optionsWindow, type OptionsDeps, type OptionsUi } from './
 import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
 import { renderTradeTrunk } from './extra/social';
-import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
 import { accessoryName } from './extra/wallet';
