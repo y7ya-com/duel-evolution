@@ -16,6 +16,9 @@ export interface PageModulesView {
   overworld(): boolean;
   /** The rewrite's Card Swap trade window is up (trade.ts tradeScene). */
   trade(): boolean;
+  /** A scene's loading veil is up and not yet fading (scene-loading.ts sceneVeilUp): the launchers wait under it and come
+   * back as it starts to fade, fading in with it (main bridge.js wait). */
+  veil?(): boolean;
 }
 
 type Frames = {
@@ -52,10 +55,10 @@ export function pageModules(view: PageModulesView, onError: (e: unknown) => void
       const pick = on && starterOpen();
       if (picking && !pick && on) rewards?.getView({ force: true }).catch(() => {});
       picking = pick;
-      const trade = on && view.trade();
+      const trade = on && view.trade(), veil = !!view.veil?.();
       // the launchers live on the overworld's bar; away from it (a duel, the deck editor, the shop, a trade) they go
-      run('wardrobe', snap, !on || trade || !view.overworld());
-      run('missions', snap, !on || trade || !view.overworld());
+      run('wardrobe', snap, !on || trade || veil || !view.overworld());
+      run('missions', snap, !on || trade || veil || !view.overworld());
       // the trade panel keys on Card Swap's scene number: the rewrite's trade opens over its lobby
       run('trade', trade ? { ...snap, scene: CARD_SWAP } : snap, !trade);
     },

@@ -29,6 +29,9 @@ try {
   }
 } catch { /* Storage is optional and never contains credentials or game inventory. */ }
 const abort = new AbortController();
+// The boot screen (main's loader.js look) from the first frame the script runs, over index.html's own first frame
+const reducedMotion = () => settings.reducedMotion === true || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+let overlay: SceneLoadingOverlay | null = new SceneLoadingOverlay(null, reducedMotion);
 const data=await loadClientData({signal:abort.signal}), catalog=data.catalog ?? new CardCatalog();
 const offset = Number(params.get('portOffset') ?? 1000);
 if (!Number.isInteger(offset) || offset < 0 || offset > 60000) throw new Error('Invalid port offset');
@@ -49,7 +52,6 @@ if (assets) preloader = new Preloader({ assets, prefetcher, manifest,
     return response.status === 200 ? decodeDuelPrefetch(await response.json()) : null;
   } }, settings.language ?? 'E');
 // The scene-load overlay (main's loader look) and, in development, scene load times cold vs warm.
-let overlay: SceneLoadingOverlay | null = null;
 let lastStats = assets?.stats ?? { persisted: 0, network: 0 };
 const sceneLoads = new SceneLoadTracker(loading => overlay?.set(loading), dev ? (name, ms) => {
   const now = assets?.stats ?? lastStats, network = now.network - lastStats.network, persisted = now.persisted - lastStats.persisted; lastStats = now;
@@ -70,8 +72,10 @@ const app = new ClientApp({ ...data, audio, ...(preloader ? { preloader } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 const ui = mountClient(root, app);
-overlay = new SceneLoadingOverlay(app.loadArchiveImage?.bind(app) ?? null, () => settings.reducedMotion === true || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true);
-root.append(overlay.element);
+overlay.setLoader(app.loadArchiveImage?.bind(app) ?? null);
+overlay.follow(() => root.querySelector('.de-stage'));
+// the boot veil fades once the first screen's windows are up (or after 8 s whatever happens)
+{ const t0 = performance.now(); const ready = () => { if (closed) return; if (document.querySelector('#htmlui-host:not([hidden]) > *') || performance.now() - t0 > 8000) requestAnimationFrame(() => overlay?.booted()); else setTimeout(ready, 50); }; setTimeout(ready, 0); }
 // Development only: browser acceptance runs read the duel model when a duel stalls (tests/acceptance/duel.test.ts).
 if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) (window as unknown as { __deApp?: ClientApp }).__deApp = app;
 void app.initialize();

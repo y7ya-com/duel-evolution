@@ -48,6 +48,7 @@ import { DeckDom } from './htmlui/deck-dom';
 import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
+import { sceneVeilUp } from './htmlui/scene-loading';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
@@ -272,7 +273,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // online: the world server's connection (state.online is the HTTP account's presence, unset in the overworld)
   const pageMods = pageModules({ online: () => !!state.player && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
-    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
+    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene), veil: sceneVeilUp });
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
   // loaded or the app's own catalogue fetch answered (a failed one is its own "Couldn't open the shop" / Try again), and
   // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.

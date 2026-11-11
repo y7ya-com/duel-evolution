@@ -27,6 +27,7 @@ import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer, areaAt } from './snapshot';
 import { TouchTaps } from './touch-tap';
+import { VEIL_EVENT } from './scene-loading';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
@@ -181,6 +182,8 @@ export class HtmlUiLayer {
     if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false, modernOffered: false };
     this.place();
     this.tick = setInterval(() => { this.bubbles(); this.pageModules(); }, 1000);
+    // the menu bar's Wardrobe and Missions come back as a scene's veil starts to fade, not at the next second's tick
+    addEventListener(VEIL_EVENT, this.onVeil);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })
       .catch((e: unknown) => console.warn('htmlui', e));
     this.host.addEventListener('pointerover', this.onOver, true);
@@ -453,8 +456,10 @@ export class HtmlUiLayer {
     this.tagged.set(root, now);
   }
 
+  private onVeil = (): void => this.pageModules();
   dispose(): void {
     this.disposed = true;
+    removeEventListener(VEIL_EVENT, this.onVeil);
     this.observer?.disconnect();
     for (const o of this.watched.values()) o.disconnect(); this.watched.clear();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
