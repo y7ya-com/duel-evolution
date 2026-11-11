@@ -391,8 +391,9 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid !== p.selfPid) return null;
   const s = p.summary, d = p.details, self = true;
   const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
+  // Title: the personal title (comment line 1) when the player wrote one, else the worn title's English name
   const rows: [string, string][] = [
-    ['Name', s?.name ?? d?.name ?? ''], ['Title', d ? titleName(d.titleId) : ''], ['LV', String(s?.level ?? d?.level ?? '')],
+    ['Name', s?.name ?? d?.name ?? ''], ['Title', p.comments[1] || (d ? titleName(d.titleId) : '')], ['LV', String(s?.level ?? d?.level ?? '')],
     ['Tournament Points', d ? String(d.tp) : ''], ['Wins', String(wins)], ['Losses', String(losses)], ['Score', d ? String(d.score) : ''],
     ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'],
     ...(ctx.state.cardsCollected !== undefined ? [['% of Cards Collected', `${ctx.state.cardsCollected.toFixed(2)}%`] as [string, string]] : []),
@@ -477,7 +478,7 @@ export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec 
   const s = p.summary, d = p.details, wins = s?.wins ?? 0, losses = s?.losses ?? 0, name = s?.name ?? d?.name ?? '';
   const help = (key: string, text: string) => { const hp = cs.find(c => c.cls === 'CWindowTaskHelp' && c.name.includes(key)); const tx = hp && cs.find(c => c.parent === hp.id && c.cls === 'CWindowTaskText'); if (tx) tx.text = text; };
   help('レベル＆名前', `LV${String(s?.level ?? d?.level ?? 0).padStart(2, '0')}  ${name}\n`);
-  help('称号テキスト', p.comments[1] ?? ''); help('勝率テキスト', `Wins${wins}/Losses${losses}`); help('コメントテキスト', p.comments[0] ?? '');
+  help('称号テキスト', p.comments[1] || (d ? titleName(d.titleId) : '')); help('勝率テキスト', `Wins${wins}/Losses${losses}`); help('コメントテキスト', p.comments[0] ?? '');
   const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin');
   if (frame) { frame.h = h; if (h !== t.h || y !== t.y) frame.parts = { sprites: [], labels: [], swfs: [] }; }
   const plane = cs.find(c => c.cls === 'CWindowTaskBackPlane' && !c.parent && c.name.includes('背景')); if (plane) plane.h = 36 * Math.max(1, n);
