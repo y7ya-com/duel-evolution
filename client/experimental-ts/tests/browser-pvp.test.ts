@@ -44,7 +44,7 @@ async function enter(browser:Browser,origin:string,account:string,name:string) {
   await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
   await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);
   if (await browser.ev(`document.body.innerText.includes('Choose your Starter Deck')`)) {
-    await activate(browser,`[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`);
+    await activate(browser,`[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`);
     await until(browser,`!document.body.innerText.includes('Choose your Starter Deck')`);
   }
 }

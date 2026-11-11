@@ -374,7 +374,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await createCharacter(page,me,{ wait:false });
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(me)})&&!b.disabled)`;
       await until(page,slot,30000); await press(page,slot); await until(page,lobbyShown,60000);
-      const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
+      const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
       for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
       if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await page.ev(`(()=>{const b=${starter};b.click();b.click();})()`); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
       // A double click on Purchase buys once; the busy shop says so.

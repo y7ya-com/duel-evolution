@@ -212,7 +212,7 @@ export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'pro
 }
 
 export async function claimStarter(page:Page) {
-  const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
+  const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
   if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await press(page,starter); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
 }

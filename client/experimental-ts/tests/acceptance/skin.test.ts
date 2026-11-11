@@ -15,7 +15,7 @@ describe.skipIf(!enabled)('UI skin tour',() => {
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(`Skin ${RUN}`)})&&!b.disabled)`;
       await until(page,slot,30000); await sleep(300); await shot('02-characters');
       await press(page,slot); await until(page,lobbyShown,60000);
-      await until(page,`[...document.querySelectorAll('section')].some(s=>s.querySelector('h2')?.textContent==='Choose your Starter Deck')`,15000).catch(() => {});
+      await until(page,`[...document.querySelectorAll('section')].some(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')`,15000).catch(() => {});
       await sleep(1500); await shot('03-starter');
       await claimStarter(page); await sleep(2500); await shot('04-lobby');
       const self = `document.querySelector('.de-avatar.self')`;
