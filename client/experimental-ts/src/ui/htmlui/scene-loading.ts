@@ -121,6 +121,7 @@ export class SceneLoadingOverlay {
     document.getElementById('de-boot')?.remove();
     addEventListener('resize', this.onPlace);
     for (const e of ['resize', 'scroll'] as const) globalThis.visualViewport?.addEventListener(e, this.onPlace);
+    for (const e of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(e, this.onPlace);
     this.setLoader(load);
     this.stuckTimer = setTimeout(() => this.showStuck(), STUCK_MS);   // still booting: offer a reload, as loader.js
   }
@@ -207,6 +208,7 @@ export class SceneLoadingOverlay {
     if (this.offTimer) clearTimeout(this.offTimer);
     removeEventListener('resize', this.onPlace);
     for (const e of ['resize', 'scroll'] as const) globalThis.visualViewport?.removeEventListener(e, this.onPlace);
+    for (const e of ['fullscreenchange', 'webkitfullscreenchange']) document.removeEventListener(e, this.onPlace);
     this.abort.abort(); for (const l of this.leases.splice(0)) l.release();
     veilUp = false; this.element.remove();
   }

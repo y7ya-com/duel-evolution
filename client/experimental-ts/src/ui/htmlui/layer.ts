@@ -200,7 +200,10 @@ export class HtmlUiLayer {
     this.host.addEventListener('focusout', this.onBlur, true);
     this.host.addEventListener('click', this.onClick);
     this.host.addEventListener('wheel', this.onWheel, { passive: false });
+    // live's stage.js fit(): the window's resize, fullscreen and the visual viewport (phones: keyboard, pinch) all re-place
     addEventListener('resize', this.place); addEventListener('scroll', this.place, true);
+    for (const e of ['resize', 'scroll'] as const) globalThis.visualViewport?.addEventListener(e, this.place);
+    for (const e of ['fullscreenchange', 'webkitfullscreenchange']) globalThis.document?.addEventListener(e, this.place);
     if (typeof ResizeObserver === 'function') { this.observer = new ResizeObserver(this.place); const s = options.stage(); if (s) this.observer.observe(s); }
   }
 
@@ -267,6 +270,9 @@ export class HtmlUiLayer {
     this.scale = s;
     Object.assign(this.host.style, { left: r.left + 'px', top: r.top + 'px', transform: `scale(${s})` });
     Object.assign(this.box.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
+    // main's backdrop.js places itself over the box only in frame() (on live, bridge.js runs it every engine frame):
+    // here the layer draws on a change, so a resize with nothing else changing left it at the size it first had
+    if (this.bd && this.wantBackdrop && !this.disposed) this.bd.frame({ backdrop: { shown: true } });
   };
 
   // The control an event's own element stands for (tag(): the button main's pass-mode screen drew for it), when that
@@ -463,6 +469,8 @@ export class HtmlUiLayer {
     this.observer?.disconnect();
     for (const o of this.watched.values()) o.disconnect(); this.watched.clear();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
+    for (const e of ['resize', 'scroll'] as const) globalThis.visualViewport?.removeEventListener(e, this.place);
+    for (const e of ['fullscreenchange', 'webkitfullscreenchange']) globalThis.document?.removeEventListener(e, this.place);
     removeEventListener('pointerup', this.onUp, true); removeEventListener('pointermove', this.onTapMove, true);
     removeEventListener('pointercancel', this.onTapCancel, true); removeEventListener('click', this.onTapClick, true); document.removeEventListener('mousemove', this.onCanvasMove, true);
     if (this.tick) clearInterval(this.tick);
