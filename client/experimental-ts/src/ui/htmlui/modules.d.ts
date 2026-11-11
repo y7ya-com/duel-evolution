@@ -84,3 +84,10 @@ declare module '@htmlui/controls/basic.js' {
   /** Whether a generic renderer draws this control's class. */
   export function covers(c: { cls: string }): boolean;
 }
+declare module '@htmlui/crafting/api.js' {
+  export function peekView(): unknown;
+  export function onChange(cb: (view: unknown) => void): () => void;
+}
+declare module '@htmlui/crafting/model.js' {
+  export function cardState(view: unknown, pc: number | string): unknown;
+}

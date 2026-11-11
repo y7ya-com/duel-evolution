@@ -128,6 +128,10 @@ export interface ClientView {
   languageStatus?: { loading: GameLanguage | null; available: boolean; error?: string; missing?: number };
   mode?: 'world' | 'free';
   profileDetail?: ProfileState;
+  /** The titles the character has earned (the PBIN snapshot, features/titles.ts): Change Title's list. */
+  titles?: import('../features/titles').OwnedTitle[];
+  /** Where the character stands: the world's lobbies or their own My Room (the private lobby port). */
+  location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };
   accountDetail?: AccountState;
   capture?: CaptureStatus;
@@ -192,6 +196,8 @@ export type ClientCommand =
   | { type: 'openScene'; scene: Scene }
   | { type: 'move'; x: number; y: number }
   | { type: 'moveArea'; area: number; block: number }
+  /** The Main Menu's Return to your Room (enter: the private My Room lobby) and its door back to the world. */
+  | { type: 'myRoom'; enter: boolean }
   | { type: 'interact'; playerId: number }
   | { type: 'chat'; channel: string; text: string; target?: string }
   | { type: 'duelChallenge'; playerId: number }
