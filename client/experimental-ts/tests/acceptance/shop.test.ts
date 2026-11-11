@@ -92,6 +92,9 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(refused.status).toBeGreaterThanOrEqual(400); expect(refused.body.error).toBe('insufficient-earned-mp');
       expect((await cosmetics(a)).wallet).toEqual(w0);
       await screenshot(a,'cosmetics-boxes-starter');
+      // the box's page: its Back to the shop's home, then Leave the shop
+      const homeBack = byText('Back',SHOP);
+      await press(a,homeBack); await until(a,`${SHOP}.querySelector('[aria-label="Leave the shop"]')`,10000);
       await leaveShop(a);
 
       // Earn MP: a PvP duel past turn 10 and two minutes (the server pays nothing for a shorter one), B surrenders.
@@ -100,8 +103,10 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await startBoth(a,b);
       const turn = async () => Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label')`) as string ?? '')?.[1] ?? 0);
       const duelStart = Date.now();
-      for (; Date.now() - duelStart < 400000 && (await turn() < 10 || Date.now() - duelStart < 125000);) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(1500); }
-      expect(await turn()).toBeGreaterThanOrEqual(10);
+      // past the server's PvP minimum (persist.ts PVP_MIN_TURNS 3 or PVP_MIN_S 120: shorter pays nobody), then B surrenders
+      for (; Date.now() - duelStart < 135000 && !(await a.ev(`Boolean(${finished})`));) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(1500); }
+      expect(await a.ev(`Boolean(${finished})`)).toBe(false);   // still playing: B's surrender decides it
+      expect(await turn()).toBeGreaterThanOrEqual(3);
       const duelSeconds = Math.round((Date.now() - duelStart) / 1000), duelTurns = await turn();
       await surrender(b);
       for (const p of [a,b]) { await until(p,finished,60000); await click(p,'Return to Lobby'); await until(p,lobbyShown,60000); }
@@ -109,7 +114,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
 
       // cosmetics.purchase: the Head & Hair box takes its price in earned MP and leaves starter MP alone, once.
       let w1 = (await cosmetics(a)).wallet;
-      for (let i = 0; i < 30 && w1.earned === 0; i++) { await sleep(1000); w1 = (await cosmetics(a)).wallet; }
+      for (let i = 0; i < 30 && w1.earned === w0.earned; i++) { await sleep(1000); w1 = (await cosmetics(a)).wallet; }
       expect(w1.earned).toBeGreaterThanOrEqual(500);
       await headBox(a);
       await until(a,`!${BOX}.disabled`,30000);
@@ -125,6 +130,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const ownedCount = (after.inventory ?? []).filter(i => i.owned).length;
       await press(a,`${rv}.querySelector('[data-k=done]')`); await until(a,`!${rv}`,10000);
       expect(await a.ev(`Boolean(${rv})`)).toBe(false);
+      await press(a,homeBack); await until(a,`${SHOP}.querySelector('[aria-label="Leave the shop"]')`,10000);
       await leaveShop(a);
       // A reload: the wallet and the reward stay.
       await a.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
@@ -132,8 +138,8 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const reloaded = await cosmetics(a);
       expect(reloaded.wallet).toEqual(after.wallet);
       expect((reloaded.inventory ?? []).filter(i => i.owned).length).toBe(ownedCount);
-      record('cosmetics.purchase',{ actions:'Win a PvP duel (opponent surrenders past turn 10); Shop → Cosmetic Boxes → Head & Hair: Open Box (clicked twice); reveal to Done; reload', expected:'Spend correct wallet funds, grant once and persist',
-        observed:`PvP win after ${duelTurns} turns/${duelSeconds} s; earned ${w1.earned}→${after.wallet.earned}, starter ${w1.bound}→${after.wallet.bound} after one opening despite a double click; reward "${reward}"; after reload the wallet and ${ownedCount} owned items are unchanged` });
+      record('cosmetics.purchase',{ actions:'Win a PvP duel (the opponent surrenders past the server\'s two-minute minimum); Shop → Cosmetic Boxes → Head & Hair: Open Box (clicked twice); reveal to Done; reload', expected:'Spend correct wallet funds, grant once and persist',
+        observed:`PvP win (B surrendered) after ${duelTurns} turns/${duelSeconds} s; earned ${w1.earned}→${after.wallet.earned}, starter ${w1.bound}→${after.wallet.bound} after one opening despite a double click; reward "${reward}"; after reload the wallet and ${ownedCount} owned items are unchanged` });
       record('cosmetics.wallet',{ actions:'Starter-only wallet: the Head & Hair Open Box button and a direct open request; after a PvP win: open with earned MP', expected:'Balances, eligibility and purchase restrictions match authoritative wallet semantics',
         observed:`new character ${w0.earned} earned/${w0.bound} starter: Open Box disabled with "${startNote}", server refused ${refused.status} ${refused.body.error}; after the win ${w1.earned} earned → the box cost 500 earned only` });
     } finally { closeAll(); }
