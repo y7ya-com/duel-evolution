@@ -142,10 +142,12 @@ export async function openNpcCard(page:Page,npc:string) {
   await until(page,`document.querySelector('[data-key^="npc-duel:"]')`,20000);
 }
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
-const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Duel Log','Audio','Ignore List','Friend List','Team List','Find Player','Shop','Return to Duel','Return to Lobby','Return to Title'];
+const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Duel Log','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title'];
 const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
 /** Presses the visible control with this text; a Main Menu entry is reached through the MAIN key, as a player would. */
 export async function click(page:Page,text:string,timeout = 30000) {
+  // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
+  if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
   // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
   if (text === 'Options') { await until(page,`${byText(text)}||${inMainMenu('DUEL OPTIONS')}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = 'DUEL OPTIONS'; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);

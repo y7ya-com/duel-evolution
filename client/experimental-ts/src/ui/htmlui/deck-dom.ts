@@ -149,6 +149,12 @@ export class DeckDom {
           if (zone && pc > 0) { img.style.pointerEvents = 'auto'; img.style.cursor = 'pointer'; this.wire(img, zone, index, pc); }
         } });
       }
+      // a trunk row's rarity badge (main's deck.js rarityMarks: N / R / SR / UR at the picture's top right), over it
+      const rarity = row && pc > 0 ? this.scene.card(pc)?.rarity : undefined, pic = row ? ((c.parts as { sprites?: Record<string, unknown>[] } | undefined)?.sprites ?? []).find(s => s.shown && typeof s.tex === 'string' && texCard(s.tex) !== null) : undefined;
+      if (rarity && /^(N|R|SR|UR)$/.test(rarity) && pic) items.push({ z: Number(pic.wz ?? 0) + 0.75, draw: () => {
+        const src = pic.src as number[], m = document.createElement('div'); m.className = 'cr-mark'; m.dataset.r = rarity; m.textContent = rarity; m.setAttribute('aria-hidden', 'true');
+        Object.assign(m.style, { left: Number(pic.wx) + src[2]! * Number(pic.sx ?? 1) - 15 - ox + 'px', top: Number(pic.wy) - 2 - oy + 'px', pointerEvents: 'none' }); root.append(m);
+      } });
       // a trunk row takes the mouse over its whole width (main's row: the picture is its left end)
       if (row && pc > 0) items.push({ z: Number(c.wz ?? c.z ?? 0) - 0.5, draw: () => {
         const d = this.box(root, 'div', Number(c.wx) - ox, Number(c.wy) - oy, Number(c.w), Number(c.h)); d.className = 'htmlui-deck-row'; d.style.pointerEvents = 'auto'; this.wire(d, 'trunk', index, pc);
@@ -185,7 +191,10 @@ export class DeckDom {
       } }));
     }
     // what main's module leaves under its holes, drawn by its own item (its sprite or text), over the faces
-    const pl = plan(win, true), co = new Set(document.head ? pl.co : []);   // (no head: a test document, no styled text)
+    // main's plan co-draws what lies under a hole; what lies over one (a trunk row's ×000 and the count box's figure over
+    // its picture, a deck card's limit mark over its face) is main's layer's, under these faces: drawn here too, in z order
+    const pl = plan(win, true), meet = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const co = new Set(document.head ? [...pl.co, ...pl.items.filter(it => pl.holes.some(h => meet(h.rect, it.rect))).map(it => it.id)] : []);   // (no head: a test document, no styled text)
     for (const it of pl.items) if (co.has(it.id)) items.push({ z: it.z, draw: () => { const box = document.createElement('div'); Object.assign(box.style, { position: 'absolute', inset: '0', pointerEvents: 'none' }); it.draw(box); root.append(box); } });
     items.sort((a, b) => a.z - b.z).forEach(it => it.draw());
   }

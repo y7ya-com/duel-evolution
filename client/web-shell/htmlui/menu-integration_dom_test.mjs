@@ -16,6 +16,8 @@ try {
     m.update(main,null,root,{click:id=>__native.push(id)},m.mount());
     // the Duel menu is screens/duelsetup.js's (main's HTML Duel menu), the live menu's snapshot (mock/duelsetup-menu.json)
     const d=(await import('./screens/duelsetup.js')).default,win=(await (await fetch('./mock/duelsetup-menu.json')).json()).windows.find(w=>w.cls==='CWindowModelDuel');
+    // Tag Duel is paused (the row is off by default); the page opts in to test its row
+    globalThis.YO2_TAG_DUEL=true;
     const duel=document.createElement('div');duel.id='duel-test';document.body.append(duel);
     const api={click:id=>__native.push(id),hover(){},setValue(){},renderControl(){}};
     d.update(win,null,duel,api,d.mount(win,duel,api));window.__duelBox=d.occlusionBox(win);window.__duelWin=win;

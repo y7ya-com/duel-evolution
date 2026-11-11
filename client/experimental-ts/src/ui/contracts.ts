@@ -37,9 +37,9 @@ export interface CardView {
 }
 export interface DeckView { name: string; main: number[]; side: number[]; extra: number[]; }
 export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & { id: string })[]; decks: DeckView[]; current: DeckView | null; collection: CardView[]; dirty?: boolean; loading?: boolean; error?: string; }
-export interface LobbyAvatar { id: number; name: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; /** In a duel others may watch (the server's duelling states). */ duelling?: boolean; }
+export interface LobbyAvatar { id: number; name: string; /** The server's area list (0x... player record): level and the nation code (CNationFlag). */ level?: number; country?: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; /** In a duel others may watch (the server's duelling states). */ duelling?: boolean; }
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
-export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** 3 single, 4 match. */ style?: number; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number; /** The area's room kind (13 Domino City, 14 Duel Academy). */ kind?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
+export interface LobbyView { mapId?: number; /** The area block this player stands in (0x4203), and the players in the whole lobby (the place plate's (n/1000))). */ block?: number; population?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** 3 single, 4 match. */ style?: number; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number; /** The area's room kind (13 Domino City, 14 Duel Academy). */ kind?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
 export interface ShopItem { id: number; name: string; price: number; category?: string; /** Packs and decks: the pack id (the catalogue row's param: what GET /api/de/shop/pack names). */ packId?: number; /** Accessories: the avatar part's ownership bit. */ avatarBit?: number; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
 /** One purchase's opened cards, for the card-get presentation: whether each was new to the collection, its rarity. */
 export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
@@ -136,6 +136,8 @@ export interface ClientView {
   profileDetail?: ProfileState;
   /** The titles the character has earned (the PBIN snapshot, features/titles.ts): Change Title's list. */
   titles?: import('../features/titles').OwnedTitle[];
+  /** My Profile's '% of Cards Collected': the card types owned, as a percentage of the catalogue. */
+  cardsCollected?: number | undefined;
   /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
   tournament?: import('../network/tournament').TournamentState | null;
   eventInfo?: import('../network/tournament').EventInfo | null;

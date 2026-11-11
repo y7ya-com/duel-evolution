@@ -104,6 +104,9 @@ export class HtmlUiLayer {
   constructor(private options: HtmlUiLayerOptions) {
     this.box = document.createElement('div');
     this.box.className = 'htmlui-stagebox';
+    // main's page-level modules (the Wardrobe / Missions launchers, chat bubbles, the invite) place themselves over
+    // #canvas, the engine's canvas on main: here this box, kept over the stage, is that canvas when the page has none
+    if (!document.getElementById('canvas')) this.box.id = 'canvas';
     document.body.prepend(this.box);
     this.host = document.createElement('div');
     this.host.id = 'htmlui-host';

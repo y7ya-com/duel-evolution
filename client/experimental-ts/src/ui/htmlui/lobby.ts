@@ -24,6 +24,10 @@ const LOBBY_FALLBACK: Record<keyof typeof LOBBY_TEXT, string> = { cancelRoom: RE
   searching: REWRITE_TEXT.searchingOpponent, password: REWRITE_TEXT.password, noMove: REWRITE_TEXT.closeBeforeMove };
 /** The areas' names (yo2text_?): Domino City's 0x1fa4.. (maps 0..3, then the R&D Lab, map 9), Duel Academy's 0x1fd6.. (4..7). */
 export const AREA_TEXT: Record<number, number> = { 0: 0x1fa4, 1: 0x1fa5, 2: 0x1fa6, 3: 0x1fa7, 9: 0x1fa8, 4: 0x1fd6, 5: 0x1fd7, 6: 0x1fd8, 7: 0x1fd9 };
+/** AREA_TEXT's English (yo2text_e), before the table has loaded. */
+export const AREA_FALLBACK: Record<number, string> = { 0: 'Domino City Clock Square', 1: 'Game Shop "Kame"', 2: 'Domino Pier', 3: 'Kaiba Corporation', 9: 'Kaiba Corp. R&D Lab', 4: 'Duel Academy', 5: 'Store', 6: 'Duel Space', 7: 'Slifer Red Dormitory' };
+/** The lobbies' names on the place plate (yo2text 3065 / 3066). */
+export const WORLD_TEXT = { domino: 3065, academy: 3066 } as const;
 
 /** The player list's search (CFindMenu's rows, in order). */
 export const SEARCHES = ['single', 'match', 'level', 'name', 'friends', 'near', 'all'] as const;
@@ -177,12 +181,12 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
 }
 
 /** Who a search lists: the other players here, NPCs too for Show all (the search's last row). */
-export interface ListRow { kind: 'player' | 'npc'; id: number; name: string }
+export interface ListRow { kind: 'player' | 'npc'; id: number; name: string; level?: number }
 export function listRows(state: ClientView, search: Search | null, friends: readonly number[]): ListRow[] {
   const lobby = state.lobby; if (!lobby) return [];
   const players = lobby.avatars.filter(a => !a.self && !a.npc), self = lobby.avatars.find(a => a.self);
   const rooms = lobby.rooms ?? [], room = (pid: number) => rooms.find(r => r.owner === pid && !r.opponent);
-  const row = (a: { id: number; name: string }): ListRow => ({ kind: 'player', id: a.id, name: a.name });
+  const row = (a: { id: number; name: string; level?: number }): ListRow => ({ kind: 'player', id: a.id, name: a.name, ...(a.level ? { level: a.level } : {}) });
   switch (search) {
     case 'single': case 'match': return players.filter(a => { const r = room(a.id); return r && (search === 'match' ? r.style === 4 : r.style !== 4); }).map(row);
     case 'name': return [...players].sort((a, b) => a.name.localeCompare(b.name)).map(row);
@@ -203,7 +207,7 @@ export function lobbyList(ctx: BuildContext, deps: LobbyDeps, openPlayer: (pid: 
   const cs = b.fromTemplate(t, true), ui = deps.ui, rows = listRows(ctx.state, ui.search, deps.friends);
   const list = cs.find(c => c.cls === 'CWindowTaskActiveListbox' && !c.parent);
   if (list) {
-    Object.assign(list, { items: rows.map(r => `@0@>40/${r.name}`), top: 0, topLine: 0, selected: -1, rows: 6 });
+    Object.assign(list, { items: rows.map(r => `@0${r.level ? `Lv ${r.level}` : ''}@>40/${r.name}`), top: 0, topLine: 0, selected: -1, rows: 6 });
     const bar = cs.find(c => c.parent === list.id && /Scroll$/.test(c.cls)); if (bar) Object.assign(bar, { value: 0, max: Math.max(0, rows.length - 6), page: 6 });
     const win = b.win;
     b.on(list, { label: 'Players here', click: point => {

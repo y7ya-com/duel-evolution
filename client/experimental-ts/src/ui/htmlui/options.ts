@@ -29,7 +29,9 @@ const pct = (v: number) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`;
 const step = (v: number, d: number) => Math.round(Math.max(0, Math.min(1, v + d)) * 20) / 20;
 
 function frame(ids: Ids, key: string, cls: string, title: string, rows: number) {
-  const h = 72 + rows * 32, y = Math.round((768 - h) / 2);
+  // centred over the scene above the chat (608: the lobby's chat and player list), as live keeps its windows clear of
+  // it; one too tall for that, centred on the screen
+  const h = 72 + rows * 32, y = h <= 592 ? Math.round((608 - h) / 2) : Math.round((768 - h) / 2);
   const b = new WindowBuilder(ids, key, cls, { x: X, y, w: W, h }, { z: 51453, modal: true });
   b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: W, h: 16 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });

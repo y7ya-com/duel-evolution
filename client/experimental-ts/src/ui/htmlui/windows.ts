@@ -5,6 +5,8 @@ import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelVie
 import type { ClientCommand, ClientView } from '../contracts';
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
+import { AREA_FALLBACK, AREA_TEXT, WORLD_TEXT } from './lobby';
+import { titleName } from '../../features/titles';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
 import playerSelectLive from '@htmlui/mock/playerselect-live.json';
@@ -52,7 +54,10 @@ export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatD
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
-export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean }
+export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean;
+  /** How far main's message field moved right for the page's own bar buttons (lobby.js fieldLeft - 391: the Wardrobe and
+   * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
+  fieldShift?: number }
 
 export interface BuildContext {
   state: ClientView; ui: HtmlUiLocal; ids: Ids;
@@ -324,7 +329,7 @@ const pictureArt = (v: number) => Object.fromEntries((['normal', 'hover', 'press
 export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
   const b = new WindowBuilder(ctx.ids, 'menubar', 'CWindowModelMenu', { x: 0, y: 736, w: 384, h: 32 }, { z: 51203, modal: false, drawn: { x: 0, y: 736, w: 240, h: 32 } });
   b.add('CWindowTaskMenubar', 'bar', { x: 0, y: 0, w: 0, h: 0 }, { message: '', scroll: 0 });
-  b.add('CWindowTaskText', 'message', { x: 392, y: 8, w: 256, h: 256 }, { text: menu.message, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'message', { x: 392 + (menu.fieldShift ?? 0), y: 8, w: 256, h: 256 }, { text: menu.message, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
   if (menu.keys) {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
@@ -350,21 +355,29 @@ export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
     { key: `menu:${e.key}`, click: () => { if (e.disabled) return; ctx.ui.menu = false; ctx.rerender(); e.run(); } }));
   return b.spec();
 }
-// The place banner (CWindowModelPlace, main's lobby.js: the plate and its four shadow texts). main's lobby capture:
-// 0, 0, 270 x 52; the lobby's name 20, 9 and its count right-aligned in 150, 9, 100 wide; the map's name 20, 26 and its
-// count in 150, 26. The rewrite's lobby name is 'World · Area': the world above, the area below; the counts are the
-// players the client sees (the area's population, when the server lists it, above).
+// The place banner (CWindowModelPlace, src/Game/yo2MenuPlace.cpp layout / onMain): the lobby's name (yo2text 3065
+// Domino City / 3066 Duelist Academy) and "(n/1000)", the players in the whole lobby; the map's name (AREA_TEXT) with
+// its block number "[n]" and "(n/32)", the players in this block. Names at 20, 9 and 20, 26; the counts right-aligned
+// in 100 from the longer name's end + 20, and the frame 140 wider than that name (main's lobby.js draws the plate from the frame's size).
+const DOMINO_MAPS = new Set([0, 1, 2, 3, 9]);
 export function placeBanner(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const [world, area = ''] = lobby.name.split(' · ');
-  const here = lobby.areas?.find(a => lobby.mapId !== undefined && a.area === lobby.mapId)?.population;
-  const b = new WindowBuilder(ctx.ids, 'place', 'CWindowModelPlace', { x: 0, y: 0, w: 270, h: 52 }, { z: 51253, drawn: { x: 0, y: 0, w: 300, h: 52 } });
-  b.add('CWindowTaskFramePlace', 'frame', { x: 0, y: 0, w: 270, h: 52 });
+  const map = lobby.mapId, myRoom = map === 8 || map === undefined;
+  const worldName = myRoom ? world! : DOMINO_MAPS.has(map) ? ctx.text?.(WORLD_TEXT.domino) ?? 'Domino City' : ctx.text?.(WORLD_TEXT.academy) ?? 'Duelist Academy';
+  const entry = lobby.areas?.find(a => a.block === lobby.block) ?? lobby.areas?.find(a => a.area === map);
+  const mapName = myRoom || AREA_TEXT[map] === undefined ? area : `${ctx.text?.(AREA_TEXT[map]!)?.trim() ?? AREA_FALLBACK[map] ?? area}[${(entry?.kind ?? 0) + 1}]`;
+  const lobbyCount = myRoom ? undefined : lobby.population ?? lobby.avatars.length;
+  // the counts' column: the longer name's width (Arial 16, the shadow text's spacing) + 20; the frame 140 wider
+  const width = (s: string) => Math.ceil(s.length * 8.6);
+  const widest = Math.max(width(worldName), width(mapName)), at = widest + 20, w = Math.max(260, widest + 140);
+  const b = new WindowBuilder(ctx.ids, 'place', 'CWindowModelPlace', { x: 0, y: 0, w, h: 52 }, { z: 51253, drawn: { x: 0, y: 0, w: w + 30, h: 52 } });
+  b.add('CWindowTaskFramePlace', 'frame', { x: 0, y: 0, w, h: 52 });
   const text = (name: string, x: number, y: number, t: string, align: number) => b.add('CWindowTaskShadowText', name, { x, y, w: align ? 100 : 300, h: 16 }, { text: t, align, fontSize: 16, color: [1, 1, 1, 1] });
-  text('lobby', 20, 9, world, 0);
-  if (here !== undefined) text('lobbyCount', 150, 9, `(${here})`, 2);
-  text('map', 20, 26, area, 0);
-  text('mapCount', 150, 26, `(${lobby.avatars.length})`, 2);
+  text('lobby', 20, 9, worldName, 0);
+  if (lobbyCount !== undefined) text('lobbyCount', at, 9, `(${lobbyCount}/1000)`, 2);
+  text('map', 20, 26, mapName, 0);
+  text('mapCount', at, 26, myRoom ? `(${lobby.avatars.length})` : `(${lobby.avatars.length}/32)`, 2);
   return b.spec();
 }
 
@@ -379,9 +392,11 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   const s = p.summary, d = p.details, self = true;
   const wins = s?.wins ?? 0, losses = s?.losses ?? 0, played = wins + losses;
   const rows: [string, string][] = [
-    ['Name', s?.name ?? d?.name ?? ''], ['Title', p.comments[1] ?? ''], ['LV', String(s?.level ?? d?.level ?? '')],
+    ['Name', s?.name ?? d?.name ?? ''], ['Title', d ? titleName(d.titleId) : ''], ['LV', String(s?.level ?? d?.level ?? '')],
     ['Tournament Points', d ? String(d.tp) : ''], ['Wins', String(wins)], ['Losses', String(losses)], ['Score', d ? String(d.score) : ''],
-    ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'], ['Miles', d ? String(d.mp) : ''],
+    ['Win%', played ? `${(wins * 100 / played).toFixed(2)}%` : '---.--%'],
+    ...(ctx.state.cardsCollected !== undefined ? [['% of Cards Collected', `${ctx.state.cardsCollected.toFixed(2)}%`] as [string, string]] : []),
+    ['Miles', d ? String(d.mp) : ''],
     ...(p.comments[0] ? [['Comment', p.comments[0]] as [string, string]] : []),
   ];
   const b = new WindowBuilder(ctx.ids, 'profile', 'CWindowModelProfile', { x: 212, y: 186, w: 600, h: 396 }, { z: 51453, modal: true });
@@ -678,7 +693,7 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
       { key: `mail-row:${open.top + i}`, click: () => { open.selected = open.top + i; ctx.rerender(); } });
     row.alpha = 1;
   });
-  b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : box.mail.length ? '' : 'No mail.', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
+  b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : '', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
   button('close', 206, 481, 'Close', 'mail-close', () => { ctx.ui.mail = null; ctx.rerender(); });
   return b.spec();
 }
