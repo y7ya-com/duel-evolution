@@ -53,3 +53,7 @@ declare module '@htmlui/mock/*.json' {
   const snapshot: { windows: { cls: string; x: number; y: number; w: number; h: number; controls: Record<string, unknown>[] }[] };
   export default snapshot;
 }
+
+declare module '@htmlui/chat-bubbles.js' {
+  export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
+}

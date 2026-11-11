@@ -16,7 +16,7 @@ export interface HtmlWindow {
   modal: boolean; topmost: boolean; active: boolean; controls: HtmlControl[]; extras: { id: number; cls: string }[];
   [field: string]: unknown;
 }
-export interface HtmlSnapshot { v: 1; frame: number; scene: number; mouse: null; focus: number; windows: HtmlWindow[]; tasks: HtmlWindow[]; cursor: null; backdrop?: { shown: boolean; ids: number[] } }
+export interface HtmlSnapshot { v: 1; frame: number; scene: number; mouse: null; focus: number; windows: HtmlWindow[]; tasks: HtmlWindow[]; cursor: null; backdrop?: { shown: boolean; ids: number[] }; /** main's read/chat.js: the avatars All Chat's bubbles stand over. */ chatAvatars?: { pid: number; name: string; x: number; y: number }[] }
 
 /** What a control does in the rewrite: the api calls main's screens make, mapped to ClientApp commands. */
 export interface ControlHandlers {

@@ -15,6 +15,7 @@ import duelsetup from '@htmlui/screens/duelsetup.js';
 import deck from '@htmlui/screens/deck.js';
 import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
+import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
 import { applyPointer, hitTest } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
@@ -34,7 +35,9 @@ const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(
   update: (win, _prev, root, api, st) => api.syncWindow!(root, win, st as Map<number, unknown>),
   unmount: (root, st) => { root.replaceChildren(); (st as Map<number, unknown>).clear(); } };
 
-export interface HtmlUiLayerOptions { art: string; stage: () => HTMLElement | null }
+/** A shown avatar's name tag in game px (main's read/chat.js chatAvatars): All Chat's speech bubbles stand over it. */
+export interface ChatAvatar { pid: number; name: string; x: number; y: number }
+export interface HtmlUiLayerOptions { art: string; stage: () => HTMLElement | null; chatAvatars?: () => ChatAvatar[] }
 
 export class HtmlUiLayer {
   readonly host: HTMLElement;
@@ -90,7 +93,7 @@ export class HtmlUiLayer {
     const g = globalThis as { yo2Html?: unknown };
     if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false };
     this.place();
-    this.tick = setInterval(() => this.pageModules(), 1000);
+    this.tick = setInterval(() => { this.bubbles(); this.pageModules(); }, 1000);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })
       .catch((e: unknown) => console.warn('htmlui', e));
     this.host.addEventListener('pointermove', this.onMove, true);
@@ -122,11 +125,18 @@ export class HtmlUiLayer {
     // redraws a control whose snapshot changes, which would replace a button between its press and its release
     applyPointer(this.specs, this.hover, this.pressed, w => this.declared.get(w.cls) !== 'owned');
     const windows: HtmlWindow[] = this.specs.map(s => s.win);
-    const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: this.scene, mouse: null, focus: this.focus, windows, tasks: [], cursor: null };
+    const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: this.scene, mouse: null, focus: this.focus, windows, tasks: [], cursor: null, chatAvatars: this.options.chatAvatars?.() ?? [] };
     this.last = snap;
     this.render(snap, new Set(windows.map(w => w.id)), this.api);
     this.host.hidden = !windows.length;
+    this.bubbles();
     this.pageModules();
+  }
+  // All Chat's speech bubbles (main's chat-bubbles.js, as bridge.js runs it each frame): each draw and each second,
+  // which times the bubbles out and follows the avatars
+  private bubbles(): void {
+    if (this.disposed || !this.last) return;
+    try { chatBubblesFrame({ ...this.last, chatAvatars: this.options.chatAvatars?.() ?? [] }); } catch (e) { console.warn('htmlui: chat bubbles', e); }
   }
   // each draw and each second: what main's screens drew late gets its tags
   private pageModules(): void {
