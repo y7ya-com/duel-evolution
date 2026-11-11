@@ -126,7 +126,8 @@ async function finish(a:Page,b:Page) {
     await sleep(400);
   }
   const result = [await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`),await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)] as string[];
-  for (const p of [a,b]) if (await p.ev(`Boolean(${byText('Return to Lobby')})`)) await click(p,'Return to Lobby');
+  // main's result screen (CWindowResult) follows the result: its Return to Lobby
+  for (const p of [a,b]) { await until(p,`${byText('Return to Lobby')}||${lobbyShown}`,30000); if (await p.ev(`Boolean(${byText('Return to Lobby')})`)) await click(p,'Return to Lobby'); }
   for (const p of [a,b]) await until(p,lobbyShown,60000);
   return result;
 }
