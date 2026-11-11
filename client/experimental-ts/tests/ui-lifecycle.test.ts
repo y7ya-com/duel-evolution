@@ -202,11 +202,14 @@ describe('UI ownership and semantic interaction', () => {
   it('tracks a selected deck card after authoritative reordering', async () => {
     const f = fixture(), deckEditor: NonNullable<ClientView['deckEditor']> = { decks: [], current: { name: 'Deck', main: [1, 2], side: [], extra: [] }, collection: [{ id: '1', passcode: 1, name: 'One', owned: 1 }, { id: '2', passcode: 2, name: 'Two', owned: 1 }] };
     // main's deck screen (htmlui/deck-scene.ts): a drag inside the Main grid reorders, a drag onto the trunk removes
-    const at = (index: number) => { const c = f.mounted.htmlUi.windows().flatMap(w => w.win.controls).find(c => c.cls === 'CWindowTaskDeckCard' && c.zone === 'main' && c.index === index)!; return [Number(c.wx) + 12, Number(c.wy) + 36] as const; };
-    f.update({ scene: 'deck', deckEditor }); await Promise.resolve(); const g = f.mounted.htmlUi.game!;
-    const drag = (from: readonly [number, number], to: readonly [number, number]) => { g('down', ...from); g('move', to[0] + 10, to[1]); g('move', ...to); g('up', ...to); };
+    // deck-dom.ts: each card an element (data-zone, data-index, data-passcode), each zone a drop target
+    const all = () => (f.mounted.htmlUi.deck() as unknown as TestNode).querySelectorAll('*');
+    const ev = (type: string) => ({ type, button: 0, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} }) as unknown as Event;
+    const at = (index: number) => all().find(n => n.dataset.zone === 'main' && n.dataset.index === String(index) && n.dataset.passcode)!;
+    const drag = (from: TestNode, to: TestNode) => { from.dispatchEvent(ev('mousedown')); to.dispatchEvent(ev('mouseup')); };
+    f.update({ scene: 'deck', deckEditor }); await Promise.resolve();
     drag(at(1), at(0)); expect(f.commands.at(-1)).toEqual({ type: 'deckReorder', zone: 'main', fromIndex: 1, toIndex: 0 });
-    f.update({ deckEditor: { ...deckEditor, current: { ...deckEditor.current!, main: [2, 1] } } }); await Promise.resolve(); drag(at(0), [850, 300]);
+    f.update({ deckEditor: { ...deckEditor, current: { ...deckEditor.current!, main: [2, 1] } } }); await Promise.resolve(); drag(at(0), all().find(n => n.dataset.dropZone === 'trunk')!);
     expect(f.commands.at(-1)).toEqual({ type: 'deckCard', passcode: 2, from: 'main', to: 'collection', index: 0 }); f.mounted.dispose();
   });
   // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
