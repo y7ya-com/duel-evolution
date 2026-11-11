@@ -84,7 +84,7 @@ exists.", as the original).
 
 ## Material remaining work
 
-1. Establish original scene/avatar/art presentation and camera behavior; current lobby presentation is simplified. Verify real archive media decoding and card detail/rules/alternate-art completeness.
+1. Camera is the original scrollTo (dead zone 300/350, instant, clamped) and clicks route with the original A* (0x00a04a30); establish original scene/avatar/art presentation; current lobby presentation is simplified. Verify real archive media decoding and card detail/rules/alternate-art completeness.
 2. Verify every duel prompt/card family and outcome beyond the recorded corpus, including complete win/draw and all match/sideboarding/tag paths through the browser UI.
 3. Complete and compare original animation orchestration, combat timing, effect sounds, field themes, browser audio persistence and accessibility across supported browsers/devices.
 4. Replace conservative grid-only world behavior with verified height scaling, pixel/foot collision probes and exit triggers; validate original map/NPC positions.
