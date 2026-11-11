@@ -15,7 +15,7 @@ export type RenderScene = Pick<WorldScene, 'mapId' | 'definition' | 'frame' | 'd
 /** A decoded picture the renderer owns: released when no displayed frame uses it (on a map change, all of them). */
 export interface WorldTexture { texture: Texture; release(): void }
 /** What PixiJS's Application gives the renderer: its stage, a ticker and teardown (a fake one in the unit tests). */
-export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; add(tick: (dtMs: number) => void): void; destroy(): void }
+export interface WorldHost { readonly stage: Container; readonly canvas?: HTMLCanvasElement; add(tick: (dtMs: number) => void): void; /** Stops / restarts the ticker (no drawing off the lobby). */ run?(on: boolean): void; destroy(): void }
 export interface WorldRendererOptions {
   loadScene(mapId: number, signal: AbortSignal): Promise<RenderScene>;
   onViewport?(): void;
@@ -58,7 +58,7 @@ async function defaultHost(parent: HTMLElement): Promise<WorldHost | null> {
   app.ticker.maxFPS = 60;
   const canvas = app.canvas; canvas.className = 'de-world-canvas'; canvas.setAttribute('aria-hidden', 'true'); canvas.dataset.key = 'world-canvas';
   parent.prepend(canvas);
-  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), destroy: () => app.destroy({ removeView: true }, { children: true }) };
+  return { stage: app.stage, canvas, add: tick => app.ticker.add(t => tick(t.deltaMS)), run: on => { if (on) app.ticker.start(); else { app.ticker.stop(); app.render(); } }, destroy: () => app.destroy({ removeView: true }, { children: true }) };
 }
 
 /**
@@ -113,6 +113,7 @@ export class WorldRenderer {
   private flagLoading: AbortController | null = null;
   private readonly flagTextures = new Map<string, Texture>();
   private hitClock = 0;
+  private paused = false;
   private drawn = new Set<number>();
   private drawnKey = '';
   private drawnClock = 0;
@@ -139,7 +140,7 @@ export class WorldRenderer {
   worldToScreen(point: Point): Point { return this.camera?.worldToScreen(point) ?? point; }
   screenToWorld(point: Point): Point { return this.camera?.screenToWorld(point) ?? point; }
   show(mapId: number, follow: Point): void {
-    if (this.closed) return; this.fit(); this.ensureHost();
+    if (this.closed) return; this.fit(); this.ensureHost(); if (this.paused) { this.paused = false; this.host?.run?.(true); }
     if (!Number.isInteger(mapId) || mapId < 0 || mapId > 9 || !Number.isFinite(follow.x) || !Number.isFinite(follow.y)) throw new Error('Invalid world view');
     this.followPoint = { x: follow.x, y: follow.y };
     if (this.requestedMap === mapId && this.scene) { this.followCamera(); return; }
@@ -159,7 +160,7 @@ export class WorldRenderer {
     const create = this.options.createHost ?? defaultHost;
     void create(this.element).then(host => {
       if (!host) return; if (this.closed) { host.destroy(); return; }
-      this.host = host; host.stage.addChild(this.root); host.add(dt => this.tick(dt));
+      this.host = host; host.stage.addChild(this.root); host.add(dt => this.tick(dt)); if (this.paused) host.run?.(false);
     }).catch(error => console.warn('world renderer:', error));
   }
   private load(mapId: number): void {
@@ -384,6 +385,7 @@ export class WorldRenderer {
     ++this.generation; this.loadAbort?.abort(); this.loadAbort = null; this.cancelPendingFrame(); this.resizeObserver?.disconnect(); this.resizeObserver = null; this.observedParent = null;
     this.clearFrame(); this.clearActors(); this.avatars.replaceChildren(); this.hitNodes = new Map();
     const scenes = new Set([this.scene, this.displayedScene]); for (const scene of scenes) scene?.dispose();
+    this.paused = true; this.host?.run?.(false);
     this.scene = null; this.displayedScene = null; this.requestedMap = null; this.element.dataset.mapReady = 'false'; this.element.dataset.sceneImages = '0'; this.camera = null; this.failedViewport = null; this.failedLoad = false; this.message(''); this.avatars.style.visibility = 'hidden';
   }
   dispose(): void {

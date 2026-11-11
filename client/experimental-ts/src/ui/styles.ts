@@ -22,16 +22,11 @@ export const CLIENT_CSS = `
 .de-stage { position:relative; width:100%; aspect-ratio:4/3; min-height:400px; overflow:hidden; background:radial-gradient(ellipse at 48% 20%,#8ce8ff,#41a9e5 44%,#1167b3); border:1px solid #104eaa; }
 .de-stage canvas { display:block; width:100%; height:100%; }
 .de-world-view { position:absolute; overflow:hidden; pointer-events:none; isolation:isolate; z-index:0; }
-.de-world-layer,.de-world-avatars { position:absolute; inset:0; pointer-events:none; }
-/* objects and avatars z-sort together (src/world/depth.ts): their layers make no stacking context; the front layer's
-   z-index is set by WorldRenderer (30724, the original's front-object key) */
+.de-world-avatars { position:absolute; inset:0; pointer-events:none; }
 .de-world-avatars .de-avatar { pointer-events:auto; }
 /* the world is drawn on PixiJS's canvas (ui/world.ts); each avatar's button is its transparent hit target over it */
 .de-world-view>canvas.de-world-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; image-rendering:pixelated; }
 .de-world-avatars .de-avatar>* { visibility:hidden; }
-.de-world-image,.de-world-tile { position:absolute; display:block; pointer-events:none; max-width:none; }
-.de-world-tile { overflow:hidden; }
-.de-world-tile>.de-world-image { position:relative; left:0; top:0; }
 .de-world-status { position:absolute; top:12px; left:25%; right:25%; z-index:2147483000; color:white; background:#073e91bb; text-align:center; pointer-events:none; }
 .de-world-status:empty { display:none; }
 .de-world-status button { pointer-events:auto; }

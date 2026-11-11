@@ -64,11 +64,12 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
         if (!await a.ev(`Boolean(document.querySelector('[data-key="${key}"]'))`)) { await press(a,byKey('menubar-move')); await until(a,`document.querySelector('[data-key^="move-area:"]')`,10000); }
         await press(a,byKey(key)).catch(() => {});
         await until(a,`(${placeName})!==${JSON.stringify(current)}||!document.querySelector('[data-key="${key}"]')`,30000).catch(() => {});
-        await until(a,`${world}?.ready`,60000).catch(() => {});
+        await until(a,`${world}?.ready&&${world}.sprites>0`,60000).catch(() => {});
         await sleep(1500);
-        const w = await a.ev(world) as { mapId:number; textures:number; sprites:number };
+        const w = await a.ev(world) as { mapId:number; textures:number; sprites:number; viewport:{ x:number; y:number }; avatars:{ name:string; x:number; y:number; z:number; drawn:boolean }[] };
+        const me = w.avatars.find(v => v.name === names.a);
         const rateHere = await frameRate(a,1500);
-        visited.push(`${label.replace(/\s+/g,' ').trim()} (map ${w.mapId}, ${w.sprites} sprites, ${w.textures} textures, ${rateHere.fps} fps)`);
+        visited.push(`${label.replace(/\s+/g,' ').trim()} (map ${w.mapId}, ${w.sprites} sprites, ${w.textures} textures, ${rateHere.fps} fps, self at screen ${me ? `${Math.round(me.x - w.viewport.x)},${Math.round(me.y - w.viewport.y)} z ${me.z}${me.drawn ? '' : ' (no art)'}` : 'absent'})`);
         await shot(a,`10-area-${visited.length}-map${w.mapId}`);
       }
       console.log('areas',visited.join(' | '));
