@@ -256,6 +256,8 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .online-feature form { display:flex; gap:7px; flex-wrap:wrap; }
 .de-account-details { max-height:360px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
 .de-account-details>summary { cursor:pointer; font-weight:bold; }
+.de-title-foot { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); width:min(92%,560px); display:flex; flex-direction:column; gap:6px; align-items:center; z-index:2; }
+.de-title-foot>.de-account-details { width:100%; box-sizing:border-box; }
 .account-feature nav { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
 .account-feature form { display:flex; flex-direction:column; gap:8px; }
 .de-audio-details { max-height:300px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }

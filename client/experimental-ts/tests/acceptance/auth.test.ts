@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, byText, byKey, sleep, screenshot, testPassword, discordForward, record, resetRateLimits, createCharacter, freeSlot, deleteCharacter, characterSlot, placeName, lobbyShown, openDeckEditor, exitDeckEditor } from './harness';
 
-const titleSignedOut = `document.body.innerText.includes('Sign In')&&document.querySelector('input[name="password"],[data-key="password"]')`;
+// the title signed out: live's sign-in window (CWindowLogin, src/ui/htmlui/login.ts) with its Sign in button and inputs
+const titleSignedOut = `document.querySelector('[data-key="login-submit"]')&&document.querySelector('input[name="password"],[data-key="password"]')`;
 async function signInForm(page:Awaited<ReturnType<typeof openPage>>,user:string,password:string) {
   await type(page,byKey('username'),user);
   await page.ev(`(()=>{const p=document.querySelector('[data-key="password"]')||[...document.querySelectorAll('input[type=password]')].find(i=>i.closest('form')?.querySelector('[data-key="username"]'));p.value=${JSON.stringify(password)};p.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-  await click(page,'Sign In');
+  await click(page,'Sign in');
 }
 
 describe.skipIf(!enabled)('accounts and characters against the real Worker, auth and D1',() => {
@@ -22,7 +23,7 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       await until(page,`document.querySelector('.de-notice,.de-error,[role=alert]')`,20000);
       const refused = await text(page);
       expect(refused).not.toContain('Signed in as');
-      expect(await page.ev(`Boolean(${byText('Sign In')})`)).toBe(true);
+      expect(await page.ev(`Boolean(${byText('Sign in')})`)).toBe(true);
       const alert = (await page.ev(`[...document.querySelectorAll('.de-notice,.de-error,[role=alert]')].map(n=>n.textContent.trim()).filter(Boolean).join(' | ')`) as string);
       expect(alert.length).toBeGreaterThan(10);
       record('auth.invalid',{ actions:'Sign-in form with a wrong password, then the right one', expected:'Actionable failure; retry possible', observed:`refusal shown: "${alert}"; the Sign In form stayed available` });
