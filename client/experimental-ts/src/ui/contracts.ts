@@ -182,7 +182,7 @@ export type ClientCommand =
   | { type: 'disconnect' }
   | { type: 'signIn'; username: string; password: string }
   | { type: 'signOut' }
-  | { type: 'createCharacter'; slot: number; name: string }
+  | { type: 'createCharacter'; slot: number; name: string; /** the first dressing's look (Change Avatar), worn on entering */ appearance?: number[] }
   | { type: 'deleteCharacter'; slot: number }
   | { type: 'claimStarter'; id: number }
   | { type: 'chooseHand'; hand: 0 | 1 | 2 }

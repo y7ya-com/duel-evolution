@@ -18,7 +18,8 @@ import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
 import { accessoryName } from './extra/wallet';
-import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
+import { renderCosmeticsShop, COSMETICS_CSS } from './extra/cosmetics';
+import { freeChoices } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, DELETE_TEXT } from './htmlui/windows';
@@ -119,11 +120,33 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (p.selfPid === pid) return [
       { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
       { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
-      // the rewrite's appearance editor until main's avatar editor (Change Avatar) is ported: main's Main Menu has no Appearance
-      ...(state.mode !== 'free' ? [{ label: 'Appearance', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openAppearance(true); send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } }] : []),
+      // Change Avatar (main's screens/avatar.js, htmlui/avatar.ts) on the player's own look; cosmetic items are main's Wardrobe's
+      ...(state.mode !== 'free' && state.online ? [{ label: 'Change Avatar', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openChangeAvatar(); } }] : []),
     ];
     return [];
   };
+  /** Change Avatar from the game: the server's look (one for both worlds), its owned parts, saved on Confirm. */
+  const openChangeAvatar = () => {
+    const self = state.lobby?.avatars.find(a => a.self), look = state.online?.cosmetics?.appearance.parts ?? (self?.parts?.length === 16 ? Array.from(self.parts) : null);
+    send({ type: 'onlineAction', action: { type: 'refresh' } });
+    if (!look) { local.message = 'Your avatar has not loaded yet.'; requestRender(); return; }
+    htmlUiState.dialog = { kind: 'avatar', slot: null, look: [...look], category: 0, page: 0 }; showHtml();
+  };
+  const changeAvatar = () => ({ busy: !!state.online?.pending,
+    choices: (index: number, look: number[]) => {
+      if (index === 0) return freeChoices(0, look[0] === 1);
+      const data = state.online?.cosmetics, world = (data?.appearance.world ? 1 : 0) as 0 | 1;
+      const option = data?.appearanceOptionsByWorld[String(world) as '0' | '1']?.find(o => o.index === index);
+      return option && data!.appearance.gender === (look[0] === 1 ? 'female' : 'male') ? option.choices : freeChoices(index, look[0] === 1);
+    },
+    confirm: (look: number[]) => {
+      const data = state.online?.cosmetics; htmlUiState.dialog = null;
+      const gender = look[0] === 1 ? 'female' : 'male';
+      // a body change first (the server re-dresses the other body), the parts after it
+      if (data && data.appearance.gender !== gender) send({ type: 'onlineAction', action: { type: 'appearance', gender } });
+      else send({ type: 'onlineAction', action: { type: 'appearance', world: data?.appearance.world ?? 0, parts: look } });
+      showHtml();
+    } });
   // another player's card: the rewrite's social and duel commands for that player
   const cardActions = (): CardActions => {
     const p = state.profileDetail, lobby = state.lobby; if (!p || p.selectedPid === null || p.selectedPid === p.selfPid) return {};
@@ -189,7 +212,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const cardShop = cardShopHost(globalThis.document, leaveCardShop, e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
   // main's Wardrobe and Missions buttons on the menu bar and the trade's Cosmetics panel (htmlui/page-modules.ts), online
   const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
-    overworld: () => state.scene === 'lobby' && !!state.player && !appearanceOpen(),
+    overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
     trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
   const useCardShop = () => state.scene === 'shop' && !!state.online && state.connection === 'online' && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
@@ -225,7 +248,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // main's Duel menu's Tag Duel (screens/duelsetup.js tagRow) asks the page for its tag lobby: the rewrite's
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
     deckWindows: () => deckScene.windows(), scene: sceneWindows(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) });
@@ -482,6 +505,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // the account prompts stand alone (main's game hides Select Player, and with it the portrait, under them)
     const d = htmlUiState.dialog, alone = !!d && (['create', 'delete', 'delpw', 'deleting'].includes(d.kind) || d.kind === 'ok' && !!d.at);
     const ch = alone ? undefined : state.characters.find(c => c.slot === htmlUiState.selected);
+    // first dressing: Change Avatar's portrait of the look being made (CChangeAvatarPack), no ring logo
+    if (d?.kind === 'avatar') { startScene.show({ logo: false, portrait: Uint8Array.from(d.look), reducedMotion: state.settings.reducedMotion }); return; }
     startScene.show({ logo: true, portrait: ch?.parts?.length === 16 ? Uint8Array.from(ch.parts) : null, reducedMotion: state.settings.reducedMotion });
   }
   function drawLobby(canvas: HTMLCanvasElement): void {
@@ -584,7 +609,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (shopCosmetics && state.online) {
       // the rewrite's own cosmetic departments (extra/cosmetics.ts), kept as they are while cosmetics are redesigned
       const panel = el('section', 'de-panel de-stack de-fill de-shop-cosmetics-panel', title('Cosmetics')), tabs = el('div', 'de-row');
-      for (const [tab, label] of [['boxes', 'Cosmetic Boxes'], ['wardrobe', 'Wardrobe']] as const) { const b = button(label, () => { shopCosmetics = tab; requestRender(); }, shopCosmetics === tab); b.dataset.key = `shop-cosmetics:${tab}`; tabs.append(b); }
+      for (const [tab, label] of [['boxes', 'Cosmetic Boxes']] as const) { const b = button(label, () => { shopCosmetics = tab; requestRender(); }, shopCosmetics === tab); b.dataset.key = `shop-cosmetics:${tab}`; tabs.append(b); }
       tabs.append(button('Back to the Shop', () => { shopCosmetics = null; requestRender(); }));
       panel.append(tabs, renderCosmeticsShop(state.online, shopCosmetics, cosmeticsDeps())); n.append(panel);
     }
@@ -885,7 +910,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
-      if (appearanceOpen() && state.player && state.online && !['title', 'characters', 'duel'].includes(state.scene)) stage.append(renderAppearanceEditor(state.online, { ...cosmeticsDeps(), close: () => { openAppearance(false); requestRender(); } }));
       // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
         stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));

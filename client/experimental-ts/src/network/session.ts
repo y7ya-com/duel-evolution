@@ -1,4 +1,4 @@
-import { defaultAvatar } from '../avatars/appearance';
+import { avatarParts, defaultAvatar } from '../avatars/appearance';
 import { BinaryReader, BinaryWriter, latin1, md5, type WireMessage } from './codec';
 import { Channel, GatewayClient, type GatewayOptions, type GatewayStatus } from './gateway';
 
@@ -231,19 +231,28 @@ export class GameSession {
     this.assertLive(); if (!this.account) throw new Error('Accounts channel is unavailable');
     await this.account.request(0x3010, EMPTY(), 0x3012); return this.state.characters;
   }
-  async createCharacter(slot: number, name: string): Promise<void> {
+  /** First dressings by slot (Change Avatar after Create Player): registered with 0x4170 when the new character enters. */
+  private firstLooks = new Map<number, Uint8Array>();
+  async createCharacter(slot: number, name: string, appearance?: ArrayLike<number>): Promise<void> {
     this.assertLive(); this.validateSlot(slot);
     if (!this.account) throw new Error('Accounts channel is unavailable');
     // The original asks again unless the name is longer than 3 characters (CNetAccountTask NEW_WAIT_PROMPT); the
     // 16-byte wire name carries Latin-1 only, which the original reports with its -262 wording.
     if (name.length > 16 || name.includes('\0') || [...name].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) > 255)) throw new Error(RESULT_TEXT['Character creation']![-262]!);
     if (name.trim().length <= 3) throw new Error('Enter a name of at least 4 characters.');
+    const look = appearance ? avatarParts(appearance) : null;
     checkResult(await this.account.request(0x3020, new BinaryWriter().u8(slot).s(name, 16).bytes(), 0x3022), 'Character creation');
+    if (look) this.firstLooks.set(slot, look); else this.firstLooks.delete(slot);
     await this.refreshCharacters();
   }
   async deleteCharacter(slot: number): Promise<void> {
     this.assertLive(); this.validateSlot(slot); if (!this.account) throw new Error('Accounts channel is unavailable');
     checkResult(await this.account.request(0x3030, Uint8Array.of(slot), 0x3032), 'Character deletion'); await this.refreshCharacters();
+  }
+  /** The look 0x4170 registers: a new character's first dressing on its first entry (the original registers the look
+   *  CHANGE_AVATAR made; the server checks it, lobby.ts avatarCheck), else the character's. */
+  private lookOf(character: Character, world: 0 | 1): Uint8Array {
+    return this.firstLooks.get(character.slot) ?? characterAppearance(character, world);
   }
   private validateSlot(slot: number): void { if (!Number.isInteger(slot) || slot < 0 || slot > 3) throw new RangeError('Invalid character slot'); }
   async selectCharacter(slot: number, roomPort?: number): Promise<void> {
@@ -268,7 +277,8 @@ export class GameSession {
       await this.lobby.request(0x4202, Uint8Array.of(0, 0), 0x4213);
       const world = this.state.area >= 4 && this.state.area <= 7 ? 1 : 0; this.state.appearanceWorld = world;
       const worlds:(0|1)[] = this.joiningRoomKind === 12 ? [world===0?1:0,world] : [world];
-      for (const appearanceWorld of worlds) await this.lobby.request(0x4170, new BinaryWriter().u32(appearanceWorld).raw(characterAppearance(character,appearanceWorld)).u32(0).bytes(), 0x4171);
+      for (const appearanceWorld of worlds) await this.lobby.request(0x4170, new BinaryWriter().u32(appearanceWorld).raw(this.lookOf(character,appearanceWorld)).u32(0).bytes(), 0x4171);
+      this.firstLooks.delete(slot);
       await this.lobby.request(0x4214, EMPTY(), 0x4217);
       await this.refreshNpcs(); await this.refreshRooms();
       this.state.location = this.joiningRoomKind === 12 ? 'my-room' : 'world';
@@ -351,7 +361,7 @@ export class GameSession {
     const character = this.state.characters.find((c) => c.slot === this.state.selectedSlot);
     if (character) {
       const world = [4,5,6,7].includes(area) ? 1 : 0; this.state.appearanceWorld = world;
-      await lobby.request(0x4170, new BinaryWriter().u32(world).raw(characterAppearance(character,world)).u32(0).bytes(), 0x4171);
+      await lobby.request(0x4170, new BinaryWriter().u32(world).raw(this.lookOf(character,world)).u32(0).bytes(), 0x4171);
     }
     await this.refreshNpcs();
   }
@@ -408,7 +418,7 @@ export class GameSession {
       const character = this.state.characters.find(character=>character.slot===slot)!;
       if (target === 'world') this.state.appearanceWorld = this.state.area>=4&&this.state.area<=7 ? 1 : 0;
       const worlds:(0|1)[] = target === 'my-room' ? [this.state.appearanceWorld===0?1:0,this.state.appearanceWorld] : [this.state.appearanceWorld];
-      for (const world of worlds) { await channel.request(0x4170,new BinaryWriter().u32(world).raw(characterAppearance(character,world)).u32(0).bytes(),0x4171); current(); }
+      for (const world of worlds) { await channel.request(0x4170,new BinaryWriter().u32(world).raw(this.lookOf(character,world)).u32(0).bytes(),0x4171); current(); }
       await channel.request(0x4214,EMPTY(),0x4217); current();
       if (target === 'world') { await this.refreshNpcs(); current(); }
       await this.refreshRooms(); current();

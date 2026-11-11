@@ -769,7 +769,7 @@ export class ClientApp implements ClientController {
           if (!this.disposed) this.patch({ auth: { signedIn: auth.signedIn, ...(auth.signedIn && auth.name ? { name: auth.name } : {}) }, status: 'Signed in. Go online to select a character.' }); break;
         }
         case 'signOut': this.disconnect(); this.lockToken = token; this.patch({ busy: true, auth: { signedIn: false } }); await this.services.signOut({ signal: this.connectionScope.signal }); this.patch({ auth: { signedIn: false }, status: 'Signed out.' }); break;
-        case 'createCharacter': await this.requireGame().createCharacter(command.slot, command.name); break;
+        case 'createCharacter': await this.requireGame().createCharacter(command.slot, command.name, command.appearance); break;
         case 'deleteCharacter': await this.requireGame().deleteCharacter(command.slot); break;
         case 'selectCharacter': await this.requireGame().selectCharacter(command.slot); this.assertEpoch(epoch); await this.refresh('lobby'); await this.refresh('deck'); this.assertEpoch(epoch); this.patch({ scene: 'lobby' }); break;
         case 'claimStarter': {

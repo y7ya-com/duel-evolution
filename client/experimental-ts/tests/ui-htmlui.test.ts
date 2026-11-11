@@ -21,7 +21,11 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('character-create:0')!.click!();
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
     t.find('character-name')!.text!('Bob Duelist'); t.find('character-create-ok')!.click!();
-    expect(t.sent.at(-1)).toEqual({ type: 'createCharacter', slot: 0, name: 'Bob Duelist' });
+    // the original's first dressing (Change Avatar, main's screens/avatar.js): a body, a hair, Confirm sends the look
+    expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowDialogAvatarSwitch']);
+    t.find('avatar-item:0:1')!.click!(); t.find('avatar-category:1')!.click!(); t.find('avatar-item:1:2')!.click!();
+    t.find('avatar-confirm')!.click!();
+    expect(t.sent.at(-1)).toEqual({ type: 'createCharacter', slot: 0, name: 'Bob Duelist', appearance: [1, 2, 32, 48, 64, 96, 0x80, 144, 176, 32, 0, 0, 0, 0, 0, 0] });
     t.find('character-delete:1')!.click!();
     expect(t.windows().map(s => s.win.cls)).toEqual(['CWindowModelInput1']);
     t.find('character-delete-password')!.text!('secret'); t.find('character-delete-password-ok')!.click!();
