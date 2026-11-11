@@ -3,9 +3,10 @@
 // binding: the same server code, D1 (duel-evolution-prod), R2 and WorldDO as original.ygoevolution.com. Nothing here
 // stores anything; production's config is unchanged (README.md).
 //
-// To LIVE, a forwarded request looks like one to original.ygoevolution.com: its URL's host is LIVE_ORIGIN's, and an
-// Origin equal to v2's own (PUBLIC_ORIGIN) becomes LIVE_ORIGIN, so live's CSRF and WebSocket Origin checks pass for
-// v2's own pages. Any other Origin (another site, none) passes unchanged and live refuses it as before.
+// To LIVE, a forwarded request carries LIVE_ORIGIN's host. Since live's 074041e that is v2's own (v2 is one of live's
+// game hosts, server/src/worker.ts GAME_HOSTS), so live answers as v2: sign-in origin, cookies, the WebSocket Origin
+// check and the Discord callback are v2's. (Set to original.ygoevolution.com, live would answer as original and an
+// Origin equal to v2's own is rewritten to it; any other Origin passes unchanged and live refuses it as before.)
 // Back to the browser: cookies stay host-only (a Domain= that names live's host is dropped), and a Location on live's
 // origin points at v2 instead, except Discord OAuth's, which only live's host can finish (README.md).
 

@@ -30,7 +30,7 @@ const routes = c.routes ?? [];
 if (routes.length !== 1 || routes[0].pattern !== 'v2.ygoevolution.com' || routes[0].custom_domain !== true) bad.push('routes must be exactly the custom domain v2.ygoevolution.com');
 const svc = c.services ?? [];
 if (svc.length !== 1 || svc[0].binding !== 'LIVE' || svc[0].service !== 'duel-evolution' || svc[0].environment) bad.push('services must be exactly LIVE -> duel-evolution');
-if (c.vars?.PUBLIC_ORIGIN !== 'https://v2.ygoevolution.com' || c.vars?.LIVE_ORIGIN !== 'https://original.ygoevolution.com') bad.push('vars PUBLIC_ORIGIN / LIVE_ORIGIN are not v2 / original');
+if (c.vars?.PUBLIC_ORIGIN !== 'https://v2.ygoevolution.com' || c.vars?.LIVE_ORIGIN !== 'https://v2.ygoevolution.com') bad.push('vars PUBLIC_ORIGIN / LIVE_ORIGIN are not v2 / v2 (live serves v2 as its own game host)');
 if (bad.length) { for (const b of bad) console.error('  - ' + b); process.exit(1); }
 JS
 
@@ -53,9 +53,9 @@ for f in card-catalog.json card-details.json card-texts.json deck-recipes.json d
 done
 
 # --- build: same-origin on v2 (the API, /net and live's /game/ files through the front) -------------------------------
-echo "ship-v2: building client/experimental-ts (VITE_DE_ASSETS=/game/ VITE_DE_DISCORD_OAUTH=0)"
+echo "ship-v2: building client/experimental-ts (VITE_DE_ASSETS=/game/ VITE_DE_DISCORD_OAUTH=1)"
 rm -rf "$client/dist"
-(cd "$client" && VITE_DE_ASSETS=/game/ VITE_DE_DISCORD_OAUTH=0 npm run build --silent)
+(cd "$client" && VITE_DE_ASSETS=/game/ VITE_DE_DISCORD_OAUTH=1 npm run build --silent)
 [ -s "$client/dist/index.html" ] || die "the build left no dist/index.html"
 echo "ship-v2: dist $(du -sh "$client/dist" | cut -f1), $(find "$client/dist" -type f | wc -l) files"
 

@@ -23,7 +23,9 @@
   "services": [{ "binding": "LIVE", "service": "duel-evolution" }],
   "vars": {
     "PUBLIC_ORIGIN": "https://v2.ygoevolution.com",
-    "LIVE_ORIGIN": "https://original.ygoevolution.com"
+    // the host LIVE sees: v2's own, a game host of live's since 074041e (server/src/worker.ts GAME_HOSTS), so its
+    // sign-in origin, cookies, WebSocket Origin check and Discord callback are v2's
+    "LIVE_ORIGIN": "https://v2.ygoevolution.com"
   },
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }
