@@ -23,6 +23,22 @@ for (const source of sources) for (const line of readFileSync(source, 'utf8').sp
   const entry = { at: row.at, commit: row.commit, test: row.test, actions: row.actions, expected: row.expected, observed: row.observed, ...(row.accounts ? { accounts: row.accounts } : {}) };
   if (at < 0) entries.push(entry); else if (entries[at].at < row.at) entries[at] = entry;
 }
+// An entry whose test no longer records its flow (the step was cut or moved) is stale: the parity gate
+// (tests/parity-report.test.ts) refuses it, so it goes, and the flow counts again once a run records it anew.
+const recorded = new Map();
+const records = (test, flow) => {
+  const file = resolve(root, test.split(' > ')[0]);
+  if (!recorded.has(file)) recorded.set(file, existsSync(file) ? readFileSync(file, 'utf8') : '');
+  // and the test itself is still there (its title, as written in the file)
+  const src = recorded.get(file), title = test.split(' > ').at(-1);
+  return src.includes(`'${flow}'`) && (src.includes(title) || src.includes(title.replaceAll("'", "\\'")));
+};
+let pruned = 0;
+for (const [flow, value] of Object.entries(verified)) {
+  const entries = (Array.isArray(value) ? value : [value]).filter(e => ids.has(flow) && records(e.test, flow));
+  pruned += (Array.isArray(value) ? value.length : 1) - entries.length;
+  if (entries.length) verified[flow] = entries; else delete verified[flow];
+}
 const sorted = Object.fromEntries(Object.entries(verified).sort(([a], [b]) => a.localeCompare(b)));
 writeFileSync(target, JSON.stringify(sorted, null, 1) + '\n');
-console.log(`${read} evidence lines read; ${Object.keys(sorted).length}/${ids.size} flows have evidence.`);
+console.log(`${read} evidence lines read; ${pruned} stale entries dropped; ${Object.keys(sorted).length}/${ids.size} flows have evidence.`);

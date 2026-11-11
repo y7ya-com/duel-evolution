@@ -82,16 +82,6 @@
    "observed": "2 avatars drawn from original avatar art, self and Ben dfh37 included"
   }
  ],
- "avatars.edit": [
-  {
-   "at": "2026-11-04T17:24:32.000Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > earns MP in a PvP duel, buys a cosmetic box with earned MP only, previews and equips owned items, edits the appearance",
-   "actions": "Main Menu → Appearance: change Hair 13→0 (\"Hair 1\"), preview, Save appearance; reload; reopen",
-   "expected": "Preview, apply and reload permitted appearance parts",
-   "observed": "only owned parts offered; the draft previewed on the avatar (painted: true); server confirmed \"Appearance saved on the server\"; after reload Hair is 0; lobby shows 1 avatars"
-  }
- ],
  "avatars.titles": [
   {
    "at": "2026-11-04T17:09:04.018Z",
@@ -102,16 +92,6 @@
    "observed": "B read \"Hello from dfh37\" and \"Champ dfh37\" on A's profile; only own-profile edit controls offered"
   }
  ],
- "cards.collection": [
-  {
-   "at": "2026-11-04T17:21:39.659Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Owned only; untick it; Next/Previous pages; search \"Kuriboh\"; Spells filter; Monsters by ATK; owned only again",
-   "expected": "Owned counts, filtering, sorting and pagination match inventory",
-   "observed": "owned only: 42 cards (= collection), total ×45; all cards: 3259 over 41 pages of 80, page 2 disjoint from page 1; \"Kuriboh\" first result Kuriboh of 10 matches; Spells filter: 642 cards, first inspected \"Spell / Continuous\"; Monsters by ATK: Dragon Master Knight, F.G.D. (ATK 5000)"
-  }
- ],
  "cards.hidden": [
   {
    "at": "2026-11-04T17:50:29.126Z",
@@ -120,16 +100,6 @@
    "actions": "Each checkpoint reads the owner's hidden cards (hand, set cards) and searches the opponent's whole page (text and attributes) and its art requests",
    "expected": "Card backs and unknown assets reveal no private identity and remain usable.",
    "observed": "97 hidden card names (hand and set cards, excluding names public or in the viewer's own deck) checked against the opponent's whole DOM text and attributes and against up to 158 archive range requests (merge.dat entries of their art) over 32 checkpoints: none exposed or requested; opponent's cards drawn as the original card back"
-  }
- ],
- "cards.inspect": [
-  {
-   "at": "2026-11-04T17:21:46.698Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Inspect Kuriboh (three arts) and Pot of Greed from the collection",
-   "expected": "Passcode, text, type, stats, rarity, alternate art and image fallback are correct",
-   "observed": "Kuriboh: Kuriboh | Kuriboh | Passcode 40640057 | Monster / Effect · Dark · Fiend · Lv 1 | ATK 300 / DEF 200 | Rarity: Rare | Alternate art 1 of 3 | 1 | 2 | 3 | During your opponent's Battle Phase, you can discard this card to reduce the Battle Damage inflicted to your Life Points from 1 of your opponent's mo; art {\"src\":\"blob:http://localhost:5174/34a\",\"w\":200,\"visible\":\"visible\"}; Pot of Greed: Pot of Greed | Pot of Greed | Passcode 55144522 | Spell | Rarity: Ultra Rare · Forbidden | Draw 2 cards from your Deck.; without original art \"Winged Kuriboh LV10\" is drawn as a named fallback tile (\"Winged Kuriboh LV10\", 0 visible images)"
   }
  ],
  "character.create": [
@@ -182,76 +152,6 @@
    "observed": "starter claimed; main deck 40 cards; 42 owned collection entries on page 1; wallet 5,000 MP; Lv 1; not offered again"
   }
  ],
- "cosmetics.catalog": [
-  {
-   "at": "2026-11-04T17:22:12.750Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > earns MP in a PvP duel, buys a cosmetic box with earned MP only, previews and equips owned items, edits the appearance",
-   "actions": "Shop → Wardrobe: list; Preview \"Shaved Hair\" (not owned); Shop → Cosmetic Boxes: rewards lists",
-   "expected": "Browse categories and preview supported owned/unowned appearances",
-   "observed": "50 cosmetics, 0 owned; \"Shaved Hair\" previewed on the player's avatar (painted: true) with \" / Not owned · Duel Academy\", its Equip disabled: \"You do not own this item.\"; boxes Hair Box 500 earned MP Rewards (8); Duel Disk Box 1,000 earned MP Rewards (27); Outfit Box 1,500 earned MP Rewards (6)"
-  }
- ],
- "cosmetics.purchase": [
-  {
-   "at": "2026-11-04T17:24:28.426Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > earns MP in a PvP duel, buys a cosmetic box with earned MP only, previews and equips owned items, edits the appearance",
-   "actions": "Win a PvP duel (opponent surrenders at turn 10); Shop → Cosmetic Boxes → Hair Box: Open box (clicked twice); Wardrobe: Equip the reward; reload",
-   "expected": "Spend correct wallet funds, grant once, equip only owned items and persist selection",
-   "observed": "PvP win after 43 turns/125 s; earned 550→50 and starter 5000→5000 after one opening despite a double click; reward \"Box reward / Afro IV / Super Rare / New in your wardrobe! / Preview / Equip now\"; \"Afro IV\" equipped; after reload owned=true equipped=true, wallet \"50 earned MP · 5,000 starter MP (cannot buy boxes) · 5,050 MP total\""
-  }
- ],
- "cosmetics.wallet": [
-  {
-   "at": "2026-11-04T17:24:28.445Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > earns MP in a PvP duel, buys a cosmetic box with earned MP only, previews and equips owned items, edits the appearance",
-   "actions": "Starter-only wallet: Hair Box button and a direct open request; after a PvP win: open with earned MP",
-   "expected": "Balances, eligibility and purchase restrictions match authoritative wallet semantics",
-   "observed": "new character \"0 earned MP · 5,000 starter MP (cannot buy boxes) · 5,000 MP total\": button disabled with \"Needs 500 more earned MP. Starter MP cannot buy boxes.\", server refused 409 insufficient-earned-mp; after the win 550 earned/5000 starter → box cost 500 earned only (50/5000)"
-  }
- ],
- "deck.edit": [
-  {
-   "at": "2026-11-04T17:21:19.162Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "New deck; add Winged Kuriboh LV10 twice (owned ×1); add E - Emergency Call ×2; add a Main card to the Fusion Deck; Move later; Move to Side Deck; Remove",
-   "expected": "Add/remove/reorder main, side and extra cards; enforce ownership and card limits",
-   "observed": "second Winged Kuriboh LV10 refused (\"Every owned copy is already in this deck.\"); Fusion placement refused (\"This card belongs in the Main or Side Deck.\"); order [Winged Kuriboh LV10, E - Emergency Call] became [E - Emergency Call, Winged Kuriboh LV10]; side move and removal applied; main now 2"
-  }
- ],
- "deck.list": [
-  {
-   "at": "2026-11-04T17:21:11.822Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Fresh character claims a starter deck; open Edit Deck",
-   "expected": "Saved decks, active deck and inventory counts from authoritative data",
-   "observed": "deck list [E-HERO EVOLUTION DECK], active \"E-HERO EVOLUTION DECK\" (40 main/5 fusion/0 side); collection shows 42 owned cards totalling ×45, equal per card to the starter deck the server granted"
-  }
- ],
- "deck.persist": [
-  {
-   "at": "2026-11-04T17:21:25.329Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Save \"Acc Adv8ae\"; reload the page; rename to \"Acc Bdv8ae\" and save; reload; delete it; reload",
-   "expected": "Create, rename, save, reload and delete decks with correct active selection",
-   "observed": "after reload \"Acc Adv8ae\" was active with identical zones; after rename the list was [Acc Bdv8ae, E-HERO EVOLUTION DECK] with \"Acc Bdv8ae\" active (old name gone: true; list before reload [Acc Bdv8ae, E-HERO EVOLUTION DECK]); after delete and reload the list is [E-HERO EVOLUTION DECK] and \"E-HERO EVOLUTION DECK\" is active"
-  }
- ],
- "deck.recipes": [
-  {
-   "at": "2026-11-04T17:21:31.559Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Use recipe \"E-HERO EVOLUTION DECK\"; for YDK, JSON and YDC: export, Clear Deck, import the exported file",
-   "expected": "Load supported recipes and round-trip supported deck formats without losing identities",
-   "observed": "recipe loaded 40 main/5 fusion; each round trip restored the identical ordered card lists: Export YDK Forbidden Test.ydk 445 bytes → 40/5/0; Export JSON r.json 689 bytes → 40/5/0; Export YDC r.ydc 250 bytes → 40/5/0"
-  }
- ],
  "deck.test": [
   {
    "at": "2026-11-04T17:21:08.825Z",
@@ -260,16 +160,6 @@
    "actions": "World snapshot; Free Duel & Deck Editor; add Blue-Eyes White Dragon (not owned; pool shows ×3) to a free deck and save; free PvP duel to turn 10 and surrender; back to World mode",
    "expected": "Start and leave supported deck testing without spending cards or altering the saved deck",
    "observed": "free deck held Blue-Eyes White Dragon; 15 cards on the free duel field; result Defeat; world deck \"E-HERO EVOLUTION DECK\" unchanged (40 main), Blue-Eyes White Dragon owned ×0 before and after, wallet 5,000 MP unchanged"
-  }
- ],
- "deck.validate": [
-  {
-   "at": "2026-11-04T17:21:26.252Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/deck.test.ts > deck editor against the real server > lists, edits, saves, reloads, renames and deletes decks; checks legality; round-trips recipes and files; searches and inspects the collection",
-   "actions": "Deck check on a 4-card deck, the starter deck and an imported YDK with 3 Pot of Greed and 2 Heavy Storm",
-   "expected": "Report size, format and forbidden/limited-card violations before a duel",
-   "observed": "short deck: \"Deck check: 1 problem · this deck cannot be used in a duel / Main Deck has 2 cards (40 to 80 allowed).\"; starter: \"legal for duels\"; imported: Main Deck has 5 cards (40 to 80 allowed). / Pot of Greed is Forbidden. / Heavy Storm is Limited: 2 copies, at most 1. / Pot of Greed: 3 in the deck, 0 owned. / Heavy Storm: 2 in the deck, 0 owned."
   }
  ],
  "duel.actions": [
@@ -524,30 +414,12 @@
  ],
  "pvp.end": [
   {
-   "at": "2026-11-04T17:27:26.361Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates a password Match room with options, refuses a wrong password, never exposes it, plays a match with sideboarding to an overall result",
-   "actions": "Surrender before and from turn 10 in a hosted room; return to lobby",
-   "expected": "Resolve each termination path and return both players to a usable lobby",
-   "observed": "surrender: refused before turn 10 with \"You may surrender starting from the 10th turn.\", confirmed at turn 10 and 10; both players returned to a lobby with Create Duel available"
-  },
-  {
    "at": "2026-11-04T17:31:29.876Z",
    "commit": "cc0e0d8",
    "test": "tests/acceptance/pvp-end.test.ts > PvP matchmaking, disconnect and time-out endings, and spectating an NPC duel > finds and cancels a search with live counts, pairs two players, resolves disconnect and time-out, and watches an NPC duel to its end",
    "actions": "Disconnect: B closes the browser at turn 2, then signs in again. Time-out: Single room with Time limit, the player to move does nothing",
    "expected": "Resolve each termination path and return both players to a usable lobby",
    "observed": "disconnect: A was told \"Your opponent lost the connection. Waiting up to 45 s for them.\" and won (Victory) 47 s later; B re-entered Duel Academy · Area 5 with Create Duel available. Time-out: clock Time 3:00; after 184 s idle the idle player read Defeat, the other Victory (\"Time is up! | Time is up!OK\"); both back in the lobby with Create Duel available"
-  }
- ],
- "pvp.host": [
-  {
-   "at": "2026-11-04T17:26:59.310Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates a password Match room with options, refuses a wrong password, never exposes it, plays a match with sideboarding to an overall result",
-   "actions": "Duel Rooms → Room Options (Match, Allow surrender, Time limit, no spectators, password) → Create Duel; B: Challenge with a wrong password, then the right one; A accepts",
-   "expected": "Create/join a duel with time, spectator, surrender and password options; never record the password",
-   "observed": "room listed for B and C; wrong password refused with \"That room no longer exists.(-495)\" and A not asked; right password asked A, who accepted; clock shown (Time 3:00); C offered no Watch (menu: Talk / Interact, Close); surrender refused before turn 10 (\"You may surrender starting from the 10th turn.\") and accepted at turn 10; password absent from all three pages, storage, consoles and the server log"
   }
  ],
  "pvp.invite": [
@@ -558,16 +430,6 @@
    "actions": "Challenge from the player menu (avatar → Duel): cancel while asked; decline; immediate re-challenge; unanswered challenge",
    "expected": "Challenge, accept, decline, cancel and expire invitations without stale state",
    "observed": "B was asked \"Duel Invitation Pva dzl3d challenges you to a duel. Accept Duel Decline\", A saw \"Duel Request Request sent to Pvb dzl3d: waiting for an answer… Cancel\"; Cancel closed both dialogs; Decline closed both and A read \"Refused.\"; the re-challenge was refused with the cooldown message and opened no dialog; the unanswered challenge closed on both screens after 30 s with \"There is no response from your opponent.\""
-  }
- ],
- "pvp.match": [
-  {
-   "at": "2026-11-04T17:27:26.156Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/pvp-rooms.test.ts > hosted duel rooms and best-of-three matches on the real stack > creates a password Match room with options, refuses a wrong password, never exposes it, plays a match with sideboarding to an overall result",
-   "actions": "Match room: game 1 (B surrenders at turn 10), sideboarding (illegal Main → Side refused, restored, submitted), game 2 (B surrenders), result",
-   "expected": "Preserve match score, permit legal sideboarding, continue rounds and resolve the overall result",
-   "observed": "after game 1: A \"Match score: 1 wins · 0 losses · 0 draws\", B \"Match score: 0 wins · 1 losses · 0 draws\"; B's short Main disabled Submit (\"Restore the original Main, Side and Fusion counts before continuing.\") until restored; game 2 HUD \"Match 2 · 1–0\"; game 2 surrendered at turn 10; overall A Victory / B Defeat (Match 2 · 2–0)"
   }
  ],
  "pvp.matchmaking": [
@@ -598,16 +460,6 @@
    "actions": "Accept the challenge; rock-paper-scissors; first player; deal",
    "expected": "Select legal decks and establish both perspectives with correct hidden information",
    "observed": "both dealt with their selected starter decks; A's hand 6 named (Elemental Hero Bubbleman, Elemental Hero Sparkman, Elemental Hero Avian…), B's hand 5 named; each sees 5/6 opponent card backs; none of A's hand names on B's page; LP 8,000/8,000; field and turn mirrored"
-  }
- ],
- "reconnect.expired": [
-  {
-   "at": "2026-11-04T17:43:56.531Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/resilience.test.ts > reconnects, failures and stale replies on the real local stack > offers a clean new connection after a rejected or expired resume",
-   "actions": "Drop the tunnel and answer its resume with an unknown tunnel id; Go Online again and chat. Drop it again and refuse every resume connection; Go Online again and chat",
-   "expected": "A rejected or expired resume clears stale channels and offers a working new connection",
-   "observed": "rejected: \"Server could not resume the game connection. Go Online to connect again.\" on the title screen with Go Online, a fresh (non-resume) connection re-entered as Rex elvof in 46 s (the server's 45 s hold of the old tunnel waited out) and chatted once; expired after 42 s and 23 refused retries: \"Gateway resume window expired. Go Online to connect again.\", Go Online re-entered in 6 s and chatted once; old chat lines shown 0 times after the new session"
   }
  ],
  "reconnect.resume": [
@@ -668,16 +520,6 @@
    "actions": "Open the Shop on a new character; browse Booster Packs, Structure Decks, Single Cards and Accessories",
    "expected": "Load packs, decks and singles with correct price, availability and ownership",
    "observed": "wallet \"5,000 MP · 5,000 starter · 0 earned\"; 51 packs (e.g. Pack 1 200 MP, art and description), 9 structure decks (e.g. E-HERO EVOLUTION DECK 1000 MP), 46 singles drawn as cards (e.g. Earthbound Spirit 100 MP), 13 accessories; every Purchase enabled exactly when affordable and not owned"
-  }
- ],
- "shops.constraints": [
-  {
-   "at": "2026-11-04T17:22:05.888Z",
-   "commit": "cc0e0d8",
-   "test": "tests/acceptance/shop.test.ts > shop, card-get and cosmetics against the real server > shows the catalogue, opens purchases once, refuses bad purchases clearly",
-   "actions": "Quantities 0, 51, abc; 50 packs over the balance; three clicks on one Purchase; buy accessory \"Avatar item 33\" then try it again",
-   "expected": "Insufficient funds, invalid counts, sold-out items and duplicate submissions fail clearly",
-   "observed": "0: \"Choose a quantity from 1 to 50.\"; 51: \"Choose a quantity from 1 to 50.\"; abc: \"Choose a quantity from 1 to 50.\"; over balance: \"Not enough MP: 50 × 200 MP is 10,000 MP and you have 4,600 MP.\", wallet unchanged 4600; triple click opened one pack and charged 200 MP once; accessory bought (4400→4200), then shown as Owned and disabled; a direct second request was refused 409 purchase-rejected with the wallet unchanged at 4200"
   }
  ],
  "shops.purchase": [
