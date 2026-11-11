@@ -943,6 +943,16 @@ export class GameSession {
         this.state.players = this.state.players.map((p) => p.pid === pid ? { ...p, state: operation, areaBlock } : p);
       }
     }
+    else if (id === 0x4181 && data.length === 24) {
+      // UPDATE_PLAYERAVATAR: a player's new look in one world (a Wardrobe equip, Change Avatar; our own pid too: live
+      // 2034ec6 redraws our own character, not only the one the others see). The world the lobby shows takes it.
+      const r = new BinaryReader(data), pid = r.u32(), world = r.u32(), parts = r.bytes(16);
+      if (world === this.state.appearanceWorld) this.state.players = this.state.players.map((player) => player.pid === pid ? { ...player, parts } : player);
+      if (pid === this.state.profile?.pid && (world === 0 || world === 1)) {
+        const slot = this.state.selectedSlot; this.firstLooks.delete(slot ?? -1);
+        this.state.characters = this.state.characters.map((c) => c.slot === slot ? { ...c, [world ? 'avatarB' : 'avatarA']: parts } : c);
+      }
+    }
     else if (id === 0x4231) this.listNpcs = [];
     else if (id === 0x4232) this.listNpcs.push(...decodeNpcs(data));
     else if (id === 0x4233) this.state.npcs = this.listNpcs.slice();

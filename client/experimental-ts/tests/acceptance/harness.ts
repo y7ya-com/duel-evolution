@@ -106,8 +106,9 @@ const DUEL_END = `window.__duelEnd=()=>{const b=document.querySelector('.de-duel
   if(!r)return null;const t=r.innerText.split(/\\n/).map(l=>l.trim());return t.includes('WIN')?'Victory':t.includes('LOSE')?'Defeat':t.includes('DRAW')?'Draw':(t.find(l=>/ wins$|^(Victory|Defeat|Draw)$/.test(l))??'ended');};`;
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>(b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
-/** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art). */
-export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&document.querySelector('.de-world-view')?.dataset.mapReady!=='false')`;
+/** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
+ * unreachable, the map's own failure with Retry Map). */
+export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'))`;
 /** A row of the lobby's player list (main's CPlayerListDlg) by its name. */
 export const listRow = (name:string) => `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(name)}&&b.getClientRects().length)`;
 /** The player list's search (its magnifier) and one of its rows (main's CFindMenu): Show all lists the NPCs here too. */

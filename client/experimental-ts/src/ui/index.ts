@@ -671,9 +671,11 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     try {
       const result = controller.dispatch(command);
       // An aborted command belongs to a session or screen the player already left: nothing to report.
-      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed && !(e instanceof DOMException && e.name === 'AbortError')) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
+      // A failed shop catalogue under main's card shop is the shop's own to say ("Couldn't open the shop", Try again).
+      if (result && typeof result.then === 'function') void result.catch((e: unknown) => { if (!disposed && !(e instanceof DOMException && e.name === 'AbortError') && !shopOwnsFailure(command)) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); } });
     } catch (e) { local.message = e instanceof Error ? e.message : 'The action could not be completed.'; requestRender(); }
   };
+  const shopOwnsFailure = (command: ClientCommand) => (command.type === 'openScene' || command.type === 'refresh') && command.scene === 'shop' && useCardShop();
   const available = (scene: Scene) => !state.unavailable?.[scene];
   const open = (scene: Scene) => { local.message = ''; send({ type: 'openScene', scene }); };
   const sceneRoot = (heading: string): HTMLElement => {
@@ -1197,8 +1199,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
       ];
       const world = state.scene === 'lobby' && state.lobby;
-      // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && state.scene !== 'deck' && state.scene !== 'shop',
+      // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves.
+      // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); } } : {}) };
       nav.replaceChildren(status);

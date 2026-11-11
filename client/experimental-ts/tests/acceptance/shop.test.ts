@@ -113,6 +113,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       b.close();
 
       // cosmetics.purchase: the Head & Hair box takes its price in earned MP and leaves starter MP alone, once.
+      const w1Items = new Set(((await cosmetics(a)).inventory ?? []).filter(i => i.owned).map(i => i.id));
       let w1 = (await cosmetics(a)).wallet;
       for (let i = 0; i < 30 && w1.earned === w0.earned; i++) { await sleep(1000); w1 = (await cosmetics(a)).wallet; }
       expect(w1.earned).toBeGreaterThanOrEqual(500);
@@ -138,6 +139,72 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       const reloaded = await cosmetics(a);
       expect(reloaded.wallet).toEqual(after.wallet);
       expect((reloaded.inventory ?? []).filter(i => i.owned).length).toBe(ownedCount);
+
+      // cosmetics.catalog / the equip: main's Wardrobe (cosmetics/wardrobe.js) from its menu bar launcher (the hanger
+      // after the bar's keys): the reward previews on the bust, Equip wears it, the server records it and the player's
+      // own character redraws in the new look (live 2034ec6), not only the one the others see
+      type Look = { appearance:{ world:number; parts:number[]; looks?:Record<string,number[]> }; inventory?:{ id:string; owned:boolean; free?:boolean; name?:string }[] };
+      const lookNow = async (p:Page) => { const c = await cosmetics(p) as unknown as Look; const w = c.appearance.world === 0 ? 0 : 1; return c.appearance.looks?.[String(w)] ?? c.appearance.parts; };
+      const selfDrawn = `(()=>{const s=window.__deApp.getState().lobby?.avatars.find(x=>x.self);const c=s&&document.querySelector('[data-key="avatar:'+s.id+'"] canvas');return c&&c.dataset.avatarPainted==='true'?(c.dataset.avatarDrawn??'').split('/').pop():'';})()`;
+      const gained = ((reloaded as unknown as Look).inventory ?? []).find(i => i.owned && !i.free && !w1Items.has(i.id)) ?? ((reloaded as unknown as Look).inventory ?? []).find(i => i.owned && !i.free)!;
+      expect(gained).toBeTruthy();
+      const launcher = `document.querySelector('.de-wdl > button[aria-label="Wardrobe"]')`, WD = `document.querySelector('.de-wd[role=dialog]')`;
+      await until(a,launcher,30000); await press(a,launcher); await until(a,`${WD}?.querySelector('.wd-tile[data-id]')`,30000);
+      const tabCounts = await a.ev(`[...${WD}.querySelectorAll('.wd-tab')].map(t=>t.textContent.trim()).join(', ')`) as string;
+      const tile = `${WD}.querySelector('.wd-tile[data-id=${JSON.stringify(gained.id)}]')`;
+      // the reward's tab and category: each in turn until its tile shows
+      for (const tab of await a.ev(`[...${WD}.querySelectorAll('.wd-tab')].map(t=>t.dataset.tab)`) as string[]) {
+        if (await a.ev(`Boolean(${tile})`)) break;
+        await press(a,`${WD}.querySelector('.wd-tab[data-tab=${JSON.stringify(tab)}]')`); await sleep(300);
+        for (const sub of await a.ev(`[...${WD}.querySelectorAll('.wd-sub')].map(t=>t.dataset.sub)`) as string[]) {
+          if (await a.ev(`Boolean(${tile})`)) break;
+          await press(a,`${WD}.querySelector('.wd-sub[data-sub=${JSON.stringify(sub)}]')`); await sleep(300);
+        }
+      }
+      await until(a,tile,10000);
+      const look0 = await lookNow(a), drawn0 = await a.ev(selfDrawn) as string;
+      await press(a,tile);
+      await until(a,`${WD}.querySelector('.wd-wu')?.getAttribute('aria-label')?.startsWith('Your look wearing')`,10000);
+      const preview = await a.ev(`${WD}.querySelector('.wd-wu').getAttribute('aria-label')`) as string;
+      expect(await lookNow(a)).toEqual(look0);   // a preview is not saved
+      await screenshot(a,'cosmetics-wardrobe-preview');
+      await until(a,`!${WD}.querySelector('.wd-equip').disabled`,10000);
+      await press(a,`${WD}.querySelector('.wd-equip')`);
+      await until(a,`${tile}?.hasAttribute('data-equipped')`,30000);
+      const equipNote = await a.ev(`${WD}.innerText.match(/Equipped\. [^\n]*/)?.[0] ?? ''`) as string;
+      const look1 = await lookNow(a);
+      expect(look1).not.toEqual(look0);
+      await press(a,`${WD}.querySelector('.wd-close')`); await until(a,`!${WD}`,10000);
+      // the player's own character, drawn: its parts are the server's new look
+      await until(a,`${selfDrawn}===${JSON.stringify(look1.join(','))}`,30000);
+      await screenshot(a,'cosmetics-wardrobe-equipped');
+      record('cosmetics.catalog',{ actions:`Menu bar → Wardrobe (main's cosmetics/wardrobe.js): its tabs; select the box reward "${gained.name ?? gained.id}" (preview); Equip; close`, expected:'Browse categories and preview supported owned/unowned appearances',
+        observed:`tabs ${tabCounts}; "${preview}" on the bust while the server look stayed ${look0.join(',')}; Equip → "${equipNote}", the server look ${look1.join(',')}; the player's own avatar redrawn from ${drawn0 || '(none)'} to ${look1.join(',')}` });
+
+      // avatars.edit: Change Avatar from My Profile (main's screens/avatar.js): a Mouth choice is a draft until Confirm,
+      // then saved, drawn on the player's own character, and kept after a reload
+      await click(a,'My Profile'); await until(a,byKey('profile-appearance'),30000); await press(a,byKey('profile-appearance'));
+      await until(a,byKey('avatar-confirm'),30000);
+      await press(a,byKey('avatar-category:5')); await sleep(300);
+      const mouth = await a.ev(`[...document.querySelectorAll('[data-key^="avatar-item:5:"]')].map(b=>({ v:Number(b.dataset.key.split(':')[2]), label:b.getAttribute('aria-label')??b.textContent }))`) as { v:number; label:string }[];
+      const pick = mouth.find(m => m.v !== look1[5])!;
+      expect(pick).toBeTruthy();
+      await press(a,byKey(`avatar-item:5:${pick.v}`)); await sleep(500);
+      expect(await lookNow(a)).toEqual(look1);   // the draft is not saved yet
+      await screenshot(a,'appearance-draft');
+      await press(a,byKey('avatar-confirm')); await until(a,`!${byKey('avatar-confirm')}`,10000);
+      let look2 = await lookNow(a);
+      for (let i = 0; i < 30 && look2[5] !== pick.v; i++) { await sleep(500); look2 = await lookNow(a); }
+      expect(look2[5]).toBe(pick.v);
+      await until(a,`${selfDrawn}===${JSON.stringify(look2.join(','))}`,30000);
+      await a.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
+      await reenterWorld(a,names.a);
+      const look3 = await lookNow(a);
+      expect(look3).toEqual(look2);
+      await until(a,`${selfDrawn}===${JSON.stringify(look3.join(','))}`,30000);
+      await screenshot(a,'appearance-saved');
+      record('avatars.edit',{ actions:`My Profile → Change Avatar: Mouth ${look1[5]}→${pick.v} ("${pick.label}"), Confirm; reload`, expected:'Preview, apply and reload permitted appearance parts',
+        observed:`the draft left the server look unchanged until Confirm; then the server look's mouth is ${look2[5]} and the player's own avatar is drawn as ${look2.join(',')}; after a reload the look is ${look3.join(',')} and drawn so` });
       record('cosmetics.purchase',{ actions:'Win a PvP duel (the opponent surrenders past the server\'s two-minute minimum); Shop → Cosmetic Boxes → Head & Hair: Open Box (clicked twice); reveal to Done; reload', expected:'Spend correct wallet funds, grant once and persist',
         observed:`PvP win (B surrendered) after ${duelTurns} turns/${duelSeconds} s; earned ${w1.earned}→${after.wallet.earned}, starter ${w1.bound}→${after.wallet.bound} after one opening despite a double click; reward "${reward}"; after reload the wallet and ${ownedCount} owned items are unchanged` });
       record('cosmetics.wallet',{ actions:'Starter-only wallet: the Head & Hair Open Box button and a direct open request; after a PvP win: open with earned MP', expected:'Balances, eligibility and purchase restrictions match authoritative wallet semantics',

@@ -92,7 +92,7 @@ export class AvatarView {
     // Previews center that probe; world actors retain its original -6/+6 offset.
     resource.draw(ctx, { x: this.options.sourceOrigin ? AVATAR_FOOT_X : AVATAR_FOOT_X - sign * (resource.pose.offset[0] + resource.pose.foot[0]),
       y: AVATAR_FOOT_Y - resource.pose.offset[1] - resource.pose.foot[1], frame });
-    visible.clearRect(0, 0, AVATAR_VIEW_WIDTH, AVATAR_VIEW_HEIGHT); visible.drawImage(this.scratch, 0, 0); this.element.dataset.avatarPainted = 'true';
+    visible.clearRect(0, 0, AVATAR_VIEW_WIDTH, AVATAR_VIEW_HEIGHT); visible.drawImage(this.scratch, 0, 0); this.element.dataset.avatarPainted = 'true'; this.element.dataset.avatarDrawn = displayed.key;
     this.element.dataset.footX = String(this.options.sourceOrigin ? AVATAR_FOOT_X + sign * (resource.pose.offset[0] + resource.pose.foot[0]) : AVATAR_FOOT_X);
     displayed.frame = frame;
   }

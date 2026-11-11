@@ -17,6 +17,7 @@ export class StarterPicker {
   /** Characters that chose Later or claimed a deck on this page (main: until the next page load): the picker stays shut
    * for them though the server's claimable flag lags the claim or the character drops out for a reconnect. */
   private readonly done = new Set<number>();
+  private claiming: Promise<{ ok: boolean; message?: string }> | null = null;
   constructor(private readonly deps: StarterHost) {}
   /** Each render: open the picker while the character may claim one (once, until Later); close it on leaving the
    * character (another one, sign-out). `who` is the character, null for none. */
@@ -35,7 +36,13 @@ export class StarterPicker {
     await api.show(decks, {
       ui, art: new URL('/ui/', location.href).href, host: this.deps.host(),
       ...(cover ? { coverUrl: (d: StarterDeckChoice) => cover(d.cover, abort.signal) } : {}),
-      claim: async (id: number) => { const who = this.who, r = await this.deps.claim(id); if (r.ok && who !== null) this.done.add(who); return r; },
+      // one claim at a time: a second press of "Yes, take it" (a double click lands on the button before its busy view
+      // replaces it) answers with the first claim's result, never a second claim the server refuses as already claimed
+      claim: (id: number) => this.claiming ??= (async () => {
+        const who = this.who;
+        try { const r = await this.deps.claim(id); if (r.ok && who !== null) this.done.add(who); return r; }
+        finally { this.claiming = null; }
+      })(),
       later: () => { if (this.who !== null) this.done.add(this.who); this.shown = false; this.deps.later(); },
     });
     this.shown = api.open;

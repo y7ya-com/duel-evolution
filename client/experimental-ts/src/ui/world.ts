@@ -86,6 +86,8 @@ export class WorldRenderer {
   retry(): void { if (!this.closed && this.requestedMap !== null) this.load(this.requestedMap); }
   private message(text: string, retry = false): void {
     this.status.replaceChildren(); if (text) { const label = node('p', ''); label.textContent = text; this.status.append(label); }
+    // the map's own failure (its Retry Map) marked for the page and its tests: a lobby without scenery, not a loading one
+    if (retry) this.element.dataset.mapFailed = 'true'; else delete this.element.dataset.mapFailed;
     if (retry) { const button = node('button', '') as HTMLButtonElement; button.type = 'button'; button.textContent = 'Retry Map'; button.onclick = () => this.retry(); this.status.append(button); }
   }
   private positionSprites(): void {

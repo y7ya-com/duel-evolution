@@ -412,7 +412,11 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       for (let i = 0; i < 30 && !(await page.ev(`Boolean(${tile})`)); i++) await sleep(100);
       if (await page.ev(`Boolean(${tile})`)) {
         await press(page,tile); await until(page,sbtn('Choose this deck'),10000); await press(page,sbtn('Choose this deck'));
-        await until(page,sbtn('Yes, take it'),10000); await page.ev(`(()=>{const b=${sbtn('Yes, take it')};b.click();b.click();})()`);
+        await until(page,sbtn('Yes, take it'),10000);
+        // a real double click (main's buttons act on pointerup, never a synthetic click): two presses at once
+        const at = await page.ev(`(()=>{const r=${sbtn('Yes, take it')}.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+        await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...at });
+        await Promise.all([1,2].flatMap(n => (['mousePressed','mouseReleased'] as const).map(t => page.send('Input.dispatchMouseEvent',{ type:t,...at,button:'left',clickCount:n }))));
         await until(page,sbtn('OK'),30000); await press(page,sbtn('OK')); await until(page,`!document.getElementById('starter')`,10000);
         await sleep(1500); expect(await page.ev(`Boolean(document.getElementById('starter'))`)).toBe(false);
       }
