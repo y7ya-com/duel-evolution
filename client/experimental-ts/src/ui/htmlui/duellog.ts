@@ -26,6 +26,9 @@ export interface DuellogUi {
   data: DuellogPage | null; loading: boolean; error: string | null;
   /** The archive as read (the whole list; the pages are cut from it), and this browser's records. */
   all: DuellogRow[] | null; local: LocalRecord[];
+  /** The server ignored ?limit= and listed its default 100 (live's server, before REPLAYS_MAX): the stats and the search
+   *  cover the latest 100 duels only, and the top view says so. */
+  capped?: boolean;
 }
 export const DUELLOG_ROWS = 8;
 /** The whole 90 days (duelArchive.ts REPLAYS_MAX). */
@@ -45,6 +48,21 @@ export async function fetchDuellog(f: typeof fetch = globalThis.fetch): Promise<
     if (!r.ok || !body || body.error || !Array.isArray(body.replays)) return { error: ERRORS[body?.error ?? ''] ?? 'The Duel Log could not be read.' };
     return body.replays;
   } catch { return { error: 'The Duel Log could not be read.' }; }
+}
+
+/** A server's ?limit=-less default (duelArchive.ts listReplays): a list of exactly this many may be cut short. */
+export const REPLAYS_DEFAULT = 100;
+/** The archive's list and whether the server cut it at its default: a list of exactly REPLAYS_DEFAULT rows is asked
+ *  again with ?limit=1, which a server honouring ?limit= answers with one row (so the 100 were all there is), and live's
+ *  server, which ignores it, with its 100 again. */
+export async function fetchDuellogFull(f: typeof fetch = globalThis.fetch): Promise<{ rows: DuellogRow[]; capped: boolean } | { error: string }> {
+  const rows = await fetchDuellog(f);
+  if ('error' in rows || rows.length !== REPLAYS_DEFAULT || DUELLOG_LIMIT <= REPLAYS_DEFAULT) return 'error' in rows ? rows : { rows, capped: false };
+  try {
+    const r = await f(duellogUrl(1), { credentials: 'same-origin', cache: 'no-store' });
+    const body = await r.json().catch(() => null) as { replays?: unknown[] } | null;
+    return { rows, capped: !!r.ok && Array.isArray(body?.replays) && body!.replays!.length > 1 };
+  } catch { return { rows, capped: false }; }
 }
 
 const dayStart = (v: string, end: boolean): number | null => {
@@ -103,7 +121,7 @@ export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSp
       text('duelist', 0, 40, 900, ui.data!.you ? `Duelist: ${ui.data!.you}` : '', 1);
       text('stats', 0, 72, 900, `Duels: ${s.total}     Wins: ${s.wins}     Losses: ${s.losses}     Draws: ${s.draws}`, 1);
       text('rate', 0, 96, 900, `Win rate: ${rate}%`, 1);
-      text('note', 0, 128, 900, s.total ? 'Duels of the last 90 days. ▶ = saved in this browser: Play replays it.' : 'No duels yet. Your duels of the last 90 days are kept here.', 1);
+      text('note', 0, 128, 900, s.total ? `${ui.capped ? `Your latest ${REPLAYS_DEFAULT} duels.` : 'Duels of the last 90 days.'} ▶ = saved in this browser: Play replays it.` : 'No duels yet. Your duels of the last 90 days are kept here.', 1);
     }
     button('history', 125, 150, 'Duel History', 'duellog-history', s && s.total ? () => { ui.selected = -1; ui.view = 'list'; d.load(ui.search, 1); } : null);
     button('search', 300, 150, 'Search', 'duellog-search', s && s.total ? () => { ui.draft = { ...ui.search }; ui.view = 'search'; d.rerender(); } : null);

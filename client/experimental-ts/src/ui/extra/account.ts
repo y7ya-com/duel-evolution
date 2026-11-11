@@ -1,3 +1,4 @@
+import { DISCORD_OAUTH } from '../../site';
 import type { AccountAction, AccountPanel, AccountState } from '../../features/account';
 
 /** Inert, detached DOM. Credentials stay in inputs until submit, then are cleared before dispatch. */
@@ -43,7 +44,7 @@ export function renderAccountFeature(state: AccountState, dispatch: (action: Acc
     const session = state.session;
     root.append(el('p', session?.signedIn ? `Signed in as ${session.name ?? 'Discord account'}. Discord: ${session.discord ? 'linked' : 'not linked'}. Password: ${session.password ? 'set' : 'not set'}.` : 'Sign in to manage linked accounts.'));
     root.append(button('Refresh account status', { type: 'refreshSession' }));
-    if (session?.signedIn && !session.discord) root.append(button('Link Discord', { type: 'linkDiscord' }));
+    if (session?.signedIn && !session.discord && DISCORD_OAUTH) root.append(button('Link Discord', { type: 'linkDiscord' }));
     if (state.claimedAccount) root.append(el('p', `Linked game account: ${state.claimedAccount}`));
   }
   if (state.panel === 'register') {

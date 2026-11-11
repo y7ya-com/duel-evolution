@@ -30,6 +30,8 @@ export class TagLobbyController {
   private seen = new Set<string>();
   private readError = false;
   private disposed = false;
+  /** The server has no Tag Duel (GET /api/de/tag answered 404: live's server, where Tag Duel is paused): no polling. */
+  private unsupported = false;
   constructor(private readonly config: { http: HttpClient; onChange: (state: TagLobbyState) => void; now?: () => number; interval?: (active: boolean) => number }) {}
   get state(): TagLobbyState { return this.current; }
   private now(): number { return (this.config.now ?? (() => Date.now() / 1000))(); }
@@ -42,7 +44,7 @@ export class TagLobbyController {
   invitations(state = this.current.state): TagInvitation[] { return (state?.invitations ?? []).filter(i => i.expires > this.now()); }
   /** Poll while the player stands in a lobby: every 2 s while the dialog or an invitation is open, else every 5 s. */
   start(): void {
-    if (this.disposed || this.enabled) return;
+    if (this.disposed || this.enabled || this.unsupported) return;
     this.enabled = true; const token = ++this.poll;
     const tick = async () => {
       if (!this.enabled || token !== this.poll) return;
@@ -84,6 +86,7 @@ export class TagLobbyController {
       this.publish({ state, selected, error, notice: this.notice(state, previous), ...(incoming && this.enabled ? { open: true } : {}) });
     } catch (e) {
       if (token !== this.revision || this.disposed || (e instanceof DOMException && e.name === 'AbortError')) return;
+      if (e instanceof ApiError && e.status === 404) { this.unsupported = true; this.stop(); this.publish({ open: false, state: null, error: '', notice: '' }); return; }
       this.readError = true; this.publish({ error: e instanceof Error && e.message !== 'not-in-game' ? e.message.slice(0, 256) : 'Tag duels could not be loaded. Try again.' });
     }
   }

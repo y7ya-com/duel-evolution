@@ -35,7 +35,7 @@ import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/win
 import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
-import { duellogQuery, duellogUi, duellogWindow, fetchDuellog, replayWindow, type DuellogUi } from './htmlui/duellog';
+import { duellogQuery, duellogUi, duellogWindow, fetchDuellogFull, replayWindow, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
 import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
@@ -322,10 +322,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const cut = () => { ui.data = duellogQuery(ui.all ?? [], state.player?.name ?? '', search, page); ui.page = ui.data.page; };
     if (ui.all) { cut(); showHtml(); return; }
     const ask = ++duellogAsk; ui.loading = true; ui.error = null; showHtml();
-    void Promise.all([fetchDuellog(), controller.duelRecords?.().catch(() => []) ?? Promise.resolve([])]).then(([out, local]) => {
+    void Promise.all([fetchDuellogFull(), controller.duelRecords?.().catch(() => []) ?? Promise.resolve([])]).then(([out, local]) => {
       if (duellog !== ui || ask !== duellogAsk) return;
       ui.loading = false; ui.local = [...local];
-      if ('error' in out) ui.error = out.error; else { ui.all = out; cut(); }
+      if ('error' in out) ui.error = out.error; else { ui.all = out.rows; ui.capped = out.capped; cut(); }
       showHtml();
     });
   };

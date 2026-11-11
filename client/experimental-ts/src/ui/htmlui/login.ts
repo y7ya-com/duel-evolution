@@ -9,6 +9,7 @@
 // <input> laid over it holds the text), and the inputs are emptied on submit. Verify's Continue signs in with the
 // password typed at Create account, kept in this module's closure (live keeps it in the panel, session.cpp `pass`)
 // until the verify view closes.
+import { DISCORD_OAUTH } from '../../site';
 import type { ClientCommand, ClientView } from '../contracts';
 import type { AccountAction } from '../../features/account';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
@@ -51,7 +52,9 @@ export function loginWindow(d: LoginDeps): WindowSpec {
   // the greeting in the dialog's own header field, cut to its two lines (session.cpp build)
   b.add('CWindowTaskTextField', 'header', { x: 8, y: 8, w: 448, h: 42 }, { text: 'Welcome to the world of Duel Evolution!\nPlease sign in to play.', align: 1, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 2, color: [1, 1, 1, 1] });
   const fields = m !== 'verify';
-  if (m !== 'verify') button('discord', LEFT, 56, WIDE, 24, 'Sign in with Discord', 'login-discord', d.discord);
+  // v2 (site.ts DISCORD_OAUTH off): live's Discord app can't return here, so the strip says so instead of a dead button
+  if (m !== 'verify' && DISCORD_OAUTH) button('discord', LEFT, 56, WIDE, 24, 'Sign in with Discord', 'login-discord', d.discord);
+  else if (m !== 'verify') text('discord-off', LEFT, 60, WIDE, 16, 'No Discord sign-in here yet: use your username and password.', 1, { fontSize: 14 });
   if (m === 'signin' || m === 'signup') text('or', LEFT + 4, 88, 424, 16, '――――――――――   or   ――――――――――', 1);
   if (fields) {
     text('label1', LEFT, 104, 256, 16, m === 'reset' ? 'Reset code from Discord' : 'Username');

@@ -12,6 +12,7 @@ import { browserSocialBox } from './features/social';
 import { mountClient } from './ui';
 import type { SettingsView } from './ui/contracts';
 import { isGameLanguage } from './features/language';
+import { DEFAULT_ASSETS } from './site';
 const root = document.getElementById('app');
 if (!root) throw new Error('Missing client mount');
 const params = new URLSearchParams(location.search);
@@ -42,7 +43,8 @@ const prefetcher = new IdlePrefetcher();
 let storage: Storage | null = null; try { storage = localStorage; } catch { /* optional */ }
 const manifest = new SceneManifest('de-prefetch-v1', storage);
 let preloader: Preloader | undefined;
-const assets = params.has('assets') ? new AssetManager({ baseUrl: new URL(params.get('assets')!, location.href).href, mergeCardPaths: catalog.mergePaths,
+const assetBase = params.get('assets') ?? (DEFAULT_ASSETS || null);
+const assets = assetBase !== null ? new AssetManager({ baseUrl: new URL(assetBase, location.href).href, mergeCardPaths: catalog.mergePaths,
   ...(globalThis.caches ? { persistent: new CacheApiPersistence({ build: 'v1' }) } : {}), onScene: path => preloader?.record(path) }) : undefined;
 const mapScenes = assets ? new SceneLoader({ assets }) : null;
 if (assets) preloader = new Preloader({ assets, prefetcher, manifest,
@@ -58,7 +60,7 @@ const sceneLoads = new SceneLoadTracker(loading => overlay?.set(loading), dev ? 
   const now = assets?.stats ?? lastStats, network = now.network - lastStats.network, persisted = now.persisted - lastStats.persisted; lastStats = now;
   console.info(`[scene-load] ${name} ${ms.toFixed(0)} ms ${network ? 'cold' : 'warm'} (network ${network}, persisted ${persisted}, memory ${(assets?.cacheBytes ?? 0) >> 10} KiB)`);
 } : undefined);
-const audio = new BrowserAudioManager(params.has('assets') ? { soundArchiveUrl: new URL(params.get('assets')!.replace(/\/?$/, '/') + 'Sound.dat', location.href).href } : {});
+const audio = new BrowserAudioManager(assetBase !== null ? { soundArchiveUrl: new URL(assetBase.replace(/\/?$/, '/') + 'Sound.dat', location.href).href } : {});
 // Deferred audio (live: ovr/sedefer.c): startup waits for the stored audio pack only when the stored settings lack the
 // volumes; otherwise it restores in the background.
 const audioRestore = audio.restore().catch(() => false);

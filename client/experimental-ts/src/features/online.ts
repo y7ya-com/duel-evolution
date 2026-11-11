@@ -148,7 +148,8 @@ export class OnlineController {
     ]);
     if (this.disposed || gen !== this.generation) return;
     const [cosmetics, tag] = results;
-    const errors = results.flatMap(r => r.status === 'rejected' ? [this.message(r.reason)] : []);
+    // GET /api/de/tag 404: a server without Tag Duel (live's, where it is paused): no tag state, not an error
+    const errors = results.flatMap(r => r.status === 'rejected' && !(r === tag && r.reason instanceof ApiError && r.reason.status === 404) ? [this.message(r.reason)] : []);
     this.publish({ loading: false, error: errors.length ? errors.join('; ') : null,
       ...(cosmetics.status === 'fulfilled' ? { cosmetics: cosmetics.value } : {}), ...(tag.status === 'fulfilled' ? { tag: tag.value } : {}) });
   }
