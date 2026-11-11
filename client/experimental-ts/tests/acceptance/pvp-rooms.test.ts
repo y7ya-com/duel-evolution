@@ -14,7 +14,10 @@ async function choose(page:Page,key:string) {
   expect(await page.ev(sw)).toBe(true);
 }
 /** The room owners the player list finds (its search's Search for Match Duels: main's CFindMenu). */
-async function matchRooms(page:Page,owner:string) { await searchPlayers(page,'Search for Match Duels'); await until(page,listRow(owner),30000); }
+async function matchRooms(page:Page,owner:string) {
+  // the search lists the rooms open when it is made (the server's room list): a room opened a moment ago needs a new search
+  for (let i = 0; ; i++) { await searchPlayers(page,'Search for Match Duels'); try { await until(page,listRow(owner),5000); return; } catch (e) { if (i >= 5) throw e; } }
+}
 const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
 const resultOf = (page:Page) => page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
 async function surrenderAt10(a:Page,b:Page,loser:Page) {
