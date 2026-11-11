@@ -4,8 +4,9 @@ import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, r
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
 async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) await press(page,byKey('menubar-duel')); await until(page,byKey('duel-cancel'),10000); }
-/** The Duel menu's counts, top to bottom: Auto Duel (searching), Create Duel (waiting), Duel (n.) (duelling). */
-const counts = (page:Page) => page.ev(`(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');if(!w)return '';return [...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top).map(e=>e.textContent.trim()).join(' / ');})()`) as Promise<string>;
+/** The Duel menu's counts as main's duelsetup.js labels them: "Players searching: n" (Auto Duel) / "Open rooms: n" (Create Duel). */
+const COUNTS = `(()=>{const t=document.querySelector('[data-key="duel-cancel"]')?.closest('.win')?.innerText??'';const s=/Players searching: (\\d+)/.exec(t),r=/Open rooms: (\\d+)/.exec(t);return s&&r?s[1]+' / '+r[1]:'';})()`;
+const counts = (page:Page) => page.ev(COUNTS) as Promise<string>;
 /** Auto Duel from the Duel menu: its choices pressed, OK. */
 async function autoDuel(page:Page,choices:string[] = []) {
   await duelMenu(page); await press(page,byKey('duel-auto')); await until(page,byKey('find-ok'),10000);
@@ -35,14 +36,14 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       const before = await counts(b);
       await autoDuel(a);
       const message = await a.ev(`document.getElementById('htmlui-host').innerText`) as string;
-      await until(b,`/^1 \\//.test(${counts.toString().includes('') ? '""' : '""'})||(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');return !!w&&[...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top)[0]?.textContent.trim()==='1';})()`,30000);
+      await until(b,`(${COUNTS}).startsWith('1 /')`,30000);
       const searching = await counts(b);
       await screenshot(a,'pvp-matchmaking-searching');
       // the Duel key while searching: "Cancel the Duel you created?" (the original's), Yes
       await press(a,byKey('menubar-duel')); await until(a,byKey('room-close-yes'),10000);
       const cancelText = await a.ev(`document.querySelector('[data-key="room-close-yes"]').closest('.win').innerText`) as string;
       await press(a,byKey('room-close-yes'));
-      await until(b,`(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');return !!w&&[...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top)[0]?.textContent.trim()==='0';})()`,30000);
+      await until(b,`(${COUNTS}).startsWith('0 /')`,30000);
       const cancelled = await counts(b);
       await press(b,byKey('duel-cancel'));
       // Both search (A Single Mode, B Both and a similar level): the server pairs them and both prepare a duel.
@@ -54,7 +55,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       expect(new Set(paired[0].names)).toEqual(new Set([names.a,names.b]));
       record('pvp.matchmaking',{ actions:'Duel key → Auto Duel: A Single Mode OK; the Duel key again, Yes to cancel; then A Single Mode and B Both with Level Limit OFF (a similar level)',
         expected:'Find/cancel single or match opponents with level filters and correct searching/waiting counts',
-        observed:`B's Duel menu counts (Auto Duel / Create Duel / Duel (n.)) "${before}" → "${searching}" while A searched (A's bar: "${message.replace(/\s+/g,' ').trim().slice(0,60)}") → "${cancelled}" after "${cancelText.replace(/\s+/g,' ').trim()}" Yes; the second search paired A and B (similar level) into one duel, both screens mirrored (${paired[0].names.join(' vs ')})` });
+        observed:`B's Duel menu counts (Players searching / Open rooms) "${before}" → "${searching}" while A searched (A's bar: "${message.replace(/\s+/g,' ').trim().slice(0,60)}") → "${cancelled}" after "${cancelText.replace(/\s+/g,' ').trim()}" Yes; the second search paired A and B (similar level) into one duel, both screens mirrored (${paired[0].names.join(' vs ')})` });
 
       // pvp.end (disconnect): B's browser goes away mid-duel; A is told and wins after the server's grace period.
       await playBoth(a,b,{ stop:turn => turn >= 2,timeout:200000 });
