@@ -3,7 +3,7 @@ import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
-async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) await press(page,byKey('menubar-duel')); await until(page,byKey('duel-cancel'),10000); }
+async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) { await until(page,`${byKey('menubar-duel')}&&!${byKey('menubar-duel')}.disabled`,30000); await press(page,byKey('menubar-duel')); } await until(page,byKey('duel-cancel'),10000); }
 /** The Duel menu's counts as main's duelsetup.js labels them: "Players searching: n" (Auto Duel) / "Open rooms: n" (Create Duel). */
 const COUNTS = `(()=>{const t=document.querySelector('[data-key="duel-cancel"]')?.closest('.win')?.innerText??'';const s=/Players searching: (\\d+)/.exec(t),r=/Open rooms: (\\d+)/.exec(t);return s&&r?s[1]+' / '+r[1]:'';})()`;
 const counts = (page:Page) => page.ev(COUNTS) as Promise<string>;
