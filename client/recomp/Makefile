@@ -68,6 +68,9 @@ $(B)/clock_test: rt/clock_test.c rt/clock.c | $(B)
 memmove_test: $(B)/memmove_test   # the recompiled CRT memmove vs libc on the real exe: build/memmove_test [yo2.exe]
 $(B)/memmove_test: rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(RT_HDRS) $(B)/librc.a
 	$(CC) $(RT_CFLAGS) rt/memmove_test.c rt/rt.c rt/mem.c rt/clock.c ovr/allrooms.c $(B)/librc.a -o $@
+tagrelay_test: $(B)/tagrelay_test   # ovr/tagrelay.c: Tag Duel's channel-10 notice, the active members and their avatars
+$(B)/tagrelay_test: rt/tagrelay_test.c ovr/tagrelay.c $(RT_HDRS) | $(B)
+	$(CC) -O1 -Wall -Irt rt/tagrelay_test.c ovr/tagrelay.c -o $@ && $@
 chatfree_test: $(B)/chatfree_test   # ovr/chatfree.c: My Room's chat lines kept, the Proximity Chat tab hidden
 $(B)/chatfree_test: rt/chatfree_test.c ovr/chatfree.c $(RT_HDRS) | $(B)
 	$(CC) -O1 -Wall -Irt rt/chatfree_test.c ovr/chatfree.c -o $@ && $@

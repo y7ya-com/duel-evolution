@@ -53,9 +53,13 @@ void f_00a75760(CPU *restrict c) {
 // - My Room: the lobby's CHATNOTICE (0x006bb780) drops every line while the player's rank byte (+0x9ed) reads 12, My
 //   Room's. The room is part of the one server-wide chat now (server/src/game/chat.ts): the stock decoder runs with
 //   the rank cleared, and the real rank goes back before it returns.
+// - Tag Duel: a notice on the server-only channel 10 is tagrelay.c's, taken before the stock decoder (whose 0x81-byte
+//   text buffer its 427-character line would overrun).
 void o_006bb780(CPU *restrict c);
+int rc_tagrelay_notice(CPU *c, uint32_t lobby);   // tagrelay.c
 void f_006bb780(CPU *restrict c) {
     uint32_t self = c->ecx;
+    if (rc_tagrelay_notice(c, self)) RET(0, 0);
     uint8_t *rank = (uint8_t *)G(self + 0x9ed), saved = *rank;
     if (saved == 12) *rank = 0;
     o_006bb780(c);
