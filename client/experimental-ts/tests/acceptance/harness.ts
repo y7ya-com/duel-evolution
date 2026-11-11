@@ -323,8 +323,8 @@ export async function prepareDuel(page:Page,hand:'Rock'|'Scissors'|'Paper' = 'Ro
   }
   await until(page,`document.querySelectorAll('.de-field-card').length>0`,60000);
 }
-/** main's HTML deck screen (src/ui/htmlui/deck.ts) draws its trunk and deck grids on the game canvas, so there is no
- * per-card DOM: the harness reads what the screen shows from the app's view (window.__deApp, dev builds). */
+/** main's HTML deck screen (src/ui/htmlui/deck.ts, deck-dom.ts: its cards are elements with data-zone / data-index /
+ * data-passcode); the harness reads the deck's contents from the app's view (window.__deApp, dev builds). */
 const DECK_VIEW = `(()=>{const v=window.__deApp?.getState();const e=v?.deckEditor;if(v?.scene!=='deck'||!e?.current)return null;
   const by=new Map();for(const c of [...(e.allCards??[]),...(e.collection??[])])if(c.passcode!=null)by.set(c.passcode,c);
   const nm=p=>by.get(p)?.name??String(p);
@@ -341,19 +341,9 @@ export async function openDeckEditor(page:Page,minMain = 0):Promise<DeckScreen> 
   await sleep(500);
   return (await deckScreen(page))!;
 }
-/** A real mouse click at a point of the 1024 x 768 game screen (the stage, scaled). */
-export async function clickGame(page:Page,x:number,y:number) {
-  const r = await page.ev(`(()=>{const b=document.querySelector('.de-stage').getBoundingClientRect();return {x:b.left,y:b.top,w:b.width}})()`) as { x:number; y:number; w:number };
-  const point = { x:r.x + x * r.w / 1024,y:r.y + y * r.w / 1024 };
-  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
-  await sleep(120);
-  await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
-  await sleep(80);
-  await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
-}
-/** The deck screen's side menu (DeckEntry.cpp: five buttons at 0, 40 + 27 i): LOAD, SAVE, STRUCTURE, CLEAR, EXIT. */
-export const DECK_SIDE = { load:0,save:1,structure:2,clear:3,exit:4 } as const;
-export const deckSide = (page:Page,button:keyof typeof DECK_SIDE) => clickGame(page,50,40 + 27 * DECK_SIDE[button] + 10);
+/** The deck screen's side menu (DeckEntry.cpp: five buttons at 0, 40 + 27 i), deck-dom.ts's labelled buttons. */
+export const DECK_SIDE = { load:'deck-load-deck',save:'deck-save-deck',structure:'deck-structure-deck',clear:'deck-clear-deck',exit:'deck-exit' } as const;
+export const deckSide = (page:Page,button:keyof typeof DECK_SIDE) => press(page,byKey(DECK_SIDE[button]));
 /** EXIT the deck screen back to the lobby (answering a keep/discard question with Yes when there are edits). */
 export async function exitDeckEditor(page:Page) {
   for (let i = 0; i < 5 && await page.ev(`Boolean(${DECK_VIEW})`); i++) {
