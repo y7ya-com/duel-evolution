@@ -34,3 +34,22 @@ describe('what a pack holds (main\'s screens/pack-contents.js) outside the card 
     expect(readFileSync(new URL('../../web-shell/htmlui/screens/shop.js', import.meta.url), 'utf8')).toMatch(/CShopPackWindow'\) packHotspots/);
   });
 });
+
+describe('the legacy shop\'s description band follows the mouse over the pack art (the engine\'s hover by rect)', () => {
+  it('the point over a pack\'s art is over its price plate, whose hover names the pack in the band', async () => {
+    const { areaAt } = await import('../src/ui/htmlui/snapshot');
+    const items: ShopItem[] = Array.from({ length: 3 }, (_, i) => ({ id: 100 + i, name: `Pack ${i}`, description: `About pack ${i}`, price: 300, category: 'packs', packId: 200 + i }));
+    const ui = shopLocal(); ui.page = 'packs';
+    const deps = { shop: { items, mp: 1000 }, ui, ids: new Ids(), busy: false, world: 0, portrait: null, name: (i: ShopItem) => i.name, rerender: () => {}, buy: () => {}, exit: () => {} };
+    let specs = shopWindows(deps);
+    // main's hotspot over the second pack's art (pack-contents.js ART) sends its mousemove to the engine's canvas
+    const id = areaAt(specs, ART.x + ART.pitch + 5, ART.y[0] + 5);
+    const spec = specs.find(s => s.handlers.has(id))!;
+    expect(spec.win.cls).toBe('CShopPricePlate');
+    spec.handlers.get(id)!.pointer!(true);
+    specs = shopWindows(deps);
+    const band = specs.find(s => s.win.cls === 'CShopPackWindow')!.win.controls.find(c => typeof c.text === 'string' && c.text.includes('About pack'));
+    expect(band?.text).toContain('About pack 1');
+    expect(areaAt(specs, 5, 5)).toBe(0);
+  });
+});

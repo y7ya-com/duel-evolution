@@ -11,6 +11,8 @@ import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
 import playerSelectLive from '@htmlui/mock/playerselect-live.json';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
+import { wrapDialogText } from './dialog-text';
+export { wrapDialogText };
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
 import dialogOk from '@htmlui/mock/dialog-ok.json';
 import dialogError from '@htmlui/mock/dialog-error.json';
@@ -149,26 +151,8 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   return b.spec();
 }
 /** One of main's stock dialogs (dialog.js: mock/dialog-yesno.json, dialog-ok.json) with this text, its buttons by label. */
-/** A dialog's text broken into lines that fit `width` game px (the field breaks lines only where the text does, as the
- * original's messages carry their own breaks; the rewrite's and the server's do not): at spaces, a word wider than the
- * line cut. The stock dialogs' 16 px font: 34 Latin characters fill the error box's 320 px (main's language error),
- * a full-width (CJK) character twice one. Breaks already in the text are kept. */
-export function wrapDialogText(text: string, width: number): string {
-  const per = 320 / 34, cols = (s: string) => [...s].reduce((n, c) => n + (c.codePointAt(0)! >= 0x2e80 ? 2 : 1), 0);
-  const max = Math.max(4, Math.floor(width / per));
-  return text.split('\n').map(para => {
-    const lines: string[] = [];
-    for (let word of para.split(' ')) {
-      const last = lines.length ? lines[lines.length - 1]! : undefined;
-      if (last !== undefined && cols(last + ' ' + word) <= max) { lines[lines.length - 1] = last + ' ' + word; continue; }
-      while (cols(word) > max) { let cut = '', n = 0; for (const c of word) { const w = cols(c); if (n + w > max) break; cut += c; n += w; } lines.push(cut); word = word.slice(cut.length); }
-      lines.push(word);
-    }
-    return lines.join('\n');
-  }).join('\n');
-}
-export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>): WindowSpec {
-  const t = template.windows[0]!, b = new WindowBuilder(ctx.ids, key, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51203 });
+export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, template: typeof dialogYesNo, text: string, buttons: Record<string, [string, () => void]>, z = 51203): WindowSpec {
+  const t = template.windows[0]!, b = new WindowBuilder(ctx.ids, key, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z });
   const cs = b.fromTemplate(t, true);
   const field = named(cs, 'CWindowTaskTextField'), inner = cs.find(c => c.parent === field?.id && c.cls === 'CWindowTaskText');
   // every message wrapped to the box it is drawn in (the inner text's width beside the scroll bar, else the field's)

@@ -8,6 +8,7 @@
 //  - The event window (CWindowModelInformation, dialog.js: the icon bar, the chop, the list 8, 24, the × at w - 19).
 //  - The duel help strip (CWindowModelHelp, main's duel.js: a thin frame and a CWindowTaskHelp) with the current
 //    prompt's text while the duel screen's own panel (not a dialog) asks.
+import { wrapDialogText } from './dialog-text';
 import type { EventInfo, TournamentState } from '../../network/tournament';
 import { SUBTITLE_TEXT, TOUR_STATE, TOUR_STATE_TEXT, secondsLeft } from '../../network/tournament';
 import { Ids, WindowBuilder } from './snapshot';
@@ -71,7 +72,7 @@ export function resultWindow(ids: Ids, t: TournamentState, ok: () => void): Wind
   const r = t.result; if (!r) return null;
   const b = new WindowBuilder(ids, 'aboutevent', 'CWindowModelAboutEvent', { x: 312, y: 304, w: 400, h: 160 }, { z: 51503, modal: true });
   b.add('CWindowTaskFrameBottomThick', 'frame', { x: 0, y: 0, w: 400, h: 160 }, { style: 1, band: 32 });
-  const field = b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: 384, h: 104 }, { text: `${r.name || 'Tournament'} is over.\nChampion: ${r.champion || '-'}\nRunner-up: ${r.runnerUp || '-'}\nEntries ${r.entries}, ${r.rounds} rounds`,
+  const field = b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: 384, h: 104 }, { text: wrapDialogText(`${r.name || 'Tournament'} is over.\nChampion: ${r.champion || '-'}\nRunner-up: ${r.runnerUp || '-'}\nEntries ${r.entries}, ${r.rounds} rounds`, 368),
     lines: [], align: 0, fontSize: 16, color: BLACK, firstLine: 0, pageLines: 6, lineGap: 0 });
   field.lines = String(field.text).split('\n');
   b.add('CWindowTaskTextSwitch', 'ok', { x: 160, y: 128, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', checked: false, color: BLACK }, { key: 'aboutevent-ok', click: ok });

@@ -10,6 +10,7 @@ import { deckPlacementReason } from '../helpers';
 import { parseDeckImport, MAX_DECK_IMPORT_BYTES } from '../deck';
 import { deckProblems } from '../extra/deck-check';
 import { Ids, WindowBuilder } from './snapshot';
+import { wrapDialogText } from './dialog-text';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, isFusion, isMonster, raceOf, attrOf, TRUNK_ROWS, SIDE_BUTTONS } from './deck';
 import type { DeckContext, DeckDialog, DeckFrom, DeckUi, FileButton, KabanFilter } from './deck';
@@ -308,9 +309,11 @@ export class DeckScene {
     }
     const template = d.kind === 'confirm' ? dialogYesNo : dialogOk, t = template.windows[0]!;
     const b = new WindowBuilder(this.ids, `deck-${d.kind}`, t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51553 });
-    const cs = b.fromTemplate(t, true), field = named(cs, 'CWindowTaskTextField');
-    if (field) field.text = d.text;
-    for (const c of cs) if (c.parent === field?.id && c.cls === 'CWindowTaskText') c.text = d.text;
+    const cs = b.fromTemplate(t, true), field = named(cs, 'CWindowTaskTextField'), inner = cs.find(c => c.parent === field?.id && c.cls === 'CWindowTaskText');
+    // wrapped to the box it is drawn in (main's dialog.js draws the text unwrapped), as messageDialog does
+    const text = wrapDialogText(d.text, inner?.w ?? field?.w ?? t.w - 16);
+    if (field) field.text = text;
+    for (const c of cs) if (c.parent === field?.id && c.cls === 'CWindowTaskText') c.text = text;
     const on = (label: string, key: string, run: () => void) => { const c = named(cs, 'CWindowTaskTextSwitch', label); if (c) b.on(c, { key, click: run }); };
     if (d.kind === 'confirm') { on('Yes', 'deck-dialog-yes', () => { this.ui.dialog = null; d.yes(); this.o.rerender(); }); on('No', 'deck-dialog-no', close); }
     else on('OK', 'deck-dialog-ok', close);

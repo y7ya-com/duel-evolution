@@ -19,6 +19,7 @@
 import type { DuelPromptView, DuelResponse } from '../contracts';
 import { ANNOUNCE_SHOWN, matchDeclarable } from '../duel-announce';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
+import { dialogLines } from './dialog-text';
 
 export interface DuelDialogContext {
   ids: Ids; busy: boolean;
@@ -69,7 +70,7 @@ function cardListDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec {
   const listY = 8 + n * LH + 4 + LH + 8, h = listY + PAGE * ROW + 8 + (nav.length ? 32 : 0) + 40, x = 512 - w / 2, y = Math.max(8, 384 - h / 2);
   const b = new WindowBuilder(ctx.ids, `duel-cards:${p.id}`, 'CUSelectDialog', { x, y, w, h }, { modal: true, z });
   b.add('CWindowTaskFrameThin', 'frame', { x: 0, y: 0, w, h }, { style: 1, alpha: 0.7 });
-  b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: p.text, align: 1, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: wrapped(p.text), align: 1, color: [1, 1, 1, 1] });
   b.add('CWindowTaskText', 'note', { x: 8, y: 8 + n * LH + 4, w: w - 16, h: LH }, { text: note, align: 1, color: [1, 0.9, 0.3, 1] });
   const order = [...sel];
   rows.forEach((r, i) => {
@@ -101,7 +102,7 @@ function numberDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec {
   const n = lines(p.text, 40), w = 336, h = 24 + n * LH + 12 + LH + 8 + 32 + 16 + 32, x = 512 - w / 2, y = 384 - h / 2;
   const b = new WindowBuilder(ctx.ids, `duel-number:${p.id}`, 'CWindowModelInput1', { x, y, w, h }, { modal: true, z });
   b.add('CWindowTaskFramePlane', 'frame', { x: 0, y: 0, w, h }, { style: 1 });
-  b.add('CWindowTaskText', 'text', { x: 16, y: 16, w: w - 32, h: n * LH }, { text: p.text, align: 1, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'text', { x: 16, y: 16, w: w - 32, h: n * LH }, { text: wrapped(p.text, 40), align: 1, color: [1, 1, 1, 1] });
   b.add('CWindowTaskText', 'range', { x: 16, y: 16 + n * LH + 4, w: w - 32, h: LH }, { text: `${lo}–${hi}`, align: 1, color: [1, 0.9, 0.3, 1] });
   const ok = () => { if (valid && !ctx.busy) ctx.respond({ number: value }); };
   const input = b.add('CWindowTaskInput', 'input', { x: 56, y: 16 + n * LH + 4 + LH + 8, w: 224, h: 32 }, { value: draft, focused: true, password: false, caret: null, caretOn: false, maxLen: 10, multiLine: false });
@@ -122,7 +123,7 @@ function announceDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec {
   const h = listY + PAGE * ROW + 8 + (nav.length ? 32 : 0) + 40, x = 512 - w / 2, y = Math.max(8, 384 - h / 2);
   const b = new WindowBuilder(ctx.ids, `duel-announce:${p.id}`, 'CWindowModelInput1', { x, y, w, h }, { modal: true, z });
   b.add('CWindowTaskFramePlane', 'frame', { x: 0, y: 0, w, h }, { style: 1 });
-  b.add('CWindowTaskText', 'text', { x: 16, y: 16, w: w - 32, h: n * LH }, { text: p.text, align: 1, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'text', { x: 16, y: 16, w: w - 32, h: n * LH }, { text: wrapped(p.text), align: 1, color: [1, 1, 1, 1] });
   const declare = (text: string) => { if (!ctx.busy && text.trim()) ctx.respond({ text }); };
   const input = b.add('CWindowTaskInput', 'search', { x: 24, y: inputY, w: w - 48, h: 32 }, { value: draft, focused: true, password: false, caret: null, caretOn: false, maxLen: 120, multiLine: false });
   b.on(input, { key: `prompt-announcement:${p.id}`, label: 'Card announcement: type part of a card name', text: v => { ctx.local.draft = v; ctx.local.page = 0; ctx.rerender(); }, enter: () => declare(rows.length === 1 && found.length === 1 ? rows[0]!.id : draft) });
@@ -137,8 +138,10 @@ function announceDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec {
   plates(b, w, h - 32, [{ id: 'announce', label: 'Announce', on: !ctx.busy && !!draft.trim(), key: `prompt-confirm:${p.id}`, click: () => declare(draft) }], 120);
   return b.spec();
 }
-// a line of the question per 46 characters (Arial 16 px in the 376-px field), at most 4
-const lines = (text: string, per = 46) => Math.max(1, Math.min(4, text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / per)), 0)));
+// the question broken into the lines its box shows (dialog-text.ts: main's duel.js draws a CWindowTaskText unwrapped),
+// at most 4; the Yes / No's field wraps by itself (duel.js TextField), its lines counted the same
+const lines = (text: string, per = 46) => dialogLines(text, Math.round(per * 320 / 34)).n;
+const wrapped = (text: string, per = 46) => dialogLines(text, Math.round(per * 320 / 34)).text;
 const z = 51180;
 
 export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec | null {
@@ -171,7 +174,7 @@ export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpe
   const x = 512 - w / 2, y = 384 - h / 2;
   const b = new WindowBuilder(ctx.ids, `duel-select:${p.id}`, multi ? 'CUSelectAttributeDialog' : 'CUSelectDialog', { x, y, w, h }, { modal: true, z });
   b.add('CWindowTaskFrameThin', 'frame', { x: 0, y: 0, w, h }, { style: 1, alpha: 0.7 });
-  b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: p.text, align: 1, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'text', { x: 8, y: 8, w: w - 16, h: n * LH }, { text: wrapped(p.text), align: 1, color: [1, 1, 1, 1] });
   // each row a real button (main's TextSwitch, a <button>: the pointer and the keys land on its own element), marked
   // rows shown pressed; no undrawn hit rows (the layer finds a control by its element, never by position)
   rows.slice(0, shown).forEach((r, i) => {

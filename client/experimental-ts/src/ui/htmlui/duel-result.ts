@@ -3,6 +3,7 @@
 // dialog look (CUYesNoDialog: the bottom-thick frame, the question, TextSwitch plates). On main the engine draws the
 // result titles (glowing art) under holes: the rewrite has no engine, so the title is the record's ShadowText.
 // Every button is a real <button> main's modules draw (the layer takes input on elements).
+import { dialogLines } from './dialog-text';
 import type { DuelView } from '../contracts';
 import { WindowBuilder, type HtmlWindow, type Ids, type WindowSpec } from './snapshot';
 import { signed } from '../../duel/rewards';
@@ -112,10 +113,10 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
 export interface PrepChoice { text: string; buttons: { id: string; label: string; act?: () => void }[] }
 /** Janken / first player / start as a duel.js dialog (CUYesNoDialog look): the question and a plate per choice. */
 export function preparationDialog(ids: Ids, busy: boolean, choice: PrepChoice): WindowSpec {
-  const n = Math.max(1, Math.min(4, Math.ceil(choice.text.length / 46))), w = 400, h = 8 + n * 16 + 16 + 40, x = 512 - w / 2, y = 384 - h / 2;
+  const { text, n } = dialogLines(choice.text, 433), w = 400, h = 8 + n * 16 + 16 + 40, x = 512 - w / 2, y = 384 - h / 2;
   const b = new WindowBuilder(ids, 'duel-prep', 'CUYesNoDialog', { x, y, w, h }, { modal: true, z: 51170 });
   b.add('CWindowTaskFrameBottomThick', 'frame', { x: 0, y: 0, w, h }, { style: 1, band: 40, alpha: 0.7 });
-  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: n * 16 + 8 }, { text: choice.text, align: 1, color: [0, 0, 0, 1] });
+  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: w - 16, h: n * 16 + 8 }, { text, align: 1, color: [0, 0, 0, 1] });
   const btns = choice.buttons, bw = btns.length > 2 ? 100 : 120, gap = (w - bw * btns.length) / (btns.length + 1);
   btns.forEach((o, i) => {
     const on = !!o.act && !busy;

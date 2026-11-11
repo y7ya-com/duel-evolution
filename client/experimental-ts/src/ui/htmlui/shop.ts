@@ -200,7 +200,7 @@ function items_(d: ShopDeps, out: Built, page: Exclude<ShopPage, 'menu'>, go: (p
     const looks = owned ? Array(4).fill('data/shop/shop_avatar_04_c01.png') as [string, string, string, string]
       : ['data/shop/shop_avatar_01_c01.png', 'data/shop/shop_avatar_03_c01.png', 'data/shop/shop_avatar_03_c01.png', 'data/shop/shop_avatar_02_c01.png'] as [string, string, string, string];
     pictureSwitch(b, d.ids, `row:${item.id}`, looks, [0, 0, 512, 64], 328, y, 1018, { x: 328, y, w: 400, h: 40 }, { checked: chosen, disabled: owned },
-      { key: `shop-item:${item.id}`, label: `${d.name(item)}, ${item.price} MP${owned ? ', owned' : ''}`, click: () => pick(item), pointer: over(item) });
+      { key: `shop-item:${item.id}`, label: `${d.name(item)}, ${item.price} MP${owned ? ', owned' : ''}`, click: () => pick(item), pointer: over(item), area: true });
     text(b, d.ids, `rowText:${item.id}`, 336, y + 12, 400, 16, `${plain(d.name(item))}${chosen && ui.cart!.count > 1 ? ` x${ui.cart!.count}` : ''}@>330/${item.price}MP`, 1019);
   });
   else shown.forEach((item, i) => {
@@ -235,7 +235,7 @@ function pricePlate(d: ShopDeps, page: 'cards' | 'packs', item: ShopItem, x: num
   const b = new WindowBuilder(d.ids, `shop-plate:${item.id}`, 'CShopPricePlate', { x, y, w: 99, h: 234 }, { z: 1020, state: count ? 2 : 0, price: item.price, rate: -1 });
   const n = page === 'packs' ? [1, 2, 3, 3] : [6, 4, 5, 5];
   pictureSwitch(b, d.ids, 'tag', n.map(k => `data/shop/shop_pricetag_0${k}_c01.png`) as [string, string, string, string], [0, 0, 128, 256], x, y, page === 'cards' ? 1021 : 1020,
-    { x, y, w: 99, h: 234 }, { checked: count > 0, disabled: !!item.owned }, { key: `shop-item:${item.id}`, label: `${d.name(item)}, ${item.price} MP${count ? `, ${count} in the cart` : ''}`, click: () => pick(item), pointer: over });
+    { x, y, w: 99, h: 234 }, { checked: count > 0, disabled: !!item.owned }, { key: `shop-item:${item.id}`, label: `${d.name(item)}, ${item.price} MP${count ? `, ${count} in the cart` : ''}`, click: () => pick(item), pointer: over, area: true });
   text(b, d.ids, 'price', x + 10, y + 216, 256, 256, `${item.price}MP${count > 1 ? ` x${count}` : ''}`, page === 'cards' ? 1024 : 1023);
   (b.win as Record<string, unknown>).parts = { sprites: [], labels: [], swfs: [] };
   return b.spec();
