@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown, openDeckEditor, exitDeckEditor, deckSide } from './harness';
 
 /** Duel cases ordinary play rarely reaches (control changes, tokens, counters, shuffles, declarations, ritual and
  * discard selections, cancellation), forced with tiny decks: a deck of 6 is the whole opening hand plus the first draw,
@@ -26,14 +26,17 @@ type View = { bar:string; players:string[]; cards:string[]; prompt:{ kind:string
 const VIEW = `(()=>{const ok=b=>!b.disabled&&b.getClientRects().length;const p=document.querySelector('.de-duel-prompt[role=dialog]');
   return {bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),
   cards:[...document.querySelectorAll('.de-field-card')].map(b=>b.getAttribute('aria-label')+(b.querySelector('.de-card-count')?' ×'+b.querySelector('.de-card-count').textContent:'')),
-  prompt:p?{kind:p.dataset.kind,id:p.dataset.prompt,text:p.innerText,buttons:[...p.querySelectorAll('button,input')].map(x=>(x.dataset.key||x.tagName)+'|'+(x.textContent||x.value)+(x.disabled?'|disabled':''))}:null,
+  prompt:p?{kind:p.dataset.kind,id:p.dataset.prompt,text:p.innerText,buttons:[...p.querySelectorAll('button,input')].map(x=>(x.dataset.key||x.tagName)+'|'+(x.textContent||x.value)+(x.disabled?'|disabled':''))}
+    :(()=>{const s=window.__deApp?.getState()?.duel?.prompt,pb=[...document.querySelectorAll('#htmlui-host [data-key^="prompt-"]')].filter(b=>b.getClientRects().length);
+      return s&&pb.length?{kind:s.kind,id:s.id,text:pb[0].closest('.win')?.innerText??'',buttons:pb.map(x=>x.dataset.key+'|'+(x.getAttribute('aria-label')||x.textContent.trim())+(x.disabled?'|disabled':''))}:null;})(),
   actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
   waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent),
   log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null,
   instruction:document.querySelector('.de-duel-instruction')?.textContent??null,
   badges:[...document.querySelectorAll('.de-field-card .de-badge')].map(b=>{const img=b.querySelector('.de-badge-icon img');return (b.closest('.de-field-card').getAttribute('aria-label')??'').split(',')[0]+' '+b.dataset.kind+'='+b.dataset.count+(img&&img.complete&&img.naturalWidth?' drawn':' not drawn');})}})()`;
 const view = (page:Page) => page.ev(VIEW) as Promise<View>;
-const promptButton = (label:string) => `[...document.querySelectorAll('.de-duel-prompt[role=dialog] button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`;
+/** A prompt's answer: main's duel dialogs (src/ui/htmlui/duel-dialogs.ts: prompt-option / prompt-cancel / prompt-confirm / prompt-ok), or the rewrite's own prompt. */
+const promptButton = (label:string) => `([...document.querySelectorAll('#htmlui-host [data-key^="prompt-"]')].find(b=>(b.getAttribute('aria-label')===${JSON.stringify(label)}||b.textContent.trim()===${JSON.stringify(label)})&&!b.disabled&&b.getClientRects().length)??[...document.querySelectorAll('.de-duel-prompt[role=dialog] button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled))`;
 async function opt(page:Page,label:string) { await until(page,promptButton(label),20000); await press(page,promptButton(label)); }
 const cardSel = (name:string,where:string) => `[...document.querySelectorAll('.de-field-card')].find(b=>{const l=b.getAttribute('aria-label')??'';return l.startsWith(${JSON.stringify(`${name}, ${where}`)})||l.startsWith(${JSON.stringify(`${name} (set face-down), ${where}`)})})`;
 const inspectorButton = (prefix:string) => `[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent.startsWith(${JSON.stringify(prefix)})&&!b.disabled)`;
@@ -128,20 +131,31 @@ async function finish(a:Page,b:Page) {
   return result;
 }
 
-/** Edit Deck → the deck select (retried while the editor still loads) → back to the lobby. */
+/** Edit Deck → LOAD DECK (main's deck screen: deck-load-deck, the file list, deck-files-ok) → the editor holds it → EXIT. */
 async function chooseDeck(page:Page,name:string,size:number) {
-  await click(page,'Edit Deck');
-  const sel = `document.querySelector('[data-key="deck-select"]')`;
-  await until(page,`${sel}&&[...${sel}.options].some(o=>o.value===${JSON.stringify(name)})`,60000);
+  await openDeckEditor(page);
+  // the file list's row: a labelled element, else the row's own text (main's list draws its rows as text)
+  const row = `([...document.getElementById('htmlui-host').querySelectorAll('[aria-label],button')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(name)}||e.textContent.trim()===${JSON.stringify(name)})&&e.getClientRects().length)??[...document.getElementById('htmlui-host').querySelectorAll('*')].find(e=>!e.children.length&&e.textContent.trim()===${JSON.stringify(name)}&&e.getClientRects().length))`;
   let current:string|null = null;
-  for (let i = 0; i < 10 && current !== name; i++) {
-    await page.ev(`(()=>{const s=${sel};s.value=${JSON.stringify(name)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-    await sleep(1500);
-    current = await page.ev(`fetch('/api/de/decks',{credentials:'same-origin'}).then(r=>r.json()).then(d=>d.current.world)`) as string;
+  for (let i = 0; i < 6 && current !== name; i++) {
+    await deckSide(page,'load'); await until(page,row,15000);
+    // a player clicks the row where its text is drawn (the text itself lets the pointer through to the list)
+    const at = await page.ev(`(()=>{const r=(${row}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+    await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...at }); await sleep(100);
+    await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...at,button:'left',clickCount:1 }); await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...at,button:'left',clickCount:1 });
+    await sleep(400);
+    await press(page,byKey('deck-files-ok')); await sleep(500);
+    if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await press(page,byKey('deck-dialog-yes'));
+    await sleep(1000);
+    current = await page.ev(`window.__deApp?.getState()?.deckEditor?.current?.name ?? null`) as string|null;
   }
   expect(current).toBe(name);
-  await until(page,`[...document.querySelectorAll('[data-key^="deck-card:main:"]')].length===${size}`,20000);
-  await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+  await until(page,`(window.__deApp?.getState()?.deckEditor?.current?.main?.length??-1)===${size}`,20000);
+  await exitDeckEditor(page);
+  // the world's deck the server keeps is the one loaded
+  let world:string|null = null;
+  for (let i = 0; i < 20 && world !== name; i++) { world = await page.ev(`fetch('/api/de/decks',{credentials:'same-origin'}).then(r=>r.json()).then(d=>d.current.world)`) as string; if (world !== name) await sleep(1000); }
+  expect(world).toBe(name);
 }
 const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 /** B challenges A; A wins rock-paper-scissors and goes first. Retries while the previous duel is still closing. */
@@ -149,7 +163,7 @@ async function startDuel(a:Page,b:Page,nameA:string) {
   for (let attempt = 0; ; attempt++) {
     try {
       await until(b,avatar(nameA),30000); await pressAvatar(b,avatar(nameA)); await until(b,cardButton('Send Duel Request'),10000);
-      await press(b,cardButton('Send Duel Request')); await click(a,'Accept Duel',15000);
+      await press(b,cardButton('Send Duel Request')); await until(a,byKey('duel-accept'),15000); await press(a,byKey('duel-accept'));
       break;
     } catch (error) { if (attempt >= 12) throw error; await closeCard(b).catch(() => {}); await sleep(5000); }
   }

@@ -262,6 +262,19 @@ export class HtmlUiLayer {
     // it); main's owned screens leave the scroller's clicks alone, so the list's control is clicked there
     const list = id ? this.listAt(e.target, id) : null;
     if (list) { const r = this.host.getBoundingClientRect(); void this.api.click(id, [(e.clientX - r.left) / this.scale, (e.clientY - r.top) / this.scale + list.scrollTop]); return; }
+    // a clickable text (a file list's row, CWindowTaskText): main draws it as text the pointer passes through, so the
+    // click lands on its window; the text under the pointer takes it, as the engine's hit test gave it
+    if (!id) {
+      const r = this.host.getBoundingClientRect(), x = (e.clientX - r.left) / this.scale, y = (e.clientY - r.top) / this.scale;
+      for (const spec of [...this.specs].reverse()) {
+        const w = spec.win;
+        if (x < w.x || y < w.y || x >= w.x + w.w || y >= w.y + w.h) continue;
+        const t = w.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
+        if (t) void this.api.click(t.id);
+        break;
+      }
+      return;
+    }
     if (!id || !this.handlers.get(id)?.click || !this.looks(id)) return;
     void this.api.click(id);
   };
