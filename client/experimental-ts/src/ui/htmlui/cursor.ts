@@ -4,10 +4,13 @@
 // (snapshot.cursor: CMouseManager's CHandCursorTask); the rewrite has no engine, so the sprites are built here from the
 // same files at the hand's place (-16,-16 of the point, 64 x 64, alpha-blend), in the state the pointer is in.
 // The original (yo2.exe CHandCursorTask: update 0x00615690, play 0x006149d0, setState 0x00614b90; its swfs
-// data/common/m_cursor/mausuk_a*.txt, 30 fps): the plain hand is mausuk_a01_c01 (n01_c01) at rest and a01_c02 (n01_c02)
-// while the left button is held, a press starting a click ripple (mausuk_ae1_c01: 15 frames, 500 ms); in its pointing
-// state (5) the hand is a02 (n02_c02 at rest, n02_c01 held) and a press makes no ripple; the busy hand is a07 (t01..t08,
-// each 4 frames at 30 fps: 7.5 images a second, the turn 32 frames).
+// data/common/m_cursor/mausuk_a*.txt, 30 fps), as live's engine hands it over (yo2Html.snapshot().cursor sampled on
+// live's title, 2026-11-11): the plain hand is n01_s + n01_c01 at rest; while the left button is held it is n02_s +
+// n02_c01 (on a plate or on nothing alike), and every press starts a click ripple (mausuk_e01_c01, 32 x 32, centred on
+// the press: 15 frames at 30 fps = 500 ms, fading in over 5 frames from 0.3x to 1x and alpha 0.8, then out over 9 to 2x
+// and alpha 0). The pointing hand (a02) is n02_c02 at rest over a control. The busy hand is a07 (t01..t08, each 4 frames
+// at 30 fps: 7.5 images a second, the turn 32 frames). Every state's art is in each snapshot (hidden), as the engine's
+// is, so cursor.js loads it all up front and no first press / hover / busy turn waits on a file.
 import { cursorCss, ripple, HD } from '@htmlui/cursor.js';
 
 export type CursorState = 'normal' | 'hover' | 'busy';
@@ -25,21 +28,30 @@ const sprite = (file: string, x: number, y: number, wz: number, opts: Partial<Cu
   id: nextId++, name: DIR + file, tex: DIR + file, src: [0, 0, 64, 64], wx: x, wy: y, wz, a: 1, col: [1, 1, 1, 1], add: [0, 0, 0, 0],
   shown: true, wsx: 1, wsy: 1, mode: 6, ...opts });
 
+/** The ripple's place in its 15 frames (f: 0..14): scale and alpha (live's engine: 0.3 + 0.14 f and 0.16 f up to
+ * frame 5, then 1 + (f - 5) / 9 and 0.8 (14 - f) / 9). */
+export function rippleFrame(f: number): { s: number; a: number } {
+  return f <= 5 ? { s: 0.3 + 0.14 * f, a: 0.16 * f } : { s: 1 + (f - 5) / 9, a: 0.8 * (14 - f) / 9 };
+}
+// every state's art, hidden: cursor.js loads what a snapshot names (the engine's snapshot names them all)
+const PRELOAD = ['n01_s', 'n01_c01', 'n02_s', 'n02_c01', 'n02_c02', 't01_s', ...Array.from({ length: BUSY_FRAMES }, (_, i) => `t0${i + 1}_c01`)];
+
 /** The hand's sprites for a state at the mouse point (game px); t: ms, for the busy hand's turn and the ripple. */
 export function cursorSprites(state: CursorState, mx: number, my: number, t: number, clicks: readonly { x: number; y: number; at: number }[] = [], down = false): CursorSnap {
   const x = mx - 16, y = my - 16;
   const hand = state === 'busy'
     ? [sprite('mausuk_t01_s.png', x, y, 61013), sprite(`mausuk_t0${busyFrame(t)}_c01.png`, x, y, 61015)]
-    : state === 'hover'
+    : down || state === 'hover'
       ? [sprite('mausuk_n02_s.png', x, y, 61013), sprite(down ? 'mausuk_n02_c01.png' : 'mausuk_n02_c02.png', x, y, 61015)]
-      : [sprite('mausuk_n01_s.png', x, y, 61013), sprite(down ? 'mausuk_n01_c02.png' : 'mausuk_n01_c01.png', x, y, 61015)];
-  // the ripple: grows from half size to whole and fades out where the click landed
-  const rings = clicks.flatMap(c => {
-    const k = (t - c.at) / RIPPLE_MS; if (k < 0 || k >= 1) return [];
-    const s = 0.5 + 0.5 * k;
-    return [sprite('mausuk_e01_c01.png', c.x - 32 * s, c.y - 32 * s, 61017, { wsx: s, wsy: s, a: 1 - k })];
+      : [sprite('mausuk_n01_s.png', x, y, 61013), sprite('mausuk_n01_c01.png', x, y, 61015)];
+  // the ripple: centred where the press landed, at the swf's 30 fps
+  const rings = clicks.flatMap((c, i) => {
+    const f = Math.floor((t - c.at) * SWF_FPS / 1000); if (f < 0 || f > 14) return [];
+    const { s, a } = rippleFrame(f); if (a <= 0) return [];
+    return [sprite('mausuk_e01_c01.png', c.x - 16 * s, c.y - 16 * s, 61003 + i, { src: [0, 0, 32, 32], wsx: s, wsy: s, a })];
   });
-  return { id: 1, shown: true, mx, my, sprites: [...hand, ...rings] };
+  const hidden = [...PRELOAD.map(n => sprite(`mausuk_${n}.png`, 0, 0, 0, { shown: false })), sprite('mausuk_e01_c01.png', 0, 0, 0, { src: [0, 0, 32, 32], shown: false, a: 0 })];
+  return { id: 1, shown: true, mx, my, sprites: [...hand, ...rings, ...hidden] };
 }
 
 /** What the pointer is over: something the player can press (the hand points), else the plain hand. */
@@ -76,10 +88,10 @@ export class GameCursor {
     return [(e.clientX - (r?.left ?? 0)) / s, (e.clientY - (r?.top ?? 0)) / s, s];
   }
   private onMove = (e: PointerEvent): void => { [this.mx, this.my] = this.game(e); this.over = e.target instanceof Element ? e.target : null; };
-  // a press: the held hand; a ripple where it landed, except in the pointing state (the original's state 5)
+  // a press: the held hand and a ripple where it landed, on a control or on nothing alike (live's engine)
   private onDown = (e: PointerEvent): void => {
     if (e.button !== 0) return; this.down = true;
-    if (this.o.busy() || pointsAt(e.target instanceof Element ? e.target : null)) return;
+    if (this.o.busy()) return;
     const [x, y] = this.game(e); this.clicks = [...this.clicks.filter(c => performance.now() - c.at < RIPPLE_MS), { x, y, at: performance.now() }];
   };
   private onUp = (e: PointerEvent): void => { if (e.button === 0) this.down = false; };
@@ -92,7 +104,10 @@ export class GameCursor {
     const snap = cursorSprites(this.state, this.mx, this.my, t, this.clicks, this.down);
     let css: string | null | undefined = null;
     try { css = cursorCss(snap, this.o.art, scale, globalThis.devicePixelRatio || 1); } catch { css = null; }
-    if (css !== undefined) this.set(css);
+    // undefined: this state's image is still being built; null: its art is still loading. Either way the last cursor
+    // stays (live falls back to the engine's drawn hand there; the rewrite has none, so dropping it showed the system
+    // arrow or a control's own `cursor: pointer` for the first moments of every new state)
+    if (css !== undefined && (css !== null || this.now === null)) this.set(css);
     Object.assign(this.fx.style, { left: (r?.left ?? 0) + 'px', top: (r?.top ?? 0) + 'px', transform: `scale(${scale})` });
     this.drawRipple(ripple(snap) as CursorSprite[]);
   }
