@@ -19,7 +19,7 @@ async function matchRooms(page:Page,owner:string) { await searchPlayers(page,'Se
 /** Everything a page keeps where a password could leak: markup, input values, storage, console. */
 const exposed = (page:Page) => page.ev(`[document.documentElement.outerHTML,...[...document.querySelectorAll('input')].map(i=>i.value),JSON.stringify(localStorage),JSON.stringify(sessionStorage),document.cookie].join('\\n')`) as Promise<string>;
 const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
-const resultOf = (page:Page) => page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
+const resultOf = (page:Page) => page.ev(`window.__duelEnd() ?? ''`) as Promise<string>;
 async function surrenderAt10(a:Page,b:Page,loser:Page) {
   // Before turn 10 the server refuses with its information box; the duel goes on.
   await click(loser,'Surrender',60000);
@@ -31,7 +31,7 @@ async function surrenderAt10(a:Page,b:Page,loser:Page) {
   await click(loser,'Surrender',60000);
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
   await until(loser,yes,60000); await press(loser,yes);
-  for (const p of [a,b]) await until(p,`document.querySelector('.de-duel-end')||${sideboard}`,90000);
+  for (const p of [a,b]) await until(p,`window.__duelEnd()||${sideboard}`,90000);
   return { refusal:refusal.trim(),turn:played.turn,agreements:played.agreements };
 }
 

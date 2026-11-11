@@ -29,7 +29,7 @@ const VIEW = `(()=>{const ok=b=>!b.disabled&&b.getClientRects().length;const p=d
   prompt:p?{kind:p.dataset.kind,id:p.dataset.prompt,text:p.innerText,buttons:[...p.querySelectorAll('button,input')].map(x=>(x.dataset.key||x.tagName)+'|'+(x.textContent||x.value)+(x.disabled?'|disabled':''))}:null,
   actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
   waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent),
-  log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null,
+  log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),ended:window.__duelEnd()??null,
   instruction:document.querySelector('.de-duel-instruction')?.textContent??null,
   badges:[...document.querySelectorAll('.de-field-card .de-badge')].map(b=>{const img=b.querySelector('.de-badge-icon img');return (b.closest('.de-field-card').getAttribute('aria-label')??'').split(',')[0]+' '+b.dataset.kind+'='+b.dataset.count+(img&&img.complete&&img.naturalWidth?' drawn':' not drawn');})}})()`;
 const view = (page:Page) => page.ev(VIEW) as Promise<View>;
@@ -118,11 +118,11 @@ async function inspectStats(page:Page,name:string,where:string):Promise<string> 
 }
 /** Decline chain questions on both pages until the duel ends; returns both result banners. */
 async function finish(a:Page,b:Page) {
-  for (let i = 0; i < 200 && !(await a.ev(`Boolean(document.querySelector('.de-duel-end'))`)); i++) {
+  for (let i = 0; i < 200 && !(await a.ev(`Boolean(window.__duelEnd())`)); i++) {
     for (const p of [a,b]) { const v = await view(p); if (v.prompt?.kind === 'yes-no') await opt(p,'No'); else if (!v.prompt && v.actions.includes('End Turn')) await click(p,'End Turn'); }
     await sleep(400);
   }
-  const result = [await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`),await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)] as string[];
+  const result = [await a.ev(`window.__duelEnd()`),await b.ev(`window.__duelEnd()`)] as string[];
   for (const p of [a,b]) if (await p.ev(`Boolean(${byText('Return to Lobby')})`)) await click(p,'Return to Lobby');
   for (const p of [a,b]) await until(p,lobbyShown,60000);
   return result;

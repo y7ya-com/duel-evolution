@@ -240,8 +240,8 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(mutedCues).toBe(0);
       // Surrender: the result slot; back in the lobby the area track returns and nothing is left playing.
       if (!(await page.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`))) await surrender(page);
-      await until(page,`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`,30000);
-      const result = await page.ev(`document.querySelector('.de-duel-end').getAttribute('aria-label')`) as string;
+      await until(page,`window.__duelEnd()`,30000);
+      const result = await page.ev(`window.__duelEnd()`) as string;
       const resultTrack = result === 'Victory' ? 'win.wav' : result === 'Draw' ? 'draw.wav' : 'lose.wav';
       await until(page,`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()===${JSON.stringify(resultTrack)}`,20000);
       timeline.push(`${result}:${(await playing(page)).join(',')}`);

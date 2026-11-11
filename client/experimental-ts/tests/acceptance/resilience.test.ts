@@ -138,7 +138,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const ends = log.filter(l => l === `${me} ends the turn.`).length;
       await screenshot(page,'resilience-duel-resumed');
       const presses = await giveUp(page);
-      const result = await page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`);
+      const result = await page.ev(`window.__duelEnd()`);
       expect(result).toBe('Defeat');
       const resumes = await page.ev(`window.__net.urls.filter(u=>u.includes('resume=1')).length`) as number;
       expect(resumes).toBeGreaterThanOrEqual(4);
@@ -214,7 +214,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const lp = await page.ev(`[...document.querySelectorAll('.de-lp-value')].map(n=>n.textContent).join('/')`);
       expect(lp).toBe('8,000/8,000');
       const presses = await giveUp(page);
-      const result = await page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`);
+      const result = await page.ev(`window.__duelEnd()`);
       seen.push(`duel: reload (closing ${goodbye}) → ${after.scene} with ${after.field} field cards; new duel at ${lp} → ${result} (${presses} Surrender press${presses === 1 ? '' : 'es'})`);
       const errors = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`);
       record('reconnect.scenes',{ actions:'Reload the page in the lobby, the shop, the deck editor and an NPC duel; Go Online and select the character each time; start a new duel',

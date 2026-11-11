@@ -59,7 +59,7 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       for (const started = Date.now(); Date.now() - started < 240000 && await turn() < 10;) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(150); }
       await surrender(a);
       for (const p of [a,b]) await until(p,byText('Return to Lobby'),60000);
-      const result = await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`);
+      const result = await a.ev(`window.__duelEnd()`);
       for (const p of [a,b]) await click(p,'Return to Lobby');
       // Back in World mode nothing changed.
       await backToWorld(a,names.a);

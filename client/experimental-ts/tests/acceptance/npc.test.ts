@@ -63,7 +63,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       await until(page,`${yes}||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,30000);
       if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
       await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
-      const rematch = await page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`);
+      const rematch = await page.ev(`window.__duelEnd()`);
       expect(rematch).toBe('Defeat');
       record('npc.rewards',{ actions:'Rematch the same NPC and surrender', expected:'Rematch lifecycle works', observed:`second duel started and ended by surrender: ${rematch}` });
       void text;

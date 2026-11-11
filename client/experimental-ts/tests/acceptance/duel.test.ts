@@ -17,7 +17,7 @@ const SNAP = `(()=>{
   return {cards,players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',
     log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt:prompt?{id:prompt.dataset.prompt??'',kind:prompt.dataset.kind??'',text:prompt.getAttribute('aria-label')??''}:null,
     actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
-    inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??null,
+    inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:window.__duelEnd()??null,
     waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:document.body.innerText.includes('Resolving duel animations'),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
 })()`;
 const snap = (page:Page) => page.ev(SNAP) as Promise<Snap>;
@@ -323,8 +323,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         if (turnOf(sa) >= 14 && !result) {
           // A long duel: B surrenders (the server confirms from turn 10).
           await checkpoint('before surrender');
-          await surrender(b); await until(a,`document.querySelector('.de-duel-end')`,60000); ended = `B surrendered on turn ${turnOf(sa)}`;
-          result = `${await a.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)}/${await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label')`)}`;
+          await surrender(b); await until(a,`window.__duelEnd()`,60000); ended = `B surrendered on turn ${turnOf(sa)}`;
+          result = `${await a.ev(`window.__duelEnd()`)}/${await b.ev(`window.__duelEnd()`)}`;
           break;
         }
       }

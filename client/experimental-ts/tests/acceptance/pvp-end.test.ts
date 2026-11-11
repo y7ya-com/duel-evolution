@@ -83,7 +83,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       const idle = await a.ev(`Boolean(${yourTurn})`) ? a : b, other = idle === a ? b : a;
       const clocks = await settled(a,b);
       const waited = Date.now();
-      for (const p of [a,b]) await until(p,`document.querySelector('.de-duel-end')`,300000);
+      for (const p of [a,b]) await until(p,`window.__duelEnd()`,300000);
       const timeout = { idle:await read(idle), other:await read(other), after:Math.round((Date.now() - waited) / 1000), text:await idle.ev(`[...document.querySelectorAll('.de-duel-notice,.de-duel-log div')].map(n=>n.textContent).filter(t=>/time/i.test(t)).slice(-2).join(' | ')`) as string };
       expect(timeout.idle.ended).toBe('Defeat'); expect(timeout.other.ended).toBe('Victory');
       await screenshot(idle,'pvp-timeout-loser');
@@ -114,7 +114,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await screenshot(b,'npc-spectator');
       const played = playDuel(a,{ timeout:480000 });
       let lastTurn = join.turn, updates = 0;
-      for (let i = 0; i < 4000 && !(await b.ev(`Boolean(document.querySelector('.de-duel-end'))||!document.querySelector('.de-duel-board')`)); i++) {
+      for (let i = 0; i < 4000 && !(await b.ev(`Boolean(window.__duelEnd())||!document.querySelector('.de-duel-board')`)); i++) {
         const now = (await read(b)).turn; if (now > lastTurn) { updates++; lastTurn = now; } await sleep(150);
       }
       const result = await played, seen = await read(b);
@@ -123,7 +123,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       record('spectate.visibility',{ actions:'Spectator screen during an NPC duel', expected:'Hide private cards and prohibit player responses from observers', observed:`${cards.length} cards visible, every hand card a back; controls: ${join.controls.join(', ') || 'none'}` });
       // The duel ends while B watches; Leave Duel returns B to a usable lobby.
       await sleep(2000);
-      const endSeen = await b.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? (document.querySelector('.de-duel-board') ? 'board still shown' : 'left the duel view')`) as string;
+      const endSeen = await b.ev(`window.__duelEnd() ?? (document.querySelector('.de-duel-board') ? 'board still shown' : 'left the duel view')`) as string;
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Leave Duel')`)) await click(b,'Leave Duel');
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`)) await click(b,'Return to Lobby');
       await until(b,inLobby,60000);

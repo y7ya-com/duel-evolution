@@ -205,7 +205,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       await press(pages[loser]!,yes);
       turns.log.push(`turn ${turns.turn}: surrender confirmation (Yes/No) shown only to the pilot (${confirmOnly.map(String).join('/')})`);
       record('tag.relay',{ actions:`A+C vs B+D: RPS by the captains; ${turns.log.length} turns played through each pilot's duel screen (End Turn, summons by the bot); every page sampled at each turn`, expected:'Turn relay, shared field, perspective, prompts and teammate visibility remain correct', observed:turns.log.join('; ') });
-      const results = await Promise.all(pages.map(p => until(p,`document.querySelector('.de-duel-end')`,60000).then(() => p.ev(`document.querySelector('.de-duel-end').getAttribute('aria-label')`) as Promise<string>)));
+      const results = await Promise.all(pages.map(p => until(p,`window.__duelEnd()`,60000).then(() => p.ev(`window.__duelEnd()`) as Promise<string>)));
       for (const [i,r] of results.entries()) expect(r).toBe(roles.team[i] === loserTeam ? 'Defeat' : 'Victory');
       await screenshot(pages[roles.partnerOf[loser]!]!,'tag-end-partner');
       for (const p of pages) await click(p,'Return to Lobby',60000);
@@ -222,7 +222,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       const gone = roles2.partnerOf[roles2.captains[1]!]!, goneTeam = roles2.team[gone]!;
       await click(pages[gone]!,'Return to Title');
       const stay = pages.filter((_,i) => i !== gone);
-      const results2 = await Promise.all(stay.map(p => until(p,`document.querySelector('.de-duel-end')`,60000).then(() => p.ev(`document.querySelector('.de-duel-end').getAttribute('aria-label')`) as Promise<string>)));
+      const results2 = await Promise.all(stay.map(p => until(p,`window.__duelEnd()`,60000).then(() => p.ev(`window.__duelEnd()`) as Promise<string>)));
       const stayIdx = pages.map((_,i) => i).filter(i => i !== gone);
       for (const [k,r] of results2.entries()) expect(r).toBe(roles2.team[stayIdx[k]!] === goneTeam ? 'Defeat' : 'Victory');
       for (const p of stay) await click(p,'Return to Lobby',60000);

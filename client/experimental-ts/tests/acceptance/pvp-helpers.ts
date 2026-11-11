@@ -54,7 +54,7 @@ export const read = (page:Page) => page.ev(`(()=>{
     hand:cards.filter(l=>/, your hand/.test(l)&&!l.startsWith('Face-down')).map(l=>l.split(', your hand')[0]),handBacks:cards.filter(l=>l==='Face-down card, your hand').length,
     opponentHand:cards.filter(l=>/opponent hand/.test(l)).map(l=>l.startsWith('Face-down')?'back':l.split(',')[0]),
     clock:[...document.querySelectorAll('.de-duelist')].map(d=>[...d.querySelectorAll('.de-duel-clock')].map(n=>n.textContent).find(t=>t.startsWith('Time'))??''),
-    ended:document.querySelector('.de-duel-end')?.getAttribute('aria-label')??'',prompt:!!document.querySelector('.de-duel-prompt[role=dialog]'),
+    ended:window.__duelEnd()??'',prompt:!!document.querySelector('.de-duel-prompt[role=dialog]'),
     controls:[...document.querySelectorAll('.de-duel-actions button,.de-duel-prompt button')].filter(b=>!b.disabled).map(b=>b.textContent)};})()`) as Promise<DuelReading>;
 /** A's own side is B's opponent side and vice versa. */
 export function mirrored(x:DuelReading,y:DuelReading):string[] {

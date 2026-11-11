@@ -97,6 +97,12 @@ export async function press(page:Page,selector:string):Promise<void> {
 }
 /** Avatars spawn at random points and can sit under the chat or area panel, where a player would walk closer first. */
 export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
+/** The duel's end as the player reads it: main's result.js boards (CWindowResult, the player's on the left: its title
+ * WIN / LOSE / DRAW) as 'Victory' / 'Defeat' / 'Draw'; the rewrite's own banner (.de-duel-end) without the HTML UI.
+ * Installed in every client page as window.__duelEnd(): null while the duel goes on. */
+const DUEL_END = `window.__duelEnd=()=>{const b=document.querySelector('.de-duel-end');if(b)return b.getAttribute('aria-label');
+  const r=[...document.querySelectorAll('#htmlui-host .win[data-window-class="CWindowResult"]')].filter(e=>e.getClientRects().length).sort((x,y)=>x.getBoundingClientRect().left-y.getBoundingClientRect().left)[0];
+  if(!r)return null;const t=r.innerText.split(/\\n/).map(l=>l.trim());return t.includes('WIN')?'Victory':t.includes('LOSE')?'Defeat':t.includes('DRAW')?'Draw':(t.find(l=>/ wins$|^(Victory|Defeat|Draw)$/.test(l))??'ended');};`;
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>(b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art). */
@@ -151,7 +157,7 @@ export async function openClient(page:Page,cookies:{ name:string; value:string }
     const r = await page.send('Network.setCookie',{ name:c.name,value:c.value,url:CLIENT,path:'/',httpOnly:true,secure:c.name.startsWith('__Secure-'),sameSite:'Lax' });
     if (!r.result?.success) throw new Error('cookie refused: ' + c.name);
   }
-  await page.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{if(!sessionStorage.getItem('acc-init')){sessionStorage.setItem('acc-init','1');localStorage.setItem('de-client-settings-v1',JSON.stringify(${JSON.stringify({ reducedMotion:true,sound:0,music:0,...options.settings })}));}}catch{};window.confirm=()=>true;` });
+  await page.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{if(!sessionStorage.getItem('acc-init')){sessionStorage.setItem('acc-init','1');localStorage.setItem('de-client-settings-v1',JSON.stringify(${JSON.stringify({ reducedMotion:true,sound:0,music:0,...options.settings })}));}}catch{};window.confirm=()=>true;${DUEL_END}` });
   await page.go(`${CLIENT}/?portOffset=1000${options.assets === false ? '' : '&assets=/game-assets/'}`,`document.querySelector('.de-client')`);
 }
 /** A character's row in Select Player (main's screen: src/ui/htmlui), by name. */
@@ -312,7 +318,7 @@ export async function playDuel(page:Page,options:{ attack?:boolean; summon?:bool
     if (await duelBot(page,options) === 'finished') break;
     await sleep(150);
   }
-  return page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
+  return page.ev(`window.__duelEnd() ?? ''`) as Promise<string>;
 }
 /** The NPC's card → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
 export async function startNpcDuel(page:Page,npc:string) {
