@@ -13,7 +13,7 @@ import chat from '@htmlui/screens/chat.js';
 import lobby from '@htmlui/screens/lobby.js';
 import social from '@htmlui/screens/social.js';
 import dialog from '@htmlui/screens/dialog.js';
-import duelsetup from '@htmlui/screens/duelsetup.js';
+import duelsetup, { prep as duelsetupPrep } from '@htmlui/screens/duelsetup.js';
 import deck from '@htmlui/screens/deck.js';
 import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
@@ -31,7 +31,8 @@ import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './sn
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
 const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel, avatar, result];
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts)
-const PASS = new Set<HtmlUiScreen>([avatar]);   // Change Avatar: its plates are drawn, the clicks hit-tested here
+const PASS = new Set<HtmlUiScreen>([avatar]);
+const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT   // Change Avatar: its plates are drawn, the clicks hit-tested here
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
@@ -268,6 +269,9 @@ export class HtmlUiLayer {
   }
   private tag(win: HtmlWindow, root: HTMLElement): void {
     const spec = this.specs.find(s => s.win.id === win.id); if (!spec) return;
+    // a window main's module lays out again (duelsetup.js relayout / tagRow: the Duel menu's switches on its own grid,
+    // Cancel a row lower): its controls' elements are where the module draws them, not at their places in the window
+    const placed = new Map(RELAID.has(win.cls) ? duelsetupPrep(win).controls.map(c => [c.id, c]) : []);
     const rr = root.getBoundingClientRect(), k = this.scale;
     const els = [...root.querySelectorAll<HTMLElement>('button, input, textarea, [role="log"]')].map(el => {
       const r = el.getBoundingClientRect();
@@ -276,12 +280,13 @@ export class HtmlUiLayer {
     const now = new Set<HTMLElement>();
     for (const c of win.controls) {
       const h = spec.handlers.get(c.id); if (!h || !c.shown) continue;   // a hidden control's element keeps no key
+      const p = placed.get(c.id) ?? c;
       const input = !!(h.text || h.enter);
       // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
       const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
       const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
       const at = tab ?? els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
-        e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el;
+        e.x >= p.x && e.x < p.x + p.w && e.y >= p.y && e.y < p.y + p.h).sort((a, b) => a.area - b.area)[0]?.el;
       if (!at) continue;
       this.elementIds.set(at, c.id);
       // a pass-mode screen's button (tabIndex -1: the game had the keys) is a real one here: focusable, Enter / Space
