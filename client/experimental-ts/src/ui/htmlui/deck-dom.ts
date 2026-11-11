@@ -205,11 +205,19 @@ export class DeckDom {
     }
     e.used = this.frame; e.images.add(img);
     if (e.url) img.src = e.url;
+    // art that fails to decode is unpinned at once and not asked for again while it stays in use
+    const entry = e;
+    img.onerror = () => {
+      if (!entry.lease) return;
+      entry.failed = true; entry.url = null; entry.lease.release(); entry.lease = null;
+      for (const i of entry.images) { i.removeAttribute('src'); i.style.visibility = 'hidden'; }
+    };
   }
   private touch(img: HTMLImageElement): void { for (const e of this.art.values()) if (e.images.has(img)) e.used = this.frame; }
   private prune(): void {
     for (const [code, e] of this.art) {
-      for (const i of e.images) if (i.isConnected === false) e.images.delete(i);
+      // a picture no longer on the page lets go of the art's URL (its lease may live on in the card's other pictures)
+      for (const i of e.images) if (i.isConnected === false) { e.images.delete(i); i.removeAttribute('src'); i.onerror = null; }
       if (!e.images.size && this.frame - e.used > 3) { e.abort.abort(); e.lease?.release(); this.art.delete(code); }
     }
   }

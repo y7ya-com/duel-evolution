@@ -18,6 +18,8 @@ export class TestNode {
   onerror: (() => void) | null = null;
   private listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
   owner: TestDocument;
+  /** Opt-in (TestDocument.connected): attached to a registered root, as a page's DOM is; otherwise unknown. */
+  get isConnected(): boolean | undefined { const roots = this.owner.connected; if (!roots) return undefined; let n: TestNode = this; while (n.parentNode) n = n.parentNode; return roots.has(n); }
   constructor(tag: string, owner: TestDocument) { this.tagName = tag.toUpperCase(); this.owner = owner; }
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void { let entries = this.listeners.get(type); if (!entries) this.listeners.set(type, entries = new Set()); entries.add(listener); }
   removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void { this.listeners.get(type)?.delete(listener); }
@@ -52,6 +54,8 @@ export class TestNode {
 }
 export class TestDocument {
   activeElement: TestNode | null = null;
+  /** The roots a test treats as on the page (null: isConnected stays undefined). */
+  connected: Set<TestNode> | null = null;
   createElement(tag: string): TestNode { return new TestNode(tag, this); }
   createTextNode(text: string): TestNode { const node = new TestNode('#text', this); node.nodeText = text; return node; }
 }

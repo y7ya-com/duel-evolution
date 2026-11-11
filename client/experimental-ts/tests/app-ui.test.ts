@@ -46,8 +46,21 @@ function harness() {
     sessionFactory: o => { options = o; return game as unknown as GameSession; } });
   const root = document.createElement('div'), mounted = mountClient(root as unknown as HTMLElement, app);
   const enter = async () => { await app.initialize(); await flush(); findButton(root, 'Go Online').onclick?.({}); await flush(); expect(mounted.htmlUi.text()).toContain('Alice'); expect(mounted.htmlUi.press('character-slot:0')).toBe(true); await flush(); };
-  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); findButton(root, 'Test NPC').onclick?.({}); await flush(); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
-  return { app, game, api, session, root, mounted, enter, startNpc, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
+  // main's lobby windows (htmlui/lobby.ts): the player list's search menu, its row, and a list row pressed at its game
+  // point (the row's centre), as main's screens press it
+  const control = (label: string, cls?: string) => { for (const spec of mounted.htmlUi.windows()) if (!cls || spec.win.cls === cls) for (const [id, h] of spec.handlers) if (h.label === label && !h.key) return { spec, h, c: spec.win.controls.find(c => c.id === id)! }; return undefined; };
+  const pressRow = (label: string, row: number, cls?: string) => { const t = control(label, cls); expect(t).toBeDefined(); t!.h.click!([t!.spec.win.x + t!.c.x + 8, t!.spec.win.y + t!.c.y + 16 * row + 8]); };
+  const pickNpc = async (name: string, id: number) => {
+    expect(mounted.htmlUi.press('plist-search')).toBe(true); await flush(); pressRow('Search', 6, 'CFindMenu'); await flush();   // Show all: NPCs too
+    const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[]; expect(rows.some(r => r.endsWith(`/${name}`))).toBe(true); pressRow('Players here', rows.findIndex(r => r.endsWith(`/${name}`))); await flush();
+    expect(mounted.htmlUi.press(`npc-duel:${id}`)).toBe(true); await flush();
+  };
+  const openPlayer = async (name: string) => {
+    const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[], row = rows.findIndex(r => r.endsWith(`/${name}`));
+    expect(row).toBeGreaterThanOrEqual(0); pressRow('Players here', row, 'CPlayerListDlg'); await flush();
+  };
+  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); await pickNpc('Test NPC', 1); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
+  return { app, game, api, session, root, mounted, enter, startNpc, pickNpc, openPlayer, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
 }
 afterEach(() => vi.unstubAllGlobals());
 
@@ -84,11 +97,11 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.mounted.htmlUi.type('chat', '/w Bob Hello')).toBe(true); expect(f.mounted.htmlUi.enter('chat')).toBe(true); await flush();
     expect(f.api.sendChat).toHaveBeenCalledWith(expect.objectContaining({ channel: 'whisper', text: 'Hello', targetPid: 88, requestId: expect.any(String) }), expect.any(Object)); f.dispose();
   });
-  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
-  it.skip('selects a server-listed lobby area through the UI', async () => {
+  it('selects a server-listed lobby area through the UI', async () => {
     const f = harness(); await f.enter(); f.session.areas = [{ area: 3, block: 1, kind: 0, population: 2 }]; f.emit(); await flush();
-    const area = f.root.querySelectorAll('select').find(n => n.dataset.key === 'lobby-area')!;
-    expect(area).toBeDefined(); area.value = '3/1'; area.onchange?.({}); await flush();
+    // the menu bar's Move key opens main's Move list (CWindowModelMove), a row per server-listed area
+    expect(f.mounted.htmlUi.press('menubar-move')).toBe(true); await flush();
+    expect(f.mounted.htmlUi.press('move-area:3/1')).toBe(true); await flush();
     expect(f.game.enterArea).toHaveBeenCalledWith(3); expect(f.app.getState().lobby?.name).toContain('Area 3'); f.dispose();
   });
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
@@ -100,15 +113,13 @@ describe('actual ClientApp mounted through semantic UI', () => {
     expect(f.api.purchase).toHaveBeenCalledWith({ itemId: 10, count: 1, requestId: 'server-token' }, expect.any(Object));
     expect(f.app.getState().shop?.mp).toBe(900); f.dispose(); delete (globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
   });
-  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
-  it.skip('starts the selected NPC from the explicit server NPC list without invented coordinates', async () => {
+  it('starts the selected NPC from the explicit server NPC list without invented coordinates', async () => {
     const f = harness(); await f.enter(); f.session.npcs = [{ id: 5, name: 'A-lien', parts: new Uint8Array(), threshold: 0, spot: 42, previous: 0 }]; f.emit(); await flush();
-    findButton(f.root, 'A-lien').onclick?.({}); await flush();
+    await f.pickNpc('A-lien', 5);
     expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); findButton(f.root, 'Duel NPC').onclick?.({}); await flush();
     expect(f.game.startNpcDuel).toHaveBeenCalledWith(5, { main: [1], side: [], extra: [] }); f.dispose();
   });
-  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
-  it.skip('shows and submits every duel-preparation step through the session controller', async () => {
+  it('shows and submits every duel-preparation step through the session controller', async () => {
     const f = harness(); await f.enter(); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
@@ -119,10 +130,11 @@ describe('actual ClientApp mounted through semantic UI', () => {
     const f = harness(); await f.enter(); f.session.challenge = { pid: 88, name: 'Bob', level: 1, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();
     expect(f.mounted.htmlUi.press('duel-accept')).toBe(true); await flush(); expect(f.game.replyToChallenge).toHaveBeenCalledWith(true); expect(f.app.getState().lobby?.invitation).toBeUndefined(); f.dispose();
   });
-  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
-  it.skip('enters and leaves a server-owned spectator stream without a surrender command', async () => {
-    const f = harness(); await f.enter(); f.session.rooms = [{ id: 9, owner: 88, opponent: 99, state: 1, style: 3, mode: 1, password: false, options: [1, 1, 0] }]; f.emit(); await flush();
-    findButton(f.root, 'Watch').onclick?.({}); await flush(); expect(f.game.watchDuel).toHaveBeenCalledWith(88); expect(f.app.getState().duel?.spectating).toBe(true);
+  it('enters and leaves a server-owned spectator stream without a surrender command', async () => {
+    const f = harness(); await f.enter(); f.session.rooms = [{ id: 9, owner: 88, opponent: 99, state: 1, style: 3, mode: 1, password: false, options: [1, 1, 0] }];
+    f.session.players.find(p => p.pid === 88)!.state = 0x68; f.emit(); await flush();   // Bob is duelling (the server's 0x67..0x6a)
+    // main's lobby: Bob's row in the player list opens his card (CPlayerListMenu), whose Watch button spectates his duel
+    await f.openPlayer('Bob'); expect(f.mounted.htmlUi.press('card-watch')).toBe(true); await flush(); expect(f.game.watchDuel).toHaveBeenCalledWith(88); expect(f.app.getState().duel?.spectating).toBe(true);
     findButton(f.root, 'Leave Duel').onclick?.({}); await flush(); expect(f.game.finishDuel).toHaveBeenCalledTimes(1); expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.app.getState().scene).toBe('lobby');
     await f.app.dispatch({ type: 'settings', settings: { reducedMotion: true } });
     expect(f.app.getState().duel).toBeNull(); f.dispose();
@@ -136,10 +148,11 @@ describe('actual ClientApp mounted through semantic UI', () => {
     resolveDecks({ current: { world: null, free: null }, decks: [], deleted: [] }); await boot.catch(() => {}); await flush();
     expect(f.app.getState().connection).toBe('offline'); expect(f.app.getState().player).toBeNull(); expect(f.app.getState().scene).toBe('title'); f.dispose();
   });
-  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
-  it.skip('sends surrender as a server request and never asserts local victory or defeat', async () => {
+  it('sends surrender as a server request and never asserts local victory or defeat', async () => {
     const f = harness(); await f.enter(); await f.startNpc(); await f.app.dispatch({ type: 'beginDuel' }); await flush();
     findButton(f.root, 'Surrender').onclick?.({}); await flush();
+    // the confirmation is main's Yes / No dialog (dialog.js); nothing is sent until Yes
+    expect(f.game.sendDuel).not.toHaveBeenCalled(); expect(f.mounted.htmlUi.press('surrender-yes')).toBe(true); await flush();
     const [id, bytes] = f.game.sendDuel.mock.calls[0] as unknown as [number, Uint8Array];
     expect(id).toBe(0x6350); expect(bytes).toHaveLength(16); expect(new DataView(bytes.buffer).getUint32(12)).toBe(10);
     expect(f.app.getState().duel?.ended).toBeUndefined(); f.dispose();
