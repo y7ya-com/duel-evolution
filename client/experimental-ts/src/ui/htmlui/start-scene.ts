@@ -78,21 +78,26 @@ export class StartScene {
       const instance = new SwfInstance(movie, movie.timeline, true), n = this.view.reducedMotion ? 0 : this.frame % movie.frameCount;
       for (let i = 0; i <= n; i++) instance.step();
       const items: Parameters<SwfInstance['draw']>[0] = []; instance.draw(items);
-      for (const item of items) {
-        const file = movie.files[item.bitmap]; if (!file) continue;
-        const img = this.images.get(`data/menu/${file.replace('?', 'j')}`); if (!img) continue;
-        ctx.save();
-        const k = 1 / 20, m = item.clipMatrix, b = item.clip;
-        ctx.setTransform(k, 0, 0, k, LOGO_AT.x, LOGO_AT.y);
-        ctx.transform(m.a, m.b, m.c, m.d, m.tx, m.ty); ctx.beginPath(); ctx.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); ctx.clip();
-        ctx.setTransform(k, 0, 0, k, LOGO_AT.x, LOGO_AT.y);
-        const f = item.matrix; ctx.transform(f.a, f.b, f.c, f.d, f.tx, f.ty);
-        ctx.globalAlpha = Math.max(0, Math.min(1, item.color.mult[3] + item.color.add[3] / 255));
-        if (ctx.globalAlpha > 0) ctx.drawImage(img, 0, 0);
-        ctx.restore();
-      }
+      drawSwfItems(ctx, items, movie, file => this.images.get(`data/menu/${file.replace('?', 'j')}`), LOGO_AT);
     }
     if (this.view.portrait && this.portrait) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(this.portrait, PORTRAIT_AT.x, PORTRAIT_AT.y); }
   }
   dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.element.remove(); }
+}
+
+/** Draws one frame's bitmap items of a movie (twips, each clipped to its shape's bounds) with its origin at `at`. */
+export function drawSwfItems(ctx: CanvasRenderingContext2D, items: Parameters<SwfInstance['draw']>[0], movie: SwfMovie, image: (file: string) => HTMLImageElement | null | undefined, at: { x: number; y: number }): void {
+  for (const item of items) {
+    const file = movie.files[item.bitmap]; if (!file) continue;
+    const img = image(file); if (!img) continue;
+    ctx.save();
+    const k = 1 / 20, m = item.clipMatrix, b = item.clip;
+    ctx.setTransform(k, 0, 0, k, at.x, at.y);
+    ctx.transform(m.a, m.b, m.c, m.d, m.tx, m.ty); ctx.beginPath(); ctx.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); ctx.clip();
+    ctx.setTransform(k, 0, 0, k, at.x, at.y);
+    const f = item.matrix; ctx.transform(f.a, f.b, f.c, f.d, f.tx, f.ty);
+    ctx.globalAlpha = Math.max(0, Math.min(1, item.color.mult[3] + item.color.add[3] / 255));
+    if (ctx.globalAlpha > 0) ctx.drawImage(img, 0, 0);
+    ctx.restore();
+  }
 }

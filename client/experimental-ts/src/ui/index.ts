@@ -57,6 +57,7 @@ import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene } from './htmlui/start-scene';
+import { TitleScene } from './htmlui/title-scene';
 import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
 import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
 export type * from './contracts';
@@ -147,6 +148,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // snapshots the rewrite builds; browser only (the layer needs a real document)
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
   let startScene: StartScene | null = null;
+  let titleScene: TitleScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
   let gameCursor: GameCursor | null = null;
   let menuView: MenuView | null = null;
@@ -712,6 +714,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   function renderTitle(): void {
     const n = sceneRoot('Title'), panel = el('section', 'de-panel de-center de-stack');
+    // the engine's title movie under the controls (htmlui/title-scene.ts), over the 2008 backdrop
+    if (controller.loadArchiveImage) { titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller)); n.append(titleScene.element); titleScene.show(!!state.settings.reducedMotion); }
     panel.append(title('Duel Evolution'), el('p', '', 'Welcome to Duel Academy.'));
     if (state.auth?.signedIn) {
       panel.append(el('p', '', `Signed in${state.auth.name ? ` as ${state.auth.name}` : ''}.`), button(state.connection === 'online' ? 'Continue' : 'Go Online', () => state.connection === 'online' ? open('characters') : send({ type: 'connect', freeMode: false }), !!state.busy, true), button('Sign Out', () => send({ type: 'signOut' }), !!state.busy));
@@ -1228,6 +1232,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
       if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
+      if (state.scene !== 'title') titleScene?.hide();
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
