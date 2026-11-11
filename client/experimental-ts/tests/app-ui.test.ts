@@ -117,7 +117,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('renders and accepts an actual session invitation through the app', async () => {
     const f = harness(); await f.enter(); f.session.challenge = { pid: 88, name: 'Bob', level: 1, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();
-    findButton(f.root, 'Accept Duel').onclick?.({}); await flush(); expect(f.game.replyToChallenge).toHaveBeenCalledWith(true); expect(f.app.getState().lobby?.invitation).toBeUndefined(); f.dispose();
+    expect(f.mounted.htmlUi.press('duel-accept')).toBe(true); await flush(); expect(f.game.replyToChallenge).toHaveBeenCalledWith(true); expect(f.app.getState().lobby?.invitation).toBeUndefined(); f.dispose();
   });
   // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
   it.skip('enters and leaves a server-owned spectator stream without a surrender command', async () => {

@@ -77,7 +77,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await searchPlayers(a,'Search for Single Duels'); await until(a,listRow(names.b),30000);
       await playerMenu(a,names.b,'Send Duel Request');
       await until(b,invitation,20000);
-      await press(b,`[...document.querySelectorAll('[aria-label="Duel Invitation"] button')].find(x=>x.textContent==='Accept Duel')`);
+      await press(b,`document.querySelector('[data-key="duel-accept"]')`);
       await startBoth(a,b);
       await until(a,`${yourTurn}`,60000).catch(() => {});
       const idle = await a.ev(`Boolean(${yourTurn})`) ? a : b, other = idle === a ? b : a;

@@ -64,6 +64,7 @@ describe('actual headless browser against real game authority',() => {
       const starter = await browser.ev(`document.body.innerText.includes('Choose your Starter Deck')`);
       if (starter) {
         await activate(browser,`[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`,viewport.mobile);
+        await until(browser,`document.querySelector('[data-key="starter-yes"]')`); await activate(browser,`document.querySelector('[data-key="starter-yes"]')`,viewport.mobile);
         await until(browser,`!document.body.innerText.includes('Choose your Starter Deck')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
