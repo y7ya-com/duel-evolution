@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { SocialController } from '../src/features/social';
-import { renderSocialFeature, renderTradeWindow } from '../src/ui/extra/social';
+import { renderSocialFeature, renderTradeTrunk } from '../src/ui/extra/social';
 import { TestDocument, findButton } from './ui-dom-fixture';
 import type { TestNode } from './ui-dom-fixture';
 import { payload } from '../src/gameplay/binary';
@@ -25,13 +25,11 @@ it('keeps drafts across live rerenders, renders server text literally and addres
   findButton(mail, 'Keep editing').onclick!({}); expect(send).not.toHaveBeenCalled();
   mail.onsubmit!({ preventDefault() {} }); findButton(mail, 'Confirm').onclick!({}); expect(send.mock.calls[0][0].id).toBe(0x4600);
 });
-it('shows the trade as cards picked from the server trunk and needs a second click to ready', () => {
+it('shows the trade trunk as cards picked from the server trunk (main\'s HTML trade windows own Ready/Confirm)', () => {
   vi.stubGlobal('document', new TestDocument());
   const send = vi.fn(), c = new SocialController({ send, onChange: vi.fn() });
   c.dispatch({ type: 'inviteTrade', pid: 1004 }); c.receive({ id: 0x7105, data: new Uint8Array(4) }); send.mockClear();
   const card = (passcode: number) => ({ id: String(passcode), passcode, name: `Named ${passcode}` });
-  const trade = renderTradeWindow(c.state.trade, a => c.dispatch(a), c.state, { card }) as unknown as TestNode;
-  expect(trade.textContent).toContain('Trade with');
-  findButton(trade, 'Ready').onclick!({}); expect(send).not.toHaveBeenCalled(); findButton(trade, 'Confirm').onclick!({}); expect([...send.mock.calls[0][0].data]).toEqual([0x71, 0x17, 1]);
-  expect(renderTradeWindow({ ...c.state.trade, phase: 'idle' }, () => {}, c.state)).toBeNull();
+  const trunk = renderTradeTrunk(c.state.trade, a => c.dispatch(a), { card, open: true }) as unknown as TestNode;
+  expect(trunk.getAttribute('aria-label')).toBe('Card Swap'); expect(send).not.toHaveBeenCalled();
 });

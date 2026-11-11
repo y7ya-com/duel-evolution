@@ -93,13 +93,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-zone-title { padding:3px 7px; background:#075db9; color:white; display:flex; justify-content:space-between; }
 .de-deck-zone { background:#effcffaa; margin-bottom:6px; min-height:70px; }
 .de-collection { display:flex; flex-direction:column; gap:7px; min-height:0; }
-.de-shop-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; align-content:start; }
-.de-shop-item { background:#effcff; border:1px solid #75a8c5; padding:10px; display:flex; flex-direction:column; gap:8px; }
-.de-shop-item { min-width:0; }
-.de-shop-item h3 { font-size:14px; }
-.de-shop-art { height:120px; width:100%; object-fit:contain; display:flex; justify-content:center; }
-.de-shop-art>.de-card { height:100%; aspect-ratio:.7; }
-.de-shop-about { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 .de-relay-roster { position:absolute; top:70px; left:12px; right:12px; display:flex; justify-content:space-between; pointer-events:none; z-index:4; }
 .de-relay-team { width:180px; display:flex; flex-direction:column; gap:4px; }
 .de-relay-team:last-child { text-align:right; }
@@ -152,15 +145,20 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-mail-item summary { cursor:pointer; font-weight:bold; }
 .de-mail-body { white-space:pre-wrap; padding:4px 8px; }
 .de-confirm { display:inline-flex; gap:6px; align-items:center; flex-wrap:wrap; }
-.de-trade-window { position:absolute; z-index:20; left:50%; top:50%; transform:translate(-50%,-50%); width:min(94%,820px); max-height:92%; overflow:auto; display:flex; flex-direction:column; gap:8px; }
-.de-trade-columns { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.de-trade-side,.de-trade-picker { background:#effcffd9; border:1px solid #75a8c5; padding:6px; border-radius:4px; }
-.de-trade-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(70px,1fr)); gap:6px; margin-top:5px; }
-.de-trade-trunk { max-height:240px; overflow:auto; }
-.de-trade-card { display:flex; flex-direction:column; gap:3px; align-items:stretch; }
-.de-trade-card>.de-card { aspect-ratio:.7; }
+.de-trade-scene { position:absolute; inset:0; z-index:20; overflow:hidden; }
+.de-trade-trunk-panel { position:absolute; left:${736 / 10.24}%; top:0; width:${288 / 10.24}%; height:${608 / 7.68}%; display:flex; flex-direction:column; box-sizing:border-box; padding:4px 6px; gap:4px;
+  background:linear-gradient(#cfd6e6,#a9b4cc); border:1px solid #f4f8ff; box-shadow:inset 0 0 0 1px #6f7fa3; font:13px/1.2 Arial,sans-serif; color:#0d1d33; }
+.de-trade-trunk-panel header { display:flex; justify-content:space-between; align-items:center; }
+.de-trade-trunk-panel h3 { margin:0; font:italic 900 22px/1 Arial Black,Arial,sans-serif; color:#ffe14a; -webkit-text-stroke:1px #6b3c00; letter-spacing:.02em; }
+.de-trade-count { padding:1px 8px; border-radius:6px; background:linear-gradient(#5a5f6b,#2c2f36); color:#fff; font-weight:bold; }
+.de-trade-trunk-panel input[type=search] { width:100%; box-sizing:border-box; }
+.de-trade-trunk { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:1px; background:#9aa6bf; }
+.de-trade-card { display:grid; grid-template-columns:38px 1fr auto; align-items:center; gap:6px; min-height:56px; padding:2px 4px; background:#e6fbf0; border-left:6px solid #35d36a; }
+.de-trade-card:nth-child(even) { background:#d8f4e6; }
+.de-trade-thumb { width:38px; height:52px; display:block; }
+.de-trade-thumb>.de-card { width:100%; height:100%; }
+.de-trade-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; }
 .de-trade-card button { min-height:22px; padding:1px 4px; font-size:11px; }
-.de-trade-picker input[type=search] { width:100%; margin-top:4px; }
 .de-trade-result { font-weight:bold; color:#16733a; }
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
@@ -208,7 +206,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; flex:1; }
 .de-shop-cosmetics { flex:none; max-height:40%; overflow:auto; background:#effcff; border:1px solid #75a8c5; padding:7px; }
 .de-shop-cosmetics>summary { font-weight:bold; cursor:pointer; }
-.de-shop-receipt { flex:none; max-height:40%; overflow:auto; border:1px solid #75a8c5; padding:7px; background:#effcff; }
 .de-receipt-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:5px; }
 .de-profile-panel { position:absolute; z-index:9; left:50%; top:70px; transform:translateX(-50%); width:min(92%,440px); max-height:calc(100% - 90px); overflow:auto; padding:12px; }
 .profile-feature { display:flex; flex-direction:column; gap:9px; }

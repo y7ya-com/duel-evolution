@@ -12,13 +12,19 @@ import lobby from '@htmlui/screens/lobby.js';
 import social from '@htmlui/screens/social.js';
 import dialog from '@htmlui/screens/dialog.js';
 import duelsetup from '@htmlui/screens/duelsetup.js';
+import shop from '@htmlui/screens/shop.js';
+import trade from '@htmlui/screens/trade.js';
+import { pictures, balloon } from './pictures';
 import { applyPointer, hitTest } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
-const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, dialog, duelsetup];
-const EXTRA: Record<string, HtmlUiScreen> = {};
+const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, shop, trade, dialog, duelsetup];
+// what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
+const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
+// the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js): clicked on release
+const REBUILT = /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/;
 // a window with no module: main's generic controls (bridge.js: syncWindow)
 const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(),
   update: (win, _prev, root, api, st) => api.syncWindow!(root, win, st as Map<number, unknown>),
@@ -30,7 +36,7 @@ export class HtmlUiLayer {
   readonly host: HTMLElement;
   private specs: WindowSpec[] = []; private handlers = new Map<number, ControlHandlers>();
   private render: ((snap: unknown, owned: Set<number>, api: HtmlUiApi) => void) | null = null;
-  private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false;
+  private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false; private released = false;
   private roots = new Map<number, HTMLElement>(); private scale = 1; private disposed = false;
   private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
   private tagged = new WeakMap<HTMLElement, Set<HTMLElement>>();   // per window root: the elements tag() keyed
@@ -56,7 +62,7 @@ export class HtmlUiLayer {
       const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
       // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
       // over everything the engine draws
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] .txt { pointer-events: none; }';
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] .txt { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);
@@ -148,14 +154,25 @@ export class HtmlUiLayer {
   }
   private onMove = (e: PointerEvent): void => {
     const [x, y] = this.point(e), id = hitTest(this.specs, x, y, (h, w) => !!h.hover && this.declared.get(w.cls) !== 'owned')?.id ?? 0;
-    if (id !== this.hover) { this.hover = id; if (this.pressed && id !== this.pressed) this.pressed = 0; this.draw(); }
+    if (id !== this.hover) { const was = this.hover; this.hover = id; if (this.pressed && id !== this.pressed) this.pressed = 0; this.handlers.get(was)?.pointer?.(false); this.handlers.get(id)?.pointer?.(true); this.draw(); }
   };
   private onDown = (e: PointerEvent): void => { if (e.button !== 0) return; this.onMove(e); if (this.hover) { this.pressed = this.hover; this.draw(); } };
-  private onUp = (): void => { if (this.pressed) { this.pressed = 0; this.draw(); } };
+  // main's shop.js and trade.js rebuild their windows on every change (the pressed look too), so the browser's click
+  // never lands on the button pressed: there the engine's rule, a release over the control pressed clicks it
+  private onUp = (e: PointerEvent): void => {
+    const was = this.pressed; if (!was) return;
+    this.pressed = 0;
+    const win = this.specs.find(s => s.handlers.has(was))?.win;
+    if (win && REBUILT.test(win.cls) && e.button === 0) {
+      const [x, y] = this.point(e);
+      if (hitTest(this.specs, x, y, h => !!h.click)?.id === was) { this.released = true; setTimeout(() => { this.released = false; }, 0); void this.api.click(was); }
+    }
+    this.draw();
+  };
   private onOut = (e: PointerEvent): void => { if (!this.host.contains(e.relatedTarget as Node | null) && (this.hover || this.pressed)) { this.hover = this.pressed = 0; this.draw(); } };
   // A module main runs in pass mode draws buttons the engine would click: the click lands on the control under it
   private onClick = (e: MouseEvent): void => {
-    if (this.clicked) return;
+    if (this.clicked || this.released) return;
     // the element's control (a keyboard press has no pointer position), else the control under the pointer
     const el = (e.target as Element | null)?.closest?.('button'), byEl = el ? this.elementIds.get(el) : undefined;
     const [x, y] = this.point(e), c = byEl !== undefined ? this.specs.flatMap(s => s.win.controls).find(k => k.id === byEl) ?? null : hitTest(this.specs, x, y, h => !!h.click);
@@ -169,7 +186,9 @@ export class HtmlUiLayer {
   /** main's module, owned, with what the rewrite adds after each update: data-key / aria-label on the elements that
    * stand for the controls that have them (found by where they are: main's screens place one per control). */
   private wrap(mod: HtmlUiScreen): HtmlUiScreen {
-    return { ...mod, mode: 'owned',
+    // the shop's and the trade's roots overlap (the mileage plate over the item window's Confirm): as on main, where the
+    // engine has the pointer, only their buttons take it
+    return { ...mod, mode: 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
       mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
       update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); },
       unmount: (root, st) => { mod.unmount?.(root, st); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };

@@ -70,10 +70,10 @@ export const SKIN_CSS = `
 .de-client details[open]>summary::before { transform:rotate(90deg); }
 .de-client details>summary:hover { filter:brightness(1.08); }
 .de-client details[open]>summary { margin-bottom:5px; }
-.de-client :is(.de-account-details,.de-audio-details,.de-deck-tools,.de-deck-filters,.de-shop-cosmetics,.de-shop-receipt) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
+.de-client :is(.de-account-details,.de-audio-details,.de-deck-tools,.de-deck-filters,.de-shop-cosmetics) { background:#effcffd9; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738; }
 
 /* Inset wells and list rows. */
-.de-client :is(.de-social-card,.de-trade-side,.de-trade-picker,.de-shop-item,.de-profile-comments,.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
+.de-client :is(.de-social-card,.de-profile-comments,.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
 .de-client .de-social-card h3 { margin:-8px -10px 4px; padding:3px 10px; color:#fff; ${OUTLINE}; font-size:13px; background:linear-gradient(180deg,#d8faff,#79d6fc 12%,#2189e4 70%,#145ec9); border-bottom:1px solid #104eaa; }
 .de-client .de-social-row { border-bottom:1px solid #b3d9ec; padding:3px 4px; }
 .de-client .de-social-row:nth-child(even) { background:#d8eff966; }
@@ -153,8 +153,6 @@ export const SKIN_CSS = `
 .de-client .de-profile-panel button:active:not(:disabled) { box-shadow:inset 1px 1px #7f7f7f,inset 2px 2px #a6a6a6,inset -1px -1px #fff,inset 3px 3px #c1c1c1; }
 
 /* Shop: pack plates in wells; MP in gold. */
-.de-client .de-shop-item h3 { color:#0d4f8c; }
-.de-client .de-shop-item>strong { color:#a0560c; }
 
 @media(max-width:700px) { .de-client .de-lobby-places { max-height:calc(100% - 200px); } }
 `;

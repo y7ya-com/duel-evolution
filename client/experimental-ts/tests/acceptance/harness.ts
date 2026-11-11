@@ -198,7 +198,15 @@ export function record(flow:string,observation:{ actions:string; expected:string
   appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),test,...observation }) + '\n');
 }
 function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
-export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/acceptance',{ recursive:true }); writeFileSync(`/tmp/acceptance/${name}.png`,await page.shot()); }
+/** Screenshots go to ACCEPTANCE_SHOTS (default /tmp/acceptance). */
+const SHOTS = process.env.ACCEPTANCE_SHOTS ?? '/tmp/acceptance';
+export async function screenshot(page:Page,name:string) { mkdirSync(SHOTS,{ recursive:true }); writeFileSync(`${SHOTS}/${name}.png`,await page.shot()); }
+/** The game screen alone at 1024 x 768 (the stage, scaled to the original's size), for side-by-side with the original. */
+export async function stageShot(page:Page,name:string) {
+  const r = await page.ev(`(()=>{const b=document.querySelector('.de-stage').getBoundingClientRect();return {x:b.left,y:b.top,w:b.width}})()`) as { x:number; y:number; w:number };
+  const shot = await page.send('Page.captureScreenshot',{ format:'png',clip:{ x:r.x,y:r.y,width:r.w,height:r.w * 0.75,scale:1024 / r.w } });
+  mkdirSync(SHOTS,{ recursive:true }); writeFileSync(`${SHOTS}/${name}.png`,Buffer.from(shot.result.data,'base64'));
+}
 
 /** One move of a playing bot on the duel screen, through the same controls a player uses. On its own turn it inspects
  * each hand card once for a summon or set, enters the Battle Phase and attacks with each monster once, then ends the

@@ -52,11 +52,11 @@ describe('UI ownership and semantic interaction', () => {
     findButton(f.root, 'Find Opponent').onclick?.({}); expect(f.commands).toEqual([{ type: 'startMatchmaking', style: 6, similarLevel: true }]); expect(f.root.textContent).not.toContain('Searching for an opponent');
     f.update({ matchmaking: { ...matchmaking, status: 'searching' } }); await Promise.resolve(); findButton(f.root, 'Cancel Search').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'cancelMatchmaking' }); expect(f.root.textContent).toContain('Room counts include all queued rooms'); f.mounted.dispose();
   });
-  it('renders server purchase receipts with bounded artwork and preserves replay labels', async () => {
+  it('leaves a purchase receipt to main\'s HTML shop and Card Get (no rewrite receipt panel)', async () => {
     const release = vi.fn(), loader = vi.fn(async () => ({ url: 'blob:https://game.test/card1', release })), f = fixture(loader);
     f.update({ scene: 'shop', shop: { items: [], mp: 100, purchased: [{ id: '1', passcode: 1, name: 'Actual reward', description: 'A real effect' }], replayed: true } }); await Promise.resolve(); await Promise.resolve();
-    expect(f.root.textContent).toContain('Acquired Cards (1) · Previous receipt'); const preview = f.root.querySelectorAll('button').find(n => n.getAttribute('aria-label') === 'Inspect Actual reward')!; preview.onclick?.({}); await Promise.resolve(); expect(f.root.textContent).toContain('A real effect');
-    expect(loader).toHaveBeenCalledOnce(); f.update({ scene: 'title' }); await Promise.resolve(); expect(release).toHaveBeenCalledOnce(); f.mounted.dispose();
+    // The receipt is main's Card Get (card-get.ts, from shop.opening) over the HTML shop, not the old receipt panel.
+    expect(f.root.textContent).not.toContain('Acquired Cards'); f.update({ scene: 'title' }); await Promise.resolve(); expect(release.mock.calls.length).toBe(loader.mock.calls.length); f.mounted.dispose();
   });
   it('disposes its subscription, mounted nodes and queued renders; detached actions do nothing', async () => {
     const f = fixture(), oldButton = findButton(f.root, 'Options'), oldHost = f.root.childNodes[0];
