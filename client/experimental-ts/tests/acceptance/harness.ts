@@ -199,8 +199,14 @@ export async function enterWorld(page:Page,name:string) {
 }
 /** Go Online again with an existing character (after a reload or a dropped connection). */
 export async function reenterWorld(page:Page,name:string) {
-  await click(page,'Go Online',60000);
-  await until(page,characterSlot(name),60000); await press(page,characterSlot(name));
+  // after a reload the server may still hold the last session ('already logged in', main's error dialog): its OK
+  // (Close), then Go Online again, as a player would
+  for (let attempt = 0; attempt < 8 && !(await page.ev(`Boolean(${characterSlot(name)})`)); attempt++) {
+    if (await page.ev(`Boolean(${byKey('error-ok')})`)) { await press(page,byKey('error-ok')); await sleep(5000); }
+    await click(page,'Go Online',60000);
+    await until(page,`${characterSlot(name)}||${byKey('error-ok')}`,60000);
+  }
+  await until(page,characterSlot(name),10000); await press(page,characterSlot(name));
   await until(page,lobbyShown,60000);
 }
 /** The place banner's names (main's CWindowModelPlace: the world, then the area), as 'World · Area'. */
@@ -370,7 +376,7 @@ export const deckSide = (page:Page,button:keyof typeof DECK_SIDE) => press(page,
 /** EXIT the deck screen back to the lobby (answering a keep/discard question with Yes when there are edits). */
 export async function exitDeckEditor(page:Page) {
   for (let i = 0; i < 5 && await page.ev(`Boolean(${DECK_VIEW})`); i++) {
-    await deckSide(page,'exit'); await sleep(800);
+    await deckSide(page,'exit').catch(() => {}); await sleep(800);   // a press as the screen closes finds EXIT gone
     for (const label of ['Yes','OK']) if (await page.ev(`Boolean(${byText(label)})`)) { await press(page,byText(label)).catch(() => {}); await sleep(500); }
   }
   await until(page,lobbyShown,60000);
