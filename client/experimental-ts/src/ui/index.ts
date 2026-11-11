@@ -12,6 +12,8 @@ import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
+import { audioWindow, optionsWindow, type OptionsDeps, type OptionsUi } from './htmlui/options';
+import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
 import { renderSocialFeature, renderTradeTrunk } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
@@ -255,7 +257,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...duelSpecs(), ...prepSpecs()];
+  // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
+  let optionsUi: OptionsUi | null = null;
+  const optionsSpecs = (): WindowSpec[] => {
+    if (!optionsUi || state.scene === 'title' || state.scene === 'settings') { optionsUi = null; return []; }
+    const display = browserDisplay.state, a = state.audio;
+    const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading,
+      fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
+      ...(a ? { audio: { music: a.music, sound: a.sound, activated: a.activated, slots: a.slots }, audioAction: (action: AudioAction) => send({ type: 'audioAction', action }) } : {}),
+      set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
+    return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
+  };
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
@@ -1018,10 +1031,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
             ? { label: 'Return to the World', key: 'leave-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: false }); } }
             : { label: 'Return to your Room', key: 'my-room', disabled: blocked || sideboard || !!state.duel, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'myRoom', enter: true }); } },
         ] : []),
-        { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: go('settings') },
+        { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         ...(state.mode !== 'free' ? [
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
-          { label: 'Audio', key: 'audio', disabled: blocked, run: go('settings') },
+          { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; showHtml(); } },
           // the rewrite's own social page (finding a player, answering friend and team invitations), not yet main's
           { label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: go('social') },
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene

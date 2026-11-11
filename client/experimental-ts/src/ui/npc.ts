@@ -11,9 +11,22 @@ export interface NpcPanelOptions {
   /** main's pack picker (htmlui/npc-pack.ts, CWindowPackSelect) takes the pack pick: the panel leaves its buttons out. */
   htmlPackSelect?: boolean;
 }
+// The NPC's talk in the original's balloon (CWindowModelBalloon; the look of the shop clerk's, htmlui/pictures.ts
+// CShopBalloon: a white rounded box with a black rim, a tail out to the speaker, black Arial 16), its buttons main's
+// Legacy text switches under the line.
+const BALLOON_CSS = `.de-npc-balloon { position: relative; background: #fff; color: #000; border: 2px solid #1a1a1a; border-radius: 26px;
+  box-shadow: inset 0 0 0 2px #cfd8de; padding: 22px 36px 18px; font: 16px/22px Arial, Helvetica, sans-serif; max-width: 486px; }
+.de-npc-balloon::before { content: ''; position: absolute; left: 60px; bottom: -28px; width: 28px; height: 28px; background: #1a1a1a; clip-path: polygon(0 0, 100% 0, 30% 100%); }
+.de-npc-balloon::after { content: ''; position: absolute; left: 63px; bottom: -23px; width: 22px; height: 24px; background: #fff; clip-path: polygon(0 0, 100% 0, 30% 100%); }
+.de-npc-balloon :is(h2, h3, p) { color: #000; margin: 0 0 8px; font: inherit; }
+.de-npc-balloon h2 { font-weight: bold; }
+.de-npc-balloon button { font: 14px Arial, Helvetica, sans-serif; color: #000; background: linear-gradient(#f4f4f4, #c9c9c9); border: 1px solid #555; border-radius: 3px; padding: 3px 14px; margin: 4px 8px 0 0; }
+.de-npc-balloon button:hover:not(:disabled) { background: linear-gradient(#fff, #dadada); }
+.de-npc-balloon button:disabled { color: #888; }`;
 /** State comes from acknowledged native dialogue/grant orchestration, never local outcomes. */
 export function renderNpcFeature(state: Readonly<NpcState>, dispatch: (command: NpcCommand) => void, options: NpcPanelOptions = {}): HTMLElement {
-  const root = document.createElement('section'); root.className = 'de-panel de-npc-panel de-stack'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'NPC interaction');
+  if (typeof document?.getElementById === 'function' && document.head && !document.getElementById('de-npc-balloon-css')) { const st = document.createElement('style'); st.id = 'de-npc-balloon-css'; st.textContent = BALLOON_CSS; document.head.append(st); }
+  const root = document.createElement('section'); root.className = 'de-panel de-npc-panel de-npc-balloon de-stack'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'NPC interaction');
   const text = (tag: 'h2' | 'h3' | 'p', value: string, cls = '') => { const node = document.createElement(tag); node.className = cls; node.textContent = value; root.append(node); return node; };
   const button = (label: string, command: NpcCommand, disabled = false) => { const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.disabled = !!options.busy || disabled; node.dataset.key = `npc:${state.npc?.id}:${command.type}:${'pack' in command ? command.pack : label}`; node.onclick = () => { if (!node.disabled) dispatch(command); }; root.append(node); return node; };
   text('h2', state.npc?.name ?? 'NPC', 'de-panel-title');
