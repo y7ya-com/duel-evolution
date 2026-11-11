@@ -75,6 +75,11 @@ declare module '@htmlui/cosmetics/trade-cosmetics.js' {
   export const CARD_SWAP: number;
 }
 
+declare module '@htmlui/cursor.js' {
+  export const HD: number;
+  export function cursorCss(c: unknown, base: string, scale: number, dpr: number): string | null | undefined;
+  export function ripple(c: unknown): unknown[];
+}
 declare module '@htmlui/chat-bubbles.js' {
   export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
 }

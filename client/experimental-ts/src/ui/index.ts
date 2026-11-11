@@ -33,6 +33,7 @@ import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
+import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
@@ -122,6 +123,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
   let startScene: StartScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
+  let gameCursor: GameCursor | null = null;
   let menuView: MenuView | null = null;
   const profileActions = (): { label: string; key: string; run(): void; disabled?: boolean }[] => {
     const p = state.profileDetail; if (!p || p.selectedPid === null) return [];
@@ -334,7 +336,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
     // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over)
-    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
+    const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
+    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
@@ -408,6 +411,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const r = avatarNodes.get(a.id)!.getBoundingClientRect(); if (!r.width && !r.height) return [];
           return [{ pid: a.id, name: a.name, x: (r.left + r.width / 2 - box.left) / box.width * 1024, y: (r.top - box.top) / box.height * 768 }]; });
       } });
+      // live's HD game cursor (main's cursor.js) and its click ripple, the busy hand while the app waits
+      gameCursor?.dispose();
+      gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
       deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
@@ -1145,5 +1151,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; gameCursor?.dispose(); gameCursor = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
