@@ -41,6 +41,8 @@ html.de-phone-page, html.de-phone-page body { overflow:hidden; overscroll-behavi
    --de-frame-s; main's HTML layer scales itself by the same factor): px sizes shrink, % placement stays the stage's.
    The world view and the lobby canvas size themselves to the stage. */
 .de-client.de-phone>.de-stage>:where(:not(canvas,.de-world-view,.de-stage-layer,.de-avatar)) { zoom:var(--de-frame-s,1); }
+/* the world's name tags too (the chibis scale with the world view; a tag's 16 px is the game's, at the frame's scale) */
+.de-client.de-phone .de-avatar-name { zoom:var(--de-frame-s,1); }
 .de-phone input, .de-phone textarea, #htmlui-host input, #htmlui-host textarea { user-select:text; -webkit-user-select:text; touch-action:manipulation; }
 #de-fs { position:fixed; z-index:47; width:32px; height:32px; padding:7px; border:0; border-radius:6px; background:rgba(0,0,0,.45); color:#fff; opacity:.35; cursor:pointer; transition:opacity .15s; }
 #de-fs:hover, #de-fs:focus-visible { opacity:1; }
