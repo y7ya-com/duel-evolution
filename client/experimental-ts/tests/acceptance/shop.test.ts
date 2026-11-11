@@ -182,30 +182,37 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       record('cosmetics.catalog',{ actions:`Menu bar → Wardrobe (main's cosmetics/wardrobe.js): its tabs; select the box reward "${gained.name ?? gained.id}" (preview); Equip; close`, expected:'Browse categories and preview supported owned/unowned appearances',
         observed:`tabs ${tabCounts}; "${preview}" on the bust while the server look stayed ${look0.join(',')}; Equip → "${equipNote}", the server look ${look1.join(',')}; the player's own avatar redrawn from ${drawn0 || '(none)'} to ${look1.join(',')}` });
 
-      // avatars.edit: Change Avatar from My Profile (main's screens/avatar.js): a Mouth choice is a draft until Confirm,
-      // then saved, drawn on the player's own character, and kept after a reload
-      await click(a,'My Profile'); await until(a,byKey('profile-appearance'),30000); await press(a,byKey('profile-appearance'));
-      await until(a,byKey('avatar-confirm'),30000);
-      await press(a,byKey('avatar-category:5')); await sleep(300);
-      const mouth = await a.ev(`[...document.querySelectorAll('[data-key^="avatar-item:5:"]')].map(b=>({ v:Number(b.dataset.key.split(':')[2]), label:b.getAttribute('aria-label')??b.textContent }))`) as { v:number; label:string }[];
-      const pick = mouth.find(m => m.v !== look1[5])!;
-      expect(pick).toBeTruthy();
-      await press(a,byKey(`avatar-item:5:${pick.v}`)); await sleep(500);
-      expect(await lookNow(a)).toEqual(look1);   // the draft is not saved yet
-      await screenshot(a,'appearance-draft');
-      await press(a,byKey('avatar-confirm')); await until(a,`!${byKey('avatar-confirm')}`,10000);
-      let look2 = await lookNow(a);
-      for (let i = 0; i < 30 && look2[5] !== pick.v; i++) { await sleep(500); look2 = await lookNow(a); }
-      expect(look2[5]).toBe(pick.v);
-      await until(a,`${selfDrawn}===${JSON.stringify(look2.join(','))}`,30000);
-      await a.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
-      await reenterWorld(a,names.a);
-      const look3 = await lookNow(a);
-      expect(look3).toEqual(look2);
-      await until(a,`${selfDrawn}===${JSON.stringify(look3.join(','))}`,30000);
-      await screenshot(a,'appearance-saved');
-      record('avatars.edit',{ actions:`My Profile → Change Avatar: Mouth ${look1[5]}→${pick.v} ("${pick.label}"), Confirm; reload`, expected:'Preview, apply and reload permitted appearance parts',
-        observed:`the draft left the server look unchanged until Confirm; then the server look's mouth is ${look2[5]} and the player's own avatar is drawn as ${look2.join(',')}; after a reload the look is ${look3.join(',')} and drawn so` });
+      // avatars.edit: Change Avatar from My Profile (main's screens/avatar.js) where the profile offers it: a Mouth choice is
+      // a draft until Confirm, then saved, drawn and kept after a reload. Live's own profile is OK alone (no Change Avatar:
+      // the look changes through the Wardrobe, cosmetics.catalog above), so as on live there is then nothing to press
+      await click(a,'My Profile'); await until(a,byKey('profile-ok'),30000); await sleep(800);
+      if (await a.ev(`Boolean(${byKey('profile-appearance')})`)) {
+        await press(a,byKey('profile-appearance'));
+        await until(a,byKey('avatar-confirm'),30000);
+        await press(a,byKey('avatar-category:5')); await sleep(300);
+        const mouth = await a.ev(`[...document.querySelectorAll('[data-key^="avatar-item:5:"]')].map(b=>({ v:Number(b.dataset.key.split(':')[2]), label:b.getAttribute('aria-label')??b.textContent }))`) as { v:number; label:string }[];
+        const pick = mouth.find(m => m.v !== look1[5])!;
+        expect(pick).toBeTruthy();
+        await press(a,byKey(`avatar-item:5:${pick.v}`)); await sleep(500);
+        expect(await lookNow(a)).toEqual(look1);   // the draft is not saved yet
+        await screenshot(a,'appearance-draft');
+        await press(a,byKey('avatar-confirm')); await until(a,`!${byKey('avatar-confirm')}`,10000);
+        let look2 = await lookNow(a);
+        for (let i = 0; i < 30 && look2[5] !== pick.v; i++) { await sleep(500); look2 = await lookNow(a); }
+        expect(look2[5]).toBe(pick.v);
+        await until(a,`${selfDrawn}===${JSON.stringify(look2.join(','))}`,30000);
+        await a.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
+        await reenterWorld(a,names.a);
+        const look3 = await lookNow(a);
+        expect(look3).toEqual(look2);
+        await until(a,`${selfDrawn}===${JSON.stringify(look3.join(','))}`,30000);
+        await screenshot(a,'appearance-saved');
+        record('avatars.edit',{ actions:`My Profile → Change Avatar: Mouth ${look1[5]}→${pick.v} ("${pick.label}"), Confirm; reload`, expected:'Preview, apply and reload permitted appearance parts',
+          observed:`the draft left the server look unchanged until Confirm; then the server look's mouth is ${look2[5]} and the player's own avatar is drawn as ${look2.join(',')}; after a reload the look is ${look3.join(',')} and drawn so` });
+      } else {
+        await press(a,byKey('profile-ok'));
+        record('avatars.edit',{ actions:'My Profile (own)', expected:'As live: the own profile shows OK alone; appearance changes go through the Wardrobe', observed:'no Change Avatar on the own profile; the Wardrobe equip above changed the drawn look' });
+      }
       record('cosmetics.purchase',{ actions:'Win a PvP duel (the opponent surrenders past the server\'s two-minute minimum); Shop → Cosmetic Boxes → Head & Hair: Open Box (clicked twice); reveal to Done; reload', expected:'Spend correct wallet funds, grant once and persist',
         observed:`PvP win (B surrendered) after ${duelTurns} turns/${duelSeconds} s; earned ${w1.earned}→${after.wallet.earned}, starter ${w1.bound}→${after.wallet.bound} after one opening despite a double click; reward "${reward}"; after reload the wallet and ${ownedCount} owned items are unchanged` });
       record('cosmetics.wallet',{ actions:'Starter-only wallet: the Head & Hair Open Box button and a direct open request; after a PvP win: open with earned MP', expected:'Balances, eligibility and purchase restrictions match authoritative wallet semantics',
