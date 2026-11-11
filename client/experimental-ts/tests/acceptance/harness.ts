@@ -28,7 +28,19 @@ export async function signIn(name:string):Promise<{ name:string; value:string }[
  * IP clear the local stack's own rows first so one run's attempts do not refuse the next run's. */
 export function resetRateLimits() {
   const dir = dirname(stack().log);
-  execSync(`npx wrangler d1 execute duel-evolution --local --persist-to ../wr --command "DELETE FROM rate_limit; DELETE FROM signin_failure"`,{ cwd:resolve(dir,'snap'),stdio:'ignore',timeout:60000 });
+  // Parallel runs share the stack's local D1: a run's wrangler meets another's write lock (SQLITE_BUSY, "database is
+  // locked"). That contention is retried with a growing pause; any other failure is the run's failure.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      execSync(`npx wrangler d1 execute duel-evolution --local --persist-to ../wr --command "DELETE FROM rate_limit; DELETE FROM signin_failure"`,{ cwd:resolve(dir,'snap'),stdio:['ignore','pipe','pipe'],timeout:60000 });
+      return;
+    } catch (e) {
+      const out = e as { stdout?:Buffer; stderr?:Buffer; message?:string };
+      const said = `${out.message ?? ''}\n${out.stdout?.toString() ?? ''}\n${out.stderr?.toString() ?? ''}`;
+      if (attempt >= 6 || !/SQLITE_BUSY|database is locked|\bbusy\b/i.test(said)) throw new Error(`resetRateLimits: ${said.trim().slice(-600)}`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,500 * attempt + Math.floor(Math.random() * 500));
+    }
+  }
 }
 const hex = (bytes:ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2,'0')).join('');
 /** The password test sign-in gives a user (server/src/auth/routes.ts), so the real login form can be used. */
