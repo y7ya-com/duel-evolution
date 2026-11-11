@@ -180,7 +180,8 @@ export async function click(page:Page,text:string,timeout = 30000) {
   // the Shop is no Main Menu entry (as live: the store's door on the map, which the rewrite's world does not have yet;
   // free mode's own Shop button stays): tests open the shop scene through the dev app
   if (text === 'Shop' && !await page.ev(`Boolean(${byText('Shop')})`)) {
-    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'shop' })`); return;
+    // a refused catalogue (the server's error) is the shop's to show, not the test's: the dispatch's rejection is dropped
+    await page.ev(`Promise.resolve(window.__deApp.dispatch({ type:'openScene', scene:'shop' })).catch(()=>{})`); return;
   }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }

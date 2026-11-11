@@ -400,7 +400,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
     try {
       const page = await openPage(); await online(page,`TestRc${RUN}`);
       // A double click on Go Online opens one connection.
-      await until(page,byText('Go Online'),60000);
+      await until(page,goOnlineButton,60000);
       const sockets0 = await page.ev(`window.__net.sockets.length`) as number;
       await page.ev(`(()=>{const b=${goOnlineButton};b.click();b.click();})()`);
       await until(page,freeSlot,60000); await sleep(1000);
@@ -463,7 +463,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await until(page,`window.__net.http.release`,10000);
       // Return to Title asks first (the Main Menu's 'Disconnect from the game?'): a player answers Yes
       await menuClick(page,'Return to Title'); await until(page,byKey('disconnect-yes'),30000); await page.ev(`${byKey('disconnect-yes')}.click()`);
-      await until(page,byText('Go Online'),30000);
+      await until(page,goOnlineButton,30000);
       const pending = await page.ev(`window.__net.http.log.filter(l=>l.startsWith('delay')).length`) as number;
       await page.ev(`window.__net.http.delay=null`);
       await reenterWorld(page,me);
