@@ -14,6 +14,8 @@ import type { HtmlControl, WindowSpec } from './snapshot';
 import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, isFusion, isMonster, raceOf, attrOf, TRUNK_ROWS, SIDE_BUTTONS } from './deck';
 import type { DeckContext, DeckDialog, DeckFrom, DeckUi, FileButton, KabanFilter } from './deck';
 import type { PowerIcons } from './deck-dom';
+import { peekView as craftPeek, onChange as craftOnChange } from '@htmlui/crafting/api.js';
+import { cardState } from '@htmlui/crafting/model.js';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
 import dialogOk from '@htmlui/mock/dialog-ok.json';
@@ -28,6 +30,21 @@ export interface DeckSceneOptions {
   leave(): void;
   /** A file the player picked to import (the rewrite's file input). */
   pickFile(accept: string, then: (file: File) => void): void;
+  /** The crafting view (main's crafting/api.js: Shards, per card owned / craftable / rarity), null before it answers. */
+  craftView?(): CraftView | null;
+  /** Listen for crafting view changes (a Craft or a Dismantle in main's crafting bar). -> unsubscribe */
+  onCraft?(cb: (view: CraftView | null) => void): () => void;
+}
+/** main's crafting view (crafting/api.js), the part the trunk's Show row reads. */
+export interface CraftView { shards?: number; values?: { craft?: Record<string, number>; dismantle?: Record<string, number> }; cards?: Record<string, { owned?: number; craftable?: boolean; rarity?: string }> }
+/** Shard costs to craft one copy (shard pricing v5) when the crafting view has not named its own. */
+export const CRAFT_COST_FALLBACK: Record<string, number> = { SR: 4500, UR: 8000 };
+/** Whether the Shards craft a copy of this card now: crafting/model.js cardState's rule on the crafting view (craftable,
+ * fewer than 3 owned, the rarity's cost paid). No view: nothing is craftable. */
+export function craftableNow(c: CardView, view: CraftView | null | undefined): boolean {
+  if (!view?.cards || c.passcode === undefined) return false;
+  const values = view.values?.craft ? view : { ...view, values: { ...view.values, craft: CRAFT_COST_FALLBACK } };
+  return !!(cardState(values, c.passcode) as { craft?: { ok?: boolean } } | null)?.craft?.ok;
 }
 
 const named = (cs: HtmlControl[], cls: string, label?: string) => cs.find(c => c.cls === cls && (label === undefined || c.label === label));
@@ -37,14 +54,30 @@ export class DeckScene {
   private ids = new Ids();
   private shownNotice = '';
   private poolKey: unknown = null; private pool: CardView[] = []; private byPc = new Map<number, CardView>(); private order = new Map<number, number>();
-  private trunkKey = ''; private trunk: CardView[] = [];
+  private trunkKey = ''; private trunk: CardView[] = []; private craftVer = 0; private unCraft: () => void;
 
   constructor(private o: DeckSceneOptions) {
-    // main's search panel hands its filter to the game: here, to the trunk list
+    // main's search panel hands its filter to the game: here, to the trunk list (its f.pool, the engine's id list, is
+    // the engine's: the rewrite filters its own catalogue by f.show / f.rarity)
     const g = globalThis as { Module?: Record<string, unknown> };
     g.Module ??= {};
-    g.Module.yo2KabanFilter = (_list: number, f: KabanFilter) => { this.ui.filter = f; this.ui.top = 0; this.o.rerender(); };
+    g.Module.yo2KabanFilter = (_list: number, f: KabanFilter & { pool?: unknown }) => { const { pool: _pool, ...filter } = f; this.ui.filter = filter; this.ui.top = 0; this.o.rerender(); };
+    // the trunk can widen past the owned cards (main's Filters popup shows Show and Rarity only then)
+    g.Module.yo2KabanPool = 1;
+    // a Craft or a Dismantle (main's crafting bar): the trunk re-filters (Craftable now changed) and the rewrite's
+    // collection, trunk counts and Shards are read again from the server
+    const peek = o.craftView ?? (() => craftPeek() as CraftView | null);
+    this.craftView = peek;
+    let seen: unknown = peek();
+    this.unCraft = (o.onCraft ?? (cb => craftOnChange(cb as (v: unknown) => void)))(view => {
+      if (view === seen) return; seen = view; this.craftVer++; this.trunkKey = '';
+      if (this.o.state().scene === 'deck') this.o.send({ type: 'refresh', scene: 'deck' });
+      this.o.rerender();
+    });
   }
+  private craftView: () => CraftView | null;
+  /** Stop following the crafting view. */
+  dispose(): void { this.unCraft(); }
 
   // ---------------------------------------------------------------- the cards
   private refresh(view: ClientView): void {
@@ -57,11 +90,15 @@ export class DeckScene {
       this.order = new Map(all.map((c, i) => [c.passcode ?? -1, i]));
       this.byPc = new Map(all.map(c => [c.passcode ?? -1, { ...c, owned: owned.get(c.passcode) ?? 0 }]));
       for (const c of editor.collection) if (c.passcode !== undefined && !this.byPc.has(c.passcode)) this.byPc.set(c.passcode, c);
-      this.pool = [...this.byPc.values()].filter(c => (c.owned ?? 0) > 0);
+      // every collectible card (the Show row's All / Missing / Craftable): the owned ones and the deck-legal rest
+      this.pool = [...this.byPc.values()].filter(c => (c.owned ?? 0) > 0 || c.deckAllowed !== false);
       this.trunkKey = '';
     }
-    const key = JSON.stringify(this.ui.filter);
-    if (key !== this.trunkKey) { this.trunkKey = key; this.trunk = trunkCards(this.pool, this.ui.filter, c => this.order.get(c.passcode ?? -1) ?? 1e9); }
+    const key = `${this.craftVer}:${JSON.stringify(this.ui.filter)}`;
+    if (key !== this.trunkKey) {
+      this.trunkKey = key; const craft = this.craftView();
+      this.trunk = trunkCards(this.pool, this.ui.filter, c => this.order.get(c.passcode ?? -1) ?? 1e9, c => craftableNow(c, craft));
+    }
   }
   card = (pc: number): CardView | undefined => this.byPc.get(pc);
   /** The trunk as listed now (its rows' cards in order). */

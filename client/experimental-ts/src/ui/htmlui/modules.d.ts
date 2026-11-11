@@ -78,3 +78,10 @@ declare module '@htmlui/cosmetics/trade-cosmetics.js' {
 declare module '@htmlui/chat-bubbles.js' {
   export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
 }
+declare module '@htmlui/crafting/api.js' {
+  export function peekView(): unknown;
+  export function onChange(cb: (view: unknown) => void): () => void;
+}
+declare module '@htmlui/crafting/model.js' {
+  export function cardState(view: unknown, pc: number | string): unknown;
+}

@@ -12,7 +12,10 @@ import type { HtmlControl, HtmlWindow, WindowSpec } from './snapshot';
 
 // ---------------------------------------------------------------- the editor's own state (what the engine's windows keep)
 /** main's trunk search (screens/deck.js searchPanel: emptyFilter), as its panel hands it to the game. */
-export interface KabanFilter { cat: number; text: string; attr: number[]; race: number[]; icon: number[]; level: number[]; limit: number[]; atk: [number | null, number | null]; def: [number | null, number | null]; sort: string }
+export interface KabanFilter { cat: number; text: string; attr: number[]; race: number[]; icon: number[]; level: number[]; limit: number[]; atk: [number | null, number | null]; def: [number | null, number | null]; sort: string;
+  /** The Filters popup's Show and Rarity rows (main's crafting additions, shown when Module.yo2KabanPool is set): which
+   * cards the list holds (owned, every collectible card, the ones not owned, the ones the Shards craft now). */
+  show?: 'owned' | 'all' | 'missing' | 'craftable'; rarity?: string[] }
 export const emptyKabanFilter = (): KabanFilter => ({ cat: 6, text: '', attr: [], race: [], icon: [], level: [], limit: [], atk: [null, null], def: [null, null], sort: '' });
 export type DeckFrom = 'trunk' | DeckZone;
 /** A card picked up (CDeckScene's drag, DeckWindow.h DeckDragState): where from, and where the pointer has it. */
@@ -59,16 +62,23 @@ export const raceOf = (c: CardView) => Math.max(0, index(RACES, c.race));
 export const categoryOf = (c: CardView) => isSpell(c) ? 2 : isTrap(c) ? 3 : isFusion(c) ? 5 : ({ normal: 0, ritual: 4 } as Record<string, number>)[cardKind(c)] ?? 1;
 /** A trunk row's frame colour (KabanWindowList.h KLB_*: 1 spell, 2 trap, 3 normal, 4 effect, 5 ritual, 6 fusion). */
 export const rowColor = (c: CardView) => [3, 4, 1, 2, 5, 6][categoryOf(c)]!;
+/** A card's rarity as the crafting rules name it (N / R / SR / UR; an unknown one counts as N, crafting/model.js). */
+export const RARITIES = ['N', 'R', 'SR', 'UR'] as const;
+export const rarityOf = (c: CardView): string => RARITIES.includes(c.rarity as never) ? c.rarity! : 'N';
 const limitOf = (c: CardView) => Math.max(0, Math.min(3, c.limit ?? 3));
 const stat = (v: number | undefined) => v === undefined ? '' : v < 0 ? '?' : String(v);
 
 /** The trunk as the game lists it under main's search panel: the owned cards (Free mode: the whole pool the server
- * gives), filtered and sorted as the panel asks (no sort: the card box's order). */
-export function trunkCards(cards: readonly CardView[], f: KabanFilter, order: (c: CardView) => number): CardView[] {
-  const text = f.text.trim(), [alo, ahi] = f.atk, [dlo, dhi] = f.def;
+ * gives), filtered and sorted as the panel asks (no sort: the card box's order). `cards` is every collectible card;
+ * the panel's Show row widens the list past the owned ones (All / Missing) or narrows it to what the Shards craft now
+ * (`craftable`: the crafting view's rule), its Rarity row to some of N / R / SR / UR. */
+export function trunkCards(cards: readonly CardView[], f: KabanFilter, order: (c: CardView) => number, craftable: (c: CardView) => boolean = () => false): CardView[] {
+  const text = f.text.trim(), [alo, ahi] = f.atk, [dlo, dhi] = f.def, show = f.show ?? 'owned', rarity = f.rarity ?? [];
   const rows: { c: CardView; rank: number }[] = [];
   for (const c of cards) {
-    if (!((c.owned ?? 0) > 0)) continue;
+    const owned = (c.owned ?? 0) > 0;
+    if (show === 'owned' && !owned || show === 'missing' && owned || show === 'craftable' && !craftable(c)) continue;
+    if (rarity.length && !rarity.includes(rarityOf(c))) continue;
     if (f.cat !== 6 && categoryOf(c) !== f.cat) continue;
     const monster = isMonster(c);
     if (f.attr.length && (!monster || !f.attr.includes(attrOf(c)))) continue;
