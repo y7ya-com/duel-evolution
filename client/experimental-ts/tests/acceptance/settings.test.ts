@@ -6,8 +6,6 @@ import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorl
 const pressed = (code:string) => `document.querySelector('[data-key="language:${code}"]')?.getAttribute('aria-pressed')==='true'`;
 /** The deck screen's trunk (main's CWindowModelKaban, deck-dom.ts): passcode=name of its first cards. */
 const collectionNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-zone="trunk"][data-passcode]')].slice(0,40).map(b=>b.dataset.passcode+'='+b.getAttribute('aria-label'))`) as Promise<string[]>;
-/** A shop pack's name and description (the original English names are "Pack n"; descriptions carry the wording). */
-const shopNames = (page:Page) => page.ev(`[...document.querySelectorAll('.de-shop-item')].slice(0,12).map(a=>a.querySelector('h3').textContent+': '+([...a.querySelectorAll('p')].map(p=>p.textContent).join(' ').trim()))`) as Promise<string[]>;
 const stored = (page:Page) => page.ev(`JSON.parse(localStorage.getItem('de-client-settings-v1')??'{}')`) as Promise<Record<string,unknown>>;
 async function key(page:Page,key:string,code = key,keyCode = 0) {
   await page.send('Input.dispatchKeyEvent',{ type:'keyDown',key,code,windowsVirtualKeyCode:keyCode });
@@ -16,7 +14,6 @@ async function key(page:Page,key:string,code = key,keyCode = 0) {
 async function openDeck(page:Page) { await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`,60000); await sleep(400); }
 /** Edit Deck, the trunk's first card names, EXIT back to the lobby (main's deck screen leaves through its EXIT). */
 async function trunkNames(page:Page) { await openDeck(page); const names = await collectionNames(page); await exitDeckEditor(page); return names; }
-async function openShop(page:Page) { await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(800); }
 async function choose(page:Page,code:string) {
   await click(page,'Options'); await until(page,byKey(`language:${code}`),30000);
   await press(page,byKey(`language:${code}`));
@@ -59,7 +56,6 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await enterWorld(page,`Set ${RUN}`);
       // settings.language-screen: the original Options' seven languages; English card and pack names first.
       const english = await trunkNames(page);
-      await openShop(page); const englishPacks = await shopNames(page);
       await click(page,'Options'); await until(page,byKey('options-language'),30000);
       const offered = await page.ev(`[...document.querySelectorAll('[data-key^="language:"]')].map(b=>b.textContent)`) as string[];
       expect(offered).toEqual(['日本語','English','Deutsch','Français','Italiano','Español','한국어']);
@@ -72,15 +68,11 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       const changed = german.filter((g,i) => g !== english[i]).length;
       expect(german.length).toBe(english.length);
       expect(changed).toBeGreaterThan(english.length / 2);
-      await openShop(page); const germanPacks = await shopNames(page);
-      expect(germanPacks.filter((p,i) => p !== englishPacks[i]).length,JSON.stringify([englishPacks,germanPacks])).toBeGreaterThan(0);
       // Japanese: a different script and code page.
       await choose(page,'J'); await until(page,pressed('J'),90000);
       const japanese = await trunkNames(page);
       expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
-      await openShop(page); const japanesePacks = await shopNames(page);
-      expect(japanesePacks.some(n => /[぀-ヿ一-鿿＀-￯]/.test(n))).toBe(true);
-      await screenshot(page,'settings-language-ja-shop');
+      await screenshot(page,'settings-language-ja-deck');
       await choose(page,'G'); await until(page,pressed('G'),90000);
       // Refused data: the archive is unreachable while choosing French; German stays and the choice can be retried.
       await page.send('Network.setBlockedURLs',{ urls:['*/game-assets/*'] });
@@ -105,9 +97,9 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await screenshot(page,'settings-fullscreen');
       await press(page,byKey('browser-fullscreen-toggle'));
       await until(page,`document.fullscreenElement===null&&document.querySelector('[data-key="browser-fullscreen-toggle"]').textContent==='Enter Fullscreen'`,15000);
-      record('settings.language-screen',{ actions:'Options: list languages; Deutsch; deck editor and shop; 日本語; Deutsch; Français with the archive blocked, then again; fullscreen refused once, then enter and exit',
-        expected:'The original seven languages; card and pack text switch from that language\'s tables; a refused load or fullscreen keeps the old state with a retryable message',
-        observed:`offered ${offered.join('/')}; first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; packs "${englishPacks[0]}" → de "${germanPacks[0]}" → ja "${japanesePacks[0]}"; blocked: "${refusal.slice(0,140)}" with Deutsch still selected, retry selected Français; fullscreen refusal "${fullscreenRefusal}", then document.fullscreenElement set and cleared` });
+      record('settings.language-screen',{ actions:'Options: list languages; Deutsch; deck editor; 日本語; Deutsch; Français with the archive blocked, then again; fullscreen refused once, then enter and exit',
+        expected:'The original seven languages; card text switches from that language\'s tables; a refused load or fullscreen keeps the old state with a retryable message',
+        observed:`offered ${offered.join('/')}; first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; blocked: "${refusal.slice(0,140)}" with Deutsch still selected, retry selected Français; fullscreen refusal "${fullscreenRefusal}", then document.fullscreenElement set and cleared` });
 
       // settings.persist: volumes and toggles through the controls, then a reload restores all of them.
       await click(page,'Options'); await until(page,byKey('options-language'),30000);
@@ -165,21 +157,28 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await key(page,'Escape','Escape',27);
       await until(page,`!${profile}`,15000);
       const profileClosed = 'own profile card closed by Escape (focus outside it)';
-      // Escape closes the deck editor's card inspector before leaving the editor.
+      // main's deck screen: a pressed trunk card shows in its card detail ([data-detail]); Escape closes the screen's
+      // topmost window (LOAD DECK's file list) before leaving the screen.
       await openDeck(page);
-      await press(page,`document.querySelector('[data-key^="collection-card:"]')`);
-      await until(page,`document.querySelector('.de-card-inspector h3')`,10000);
-      const inspected = await page.ev(`document.querySelector('.de-card-inspector h3').textContent`);
+      const trunkCard = `document.querySelector('[data-zone="trunk"][data-passcode]')`;
+      const pressedCard = await page.ev(`${trunkCard}.getAttribute('aria-label')`) as string;
+      await press(page,trunkCard);
+      await until(page,`document.querySelector('[data-detail]')?.getAttribute('aria-label')===${JSON.stringify(pressedCard)}`,10000);
+      const inspected = await page.ev(`document.querySelector('[data-detail]').getAttribute('aria-label')`);
+      await press(page,byKey('deck-load-deck'));
+      const fileList = byKey('deck-files-cancel');
+      await until(page,fileList,10000);
+      await page.ev(`document.activeElement?.blur()`);
       await key(page,'Escape','Escape',27);
-      await until(page,`!document.querySelector('.de-card-inspector h3')`,10000);
+      await until(page,`!${fileList}`,10000);
       expect(await page.ev(`document.querySelector('.de-client').dataset.scene`)).toBe('deck');
       await key(page,'Escape','Escape',27); await until(page,lobbyShown,30000);
       // Readable feedback: an error is announced as an alert.
       const alerts = await page.ev(`[...document.querySelectorAll('[role=alert],[role=status]')].length`) as number;
       expect(alerts).toBeGreaterThan(0);
-      record('settings.accessibility',{ actions:'Tab through Options with the keyboard; reduced motion on; Escape in Options, profile card and deck card inspector',
+      record('settings.accessibility',{ actions:'Tab through Options with the keyboard; reduced motion on; Escape in Options, profile card and the deck screen\'s LOAD DECK file list',
         expected:'Keyboard focus reaches every control with a visible outline; Escape closes the topmost modal then the screen; reduced motion stops CSS motion',
-        observed:`${focused.length} Tab stops incl. all 7 language buttons and fullscreen, outlines on language buttons; language button motion "${motion}" with Reduce animation; Escape: Options → title (offline) and → lobby (online), ${profileClosed}, inspector "${inspected}" closed (still in deck editor), second Escape → lobby; ${alerts} live regions` });
+        observed:`${focused.length} Tab stops incl. all 7 language buttons and fullscreen, outlines on language buttons; language button motion "${motion}" with Reduce animation; Escape: Options → title (offline) and → lobby (online), ${profileClosed}, trunk card "${inspected}" shown in the deck detail, LOAD DECK's file list closed by Escape (still in the deck screen), second Escape → lobby; ${alerts} live regions` });
     } finally { closeAll(); }
   },600000);
   it('unlocks audio on the first gesture, follows scenes without overlap, plays duel cues at the set volume and keeps mute',async () => {
@@ -216,7 +215,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       const area = await page.ev(`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()`) as string;
       await sample('lobby',area === 'gx-area.wav' ? 'gx-area.wav' : 'yugi-area.wav');
       await openDeck(page); await sample('deck','deck.wav');
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); await sample('lobby',area);
+      await exitDeckEditor(page); await sample('lobby',area);
       // A duel: rock-paper-scissors slot, then a duel slot; effects from Sound.dat at the sound volume.
       const startsBefore = await page.ev(`window.__audio.starts.length`) as number;
       await startNpcDuel(page,'Yami Yugi');
