@@ -4,7 +4,10 @@ import type { WireMessage } from '../network/codec';
 export type NpcStage = 'idle' | 'opening' | 'ask' | 'greeting' | 'duel' | 'after-duel' | 'won' | 'lost' | 'item' | 'claiming' | 'done';
 export type ClaimStatus = 'idle' | 'pending' | 'confirmed' | 'failed' | 'uncertain';
 /** Omit unknown progress; never substitute a zero-filled record. */
-export interface NpcOpenContext { npcRank?: number; specialPresentDone?: boolean }
+/** record: this character's wins / losses / draws against the NPC from the server's NPCBIN (bytes 0..2 of the NPC's
+ * entry, server persist.ts npcResult), for the NPC result record (CWindowResultNpc). */
+export interface NpcOpenContext { npcRank?: number; specialPresentDone?: boolean; record?: readonly [number, number, number] }
+export interface NpcRecord { wins: number; loses: number; draws: number }
 export interface NpcIdentity { id: number; name: string }
 export interface NpcDialogue { npcId: number; line: number | null; text: string; known: boolean }
 export interface NpcEligibility { status: ClaimStatus; refreshing: boolean; bits: number[]; cards: number[]; }
@@ -14,6 +17,9 @@ export interface NpcState {
   cards: { id: number; isNew: boolean }[]; giftCards: number[]; giftBits: number[];
   firstContactStatus: ClaimStatus; settlementReceived: boolean; refreshPending: boolean; error: string | null;
   eligibility: NpcEligibility;
+  /** The record against this NPC (CWindowResultNpc): the server's NPCBIN at the talk, plus this duel's server result
+   * once it ends (the server counts the same result: persist.ts npcResult, capped at 255). Absent when unknown. */
+  record?: NpcRecord | null;
 }
 export interface NpcOptions {
   send(id: number, data: Uint8Array): void;
@@ -81,7 +87,9 @@ export class NpcController {
     // Receipts have no request IDs. Keep unresolved contact attached to its owner.
     if ([...this.contacts.values()].some(status => status === 'pending' || status === 'uncertain')) return;
     this.generation++; this.presentReceived = false; this.authFlags = authFlags; this.openingBlocked = false;
-    this.value = { ...initial(), eligibility: this.value.eligibility, npc: { ...npc }, stage: 'ask' };
+    const rec = context?.record, byte = (n: number | undefined) => Number.isInteger(n) && n! >= 0 && n! <= 255;
+    this.value = { ...initial(), eligibility: this.value.eligibility, npc: { ...npc }, stage: 'ask',
+      record: rec && rec.length === 3 && rec.every(byte) ? { wins: rec[0], loses: rec[1], draws: rec[2] } : null };
     if (context) {
       this.value.stage = 'opening';
       const present = npcOpeningPresent(npc.id);
@@ -116,7 +124,9 @@ export class NpcController {
   /** Called once for this NPC after a server result, including after lobby handoff. */
   afterDuel(result: 1 | 2 | 3): void {
     if (this.disposed || this.value.stage !== 'duel') return;
-    this.patch({ stage: 'after-duel', result, dialogue: this.dialogue(this.options.resultLine?.(result) ?? null) });
+    const r = this.value.record, bump = (n: number) => Math.min(n + 1, 255);
+    const record = r ? { wins: result === 1 ? bump(r.wins) : r.wins, loses: result === 2 ? bump(r.loses) : r.loses, draws: result === 3 ? bump(r.draws) : r.draws } : r;
+    this.patch({ stage: 'after-duel', result, record, dialogue: this.dialogue(this.options.resultLine?.(result) ?? null) });
   }
   /** Re-reads `resultLine` while the result-opening line is still unresolved (the duel's type0x4d finish record
    * arrives after C_DUEL_END). A resolved line, a later stage or another NPC session is never rewritten. */

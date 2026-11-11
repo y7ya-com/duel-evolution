@@ -10,6 +10,8 @@ export interface NpcPanelOptions {
   busy?: boolean;
   /** main's pack picker (htmlui/npc-pack.ts, CWindowPackSelect) takes the pack pick: the panel leaves its buttons out. */
   htmlPackSelect?: boolean;
+  /** The name of a gifted PBIN bit (npcs/gift-names.ts), or null when the rewrite cannot name it. */
+  itemName?(bit: number): string | null;
 }
 // The NPC's talk in the original's balloon (CWindowModelBalloon; the look of the shop clerk's, htmlui/pictures.ts
 // CShopBalloon: a white rounded box with a black rim, a tail out to the speaker, black Arial 16), its buttons main's
@@ -53,7 +55,10 @@ export function renderNpcFeature(state: Readonly<NpcState>, dispatch: (command: 
     for (const receipt of receipts.slice(0, 80)) { const row = document.createElement('article'), card = options.resolveCard?.(receipt.id), label = document.createElement('p'); if (card && options.renderCard) row.append(options.renderCard(card)); label.textContent = `${card?.name ?? `Card ID ${receipt.id}`}${receipt.isNew ? ' · New' : ''}`; row.append(label); grid.append(row); }
     root.append(grid); if (receipts.length > 80) text('p', `Showing 80 of ${receipts.length} cards.`, 'de-note');
   }
-  if (state.giftBits.length) text('p', `${state.giftBits.length} item rewards confirmed. Item names are unavailable.`, 'de-note');
+  // "You got <item>" (CWindowModelItemGet), one line per gift the rewrite can name; the rest as a count
+  const named = state.giftBits.map(bit => options.itemName?.(bit) ?? null), unnamed = named.filter(n => n === null).length;
+  for (const name of named) if (name) text('p', `You got ${name}!`, 'de-npc-itemget');
+  if (unnamed) text('p', `${unnamed} item reward${unnamed === 1 ? '' : 's'} confirmed. Item names are unavailable.`, 'de-note');
   if (state.refreshPending) text('p', 'Refreshing inventory…', 'de-note');
   if (state.packStatus === 'uncertain' || state.giftStatus === 'uncertain' || state.packStatus === 'confirmed' || state.giftStatus === 'confirmed') button('Refresh Inventory', { type: 'npcRefreshInventory' }, state.refreshPending);
   if (state.stage === 'done' || state.stage === 'claiming' && state.giftStatus === 'uncertain') button('Close NPC', { type: 'npcClose' }, !!eligibilityBlocked || state.packStatus === 'pending' || state.giftStatus === 'pending' || state.packs.length > 0 && state.packStatus === 'idle');
