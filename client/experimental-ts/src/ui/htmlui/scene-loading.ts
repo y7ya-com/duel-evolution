@@ -95,7 +95,6 @@ const CSS = `
 
 export class SceneLoadingOverlay {
   readonly element: HTMLDivElement;
-  private showTimer: ReturnType<typeof setTimeout> | null = null;
   private stuckTimer: ReturnType<typeof setTimeout> | null = null;
   private offTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly status: HTMLDivElement;
@@ -135,12 +134,11 @@ export class SceneLoadingOverlay {
   set(loading: string | null): void {
     if (this.booting) { this.pending = loading; return; }   // the boot veil is up anyway: it fades on booted(), or after a load under it
     if (loading) {
-      if (this.showTimer || veilUp) return;
-      // Fast loads (warm caches) never flash the overlay.
-      this.showTimer = setTimeout(() => { this.showTimer = null; this.show(); }, SHOW_AFTER_MS);
+      // As loader.js on "begin": the box goes up at once, its fade-in held back by the CSS transition-delay (0.35 s, the
+      // game's own fade), so a fast load (warm caches) ends before anything shows and never flashes the overlay.
+      if (!veilUp) this.show();
       return;
     }
-    if (this.showTimer) { clearTimeout(this.showTimer); this.showTimer = null; }
     if (veilUp) this.hide();
   }
   private place(): void {
@@ -158,7 +156,7 @@ export class SceneLoadingOverlay {
     box.classList.add('scene', 'enter'); box.classList.remove('gone'); box.hidden = false;
     veilUp = true;
     void box.offsetWidth; box.classList.remove('enter');   // the fade-in starts from opacity 0
-    this.stuckTimer = setTimeout(() => this.showStuck(), STUCK_MS - SHOW_AFTER_MS);
+    this.stuckTimer = setTimeout(() => this.showStuck(), STUCK_MS);
   }
   private hide(): void {
     if (this.stuckTimer) { clearTimeout(this.stuckTimer); this.stuckTimer = null; }
@@ -205,7 +203,6 @@ export class SceneLoadingOverlay {
     this.element.append(b);
   }
   dispose(): void {
-    if (this.showTimer) clearTimeout(this.showTimer);
     if (this.stuckTimer) clearTimeout(this.stuckTimer);
     if (this.offTimer) clearTimeout(this.offTimer);
     removeEventListener('resize', this.onPlace);
@@ -213,4 +210,84 @@ export class SceneLoadingOverlay {
     this.abort.abort(); for (const l of this.leases.splice(0)) l.release();
     veilUp = false; this.element.remove();
   }
+}
+
+// Every scene change, not only the world's map loads (main's loader.js veils each of the runtime's scene "begin"s:
+// title -> Select Player, Select Player -> lobby, lobby <-> Edit Deck / Shop / Duel / Trade / My Room, the duel's result).
+// The rewrite's scenes have no engine load to wait for: a scene is loaded once its windows are drawn and their pictures
+// have come (the <img>s and CSS pictures in the HTML layer and the stage, the archive and card pictures it asked for,
+// the server data it fetched). The veil ends then: never an artificial wait.
+
+/** The scene a view shows, as the original's CSceneMng would name it (a change is a scene load). */
+export function sceneKey(view: { scene: string; duel?: { ended?: string | undefined } | null | undefined; sideboarding?: unknown; replay?: unknown; trade?: boolean }): string {
+  if (view.scene === 'duel' && view.duel?.ended && !view.sideboarding && !view.replay) return 'result';
+  if (view.trade && !['title', 'characters'].includes(view.scene)) return 'trade';
+  return view.scene;
+}
+
+/** Work a scene waits for (archive / card pictures, server data): counted while in flight. */
+export class PendingWork {
+  private count = 0;
+  get pending(): number { return this.count; }
+  track<T>(work: Promise<T>): Promise<T> { this.count++; const done = () => { this.count--; }; void work.then(done, done); return work; }
+}
+
+const pictures = new Map<string, boolean>();   // a CSS picture's url: true once it has come (or failed)
+/** The pictures the scene's DOM still waits for: img elements not complete, and CSS background pictures not yet come
+ * (each loaded here once, as the browser does for the element, so its arrival can be seen). */
+export function pendingPictures(roots: Element[]): number {
+  let n = 0;
+  const css = (url: string) => {
+    let done = pictures.get(url);
+    if (done === undefined) {
+      const probe = new Image(); probe.src = url; done = probe.complete; pictures.set(url, done);
+      if (!done) probe.onload = probe.onerror = () => { pictures.set(url, true); probe.onload = probe.onerror = null; };
+    }
+    if (!done) n++;
+  };
+  for (const root of roots) for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
+    if (el instanceof HTMLImageElement) { if (el.getAttribute('src') && !el.complete) n++; continue; }
+    const bg = getComputedStyle(el).backgroundImage;
+    if (bg && bg !== 'none') for (const m of bg.matchAll(/url\((['"]?)(.*?)\1\)/g)) if (m[2] && !m[2].startsWith('data:')) css(m[2]);
+  }
+  return n;
+}
+
+export const SCENE_SETTLE_POLL_MS = 50;
+/** The longest a scene's own pictures can hold its veil (a picture that never comes must not keep it up). */
+export const SCENE_SETTLE_MAX_MS = 15_000;
+
+export interface SceneWatchOptions {
+  tracker: SceneLoadEvents;
+  pending: PendingWork;
+  /** The elements the scene draws into (the HTML layer's host, the stage). */
+  roots: () => Element[];
+  frame?: (fn: () => void) => void;
+  now?: () => number;
+}
+/** Begins a scene load on each scene change and ends it when the new scene has settled: drawn (two frames) and
+ * nothing it asked for still coming, two polls in a row. Returns observe(view) for each view. */
+export function watchSceneChanges(opts: SceneWatchOptions): { observe(key: string): void; dispose(): void } {
+  const frame = opts.frame ?? ((fn: () => void) => requestAnimationFrame(() => fn())), now = opts.now ?? (() => performance.now());
+  let key: string | null = null, end: (() => void) | null = null, timer: ReturnType<typeof setTimeout> | null = null, token = 0;
+  const finish = () => { if (timer) { clearTimeout(timer); timer = null; } const e = end; end = null; e?.(); };
+  return {
+    observe(next: string): void {
+      if (key === null) { key = next; return; }   // the first screen: the boot veil covers it
+      if (next === key) return;
+      key = next; const my = ++token, at = now();
+      if (!end) end = opts.tracker.begin(`scene:${next}`);
+      if (timer) { clearTimeout(timer); timer = null; }
+      let quiet = 0;
+      const poll = () => {
+        timer = null; if (my !== token) return;
+        const busy = opts.pending.pending + pendingPictures(opts.roots());
+        quiet = busy ? 0 : quiet + 1;
+        if (quiet >= 2 || now() - at > SCENE_SETTLE_MAX_MS) { finish(); return; }
+        timer = setTimeout(poll, SCENE_SETTLE_POLL_MS);
+      };
+      frame(() => frame(() => { if (my === token) poll(); }));
+    },
+    dispose(): void { token++; finish(); },
+  };
 }

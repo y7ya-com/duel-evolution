@@ -5,7 +5,8 @@ import { AssetManager, CacheApiPersistence, IdlePrefetcher } from './assets';
 import { SceneManifest } from './assets/prefetch';
 import { SceneLoader, scenePaths } from './world/scene';
 import { decodeDuelPrefetch, Preloader } from './features/preload';
-import { SceneLoadingOverlay, SceneLoadTracker } from './ui/htmlui/scene-loading';
+import { PendingWork, SceneLoadingOverlay, SceneLoadTracker, sceneKey, watchSceneChanges } from './ui/htmlui/scene-loading';
+import { tradeScene } from './ui/htmlui/trade';
 import { BrowserAudioManager } from './features/audio';
 import { browserSocialBox } from './features/social';
 import { mountClient } from './ui';
@@ -71,6 +72,18 @@ const socialBox = browserSocialBox();
 const app = new ClientApp({ ...data, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
+// every scene change raises the veil too (main's loader.js on each scene "begin"), until the new scene has settled: its
+// windows drawn and the pictures it asked for come (the archive / card pictures counted while in flight)
+const pendingWork = new PendingWork();
+{ const pics = app as unknown as { loadArchiveImage?: ClientApp['loadArchiveImage']; loadCardImage: ClientApp['loadCardImage'] };
+  const archive = app.loadArchiveImage, card = app.loadCardImage.bind(app);
+  if (archive) pics.loadArchiveImage = (path, signal) => pendingWork.track(archive(path, signal));
+  pics.loadCardImage = (pc, signal) => pendingWork.track(card(pc, signal)); }
+const sceneWatch = watchSceneChanges({ tracker: sceneLoads, pending: pendingWork,
+  roots: () => [document.getElementById('htmlui-host'), root.querySelector('.de-stage')].filter((e): e is HTMLElement => !!e) });
+const observeScene = (v: ReturnType<ClientApp['getState']>) => sceneWatch.observe(sceneKey({ ...v, trade: !!v.socialDetail && tradeScene(v.socialDetail.trade) }));
+observeScene(app.getState());
+const unwatchScenes = app.subscribe(observeScene);
 const ui = mountClient(root, app);
 overlay.setLoader(app.loadArchiveImage?.bind(app) ?? null);
 overlay.follow(() => root.querySelector('.de-stage'));
@@ -90,7 +103,7 @@ let closed = false;
 function dispose(): void {
   if (closed) return; closed = true;
   for (const type of ['pointerdown', 'keydown'] as const) window.removeEventListener(type, unlock, true);
-  abort.abort(); prefetcher.dispose(); mapScenes?.dispose(); manifest.save(); overlay?.dispose(); ui.dispose(); app.dispose();
+  unwatchScenes(); sceneWatch.dispose(); abort.abort(); prefetcher.dispose(); mapScenes?.dispose(); manifest.save(); overlay?.dispose(); ui.dispose(); app.dispose();
   window.removeEventListener('pagehide', pagehide);
 }
 function pagehide(event: PageTransitionEvent): void { if (!event.persisted) dispose(); }
