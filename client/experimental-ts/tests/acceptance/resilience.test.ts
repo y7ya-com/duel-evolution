@@ -149,8 +149,11 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       let declined = 0;
       for (let i = 0; i < 400 && await turn(page) <= t0; i++) { if (await page.ev(`Boolean(${no})`)) { await press(page,no).catch(() => {}); declined++; } await sleep(150); }
       const t1 = await turn(page);
-      expect(t1).toBe(t0 + 1);
       const log = await page.ev(`[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent)`) as string[];
+      // the NPC's own turn can pass between two looks on a fast stack: then the turn shown is the player's next one (an
+      // End Turn sent twice would have ended that one too)
+      const newest = [...log].reverse().find(l => /^Turn \d+ - /.test(l));
+      if (t1 === t0 + 2) expect(newest).toBe(`Turn ${t1} - ${me}'s turn`); else expect(t1).toBe(t0 + 1);
       const ends = log.filter(l => l === `${me} ends the turn.`).length;
       await screenshot(page,'resilience-duel-resumed');
       const presses = await giveUp(page);
