@@ -70,12 +70,12 @@ async function captureDownloads(page:Page) {
 }
 async function exportAs(page:Page,row:string):Promise<{ name:string; bytes:number[] }> {
   await page.ev('window.__downloads=[]');
-  await deckSide(page,'load'); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
+  await deckSide(page,'load'); await until(page,byKey('deck-files-export'),10000); await sleep(300); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
   await until(page,'window.__downloads.length>0',10000); return page.ev('window.__downloads[0]') as Promise<{ name:string; bytes:number[] }>;
 }
 async function importFile(page:Page,name:string,bytes:number[]) {
   await page.ev(`window.__nextFile=${JSON.stringify({ name,bytes })}`);
-  await deckSide(page,'load'); await press(page,byKey('deck-files-import')); await sleep(800);
+  await deckSide(page,'load'); await until(page,byKey('deck-files-import'),10000); await sleep(300); await press(page,byKey('deck-files-import')); await sleep(800);
   if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
 }
 const zones = (d:DeckScreen) => ({ main:d.main,side:d.side,extra:d.extra });
@@ -110,7 +110,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const inDeck = new Map<string,number>(); for (const n of [...starter.main,...starter.extra,...starter.side]) inDeck.set(n,(inDeck.get(n) ?? 0) + 1);
       for (const [n,k] of inDeck) expect(ownedByName.get(n),n).toBe(k);
       expect(await page.ev(`document.querySelectorAll('[data-zone="main"][data-passcode]').length`)).toBeGreaterThanOrEqual(Math.min(40,starter.main.length));
-      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000);
+      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300);
       const loadList = await hostText(page); expect(loadList).toContain('LOAD DECK'); expect(loadList).toContain(starterName);
       await press(page,byKey('deck-files-cancel')); await sleep(400);
       record('deck.list',{ actions:'Fresh character claims a starter deck; Edit Deck; LOAD DECK', expected:'Saved decks, active deck and trunk counts from authoritative data',
@@ -172,7 +172,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await until(page,byKey('deck-files-new'),10000); await sleep(300);
       await press(page,byKey('deck-files-new')); await typeName(page,deckB);
       if (await page.ev(dialogUp)) await answer(page);
-      await deckSide(page,'save'); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
       await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
       if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
       await reload(page,character);
@@ -180,11 +180,11 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const renamed = v.decks;
       expect(v.name).toBe(deckB); expect(renamed).not.toContain(deckA); expect(zones(v)).toEqual(edited);
       // LOAD DECK the starter, then delete B
-      await deckSide(page,'load'); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
       if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
       await settle(page,`window.__deApp?.getState()?.deckEditor?.current?.name===${JSON.stringify(starterName)}`,15000);
       expect(zones(await view(page))).toEqual(starter);
-      await deckSide(page,'save'); await fileRow(page,deckB); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await fileRow(page,deckB); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
       await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckB)})`,15000);
       if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
       await reload(page,character);
@@ -198,7 +198,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const forbiddenYdk = ['#created by test','#main',...Array(3).fill('55144522'),...Array(2).fill('19613556'),'#extra','!side',''].join('\n');
       await importFile(page,'Forbidden Test.ydk',[...new TextEncoder().encode(forbiddenYdk)]);
       await sleep(600); if (await page.ev(dialogUp)) await answer(page);
-      await deckSide(page,'save'); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
+      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
       const forbiddenReport = await page.ev(dialogUp) ? await answer(page) : '';
       expect(forbiddenReport).toMatch(/can't be used in a duel/i);
       await screenshot(page,'deck-check');
@@ -225,7 +225,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       }
       record('deck.recipes',{ actions:`STRUCTURE DECK "${recipeName}"; for YDK, JSON and YDC: LOAD DECK → Export, Clear Deck, LOAD DECK → Import the file`, expected:'Structure decks load; deck files round-trip without losing identities',
         observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion; ${rounds.join('; ')}` });
-      await deckSide(page,'load'); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
       if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
       await sleep(800);
 
@@ -242,21 +242,33 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const firstText = kuriboh.findIndex(n => !/kuriboh/i.test(n));
       if (firstText >= 0) expect(kuriboh.slice(firstText).filter(n => /kuriboh/i.test(n))).toEqual([]);
       await search(page,'');
-      await tap(page,'Filters'); await tap(page,'Show All'); if (await page.ev(`Boolean(${anyButton('OK')})`)) await tap(page,'OK');
+      // main's Filters popup: its Show row (a list: Owned cards / All cards / Missing / Craftable now), then its ×
+      await tap(page,'Filters');
+      const show = `[...document.querySelectorAll('select')].find(s=>s.getAttribute('aria-label')==='Show'&&s.getClientRects().length)`;
+      await until(page,show,10000);
+      await page.ev(`(()=>{const s=${show};s.focus();s.value='all';s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(400);
+      if (await page.ev(`Boolean(${anyButton('Close')})`)) await tap(page,'Close');
       await sleep(600);
       const allShown = await trunkShown(page);
       expect(allShown.some(n => !ownedByName.has(n))).toBe(true);
-      const top = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-index]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
-      const wheelAt = await page.ev(`(()=>{const r=document.querySelector('[data-zone="trunk"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+      const top = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-passcode]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
+      const wheelAt = await page.ev(`(()=>{const r=document.querySelector('[data-drop-zone="trunk"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
       for (let i = 0; i < 4; i++) await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',...wheelAt,deltaX:0,deltaY:120 });
       await sleep(500);
-      const scrolled = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-index]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
+      const scrolled = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-passcode]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
       expect(scrolled).not.toBe(top);
-      await tap(page,'Rearrange'); await sleep(600);
+      // the order: the Filters popup's Sort by (Name), sorted A to Z
+      await tap(page,'Filters');
+      const sortBy = `[...document.querySelectorAll('select')].find(s=>s.getAttribute('aria-label')==='Sort by'&&s.getClientRects().length)`;
+      await until(page,sortBy,10000);
+      await page.ev(`(()=>{const s=${sortBy};s.focus();s.value='name';s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(400);
+      if (await page.ev(`Boolean(${anyButton('Close')})`)) await tap(page,'Close');
+      await sleep(600);
       const rearranged = await trunkShown(page);
+      expect(rearranged).toEqual([...rearranged].sort((x,y) => x < y ? -1 : x > y ? 1 : 0));
       await screenshot(page,'deck-sorted');
-      record('cards.collection',{ actions:'Search ""; search "Kuriboh"; Filters → Show All; wheel over the trunk; Rearrange', expected:'Owned trunk, search, Show filter, scroll and order match the catalogue',
-        observed:`owned trunk shows ${ownedShown.length} owned names; "Kuriboh" → [${kuriboh.slice(0,4).join(', ')}]; Show All adds unowned cards (${allShown.filter(n => !ownedByName.has(n)).length} visible); wheel moved the top from ${top} to ${scrolled}; Rearrange shows [${rearranged.slice(0,3).join(', ')}]` });
+      record('cards.collection',{ actions:'Search ""; search "Kuriboh"; Filters → Show: All cards; wheel over the trunk; Filters → Sort by: Name', expected:'Owned trunk, search, Show filter, scroll and order match the catalogue',
+        observed:`owned trunk shows ${ownedShown.length} owned names; "Kuriboh" → [${kuriboh.slice(0,4).join(', ')}]; Show All adds unowned cards (${allShown.filter(n => !ownedByName.has(n)).length} visible); wheel moved the top from ${top} to ${scrolled}; Sort by Name shows [${rearranged.slice(0,3).join(', ')}]` });
 
       // cards.inspect: pressing a trunk card shows it in the detail (data-detail), passcode and name.
       await search(page,'Kuriboh');
