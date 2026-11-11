@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, screenshot, click, press, until, type, byKey, byText, claimStarter, sleep, pressAvatar, createCharacter, freeSlot, say, lobbyShown, searchPlayers } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, screenshot, click, press, until, type, byKey, byText, claimStarter, sleep, pressAvatar, createCharacter, freeSlot, say, lobbyShown, searchPlayers, openDeckEditor, exitDeckEditor } from './harness';
 
 /** A screenshot tour of every out-of-duel screen with original art (SKIN_SHOT names the set, e.g. before/after), for
  * comparison with the htmlui replica and original captures. Asserts each screen's own controls stay reachable. */
@@ -28,8 +28,10 @@ describe.skipIf(!enabled)('UI skin tour',() => {
       if (await page.ev(`Boolean(${menu})`)) { await press(page,menu); await sleep(300); await shot('08-main-menu'); await press(page,menu); }
       await click(page,'My Profile'); await until(page,byKey('profile-ok'),30000); await sleep(800); await shot('09-profile');
       await press(page,byKey('profile-ok')); await sleep(300);
-      await click(page,'Edit Deck'); await until(page,`document.querySelector('.de-deck-columns')`,60000); await sleep(2500); await shot('10-deck');
-      await click(page,'Shop'); await until(page,`document.querySelector('.de-shop-grid')`,60000); await sleep(2500); await shot('11-shop');
+      // main's deck screen (deck-dom.ts), left through its EXIT; main's card shop (shop/index.js), left through its Back
+      await openDeckEditor(page); await sleep(2500); await shot('10-deck'); await exitDeckEditor(page);
+      await click(page,'Shop'); await until(page,`document.querySelector('[data-key="card-shop"] [aria-label="Card Shop"] .banner')`,60000); await sleep(2500); await shot('11-shop');
+      await press(page,`document.querySelector('[data-key="card-shop"] [aria-label="Leave the shop"]')`); await until(page,lobbyShown,30000);
       await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,60000); await sleep(800); await shot('12-social');
       await click(page,'Options'); await until(page,`document.querySelector('[data-key="browser-fullscreen-toggle"]')`,30000); await sleep(300); await shot('13-options');
       await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); await sleep(800);
