@@ -145,10 +145,14 @@ async function chooseDeck(page:Page,name:string,size:number) {
     await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...at }); await sleep(100);
     await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...at,button:'left',clickCount:1 }); await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...at,button:'left',clickCount:1 });
     await sleep(400);
-    await press(page,byKey('deck-files-ok')); await sleep(500);
+    await until(page,`!${byKey('deck-files-ok')}?.disabled`,5000).catch(() => {});
+    if (await page.ev(`Boolean(${byKey('deck-files-ok')})`)) await press(page,byKey('deck-files-ok'));
+    await sleep(500);
     if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await press(page,byKey('deck-dialog-yes'));
-    await sleep(1000);
+    const loaded = `window.__deApp?.getState()?.deckEditor?.current?.name===${JSON.stringify(name)}`;
+    await until(page,loaded,8000).catch(() => {});
     current = await page.ev(`window.__deApp?.getState()?.deckEditor?.current?.name ?? null`) as string|null;
+    if (current !== name && await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
   }
   expect(current).toBe(name);
   await until(page,`(window.__deApp?.getState()?.deckEditor?.current?.main?.length??-1)===${size}`,20000);
