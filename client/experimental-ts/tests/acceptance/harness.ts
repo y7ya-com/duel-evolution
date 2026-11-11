@@ -395,8 +395,14 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     if (rows.length) { received = rows; dialog = (await page.ev(`${panel}?.innerText ?? ''`) as string).replace(/\s+/g,' ').slice(0,240); }
     const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
     const other = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>['Continue','Receive Gift','Close NPC'].includes(b.textContent)&&!b.disabled)`;
-    if (!pack && await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
-    else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
+    // main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) when the HTML UI is up: its first row, then OK
+    const htmlRow = `document.querySelector('.yo2ps-list .yo2ps-row')`, htmlOk = `document.querySelector('.yo2ps-ok:not([hidden])')`;
+    if (!pack && await page.ev(`Boolean(${htmlRow})&&Boolean(${htmlOk})`)) {
+      pack = (await page.ev(`[...${htmlRow}.querySelectorAll('span')].map(s=>s.textContent)[0] ?? ${htmlRow}.textContent`) as string).trim();
+      await press(page,htmlRow); await sleep(200); await press(page,htmlOk);
+    }
+    else if (!pack && await page.ev(`Boolean(${packButton})`)) { pack = await page.ev(`${packButton}.textContent`) as string; await press(page,packButton); }
+    else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))||Boolean(${htmlRow})`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
     await sleep(800);
   }
   return { pack, received, dialog };
