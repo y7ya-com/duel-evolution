@@ -55,7 +55,7 @@ describe("NPC battle replays", () => {
 describe("NPC resource preservation", () => {
   const ctx: RuleCtx = { myLp: 8000, oppLp: 8000, myMon: [], oppMon: [], myMaxAtk: 0, oppMaxAtk: 0,
     myBackrow: 0, oppBackrow: 0, myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 0, myHand: 0, myHandTributes: 0, myRemoved: 0,
-    myTurn: false, oppEndPhase: false, attackAtk: 0, attackLethal: false, oppChained: false, myNames: [] };
+    myTurn: false, oppEndPhase: false, attackAtk: 0, attackLethal: false, attackOnDefense: false, oppChained: false, myNames: [] };
   it("holds Heavy Storm when it would destroy more friendly cards", () => {
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 4, oppBackrow: 2 })).toBe(false);
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 0, oppBackrow: 2 })).toBe(true);
@@ -234,7 +234,7 @@ it("repeatedly challenging a map NPC advances all recipes and retains completion
 describe("NPC decisions from the first production duel", () => {
   const ctx: RuleCtx = { myLp: 8000, oppLp: 8000, myMon: [], oppMon: [], myMaxAtk: 0, oppMaxAtk: 0, myBackrow: 0, oppBackrow: 0,
     myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 2, myHand: 4, myHandTributes: 1, myRemoved: 0, myTurn: true, oppEndPhase: false,
-    attackAtk: 0, attackLethal: false, oppChained: false, myNames: [] };
+    attackAtk: 0, attackLethal: false, attackOnDefense: false, oppChained: false, myNames: [] };
   const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
   // turn 3's Snatch Steal into face-down backrow (answered by Dust Tornado) stays: holding it for a bigger target
   // measured worse in the lab (2026-11-11, 1,152 duels: 44.2% -> 43.7%); the tempo matters more than the risk
@@ -250,5 +250,77 @@ describe("NPC decisions from the first production duel", () => {
     expect(spear({ ...ctx, myNames: ["gaia the fierce knight"] })).toBe(true);
     const code = [...brainDb().cards.values()].find((c) => (c.type & 0x20002) === 0x20002 && c.has("draw"))!;   // a continuous draw spell
     expect(tagRule(code)?.idlePriority ?? 0).toBe(0);
+  });
+});
+
+// Production NPC duels of 2026-11-11 (AI rev 1, replayed with NPC_LAB_ASK): decisions the rules got wrong.
+describe("NPC decisions from the first day of production duels", () => {
+  const C = { mst: 5318639, scapegoat: 73915051, spark: 81777047, pot: 55144522 };
+  const NAMES: Record<number, string> = { [C.mst]: "mystical space typhoon", [C.scapegoat]: "scapegoat", [C.spark]: "luminous spark" };
+  const named: CardInfo = { ...cards, name: (code) => NAMES[code] ?? "" };
+  const ctx: RuleCtx = { myLp: 8000, oppLp: 8000, myMon: [], oppMon: [], myMaxAtk: 0, oppMaxAtk: 0, myBackrow: 0, oppBackrow: 0,
+    myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 3, myHand: 2, myHandTributes: 0, myRemoved: 0, myTurn: false, oppEndPhase: false,
+    attackAtk: 0, attackLethal: false, attackOnDefense: false, oppChained: false, myNames: [] };
+  const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
+  const chain = (codes: number[], opp: { szone?: unknown[] } = {}) => {
+    const sel = select("SELECT_CHAIN", [], [mon(1800)], { turn_player: 1, phase: 4, forced: false,
+      selects: codes.map((code, sequence) => ({ code, controller: 0, location: 8, sequence, position: 10, description: 0 })) });
+    (sel.view.players[0] as { szone: unknown[] }).szone = codes.map((code, sequence) => ({ code, position: 10, sequence }));
+    if (opp.szone) (sel.view.players[1] as { szone: unknown[] }).szone = opp.szone;
+    return sel;
+  };
+
+  it("summons the next Nimble Momonga / Giant Germ from the Deck; other card questions stay no", () => {
+    const ask = (text: string) => new HeuristicBot(0, named).choose(select("SELECT_YESNO", [], [], { description: 22567609 * 0x100000, desc_text: text }))?.yes;
+    expect(ask('Special Summon another "Nimble Momonga" from your Deck?')).toBe(true);
+    expect(ask("Destroy a card?")).toBe(false);
+  });
+
+  it("Wall of Revealing Light pays over the strongest attacker, keeping 1000 LP", () => {
+    const pay = STAPLE_RULES["wall of revealing light"]!.number!, values = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000];
+    expect(values[pay({ ...ctx, myLp: 7400, oppMon: [atk(2300), atk(1700)], oppMaxAtk: 2300 }, values)]).toBe(3000);
+    expect(values[pay({ ...ctx, myLp: 2500, oppMon: [atk(2300)], oppMaxAtk: 2300 }, values)]).toBe(1000);
+  });
+
+  it("Poison of the Old Man burns; it heals only when the NPC's own LP is in danger", () => {
+    const pick = STAPLE_RULES["poison of the old man"]!.option!;
+    expect([pick(ctx), pick({ ...ctx, myLp: 1200 })]).toEqual([1, 0]);
+  });
+
+  it("Ring of Destruction is not spent on an attack into a Defense Position monster", () => {
+    const ring = STAPLE_RULES["ring of destruction"]!.chainReact!;
+    const swing = { ...ctx, myLp: 7000, oppMon: [atk(1800)], oppMaxAtk: 1800, attackAtk: 1800 };
+    expect([ring(swing), ring({ ...swing, attackOnDefense: true })]).toEqual([true, false]);
+  });
+
+  it("uses a set card the opponent's chain is about to destroy", () => {
+    const bot = new HeuristicBot(0, named);
+    expect(bot.choose(chain([C.scapegoat]))?.index).toBe(null);   // nothing at stake: held
+    bot.observe({ ev: "msg", type: "CHAINING", code: C.mst, controller: 1, location: 8, sequence: 0 });
+    bot.observe({ ev: "msg", type: "BECOME_TARGET", cards: [{ controller: 0, location: 8, sequence: 0, position: 10 }] });
+    expect(bot.choose(chain([C.scapegoat]))?.index).toBe(0);
+  });
+
+  it("does not spend backrow removal on a spell that is already resolving", () => {
+    const bot = new HeuristicBot(0, named);
+    bot.observe({ ev: "msg", type: "CHAINING", code: C.pot, controller: 1, location: 8, sequence: 0 });
+    const theirs = { szone: [{ code: C.pot, position: 5, sequence: 0 }] };
+    expect(bot.choose(chain([C.mst], theirs))?.index).toBe(null);
+    // a set card of theirs beside it is still a target
+    expect(bot.choose(chain([C.mst], { szone: [...theirs.szone, { code: 0, position: 10, sequence: 1 }] }))?.index).toBe(0);
+  });
+
+  it("does not activate a Field Spell over its own face-up copy", () => {
+    const sel = select("SELECT_IDLECMD", [mon(1900)], [], { to_bp: true, to_ep: true, phase: 4,
+      activates: [{ code: C.spark, controller: 0, location: 2, sequence: 0, description: 0 }] });
+    expect(new HeuristicBot(0, named).choose(sel)?.action).toBe("SELECT_ACTIVATE");
+    (sel.view.players[0] as { szone: unknown[] }).szone = [null, null, null, null, null, { code: C.spark, position: 5, sequence: 5 }];
+    expect(new HeuristicBot(0, named).choose(sel)?.action).toBe("TO_BP");
+  });
+
+  it("an easy NPC's random line never ends the turn while it has cards to set", () => {
+    const bot = new HeuristicBot(0, named, { blunder: 1 });
+    const sel = select("SELECT_IDLECMD", [], [mon(1700)], { to_ep: true, phase: 4, spell_sets: [{ code: 44095762, controller: 0, location: 2, sequence: 0 }] });
+    expect(bot.choose(sel)?.action).toBe("SELECT_SPELL_SET");
   });
 });

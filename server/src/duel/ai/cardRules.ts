@@ -52,6 +52,8 @@ export interface RuleCtx {
   /** An attack on me this Battle Phase: the attacker's ATK (0 = none declared), and whether it takes my last LP. */
   attackAtk: number;
   attackLethal: boolean;
+  /** That attack is on one of my Defense Position monsters (no LP of mine at stake). */
+  attackOnDefense: boolean;
   /** The chain's last link is the opponent's (something to negate or answer). */
   oppChained: boolean;
 }
@@ -74,6 +76,12 @@ export interface CardRule {
   specialSummon?: (ctx: RuleCtx) => boolean;
   /** Never Normal Summon or Set it (an Exodia piece: it wins from the hand). */
   keepInHand?: boolean;
+  /** Set, and about to be destroyed by the opponent's chain: use it now? No rule = yes (it is lost otherwise). */
+  doomed?: (ctx: RuleCtx) => boolean;
+  /** Its own option prompt: the option's index. No rule = the first. */
+  option?: (ctx: RuleCtx) => number;
+  /** Its own number to declare (a cost to pay, say): the index among the values offered. No rule = the first. */
+  number?: (ctx: RuleCtx, values: number[]) => number;
 }
 
 const hasMon = (m: RuleMon[]): boolean => m.length > 0;
@@ -93,6 +101,8 @@ const outgunned = (c: RuleCtx): boolean => c.oppMaxAtk > 0 && c.oppMaxAtk >= c.m
 /** LP left to pay a cost with. */
 const canPay = (c: RuleCtx, cost: number): boolean => c.myLp > cost + 1000;
 const never = (): boolean => false;
+/** The strongest face-up monster of the opponent's, any position (what a cost has to cover). */
+const oppTopAtk = (c: RuleCtx): number => c.oppMon.reduce((m, x) => (x.faceDown ? m : Math.max(m, x.atk)), 0);
 
 // ── shared staples (every NPC, unless its own rules override) ──────────────────────
 export const STAPLE_RULES: Record<string, CardRule> = {
@@ -168,8 +178,22 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "gravity bind": { chainReact: (c) => attacked(c, 1400) || (c.oppEndPhase && outgunned(c)), idleActivate: outgunned },
   "level limit - area b": { idleActivate: (c) => outgunned(c) || c.myMaxAtk === 0 },
   "messenger of peace": { idleActivate: (c) => outgunned(c) || c.myMaxAtk < 1500, yesNo: (c) => c.myLp > 600 },
-  "wall of revealing light": { chainReact: (c) => attacked(c, 1500), idleActivate: never },
-  "scapegoat": { idleActivate: never, chainReact: (c) => (c.attackAtk > 0 && c.myMon.length === 0) || (c.oppEndPhase && c.myMon.length === 0 && c.myHandTributes > 0) },
+  // Monsters with ATK up to the LP paid can't attack: pay over their strongest (production paid the first offer,
+  // 1000, into 1700 and 2300 attackers), keeping 1000 LP; short of that, the most that keeps it.
+  "wall of revealing light": {
+    chainReact: (c) => attacked(c, 1500), idleActivate: never,
+    number: (c, values) => {
+      const need = Math.max(oppTopAtk(c), c.attackAtk), ok = (v: number) => c.myLp - v >= 1000;
+      let pick = -1;
+      values.forEach((v, i) => { if (v >= need && ok(v) && (pick < 0 || v < values[pick]!)) pick = i; });
+      if (pick < 0) values.forEach((v, i) => { if (ok(v) && (pick < 0 || v > values[pick]!)) pick = i; });
+      return Math.max(0, pick);
+    },
+  },
+  // the tokens lock our own summons for the turn
+  "scapegoat": { idleActivate: never, chainReact: (c) => (c.attackAtk > 0 && c.myMon.length === 0) || (c.oppEndPhase && c.myMon.length === 0 && c.myHandTributes > 0), doomed: (c) => !c.myTurn },
+  // gain 1200 or inflict 800: the damage, unless our own LP is the one in danger
+  "poison of the old man": { option: (c) => (c.myLp <= 1500 && c.oppLp > 800 ? 0 : 1) },
   "book of moon": { idleActivate: never, chainReact: (c) => attacked(c, 1800) },
   "shrink": { idleActivate: never, chainReact: (c) => attacked(c, 1800) },
   "rush recklessly": { idleActivate: never, chainReact: never },
@@ -184,7 +208,7 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "dimension fusion": { idleActivate: (c) => c.myRemoved >= 2 && c.myLp > 4000 },
   "return from the different dimension": {
     idleActivate: (c) => c.myRemoved >= 2 && c.myLp > 2000 && !c.oppMon.some((m) => m.attackPos && m.atk >= 2000),
-    chainReact: never,
+    chainReact: never, doomed: (c) => c.myRemoved >= 1 && c.myLp > 2000,
   },
   "reckless greed": { chainReact: (c) => c.oppEndPhase && c.myHand <= 2, idleActivate: (c) => c.myHand <= 1 },
   "ceasefire": { chainReact: (c) => c.oppEndPhase || c.attackLethal, idleActivate: never },
@@ -226,13 +250,15 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "sakuretsu armor": { chainReact: (c) => attacked(c, 1600) },
   "magic cylinder": { chainReact: (c) => attacked(c, 1600) },
   "dimensional prison": { chainReact: (c) => attacked(c, 1600) },
+  // Both take the ATK: not to save a Defense Position monster (production paid 1800 for a set Spirit Reaper).
   "ring of destruction": {
     idleActivate: (c) => c.oppMaxAtk >= 2000 && c.oppMaxAtk < c.myLp && (c.oppMaxAtk >= c.oppLp || c.oppMaxAtk > c.myMaxAtk),
-    chainReact: (c) => c.oppMaxAtk < c.myLp && (c.oppMaxAtk >= c.oppLp || attacked(c, 1700)),
+    chainReact: (c) => c.oppMaxAtk < c.myLp && (c.oppMaxAtk >= c.oppLp || (attacked(c, 1700) && !c.attackOnDefense)),
+    doomed: (c) => { const top = oppTopAtk(c); return top > 0 && (top >= c.oppLp ? top < c.myLp : c.myLp - top >= 1000); },
   },
   "torrential tribute": { chainReact: (c) => worthwhileWipe(c) && (c.oppMon.length >= 2 || c.oppMaxAtk >= 1800 || !hasMon(c.myMon) && c.oppMaxAtk >= 1600) },
   "bottomless trap hole": { chainReact: () => true },
-  "solemn judgment": { chainReact: (c) => c.myLp > 4000 && c.oppChained },
+  "solemn judgment": { chainReact: (c) => c.myLp > 4000 && c.oppChained, doomed: (c) => c.myLp > 2000 },
   "negate attack": { chainReact: (c) => c.attackLethal || (c.attackAtk > 0 && c.attackAtk >= c.myMaxAtk && c.attackAtk >= 1500) },
   "draining shield": { chainReact: (c) => attacked(c, 1600) },
   "waboku": { chainReact: (c) => attacked(c, 1500) },
