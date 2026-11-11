@@ -292,7 +292,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             prompts.probing = true; await page.ev(`window.__staleAction.click()`); await sleep(600);
             const after = await snap(page);
             staleActionResult = `${who}: "${staleAction.label}" button from turn ${staleAction.turn} pressed on turn ${turnOf(s)}: ${after.errors.join(' ') || 'no message'}; phase ${after.bar === s.bar ? 'unchanged' : `changed to ${after.bar}`}`;
-            expect(after.errors.join(' ')).toContain('expired');
+            expect(after.errors.join(' '),`stale press said nothing: ${await page.ev(`JSON.stringify({ disabled:window.__staleAction?.disabled, connected:window.__staleAction?.isConnected, busy:window.__deApp?.getState?.().busy, error:window.__deApp?.getState?.().error, dialog:(document.getElementById('htmlui-host')?.innerText ?? '').match(/[^\\n]*(expired|sent|Wait)[^\\n]*/)?.[0] ?? null, alerts:[...document.querySelectorAll('[role=alert]')].map(n=>n.textContent) })`)}`).toContain('expired');
             expect(after.bar).toBe(s.bar);
           }
           // duel.log: scroll the log while a prompt waits; the prompt stays and is then answered normally.
@@ -302,7 +302,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             const scrolled = await page.ev(`document.querySelector('.de-duel-log').scrollTop`) as number;
             const after = await snap(page);
             logProbe = `${who}: log of ${s.log.length} lines scrolled ${box.top}→${scrolled} (of ${box.max}) under "${s.prompt.text}"; prompt ${after.prompt?.id === s.prompt.id ? 'unchanged' : 'changed'}`;
-            expect(scrolled).toBeLessThan(box.top);
+            expect(scrolled,`wheel at ${box.x},${box.y}: ${await page.ev(`(()=>{const o=[];let e=document.elementFromPoint(${box.x},${box.y});while(e){o.push(e.tagName+'.'+String(e.className).slice(0,40)+(e.dataset&&e.dataset.windowClass?'['+e.dataset.windowClass+']':''));e=e.parentElement}const l=document.querySelector('.de-duel-log');return o.join(' < ')+' | logs '+document.querySelectorAll('.de-duel-log').length+' hidden '+l.hidden+' rect '+JSON.stringify(l.getBoundingClientRect())})()`)}`).toBeLessThan(box.top);
             expect(after.prompt?.id).toBe(s.prompt.id);
           }
         }
