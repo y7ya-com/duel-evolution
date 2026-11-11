@@ -2,7 +2,7 @@
 
 `OnlineController` from `features/online` accepts `{ http: HttpClient, onChange: (state: OnlineState) => void }`. Read `.state`; call `refresh(): Promise<void>`, `dispatch(action: OnlineAction): Promise<void>`, `reset()` on session/character change, and `dispose()` on teardown. The shared HTTP client is not disposed. State includes `cosmetics`, `tag`, `loading`, `pending`, `error`, and `receipt` (server response only). Initial data is null. Errors are reported in state; methods settle without unhandled UI rejections.
 
-`renderOnlineFeature(state, dispatch, section: 'cosmetics' | 'tag'): HTMLElement` from `ui/extra/online` uses local DOM listeners. Mount cosmetics in shop and tag in lobby duel menu. Dispatch accepts `(action: OnlineAction) => void | Promise<void>`.
+The renderer it once had (`ui/extra/online`) is gone: the shop's cosmetics and the lobby's tag duel render through `ui/extra/cosmetics` and `ui/extra/tag`.
 
 Actions (discriminant `type`): `refresh`; `open-box {boxId, requestId?}`; `equip {id, world?}`; `appearance {world?, gender?, parts?}`; `trade {targetPid, give, want, requestId}`; `trade-accept|trade-decline|trade-cancel {offerId}`; `tag-invite {teammatePid, opponentPid, opponentTeammatePid}`; `tag-accept|tag-decline|tag-cancel {id}`. Box kinds are `hair|dueldisk|outfit`. Trade lines are `{id,count}`. Caller-supplied trade requestId must remain stable across explicit retries (8–80 alphanumeric/underscore/hyphen). Box requestId defaults to the current server nextRequestId; explicit retry action preserves the original token. No automatic mutation retries. Concurrent dispatches are ignored while pending. Refresh during a mutation is ignored; mutations supersede in-flight reads. Reset invalidates and aborts old work.
 

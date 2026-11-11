@@ -7,7 +7,7 @@ import type { TradeEvent, TradeView } from '../gameplay/trade';
 
 export type SocialAction =
   | { type: 'editDraft'; key: string; value: string }
-  | { type: 'refreshMail' | 'refreshTeam' | 'leaveTeam' | 'disbandTeam' | 'readyTrade' | 'cancelTrade' }
+  | { type: 'refreshMail' | 'refreshTeam' | 'refreshOnline' | 'leaveTeam' | 'disbandTeam' | 'readyTrade' | 'cancelTrade' }
   | { type: 'sendMail'; toPid: number; subject: string; body: string }
   | { type: 'findPlayer' | 'createTeam'; name: string }
   | { type: 'inviteFriend' | 'ignore' | 'unignore' | 'inviteTeam'; pid: number }
@@ -51,11 +51,14 @@ export interface SocialState {
   lookup: { result: number; pid: number; name?: string } | null;
   friendOffers: readonly FriendOffer[]; friends: readonly { pid: number; name: string }[];
   ignored: readonly number[];
+  /** The Friend List's presence, as the original asks it (0x3603 with the list's pids, answered by 0x3604): each online
+   * friend's place (its world kind and area); a friend missing from it is offline. null until asked. */
+  online: Readonly<Record<number, { kind: number; area: number }>> | null;
   teamInvites: readonly TeamInvite[]; team: TeamHeader | null; teamMembers: readonly TeamMember[]; teamLoading: boolean;
   trade: SocialTrade;
 }
 const freshTrade = (): SocialTrade => ({ phase: 'idle', partner: null, ownOffer: [], pendingMove: null, view: initialTradeView() });
-const initial = (): SocialState => ({ status: 'Ready', error: null, drafts: {}, mail: [], mailLoading: false, lookup: null, friendOffers: [], friends: [], ignored: [], teamInvites: [], team: null, teamMembers: [], teamLoading: false, trade: freshTrade() });
+const initial = (): SocialState => ({ status: 'Ready', error: null, drafts: {}, mail: [], mailLoading: false, lookup: null, friendOffers: [], friends: [], ignored: [], online: null, teamInvites: [], team: null, teamMembers: [], teamLoading: false, trade: freshTrade() });
 const bounded = <T>(items: readonly T[], limit = 100): T[] => items.slice(-limit);
 /** Copies of a card that may still be offered: the trade's trunk count, less the soul-bound copies in its limit table
  * (0x7129..0x7131, the original TradeEntry card box's "not tradeable" counts) and the copies already offered. */
@@ -89,7 +92,7 @@ export class SocialController {
     const saved = pid === null ? null : this.options.box?.load(pid);
     const friends = (Array.isArray(saved?.friends) ? saved.friends : []).filter(f => f && Number.isInteger(f.pid) && f.pid > 0 && typeof f.name === 'string').map(f => ({ pid: f.pid, name: f.name.slice(0, 16) }));
     for (const k of Array.isArray(saved?.deleted) ? saved.deleted : []) if (typeof k === 'string' && k.length <= 64) this.deleted.add(k);
-    this.update({ friends: bounded(friends) });
+    this.update({ friends: bounded(friends), online: null });
   }
   private persist(): void {
     if (this.owner === null) return;
@@ -144,6 +147,7 @@ export class SocialController {
           const target = pid(action.pid); command = action.type === 'ignore' ? socialCommands.ignore(target) : socialCommands.unignore(target);
           this.ignorePending.set(id, target); break;
         }
+        case 'refreshOnline': if (!s.friends.length) { this.update({ online: {} }); return; } command = socialCommands.onlineFriends(s.friends.slice(0, 255).map(f => f.pid)); break;
         case 'refreshTeam': if (s.teamLoading) return; this.update({ teamLoading: true }); command = socialCommands.team(); break;
         case 'createTeam': command = socialCommands.createTeam(text(action.name, 15)); break;
         case 'inviteTeam': command = socialCommands.inviteToTeam(pid(action.pid)); break;
@@ -208,6 +212,7 @@ export class SocialController {
           case 0x4512: this.update({ friendOffers: bounded([...this.current.friendOffers.filter(o => o.pid !== event.value.pid), event.value]) }); break;
           case 0x4515: this.update({ friends: event.value.accepted ? bounded([...this.current.friends.filter(f => f.pid !== event.value.pid), { pid: event.value.pid, name: event.value.name }]) : this.current.friends, status: `Friend invitation ${event.value.accepted ? 'accepted' : 'declined'} by ${event.value.name}.` }); if (event.value.accepted) this.persist(); break;
           // a mail this character deleted stays deleted (the server sends the last 50 again on every receive)
+          case 0x3604: if (event.value.result === 0) this.update({ online: Object.fromEntries(event.value.friends.map(f => [f.pid, { kind: f.kind, area: f.area }])) }); break;
           case 0x4612: if (!this.deleted.has(mailKey(event.value))) this.update({ mail: bounded([...this.current.mail, event.value], 50) }); break;
           case 0x4567: this.update({ teamInvites: bounded([...this.current.teamInvites.filter(i => i.teamId !== event.value.teamId || i.inviterPid !== event.value.inviterPid), event.value]) }); break;
           case 0x4564: this.update({ team: event.value.id ? event.value : null, teamMembers: [], teamLoading: true }); break;

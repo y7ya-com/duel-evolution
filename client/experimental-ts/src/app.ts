@@ -707,6 +707,11 @@ export class ClientApp implements ClientController {
       ...(this.options.reloadData ? {dataStatus:{loading:false,issues:[...(this.options.dataIssues ?? [])]}} : {}),
       ...(this.options.audio ? {audio:this.options.audio.getState()} : {}), status:'Disconnected.' }; this.emit();
   }
+  /** The Friend List's presence (the server's friendsInfo: each friend online or not, and where). */
+  private async refreshFriends(): Promise<void> {
+    const epoch = this.epoch, friends = await this.services.refreshFriends({ signal: this.connectionScope.signal });
+    if (epoch === this.epoch && !this.disposed) this.patch({ social: toSocialView(friends) });
+  }
   private async refresh(scene: Scene): Promise<void> {
     const options = { signal: this.connectionScope.signal }, epoch = this.epoch;
     if (scene === 'deck') {
@@ -734,9 +739,6 @@ export class ClientApp implements ClientController {
     } else if (scene === 'shop') {
       const shop = await this.services.refreshShop(options);
       if (epoch === this.epoch && !this.disposed) { const view = await this.shopView(shop); if (epoch === this.epoch && !this.disposed) { this.patch({ shop: view }); await this.online.refresh(); } }
-    } else if (scene === 'social') {
-      const friends = await this.services.refreshFriends(options);
-      if (epoch === this.epoch && !this.disposed) { this.patch({ social: toSocialView(friends) }); this.social.dispatch({ type: 'refreshMail' }); this.social.dispatch({ type: 'refreshTeam' }); }
     } else if (scene === 'lobby') {
       if (this.freeMode) { this.patch({starter:undefined}); return; }
       await this.requireGame().refreshNpcs();
@@ -793,8 +795,9 @@ export class ClientApp implements ClientController {
           if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel', 'sideboarding'].includes(this.game?.state.phase ?? '')) && (this.duelState.status !== 'finished' || this.game?.state.match && !this.game.state.match.complete) && !['duel', 'settings'].includes(command.scene)) throw new Error('Finish or surrender the duel first.');
           if (command.scene === 'lobby' && this.duelState.status === 'finished') {this.eligibilityDue=true;await this.requireGame().finishDuel();}
           this.patch({ scene: command.scene });
-          if (['deck', 'shop', 'social'].includes(command.scene)) await this.refresh(command.scene); break;
+          if (['deck', 'shop'].includes(command.scene)) await this.refresh(command.scene); break;
         case 'refresh': await this.refresh(command.scene); break;
+        case 'refreshFriends': await this.refreshFriends(); break;
         case 'move':
           this.requireGame();
           if (!this.options.worldMaps || !this.world.position) throw new Error('Original collision data is unavailable. Generate the world maps before walking.');
