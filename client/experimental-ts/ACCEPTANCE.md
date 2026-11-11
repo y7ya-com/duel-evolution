@@ -41,6 +41,15 @@ real Worker, better-auth, D1, WorldDO, duel engine). Each asserted flow appends 
 `press` fails on a covered or disabled control rather than skipping it: that is usually a UI defect worth fixing.
 Server logs: the stack's `log` path. Test sign-in and register/sign-in are rate limited like production.
 
+## Trades (`trade.test.ts`)
+
+Live refuses a trade that gives cards from a character with fewer than 20 rewarded duels (server persist.ts
+`TRADE_GIVE_MIN_DUELS`, the anti-alt rule). The test's characters are new, so it needs a stack of its own with that
+minimum lowered: `STACK_VARS=SEND_PACE:0,DUEL_PAUSE:0.001,DEV:1,TRADE_GIVE_MIN_DUELS:0`. The server honours
+`TRADE_GIVE_MIN_DUELS` only with `DEV=1` outside production (config.ts); on a stack without it the test's trades end
+"Trade cancelled: a character can give cards after 20 rewarded duels." Each player still plays two rewarded NPC duels:
+a new character's first prize is soul-bound, the second is tradeable.
+
 ## Scenario duels (`duel-scenarios.test.ts`)
 
 Cases ordinary play rarely reaches (card/number/attribute/type declarations, control changes, tokens, counters,

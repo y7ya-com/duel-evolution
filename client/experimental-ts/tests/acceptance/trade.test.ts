@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, byKey, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, type Page } from './harness';
 
 /** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) over
  * the rewrite's trunk picker (.de-trade-trunk). */
@@ -103,9 +103,21 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       // trade.failure: a cancelled trade changes nothing.
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       const beforeCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
+      const collectionA = (await openDeckEditor(a)).collection; await exitDeckEditor(a);
       await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
       await invite(a,b,names.b); await press(b,byKey('trade-accept'));
       for (const p of [a,b]) await until(p,`document.querySelector('.de-trade-trunk')`,30000);
+      // A soul-bound starter card: the server sends its copies in the trade's limit table (trade.ts limitPairs) and the
+      // trunk holds them back, so it can't be offered at all (the server would also refuse it at the confirmation:
+      // server/test/anti-alt.test.ts). A owns it; searching the trunk for it finds nothing to offer.
+      const offerableA = new Set((await offerable(a)).map(c => c.name));
+      const bound = collectionA.find(c => c.owned > 0 && ![...offerableA].some(n => n.toLowerCase().includes(c.name.toLowerCase())) && !rewardA.includes(c.name) && c.name !== take)!;
+      expect(bound).toBeTruthy();
+      await type(a,`document.querySelector('[data-key="trade-search"]')`,bound.name);
+      await until(a,`[...document.querySelectorAll('.de-trade-trunk .de-note')].some(n=>n.textContent==='No matching cards.')&&!document.querySelector('.de-trade-trunk .de-trade-card')`,10000);
+      await sleep(500); await shot(a,'bound-held');
+      await type(a,`document.querySelector('[data-key="trade-search"]')`,'');
+      await until(a,`Boolean(document.querySelector('.de-trade-trunk .de-trade-card'))`,10000);
       const offerAgain = (await offerable(a))[0]!.name;
       await offer(a,offerAgain);
       await until(b,offered(),30000);
@@ -118,23 +130,9 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       for (const p of [a,b]) if (await p.ev(`Boolean(document.querySelector('[data-key="trade-close"]'))`)) await press(p,byKey('trade-close')).catch(() => {});
       const afterCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
       expect(afterCancel).toEqual(beforeCancel);
-      // A soul-bound starter card: both ready and confirm; the server refuses the exchange and says why; nothing moves.
-      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
-      await invite(a,b,names.b); await press(b,byKey('trade-accept'));
-      for (const p of [a,b]) await until(p,`document.querySelector('.de-trade-trunk')`,30000);
-      const bound = (await offerable(a)).find(c => !rewardA.includes(c.name) && c.name !== take)!.name, boundBefore = await trunk(a,bound);
-      await offer(a,bound);
-      await until(b,offered(),30000);
-      for (const p of [a,b]) await ready(p);
-      for (const p of [a,b]) await until(p,`Boolean(document.querySelector('[data-key="trade-complete"]'))`,30000);
-      for (const p of [a,b]) await press(p,byKey('trade-complete'));
-      await until(a,`${dialogText('trade-close')}.includes('soul-bound')`,60000);
-      const refusal = await a.ev(dialogText('trade-close')) as string;
-      await shot(a,'refused');
-      for (const p of [a,b]) if (await p.ev(`Boolean(document.querySelector('[data-key="trade-close"]'))`)) await press(p,byKey('trade-close')).catch(() => {});
-      const boundAfter = await ownedCopies(a,bound);
-      expect(boundAfter).toBe(boundBefore);
-      record('trade.failure',{ actions:'Partner cancels an open trade; then a soul-bound starter card is offered and both confirm', expected:'Disconnect, stale inventory, bound items and cancellation cause no loss or duplication', observed:`after cancel: A ${take}×${afterCancel.a}, B ${give}×${afterCancel.b} unchanged; bound ${bound}: "${refusal.replace(/\s+/g,' ').trim()}", A still owns ×${boundAfter}` });
+      const boundAfter = await ownedCopies(a,bound.name);
+      expect(boundAfter).toBe(bound.owned);
+      record('trade.failure',{ actions:'Partner cancels an open trade; a soul-bound starter card is searched for in the trunk', expected:'Disconnect, stale inventory, bound items and cancellation cause no loss or duplication', observed:`after cancel: A ${take}×${afterCancel.a}, B ${give}×${afterCancel.b} unchanged; bound ${bound.name} (A owns ×${bound.owned}) held back from the trunk ("No matching cards."), still ×${boundAfter} after` });
       void text; void open;
     } finally { closeAll(); }
   },900000);

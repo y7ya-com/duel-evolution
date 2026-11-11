@@ -68,6 +68,18 @@ export interface Config {
    *  a client that does not answer 0xCA02 with this server's card table (an older build) is refused. Off: no hello and no
    *  gate (test harnesses that speak the wire themselves). */
   cardWire: boolean;
+  /** TRADE_GIVE_MIN_DUELS (dev stacks only): the rewarded duels before a character can give in a trade (persist.ts
+   *  TRADE_GIVE_MIN_DUELS, 20). Honoured only with DEV=1 and a DEPLOY_ENV other than production; anywhere else the
+   *  live rule stands. The acceptance stack sets 0 so its fresh characters can trade. */
+  tradeGiveMinDuels: number;
+}
+
+/** The live anti-alt rule, persist.ts TRADE_GIVE_MIN_DUELS (test/config-trade-gate.test.ts keeps the two equal); a dev
+ *  stack (DEV=1, not production) may lower it. */
+export const TRADE_GIVE_MIN_DUELS_LIVE = 20;
+function devTradeGiveMin(dev: string | undefined, deployEnv: string | undefined, v: string | undefined): number {
+  if (dev !== "1" || deployEnv === "production" || v == null || !/^\d+$/.test(v.trim())) return TRADE_GIVE_MIN_DUELS_LIVE;
+  return Number(v.trim());
 }
 
 export function configFrom(env: Record<string, unknown>): Config {
@@ -93,5 +105,6 @@ export function configFrom(env: Record<string, unknown>): Config {
     placeOrder: placeOrderFrom(s("PLACE_ORDER")),
     progression: flag("PROGRESSION", false),
     cardWire: flag("CARD_WIRE", true),
+    tradeGiveMinDuels: devTradeGiveMin(s("DEV"), s("DEPLOY_ENV"), s("TRADE_GIVE_MIN_DUELS")),
   };
 }
