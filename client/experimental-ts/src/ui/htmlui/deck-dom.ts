@@ -54,8 +54,10 @@ export class DeckDom {
     return [((e.clientX ?? 0) - (r?.left ?? 0)) / k, ((e.clientY ?? 0) - (r?.top ?? 0)) / k];
   }
   private move = (e: Ev): void => { if (this.active && this.scene.ui.drag) this.scene.dragTo(this.game(e)); };
-  // a release that no card or zone took (outside the editor's zones): the held card goes back
-  private release = (e: Ev): void => { if (this.active && this.scene.ui.drag && e.button === 0) queueMicrotask(() => { if (this.scene.ui.drag) this.scene.dropOn(null, null); }); };
+  // a release that no card or zone took (outside the editor's zones): the held card goes back. After the whole dispatch
+  // (a task, not a microtask: a microtask runs as soon as this capture listener returns, before the card's or zone's own
+  // mouseup could take the drop)
+  private release = (e: Ev): void => { if (this.active && this.scene.ui.drag && e.button === 0) setTimeout(() => { if (this.scene.ui.drag) this.scene.dropOn(null, null); }, 0); };
   private box(parent: HTMLElement, tag: string, x: number, y: number, w: number, h: number): HTMLElement {
     const d = document.createElement(tag); Object.assign(d.style, { position: 'absolute', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' }); parent.append(d); return d;
   }

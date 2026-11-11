@@ -272,9 +272,22 @@ export class HtmlUiLayer {
     // the shop's and the trade's roots overlap (the mileage plate over the item window's Confirm): as on main, where the
     // engine has the pointer, only their buttons take it
     return { ...mod, mode: 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
-      mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
+      mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); this.watch(root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
       update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); },
-      unmount: (root, st) => { mod.unmount?.(root, st); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };
+      unmount: (root, st) => { mod.unmount?.(root, st); this.watched.get(root)?.disconnect(); this.watched.delete(root); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };
+  }
+  // a screen that redraws its elements on its own (a hover look, art loaded late) gets its keys back on the next frame,
+  // not at the next second's tag: a key never goes missing from a control still on screen
+  private watched = new Map<HTMLElement, MutationObserver>();
+  private watch(root: HTMLElement): void {
+    if (typeof MutationObserver !== 'function' || this.watched.has(root)) return;
+    let queued = false;
+    const o = new MutationObserver(() => {
+      if (queued) return; queued = true;
+      requestAnimationFrame(() => { queued = false; if (this.disposed) return; for (const [id, r] of this.roots) if (r === root) { const spec = this.specs.find(s => s.win.id === id); if (spec) this.tag(spec.win, root); } });
+    });
+    o.observe(root, { childList: true, subtree: true });
+    this.watched.set(root, o);
   }
   private tag(win: HtmlWindow, root: HTMLElement): void {
     const spec = this.specs.find(s => s.win.id === win.id); if (!spec) return;
@@ -311,6 +324,7 @@ export class HtmlUiLayer {
   dispose(): void {
     this.disposed = true;
     this.observer?.disconnect();
+    for (const o of this.watched.values()) o.disconnect(); this.watched.clear();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
     if (this.tick) clearInterval(this.tick);
     this.host.remove(); this.box.remove(); document.getElementById('mu-titlebg')?.remove();
