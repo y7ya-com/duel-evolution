@@ -61,11 +61,12 @@ describe('actual headless browser against real game authority',() => {
       await until(browser,LOBBY,30000);
       // Claim through the actual server handler if this character is offered a starter deck.
       await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);
-      const starter = await browser.ev(`document.body.innerText.includes('Choose your Starter Deck')`);
-      if (starter) {
-        await activate(browser,`[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`,viewport.mobile);
-        await until(browser,`document.querySelector('[data-key="starter-yes"]')`); await activate(browser,`document.querySelector('[data-key="starter-yes"]')`,viewport.mobile);
-        await until(browser,`!document.body.innerText.includes('Choose your Starter Deck')`);
+      // main's starter deck picker (web-shell/starter.js): a deck, Choose this deck, Yes, take it, OK
+      for (let i = 0; i < 30 && !(await browser.ev(`Boolean(${`document.querySelector('#starter .scroll .btn')`})`)); i++) await new Promise(r => setTimeout(r,100));
+      if (await browser.ev(`Boolean(${`document.querySelector('#starter .scroll .btn')`})`)) {
+        await activate(browser,`document.querySelector('#starter .scroll .btn')`,viewport.mobile);
+        for (const label of ['Choose this deck','Yes, take it','OK']) { const sel = `document.querySelector('#starter .btn[aria-label="${label}"]')`; await until(browser,sel); await activate(browser,sel,viewport.mobile); }
+        await until(browser,`!document.getElementById('starter')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
       await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);

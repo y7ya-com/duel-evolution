@@ -214,10 +214,14 @@ export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'pro
 }
 
 export async function claimStarter(page:Page) {
-  // the rewrite's deck list, then main's Yes / No (dialog.js CWindowModelDialogYesNo, data-key starter-yes) to claim
-  const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
-  for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
-  if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await press(page,starter); await until(page,byKey('starter-yes'),10000); await press(page,byKey('starter-yes')); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
+  // main's starter deck picker (web-shell/starter.js, #starter): a deck tile, "Choose this deck", "Yes, take it", OK
+  const tile = `document.querySelector('#starter .scroll .btn')`, btn = (label:string) => `document.querySelector('#starter .btn[aria-label=${JSON.stringify(label)}]')`;
+  for (let i = 0; i < 30 && !(await page.ev(`Boolean(${tile})`)); i++) await sleep(100);
+  if (await page.ev(`Boolean(${tile})`)) {
+    await press(page,tile); await until(page,btn('Choose this deck'),10000); await press(page,btn('Choose this deck'));
+    await until(page,btn('Yes, take it'),10000); await press(page,btn('Yes, take it'));
+    await until(page,btn('OK'),30000); await press(page,btn('OK')); await until(page,`!document.getElementById('starter')`,10000);
+  }
 }
 
 /** Evidence: one JSON line per asserted flow, with the client commit and run time. */

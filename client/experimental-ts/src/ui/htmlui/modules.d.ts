@@ -91,3 +91,8 @@ declare module '@htmlui/crafting/api.js' {
 declare module '@htmlui/crafting/model.js' {
   export function cardState(view: unknown, pc: number | string): unknown;
 }
+// main's starter deck picker (client/web-shell/starter.js): a page script that sets window.yo2Starter
+declare module '@web-shell/starter.js' {}
+declare module '@html-ui/ui.js' {
+  export function loadGlyphs(base?: string): Promise<unknown>;
+}

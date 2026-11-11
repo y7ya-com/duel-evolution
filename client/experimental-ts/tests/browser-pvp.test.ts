@@ -43,10 +43,12 @@ async function enter(browser:Browser,origin:string,account:string,name:string) {
   await until(browser,slot); await activate(browser,slot);
   await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
   await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);
-  if (await browser.ev(`document.body.innerText.includes('Choose your Starter Deck')`)) {
-    await activate(browser,`[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`);
-    await until(browser,`document.querySelector('[data-key="starter-yes"]')`); await activate(browser,`document.querySelector('[data-key="starter-yes"]')`);
-    await until(browser,`!document.body.innerText.includes('Choose your Starter Deck')`);
+  // main's starter deck picker (web-shell/starter.js): a deck, Choose this deck, Yes, take it, OK
+  for (let i = 0; i < 30 && !(await browser.ev(`Boolean(${`document.querySelector('#starter .scroll .btn')`})`)); i++) await new Promise(r => setTimeout(r,100));
+  if (await browser.ev(`Boolean(${`document.querySelector('#starter .scroll .btn')`})`)) {
+    await activate(browser,`document.querySelector('#starter .scroll .btn')`);
+    for (const label of ['Choose this deck','Yes, take it','OK']) { const sel = `document.querySelector('#starter .btn[aria-label="${label}"]')`; await until(browser,sel); await activate(browser,sel); }
+    await until(browser,`!document.getElementById('starter')`);
   }
 }
 /** A second, cookie-isolated page in the same Chrome (its own browser context), with the launcher's page API. */
