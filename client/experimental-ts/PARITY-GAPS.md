@@ -9,6 +9,13 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
   HTML UI is up (`src/ui/htmlui/npc-pack.ts`): a row chooses the pack, OK claims it (0x4802). Rows carry the
   original's completion column (packCompletionLine), read from `GET /api/de/shop/pack` (`collected`); a pack the shop
   does not list shows no percentage. The NPC panel keeps the dialogue, gifts and received cards.
+- **Duel Log** (CWindowModelDuellogTop / List / Search): the Main Menu's Duel Log entry opens it
+  (`src/ui/htmlui/duellog.ts`, the list windows' Legacy frame). Top shows the character's duels, wins, losses, draws
+  and win rate; Duel History pages the games (date, opponent, result, turns, how it was paired, ranked, match);
+  Search narrows by opponent name, result and a date range. Read from `GET /api/de/duellog`
+  (server/src/game/duellogList.ts): the server keeps one line per PvP game played on the character's profile
+  (newest first, the last 200). The 2008 client kept the list itself (duellogs\\list.txt, written and searched
+  locally; no list or search message existed), so the route is the rewrite's own.
 
 ## The server has it, the rewrite does not (client work only)
 
@@ -28,4 +35,5 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
 | SCENE_PRESENT (Present) | The present box: cards and items the operator sent the player, listed and claimed one by one | A present inbox: storage per character, a list message and a claim message (with the grant through the same paths as NPC gifts), and an admin way to send one. Nothing in server/src today |
 | Tournament Points (TP scene) | The player's TP total and what it buys | `persist` keeps `rec.tp`, but `PRIZE_TP` is 0 in tournaments.ts, so nothing awards TP, and no message or endpoint reads it. Needs a TP award rule, a read (profile field or `/api/de/...`), and whatever TP exchanges for |
 | Information texts / event pages | The news and event descriptions the Information and AboutEvent windows showed | EVENTINFO carries only (serial, world, state). An event text source (admin-set titles and bodies, per language) and a message or endpoint that serves them |
+| Duel Log replays (CWindowModelDuellogOperation's Play, the saved duellogs\\*.log; DuellogTour, the championship logs) | The duel record of a game, replayed in the duel screen, and the operator's championship logs downloaded from the site | The server sends the record (0x6010..0x6016, duel/duellog.ts) after a PvP game but does not keep it. Needs the records stored (per game, by the Duel Log line's id), a read for one, and a replay viewer in the rewrite (none today: the Duel Log lists the games without a Play button) |
 | NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift | The gifts arrive as bits (`giftBits`); the rewrite cannot name them. Needs the item table (name per bit) served, or sent with the grant |

@@ -27,6 +27,7 @@ import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
+import { duellogUi, duellogWindow, fetchDuellog, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
 import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
@@ -241,6 +242,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.selfPid === p?.selectedPid ? p?.comments[1] ?? undefined : undefined, busy: !!state.busy || p?.pending != null,
       wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
   };
+  // Duel Log (CWindowModelDuellogTop / List / Search) over the scene, opened from the Main Menu: GET /api/de/duellog
+  let duellog: DuellogUi | null = null, duellogAsk = 0;
+  const loadDuellog: (search: DuellogUi['search'], page: number) => void = (search, page) => {
+    const ui = duellog; if (!ui) return;
+    const ask = ++duellogAsk; ui.loading = true; ui.error = null; showHtml();
+    void fetchDuellog(search, page).then(out => {
+      if (duellog !== ui || ask !== duellogAsk) return;
+      ui.loading = false;
+      if ('error' in out) ui.error = out.error; else { ui.data = out; ui.page = out.page; }
+      showHtml();
+    });
+  };
+  const duellogSpecs = (): WindowSpec[] => {
+    if (!duellog || !state.player || state.scene === 'duel' || state.scene === 'title' || state.connection !== 'online') { duellog = null; return []; }
+    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml() })];
+  };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
   // the rows' completion (the original's packCompletionLine): the server's shop pack view (GET /api/de/shop/pack, its
@@ -268,7 +285,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
     return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
   };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duelSpecs(), ...prepSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
@@ -1034,6 +1051,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         ...(state.mode !== 'free' ? [
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
+          // Duel Log (CWindowModelDuellogTop): the character's duel history, its stats and the search
+          { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
           { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; showHtml(); } },
           // the rewrite's own social page (finding a player, answering friend and team invitations), not yet main's
           { label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: go('social') },

@@ -19,6 +19,7 @@ import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
 import { deckHash } from "./deckCheck.ts";
 import * as DFM from "./duelfin.ts";
 import * as DL from "./duellog.ts";
+import { duellogPush } from "../game/duellogList.ts";
 import { PvpSession, Sender, cardText, sendDuelLog, type SItem } from "./ocgSession.ts";
 import { DuelLog } from "./duelText.ts";
 import { X } from "./port.ts";
@@ -1026,6 +1027,12 @@ export class PvpMatch {
     const pdu = this.asSess(s, () => {
       const st = this.g.loadState();
       const p = PP.profile(st, PP.activeSlot(st))!;
+      if (played) {   // the Main Menu's Duel Log (game/duellogList.ts): one line per game played
+        const o = this.sess[1 - k];
+        duellogPush(p, { t: Math.floor(now()), opp: o?.name || "Duelist", opp_pid: o?.pid ?? 0,
+          result: res === DFM.RESULT_WIN ? "win" : res === DFM.RESULT_LOSE ? "lose" : "draw", turns, ranked: this.ranked,
+          origin: String(this.origin), match: this.bo3() });
+      }
       if (isFree(s)) {   // free mode: its own record only; no MP, LV, stats, titles or card (game/freemode.ts)
         if (played && last) freeRecord(p, res === DFM.RESULT_WIN ? true : res === DFM.RESULT_LOSE ? false : null);
       } else {
