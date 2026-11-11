@@ -463,3 +463,26 @@ export async function earnCards(page:Page,npc = 'Yami Yugi') {
   await playDuel(page,{ summon:false,attack:false,timeout:420000 });
   return (await claimNpcReward(page)).received;
 }
+
+// main's card shop (htmlui/card-shop.ts: web-shell/htmlui/shop/index.js) online: its wallet, its packs' Buy, its reveal
+export const SHOP = `document.querySelector('[data-key="card-shop"]')`;
+export const shopWallet = async (page:Page) => {
+  const t = await page.ev(`${SHOP}?.querySelector('.wallet .v')?.textContent ?? ''`) as string;
+  return { total:Number((/([\d,]+)\s*MP/.exec(t)?.[1] ?? 'NaN').replaceAll(',','')), text:t };
+};
+export async function openShop(page:Page) {
+  await click(page,'Shop'); await until(page,`${SHOP}?.querySelector('[aria-label="Card Shop"] .banner')&&/\\d/.test(${SHOP}.querySelector('.wallet .v')?.textContent??'')`,60000); await sleep(800);
+}
+export async function leaveShop(page:Page) { await press(page,`${SHOP}.querySelector('[aria-label="Leave the shop"]')`); await until(page,lobbyShown,30000); }
+/** The packs on sale with their Buy 1 key (main's banner pills: "Buy 1 pack of <name> for <price> MP"). */
+export const shopPacks = (page:Page) => page.ev(`[...${SHOP}.querySelectorAll('[data-k^="buy-"]:not([data-bought])')].map(b=>{const m=/^Buy 1 (\\w+) of (.+) for ([\\d,]+) MP$/.exec(b.getAttribute('aria-label')??'');return m&&{unit:m[1],name:m[2],price:Number(m[3].replaceAll(',','')),k:b.dataset.k,disabled:b.disabled};}).filter(Boolean)`) as Promise<{ unit:string; name:string; price:number; k:string; disabled:boolean }[]>;
+export const shopBuyKey = (k:string) => `${SHOP}.querySelector('[data-k="${k}"]')`;
+export const shopReveal = `${SHOP}?.querySelector('.rv')`;
+/** The reveal to its end (a click turns every card), its summary, its cards; Done closes it. */
+export async function takeReveal(page:Page):Promise<{ title:string; summary:string; slots:number }> {
+  await until(page,reveal,30000);
+  for (let i = 0; i < 60 && await page.ev(`${shopReveal}?.dataset.phase!=='done'`); i++) { if (await page.ev(`${shopReveal}?.dataset.phase==='flip'`)) await page.ev(`${shopReveal}.click()`); await sleep(250); }
+  const out = await page.ev(`({title:${shopReveal}.getAttribute('aria-label'),summary:${shopReveal}.querySelector('[role=status]')?.textContent??'',slots:${shopReveal}.querySelectorAll('.slot').length})`) as { title:string; summary:string; slots:number };
+  await press(page,`${shopReveal}.querySelector('[data-k=done]')`); await until(page,`!${shopReveal}`,10000);
+  return out;
+}

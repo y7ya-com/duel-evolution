@@ -1,29 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, pressAvatar, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, pressAvatar, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, SHOP, openShop, leaveShop, shopWallet as wallet, shopPacks as packs, shopBuyKey as buyKey, shopReveal as reveal, takeReveal } from './harness';
 
 /** main's card shop (htmlui/card-shop.ts mounting web-shell/htmlui/shop/index.js: GET /api/de/shop, POST
- * /api/de/shop/buy, its reveal) online, against the real server. */
-const SHOP = `document.querySelector('[data-key="card-shop"]')`;
-const wallet = async (page:Page) => {
-  const t = await page.ev(`${SHOP}?.querySelector('.wallet .v')?.textContent ?? ''`) as string;
-  return { total:Number((/([\d,]+)\s*MP/.exec(t)?.[1] ?? 'NaN').replaceAll(',','')), text:t };
-};
-async function openShop(page:Page) {
-  await click(page,'Shop'); await until(page,`${SHOP}?.querySelector('[aria-label="Card Shop"] .banner')&&/\d/.test(${SHOP}.querySelector('.wallet .v')?.textContent??'')`,60000); await sleep(800);
-}
-async function leaveShop(page:Page) { await press(page,`${SHOP}.querySelector('[aria-label="Leave the shop"]')`); await until(page,lobbyShown,30000); }
-/** The packs on sale with their Buy 1 key (main's banner pills: "Buy 1 pack of <name> for <price> MP"). */
-const packs = (page:Page) => page.ev(`[...${SHOP}.querySelectorAll('[data-k^="buy-"]:not([data-bought])')].map(b=>{const m=/^Buy 1 (\w+) of (.+) for ([\d,]+) MP$/.exec(b.getAttribute('aria-label')??'');return m&&{unit:m[1],name:m[2],price:Number(m[3].replaceAll(',','')),k:b.dataset.k,disabled:b.disabled};}).filter(Boolean)`) as Promise<{ unit:string; name:string; price:number; k:string; disabled:boolean }[]>;
-const buyKey = (k:string) => `${SHOP}.querySelector('[data-k="${k}"]')`;
-const reveal = `${SHOP}?.querySelector('.rv')`;
-/** The reveal to its end (a click turns every card), its summary, its cards; Done closes it. */
-async function takeReveal(page:Page):Promise<{ title:string; summary:string; slots:number }> {
-  await until(page,reveal,30000);
-  for (let i = 0; i < 60 && await page.ev(`${reveal}?.dataset.phase!=='done'`); i++) { if (await page.ev(`${reveal}?.dataset.phase==='flip'`)) await page.ev(`${reveal}.click()`); await sleep(250); }
-  const out = await page.ev(`({title:${reveal}.getAttribute('aria-label'),summary:${reveal}.querySelector('[role=status]')?.textContent??'',slots:${reveal}.querySelectorAll('.slot').length})`) as { title:string; summary:string; slots:number };
-  await press(page,`${reveal}.querySelector('[data-k=done]')`); await until(page,`!${reveal}`,10000);
-  return out;
-}
+ * /api/de/shop/buy, its reveal) online, against the real server (harness: openShop, shopWallet, shopPacks, takeReveal). */
+/** The retired rewrite shop's steps the cut cosmetics test (it.skip below) still names; ported with it. */
+const retired = (step:string) => async (..._args:unknown[]):Promise<void> => { throw new Error(`retired shop step: ${step}`); };
+const shop = retired('shop'), department = retired('department'), reload = retired('reload');
 const owned = async (page:Page) => { const d = await openDeckEditor(page); await exitDeckEditor(page); return d.collection.reduce((n,c) => n + c.owned,0); };
 
 describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server',() => {

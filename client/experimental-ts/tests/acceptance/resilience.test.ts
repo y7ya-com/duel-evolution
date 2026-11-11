@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -15,14 +15,16 @@ const send=this.send.bind(this);this.send=d=>{if(typeof d==='string'&&d.includes
 const F=window.fetch;N.http={fail:null,delay:null,log:[]};window.fetch=async(input,init)=>{const url=String(input?.url??input);const h=N.http;
 if(h.fail&&h.fail.test(url)){h.log.push('fail '+url);return new Response(JSON.stringify({error:'Internal error'}),{status:500,headers:{'content-type':'application/json'}});}
 if(h.delay&&h.delay.test(url)){h.log.push('delay '+url);await new Promise(r=>h.release=r);}return F(input,init);};
-new MutationObserver(()=>{const c=document.querySelector('.de-connection')?.className.replace('de-connection','').trim();if(c&&N.statuses.at(-1)!==c)N.statuses.push(c);}).observe(document,{subtree:true,childList:true,attributes:true});})()`;
+setInterval(()=>{const c=window.__deApp?.getState?.().connection??(document.querySelector('[data-key="net-reconnecting"]')?'reconnecting':null);if(c&&N.statuses.at(-1)!==c)N.statuses.push(c);},10);})()`;
+/** The client's connection state (the app's, which its reconnect notice "Connection lost. Reconnecting…" shows). */
+const CONN = `window.__deApp?.getState?.().connection`;
 const live = `window.__net.sockets.at(-1)`;
-const connection = (page:Page) => page.ev(`document.querySelector('.de-connection')?.className.replace('de-connection','').trim()`) as Promise<string>;
+const connection = (page:Page) => page.ev(`${CONN}`) as Promise<string>;
 /** The connection drops as a network failure would: the client's socket closes under it. */
 async function drop(page:Page) { await page.ev(`${live}.close()`); }
 async function resumed(page:Page,timeout = 30000) {
   await until(page,`window.__net.statuses.includes('reconnecting')`,timeout);
-  await until(page,`document.querySelector('.de-connection.online')&&window.__net.urls.at(-1).includes('resume=1')&&${live}.readyState===1`,timeout);
+  await until(page,`${CONN}==='online'&&!document.querySelector('[data-key="net-reconnecting"]')&&window.__net.urls.at(-1).includes('resume=1')&&${live}.readyState===1`,timeout);
 }
 /** Every owned copy in the deck screen's trunk (main's CWindowModelKaban: the character's cards and their counts). */
 async function collection(page:Page):Promise<number> {
@@ -36,7 +38,6 @@ async function backToLobby(page:Page) {
   if (await page.ev(deckShown)) await exitDeckEditor(page); else { await backToLobby(page); }
 }
 async function chat(page:Page,message:string) { await say(page,message); }
-const mp = (page:Page) => page.ev(`Number((/([\\d,]+) MP/.exec(document.querySelector('.de-shop-grid')?.parentElement?.innerText ?? '')?.[1] ?? '-1').replaceAll(',',''))`) as Promise<number>;
 const turn = (page:Page) => page.ev(`Number(/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??0)`) as Promise<number>;
 const board = (page:Page) => page.ev(`JSON.stringify({lp:[...document.querySelectorAll('.de-lp-value')].map(n=>n.textContent),cards:[...document.querySelectorAll('.de-field-card')].map(b=>b.getAttribute('aria-label')).sort()})`) as Promise<string>;
 /** Surrender and confirm, tolerating a prompt that re-renders under the press; returns how many Surrender presses the
@@ -74,6 +75,10 @@ async function lostToTitle(page:Page) {
   await until(page,`document.querySelector('.de-client').dataset.scene==='title'&&${byText('Go Online')}`,30000);
   return alerts(page);
 }
+/** main's error dialog (CWindowModelDialogError: a connection that failed, a refused request), as the original shows
+ * it over the title or the game: a player reads it and presses OK before going on. */
+async function dismissError(page:Page) { if (await page.ev(`Boolean(${byKey('error-ok')})`)) { await press(page,byKey('error-ok')); await sleep(300); } }
+async function goOnline(page:Page) { await dismissError(page); await goOnline(page); }
 async function online(page:Page,name:string) {
   await page.send('Page.enable'); await page.send('Page.addScriptToEvaluateOnNewDocument',{ source:NET_PROBE });
   await openClient(page,await signIn(name));
@@ -98,19 +103,21 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const lobbyStatuses = await page.ev(`window.__net.statuses.join(' → ')`);
       // Shop: a purchase whose collection refresh rides a dropped tunnel is charged and granted once.
       const copies = await collection(page);
-      await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(800);
-      const before = await mp(page);
-      await press(page,`[...document.querySelectorAll('.de-shop-item button')].find(b=>b.textContent==='Purchase')`);
+      await openShop(page); await press(page,`${SHOP}.querySelector('[data-k=tab-packs]')`); await sleep(600);
+      const before = (await shopWallet(page)).total, pack = (await shopPacks(page)).find(p => p.unit === 'pack' && !p.disabled)!;
+      expect(pack).toBeTruthy();
+      await press(page,shopBuyKey(pack.k));
       await drop(page);
       await resumed(page);
-      await until(page,`document.querySelector('[data-key="shop-receipt"]')&&!document.querySelector('[role=alert]')&&!document.querySelector('[aria-busy=true]')`,30000).catch(async e => { throw new Error(JSON.stringify(await page.ev(`({receipt:!!document.querySelector('[data-key="shop-receipt"]'),alerts:[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent),busy:!!document.querySelector('[aria-busy=true]'),statuses:window.__net.statuses})`))); });
-      const receipt = await page.ev(`document.querySelector('[data-key="shop-receipt"] summary').textContent`) as string;
-      const after = await mp(page);
-      expect(before - after).toBe(200);
+      const receipt = (await takeReveal(page)).summary;
+      const after = (await shopWallet(page)).total;
+      expect(before - after).toBe(pack.price);
+      await leaveShop(page);
       const granted = await collection(page);
-      await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(800);
-      expect(await mp(page)).toBe(after);
-      expect(granted).toBeGreaterThan(copies);
+      await openShop(page);
+      expect((await shopWallet(page)).total).toBe(after);
+      await leaveShop(page);
+      expect(granted).toBe(copies + 5);
       // Deck editor: the collection reloads over a resumed tunnel.
       await click(page,'Edit Deck'); await until(page,TRUNK,60000);
       await drop(page); await resumed(page);
@@ -160,7 +167,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // Rejected: the resume arrives with a tunnel id the server does not hold.
       await page.ev(`window.__net.rewrite=u=>u.includes('resume=1')?u.replace(/sid=[0-9a-f]+/,'sid=${'0'.repeat(32)}'):u`);
       await drop(page);
-      await until(page,`document.querySelector('.de-connection.error,.de-connection.offline')`,30000);
+      await until(page,`['error','offline'].includes(${CONN})`,30000);
       await until(page,`${byText('Go Online')}`,30000);
       const rejected = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as string;
       const rejectedScene = await page.ev(`document.querySelector('.de-client').dataset.scene`);
@@ -175,7 +182,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // Expired: every retry is refused until the client's 40-second resume window ends.
       await page.ev(`window.__net.rewrite=u=>u.includes('resume=1')?u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:1/'):u`);
       const t = Date.now(); await drop(page);
-      await until(page,`document.querySelector('.de-connection.error,.de-connection.offline')`,70000);
+      await until(page,`['error','offline'].includes(${CONN})`,70000);
       const window_ = Math.round((Date.now() - t) / 1000);
       await until(page,`${byText('Go Online')}`,30000);
       const expired = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as string;
@@ -198,10 +205,11 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const reload = async () => { await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`); await reenterWorld(page,me); };
       const seen:string[] = [];
       await reload(); seen.push(`lobby: ${await page.ev(`document.querySelector('.de-client').dataset.scene`)}`);
-      await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000);
-      const mp0 = await mp(page);
-      await reload(); await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(600);
-      expect(await mp(page)).toBe(mp0); seen.push(`shop: ${await mp(page)} MP`);
+      await openShop(page);
+      const mp0 = (await shopWallet(page)).total;
+      await reload(); await openShop(page);
+      expect((await shopWallet(page)).total).toBe(mp0); seen.push(`shop: ${mp0} MP`);
+      await leaveShop(page);
       const copies = await collection(page);
       await reload(); const copies2 = await collection(page);
       expect(copies2).toBe(copies); seen.push(`deck: ${copies2} copies`);
@@ -237,12 +245,12 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const me = `Err ${RUN}`;
       // Timeout: the server accepts the connection and never answers.
       await page.ev(`window.__net.rewrite=u=>u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:${silentPort}/')`);
-      let t = Date.now(); await click(page,'Go Online');
+      let t = Date.now(); await goOnline(page);
       await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/timed out/i.test(a.textContent))&&${byText('Go Online')}`,40000);
       const timeout = `${await alerts(page)} after ${Math.round((Date.now() - t) / 1000)} s`;
       // Refusal: nothing listens on the port.
       await page.ev(`window.__net.rewrite=u=>u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:1/')`);
-      t = Date.now(); await click(page,'Go Online');
+      t = Date.now(); await goOnline(page);
       await until(page,`[...document.querySelectorAll('[role=alert]')].some(a=>/closed|refused|failed/i.test(a.textContent))&&${byText('Go Online')}`,30000);
       const refused = `${await alerts(page)} after ${Math.round((Date.now() - t) / 1000)} s`;
       expect(await connection(page)).not.toBe('online');
@@ -330,21 +338,26 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const me = `Api ${RUN}`; await enterWorld(page,me);
       // An HTTP failure: the shop catalogue answers 500; the shop says so and Refresh recovers.
       await page.ev(`window.__net.http.fail=/\\/api\\/de\\/shop/`);
+      // main's card shop says so in its page with Try again (the server's error text)
       await click(page,'Shop');
-      await until(page,`[...document.querySelectorAll('[role=alert]')].length>0&&${byText('Refresh')}`,30000);
-      const shopError = `${await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`)} / ${await page.ev(`document.querySelector('.de-panel p')?.textContent`)}`;
+      const tryAgain = `[...(${SHOP}?.querySelectorAll('button') ?? [])].find(b=>b.textContent.trim()==='Try again'&&b.getClientRects().length)`;
+      await until(page,tryAgain,30000);
+      const shopError = await page.ev(`${SHOP}.innerText.replace(/\\s+/g,' ').trim().slice(0,160)`) as string;
       await page.ev(`window.__net.http.fail=null`);
-      await click(page,'Refresh');
-      await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,30000);
-      const shopRecovered = await page.ev(`document.querySelectorAll('.de-shop-item').length`) as number;
+      await dismissError(page);
+      await press(page,tryAgain);
+      await until(page,`${SHOP}.querySelector('[aria-label="Card Shop"] .banner')`,30000);
+      const shopRecovered = await page.ev(`${SHOP}.querySelectorAll('.banner').length`) as number;
+      await leaveShop(page);
       // Missing art: the asset bridge is unreachable; cards and packs draw their own fallbacks, never broken images.
       await page.send('Network.setBlockedURLs',{ urls:['*/game-assets/*'] });
       await page.go(`${CLIENT}/?portOffset=1000&assets=/game-assets/`,`document.querySelector('.de-client')`);
       await reenterWorld(page,me);
-      await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(3000);
+      await openShop(page); await sleep(3000);
       const broken = `[...document.querySelectorAll('.de-client img')].filter(i=>i.getAttribute('src')&&i.complete&&i.naturalWidth===0&&getComputedStyle(i).visibility!=='hidden'&&i.getClientRects().length).length`;
       const shopBroken = await page.ev(broken) as number;
       await screenshot(page,'resilience-no-art-shop');
+      await leaveShop(page);
       await click(page,'Edit Deck'); await until(page,TRUNK,60000); await sleep(3000);
       const deckBroken = await page.ev(broken) as number;
       const deckNames = await page.ev(`[...document.querySelectorAll('[data-zone="trunk"][data-passcode]')].slice(0,3).map(b=>b.getAttribute('aria-label')).join(' / ')`);
@@ -380,19 +393,27 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await createCharacter(page,me,{ wait:false });
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(me)})&&!b.disabled)`;
       await until(page,slot,30000); await press(page,slot); await until(page,lobbyShown,60000);
-      const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
-      for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
-      if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await page.ev(`(()=>{const b=${starter};b.click();b.click();})()`); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
-      // A double click on Purchase buys once; the busy shop says so.
-      await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(800);
-      const before = await mp(page);
-      const purchase = `[...document.querySelectorAll('.de-shop-item button')].find(b=>b.textContent==='Purchase')`;
-      await until(page,purchase,30000);
-      const busy = await page.ev(`(async()=>{const b=${purchase};b.click();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);const busy=document.querySelector('[aria-busy]')?.getAttribute('aria-busy')+'/'+(${purchase})?.disabled;b.click();return busy;})()`);
-      await until(page,`document.querySelector('[data-key="shop-receipt"]')&&document.querySelector('[aria-busy]')?.getAttribute('aria-busy')==='false'`,30000); await sleep(1000);
-      const after = await mp(page);
-      const busyNote = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`);
-      expect(before - after).toBe(200);
+      // main's starter picker (web-shell/starter.js): its "Yes, take it" pressed twice claims one deck, and the picker
+      // stays shut once claimed
+      const tile = `document.querySelector('#starter .scroll .btn')`, sbtn = (l:string) => `document.querySelector('#starter .btn[aria-label=${JSON.stringify(l)}]')`;
+      for (let i = 0; i < 30 && !(await page.ev(`Boolean(${tile})`)); i++) await sleep(100);
+      if (await page.ev(`Boolean(${tile})`)) {
+        await press(page,tile); await until(page,sbtn('Choose this deck'),10000); await press(page,sbtn('Choose this deck'));
+        await until(page,sbtn('Yes, take it'),10000); await page.ev(`(()=>{const b=${sbtn('Yes, take it')};b.click();b.click();})()`);
+        await until(page,sbtn('OK'),30000); await press(page,sbtn('OK')); await until(page,`!document.getElementById('starter')`,10000);
+        await sleep(1500); expect(await page.ev(`Boolean(document.getElementById('starter'))`)).toBe(false);
+      }
+      // A double click on Buy (main's card shop) buys once; the busy shop says so.
+      await openShop(page); await press(page,`${SHOP}.querySelector('[data-k=tab-packs]')`); await sleep(600);
+      const before = (await shopWallet(page)).total, pack = (await shopPacks(page)).find(p => p.unit === 'pack' && !p.disabled)!;
+      const purchase = shopBuyKey(pack.k);
+      const busy = await page.ev(`(async()=>{const b=${purchase};b.click();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);const busy=String((${purchase})?.disabled??'gone');(${purchase})?.click();return busy;})()`);
+      await takeReveal(page); await sleep(1000);
+      expect(await page.ev(`Boolean(${SHOP}.querySelector('.rv'))`)).toBe(false);
+      const after = (await shopWallet(page)).total;
+      const busyNote = await page.ev(`${SHOP}.querySelector('[role=status][aria-live]')?.textContent ?? ''`);
+      expect(before - after).toBe(pack.price);
+      await leaveShop(page);
       // Navigation while a reply is pending: the shop is requested, the player opens the deck editor, the late
       // shop reply does not take the screen back.
       await backToLobby(page);
@@ -403,7 +424,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await openMenu(page);
       const navBusy = await page.ev(`[...document.querySelectorAll('button')].filter(b=>['Edit Deck','Return to Lobby'].includes(b.textContent)).map(b=>b.disabled).join()`);
       await page.ev(`window.__net.http.delay=null;window.__net.http.release();window.__net.http.release=null`);
-      await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,30000);
+      await until(page,`${SHOP}?.querySelector('[aria-label="Card Shop"] .banner')`,30000);
+      await leaveShop(page);
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
       await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
