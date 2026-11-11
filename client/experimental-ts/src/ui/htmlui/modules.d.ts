@@ -47,6 +47,8 @@ declare module '@htmlui/screens/deck.js' {
     holes: { z: number; rect: { x: number; y: number; w: number; h: number } }[]; co: number[] };
   /** The deck scene's brushed-metal ground (CDeckScene's deck_bg_01 as CSS): Card Swap's too. */
   export function deckBackdrop(el: HTMLElement): HTMLElement;
+  /** Rects as disjoint ones covering the same area. */
+  export function union(rects: { x: number; y: number; w: number; h: number }[]): { x: number; y: number; w: number; h: number }[];
 }
 declare module '@htmlui/screens/duelsetup.js' {
   const screen: HtmlUiScreen; export default screen;

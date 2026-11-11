@@ -4,7 +4,7 @@
 // (deck-scene.ts pick), the release over a card or a zone drops it (dropOn), a double-click / right-click moves it
 // (quick), the wheel scrolls the trunk; the side buttons, the Main / Fusion tabs and the detail's arrow are buttons.
 // Every card element says what it is: data-zone (trunk / main / side / extra), data-index, data-passcode, aria-label.
-import { plan } from '@htmlui/screens/deck.js';
+import { plan, union } from '@htmlui/screens/deck.js';
 import type { HtmlWindow, WindowSpec } from './snapshot';
 import { texCard, SIDE_BUTTONS } from './deck';
 import type { DeckFrom } from './deck';
@@ -194,8 +194,19 @@ export class DeckDom {
     // main's plan co-draws what lies under a hole; what lies over one (a trunk row's ×000 and the count box's figure over
     // its picture, a deck card's limit mark over its face) is main's layer's, under these faces: drawn here too, in z order
     const pl = plan(win, true), meet = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    const co = new Set(document.head ? [...pl.co, ...pl.items.filter(it => pl.holes.some(h => meet(h.rect, it.rect))).map(it => it.id)] : []);   // (no head: a test document, no styled text)
-    for (const it of pl.items) if (co.has(it.id)) items.push({ z: it.z, draw: () => { const box = document.createElement('div'); Object.assign(box.style, { position: 'absolute', inset: '0', pointerEvents: 'none' }); it.draw(box); root.append(box); } });
+    // Only the holes this layer draws (card faces, the count box): the trunk's order / search keys (swfs) lie under
+    // main's search panel, and an item co-drawn for them (the header bar under them) came out over that panel and the
+    // "Trunk" title. An item under a hole shows only through it (clipped to the holes over it): drawn whole, a trunk
+    // row's frame (under its picture's hole) covered the row's name, icons and ATK / DEF once its atlas had loaded.
+    const swfAt = new Set(win.controls.flatMap(c => ((c.parts as { swfs?: Record<string, unknown>[] } | undefined)?.swfs ?? []).filter(f => f.name !== 'KabanCountBtn').map(f => `${f.wx},${f.wy}`)));
+    const holes = pl.holes.filter(h => !swfAt.has(`${h.rect.x},${h.rect.y}`));
+    const local = ({ x, y, w, h }: { x: number; y: number; w: number; h: number }) => `M${x - ox} ${y - oy}h${w}v${h}h${-w}z`;
+    if (document.head) for (const it of pl.items) {   // (no head: a test document, no styled text)
+      const touching = holes.filter(h => meet(h.rect, it.rect)); if (!touching.length) continue;
+      const under = touching.filter(h => h.z > it.z), over = touching.length > under.length;
+      const clip = over ? '' : `path("${union(under.map(h => h.rect)).map(local).join('')}")`;
+      items.push({ z: it.z, draw: () => { const box = document.createElement('div'); Object.assign(box.style, { position: 'absolute', inset: '0', pointerEvents: 'none', clipPath: clip }); it.draw(box); root.append(box); } });
+    }
     items.sort((a, b) => a.z - b.z).forEach(it => it.draw());
   }
   private card(root: HTMLElement, passcode: number, x: number, y: number, w: number, h: number): HTMLImageElement {
