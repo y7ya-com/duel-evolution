@@ -3,7 +3,7 @@
 // theme.js's base. Game px on the 1024x768 stage, an 8px grid, the Wardrobe's frame (cosmetics/wardrobe.js):
 //   a 904x576 window centred on the stage (60, 96), 24px padding, 16px gutters;
 //   a 72px band: the title plate (192), what's waiting, the wallet readout (208), Back (160);
-//   the missions column (568 + 8 for the scroll bar) at 24: four 136px tab plates (36 tall), a 48px strip (what the
+//   the missions column (568 + 8 for the scroll bar) at 24: four 136px tab plates (36 tall; five while a limited-time event is on), a 48px strip (what the
 //   tab is: the stockpile and reset, the first steps' bar; Claim all), the rows (64 tall, 8 apart);
 //   the login calendar (272) at 608: a light panel, 30 days in a 6x5 grid of 36x40 cells, today's bonus under it.
 // Contrast (WCAG AA, 4.5:1 for this text size): #000 / #24343d on the light glass and the grey plates; muted #3d4f5a
@@ -36,6 +36,8 @@ export const REWARDS_CSS = `
 .de-rw .rw-tabs { position:absolute; left:24px; top:88px; width:568px; height:36px; display:flex; gap:8px; }
 .de-rw .rw-tab { position:relative; flex:1 1 0; min-width:0; height:36px; display:flex; align-items:center; justify-content:center; }
 .de-rw .rw-tab[data-on] { color:#06283a; }
+/* five tabs (a limited-time event's on): 107px plates, the labels a size down so Achievements fits */
+.de-rw .rw-tabs[data-n="5"] .rw-tab > .lb { font-size:14px; }
 .de-rw .rw-dot { position:absolute; right:6px; top:-8px; min-width:20px; height:20px; padding:0 6px; border-radius:10px; z-index:1;
   background:linear-gradient(#c4362a,var(--rw-red)); box-shadow:0 0 0 1.5px #fff, 0 1px 2px rgba(0,0,0,.45);
   color:#fff; font:12px/20px Arial,sans-serif; text-align:center; font-variant-numeric:tabular-nums; }
@@ -83,6 +85,10 @@ export const REWARDS_CSS = `
 .de-rw .rw-row[data-state=done] > .act { color:#0a5f29; }
 .de-rw .rw-row[data-new] { animation:rw-in .35s cubic-bezier(.2,.8,.3,1); }
 .de-rw .rw-skel { flex:none; width:568px; height:64px; border-radius:4px; }
+/* an event's NPCs still to beat: a light panel under its row */
+.de-rw .rw-left { flex:none; width:568px; box-sizing:border-box; padding:12px 16px; border-radius:4px; background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--rw-line); }
+.de-rw .rw-left > .t { font:14.3px/18px Arial,sans-serif; }
+.de-rw .rw-left > .s { margin-top:6px; font:12.5px/20px Arial,sans-serif; color:var(--rw-muted); white-space:normal; }
 .de-rw .rw-empty { padding:48px 48px 0; display:flex; flex-direction:column; align-items:center; text-align:center; white-space:normal; }
 .de-rw .rw-empty > .ic { width:48px; height:48px; display:grid; place-items:center; margin-bottom:16px; border-radius:24px; background:rgba(255,255,255,.6);
   box-shadow:inset 0 0 0 1px var(--rw-line); color:#2a6f93; }

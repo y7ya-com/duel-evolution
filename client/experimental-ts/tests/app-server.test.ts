@@ -10,6 +10,7 @@ import { createNodeDuelCore } from '../../../server/src/duel/engine/node';
 import { NPC_DECKS, setDuelCore } from '../../../server/src/duel/data';
 import { starterInfo, starterClaim } from '../../../server/src/game/starter';
 import { setup, drive, sessionFactory } from './network-server-fixture';
+import { memoryRecordStore } from '../src/services/duel-records';
 const apps: ClientApp[] = [];
 afterEach(() => { apps.splice(0).forEach(app => app.dispose()); setDuelCore(null); vi.clearAllTimers(); vi.useRealTimers(); });
 function harness(server = setup().server, user = 'app-test', deckId = '51', options:Partial<AppOptions> = {}) {
@@ -206,4 +207,28 @@ describe('ClientApp with actual server and GameSession', () => {
     expect(f.app.getState().duel!.turn).toBeGreaterThan(1);
     await f.send({ type: 'leaveDuel' }); expect(f.app.getState()).toMatchObject({ scene: 'lobby', duel: null });
   }, 20000);
+  it('an NPC duel ends with its duel record (0x6010 .. 0x6012, each answered 0x6013), kept in this browser; Play replays it as a spectator', async () => {
+    setDuelCore(await createNodeDuelCore()); const store = memoryRecordStore();
+    const f = harness(undefined, 'record-app', '51', { duelRecords: store }); await f.enter('Record Duelist'); await beginNpc(f);
+    await vi.advanceTimersByTimeAsync(3000);
+    await f.send({ type: 'surrender' }); await vi.advanceTimersByTimeAsync(100);
+    const surrender = f.app.getState().duel!.prompt!;
+    await f.send({ type: 'duelRespond', promptId: surrender.id, response: { optionId: surrender.options.find(o => o.label === 'Yes')!.id } });
+    for (let i = 0; i < 50 && !(await store.list()).length; i++) await vi.advanceTimersByTimeAsync(200);
+    const [rec] = await store.list();
+    expect(rec).toBeTruthy(); expect(rec!.names[0]).toBe('Record Duelist'); expect(rec!.record.entries.length).toBeGreaterThan(5);
+    const live = f.app.diagnostics.duel.sequence;
+    await f.send({ type: 'leaveDuel' }); expect(f.app.getState()).toMatchObject({ scene: 'lobby', duel: null });
+    expect((await f.app.duelRecords()).map(r => r.key)).toEqual([rec!.key]);
+    await f.send({ type: 'replayPlay', key: rec!.key });
+    expect(f.app.getState()).toMatchObject({ scene: 'duel', replay: { playing: true, index: 0, total: rec!.record.entries.length } });
+    await f.send({ type: 'replayControl', action: 'toggle' }); expect(f.app.getState().replay!.playing).toBe(false);
+    for (let i = 0; i < rec!.record.entries.length; i++) await f.send({ type: 'replayControl', action: 'step' });
+    const end = f.app.getState();
+    expect(end.replay!.index).toBe(end.replay!.total); expect(end.duel!.spectating).toBe(true); expect(end.duel!.actions).toEqual([]); expect(end.duel!.prompt).toBeNull();
+    expect(f.app.diagnostics.duel.errors).toEqual([]); // the live duel also had its surrender dialogue and the non-0x6202 packets, which the record leaves out
+    expect(f.app.diagnostics.duel.sequence).toBeGreaterThan(live / 2); expect(f.app.diagnostics.duel.sequence).toBeLessThanOrEqual(live);
+    expect(end.duel!.ended).toBeTruthy();
+    await f.send({ type: 'replayControl', action: 'exit' }); expect(f.app.getState()).toMatchObject({ scene: 'lobby', duel: null }); expect(f.app.getState().replay).toBeUndefined();
+  }, 30000);
 });

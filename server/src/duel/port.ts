@@ -296,6 +296,7 @@ export class DuelPort {
       const rival = this.duelRival((c.sess as Ctx) ?? undefined);
       s = x.ocg = new OcgSession(this.g, c, (cc, w, r, t) => this.ocgFinish(cc, w, r, t),
         this.npcDeckId(rival), this.cfg.pause, [(c.sess as Session | undefined)?.name || myName(this.g), npcName(rival)]);
+      s.rival = rival;
     }
     return s;
   }

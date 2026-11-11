@@ -8,7 +8,7 @@ import { injectTheme, mpDigits } from '../cosmetics/theme.js';
 import { injectShopSkin, digits } from '../cosmetics/shopart.js';
 import { REWARDS_CSS } from './css.js';
 import { mpInfo } from '../shop/mpinfo.js';
-import { TABS, tabsOf, rowsOf, stripOf, calendarOf, claimableIds, fmt } from './model.js';
+import { TABS, tabsOf, rowsOf, stripOf, calendarOf, claimableIds, openEvent, fmt } from './model.js';
 
 // 24px stroke icons (Lucide-style shapes, drawn here)
 const ICON = {
@@ -43,7 +43,10 @@ const EMPTY = {
   weekly: ['No weekly missions right now', 'A new set arrives every Monday at 00:00 UTC.'],
   first: ['First steps complete', 'You finished the new-player track. Daily and weekly missions keep paying MP.'],
   lifetime: ['No achievements yet', 'Lifetime goals appear here as you play.'],
+  event: ['No event right now', 'Limited-time events appear here.'],
 };
+/** A reward's toast text: MP, shards or both. */
+const paid = (mp, shards) => [mp ? `+${fmt(mp)} MP` : '', shards ? `+${fmt(shards)} shards` : ''].filter(Boolean).join(', ');
 
 let open = null;   // the one open window: { close, show(tab) }
 
@@ -53,7 +56,7 @@ export function openMissions({ tab } = {}) {
   injectTheme();
   injectShopSkin();
   if (!document.getElementById('de-rewards-css')) document.head.append(h('style', null, { id: 'de-rewards-css', text: REWARDS_CSS }));
-  const st = { view: api.peekView?.() || null, tab: tab || null, busy: null, loadError: null, shown: null, fresh: new Set() };
+  const st = { view: api.peekView?.() || null, tab: tab || null, picked: !!tab, busy: null, loadError: null, shown: null, fresh: new Set() };
   const root = h('div', 'de-c de-rw', { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Missions', tabindex: '-1' });
   const win = h('div', 'rw-win');
   root.append(h('div', 'rw-dim', { on: { click: () => close() } }), win);
@@ -96,7 +99,7 @@ export function openMissions({ tab } = {}) {
     const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
     if (step && e.target.closest?.('.rw-tabs')) {
       e.preventDefault();
-      const i = TABS.findIndex(t => t.key === st.tab), n = TABS[(i + step + TABS.length) % TABS.length].key;
+      const tl = tabsOf(st.view), i = tl.findIndex(t => t.key === st.tab), n = tl[(i + step + tl.length) % tl.length].key;
       show(n);
       tabs.querySelector(`[data-tab="${n}"]`)?.focus();
     }
@@ -110,7 +113,7 @@ export function openMissions({ tab } = {}) {
   let closed = false, toastTimer = 0, tick = 0, shownWallet = null, hold = false, countId = 0;
   const unsub = api.onChange(v => { st.view = v; render(); });
   // the reset countdowns move on their own
-  tick = setInterval(() => { if (st.view && (st.tab === 'daily' || st.tab === 'weekly')) renderStrip(); }, 30000);
+  tick = setInterval(() => { if (st.view && (st.tab === 'daily' || st.tab === 'weekly' || st.tab === 'event')) renderStrip(); }, 30000);
 
   function load(force) {
     st.loadError = null;
@@ -118,13 +121,14 @@ export function openMissions({ tab } = {}) {
       e => { if (!closed) { st.loadError = e; render(); } });
   }
   function show(t) {
-    if (t && TABS.some(x => x.key === t)) st.tab = t;
+    if (t && TABS.some(x => x.key === t)) { st.tab = t; st.picked = true; }
     render();
     list.scrollTop = 0;
   }
   // the tab to start on: the first with something to claim, else Daily (First Steps while it isn't half done)
   function pickTab(v) {
     const ready = TABS.find(t => claimableIds(v, t.key).length);
+    if (!ready && openEvent(v)) return 'event';
     if (ready) return ready.key;
     const first = (v.missions || []).filter(m => m.kind === 'first');
     return first.length && first.filter(m => m.claimed).length < first.length / 2 ? 'first' : 'daily';
@@ -133,7 +137,8 @@ export function openMissions({ tab } = {}) {
   function render() {
     if (closed) return;
     const v = st.view;
-    if (v && !st.tab) st.tab = pickTab(v);
+    // the starting tab once the view is here (opened before it loaded: Daily meanwhile), unless the player chose one
+    if (v && !st.picked) { st.tab = pickTab(v); st.picked = true; }
     st.tab ||= 'daily';
     renderHeader(); renderTabs(); renderStrip(); renderRows(); renderCalendar();
   }
@@ -150,6 +155,7 @@ export function openMissions({ tab } = {}) {
   }
   function renderTabs() {
     const tl = tabsOf(st.view);
+    tabs.dataset.n = String(tl.length);
     if (tabs.childElementCount !== tl.length) {
       tabs.replaceChildren(...tl.map(t => h('button', 'sa-plate sa-t rw-tab', { type: 'button', role: 'tab', 'data-tab': t.key,
         on: { click: () => show(t.key) } }, [h('span', 'lb', { text: t.label }), h('span', 'rw-dot', { hidden: true })])));
@@ -174,7 +180,7 @@ export function openMissions({ tab } = {}) {
     if (s.bar) {
       b = h('div', 'b rw-total', {}, [bar(s.bar.pct, 'First steps MP earned'), h('span', null, { text: s.sub })]);
     } else {
-      b = h('div', 'b', {}, [st.tab === 'daily' || st.tab === 'weekly' ? icon('clock') : null, h('span', null, { text: s.note || s.sub })]);
+      b = h('div', 'b', {}, [st.tab === 'daily' || st.tab === 'weekly' || s.clock ? icon('clock') : null, h('span', null, { text: s.note || s.sub })]);
     }
     stripTx.replaceChildren(a, b);
     allBtn.hidden = false;
@@ -204,22 +210,26 @@ export function openMissions({ tab } = {}) {
       return;
     }
     rows.replaceChildren(...rs.map(r => row(r)));
+    // an event's NPCs still to beat, under its row
+    const left = rs.find(r => r.left && r.state === 'open')?.left;
+    if (left?.length) rows.append(h('div', 'rw-left', {}, [h('div', 't', { text: `Still to beat (${left.length})` }), h('div', 's', { text: left.join('\u00a0· ') })]));
     st.fresh.clear();
   }
   function row(r) {
     const el = h('div', 'sa-row rw-row', { role: 'listitem', 'data-id': r.id, 'data-state': r.state,
       'data-hi': r.state === 'claimable', 'data-new': st.fresh.has(r.id) });
-    const em = h('div', 'em', { 'aria-hidden': 'true' }, icon(r.state === 'done' ? 'done' : r.state === 'claimable' ? 'gift' : st.tab === 'lifetime' ? 'trophy' : 'target'));
+    const em = h('div', 'em', { 'aria-hidden': 'true' }, icon(r.state === 'done' ? 'done' : r.state === 'claimable' ? 'gift' : st.tab === 'lifetime' || st.tab === 'event' ? 'trophy' : 'target'));
     const act = h('div', 'act');
     if (r.state === 'claimable') {
       const busy = st.busy === r.id || st.busy === '*';
-      act.append(h('button', 'sa-pill rw-claim', { type: 'button', 'data-tone': 'go', disabled: !!st.busy, 'aria-label': `Claim ${fmt(r.mp)} MP: ${r.label}`,
+      act.append(h('button', 'sa-pill rw-claim', { type: 'button', 'data-tone': 'go', disabled: !!st.busy, 'aria-label': `Claim ${r.shards ? `${fmt(r.shards)} shards` : `${fmt(r.mp)} MP`}: ${r.label}`,
         on: { click: e => claimOne(r.id, e.currentTarget) } }, h('span', null, { text: busy ? 'Claiming…' : 'Claim' })));
     } else if (r.state === 'done') act.append(icon('check'), h('span', null, { text: 'Claimed' }));
     else act.append(h('span', null, { text: `${fmt(r.target - r.progress)} to go` }));
     el.append(em, h('div', 'nm', { text: r.label, title: r.label }), bar(r.pct, r.label),
       h('div', 'ct', { text: `${fmt(r.progress)}/${fmt(r.target)}` }),
-      h('div', 'mp', {}, [h('span', 'lb', { text: 'Reward' }), digits(mpDigits(r.mp))]), act);
+      r.shards ? h('div', 'mp', {}, [h('span', 'lb', { text: 'Shards' }), digits(String(Math.round(r.shards)))])
+        : h('div', 'mp', {}, [h('span', 'lb', { text: 'Reward' }), digits(mpDigits(r.mp))]), act);
     return el;
   }
   function renderCalendar() {
@@ -300,9 +310,10 @@ export function openMissions({ tab } = {}) {
       const r = await api.claim(id);
       if (closed) return;
       st.busy = null; st.view = r.view;
+      if (!r.grant.mp) hold = false;   // shards: the MP wallet doesn't move
       render();
-      fly(r.grant.mp, from, before, r.view.wallet);
-      say(`${r.replayed ? 'Already claimed' : 'Claimed'}: ${m?.label || 'reward'}. +${fmt(r.grant.mp)} MP`);
+      if (r.grant.mp) fly(r.grant.mp, from, before, r.view.wallet);
+      say(`${r.replayed ? 'Already claimed' : 'Claimed'}: ${m?.label || 'reward'}. ${paid(r.grant.mp, r.grant.shards)}`);
       refreshElsewhere();
     } catch (e) {
       if (closed) return;
@@ -318,10 +329,11 @@ export function openMissions({ tab } = {}) {
     const r = await api.claimAll(ids);
     if (closed) return;
     st.busy = null; st.view = api.peekView() || st.view;
-    if (!r.grants.length) hold = false;
+    if (!r.mp) hold = false;
     render();
-    if (r.grants.length) { fly(r.mp, from, before, st.view.wallet); refreshElsewhere(); }
-    const got = r.grants.length ? `Claimed ${r.grants.length} reward${r.grants.length === 1 ? '' : 's'}. +${fmt(r.mp)} MP` : '';
+    if (r.mp) fly(r.mp, from, before, st.view.wallet);
+    if (r.grants.length) refreshElsewhere();
+    const got = r.grants.length ? `Claimed ${r.grants.length} reward${r.grants.length === 1 ? '' : 's'}. ${paid(r.mp, r.shards)}` : '';
     if (r.error) say(got ? `${got}. ${r.error.message}` : r.error.message, 'error');
     else say(got);
   }

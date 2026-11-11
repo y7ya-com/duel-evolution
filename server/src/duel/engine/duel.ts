@@ -1,5 +1,6 @@
 // One ocgcore duel: step() up to the next decision / WIN, respond(). Port of YOLaucher-web
 // apps/server/src/duel/engine.ts (Duel.step/respond, SELECT_TYPES) and view.ts applyToTrack, as duelcore uses them.
+import { takeRawBatch } from "./patch.ts";
 import {
   OcgMessageType,
   OcgProcessResult,
@@ -48,6 +49,8 @@ export interface StepResult {
 export class Duel {
   private last: SelectMessage | null = null;
   errors: string[] = [];
+  /** Each raw message batch, right after it is read (the EDOPro replay, yrpx.ts). */
+  onBatch: ((raw: Uint8Array) => void) | null = null;
 
   constructor(
     private core: OcgCoreSync,
@@ -60,6 +63,8 @@ export class Duel {
     for (let guard = 0; guard < 10_000; guard++) {
       const status = this.core.duelProcess(this.handle);
       const batch = this.core.duelGetMessage(this.handle);
+      const raw = takeRawBatch();
+      if (raw && this.onBatch) this.onBatch(raw);
       messages.push(...batch);
       // The core does not stop by itself on a decided duel: it emits WIN and goes on. Cut here, as EDOPro does
       const win = batch.find((m) => m.type === OcgMessageType.WIN);

@@ -2,3 +2,4 @@
 export * from "./auth-schema.ts";
 export * from "./game-schema.ts";
 export * from "./audit-schema.ts";
+export * from "./archive-schema.ts";

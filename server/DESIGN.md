@@ -53,10 +53,24 @@ D1 (drizzle): accounts, characters, cards, decks, …  ◀── WorldDO and Mat
   `TIER_BY_NPC` can override. The elite tier adds lookahead: it forks the duel (a new duel in the same `DuelCore` with
   the same seed, replaying the recorded commands) and scores each candidate line with a short rollout, within a CPU
   budget per decision. Play is honest by default: the AI uses only the select's `view`, and the elite's rollouts stop
-  at the end of its own main phase, with the opponent never answering optionally. `NPC_AI_SPY=1` (off) lets the elite
+  at the end of its own turn (the battle a line leads to is scored), with the opponent never answering optionally. `NPC_AI_SPY=1` (off) lets the elite
   read the opponent's hidden cards and look through the opponent's turn. The py-parity brain (`src/duel/brain`) plays
   with `NPC_AI=py`, which `parity/run.py` also sets so that the `npc` scenario stays byte-equal to py. When the AI has
   no answer, the engine's `auto` decides.
+- **Replays and the duel archive** (`src/duel/duelArchive.ts`, D1 `duel_archive`, 90 days): every duel as it ends, NPC
+  and PvP (one row per game of a match), with the players, the NPC and its recipe, the tier and `NPC_AI_REV`, the
+  result, turns, seconds and LP. Its **EDOPro replay** (`.yrpX`, `src/duel/engine/yrpx.ts`) goes to R2
+  (`private/replays/`, stored gzip): our engine is EDOPro's ocgcore at the same version (11.0), so the file holds its raw
+  message batches and the field refreshes EDOPro's own server records (its `generic_duel.cpp`), uncompressed and
+  without the embedded `.yrp` (EDOPro's "old mode" would replay the commands with its own scripts, not the 2008 ones).
+  Players list and download theirs at `/replays` (`GET /api/de/replays`, `/api/de/replays/<id>`: a player of that duel
+  only; the Worker streams the file with `Content-Encoding: gzip`, so the browser saves the plain `.yrpX`). An NPC
+  duel's row also keeps the engine's commands (gzip + base64 of its `new` arguments and every command): the engine is
+  deterministic, so `test/npc-lab.test.ts` (`NPC_LAB_REPLAY`) replays them into readable traces with both hands shown,
+  and the same lab plays the NPCs against player decks for a win-rate table and an A/B between two copies of
+  `src/duel/ai`. The 2008 client keeps its own copy too: PvP sends its duel record at the end (`duellog.ts`), and so does
+  an NPC duel now (`npcWatch.ts`: every 0x6202 the player got, the NPC as player 1), which the client saves in its Duel
+  Record menu.
 - **HTTP: Hono.** The Worker (`src/worker.ts`) is a Hono app:
   - `/yo2/root.txt` and `/yo2/merge.txt` (py `www/`, plain text, committed);
   - `/__warm` (the landing page's ping);

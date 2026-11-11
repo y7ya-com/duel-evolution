@@ -55,6 +55,9 @@ export class Game {
   nw: NpcWatchLike | null = null;
   eq: import("./teams.ts").Teams | null = null;
   tp: import("./trade.ts").Trades | null = null;
+  /** The duel archive's sink (duel/duelArchive.ts; do.ts writes duel_archive and the replay file). Null: no archive,
+   *  and no replay recorded. */
+  duelArchive: ((e: import("../duel/duelArchive.ts").DuelArchiveEntry) => void) | null = null;
   to: import("./tournaments.ts").Tournaments | null = null;
   /** PvP hook for tournaments (py torneos._hook_match): onFinish(winner pid | "draw"), onClose(present pids). */
   pvpHookMatch: ((m: unknown, onFinish: (w: number | "draw") => void, onClose: (present: number[]) => void) => void) | null = null;

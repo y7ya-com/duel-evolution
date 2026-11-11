@@ -100,7 +100,9 @@ export function toPrompt(sel: Json, me: number, spy = false): Prompt {
 }
 
 // ---- the board the AI sees ----------------------------------------------------------------------------------------
-export interface BoardCard { code: number; controller: number; location: number; sequence: number; position: number; attack?: number; defense?: number; level?: number }
+export interface BoardCard { code: number; controller: number; location: number; sequence: number; position: number; attack?: number; defense?: number; level?: number;
+  /** Whose card it is (a stolen monster's owner is the other player). */
+  owner?: number }
 export interface PlayerBoard {
   lp: number;
   mzone: (BoardCard | null)[];
@@ -108,6 +110,8 @@ export interface PlayerBoard {
   /** Hand codes; 0 = a hidden card (only the count is known). */
   hand: number[];
   grave: number[];
+  /** Removed from play (face-up: public). */
+  removed: number[];
   deckCount: number;
 }
 export interface DuelBoard { turn: number; turnPlayer: number; phase: number; players: [PlayerBoard, PlayerBoard] }
@@ -119,7 +123,8 @@ function zone(list: unknown, controller: number, location: number, me: number, m
     const hide = mask && controller !== me && isFaceDown(position);
     return hide
       ? { code: 0, controller, location, sequence, position }
-      : { code: num(c.code), controller, location, sequence, position, attack: c.attack === undefined ? undefined : num(c.attack), defense: c.defense === undefined ? undefined : num(c.defense), level: c.level === undefined ? undefined : num(c.level) };
+      : { code: num(c.code), controller, location, sequence, position, attack: c.attack === undefined ? undefined : num(c.attack), defense: c.defense === undefined ? undefined : num(c.defense), level: c.level === undefined ? undefined : num(c.level),
+        owner: c.owner === undefined ? undefined : num(c.owner) };
   });
 }
 const codes = (v: unknown): number[] => (Array.isArray(v) ? v.map((x) => (x && typeof x === "object" ? num((x as Json).code) : num(x))) : []);
@@ -135,6 +140,7 @@ export function boardFromView(sel: Json, me: number): DuelBoard | null {
     szone: zone(p.szone, i, LOCATION.SZONE, me, false),
     hand: i === me ? codes(p.hand) : new Array<number>(num(p.hand_count)).fill(0),
     grave: codes(p.grave),
+    removed: codes(p.removed),
     deckCount: num(p.deck_count),
   })) as [PlayerBoard, PlayerBoard];
   return { turn: num(sel.turn), turnPlayer: num(sel.turn_player), phase: num(sel.phase), players };
@@ -151,6 +157,7 @@ export function boardFromState(state: Json, me: number, spy: boolean): DuelBoard
     szone: zone(p.szone, i, LOCATION.SZONE, me, !spy),
     hand: i === me || spy ? codes(p.hand) : new Array<number>(arr(p.hand).length).fill(0),
     grave: codes(p.grave),
+    removed: codes(p.removed),
     deckCount: num(p.deck_count),
   })) as [PlayerBoard, PlayerBoard];
   return { turn: num(state.turn), turnPlayer: num(state.turn_player), phase: num(state.phase), players };

@@ -11,11 +11,14 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
   does not list shows no percentage. The NPC panel keeps the dialogue, gifts and received cards.
 - **Duel Log** (CWindowModelDuellogTop / List / Search): the Main Menu's Duel Log entry opens it
   (`src/ui/htmlui/duellog.ts`, the list windows' Legacy frame). Top shows the character's duels, wins, losses, draws
-  and win rate; Duel History pages the games (date, opponent, result, turns, how it was paired, ranked, match);
-  Search narrows by opponent name, result and a date range. Read from `GET /api/de/duellog`
-  (server/src/game/duellogList.ts): the server keeps one line per PvP game played on the character's profile
-  (newest first, the last 200). The 2008 client kept the list itself (duellogs\\list.txt, written and searched
-  locally; no list or search message existed), so the route is the rewrite's own.
+  and win rate; Duel History pages the games (date, opponent, result, turns, NPC Duel / Duel, the match game); Search
+  narrows by opponent name, result and a date range. One source of truth with main's /replays page: the duel archive
+  (`GET /api/de/replays?limit=1000`, server/src/duel/duelArchive.ts, every NPC duel and PvP game of 90 days), the
+  stats, search and pages cut in the client. Each row: Download (its .yrpX, `/api/de/replays/<id>`) and Play; All
+  Replays opens /replays. Play: the duel record the server sends at every duel's end (0x6010..0x6012, each answered
+  0x6013; `src/duel/record.ts`) is kept in this browser's IndexedDB (`src/services/duel-records.ts`, the newest 200, as
+  live's client keeps duellogs\\) and replayed on the duel screen as a spectator sees it (Play/Pause, Step, Exit, the
+  duel speed); a row without a record here (another browser, before this) downloads only.
 
 - **Tournaments** (SCENE_TOURNAMENT): `src/network/tournament.ts` decodes every 0x51xx message as
   `server/src/game/tournaments.ts` encodes it (INFO, START, END, LOTTERY, LOTRESULT, PHASE, ROUND, ENTRY_START / DATA /
@@ -75,5 +78,5 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
 | SCENE_PRESENT (Present) | The present box: cards and items the operator sent the player, listed and claimed one by one | A present inbox: storage per character, a list message and a claim message (with the grant through the same paths as NPC gifts), and an admin way to send one. Nothing in server/src today |
 | Tournament Points (TP scene) | The player's TP total and what it buys | The rewrite's profile row reads the player info's u32 TP (features/profile.ts), but the server writes 0 there. `persist` keeps `rec.tp`, but `PRIZE_TP` is 0 in tournaments.ts, so nothing awards TP, and no message or endpoint reads it. Needs a TP award rule, a read (profile field or `/api/de/...`), and whatever TP exchanges for |
 | Information texts / event pages | The news and event descriptions the Information and AboutEvent windows showed; GoEvent's "go to the event" question. Missing texts: every event title and body, what each EVENTINFO state means, GoEvent's question | EVENTINFO carries only (serial, world, state). An event text source (admin-set titles and bodies, per language) and a message or endpoint that serves them |
-| Duel Log replays (CWindowModelDuellogOperation's Play, the saved duellogs\\*.log; DuellogTour, the championship logs) | The duel record of a game, replayed in the duel screen, and the operator's championship logs downloaded from the site | The server sends the record (0x6010..0x6016, duel/duellog.ts) after a PvP game but does not keep it. Needs the records stored (per game, by the Duel Log line's id), a read for one, and a replay viewer in the rewrite (none today: the Duel Log lists the games without a Play button) |
+| Duel Log replays of other browsers; DuellogTour (the championship logs) | Play of any duel, and the operator's championship logs | Play needs the duel record saved in this browser at the duel's end; the archive's .yrpX (EDOPro's format) downloads for any duel but is not replayed in the rewrite |
 | NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift, with the item's picture | The gifts arrive as PBIN bits only (0x5205; persist.ts pendingAdd keeps classes 1/2/3 avatar parts, 7 challenge rights, 8 recipes, 10 titles). Titles are named client-side; avatar parts and challenge rights have no name table in the rewrite's gamedata, and recipe bits are named only where the deck recipe catalogue carries the bit (`giftItemName`'s recipe lookup is not wired into the panel yet). Needs the item table (name and picture per bit) served, or sent with the grant |

@@ -25,7 +25,8 @@ import { Bot } from "./bot.ts";
 import { placeOrderFrom, type PlaceOrder } from "../zones.ts";
 import { CardDB, ScriptPack, type CardsJson, type StringsJson } from "./data.ts";
 import { applyToTrack, Duel, type DuelTrack, type SelectMessage } from "./duel.ts";
-import { installSelectSumPatch, pickSum, type SelectSum } from "./patch.ts";
+import { installSelectSumPatch, pickSum, rawOf, type SelectSum } from "./patch.ts";
+import { YrpxRecorder } from "./yrpx.ts";
 
 export type Json = Record<string, unknown>;
 
@@ -222,7 +223,13 @@ interface Session {
   decisions: number;
   autoChain: boolean;
   autoPassed: number;
+  /** `new` with record: the EDOPro replay being written (yrpx.ts), and what its header needs. */
+  rec: Recording | null;
 }
+
+interface Recording { r: YrpxRecorder; swap: boolean; seed: readonly bigint[]; flags: bigint }
+/** Ended recorded duels whose replay nobody took yet (takeReplay), oldest first: at most this many. */
+const REPLAYS_KEPT = 64;
 
 const key = (id: unknown) => JSON.stringify(id);
 const toProto = (s: Session, p: number) => (s.swap && (p === 0 || p === 1) ? 1 - p : p);
@@ -268,6 +275,8 @@ export interface NewOptions {
   brain?: string | boolean | [boolean, boolean];
   /** Zone order of bot.ts and `auto` (src/duel/zones.ts): the centre first; "py" = duelcore's 0..7 (parity runs) */
   place_order?: PlaceOrder;
+  /** Record the duel as an EDOPro replay (takeReplay once it ended). */
+  record?: boolean;
 }
 
 export interface Deck {
@@ -277,6 +286,7 @@ export interface Deck {
 
 export class DuelCore {
   private sessions = new Map<string, Session>();
+  private replays = new Map<string, Recording>();
   /** duelcore's `ready` event (`load_ms`/`pid` are host-specific) */
   readonly ready: Json;
 
@@ -384,6 +394,7 @@ export class DuelCore {
     if (o.seed !== undefined && o.seed !== null) c.seed = o.seed;
     if (o.brain !== undefined && o.brain !== null) c.brain = o.brain;
     if (o.place_order !== undefined) c.place_order = o.place_order;
+    if (o.record) c.record = true;
     return this.command(c);
   }
 
@@ -519,7 +530,45 @@ export class DuelCore {
     return duel;
   }
 
+  /** The EDOPro replay of a new duel: its raw queries for the refreshes, MSG_START now, each batch as it is read. */
+  private recorder(duel: Duel, swap: boolean, seed: bigint, flags: bigint, lp: number): Recording {
+    const core = this.core, { handle } = duel.raw;
+    const r = new YrpxRecorder({
+      location: (player, location, f) => rawOf(() => core.duelQueryLocation(handle, { flags: f as never, controller: player as 0 | 1, location: location as never })),
+      single: (player, location, sequence, f) => rawOf(() => core.duelQuery(handle, { flags: f as never, controller: player as 0 | 1, location: location as never, sequence, overlaySequence: 0 })),
+      count: (player, location) => core.duelQueryCount(handle, player as 0 | 1, location as never),
+    });
+    r.start(lp);
+    duel.onBatch = (raw) => r.batch(raw);
+    return { r, swap, seed: seedWords(seed), flags };
+  }
+
+  /**
+   * The EDOPro replay (.yrpX) of a recorded duel that ended, once; null if there is none. names by PROTOCOL player.
+   * A duel the engine did not decide gets EDOPro's MSG_WIN here: `winner` (protocol player, null = none) and `reason`
+   * (0 surrender, 3 time, 4 disconnection); a surrender through the engine already has it.
+   */
+  takeReplay(id: unknown, o: { names: [string, string]; at: number; winner?: number | null; reason?: number }): Uint8Array | null {
+    const k = key(id);
+    // a duel still running (a surrender or a timeout decided before its engine end): its recording as it stands
+    const live = this.sessions.get(k);
+    if (live?.rec) { live.duel.onBatch = null; this.replays.set(k, live.rec); live.rec = null; }
+    const rec = this.replays.get(k);
+    if (!rec) return null;
+    this.replays.delete(k);
+    const core = (p: number) => (rec.swap ? 1 - p : p);
+    if (o.winner !== undefined) rec.r.end(o.winner === 0 || o.winner === 1 ? core(o.winner) : 2, o.reason ?? 4);
+    const names: [string, string] = rec.swap ? [o.names[1], o.names[0]] : [o.names[0], o.names[1]];
+    return rec.r.file({ names, seed: rec.seed, flags: rec.flags, at: o.at });
+  }
+
   private endSession(s: Session, out: Out, ev: Json) {
+    if (s.rec) {
+      s.duel.onBatch = null;
+      if (ev.reason === "surrender" && typeof ev.winner === "number") s.rec.r.end(s.swap ? 1 - ev.winner : ev.winner, 0);
+      this.replays.set(key(s.id), s.rec);
+      for (const k of this.replays.keys()) { if (this.replays.size <= REPLAYS_KEPT) break; this.replays.delete(k); }
+    }
     out.emit({ ev: "end", id: s.id, ...ev, turns: s.track.turn, lp: lpProto(s), decisions: s.decisions, human_retries: s.humanRetries, retries: s.retries, auto_passed: s.autoPassed, core_errors: s.duel.errors.slice(0, 10) });
     try {
       s.duel.destroy();
@@ -655,7 +704,8 @@ export class DuelCore {
       const protoP = swap ? 1 - coreP : coreP;
       return botFlags[protoP] ? new Bot((code) => this.db.get(code), placeOrder) : null;
     });
-    const s: Session = { id: c.id, duel, swap, bots, placeOrder, track: { lp: [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0 };
+    const s: Session = { id: c.id, duel, swap, bots, placeOrder, track: { lp: [lp, lp], turn: 0, turnPlayer: 0, phase: 0 }, rnd, waiting: null, brain, retries: [0, 0], humanRetries: 0, decisions: 0, autoChain: c.auto_chain !== false, autoPassed: 0,
+      rec: c.record ? this.recorder(duel, swap, seed, flags, lp) : null };
     this.sessions.set(key(c.id), s);
     out.emit({ ev: "created", id: c.id, first, seed: seed.toString(), lp, bot: [Boolean(botFlags[0]), Boolean(botFlags[1])], brain, auto_chain: s.autoChain, rule });
     this.advance(s, out, t0);

@@ -10,6 +10,8 @@ import type { AuthEnv } from "./auth/env.ts";
 import { ipBucket, verifySession } from "./auth/auth.ts";
 import { gateUpgrade, originAllowed, safeGameQuery, USER_HEADER } from "./auth/binding.ts";
 import { buildReport, recordLogin, runTradeReport } from "./db/audit.ts";
+import { pruneArchive } from "./duel/duelArchive.ts";
+import { REPLAYS_PAGE } from "./replays-page.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 import { cardRarityCatalog } from "./game/card-rarity.ts";
 import { handleInteraction } from "./discord/interactions.ts";
@@ -242,14 +244,6 @@ const tags = async (c: Context<E>) => {
 };
 routes.on(["GET", "POST"], "/api/de/tag", tags);
 routes.on(["GET", "POST"], "/api/de/tag/*", tags);
-// the Main Menu's Duel Log (game/duellogList.ts): the active character's games, searched (opp, result, from, to) and paged
-routes.get("/api/de/duellog", async (c) => {
-  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
-  if (!v) return c.json({ error: "signed out" }, 401);
-  const fwd = new Request(c.req.raw);
-  fwd.headers.set("x-de-user", v.userId);
-  return toWorld(c.env, c.req.raw, "/__de/duellog" + new URL(c.req.url).search, fwd);
-});
 routes.get("/api/de/wallet", async (c) => {
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
   if (!v) return c.json({ error: "signed out" }, 401);
@@ -257,6 +251,32 @@ routes.get("/api/de/wallet", async (c) => {
   fwd.headers.set("x-de-user", v.userId);
   return toWorld(c.env, c.req.raw, "/__de/wallet", fwd);
 });
+
+// the player's duel replays (duel/duelArchive.ts): GET the list; GET /<id> downloads that duel's EDOPro replay (.yrpX),
+// a player of it only. The WorldDO says which file; it is streamed from R2 here as stored (gzip), so what the browser
+// saves is the plain .yrpX.
+routes.get("/api/de/replays", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  // ?limit= (the Duel Log reads the whole 90 days: its stats and its search are the client's)
+  return toWorld(c.env, c.req.raw, "/__de/replays" + new URL(c.req.url).search, fwd);
+});
+routes.get("/api/de/replays/:id", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  const r = await toWorld(c.env, c.req.raw, `/__de/replays/${encodeURIComponent(c.req.param("id"))}`, fwd);
+  if (!r.ok) return r;
+  const f = await r.json() as { key: string; name: string };
+  const o = await c.env.BUCKET?.get(f.key);
+  if (!o) return c.json({ error: "not found" }, 404);
+  return new Response(o.body, { encodeBody: "manual", headers: { "Content-Type": "application/octet-stream", "Content-Encoding": "gzip",
+    "Content-Disposition": `attachment; filename="${f.name}"`, "Cache-Control": "private, no-store" } });
+});
+routes.get("/replays", (c) => c.html(REPLAYS_PAGE, 200, { "Cache-Control": "no-store" }));
 
 // the player's own decks (game/decks.ts): GET the list; PUT a deck, PUT /current {name}, DELETE /<name> (same origin)
 const decks = async (c: Context<E>) => {
@@ -430,6 +450,7 @@ routes.get("/__trade-report", async (c) => {
 export default {
   async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runTradeReport(env).then(() => undefined, (e) => console.error(`[trade report] ${e}`)));
+    if (env.DB) ctx.waitUntil(pruneArchive(env.DB, env.BUCKET).catch((e) => console.error(`[duel_archive] prune: ${e}`)));
   },
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(req.url);

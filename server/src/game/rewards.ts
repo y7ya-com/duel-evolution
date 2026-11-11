@@ -4,7 +4,8 @@ import type { Game } from "./game.ts";
 import * as PP from "./persist.ts";
 import { isFree } from "./freemode.ts";
 import { REWARDS } from "./rewards-config.ts";
-import { newRewardState, progress, rollover, utcDay, type RewardEvent, type RewardState } from "./missions.ts";
+import { eventsRollover, newRewardState, noteNpcWin, progress, rollover, utcDay, type Mission, type RewardEvent, type RewardState } from "./missions.ts";
+import { mapNpc, mapNpcs } from "./npcs.ts";
 export { REWARDS } from "./rewards-config.ts";
 const allowed = (g: Game | null) => REWARDS.enabled && PP.progression() && !(g && isFree(g.ctx));
 const time = (g: Game | null) => g?.clock.time() ?? Date.now() / 1000;
@@ -22,10 +23,12 @@ function state(g: Game | null, p: PP.P): RewardState {
   const r: RewardState = p.rewards ??= newRewardState(time(g));
   const others = peers(g);
   rollover(r, time(g), others);
-  // First steps are once per account; deleting/remaking a character cannot reset claimed grants.
-  for (const m of r.missions) if (m.kind === "first" && others.some(q => q.missions.some(x => x.id === m.id && x.claimed))) m.claimed = true;
+  eventsRollover(r, time(g), REWARDS.events, g?.npcs?.length ? mapNpcs(g) : []);
+  // First steps and events are once per account; deleting/remaking a character cannot reset claimed grants.
+  for (const m of r.missions) if ((m.kind === "first" || m.kind === "event") && claimedElsewhere(others, m)) m.claimed = true;
   return r;
 }
+const claimedElsewhere = (others: RewardState[], m: Mission) => others.some(q => q.missions.some(x => x.id === m.id && x.claimed));
 function grant(g: Game | null, p: PP.P, r: RewardState, id: string, mp: number, requestId?: string) {
   const w = PP.mpBalances(p);
   if (!Number.isSafeInteger(mp) || mp <= 0 || w.total + mp > 0xffffffff) throw new Error("reward-wallet-overflow");
@@ -34,6 +37,25 @@ function grant(g: Game | null, p: PP.P, r: RewardState, id: string, mp: number, 
   r.audit.push(row);
   PP.recordRewardIncome(g, p, mp);
   g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 8)} ${p.name ?? "?"}: reward ${id} +${mp} earned MP; balance ${row.balance}; request ${requestId ?? "auto"}`);
+}
+/** A limited-time event's shards into the character's shard wallet (crafting.ts), with the craft audit's line too. */
+function grantShards(g: Game | null, p: PP.P, r: RewardState, id: string, shards: number, requestId: string) {
+  const balance = p.shards ?? 0;
+  if (!Number.isSafeInteger(shards) || shards <= 0 || !Number.isSafeInteger(balance) || balance < 0 || !Number.isSafeInteger(balance + shards))
+    throw new Error("reward-shard-overflow");
+  p.shards = balance + shards;
+  (p.shard_audit ??= []).push({ at: time(g), requestId, operation: "reward", changes: {}, shardDelta: shards, balance: p.shards, reward: id });
+  r.audit.push({ at: time(g), id, mp: 0, earned: true, balance: PP.mpBalances(p).total, requestId, shards });
+  g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 8)} ${p.name ?? "?"}: reward ${id} +${shards} shards; shard balance ${p.shards}; request ${requestId}`);
+}
+/** An NPC duel won (persist.ts npcDuelResult): the limited-time events count that map NPC as beaten. */
+export function rewardNpcWin(g: Game | null, p: PP.P, npc: number) {
+  if (!allowed(g) || !g?.npcs?.length || !REWARDS.events.length) return;
+  const map = mapNpcs(g), id = mapNpc(npc);
+  if (!map.includes(id)) return;
+  const r = state(g, p);
+  noteNpcWin(r, time(g), REWARDS.events, id);
+  eventsRollover(r, time(g), REWARDS.events, map);
 }
 /** UTC day; shared across live and archived characters. Existing starter MP is left bound. */
 export function rewardLogin(g: Game | null, p: PP.P): boolean {
@@ -75,7 +97,13 @@ function active(g: Game, user: string) {
 }
 function view(g: Game, p: PP.P, r: RewardState) {
   const count = [r, ...peers(g)].reduce((n, q) => n + q.login.count, 0);
-  return { wallet: PP.mpBalances(p), missions: r.missions.map(m => ({ ...m, claimable: !m.claimed && m.progress >= m.target })),
+  // an event's NPCs still to beat, by name (its row's hint)
+  const left = (m: Mission) => {
+    const key = m.id.slice("event:".length), beaten = r.beaten?.[key] ?? [];
+    return mapNpcs(g).filter(n => !beaten.includes(n)).map(n => g.npcs.find(x => x[0] === n)?.[1] ?? `NPC ${n}`);
+  };
+  return { wallet: PP.mpBalances(p), shards: p.shards ?? 0, missions: r.missions.map(m => ({ ...m, claimable: !m.claimed && m.progress >= m.target,
+      ...(m.kind === "event" && !m.claimed ? { left: left(m) } : {}) })),
     login: { ...r.login, cycleDay: count ? (count - 1) % REWARDS.login.cycle + 1 : 0,
       calendar: Array.from({ length: REWARDS.login.cycle }, (_, i) => ({ day: i + 1,
         mp: REWARDS.login.milestoneDays.includes(i + 1) ? REWARDS.login.milestoneMP : REWARDS.login.mp })) },
@@ -102,9 +130,13 @@ export function rewardsClaim(g: Game, user: string, body: unknown): any {
     if (b.requestId !== r.token) return fail("stale-request");
     const m = r.missions.find(m => m.id === b.id);
     if (!m || m.claimed || m.progress < m.target) return fail("not-claimable");
+    if ((m.kind === "first" || m.kind === "event") && claimedElsewhere(peers(g), m)) return fail("not-claimable");
     if (PP.mpBalances(p).total + m.mp > 0xffffffff) return fail("reward-wallet-overflow");
-    grant(g, p, r, m.id, m.mp, b.requestId as string); m.claimed = true;
-    const receipt = { id: m.id, mp: m.mp }; r.receipts[b.requestId as string] = receipt; r.token = crypto.randomUUID();
+    if (m.shards) grantShards(g, p, r, m.id, m.shards, b.requestId as string);
+    else grant(g, p, r, m.id, m.mp, b.requestId as string);
+    m.claimed = true;
+    const receipt = { id: m.id, mp: m.mp, ...(m.shards ? { shards: m.shards } : {}) };
+    r.receipts[b.requestId as string] = receipt; r.token = crypto.randomUUID();
     g.saveState(st);
     return { ...view(g, p, r), grant: receipt, replayed: false };
   });
