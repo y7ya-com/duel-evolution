@@ -54,7 +54,10 @@ export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatD
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
-export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean }
+export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean;
+  /** How far main's message field moved right for the page's own bar buttons (lobby.js fieldLeft - 391: the Wardrobe and
+   * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
+  fieldShift?: number }
 
 export interface BuildContext {
   state: ClientView; ui: HtmlUiLocal; ids: Ids;
@@ -326,7 +329,7 @@ const pictureArt = (v: number) => Object.fromEntries((['normal', 'hover', 'press
 export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
   const b = new WindowBuilder(ctx.ids, 'menubar', 'CWindowModelMenu', { x: 0, y: 736, w: 384, h: 32 }, { z: 51203, modal: false, drawn: { x: 0, y: 736, w: 240, h: 32 } });
   b.add('CWindowTaskMenubar', 'bar', { x: 0, y: 0, w: 0, h: 0 }, { message: '', scroll: 0 });
-  b.add('CWindowTaskText', 'message', { x: 392, y: 8, w: 256, h: 256 }, { text: menu.message, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
+  b.add('CWindowTaskText', 'message', { x: 392 + (menu.fieldShift ?? 0), y: 8, w: 256, h: 256 }, { text: menu.message, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
   if (menu.keys) {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
@@ -354,8 +357,8 @@ export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
 }
 // The place banner (CWindowModelPlace, src/Game/yo2MenuPlace.cpp layout / onMain): the lobby's name (yo2text 3065
 // Domino City / 3066 Duelist Academy) and "(n/1000)", the players in the whole lobby; the map's name (AREA_TEXT) with
-// its block number "[n]" and "(n/32)", the players in this block. Names at 20, 9 and 20, 26; the counts follow the
-// longer name (+20) and the frame is 140 wider than it (main's lobby.js draws the plate from the frame's size).
+// its block number "[n]" and "(n/32)", the players in this block. Names at 20, 9 and 20, 26; the counts right-aligned
+// in 100 from the longer name's end + 20, and the frame 140 wider than that name (main's lobby.js draws the plate from the frame's size).
 const DOMINO_MAPS = new Set([0, 1, 2, 3, 9]);
 export function placeBanner(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
@@ -366,15 +369,15 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
   const mapName = myRoom || AREA_TEXT[map] === undefined ? area : `${ctx.text?.(AREA_TEXT[map]!)?.trim() ?? AREA_FALLBACK[map] ?? area}[${(entry?.kind ?? 0) + 1}]`;
   const lobbyCount = myRoom ? undefined : lobby.population ?? lobby.avatars.length;
   // the counts' column: the longer name's width (Arial 16, the shadow text's spacing) + 20; the frame 140 wider
-  const width = (s: string) => Math.ceil(s.length * 9.4);
+  const width = (s: string) => Math.ceil(s.length * 8.6);
   const widest = Math.max(width(worldName), width(mapName)), at = widest + 20, w = Math.max(260, widest + 140);
   const b = new WindowBuilder(ctx.ids, 'place', 'CWindowModelPlace', { x: 0, y: 0, w, h: 52 }, { z: 51253, drawn: { x: 0, y: 0, w: w + 30, h: 52 } });
   b.add('CWindowTaskFramePlace', 'frame', { x: 0, y: 0, w, h: 52 });
   const text = (name: string, x: number, y: number, t: string, align: number) => b.add('CWindowTaskShadowText', name, { x, y, w: align ? 100 : 300, h: 16 }, { text: t, align, fontSize: 16, color: [1, 1, 1, 1] });
   text('lobby', 20, 9, worldName, 0);
-  if (lobbyCount !== undefined) text('lobbyCount', at - 100, 9, `(${lobbyCount}/1000)`, 2);
+  if (lobbyCount !== undefined) text('lobbyCount', at, 9, `(${lobbyCount}/1000)`, 2);
   text('map', 20, 26, mapName, 0);
-  text('mapCount', at - 100, 26, myRoom ? `(${lobby.avatars.length})` : `(${lobby.avatars.length}/32)`, 2);
+  text('mapCount', at, 26, myRoom ? `(${lobby.avatars.length})` : `(${lobby.avatars.length}/32)`, 2);
   return b.spec();
 }
 

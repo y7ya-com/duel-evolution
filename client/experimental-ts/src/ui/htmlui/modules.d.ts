@@ -64,6 +64,10 @@ declare module '@htmlui/shop/index.js' {
   export function mountCardShop(host: HTMLElement, opts?: { onBack?: () => void; fetch?: typeof fetch; now?: () => number }):
     { el: HTMLElement; show(on: boolean): void; refresh(): void; destroy(): void; state: unknown };
 }
+declare module '@htmlui/screens/lobby_icons.js' {
+  export function barReserve(): number;
+  export function onBarReserve(f: () => void): () => void;
+}
 declare module '@htmlui/cosmetics/wardrobe-launcher.js' {
   /** bridge.js, every frame: the Wardrobe's button on the overworld's menu bar (the slot after the game's buttons). */
   export function wardrobeLauncherFrame(snap: unknown, wait?: boolean): void;
