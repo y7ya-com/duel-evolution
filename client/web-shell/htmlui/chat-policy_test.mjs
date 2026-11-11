@@ -10,8 +10,8 @@ assert.deepEqual(visibleMessages(messages,'global').map(m=>m.text),['public','ne
 assert.deepEqual(visibleMessages(messages,'team').map(m=>m.text),['team']);
 const types=new Map([[1,'CAreaScene'],[2,'CPlChibiAvatar'],[3,'CSpriteElm']]);
 const h={cls:n=>types.get(n)||'?',children:n=>n===1?[2,3]:[],ptr:a=>a===2+0xb8?100:a===2+0x94?200:0,
- i32:a=>a===2+0xec?1234:0,vis:()=>true,locked:()=>false,at:()=>({wx:300,wy:150})};
-assert.deepEqual(chatAvatars(h,1),[{pid:1234,x:300,y:142}]);
+ i32:a=>a===2+0xec?1234:0,wstr:a=>a===100+0x410?'Ann':'',vis:()=>true,locked:()=>false,at:()=>({wx:300,wy:150})};
+assert.deepEqual(chatAvatars(h,1),[{pid:1234,name:'Ann',x:300,y:150}]);
 assert.deepEqual(chatAvatars({...h,vis:()=>false},1),[]);
 assert.deepEqual(chatAvatars({...h,children:()=>[1]},1),[], 'cycles cannot hang the frame reader');
 console.log('chat-policy_test: passed');
