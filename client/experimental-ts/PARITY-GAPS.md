@@ -52,11 +52,20 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
   (`src/npcs/gift-names.ts`): titles (class 10) from the server's title table (features/titles.ts). The rest are
   counted ("N item rewards confirmed. Item names are unavailable."): see the server table below.
 
+- **What a pack holds** (CARD_PACK_CHECK): main's `screens/pack-contents.js` from the legacy shop's Booster Packs
+  window (its art hotspots: the window carries its packs' ids, `ShopItem.packId`) and from the NPC pack picker's
+  Contents key, as well as inside the card shop (`GET /api/de/shop/pack`).
+- **Account sanctions** (0x3004 flags 0x20 chat, 0x40 trade): decoded at login (`network/session.ts` decodeSanctions);
+  the chat line is greyed out, Card Swap (player card, Find a Player) disabled.
+- **Forbidden / limited list** (0x5600): decoded (`network/banlist.ts`) and used for the deck's limits, marks and checks.
+- **HD game cursor**: main's `cursor.js` (CSS cursor, HD art, the click ripple layer) on every screen.
+
 ## The server has it, the rewrite does not (client work only)
 
 | Original | Server today | Rewrite work |
 | --- | --- | --- |
-| CARD_PACK_CHECK (what a pack holds) | `GET /api/de/shop/pack?id=` (shop-api.ts shopPackView: cards, odds, owned, pulls) | Mount main's `screens/pack-contents.js` (`openPackContents`) from the rewrite's Legacy shop pack window and from the pack picker. Today it opens only inside the new card shop |
+| The HD cursor's hover and busy looks | nothing (client art: data/common/m_cursor, ui/hd/) | `src/ui/htmlui/cursor.ts` builds the hand's sprites for main's `cursor.js` itself (no engine): plain n01, over a control n02, busy t01..t08 at 12 Hz, the e01 ripple growing and fading over 330 ms. Which mausuk set the original's CHandCursorTask shows on hover / while waiting, and its frame timing, is not decompiled yet: match them once it is. Over a Booster Packs art (main's hotspot) the band no longer follows the hover (main forwards it to the engine's canvas) |
+| The sanctions' notices | chat.ts "Chat is disabled for this account.", trade.ts / cosmetics.ts refuse a barred trade | The rewrite greys the chat line out with the server's wording and disables Card Swap (its label says "Card Swap is disabled for this account."); the original's own notice text for 0x3004's 0x20 / 0x40 is not found in the decomp data |
 
 ## The server does not have it (server work first)
 

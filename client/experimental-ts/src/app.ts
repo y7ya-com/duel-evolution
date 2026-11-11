@@ -312,6 +312,7 @@ export class ClientApp implements ClientController {
       const product = shop.items[i]!;
       if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param), known = card.name !== `Card ${product.param}`; return { ...item, name: (this.localized && card.name) || (known ? card.name : product.name || card.name), card, ...(card.description ? { description: card.description } : {}) }; }
       const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
+      if (product.kind === 1) item = { ...item, packId: product.param };
       if (!pack) return item;
       const imagePath = packImagePath(pack.image);
       return { ...item, name: (this.localized && pack.name) || product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
