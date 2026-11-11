@@ -72,7 +72,7 @@ class SlicedBar {
 }
 
 export const LP_PLATE_CSS = `
-.de-lpp{position:absolute;top:0;width:${pct(PLATE_W, BOARD_W)};height:${pct(PLATE_H, BOARD_H)};container-type:inline-size;pointer-events:none;user-select:none}
+.de-lpp{position:absolute;top:0;z-index:6;width:${pct(PLATE_W, BOARD_W)};height:${pct(PLATE_H, BOARD_H)};container-type:inline-size;pointer-events:none;user-select:none}
 .de-lpp[data-side="0"]{left:0}.de-lpp[data-side="1"]{right:0}
 .de-lpp-plate,.de-lpp-crop,.de-lpp-bar,.de-lpp-digits,.de-lpp-name{position:absolute}
 .de-lpp-plate{inset:0;opacity:.6}

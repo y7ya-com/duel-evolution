@@ -22,7 +22,7 @@ export interface SceneFrame {
   release(): void;
 }
 // Map id order is the static g_fieldMaps order in yo2FieldMap.cpp; no map art/layout table is embedded.
-const MAP_NAMES = ['Map_d01_01', 'Map_d02', 'Map_d03', 'Map_d04_01', 'Map_a01', 'Map_a02', 'Map_a03', 'Map_a04', 'Map_r01', 'Map_d05'] as const;
+export const MAP_NAMES = ['Map_d01_01', 'Map_d02', 'Map_d03', 'Map_d04_01', 'Map_a01', 'Map_a02', 'Map_a03', 'Map_a04', 'Map_r01', 'Map_d05'] as const;
 function abortError(): DOMException { return new DOMException('Scene request canceled', 'AbortError'); }
 function check(signal?: AbortSignal): void { if (signal?.aborted) throw abortError(); }
 function operation(signal?: AbortSignal): { controller: AbortController; detach(): void } {

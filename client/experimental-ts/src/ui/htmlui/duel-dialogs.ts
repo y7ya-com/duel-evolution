@@ -204,8 +204,8 @@ export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpe
 }
 
 // The duel speed (main's duelspeed.js): 1x the 2008 pacing, 1.5x, 2x, remembered per browser under main's key. Its
-// button is a game TextSwitch (main's generic controls draw it) where live has it: at the top right of the screen, 8 px
-// down, beside the page's full-screen button (duelspeed.js place(): right 8 + 40).
+// button is the page's (htmlui/duel-speed.ts), where live has it: the page's top right corner, beside its full-screen
+// button (duelspeed.js place(): right 8 + 40).
 export const DUEL_SPEEDS = [1, 1.5, 2] as const;
 const SPEED_KEY = 'yo2-duel-speed';
 export function loadDuelSpeed(): number {
@@ -215,13 +215,4 @@ export function nextDuelSpeed(speed: number): number {
   const k = DUEL_SPEEDS[((DUEL_SPEEDS as readonly number[]).indexOf(speed) + 1) % DUEL_SPEEDS.length]!;
   try { globalThis.localStorage?.setItem(SPEED_KEY, String(k)); } catch { /* private window: this session only */ }
   return k;
-}
-export function duelSpeedWindow(ids: Ids, speed: number, change: () => void): WindowSpec {
-  // main's duelspeed.js: 8 px in from the page's top right corner. Live's page is wider than the 4:3 canvas on a desktop,
-  // so the button sits in the margin beside the canvas, clear of the opponent's plate; the rewrite's stage is the board
-  // itself, so it keeps that corner's 8 px inset under the plate (y 64), where it covers no name, LP or TIME.
-  const W = 48, H = 24, b = new WindowBuilder(ids, 'duel-speed', 'CWindowDuelSpeed', { x: 1024 - W - 8, y: 64 + 8, w: W, h: H }, { z: 51100 });
-  const c = b.add('CWindowTaskTextSwitch', 'speed', { x: 0, y: 0, w: W, h: H }, { label: `${speed}×`, align: 1, state: 'normal' });
-  b.on(c, { key: 'duel-speed', label: `Duel speed: ${speed}×${speed === 1 ? ' (original)' : ''}. Click to change`, click: change });
-  return b.spec();
 }

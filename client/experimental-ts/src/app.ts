@@ -50,7 +50,7 @@ import { WorldRuntime } from './world/runtime';
 import { chooseArrival } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
-import { SceneLoader } from './world/scene';
+import { MAP_NAMES, SceneLoader } from './world/scene';
 import type { WorldMaps } from './world';
 import { LiveCapture, captureDownload } from './parity/live';
 import { BrowserAudioManager } from './features/audio';
@@ -374,9 +374,9 @@ export class ClientApp implements ClientController {
   private async readArchiveImage(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
-    // the menu bar and windows use data/common/window and data/common/icon; card-get uses data/y/result and data/card_get;
+    // the menu bar and windows use data/common/window and data/common/icon (the duel bar's ring: an icon movie); card-get uses data/y/result and data/card_get;
     // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|avatar\/flag|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|common\/window\/icon\/menuicon_03_a0\d\.txt|title\/title_flash_01\.txt|title\/(?:title_\w+|option_\w+)\.png|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|y2\/duel_(?:window|gauge|font)_0\d_c0\d\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
@@ -754,12 +754,17 @@ export class ClientApp implements ClientController {
     const other = room.owner === self ? room.opponent : room.owner;
     return state.players.find(p => p.pid === other)?.name ?? null;
   }
-  /** data/y/duel/field/duel_field.txt: line 1 is the Academy hall, line k+1 the backdrop of field theme k. */
+  /** The original's duel background (data/y2/duel/field/duel_field.txt: lines 1-5 duelbg_d_01..05, 6-9 duelbg_a_01..04,
+   * then duel_filed_01..38): the area's own (Map_d02 -> duelbg_d_02, Map_a03 -> duelbg_a_03: live's lazyfs.js pins the
+   * same file), which a Field Spell replaces with duel_filed_NN (theme.ts, the exe's 0x00704100 table). My Room has no
+   * area picture: the table's first line. */
   private duelBackground(): string | null {
     if (!this.options.assets) return null;
     let kind: number | null = 0;
     try { kind = fieldThemeKindForPasscode(this.fieldPasscode, pc => this.options.cardDetails?.get(pc)?.internalId); } catch { kind = 0; }
-    return kind && kind <= 28 ? `data/y/duel/field/duel_filed_${String(kind).padStart(2, '0')}.png` : 'data/y/duel/field/duelbg_a_03.png';
+    if (kind && kind <= 38) return `data/y2/duel/field/duel_filed_${String(kind).padStart(2, '0')}.png`;
+    const area = /^Map_([ad])0(\d)/.exec(MAP_NAMES[this.game?.state.area ?? -1] ?? '');
+    return `data/y2/duel/field/duelbg_${area ? `${area[1]}_0${area[2]}` : 'd_01'}.png`;
   }
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;

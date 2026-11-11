@@ -61,7 +61,8 @@ import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
 import { TitleScene, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
-import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
+import { duelDialog, duelDialogCovers, loadDuelSpeed } from './htmlui/duel-dialogs';
+import { DuelSpeedButton } from './htmlui/duel-speed';
 import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
 export type * from './contracts';
 
@@ -113,7 +114,9 @@ interface LocalState {
   /** The duel log's scroll position while the reader is not at the bottom (null: follow new lines). */
   logScroll: number | null;
   /** The card whose command list (CWindowModelListDuelCmd) is open, and whether the duel log strip is open. */
-  duelCmd: string | null; duelLogOpen: boolean;
+  duelCmd: string | null;
+  /** The duel help line's text and when it began running across the bar (a render keeps its place). */
+  helpText: string; helpFrom: number;
   tradeSearch: string;
   message: string; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel';
   promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
@@ -130,7 +133,7 @@ export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUi
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
   let disposed = false, rendering = false, queued = false, resetDraftsNextRender = false;
   let state = controller.getState();
-  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, duelLogOpen: false };
+  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS + LP_PLATE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -403,10 +406,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => [...loginSpecs(), ...shopSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...shopSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
-  let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
+  // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
+  const duelSpeedButton = new DuelSpeedButton({ stage: () => stage, changed: speed => { duelScene.fx.speed = speed; } });
+  let duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
   const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
   // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
   const prepChoice = (): PrepChoice | null => {
@@ -427,7 +432,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
     if (duel.ended && !state.sideboarding && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
-    if (!duel.ended || state.replay || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
@@ -1082,21 +1086,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (canSurrender && !ownDeckTop) actions.append(button('Surrender', surrenderNow, !!state.busy || state.relay?.canAct === false));
     else if (duel.ended && (!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
-    // live's bottom bar (the engine's duel menu strip): the wrench (Options) at its left, the help line; the duel log is
-    // the rewrite's addition, closed until asked for, over the right portrait (never the field)
+    // live's bottom bar (the engine's duel menu strip): the wrench (Options) at its left and the help line, which runs
+    // across its box from the right as live's does. Live shows no duel log on the duel screen (main's chat.js hides the
+    // Duel Log tab): the log is kept for assistive technology only, never drawn
     const wrench = button('', () => open('settings')); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'Options'); wrench.title = 'Options';
-    wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
-    const logToggle = button('Duel Log', () => { local.duelLogOpen = !local.duelLogOpen; requestRender(); }); logToggle.className = 'de-duel-logtoggle'; logToggle.dataset.key = 'duel-log-toggle'; logToggle.setAttribute('aria-expanded', String(local.duelLogOpen));
-    const help = el('div', 'de-duel-help', duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Left click a card to confirm a selection, or the right button to open its menu.'));
-    board.append(el('div', 'de-duel-bar', wrench, help, actions, logToggle));
-    const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log'); log.hidden = !local.duelLogOpen;
+    // the key's picture is the menu bar's (data/common/window/menuicon_02_c01.png: 80×32 cells, the wrench row 4,
+    // columns normal / hover / pressed), as live's bar draws it; without the art a plain wrench glyph stands in
+    const wrenchArt = controller.loadArchiveImage ? el('img', 'de-duel-wrench-art') as HTMLImageElement : null;
+    if (wrenchArt) { wrenchArt.alt = ''; wrenchArt.draggable = false; wrenchArt.style.visibility = 'hidden'; wrenchArt.onload = () => { wrenchArt.style.visibility = ''; }; loadArchiveArt('data/common/window/menuicon_02_c01.png', wrenchArt); wrench.append(wrenchArt); wrench.classList.add('has-art'); }
+    else wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
+    const helpText = duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Left click a card to confirm a selection, or the right button to open its menu.');
+    const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
+    if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
+    run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
+    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringCanvas, help, actions));
+    const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
-    // Follow new lines only while the reader is at the bottom; a player reading older lines keeps their place.
-    log.scrollTop = local.logScroll === null ? log.scrollHeight : local.logScroll;
-    log.onscroll = () => { local.logScroll = log.scrollHeight - log.scrollTop - log.clientHeight < 8 ? null : log.scrollTop; };
-    // The wheel moves the log at once and keeps the place: a full render (the duel clock's tick, a new line) rebuilds
-    // the log, and a smooth scroll still under way then (its scroll event not yet fired) would land back at the bottom
-    log.onwheel = e => { if (!e.deltaY || log.scrollHeight <= log.clientHeight) return; e.preventDefault(); log.scrollTop += e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? log.clientHeight : 1); local.logScroll = log.scrollHeight - log.scrollTop - log.clientHeight < 8 ? null : log.scrollTop; };
     if (!duel.notice) local.noticeSeen = 0;
     if (duel.notice && duel.notice.id > local.noticeSeen) {
       // The original shows these as a message box closed with OK; it never blocks the re-sent prompt underneath.
@@ -1414,5 +1419,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
