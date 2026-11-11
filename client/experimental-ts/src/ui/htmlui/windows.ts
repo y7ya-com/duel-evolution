@@ -311,6 +311,7 @@ export function placeBanner(ctx: BuildContext): WindowSpec | null {
 // Room capture (tools/flip.mjs sp-profile): 212, 186, 600 x 396; the title 0, 4, 600 wide over its black shadow 1 px
 // down-right; rows 32 high from 14, 32 (557 wide), each a name at 16, y and its value right-aligned 16 px lower; the
 // scroll column 571, 32, 318 long; OK 250, 364, 100 x 24. The values are the rewrite's (the server's player info).
+const PROFILE_ITEM = 'プロフィールウィンドウの項目名', PROFILE_VALUE = 'プロフィールウィンドウの項目の数値';
 export function profileWindow(ctx: BuildContext): WindowSpec | null {
   // one's own profile (another player's is their card, playerCard)
   const p = ctx.state.profileDetail; if (!p || p.selectedPid === null || p.selectedPid !== p.selfPid) return null;
@@ -328,8 +329,9 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   rows.forEach((_, i) => b.add('CWindowTaskBackPlane', `plane${i}`, { x: 14, y: 32 + 32 * i, w: 557, h: 32 }, { shown: i < 10 }));
   rows.forEach(([name, value], i) => {
     const t = { align: 0, fontSize: 16, color: [1, 1, 1, 1], shown: i < 10 };
-    b.add('CWindowTaskText', `name${i}`, { x: 16, y: 32 + 32 * i, w: 552, h: 32 }, { ...t, text: name });
-    b.add('CWindowTaskText', `value${i}`, { x: 16, y: 48 + 32 * i, w: 552, h: 32 }, { ...t, text: value, align: 2 });
+    // main's control names (social.js profileLevel: the LV row's value gets the player's rank, GET /api/de/rank)
+    b.add('CWindowTaskText', `name${i}`, { x: 16, y: 32 + 32 * i, w: 552, h: 32 }, { ...t, text: name }).name = PROFILE_ITEM;
+    b.add('CWindowTaskText', `value${i}`, { x: 16, y: 48 + 32 * i, w: 552, h: 32 }, { ...t, text: value, align: 2 }).name = PROFILE_VALUE;
   });
   const title = b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 600, h: 16 }, { text: self ? 'My Profile' : 'Profile', align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1] });
   b.add('CWindowTaskText', 'titleShadow', { x: 1, y: 5, w: 600, h: 16 }, { parent: title.id, text: title.text, align: 1, fontSize: 16, color: [0, 0, 0, 1] });
@@ -394,7 +396,7 @@ export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec 
   const t = lobbyCard.windows[0]!, shown = CARD_BUTTONS.filter(([, k]) => actions[k]), n = shown.length, h = 148 + 36 * Math.max(1, n);
   // where main's capture has it (x 248), standing on the player list and chat row (608) when it grows past the capture's
   const y = Math.min(t.y, 600 - h);
-  const b = new WindowBuilder(ctx.ids, `card:${p.selectedPid}`, t.cls, { x: t.x, y, w: t.w, h }, { modal: false, z: 51603 });
+  const b = new WindowBuilder(ctx.ids, `card:${p.selectedPid}`, t.cls, { x: t.x, y, w: t.w, h }, { modal: false, z: 51603, pid: p.selectedPid });   // pid: main's lobby.js cardRank (read/lobby.js pid_), the rank under the header
   const cs = b.fromTemplate(t, true);
   const s = p.summary, d = p.details, wins = s?.wins ?? 0, losses = s?.losses ?? 0, name = s?.name ?? d?.name ?? '';
   const help = (key: string, text: string) => { const hp = cs.find(c => c.cls === 'CWindowTaskHelp' && c.name.includes(key)); const tx = hp && cs.find(c => c.parent === hp.id && c.cls === 'CWindowTaskText'); if (tx) tx.text = text; };
