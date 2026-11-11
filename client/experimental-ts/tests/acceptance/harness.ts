@@ -347,15 +347,24 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     }
     // The server can withhold End Turn (only Battle Phase offered, e.g. after Dark Magic Curtain): advance through the phase it offers.
     const end=find('End Turn'),advance=end??find('Main Phase 2')??find('Battle Phase');
+    const phase=document.querySelector('.de-phase.current')?.title??'';
+    const mine=[...document.querySelectorAll('.de-field-card')].filter(b=>ok(b)&&!window.__tried.has(b.dataset.key)&&/, your (hand|monster)/.test(b.getAttribute('aria-label')??''));
+    const hand=mine.filter(b=>/your hand/.test(b.getAttribute('aria-label')));
+    const field=mine.filter(b=>/your monster/.test(b.getAttribute('aria-label')));
     if(advance){
-      const phase=document.querySelector('.de-phase.current')?.title??'';
-      const mine=[...document.querySelectorAll('.de-field-card')].filter(b=>ok(b)&&!window.__tried.has(b.dataset.key)&&/, your (hand|monster)/.test(b.getAttribute('aria-label')??''));
-      const hand=mine.filter(b=>/your hand/.test(b.getAttribute('aria-label')));
-      const field=mine.filter(b=>/your monster/.test(b.getAttribute('aria-label')));
       if(!phase.includes('Battle')&&hand.length&&${options.summon !== false}){window.__tried.add(hand[0].dataset.key);return {kind:'key',key:hand[0].dataset.key};}
       if(${options.attack !== false}&&!window.__battled&&find('Battle Phase')&&field.length){window.__battled=true;return {kind:'text',text:'Battle Phase'};}
       if(phase.includes('Battle')&&field.length&&${options.attack !== false}){window.__tried.add(field[0].dataset.key);return {kind:'key',key:field[0].dataset.key};}
       return {kind:'text',text:advance.textContent};
+    }
+    // The server can also withhold every phase change in the Battle Phase (a monster that must attack: SELECT_BATTLECMD
+    // with neither to_m2 nor to_ep): only the attacks remain, through the cards' command lists.
+    const menus=[...document.querySelectorAll('.de-field-card[data-side="your"][aria-haspopup="menu"]')].filter(b=>ok(b)&&b.dataset.zone!=='deck');
+    if(phase.includes('Battle')&&menus.length){
+      const untried=menus.filter(b=>!window.__tried.has(b.dataset.key));
+      // every one tried once and still no phase change: again (a real stall still shows as one)
+      if(!untried.length){window.__tried=new Set();return {kind:'wait'};}
+      window.__tried.add(untried[0].dataset.key);return {kind:'key',key:untried[0].dataset.key};
     }
     return null;})()`) as { kind:string; key?:string; text?:string; scope?:string; sel?:string } | null;
   if (!next) return 'idle';
