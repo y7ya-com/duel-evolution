@@ -262,7 +262,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
     trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
-  const useCardShop = () => state.scene === 'shop' && !!state.online && state.connection === 'online' && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
+  // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has
+  // loaded or the app's own catalogue fetch answered (a failed one is its own "Couldn't open the shop" / Try again), and
+  // a tunnel resume underneath (reconnecting) keeps it, its tab and an open pack reveal in place.
+  const useCardShop = () => state.scene === 'shop' && state.mode !== 'free' && (state.connection === 'online' || state.connection === 'reconnecting') && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
   // the trade (src/ui/htmlui/trade.ts): main's trade windows and dialogs over any scene but the title and Select Player

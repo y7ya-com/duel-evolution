@@ -78,7 +78,7 @@ async function lostToTitle(page:Page) {
 /** main's error dialog (CWindowModelDialogError: a connection that failed, a refused request), as the original shows
  * it over the title or the game: a player reads it and presses OK before going on. */
 async function dismissError(page:Page) { if (await page.ev(`Boolean(${byKey('error-ok')})`)) { await press(page,byKey('error-ok')); await sleep(300); } }
-async function goOnline(page:Page) { await dismissError(page); await goOnline(page); }
+async function goOnline(page:Page) { await dismissError(page); await click(page,'Go Online',60000); }
 async function online(page:Page,name:string) {
   await page.send('Page.enable'); await page.send('Page.addScriptToEvaluateOnNewDocument',{ source:NET_PROBE });
   await openClient(page,await signIn(name));
@@ -160,44 +160,52 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
         observed:`${resumes} resumed tunnels; lobby ${lobbyStatuses}; "${first}" ×${count(first)}, "${second}" ×${count(second)}; MP ${before} → ${after} (one 200 MP pack, "${receipt}"), collection ${copies} → ${granted} copies, unchanged after the deck-editor drop (${again}); duel turn ${t0} → ${t1} after one End Turn pressed while the tunnel was ${heldWhile} (${declined} chain question${declined === 1 ? '' : 's'} declined) (board unchanged by an earlier drop, "${me} ends the turn." ×${ends} in the log), surrender (${presses} press${presses === 1 ? '' : 'es'}) → ${result}` });
     } finally { closeAll(); }
   },600000);
-  it('offers a clean new connection after a rejected or expired resume',async () => {
+  it('reconnects on a clean new connection after a rejected or expired resume',async () => {
+    // Live (session.ts RECONNECT, the original's lobby retry): a resume the server refuses, or one that never comes back
+    // within the 40 s window, is a lost transport: the client retries with a fresh (non-resume) connection on live's
+    // 1/2/4/8/15 s backoff, signs in again, re-selects the character and returns to the lobby on its own. Go Online
+    // follows only after 15 failed retries (tests/network-reconnect.test.ts drives that limit).
     try {
       const page = await openPage(); await online(page,`TestRx${RUN}`);
       const me = `Rex ${RUN}`; await enterWorld(page,me);
+      const back = async (from:number) => {
+        await until(page,`window.__net.statuses.slice(${from}).includes('reconnecting')`,70000);
+        const t0 = Date.now();
+        await until(page,`${CONN}==='online'&&${lobbyShown}&&!document.querySelector('[data-key="net-reconnecting"]')&&${live}.readyState===1&&!window.__net.urls.at(-1).includes('resume=1')`,180000);
+        return Math.round((Date.now() - t0) / 1000);
+      };
       // Rejected: the resume arrives with a tunnel id the server does not hold.
       await page.ev(`window.__net.rewrite=u=>u.includes('resume=1')?u.replace(/sid=[0-9a-f]+/,'sid=${'0'.repeat(32)}'):u`);
-      await drop(page);
-      await until(page,`['error','offline'].includes(${CONN})`,30000);
-      await until(page,`${byText('Go Online')}`,30000);
-      const rejected = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as string;
-      const rejectedScene = await page.ev(`document.querySelector('.de-client').dataset.scene`);
-      await screenshot(page,'resilience-resume-rejected');
-      await page.ev(`window.__net.rewrite=null`);
+      let from = await page.ev(`window.__net.statuses.length`) as number;
       const sockets0 = await page.ev(`window.__net.sockets.length`) as number;
-      let t0 = Date.now(); await reenterWorld(page,me); const wait1 = Math.round((Date.now() - t0) / 1000);
-      const fresh = await page.ev(`window.__net.urls.slice(${sockets0}).every(u=>!u.includes('resume=1'))`);
-      expect(fresh).toBe(true);
+      await drop(page);
+      await until(page,`window.__net.urls.slice(${sockets0}).some(u=>u.includes('resume=1'))`,30000);
+      const wait1 = await back(from);
+      await screenshot(page,'resilience-resume-rejected');
+      const rejectedUrls = await page.ev(`window.__net.urls.slice(${sockets0}).map(u=>u.includes('resume=1')?'resume':'fresh').join(',')`) as string;
+      await page.ev(`window.__net.rewrite=null`);
       await chat(page,`fresh-after-reject ${RUN}`);
       await until(page,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length===1`,20000);
-      // Expired: every retry is refused until the client's 40-second resume window ends.
+      // Expired: every resume connection is refused until the client's 40-second resume window ends.
       await page.ev(`window.__net.rewrite=u=>u.includes('resume=1')?u.replace(/\\/\\/[^/]+\\//,'//127.0.0.1:1/'):u`);
+      from = await page.ev(`window.__net.statuses.length`) as number;
       const t = Date.now(); await drop(page);
-      await until(page,`['error','offline'].includes(${CONN})`,70000);
+      const wait2 = await back(from);
       const window_ = Math.round((Date.now() - t) / 1000);
-      await until(page,`${byText('Go Online')}`,30000);
-      const expired = await page.ev(`[...document.querySelectorAll('[role=alert]')].map(a=>a.textContent).join(' | ')`) as string;
       const retries = await page.ev(`window.__net.urls.filter(u=>u.includes('127.0.0.1:1/')).length`) as number;
+      expect(retries).toBeGreaterThan(0);
       await page.ev(`window.__net.rewrite=null`);
-      t0 = Date.now(); await reenterWorld(page,me); const wait2 = Math.round((Date.now() - t0) / 1000);
       await chat(page,`fresh-after-expiry ${RUN}`);
       await until(page,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-expiry ${RUN}')).length===1`,20000);
       const stale = await page.ev(`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].filter(l=>l.textContent.includes('fresh-after-reject ${RUN}')).length`) as number;
-      record('reconnect.expired',{ actions:'Drop the tunnel and answer its resume with an unknown tunnel id; Go Online again and chat. Drop it again and refuse every resume connection; Go Online again and chat',
-        expected:'A rejected or expired resume clears stale channels and offers a working new connection',
-        observed:`rejected: "${rejected}" on the ${rejectedScene} screen with Go Online, a fresh (non-resume) connection re-entered as ${me} in ${wait1} s (the server's 45 s hold of the old tunnel waited out) and chatted once; expired after ${window_} s and ${retries} refused retries: "${expired}", Go Online re-entered in ${wait2} s and chatted once; old chat lines shown ${stale} times after the new session` });
+      expect(stale).toBeLessThanOrEqual(1);
+      const scene = await page.ev(`document.querySelector('.de-client').dataset.scene`);
+      expect(scene).toBe('lobby');
+      record('reconnect.expired',{ actions:'Drop the tunnel and answer its resume with an unknown tunnel id; chat. Drop it again and refuse every resume connection; chat',
+        expected:'A rejected or expired resume clears stale channels and reconnects on a working new connection (live: lobby retry, Go Online only after 15 failures)',
+        observed:`rejected: connections ${rejectedUrls}, back in the lobby as ${me} on a fresh connection ${wait1} s after the retry began, chatted once; expired: ${retries} refused resume connections, back on a fresh connection after ${window_} s (${wait2} s of retry), chatted once; old chat lines shown ${stale} time(s)` });
     } finally { closeAll(); }
   },600000);
-
   it('reloads during the lobby, shop, deck editor and duel and re-enters without stale state',async () => {
     try {
       const page = await openPage(); await online(page,`TestRl${RUN}`);
