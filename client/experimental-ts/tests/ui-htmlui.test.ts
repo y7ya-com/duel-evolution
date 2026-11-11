@@ -45,9 +45,12 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
       comments: ['hello', null] as [string, null], drafts: { playerId: '', comment: '', title: '' }, loading: false, pending: null, status: '', error: null };
     const t = context(view({ scene: 'lobby', profileDetail, lobby: { name: 'A · B', avatars: [], connected: true, channels: [], chat: [] } }));
     const win = t.windows().find(s => s.win.cls === 'CWindowModelProfile')!.win;
-    const value = (name: string) => win.controls[win.controls.findIndex(c => c.text === name && c.name.startsWith('name')) + 0]?.name.replace('name', 'value');
-    expect(win.controls.find(c => c.name === value('Win%'))?.text).toBe('75.00%');
-    expect(win.controls.find(c => c.name === value('Miles'))?.text).toBe('5000');
+    // main's control names (social.js profileLevel: the LV row's value is where the rank goes), its value 16 below
+    const item = (name: string) => win.controls.find(c => c.text === name && c.name === 'プロフィールウィンドウの項目名')!;
+    const value = (name: string) => win.controls.find(c => c.name === 'プロフィールウィンドウの項目の数値' && c.y === item(name).y + 16)?.text;
+    expect(value('Win%')).toBe('75.00%');
+    expect(value('Miles')).toBe('5000');
+    expect(value('LV')).toBe('4');
     t.ctx.ui.comment = ['hello', 'Duelist']; t.find('comment-ok')!.click!();
     expect(t.sent).toEqual([{ type: 'profileAction', action: { type: 'editDraft', field: 'title', value: 'Duelist' } }, { type: 'profileAction', action: { type: 'saveComment', line: 1 } }]);
   });
@@ -63,6 +66,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const card = wins.find(s => s.win.cls === 'CPlayerListMenu')!.win;
     expect(card.controls.filter(c => c.cls === 'CWindowTaskTextSwitch' && c.shown).map(c => c.label)).toEqual(['Send Duel Request', 'Send Friend Request']);
     expect(card.controls.some(c => c.cls === 'CWindowTaskText' && String(c.text).includes('LV03  Ann Lee'))).toBe(true);
+    expect(card.pid).toBe(9);   // main's lobby.js cardRank asks GET /api/de/rank?pid= for it
     t.find('card-friend')!.click!(); expect(acted).toEqual(['friend']);
     expect(wins.some(s => s.win.cls === 'CWindowModelProfile')).toBe(false);
   });
