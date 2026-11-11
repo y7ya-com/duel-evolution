@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cursorSprites } from '../src/ui/htmlui/cursor';
+import { cursorSprites, busyFrame, RIPPLE_MS } from '../src/ui/htmlui/cursor';
 import { cursorCss, ripple } from '@htmlui/cursor.js';
 import { readFileSync } from 'node:fs';
 
@@ -15,8 +15,11 @@ describe('the HD game cursor (main cursor.js, as live draws it)', () => {
     expect(s.sprites.map(p => ({ tex: p.tex, src: p.src, wz: p.wz, mode: p.mode }))).toEqual(live.map((p: { tex: string; src: number[]; wz: number; mode: number }) => ({ tex: p.tex, src: p.src, wz: p.wz, mode: p.mode })));
   });
   it('points over a control and turns while busy', () => {
-    expect(shown(cursorSprites('hover', 10, 10, 0))[1]![0]).toBe('mausuk_n02_c01.png');
-    const frames = new Set([0, 90, 170, 250, 340].map(t => shown(cursorSprites('busy', 10, 10, t))[1]![0]));
+    // the original's pointing hand (a02): n02_c02 at rest, n02_c01 held; the plain hand held is n01_c02 (a01_c02)
+    expect(shown(cursorSprites('hover', 10, 10, 0))[1]![0]).toBe('mausuk_n02_c02.png');
+    expect(shown(cursorSprites('hover', 10, 10, 0, [], true))[1]![0]).toBe('mausuk_n02_c01.png');
+    expect(shown(cursorSprites('normal', 10, 10, 0, [], true))[1]![0]).toBe('mausuk_n01_c02.png');
+    const frames = new Set([0, 140, 280, 420, 560].map(t => shown(cursorSprites('busy', 10, 10, t))[1]![0]));
     expect(frames.size).toBeGreaterThan(3);
     expect([...frames].every(f => /^mausuk_t0[1-8]_c01\.png$/.test(String(f)))).toBe(true);
   });
@@ -32,5 +35,13 @@ describe('the HD game cursor (main cursor.js, as live draws it)', () => {
     const g = globalThis as { Image?: unknown };
     const had = g.Image; g.Image = class { onload: (() => void) | null = null; src = ''; };
     try { expect(cursorCss(at, '/ui/', 1, 1)).toBeNull(); } finally { g.Image = had; }
+  });
+});
+
+describe('the hand\'s timing is the original swfs\' (mausuk_a07_c01: 32 frames at 30 fps; mausuk_ae1_c01: 15 frames)', () => {
+  it('each busy image is held 4 frames (133 ms), the turn takes 32 frames; the ripple lasts 500 ms', () => {
+    expect([0, 133, 134, 266, 267, 1066, 1067].map(busyFrame)).toEqual([1, 1, 2, 2, 3, 8, 1]);
+    expect(RIPPLE_MS).toBe(500);
+    expect(cursorSprites('normal', 0, 0, 450, [{ x: 0, y: 0, at: 0 }]).sprites.some(s => s.tex.endsWith('mausuk_e01_c01.png'))).toBe(true);
   });
 });
