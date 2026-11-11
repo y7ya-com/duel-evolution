@@ -20,7 +20,7 @@ export class DuelSpeedButton {
 
   /** Show or hide it (the duel scenes); its first showing builds it. */
   show(on: boolean): void {
-    if (this.disposed || typeof document === 'undefined') return;
+    if (this.disposed || typeof document === 'undefined' || typeof document.head?.append !== 'function') return;
     this.shown = on;
     if (on && !this.btn) { this.loading ??= this.make().catch(e => console.warn('duelspeed:', e)); void this.loading.then(this.place); }
     else this.place();
@@ -72,8 +72,8 @@ export class DuelSpeedButton {
   };
   dispose(): void {
     this.disposed = true; this.btn?.remove(); this.btn = null;
-    if (typeof removeEventListener === 'function') removeEventListener('resize', this.place);
-    globalThis.document?.removeEventListener('fullscreenchange', this.place);
+    globalThis.removeEventListener?.('resize', this.place);
+    globalThis.document?.removeEventListener?.('fullscreenchange', this.place);
   }
 }
 export { DUEL_SPEEDS };
