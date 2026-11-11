@@ -37,7 +37,8 @@ const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBa
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
-const DUEL_DIALOGS = new Set(duel.classes);
+// result.js (pass mode on main) replaces its Next plate on each look too: Return to Lobby is clicked on release
+const DUEL_DIALOGS = new Set([...duel.classes, ...result.classes]);
 const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
@@ -101,8 +102,11 @@ export class HtmlUiLayer {
       // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
       // over everything the engine draws. A page arrow (screens/avatar.js) redraws its picture on each look: the
       // picture never takes the pointer, so the press and the release both land on the arrow's own button
+      // the NPC's balloon (the rewrite's own: its talk and the reward after a duel) is spoken over main's result boards
+      // main's pack picker (screens/packselect.js) runs in pass mode on main (its window box pointer-events: none, the
+      // engine hit-tests): owned here, its OK and its rows take the pointer on their own elements
       // main's starter picker (web-shell/starter.js, z 10) stands over main's windows (bridge.js's host, z 4): here too
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } body .de-npc-panel { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .yo2ps-ok, .yo2ps-row) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);

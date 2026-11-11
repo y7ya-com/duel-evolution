@@ -421,6 +421,8 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))||Boolean(${htmlRow})`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
     await sleep(800);
   }
+  // main's result boards stay up under the NPC's reward talk: their Next plate (Return to Lobby) leaves them
+  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) { await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); }
   return { pack, received, dialog };
 }
 /** Earn tradeable (not soul-bound) cards: lose an NPC duel by passing every turn (a surrender earns no reward pack)
