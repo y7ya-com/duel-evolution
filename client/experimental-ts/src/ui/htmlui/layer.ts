@@ -160,6 +160,7 @@ export class HtmlUiLayer {
     this.host.addEventListener('keyup', this.onKey, true);
     this.host.addEventListener('focusout', this.onBlur, true);
     this.host.addEventListener('click', this.onClick);
+    this.host.addEventListener('wheel', this.onWheel, { passive: false });
     addEventListener('resize', this.place); addEventListener('scroll', this.place, true);
     if (typeof ResizeObserver === 'function') { this.observer = new ResizeObserver(this.place); const s = options.stage(); if (s) this.observer.observe(s); }
   }
@@ -320,6 +321,23 @@ export class HtmlUiLayer {
     }
     if (!id || !this.handlers.get(id)?.click || !this.looks(id)) return;
     void this.api.click(id);
+  };
+
+  // The wheel over a list's rows (My Profile's planes, a list drawn as text): the engine's hit test gave it to the
+  // control under the pointer that takes the wheel; main draws those rows as text the pointer passes through, so it
+  // lands on the window. A native scroller or a screen's own wheel (the deck trunk) keeps it.
+  private onWheel = (e: WheelEvent): void => {
+    if (e.defaultPrevented || !e.deltaY) return;
+    for (let el = e.target instanceof Element ? e.target : null; el && el !== this.host; el = el.parentElement)
+      if (el instanceof HTMLElement && el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return;
+    const r = this.host.getBoundingClientRect(), x = (e.clientX - r.left) / this.scale, y = (e.clientY - r.top) / this.scale;
+    for (const spec of [...this.specs].reverse()) {
+      const w = spec.win;
+      if (!w.shown || x < w.x || y < w.y || x >= w.x + w.w || y >= w.y + w.h) continue;
+      const c = [...w.controls].reverse().find(c => c.shown && spec.handlers.get(c.id)?.wheel && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
+      if (c) { e.preventDefault(); this.api.wheel(c.id, e.deltaY); }
+      break;
+    }
   };
 
   /** main's module, owned, with what the rewrite adds after each update: data-key / aria-label on the elements that
