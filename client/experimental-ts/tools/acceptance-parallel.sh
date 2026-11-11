@@ -11,6 +11,8 @@ jobs=3
 [ "$1" = "-j" ] && { jobs=$2; shift 2; }
 logs=${ACCEPTANCE_LOGS:-$HOME/.cache/de-scratch/acceptance}
 mkdir -p "$logs"
+# the stack answers (a health check through sign-in and the client) before any file: a restarted stack is not warm yet
+node tools/stack-ready.mjs || exit 1
 free() { awk '/MemAvailable/{a=$2}/MemTotal/{t=$2}END{print int(a*100/t)}' /proc/meminfo; }
 one() {
   local file=$1 log="$logs/$(basename "$1" .test.ts).log" start=$SECONDS
