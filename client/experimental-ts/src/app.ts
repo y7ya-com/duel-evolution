@@ -575,7 +575,9 @@ export class ClientApp implements ClientController {
   private loadWorldRuntime(map:WorldMap,position:WorldPosition): void {
     const runtime=this.worldRuntime;if(!runtime)return;const epoch=this.epoch;
     this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;const ended=this.options.sceneLoads?.begin(`world:${map.id}`);if(ended)void load.then(ended,ended);
-    void load.catch(error=>{if(this.worldRuntime===runtime && epoch===this.epoch)this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
+    // its art unreachable is the world view's own failure to say (Map artwork could not be loaded, Retry Map), never a
+    // bare "Failed to fetch" dialog over the lobby; anything else is the app's
+    void load.catch(error=>{if(this.worldRuntime!==runtime || epoch!==this.epoch)return;if(/Failed to fetch|NetworkError|Load failed/.test(String((error as Error)?.message))){console.warn('world runtime:',error);return;}this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
   }
   private async enterWorldExit(exit:ExitTrigger): Promise<void> {
     if(this.worldTransition || !this.game || this.game.state.phase!=='lobby')return;

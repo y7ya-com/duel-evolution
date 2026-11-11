@@ -260,7 +260,7 @@ export function record(flow:string,observation:{ actions:string; expected:string
   const state = expect.getState(), test = `${(state.testPath ?? '').replace(/^.*?(tests\/acceptance\/)/,'$1')} > ${state.currentTestName ?? ''}`;
   appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),test,...observation }) + '\n');
 }
-function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
+function dirtyTree():boolean { try { return execSync(`git status --porcelain -- . ':(exclude)public'`,{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
 /** Screenshots go to ACCEPTANCE_SHOTS (default /tmp/acceptance). */
 const SHOTS = process.env.ACCEPTANCE_SHOTS ?? '/tmp/acceptance';
 export async function screenshot(page:Page,name:string) { mkdirSync(SHOTS,{ recursive:true }); writeFileSync(`${SHOTS}/${name}.png`,await page.shot()); }

@@ -259,7 +259,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const leaveCardShop = () => { if (state.busy) { leaveShop = true; requestRender(); } else open('lobby'); };
   const cardShop = cardShopHost(globalThis.document, leaveCardShop, e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
   // main's Wardrobe and Missions buttons on the menu bar and the trade's Cosmetics panel (htmlui/page-modules.ts), online
-  const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
+  const pageMods = pageModules({ online: () => !!state.player && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && htmlUiState.dialog?.kind !== 'avatar',
     trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
   // main's card shop talks HTTP itself (bridge.js mounts it on onYo2ShopOpen): it opens before the cosmetics state has

@@ -11,5 +11,3 @@ public/avatar-data.json
 public/npc-data.json
 public/deck-recipes.json
 acceptance-evidence/runs.jsonl
-# a worktree's public is a link to the main checkout's generated dev data (tools/dev-assets.mjs): never tracked
-/public
