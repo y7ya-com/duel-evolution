@@ -66,7 +66,7 @@ web shell (`client/web-shell/stage.js`, `loader.js`, `starter.js` with `client/h
    Once preparation starts, the old instance stays unavailable for new gameplay until the new instance takes over.
 
    The token is the Worker secret `DEPLOY_TOKEN` (`wrangler secret put DEPLOY_TOKEN --env production`, 32+ chars). It
-   opens only /__admin/{online,announce,maintenance,prepare-restart,shutdown,version}.
+   opens only /__admin/{online,announce,maintenance,prepare-restart,shutdown,version,reset-dormant,ai-rules}.
    predeploy.py takes `PREDEPLOY_PORT` / `PARITY_CTL_PORT` when another run holds 8798 / 6999, and must print
    "pre-deploy check passed" (don't pipe it without `set -o pipefail`).
    A deploy restarts the WorldDO, which drops the open game connections. The state is safe: every save is written
@@ -153,3 +153,27 @@ Every path the old Worker (`ygo-original`, with its container) answered, and wha
 | `/recomp`, `/recomp/*` (301 to the root) | ported |
 | `/__bundle`, `/__state`, `/__log`, `/__restart` | dropped by design: the container's bundle, state backup, log and restart |
 | `/__upload/*` (multipart R2 upload, UPLOAD_SECRET) | dropped: files are uploaded with wrangler |
+
+## NPC card rules without a deploy
+
+How the NPCs play individual cards (when to activate, chain, summon, what to answer) is data: `src/duel/ai/rules.json`,
+in the format described at the top of `src/duel/ai/ruleExpr.ts`, with a live overlay on top that an admin pushes
+while the server runs. The next NPC duel plays by a pushed version (duels already running keep theirs); there is no
+restart and nobody is disconnected. Each version is a row of D1 `npc_ai_rules`, and every archived NPC duel records
+the version it played by (`duel_archive.ai_rules`).
+
+```bash
+set -a; . ~/.config/duel-evolution/deploy.env; set +a       # DEPLOY_TOKEN
+scripts/ai-rules.sh pull my-rules.json                     # the live overlay, to edit ({} = rules.json alone)
+NPC_LAB_DECKS=<players.json> scripts/ai-rules.sh lab my-rules.json   # win rates per NPC, without and with it
+scripts/ai-rules.sh replay my-rules.json 7                 # the last 7 days' production NPC duels: what it changes
+scripts/ai-rules.sh push my-rules.json "Ring of Destruction only on a 2000+ attack"
+scripts/ai-rules.sh show                                    # the version played and the history
+scripts/ai-rules.sh revert 3                                # an older version again
+```
+
+A push is checked in full against the `rules.json` the server runs; anything it does not know (a field, a name, an
+operator, a wrong type) is refused with where it is, and nothing changes. Logic beyond per-card rules (combat
+scoring, lethal counting, the chain bookkeeping) is still code: those changes deploy as usual. When an overlay has
+proved itself, fold it into `rules.json` with the next deploy and push `{}`.
+

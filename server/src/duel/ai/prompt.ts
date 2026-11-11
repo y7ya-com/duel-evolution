@@ -24,7 +24,7 @@ export type Prompt =
   | { kind: "selectIdleCmd"; player: number; summonable: CardRef[]; spSummonable: CardRef[]; repositionable: CardRef[]; monsterSet: CardRef[]; spellSet: CardRef[]; activatable: Activatable[]; canBattlePhase: boolean; canEndPhase: boolean }
   | { kind: "selectBattleCmd"; player: number; activatable: Activatable[]; attackable: (CardRef & { directAttackable: boolean })[]; canMain2: boolean; canEndPhase: boolean }
   | { kind: "selectEffectYN"; player: number; card: CardRef; description: string }
-  | { kind: "selectYesNo"; player: number; description: string }
+  | { kind: "selectYesNo"; player: number; description: string; text: string }
   | { kind: "selectOption"; player: number; options: unknown[] }
   | { kind: "selectCard"; player: number; min: number; max: number; cards: CardRef[] }
   | { kind: "selectUnselectCard"; player: number; finishable: boolean; min: number; max: number; selectable: CardRef[]; unselectable: CardRef[] }
@@ -71,7 +71,7 @@ export function toPrompt(sel: Json, me: number, spy = false): Prompt {
         attackable: arr(sel.attacks).map((c) => ({ ...r(c), directAttackable: !!c.can_direct })), canMain2: !!sel.to_m2, canEndPhase: !!sel.to_ep,
       };
     case "SELECT_EFFECTYN": return { kind: "selectEffectYN", player, card: r(sel), description: String(sel.description ?? 0) };
-    case "SELECT_YESNO": return { kind: "selectYesNo", player, description: String(sel.description ?? 0) };
+    case "SELECT_YESNO": return { kind: "selectYesNo", player, description: String(sel.description ?? 0), text: String(sel.desc_text ?? "") };
     case "SELECT_OPTION": return { kind: "selectOption", player, options: Array.isArray(sel.options) ? sel.options : [] };
     case "SELECT_CARD": return { kind: "selectCard", player, min: num(sel.min), max: num(sel.max), cards: arr(sel.selects).map(r) };
     case "SELECT_UNSELECT_CARD":

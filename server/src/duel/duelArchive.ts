@@ -19,6 +19,8 @@ export interface DuelArchiveEntry {
   a: ArchiveSide; b: ArchiveSide | null;
   /** NPC duels: the NPC challenged, and the recipe it played (they differ under npcRules famous_decks), the AI. */
   rival: number | null; npc: number | null; tier: string | null; aiRev: number | null;
+  /** NPC duels: the version of the card rules' live overlay it played by (npc_ai_rules.id, 0 = rules.json alone). */
+  aiRules: number | null;
   game: number;
   /** Player a's result; abandon = the duel never ended (a closed connection, a new duel over it). */
   result: "win" | "lose" | "draw" | "abandon";
@@ -58,9 +60,9 @@ export async function recordDuel(db: D1Database, bucket: R2Bucket | undefined, e
     file = replayKey(e);
     await bucket.put(file, await gzip(e.yrpx), { httpMetadata: { contentType: "application/octet-stream", contentEncoding: "gzip" } });
   }
-  await db.prepare(`INSERT INTO duel_archive (at, kind, a_acct, a_slot, a_name, b_acct, b_slot, b_name, rival, npc, tier, ai_rev, game, result, reason,
-    turns, secs, first, lp_a, lp_b, decisions, file, file_bytes, commands) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(Math.floor(e.at), e.kind, e.a.acct, e.a.slot, e.a.name, e.b?.acct ?? null, e.b?.slot ?? null, e.b?.name ?? null, e.rival, e.npc, e.tier, e.aiRev,
+  await db.prepare(`INSERT INTO duel_archive (at, kind, a_acct, a_slot, a_name, b_acct, b_slot, b_name, rival, npc, tier, ai_rev, ai_rules, game, result, reason,
+    turns, secs, first, lp_a, lp_b, decisions, file, file_bytes, commands) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(Math.floor(e.at), e.kind, e.a.acct, e.a.slot, e.a.name, e.b?.acct ?? null, e.b?.slot ?? null, e.b?.name ?? null, e.rival, e.npc, e.tier, e.aiRev, e.aiRules ?? null,
       e.game, e.result, e.reason, e.turns, e.secs, e.first, e.lp?.[0] ?? null, e.lp?.[1] ?? null, e.decisions, file, file ? e.yrpx!.length : null,
       e.commands ? await packCommands(e.commands) : null).run();
 }

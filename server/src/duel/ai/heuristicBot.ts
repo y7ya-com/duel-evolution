@@ -19,8 +19,9 @@
 //     stays a uniformly random pick (#removalValue).
 //   - search: the elite tier scores its real decisions with replay-fork rollouts (simSearch.ts).
 //   - blunder: the easy tier sometimes plays a random legal line instead of the heuristic's.
-import { type CardRule, type RuleCtx, type RuleMon, rulesFor, tagRule } from "./cardRules.ts";
-import { H_EQUIP, TAGS_NO_BOOST, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_TRAP } from "../brain/cards.ts";
+import { type CardRule, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
+import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
+import { H_EQUIP, TAGS_NO_BOOST, TYPE_CONTINUOUS, TYPE_EQUIP, TYPE_FIELD, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_TRAP } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 import {
@@ -43,6 +44,12 @@ const MAX_IDLE_ACTIONS = 24; // hard safety cap on plays per turn (prevents path
 const THREAT_BACKROW = /mirror force|sakuretsu armor|torrential tribute|ring of destruction|bottomless trap hole|magic cylinder|solemn judgment|mirror wall|spellbinding circle|draining shield|negate attack|waboku|crush card virus|book of moon/;
 /** Backrow removal worth firing BEFORE committing monsters when a known threat is set. */
 const BACKROW_POPPER = /mystical space typhoon|dust tornado|heavy storm|harpie's feather duster/;
+/** An opponent's link that clears our whole backrow (untargeted): its set cards are lost anyway, so used if they can be.
+ *  Judgment Dragon's text has no tag for it. */
+const CLEARS_BACKROW = /^(judgment dragon|heavy storm|harpie's feather duster|lightsworn barrier)$/;
+/** A spell / trap that stays on the field once resolved: destroying it while it is still a chain link takes its effect
+ *  away. Any other (a normal or quick-play spell, a normal or counter trap) leaves the field as it resolves. */
+const LASTING = TYPE_CONTINUOUS | TYPE_EQUIP | TYPE_FIELD;
 
 /** What the player needs to know about cards: base stats, the cards.cdb name, and a flip-risk prior. */
 export interface CardInfo {
@@ -58,6 +65,8 @@ export interface CardInfo {
 export interface BotOpts {
   /** The NPC id: its own rules (NPC_RULES) and combo plan (COMBO_PLANS). */
   npcId?: number;
+  /** The card rules (ruleSet.ts): the active set when absent. */
+  rules?: RuleSet;
   /** Spy vision: boards come from `peek` (the full duel state) instead of the select's honest `view`. */
   spy?: boolean;
   /** The duel's full state (duelcore `query`), for spy vision. */
@@ -115,10 +124,16 @@ export class HeuristicBot {
    *  Panther Warrior's tribute), that monster is not declared again this turn: it looped to the decision cap. */
   #attackSeen = true;
   #deadAttackers = new Set<number>();
-  /** The opponent's attack of this Battle Phase (their monster's zone), until the phase changes. */
-  #attack: { sequence: number; direct: boolean } | null = null;
+  /** The opponent's attack of this Battle Phase (their monster's zone; ours it targets), until the phase changes. */
+  #attack: { sequence: number; direct: boolean; target: number | null } | null = null;
   /** Who activated the chain's last link (null outside a chain). */
   #chainTop: number | null = null;
+  /** The chain's links so far (cleared at its end). */
+  #links: { code: number; controller: number; location: number; sequence: number }[] = [];
+  /** Our cards the opponent's links will take: `${location}:${sequence}` of each they target; all our backrow when one
+   *  clears it (CLEARS_BACKROW). */
+  #doomed = new Set<string>();
+  #doomAll = false;
   /** The engine's hint for this seat's next card pick (HINT type 3: 518 = equip...). */
   #hint = 0;
   /** The card this seat activated last (what a following target pick belongs to). */
@@ -140,7 +155,7 @@ export class HeuristicBot {
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
     this.#cards = cards;
-    this.#rules = rulesFor(opts.npcId);
+    this.#rules = rulesOf(opts.rules ?? activeRules(), opts.npcId);
     this.#combo = opts.npcId !== undefined ? COMBO_PLANS[opts.npcId] : undefined;
     this.#vision = !!opts.spy && !!opts.peek;
     this.#peek = opts.peek;
@@ -154,12 +169,22 @@ export class HeuristicBot {
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
     switch (ev.type) {
-      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; break;
-      case "CHAINING": this.#chainTop = Number(ev.controller); break;
+      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#doomed.clear(); this.#doomAll = false; break;
+      case "CHAINING": {
+        this.#chainTop = Number(ev.controller);
+        this.#links.push({ code: Number(ev.code), controller: Number(ev.controller), location: Number(ev.location), sequence: Number(ev.sequence) });
+        if (this.#chainTop !== this.seat && CLEARS_BACKROW.test(this.#nameOf(Number(ev.code)))) this.#doomAll = true;
+        break;
+      }
+      case "BECOME_TARGET":
+        if (this.#chainTop !== null && this.#chainTop !== this.seat) {
+          for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (Number(c.controller) === this.seat) this.#doomed.add(`${Number(c.location)}:${Number(c.sequence)}`);
+        }
+        break;
       case "NEW_PHASE": case "NEW_TURN": this.#attack = null; break;
       case "ATTACK": {
-        const a = ev.card as Json | undefined;
-        if (a && Number(a.controller) !== this.seat) this.#attack = { sequence: Number(a.sequence), direct: !ev.target };
+        const a = ev.card as Json | undefined, t = ev.target as Json | null | undefined;
+        if (a && Number(a.controller) !== this.seat) this.#attack = { sequence: Number(a.sequence), direct: !t, target: t && Number(t.controller) === this.seat ? Number(t.sequence) : null };
         else this.#attackSeen = true;
         break;
       }
@@ -199,6 +224,9 @@ export class HeuristicBot {
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attack = from.#attack;
     this.#chainTop = from.#chainTop;
+    this.#links = [...from.#links];
+    this.#doomed = new Set(from.#doomed);
+    this.#doomAll = from.#doomAll;
     this.#hint = from.#hint;
     this.#lastActivated = from.#lastActivated;
   }
@@ -234,6 +262,20 @@ export class HeuristicBot {
       const c = ev.chains[index];
       if (c) { this.#chainedThisWindow.add(`${c.code}:${c.description}`); this.#activated(c.code); }
     }
+  }
+
+  /** Spell / trap zone `sequence` of `controller` holds a link of the chain that leaves the field as it resolves:
+   *  destroying it does nothing (an opponent's resolving Mystical Space Typhoon is not backrow worth a card). */
+  #spent(controller: number, sequence: number): boolean {
+    return this.#links.some((l) => l.controller === controller && (l.location & LOCATION.SZONE) !== 0 && l.sequence === sequence
+      && ((this.#cards.brain.get(l.code)?.type ?? 0) & LASTING) === 0);
+  }
+
+  /** A set card of ours the opponent's chain is about to take (and not one whose effect would leave with it). */
+  #isDoomed(c: CardRef): boolean {
+    if (c.controller !== this.seat || (c.location & LOCATION.SZONE) === 0) return false;
+    if (((this.#cards.brain.get(c.code)?.type ?? 0) & LASTING) !== 0) return false;
+    return this.#doomAll || this.#doomed.has(`${c.location}:${c.sequence}`);
   }
 
   /** Bookkeeping for a card this seat activates: what a following target pick belongs to. */
@@ -333,6 +375,8 @@ export class HeuristicBot {
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     const rule = this.#ruleFor(code);
     if (rule?.idleActivate && !rule.idleActivate(ctx)) return -Infinity;
+    // a Field Spell already face-up on our field: a second copy only replaces it (production: Luminous Spark over Luminous Spark)
+    if (((this.#cards.brain.get(code)?.type ?? 0) & TYPE_FIELD) && this.#me()?.szone.some((c) => c && c.code === code && !isFaceDown(c.position))) return -Infinity;
     return rule?.idlePriority ?? 0;
   }
 
@@ -341,10 +385,11 @@ export class HeuristicBot {
     const me = this.#me(), opp = this.#opp();
     const myMon = this.#monstersOf(me), oppMon = this.#monstersOf(opp);
     const toRule = (o: OppMon): RuleMon => ({ atk: o.atk, def: o.def, faceDown: o.faceDown, attackPos: o.attackPos });
-    const backrow = (p: PlayerBoard | null): number => (p ? p.szone.filter(Boolean).length : 0);
+    const backrow = (p: PlayerBoard | null): number => (p ? p.szone.filter((c, i) => c && !this.#spent(p === me ? this.seat : 1 - this.seat, i)).length : 0);
     const graveMaxAtk = (p: PlayerBoard | null): number => (p ? p.grave.reduce((m, c) => Math.max(m, this.#stat(c).atk), 0) : 0);
     const attacker = this.#attack && this.#turnPlayer !== this.seat ? opp?.mzone[this.#attack.sequence] : null;
     const attackAtk = attacker && !isFaceDown(attacker.position) ? Math.max(1, attacker.attack ?? 0) : 0;
+    const guard = attackAtk > 0 && this.#attack!.target !== null ? me?.mzone[this.#attack!.target] : null;
     return {
       myLp: me?.lp ?? 8000, oppLp: opp?.lp ?? 8000,
       myMon: myMon.map(toRule), oppMon: oppMon.map(toRule),
@@ -352,12 +397,14 @@ export class HeuristicBot {
       myBackrow: backrow(me), oppBackrow: backrow(opp),
       myGraveMaxAtk: graveMaxAtk(me), oppGraveMaxAtk: graveMaxAtk(opp),
       oppHand: opp?.hand.length ?? 0,
+      myNames: me ? me.mzone.flatMap((c) => (c && c.code && !isFaceDown(c.position) ? [this.#nameOf(c.code)] : [])) : [],
       myHand: me?.hand.length ?? 0,
       myHandTributes: me ? me.hand.filter((c) => { const k = this.#cards.brain.get(c); return !!k && k.tributes() > 0; }).length : 0,
       myRemoved: me ? me.removed.filter((c) => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0).length : 0,
       myTurn: this.#turnPlayer === this.seat,
       oppEndPhase: this.#turnPlayer !== this.seat && this.#board?.phase === PHASE.END,
       attackAtk, attackLethal: attackAtk > 0 && attackAtk >= (me?.lp ?? 8000) && (this.#attack!.direct || myMon.length === 0),
+      attackOnDefense: !!guard && (guard.position & POS.DEFENSE) !== 0,
       oppChained: this.#chainTop !== null && this.#chainTop !== this.seat,
     };
   }
@@ -368,7 +415,8 @@ export class HeuristicBot {
   decide(ev: Prompt, sel?: Json): Json | null {
     if (ev.kind === "selectIdleCmd" && this.#hasForcedComboAction(ev)) return this.respond(ev);
     if (this.#blunder > 0 && ev.kind === "selectIdleCmd" && this.#rng() < this.#blunder) {
-      const cands = this.#candidates(ev);
+      // a random line among the plays, never "end the turn" (production: an easy NPC skipped two turns holding six traps)
+      const cands = this.#candidates(ev)?.filter((c) => c.resp.action !== "TO_EP");
       if (cands && cands.length > 1) {
         this.#pendingAttacker = null;
         const c = cands[Math.floor(this.#rng() * cands.length)]!;
@@ -527,17 +575,24 @@ export class HeuristicBot {
       case "selectPosition": return respPosition(this.#position(ev.code, ev.positions));
       case "selectPlace": return respPlaces(ev.isDisfield, this.#selectPlace(ev));
       case "selectEffectYN": return this.#effectYN(ev);
-      case "selectYesNo": return this.#battleYesNo(ev.description);
-      case "selectOption": return respOption(0);
+      case "selectYesNo": return this.#battleYesNo(ev.description, ev.text);
+      case "selectOption": return this.#selectOption(ev);
       case "selectCounter": return this.#selectCounter(ev);
       case "announceRace": return { type: "ANNOUNCE_RACE", races: lowestBits(ev.available, ev.count) };
       case "announceAttrib": return { type: "ANNOUNCE_ATTRIB", attributes: lowestBits(ev.available, ev.count) };
-      case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: 0 };
+      case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#ctx(), ev.options.map(Number)) ?? 0 };
       case "sortCard": return respSort();
       case "selectSum": return solveSum(ev);
       case "announceCard": return solveAnnounceCard(ev.opcodes, this.#cards.brain);
       default: return null; // rock-paper-scissors and the rest: the engine decides
     }
+  }
+
+  /** A card's options (each its string: code << 20 | n): its rule picks, else the first. */
+  #selectOption(ev: P<"selectOption">): Json {
+    const code = Math.floor(Number(ev.options[0] ?? 0) / 0x100000);
+    const pick = code > 0 ? this.#ruleFor(code)?.option?.(this.#ctx()) : undefined;
+    return respOption(pick !== undefined && pick >= 0 && pick < ev.options.length ? pick : 0);
   }
 
   #selectCounter(ev: P<"selectCounter">): Json {
@@ -866,9 +921,20 @@ export class HeuristicBot {
       for (const t of targets) bodyBest = Math.max(bodyBest, this.#attackScore(base, atk, t));
       if (bodyBest > bestScore) { bestScore = bodyBest; bestIdx = index; bestAtk = atk; }
     }
+    // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
+    if (bestIdx < 0 && !ev.canMain2 && !ev.canEndPhase) {
+      let worst = -Infinity;
+      ev.attackable.forEach((a, index) => {
+        if (this.#deadAttackers.has(a.sequence)) return;
+        const atk = me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
+        const targets: (EvalMon | null)[] = (a.directAttackable || base.oppMon.length === 0) ? [null] : base.oppMon;
+        for (const t of targets) { const v = this.#attackScore(base, atk, t); if (v > worst) { worst = v; bestIdx = index; bestAtk = atk; } }
+      });
+    }
     if (bestIdx >= 0) { this.#declaredAttacker = ev.attackable[bestIdx]!; this.#attackSeen = false; this.#pendingAttacker = bestAtk; return respBattle("SELECT_BATTLE", bestIdx); }
     if (ev.canMain2) return respBattle("TO_M2");
-    return respBattle("TO_EP");
+    if (ev.canEndPhase || !ev.activatable.length) return respBattle("TO_EP");
+    return respBattle("SELECT_CHAIN", 0);
   }
 
   /** Back at the battle command with the last declared attack never declared by the engine: that monster is out. */
@@ -878,12 +944,14 @@ export class HeuristicBot {
   }
 
   // ---- chains / responses -----------------------------------------------------------------------------------------
-  #battleYesNo(description: string): Json {
+  #battleYesNo(description: string, text = ""): Json {
     if (description !== "30" && description !== "31") {
-      // A card's own question (its string: code << 20 | n), an upkeep cost say: its rule answers, else no.
+      // A card's own question (its string: code << 20 | n), an upkeep cost say: its rule answers; else yes to a free
+      // Special Summon from the Deck or hand (Nimble Momonga, Giant Germ: production answered no), no to the rest.
       const code = Math.floor(Number(description) / 0x100000);
       const rule = code > 0 ? this.#ruleFor(code) : undefined;
-      return respYesNo(!!rule?.yesNo?.(this.#ctx()));
+      if (rule?.yesNo) return respYesNo(rule.yesNo(this.#ctx()));
+      return respYesNo(/^Special Summon\b.*\bfrom your (Deck|hand)\?$/i.test(text));
     }
     const card = this.#declaredAttacker;
     const live = card ? this.#snap(card) : null;
@@ -899,6 +967,16 @@ export class HeuristicBot {
   #chain(ev: P<"selectChain">): Json {
     if (ev.chains.length === 0) return respChain(null);
     if (ev.forced) return respChain(0);
+    // A set card the opponent's chain is taking: used now if it does anything (production: Scapegoat, Raigeki Break,
+    // Ring of Destruction and Compulsory Evacuation Device destroyed unused).
+    const doomedIdx = ev.chains.findIndex((c) => this.#isDoomed(c) && !this.#chainedThisWindow.has(`${c.code}:${c.description}`)
+      && (this.#ruleFor(c.code)?.doomed?.(this.#ctx()) ?? true));
+    if (doomedIdx >= 0) {
+      const c = ev.chains[doomedIdx]!;
+      this.#chainedThisWindow.add(`${c.code}:${c.description}`);
+      this.#activated(c.code);
+      return respChain(doomedIdx);
+    }
     // Set traps / quick effects on the OPPONENT's turn (removal and negation timing), one answer per chain (a second
     // trap on the same attack is a card wasted). On our own turn only a negation of the opponent's link: no
     // optional self-chains that would interrupt our own plays.
@@ -1032,6 +1110,7 @@ export class HeuristicBot {
     // Our own hand / deck / Extra Deck: the card for what it is (their position reads face-down: all were 1500, so
     // a discard or a search took the first one listed).
     if (c.controller === this.seat && c.code && (c.location & (LOCATION.HAND | LOCATION.DECK | LOCATION.EXTRA)) !== 0) return this.#worth(c.code);
+    if ((c.location & LOCATION.SZONE) !== 0 && this.#spent(c.controller, c.sequence)) return -1;
     const live = this.#liveAtk(c);
     if (live !== undefined) return live;
     // Face-down on the FIELD: spy vision reads it off the (unmasked) board.

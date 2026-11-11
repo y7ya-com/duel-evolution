@@ -695,7 +695,7 @@ export class PvpMatch {
       const reason = why === DFM.WHY_SURRENDER ? 0 : why === DFM.WHY_TIMEOUT ? 3 : 4;
       const side = (k: number) => ({ acct: this.sess[k].acct, slot: this.sess[k].slot, name: this.sess[k].name || null });
       const yrpx = ps.takeReplay([this.sess[0].name || "Player", this.sess[1].name || "Player"], winner, reason);
-      sink({ at: now(), kind: "pvp", a: side(0), b: side(1), rival: null, npc: null, tier: null, aiRev: null, game: this.gameNo,
+      sink({ at: now(), kind: "pvp", a: side(0), b: side(1), rival: null, npc: null, tier: null, aiRev: null, aiRules: null, game: this.gameNo,
         result: resultOf(winner), reason: why, turns: turns || ps.turn, secs: Math.round(now() - this.t0), first: this.firsts.at(-1) ?? 0,
         lp: ps.lastLp ? [ps.lastLp[0]!, ps.lastLp[1]!] : null, decisions: null, yrpx, commands: null });
     } catch (e) { this.log(`[pvp] ${this.name}: archivo del duelo: ${errStr(e)}`); }

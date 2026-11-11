@@ -363,7 +363,8 @@ export class OcgSession {
       const yrpx = this.dc?.eng.local?.takeReplay(this.id, { names, at, winner, reason: why }) ?? null;
       const { record: _, ...opts } = r.opts as typeof r.opts & { record?: boolean };
       sink({ at, kind: "npc", a: { acct: s?.acct ?? this.g.ctxAcct() ?? "?", slot: s?.slot ?? null, name: s?.name || null }, b: null,
-        rival: this.rival, npc: this.npcId, tier: r.tier, aiRev: NPC_AI_REV, game: 1, result, reason: String(reason ?? ""),
+        rival: this.rival, npc: this.npcId, tier: r.tier, aiRev: NPC_AI_REV,
+        aiRules: this.brain instanceof NpcAi ? this.brain.rules.version : null, game: 1, result, reason: String(reason ?? ""),
         turns: turns || this.turn, secs: Math.round(now() - r.t0), first: Number(r.opts.first ?? 0), lp: this.lp, decisions: this.npcDecisions,
         yrpx, commands: { v: 1, decks: r.decks, opts, cmds: r.cmds } });
     } catch (e) { this.log(`[ocg] duelo ${this.id}: archivo del duelo: ${errStr(e)}`); }

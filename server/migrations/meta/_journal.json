@@ -64,6 +64,13 @@
       "when": 1794391029809,
       "tag": "0008_duel_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794403343026,
+      "tag": "0009_npc_ai_rules",
+      "breakpoints": true
     }
   ]
 }

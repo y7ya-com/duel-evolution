@@ -14,6 +14,7 @@ export const duelArchive = sqliteTable("duel_archive", {
   npc: integer("npc"),                         // NPC: the recipe it played (npcRules famous_decks: the rival's current level)
   tier: text("tier"),                          // NPC: easy | hard | elite (duel/ai), py for the parity brain
   aiRev: integer("ai_rev"),                    // NPC: duel/ai NPC_AI_REV, which AI played
+  aiRules: integer("ai_rules"),                // NPC: the card rules' live overlay it played by (npc_ai_rules.id; 0 = rules.json alone)
   game: integer("game").notNull(),             // the game of a PvP match (1..3); 1 otherwise
   result: text("result").notNull(),            // player a's: win | lose | draw | abandon
   reason: text("reason"),                      // the engine's end reason, or surrender | timeout | loop | error | abandon
@@ -28,3 +29,13 @@ export const duelArchive = sqliteTable("duel_archive", {
   commands: text("commands"),
 }, (t) => [index("duel_archive_at_idx").on(t.at), index("duel_archive_a_idx").on(t.aAcct, t.at), index("duel_archive_b_idx").on(t.bAcct, t.at),
   index("duel_archive_npc_idx").on(t.npc, t.at)]);
+
+/** The NPC card rules' live overlay (duel/ai/ruleSet.ts), one row per version pushed (POST /__admin/ai-rules): the
+ *  newest is the one played; a revert pushes an older one again as a new row. */
+export const npcAiRules = sqliteTable("npc_ai_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),   // the version (duel_archive.ai_rules)
+  at: integer("at").notNull(),                 // unix seconds
+  by: text("by").notNull(),                    // who pushed it: the admin's user id, or "deploy" (the deploy token)
+  note: text("note"),
+  overlay: text("overlay").notNull(),          // the overlay's JSON ({} = rules.json alone)
+});

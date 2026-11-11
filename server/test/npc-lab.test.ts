@@ -15,6 +15,11 @@
 //   npx wrangler d1 execute duel-evolution-prod --env production --remote --json \
 //     --command "select * from duel_archive where kind = 'npc' and at > unixepoch() - 7*86400" > rows.json
 //   NPC_LAB_REPLAY=rows.json NPC_LAB_TRACE=<dir> npx vitest run test/npc-lab.test.ts
+// NPC_LAB_RULES=<overlay.json>: the NPC plays by rules.json with this card-rule overlay on top (src/duel/ai/ruleSet.ts,
+// what POST /__admin/ai-rules would make live; scripts/ai-rules.sh lab); the player's pilot does not.
+// NPC_LAB_ASK=ai_base,ai (dirs under src/duel, each with an optional :tier and @overlay.json): at every NPC decision those
+// AIs (rebuilt as production built the NPC: its seed, its tier unless one is given) are asked too, and the trace shows each answer that differs from the recorded one. The AI that
+// played the duel answers as it did (a check of the replay); a newer one shows what it would do there.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -60,20 +65,30 @@ function describe1(dc: DuelCore, sel: Json, r: Json | null, me = 1): string {
   else if (sel.type === "SELECT_CARD" || sel.type === "SELECT_TRIBUTE") what = `${sel.type} ${sel.min}-${sel.max} of [${arr(sel.selects).map((c) => `${Number(c.controller) === me ? "" : "opp "}${name(c.code)}`).join(", ")}]`;
   else if (sel.type === "SELECT_EFFECTYN") what = `EFFECT? ${name(sel.code)}`;
   else if (sel.type === "SELECT_POSITION") what = `POSITION ${name(sel.code)}`;
+  else if (sel.type === "SELECT_YESNO") what = `YESNO "${sel.desc_text ?? sel.description}"`;
+  else if (sel.type === "SELECT_OPTION") what = `OPTION [${arr(sel.options).map((o) => `"${(o as Json).desc_text ?? JSON.stringify(o)}"`).join(", ")}]`;
+  else if (sel.type === "ANNOUNCE_NUMBER") what = `NUMBER [${arr(sel.options).map((o) => (typeof o === "object" ? JSON.stringify(o) : o)).join(", ")}]`;
   const answer = r === null ? "(engine)" : JSON.stringify(r).replace(/"type":"[A-Z_]+",?/, "");
   return `    ${tag} LP ${lp} | hand: ${hand} | field: ${field(players[me])} | back: ${back(players[me])} || opp field: ${field(players[opp])} | opp back: ${back(players[opp])} (hand ${players[opp]?.hand_count ?? "?"})\n`
     + `    ${tag} ${what} -> ${answer}`;
 }
 
 let seq = 0;
-function duel(dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcId: number, player: { main: number[]; extra: number[] }, first: 0 | 1, seed: number, trace: string[] | null): Outcome {
+/** An AI module's rule set for an overlay file (scripts/ai-rules.sh's format: the overlay, or { overlay }). */
+function rulesFrom(mod: AiModule, file: string | undefined): Ai.RuleSet | undefined {
+  if (!file) return undefined;
+  const j = JSON.parse(readFileSync(file, "utf8"));
+  return mod.buildRules(j && typeof j === "object" && "overlay" in j ? j.overlay : j, -1);
+}
+
+function duel(dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcId: number, player: { main: number[]; extra: number[] }, first: 0 | 1, seed: number, trace: string[] | null, rules?: Ai.RuleSet): Outcome {
   const nd = npcDeck(npcId)!;
   const decks = [{ main: toCodes(player.main), extra: toCodes(player.extra ?? []) }, { main: toCodes(nd.main), extra: toCodes(nd.extra) }];
   const opts: NewOptions = { first, seed, shuffle: true, rule: PY_DUEL_RULE, brain: [true, true], auto_chain: true };
   const id = `lab-${++seq}`;
   const log: Ai.LoggedCmd[] = [];
   const tier = npcMod.tierFor(npcId, NPC_PROFILES);
-  const npc = new npcMod.NpcAi({ npcId, seat: 1, seed, cards: npcMod.cardInfo(dc.cardDB, brainDb()), tier, link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id) });
+  const npc = new npcMod.NpcAi({ npcId, seat: 1, seed, cards: npcMod.cardInfo(dc.cardDB, brainDb()), tier, link: () => ({ dc, decks, opts, log }), peek: () => dc.query(id), rules });
   // The player's pilot: the hard tier (no blunders, no lookahead) with no NPC plan, on the player's own deck.
   const pilot = new pilotMod.NpcAi({ npcId: 0, seat: 0, seed: seed + 1, cards: pilotMod.cardInfo(dc.cardDB, brainDb()), tier: "hard" });
   const text = trace ? new DuelLog(["Player", "NPC"], { name: (c) => (dc.cardDB.get(c) ? dc.cardDB.name(c) : ""), stats: (c) => ({ atk: dc.cardDB.get(c)?.attack ?? 0, def: dc.cardDB.get(c)?.defense ?? 0 }) }) : null;
@@ -115,11 +130,12 @@ function duel(dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcId: number,
 }
 
 describe.skipIf(!haveData || !N)("NPC lab", () => {
-  let dc: DuelCore, npcMod: AiModule, pilotMod: AiModule;
+  let dc: DuelCore, npcMod: AiModule, pilotMod: AiModule, npcRules: Ai.RuleSet | undefined;
   beforeAll(async () => {
     dc = await createNodeDuelCore();
     const load = (dir: string): Promise<AiModule> => import(/* @vite-ignore */ join(ENGINE_DATA_DIR, "..", "..", "src", "duel", dir, "index.ts"));
     npcMod = await load(process.env.NPC_LAB_AI ?? "ai");
+    npcRules = rulesFrom(npcMod, process.env.NPC_LAB_RULES);
     pilotMod = await load(process.env.NPC_LAB_PILOT ?? "ai");
   }, 60_000);
 
@@ -135,7 +151,7 @@ describe.skipIf(!haveData || !N)("NPC lab", () => {
       for (let g = 0; g < N; g++) {
         const trace: string[] | null = TRACE ? [] : null;
         const deck = players[(npcId * 7 + g) % players.length]!;
-        const r = duel(dc, npcMod, pilotMod, npcId, deck, (g % 2) as 0 | 1, 5000 * npcId + g, trace);
+        const r = duel(dc, npcMod, pilotMod, npcId, deck, (g % 2) as 0 | 1, 5000 * npcId + g, trace, npcRules);
         if (r.winner === "npc") npc++; else if (r.winner === "player") player++; else other++;
         if (r.winner === "stall" || r.winner === "error") total.bad++;
         illegal += r.illegal; turns += r.turns; ms += r.ms; dec += r.decisions; lpDiff += r.lp[1] - r.lp[0];
@@ -150,7 +166,7 @@ describe.skipIf(!haveData || !N)("NPC lab", () => {
       console.log(row);
     }
     const tiers = Object.entries(byTier).map(([t, [w, n]]) => `${t} ${((100 * w) / n).toFixed(1)}% (${w}/${n})`).join(", ");
-    console.log(`\nNPC lab (${N} duels per NPC, AI ${process.env.NPC_LAB_AI ?? "ai"}, pilot ${process.env.NPC_LAB_PILOT ?? "ai"}): NPC wins ${total.npc}/${total.duels} = ${((100 * total.npc) / total.duels).toFixed(1)}% | ${tiers}\n${rows.join("\n")}`);
+    console.log(`\nNPC lab (${N} duels per NPC, AI ${process.env.NPC_LAB_AI ?? "ai"}${process.env.NPC_LAB_RULES ? ` + ${process.env.NPC_LAB_RULES}` : ""}, pilot ${process.env.NPC_LAB_PILOT ?? "ai"}): NPC wins ${total.npc}/${total.duels} = ${((100 * total.npc) / total.duels).toFixed(1)}% | ${tiers}\n${rows.join("\n")}`);
     expect({ bad: total.bad, illegal: total.illegal }).toEqual({ bad: 0, illegal: 0 });
   }, 7_200_000);
 });
@@ -160,7 +176,17 @@ interface LogRow { id: number; at: number; a_name: string | null; rival: number 
 
 describe.skipIf(!haveEngine || !REPLAY || !existsSync(REPLAY))("NPC lab: recorded duels", () => {
   let dc: DuelCore;
-  beforeAll(async () => { dc = await createNodeDuelCore(); }, 60_000);
+  const askDirs = (process.env.NPC_LAB_ASK ?? "").split(",").filter(Boolean);
+  const askMods: AiModule[] = [];
+  const askRules: (Ai.RuleSet | undefined)[] = [];
+  beforeAll(async () => {
+    dc = await createNodeDuelCore();
+    for (const ask of askDirs) {
+      const m: AiModule = await import(/* @vite-ignore */ join(ENGINE_DATA_DIR, "..", "..", "src", "duel", ask.split(/[:@]/)[0]!, "index.ts"));
+      askMods.push(m);
+      askRules.push(rulesFrom(m, ask.split("@")[1]));
+    }
+  }, 60_000);
 
   it("duel_archive rows replay to the end they recorded", async () => {
     const json = JSON.parse(readFileSync(REPLAY, "utf8"));
@@ -168,6 +194,7 @@ describe.skipIf(!haveEngine || !REPLAY || !existsSync(REPLAY))("NPC lab: recorde
     if (TRACE) mkdirSync(TRACE, { recursive: true });
     let drift = 0;
     const tally: Record<string, [number, number]> = {};
+    const askTally: Record<string, [number, number]> = {};   // per asked AI: NPC decisions it answered differently, of all
     for (const row of rows) {
       const t = (tally[`npc ${row.npc} ${row.tier} rev ${row.ai_rev}`] ??= [0, 0]);
       t[1]++; if (row.result === "lose" || row.result === "abandon") t[0]++;
@@ -177,8 +204,12 @@ describe.skipIf(!haveEngine || !REPLAY || !existsSync(REPLAY))("NPC lab: recorde
       const text = new DuelLog([row.a_name || "Player", NPC_PROFILES[String(row.rival ?? row.npc)]?.nombre as string ?? "NPC"],
         { name: (c) => (dc.cardDB.get(c) ? dc.cardDB.name(c) : ""), stats: (c) => ({ atk: dc.cardDB.get(c)?.attack ?? 0, def: dc.cardDB.get(c)?.defense ?? 0 }) });
       const trace: string[] = [];
+      const asked: Ai.LoggedCmd[] = [];
+      const asks = askMods.map((m, k) => new m.NpcAi({ npcId: row.npc, seat: 1, seed: Number(r.opts.seed), cards: m.cardInfo(dc.cardDB, brainDb()), tier: (askDirs[k]!.split("@")[0]!.split(":")[1] ?? row.tier ?? m.tierFor(row.npc, NPC_PROFILES)) as Ai.Tier, rules: askRules[k],
+        link: () => ({ dc, decks: r.decks, opts: r.opts, log: asked }), peek: () => dc.query(id) }));
       let evs = dc.new(id, r.decks, { ...r.opts, brain: [true, true] });
       for (let i = 0; ; i++) {
+        for (const e of evs) if (e.ev === "msg") for (const a of asks) a.observe(e);
         for (const l of text.feed(evs)) trace.push(l);
         const last = evs[evs.length - 1]!;
         const c = r.cmds[i];
@@ -192,12 +223,28 @@ describe.skipIf(!haveEngine || !REPLAY || !existsSync(REPLAY))("NPC lab: recorde
           if (!ended) dc.end(id);
           break;
         }
-        if (last.ev === "select" && !last.retry && !(last.type === "SELECT_PLACE") && !(last.type === "SELECT_CHAIN" && !arr(last.selects).length)) trace.push(describe1(dc, last, c.r ?? null, Number(last.player)));
+        const shown = last.ev === "select" && !last.retry && !(last.type === "SELECT_PLACE") && !(last.type === "SELECT_CHAIN" && !arr(last.selects).length);
+        if (shown) trace.push(describe1(dc, last, c.r ?? null, Number(last.player)));
+        // as ocgSession.npcDecide asks it: not on a retry, not on a chain window with nothing to chain
+        if (last.ev === "select" && !last.retry && Number(last.player) === 1 && !(last.type === "SELECT_CHAIN" && !last.selects && !last.forced)) {
+          const was = JSON.stringify(c.r ?? null);
+          asks.forEach((a, k) => {
+            const now = JSON.stringify(a.choose(last) ?? null);
+            const label = askDirs[k]!.replace(/@.*\//, "@");   // an overlay by its file name
+            const tally = (askTally[label] ??= [0, 0]);
+            tally[1]++;
+            if (now === was) return;
+            tally[0]++;
+            if (shown) trace.push(`    ${label}> ${now.replace(/"type":"[A-Z_]+",?/, "")}`);
+          });
+        }
+        asked.push(c);
         evs = c.r ? dc.respond(id, c.r, c.p) : dc.auto(id);
       }
       if (TRACE) writeFileSync(join(TRACE, `log${row.id}-npc${row.npc}-${row.result}.txt`), `Duel ${row.id}: ${row.a_name} vs NPC ${row.rival} (recipe ${row.npc}, ${row.tier}, AI rev ${row.ai_rev}), ${new Date(row.at * 1000).toISOString()}\n${trace.join("\n")}\n`);
     }
-    console.log(`\nNPC duels recorded: ${rows.length}\n${Object.entries(tally).sort().map(([k, [w, n]]) => `${k}: NPC won ${w}/${n}`).join("\n")}`);
+    console.log(`\nNPC duels recorded: ${rows.length}\n${Object.entries(tally).sort().map(([k, [w, n]]) => `${k}: NPC won ${w}/${n}`).join("\n")}`
+      + Object.entries(askTally).map(([k, [d, n]]) => `\nasked ${k}: ${d} of ${n} NPC decisions differ from the recorded ones`).join(""));
     expect(drift).toBe(0);
   }, 3_600_000);
 });

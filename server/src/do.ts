@@ -10,6 +10,8 @@ import type { Env } from "./env.ts";
 import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
+import { aiRulesPost, aiRulesView, loadAiRules } from "./duel/aiRulesStore.ts";
+import { setActiveRules } from "./duel/ai/index.ts";
 import { starterClaim, starterInfo, walletInfo } from "./game/starter.ts";
 import { tagApi } from "./duel/tagRelay.ts";
 import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
@@ -82,6 +84,8 @@ export class WorldDO extends DurableObject<Env> {
         // bans, GM accounts, sanction flags, shop prices, start values (admin tables)
         Object.assign(this.srv.game.admin.data, await loadAdmin(db));
         this.srv.game.admin.sink = adminSink(db);
+        // the NPC card rules' live overlay (duel/aiRulesStore.ts): a failure leaves rules.json alone
+        try { setActiveRules(await loadAiRules(db)); } catch (e) { console.error(`[ai-rules] not loaded (${e}); rules.json alone`); }
         log(`[d1] state loaded: ${Object.keys(st.accounts ?? {}).length} accounts`);
       } catch (e) {
         // e.g. wrangler dev without `d1 migrations apply` (parity runs): run on memory only
@@ -133,6 +137,16 @@ export class WorldDO extends DurableObject<Env> {
         const days = Number((body as any)?.days ?? url.searchParams.get("days") ?? 7);
         if (!Number.isInteger(days) || days < 1 || days > 365) return Response.json({ error: "invalid-window" }, { status: 400 });
         return Response.json(await g.admin.tradeFunnel(this.env.DB, days));
+      }
+      if (url.pathname === "/__admin/ai-rules") {
+        // the NPC card rules' live overlay: GET the version played and the history; POST { overlay, note, dryRun } or
+        // { revert: <version> } (duel/aiRulesStore.ts). The next NPC duel plays by a pushed version.
+        if (!this.env.DB) return Response.json({ error: "no D1" }, { status: 503 });
+        if (request.method !== "POST") return Response.json(await aiRulesView(this.env.DB));
+        const by = request.headers.get("x-de-admin") ?? "dev";
+        const [st, r] = await aiRulesPost(this.env.DB, by, body as Record<string, unknown>);
+        if (st === 200 && !r.dryRun) console.warn(`[ai-rules] version ${r.version} by ${by}: ${(r.cards as string[]).length} cards changed${r.note ? ` (${r.note})` : ""}`);
+        return Response.json(r, { status: st });
       }
       if (url.pathname === "/__admin/deck") {
         if (!this.env.DB) return Response.json({ error: "no D1" }, { status: 503 });
