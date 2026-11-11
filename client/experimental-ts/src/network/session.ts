@@ -1,4 +1,6 @@
 import { avatarParts, defaultAvatar } from '../avatars/appearance';
+import { TM, TOURNAMENT_REQUESTS, decodeAutoDuel, decodeEventInfo, emptyTournament, isTournamentMessage, reduceTournament } from './tournament';
+import type { EventInfo, TournamentState } from './tournament';
 import { BinaryReader, BinaryWriter, latin1, md5, type WireMessage } from './codec';
 import { Channel, GatewayClient, type GatewayOptions, type GatewayStatus } from './gateway';
 
@@ -55,6 +57,8 @@ export interface SessionState {
   duelOffer: DuelOffer | null; challenge: DuelChallenge | null; outgoingChallengeRoom: number | null; spectating: boolean;
   /** A watched duel's two duelists, from its 0x6006 duel information (player 0 first). */
   watchNames?: [string, string] | null;
+  /** The admin's tournament (0x51xx, network/tournament.ts) and the event state (EVENTINFO 0x5000), once the server sent them. */
+  tournament?: TournamentState | null; eventInfo?: EventInfo | null;
   matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
@@ -341,6 +345,8 @@ export class GameSession {
     return !query || query.account === channel && query.slot === this.state.selectedSlot && query.epoch === this.rightsEpoch;
   }
   async refreshNpcs(): Promise<void> { if (this.joiningRoomKind === 12) { this.state.npcs = []; return; } await this.requireLobby().request(0x4230, EMPTY(), 0x4233); }
+  /** Asks the server for the tournament's state, entries and bracket (STATUS / REQENTRY also enter it while entry is open). */
+  requestTournament(ids: readonly number[] = TOURNAMENT_REQUESTS): void { const lobby = this.requireLobby(); for (const id of ids) lobby.send(id, EMPTY()); }
   async refreshRooms(): Promise<void> { await this.requireLobby().request(0x4280, EMPTY(), 0x4286); }
   move(x: number, y: number, direction = 0): void {
     if (![x, y].every((n) => Number.isInteger(n) && n >= 0 && n <= 65535) || !Number.isInteger(direction) || direction < 0 || direction > 255)
@@ -647,6 +653,13 @@ export class GameSession {
       // A duel is starting: an earlier challenge's refusal message is no longer current.
       this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.error = null;
       this.options.onDuelOffer?.(this.state.duelOffer);
+    } else if (channel === this.lobby && isTournamentMessage(id)) {
+      this.state.tournament = reduceTournament(this.state.tournament ?? emptyTournament(), id, data);
+    } else if (channel === this.lobby && id === TM.EVENTINFO && data.length >= 12) {
+      this.state.eventInfo = decodeEventInfo(data);
+    } else if (channel === this.lobby && id === 0x43a0 && data.length === 42 && this.state.tournament?.running && !this.pendingNpc && !this.pendingMatchmaking && this.state.matchmaking.status === 'idle') {
+      // a tournament pairing (AUTODUELSTART): the 0x4306 after it is the duel offer, the PvP flow
+      const o = decodeAutoDuel(data); this.state.tournament = { ...this.state.tournament, opponent: { pid: o.pid, name: o.name }, walkover: false };
     } else if (channel === this.lobby && id === 0x43a0 && data.length === 42) {
       if (this.pendingNpc || !this.pendingMatchmaking && !['searching','matched'].includes(this.state.matchmaking.status)) return;
       const r = new BinaryReader(data), pid = r.u32(), name = r.s(16), level = r.u8(), title = r.u16(); r.u16();
@@ -784,7 +797,7 @@ export class GameSession {
     this.gateway.dispose(); this.account = null; this.lobby = null; this.duel = null;
     this.state.pbin = undefined; this.state.npcbin = undefined;
     this.trunk.clear(); this.state.collection = new Map(); this.state.players = []; this.state.npcs = []; this.state.rooms = []; this.state.chat = []; this.state.characters = []; this.state.servers = []; this.state.areas = [];
-    this.pendingPosition = null; this.myRoomPosition = null; this.cachedWorld = null; this.state.returnArea = null; this.state.selectedSlot = null; this.state.profile = null; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.state.match = null; this.state.relay = null; this.state.duelRole = 'player'; this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null,counts:{single:0,match:0,either:0} };
+    this.pendingPosition = null; this.myRoomPosition = null; this.cachedWorld = null; this.state.returnArea = null; this.state.selectedSlot = null; this.state.profile = null; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.state.match = null; this.state.relay = null; this.state.duelRole = 'player'; this.state.tournament = null; this.state.eventInfo = null; this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null,counts:{single:0,match:0,either:0} };
     this.listPlayers = []; this.listNpcs = []; this.listRooms = []; this.state.phase = 'closed';
   }
 }
