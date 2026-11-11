@@ -10,6 +10,8 @@ import { encodeDuelResponse } from './duel/responses';
 import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
 import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
+import type { Preloader } from './features/preload';
+import type { SceneLoadEvents } from './ui/htmlui/scene-loading';
 import { readableError } from './shop/errors';
 import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
@@ -61,6 +63,10 @@ import { createNpcResultContext, npcResultLine, reduceNpcResultContext } from '.
 
 export interface AppOptions {
   gatewayUrl: string;
+  /** Idle prefetch of the next likely scenes and a starting duel's art (features/preload.ts). */
+  preloader?: Preloader;
+  /** Scene loads (the overlay and the dev timing log). */
+  sceneLoads?: SceneLoadEvents;
   portOffset?: number;
   freeMode?: boolean;
   api?: GameApi;
@@ -159,6 +165,7 @@ export class ClientApp implements ClientController {
   /** The last board action sent, so a Tribute choice after a summon reads as one (presentation.ts boardInstruction). */
   private lastDuelAction: import('./duel/types').DuelResponse | null = null;
   private collectionRef: ReadonlyMap<number, number> | null = null;
+  private limitsRef: ReadonlyMap<number, number> | null = null;
   private collection: CardView[] = [];
   private catalogCards: CardView[] | null = null;
   private projections = new Map<string, { source: unknown; result: unknown }>();
@@ -179,7 +186,7 @@ export class ClientApp implements ClientController {
     if (options.cardTexts) this.catalog.installOriginalTexts(options.cardTexts);
     if (options.assets) {
       this.scenes = new SceneLoader({assets:options.assets}); this.avatars = new AvatarLoader(options.assets);
-      this.loadWorldScene = (mapId,signal)=>this.scenes!.load(mapId,signal);
+      this.loadWorldScene = (mapId,signal)=>{const work=this.scenes!.load(mapId,signal),end=options.sceneLoads?.begin(`map:${mapId}`);if(end)void work.then(end,end);return work;};
       this.loadAvatar = (parts,options)=>this.avatars!.load(parts,options);
     }
     this.resetWorldRuntime();
@@ -279,7 +286,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return () => {};
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
+  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
     if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
@@ -332,10 +339,12 @@ export class ClientApp implements ClientController {
       const product = shop.items[i]!;
       if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param), known = card.name !== `Card ${product.param}`; return { ...item, name: (this.localized && card.name) || (known ? card.name : product.name || card.name), card, ...(card.description ? { description: card.description } : {}) }; }
       const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
+      if (product.kind === 1) item = { ...item, packId: product.param };
       if (!pack) return item;
       const imagePath = packImagePath(pack.image);
       return { ...item, name: (this.localized && pack.name) || product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
     });
+    this.options.preloader?.warmPaths(view.items.flatMap(item => item.imagePath ? [item.imagePath] : []));
     return view;
   }
   /** Original artwork by archive path, limited to the pack, duel and card-back folders the UI draws from.
@@ -388,10 +397,10 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null };
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined };
     return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
-      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null };
+      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null, sanctions: game.sanctions };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);
@@ -413,6 +422,11 @@ export class ClientApp implements ClientController {
       // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
       const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
       if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+    }
+    if ((state.limits ?? null) !== this.limitsRef) {
+      // the server's forbidden/limited list: the deck's marks, limits and checks follow it (CLimitationList)
+      this.limitsRef = state.limits ?? null; this.catalog.installLimits(this.limitsRef);
+      this.catalogCards = null; this.collectionRef = null; this.projections.clear();
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
@@ -463,7 +477,10 @@ export class ClientApp implements ClientController {
       this.sideboardRound = state.match.round;
     }
     if (!state.match || state.match.complete) { this.sideboard = null; this.sideboardRound = null; }
-    this.view = { ...this.view, connection, scene,
+    // live's window.yo2Net = {reconnecting, attempt} (ovr/lobbyretry.c), for the page and its tests
+    const net = state.net ?? { reconnecting:false, attempt:0, what:null };
+    try { (globalThis as { yo2Net?: unknown }).yo2Net = { reconnecting:net.reconnecting, attempt:net.attempt }; } catch { /* read-only global */ }
+    this.view = { ...this.view, connection, scene, net,
       characters: state.characters.map(c => ({ slot: c.slot, name: c.name, level: c.level, selected: c.slot === state.selectedSlot, parts: Array.from(c.avatarA) })),
       player: profile ? { id: profile.pid, name: selected?.name ?? this.view.auth?.name ?? 'Duelist', level: profile.level, mp: profile.mp } : null,
       lobby: profile ? {
@@ -537,7 +554,7 @@ export class ClientApp implements ClientController {
   }
   private loadWorldRuntime(map:WorldMap,position:WorldPosition): void {
     const runtime=this.worldRuntime;if(!runtime)return;const epoch=this.epoch;
-    this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;
+    this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;const ended=this.options.sceneLoads?.begin(`world:${map.id}`);if(ended)void load.then(ended,ended);
     void load.catch(error=>{if(this.worldRuntime===runtime && epoch===this.epoch)this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
   }
   private async enterWorldExit(exit:ExitTrigger): Promise<void> {
@@ -622,7 +639,7 @@ export class ClientApp implements ClientController {
     const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
     const parts = this.duelParts(), duel = { ...timed, cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
-    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
+    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path, cue.gain).catch(error=>this.failure(error));
     this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
@@ -840,6 +857,7 @@ export class ClientApp implements ClientController {
             this.stopWorld();
             const state=this.requireGame().state, special=npcOpeningPresent(npc.id);
             this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
+              ...(npc.id*4+2 < state.npcbin.length ? {record:[state.npcbin[npc.id*4]!,state.npcbin[npc.id*4+1]!,state.npcbin[npc.id*4+2]!] as const} : {}),
               ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
           } else this.profile.dispatch({type:'open',pid:command.playerId});
           break;
@@ -1001,9 +1019,13 @@ export class ClientApp implements ClientController {
         }
         case 'audioAction': {
           if (!this.options.audio) throw new Error('Audio is unavailable.');
+          if (command.action.type === 'export-pack') {
+            const a = command.action, name = (a.name || 'My audio pack').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+            this.download(await this.options.audio.exportPack({ name: a.name, author: a.author, description: a.description }), `${name}.zip`); break;
+          }
           // Dispatch starts synchronously to preserve browser gesture activation.
           await this.options.audio.dispatch(command.action);
-          if (command.action.type === 'set-volumes' || command.action.type === 'restore') {
+          if (command.action.type === 'set-volumes' || command.action.type === 'restore' || (command.action.type === 'apply-pack' && command.action.master !== undefined)) {
             const settings = {...this.view.settings,...this.options.audio.volumes}; this.options.persistSettings?.(settings); this.patch({settings});
             this.duelAudio.setMuted(settings.sound === 0);
           }

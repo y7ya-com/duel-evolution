@@ -7,13 +7,18 @@ import { cardBadges, BADGE_CSS } from './duel-counters';
 import { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
+import { giftItemName } from '../npcs/gift-names';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
 import { mountPhoneStage, holdToWalk, type PhoneStage, type HoldWalk } from './phone';
 import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
-import { audioWindow, optionsWindow, type OptionsDeps, type OptionsUi } from './htmlui/options';
+import { audioWindow, optionsWindow, type AudioUi, type OptionsDeps, type OptionsUi } from './htmlui/options';
+import { isAudioPackItem, readAudioPack } from '../features/audio-pack';
+import { AUDIO_FILE_LIMITS } from '../features/audio';
+const AUDIO_ACCEPT = 'audio/*,.mp3,.m4a,.aac,.wav,.flac,.aiff,.aif,.ogg,.opus';
+const AUDIO_PACK_ACCEPT = `.zip,application/zip,${AUDIO_ACCEPT},.json`;
 import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
 import { renderTradeTrunk } from './extra/social';
@@ -35,6 +40,7 @@ import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
+import { GameCursor } from './htmlui/cursor';
 import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
@@ -135,6 +141,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
   let startScene: StartScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
+  let gameCursor: GameCursor | null = null;
   let menuView: MenuView | null = null;
   // (after htmlUi: the first fit runs at once and re-places the layer)
   const phone: PhoneStage | null = typeof document !== 'undefined' && document.body && typeof matchMedia === 'function' ? mountPhoneStage({ host, stage, onFit: () => htmlUi?.relayout() }) : null;
@@ -302,8 +309,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     return packDone.get(id) ?? undefined;
   };
+  // what a pack holds (main's screens/pack-contents.js), over the layer: the NPC pack picker's Contents key
+  let packSheet: { close(): void } | null = null;
+  const openContents = (id: number, name: string): void => {
+    const layerHost = htmlUi?.host; if (!layerHost) return;
+    packSheet?.close();
+    void import('@htmlui/screens/pack-contents.js').then(m => { if (disposed) return; packSheet = m.openPackContents(layerHost, { id, name, onClose: () => { packSheet = null; } }); }).catch((e: unknown) => console.warn('htmlui: pack contents', e));
+  };
   const npcPackSpecs = (): WindowSpec[] => { if (!htmlUi || !['lobby', 'duel'].includes(state.scene)) return [];
-    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
+    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(), contents: openContents,
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
   // Tournaments (htmlui/tournament.ts): JoinGunsling from the Main Menu, the bracket while joined, the end result once;
@@ -327,7 +341,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       ...(a ? { audio: { music: a.music, sound: a.sound, activated: a.activated, slots: a.slots }, audioAction: (action: AudioAction) => send({ type: 'audioAction', action }) } : {}),
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
-    const out = [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
+    const out = [optionsUi.kind === 'audio' ? audioWindow(htmlIds, { ...deps, ui: audioUi, rerender: showHtml, pickPack: () => pickFiles(AUDIO_PACK_ACCEPT, openAudioPack),
+      pickSlotFiles: slot => pickFiles(AUDIO_ACCEPT, files => { audioUi.message = undefined; send({ type: 'audioAction', action: { type: 'set-slot-files', slot, files: files.slice(0, AUDIO_FILE_LIMITS.perSlot) } }); }) }) : optionsWindow(htmlIds, deps)];
     // a language that could not load (CSystemConfigManager::applyLanguage refused): main's error dialog over DUEL
     // OPTIONS; the previous language stays and < / > choose it again
     const refused = state.languageStatus?.error;
@@ -337,6 +352,30 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
+  // The Audio window's pack flow (live's audiopage.js): a pack picked or dropped anywhere on the game is read
+  // (features/audio-pack.ts) and reviewed in the Audio window; nothing changes until the player uses it.
+  const audioUi: AudioUi = { page: 0 };
+  let packDragOver: ((event: Event) => void) | null = null, packDropped: ((event: Event) => void) | null = null;
+  const pickFiles = (accept: string, done: (files: File[]) => void) => {
+    const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = accept;
+    input.onchange = () => { const files = [...(input.files ?? [])]; if (files.length) done(files); };
+    input.click();
+  };
+  const openAudioPack = (files: File[]) => {
+    audioUi.message = 'Reading the pack…'; audioUi.review = null; optionsUi = { kind: 'audio' }; showHtml();
+    void readAudioPack(files).then(plan => { audioUi.review = plan; audioUi.message = undefined; }, error => { audioUi.message = error instanceof Error ? error.message : String(error); })
+      .finally(() => { if (optionsUi?.kind === 'audio') showHtml(); });
+  };
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    const packDrop = (event: DragEvent) => [...(event.dataTransfer?.files ?? [])].some(file => /\.zip$/i.test(file.name) || /zip/.test(file.type));
+    packDragOver = event => { if (state.audio && htmlUi && packDrop(event as DragEvent)) event.preventDefault(); };
+    packDropped = event => {
+      const e = event as DragEvent;
+      if (!state.audio || !htmlUi || !state.player || !packDrop(e)) return;
+      e.preventDefault(); openAudioPack([...(e.dataTransfer?.files ?? [])].filter(file => isAudioPackItem(file.name, file.type)));
+    };
+    document.addEventListener('dragover', packDragOver); document.addEventListener('drop', packDropped);
+  }
   const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
@@ -357,7 +396,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
     // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over)
-    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
+    const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
+    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
@@ -437,6 +477,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const r = avatarNodes.get(a.id)!.getBoundingClientRect(); if (!r.width && !r.height) return [];
           return [{ pid: a.id, name: a.name, x: (r.left + r.width / 2 - box.left) / box.width * 1024, y: (r.top - box.top) / box.height * 768 }]; });
       } });
+      // live's HD game cursor (main's cursor.js) and its click ripple, the busy hand while the app waits
+      gameCursor?.dispose();
+      gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
       deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
@@ -1084,9 +1127,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));
       if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
-        const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, htmlPackSelect: !!htmlUi, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
+        const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, htmlPackSelect: !!htmlUi, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card), itemName: bit => giftItemName(bit) }));
       }
       // the message itself is main's error dialog (duelPrompts); the strip stays as the screen reader's live region only
+      if (state.net?.reconnecting || state.connection === 'reconnecting') {
+        const net = state.net, text = net?.what === 'duel' ? 'Connection lost. Returning to the duel' : 'Connection lost. Reconnecting';
+        const notice = el('div', 'de-net-notice', `${text}${net?.attempt ? ` (try ${net.attempt + 1})` : ''}…`); notice.setAttribute('role', 'status'); notice.dataset.key = 'net-reconnecting'; stage.append(notice);
+      }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
       // the same thing, then the rewrite's own scenes (Find Player, Shop), the way back to a duel or the lobby, and
@@ -1115,7 +1162,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           // Duel Log (CWindowModelDuellogTop): the character's duel history, its stats and the search
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
-          { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; showHtml(); } },
+          { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; audioUi.message = undefined; showHtml(); } },
           // Find a Player (CWindowModelFriendEnum): a player by name, and the friend and team invitations waiting
           ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
@@ -1181,5 +1228,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; if (packDragOver) globalThis.document?.removeEventListener?.('dragover', packDragOver); if (packDropped) globalThis.document?.removeEventListener?.('drop', packDropped); packDragOver = packDropped = null; packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

@@ -176,7 +176,9 @@ function items_(d: ShopDeps, out: Built, page: Exclude<ShopPage, 'menu'>, go: (p
   const pages = Math.max(1, Math.ceil(list.length / per)); ui.index = Math.max(0, Math.min(pages - 1, ui.index));
   const shown = list.slice(ui.index * per, ui.index * per + per);
   const cls = { cards: 'CShopCardWindow', packs: 'CShopPackWindow', avatar: 'CShopAvatarWindow' }[page];
-  const b = new WindowBuilder(d.ids, `shop-${page}`, cls, { x: 264, y: 0, w: 760, h: 600 }, { z: 1011, page: ui.index, maxPage: pages, mouse: null }), tree = new Tree(b, d.ids);
+  const b = new WindowBuilder(d.ids, `shop-${page}`, cls, { x: 264, y: 0, w: 760, h: 600 }, { z: 1011, page: ui.index, maxPage: pages, mouse: null,
+    // the packs' ids in the window's order (read/shop.js packs): main's screens/pack-contents.js hotspots open what a pack holds from its art
+    ...(page === 'packs' ? { packs: list.map(i => i.packId ?? null) } : {}) }), tree = new Tree(b, d.ids);
   tree.sprite('panel', PANEL, [0, 0, 512, 512], 280, 84, 1011);
   tree.sprite('intro', INTRO({ cards: 2, packs: 4, avatar: 3 }[page]), [0, 0, 256, 64], 270, 70, 1014);
   tree.sprite('band', BAND, [0, 0, 512, 128], 280, 3, 1012);

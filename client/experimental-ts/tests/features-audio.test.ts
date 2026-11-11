@@ -64,7 +64,7 @@ describe('scene music lifecycle', () => {
   });
   it('validates limits atomically and returns detached state', () => {
     const s = setup(), a = file(); s.manager.setSlotFiles(0, [a]);
-    expect(() => s.manager.setSlotFiles(0, Array(9).fill(a))).toThrow(); expect(() => s.manager.setSlotFiles(46, [])).toThrow();
+    expect(() => s.manager.setSlotFiles(0, Array(65).fill(a))).toThrow(); expect(() => s.manager.setSlotFiles(46, [])).toThrow();
     expect(() => s.manager.setVolumes({ music: .5, sound: NaN })).toThrow(); expect(s.manager.volumes.music).toBe(1);
     const state = s.manager.getState(); (state.slots[0].files as string[]).push('bad'); expect(s.manager.getState().slots[0].files).toEqual([a.name]); s.manager.dispose();
   });
