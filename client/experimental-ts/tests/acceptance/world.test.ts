@@ -43,7 +43,12 @@ describe.skipIf(!enabled)('world (PixiJS)',() => {
       const before = (await b.ev(world) as { avatars:{ name:string; x:number; y:number }[] }).avatars.find(v => v.name === names.a)!;
       const samples:{ x:number; y:number; walking:boolean }[] = [];
       const sampling = (async () => { for (let i = 0; i < 40; i++) { const s = (await b.ev(world) as { avatars:{ name:string; x:number; y:number; walking:boolean }[] }).avatars.find(v => v.name === names.a); if (s) samples.push(s); await sleep(100); } })();
+      // DOM writes in the world while walking (the HTML UI's own layer aside): the hit targets only, at most 10 a second
+      await a.ev(`(()=>{const v=document.querySelector('.de-world-view');window.__worldMutations=0;window.__worldObserver=new MutationObserver(l=>{window.__worldMutations+=l.length});window.__worldObserver.observe(v,{subtree:true,childList:true,attributes:true});})()`);
       const [rate] = await Promise.all([frameRate(a,3000),holdWalk(a,150,600,2500)]);
+      const mutations = await a.ev(`(()=>{window.__worldObserver.disconnect();return window.__worldMutations})()`) as number;
+      console.log('world DOM mutations in 3 s of walking',mutations);
+      expect(mutations).toBeLessThan(3 * 10 * 4);
       await sampling;
       const afterA = await a.ev(world) as { frames:{ fps:number; p95:number; worst:number } };
       await shot(a,'03-walked-a'); await shot(b,'04-walked-b');
