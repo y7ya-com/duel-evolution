@@ -112,7 +112,8 @@ async function relayTurns(pages:Page[],roles:Awaited<ReturnType<typeof relayRole
       if (shots && k === 2) await screenshot(pages[pilot]!,`${shots}-turn3-partner-pilot`);
       // Server prompts reach only the pilot: surrender before turn 10 is refused with an information box.
       if (shots && k === 1) {
-        await click(pages[pilot]!,'Surrender');
+        // the client asks first (main's YesNo "Surrender this duel?", surrender-yes), then the server answers
+        await click(pages[pilot]!,'Surrender'); await until(pages[pilot]!,byKey('surrender-yes'),20000); await press(pages[pilot]!,byKey('surrender-yes'));
         const box = `document.querySelector('.de-duel-notice')`;
         await until(pages[pilot]!,`${box}?.querySelector('button')`,30000);
         const said = (await pages[pilot]!.ev(`${box}.innerText.replace(/\\s+/g,' ')`) as string).slice(0,140);
@@ -210,7 +211,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       const turns = await relayTurns(pages,roles,10,'tag');
       // tag.end (surrender): the turn-10 pilot surrenders; both teams see the result; every seat is released.
       const loser = turns.pilot!, loserTeam = roles.team[loser]!;
-      await click(pages[loser]!,'Surrender');
+      await click(pages[loser]!,'Surrender'); await until(pages[loser]!,byKey('surrender-yes'),20000); await press(pages[loser]!,byKey('surrender-yes'));
       const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
       await until(pages[loser]!,yes,60000);
       const confirmOnly = await Promise.all(pages.map(p => p.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog]'))`) as Promise<boolean>));
