@@ -252,13 +252,14 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const allShown = await trunkShown(page);
       expect(allShown.some(n => !ownedByName.has(n))).toBe(true);
       const top = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-passcode]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
-      const wheelAt = await page.ev(`(()=>{const r=document.querySelector('[data-drop-zone="trunk"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
+      const wheelAt = await page.ev(`(()=>{const r=document.querySelector('[data-zone="trunk"][data-passcode]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as { x:number; y:number };
       for (let i = 0; i < 4; i++) await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',...wheelAt,deltaX:0,deltaY:120 });
       await sleep(500);
       const scrolled = await page.ev(`(()=>{const e=document.querySelector('[data-zone="trunk"][data-passcode]');return e?.dataset.index+':'+e?.getAttribute('aria-label');})()`) as string;
       expect(scrolled).not.toBe(top);
-      // the order: the Filters popup's Sort by (Name), sorted A to Z
-      await tap(page,'Filters');
+      // the order: the Filters popup's Sort by (Name), sorted A to Z (Filters says how many are on: "Filters, 1 on")
+      expect(await page.ev(`Boolean(${anyButton('Filters, 1 on')})`)).toBe(true);
+      await tap(page,'Filters, 1 on');
       const sortBy = `[...document.querySelectorAll('select')].find(s=>s.getAttribute('aria-label')==='Sort by'&&s.getClientRects().length)`;
       await until(page,sortBy,10000);
       await page.ev(`(()=>{const s=${sortBy};s.focus();s.value='name';s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(400);
