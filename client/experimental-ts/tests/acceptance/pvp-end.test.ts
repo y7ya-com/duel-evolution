@@ -128,7 +128,8 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await sleep(2000);
       const endSeen = await b.ev(`window.__duelEnd() ?? (document.querySelector('.de-duel-board') ? 'board still shown' : 'left the duel view')`) as string;
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Leave Duel')`)) await click(b,'Leave Duel');
-      if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`)) await click(b,'Return to Lobby');
+      // Leave Duel may already be taking the spectator back (its result screen's Return to Lobby goes with it)
+      if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`)) await click(b,'Return to Lobby').catch(e => { if (!/Control is gone/.test(String(e))) throw e; });
       await until(b,inLobby,60000);
       await until(b,lobbyShown,30000);
       await screenshot(b,'npc-spectator-left');
