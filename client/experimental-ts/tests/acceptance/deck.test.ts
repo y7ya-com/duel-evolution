@@ -13,7 +13,7 @@ const cardEl = (zone:string,which:number|string) => typeof which === 'number'
   : `(()=>{const all=[...document.querySelectorAll('[data-zone="${zone}"]')].filter(e=>e.getAttribute('aria-label')===${JSON.stringify(which)}&&e.getClientRects().length);
     /* the one a pointer reaches (main's trunk rows stand over the card art drawn under them) */
     return all.find(e=>{const r=e.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return h&&(h===e||e.contains(h));})??all[0];})()`;
-const trunkShown = (page:Page) => page.ev(`[...new Set([...document.querySelectorAll('[data-zone="trunk"]')].filter(e=>e.getClientRects().length).map(e=>e.getAttribute('aria-label')))]`) as Promise<string[]>;
+const trunkShown = (page:Page) => page.ev(`[...new Set([...document.querySelectorAll('[data-zone="trunk"][data-passcode]')].filter(e=>e.getClientRects().length).map(e=>e.getAttribute('aria-label')))]`) as Promise<string[]>;
 const labelled = (label:string) => `[...${host}.querySelectorAll('[aria-label],button,input')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)})&&e.getClientRects().length)`;
 const view = async (page:Page) => (await deckScreen(page))!;
 const settle = (page:Page,cond:string,ms = 10000) => until(page,cond,ms).then(() => sleep(300));
@@ -233,10 +233,14 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await search(page,'');
       const ownedShown = await trunkShown(page);
       expect(ownedShown.length).toBeGreaterThan(0);
-      for (const n of ownedShown) expect(ownedByName.has(n),n).toBe(true);
+      expect(ownedShown.filter(n => !ownedByName.has(n))).toEqual([]);
       await search(page,'Kuriboh');
       const kuriboh = await trunkShown(page);
-      expect(kuriboh.every(n => /kuriboh/i.test(n))).toBe(true);
+      // the rewrite's search also finds a card by its text (after every name match): each shown card names Kuriboh or says it
+      const said = await page.ev(`Object.fromEntries((window.__deApp.getState().deckEditor.collection??[]).map(c=>[c.name,c.description??'']))`) as Record<string,string>;
+      expect(kuriboh.filter(n => !/kuriboh/i.test(n) && !/kuriboh/i.test(said[n] ?? ''))).toEqual([]);
+      const firstText = kuriboh.findIndex(n => !/kuriboh/i.test(n));
+      if (firstText >= 0) expect(kuriboh.slice(firstText).filter(n => /kuriboh/i.test(n))).toEqual([]);
       await search(page,'');
       await tap(page,'Filters'); await tap(page,'Show All'); if (await page.ev(`Boolean(${anyButton('OK')})`)) await tap(page,'OK');
       await sleep(600);

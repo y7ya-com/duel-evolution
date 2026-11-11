@@ -303,8 +303,11 @@ export class HtmlUiLayer {
       // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
       const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
       const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
+      // a button main's screen moved (duelsetup.js: the Duel menu's Cancel under its Tag Duel row): the one button there
+      // with the control's words
+      const named = () => { const l = plain(String(c.label ?? '')), m = l && !input ? els.filter(e => e.el.tagName === 'BUTTON' && (plain(e.el.textContent ?? '') === l || plain(e.el.getAttribute('aria-label') ?? '') === l)) : []; return m.length === 1 ? m[0]!.el : undefined; };
       const at = tab ?? els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
-        e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el;
+        e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el ?? named();
       if (!at) continue;
       this.elementIds.set(at, c.id);
       // a pass-mode screen's button (tabIndex -1: the game had the keys) is a real one here: focusable, Enter / Space
