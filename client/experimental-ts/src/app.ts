@@ -46,7 +46,7 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
-import { chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
+import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
 import { SceneLoader } from './world/scene';
@@ -484,8 +484,8 @@ export class ClientApp implements ClientController {
     if (worldMap && self?.x !== undefined && self.y !== undefined && spawnContext !== this.worldSpawnContext) {
       this.worldSpawnContext = spawnContext;
       // A fresh server presence uses (0,0) until the client sends its initial move.
-      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
-        spawn = this.arrivalFrom?.to===state.area ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
+      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
+        spawn = this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
         this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
         queueMicrotask(()=> {
@@ -616,8 +616,11 @@ export class ClientApp implements ClientController {
       if(this.view.scene==='lobby'){this.patch({scene:'shop'});await this.refresh('shop');}
       return;
     }
-    const game=this.game,epoch=this.epoch,from=game.state.area;this.worldTransition=true;this.arrivalFrom={from,to:exit.destination};this.stopWorld();
-    try {await game.enterArea(exit.destination);this.assertEpoch(epoch);}
+    const game=this.game,epoch=this.epoch,from=game.state.area;this.worldTransition=true;this.stopWorld();
+    // My Room's door goes back out to the world area it was entered from, at that map's My Room arrivals (entries from 8)
+    const leaving=game.state.location==='my-room';
+    if(leaving){this.arrivalFrom=null;this.arrivalArea=-1;} else this.arrivalFrom={from,to:exit.destination};
+    try {if(leaving)await game.leaveMyRoom();else await game.enterArea(exit.destination);this.assertEpoch(epoch);}
     catch(error) {if(epoch===this.epoch){this.arrivalFrom=null;throw error;}}
     finally {if(epoch===this.epoch)this.worldTransition=false;}
   }
@@ -962,7 +965,7 @@ export class ClientApp implements ClientController {
           if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
           this.scheduleWorld(); break;
-        case 'myRoom': this.stopWorld();this.arrivalFrom=null;if(command.enter)await this.requireGame().enterMyRoom();else await this.requireGame().leaveMyRoom();break;
+        case 'myRoom': this.stopWorld();this.arrivalFrom=null;this.arrivalArea=command.enter?null:-1;if(command.enter)await this.requireGame().enterMyRoom();else await this.requireGame().leaveMyRoom();break;
         case 'moveArea': this.stopWorld();this.arrivalFrom=null;this.arrivalArea=command.area===8?null:command.area;await this.requireGame().enterArea(command.area);break;
         case 'chat': {
           if (!['global', 'trade', 'whisper', 'team'].includes(command.channel)) throw new Error('Unknown chat channel.');
