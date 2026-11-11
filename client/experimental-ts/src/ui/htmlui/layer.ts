@@ -19,6 +19,7 @@ import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
 import duel from '@htmlui/screens/duel.js';
 import packselect from '@htmlui/screens/packselect.js';
+import avatar from '@htmlui/screens/avatar.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
@@ -27,9 +28,9 @@ import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './sn
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
-const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel];
+const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel, avatar];
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts)
-const PASS = new Set<HtmlUiScreen>([]);
+const PASS = new Set<HtmlUiScreen>([avatar]);   // Change Avatar: its plates are drawn, the clicks hit-tested here
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js): clicked on release

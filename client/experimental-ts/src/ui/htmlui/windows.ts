@@ -5,6 +5,7 @@ import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelVie
 import type { ClientCommand, ClientView } from '../contracts';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
+import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
 import playerSelectLive from '@htmlui/mock/playerselect-live.json';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
@@ -25,6 +26,8 @@ export type HtmlDialog =
   | { kind: 'team'; name: string }
   /** A Yes / No question (the rewrite's confirmations: surrender, disconnect, a starter claim): main's YesNo. */
   | { kind: 'confirm'; text: string; yes: () => void; key?: string };
+  /** Change Avatar (htmlui/avatar.ts): first dressing after Create Player's name (`slot`, `name`), or from the game (slot null). */
+  | { kind: 'avatar'; slot: number | null; name?: string; look: number[]; category: number; page: number };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
@@ -64,6 +67,8 @@ export interface BuildContext {
   lobby?: { list(ctx: BuildContext): WindowSpec | null; windows(ctx: BuildContext): WindowSpec[] };
   /** The profile's buttons the rewrite adds (one's own: comment, title, appearance). */
   profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
+  /** Change Avatar from the game: the server's choices for the look and saving it (htmlui/avatar.ts). */
+  changeAvatar?: Omit<AvatarDeps, 'back'>;
   /** The deck editor's windows (deck-scene.ts), under the menu bar. */
   deckWindows?: () => WindowSpec[];
   /** A scene's own windows (the shop: htmlui/shop.ts; the trade: htmlui/trade.ts), under the chat and the menu bar. */
@@ -118,7 +123,8 @@ export function nameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind
   const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'create', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51203 });
   const cs = b.fromTemplate(t, true);
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
-  const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'createCharacter', slot: dialog.slot, name }); ctx.rerender(); };
+  // the original dresses the new character next (CHANGE_AVATAR's first dressing), then creates it
+  const ok = () => { const name = dialog.name.trim(); if (!name || ctx.state.busy) return; ctx.ui.dialog = { kind: 'avatar', slot: dialog.slot, name, look: starterLook(), category: 0, page: 0 }; ctx.rerender(); };
   const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
   // the mock is hand-made; the live game's prompt (main's create capture): its text centred at 0, 8, 336 wide, the
   // field 8, 56, 320 x 32
@@ -568,7 +574,8 @@ export function composeWindow(ctx: BuildContext, send: (toPid: number, subject: 
 export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const out: WindowSpec[] = [], { state, ui } = ctx;
   if (ui.dialog?.kind === 'deleting') deletionDone(ctx, ui.dialog);
-  const account = ['create', 'delete', 'delpw', 'deleting'].includes(ui.dialog?.kind ?? '') || ui.dialog?.kind === 'ok' && !!ui.dialog.at;
+  // (first dressing is its own scene, CHANGE_AVATAR: Select Player is gone under it)
+  const account = ['create', 'delete', 'delpw', 'deleting'].includes(ui.dialog?.kind ?? '') || ui.dialog?.kind === 'ok' && !!ui.dialog.at || ui.dialog?.kind === 'avatar' && ui.dialog.slot !== null;
   if (account && state.scene !== 'characters') ui.dialog = null;   // its screen is gone
   // the account dialogs stand alone: main's game hides Select Player under them (its create capture)
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
@@ -601,6 +608,14 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   else if (d?.kind === 'confirm') {
     const close = () => { ctx.ui.dialog = null; ctx.rerender(); }, k = d.key ?? 'confirm';
     out.push(stockDialog(ctx, `confirm:${k}`, 'yesno', d.text, [{ from: 'Yes', key: `${k}-yes`, click: () => { ctx.ui.dialog = null; d.yes(); ctx.rerender(); } }, { from: 'No', key: `${k}-no`, click: close }]));
+  }
+  else if (d?.kind === 'avatar') {
+    const create = d.slot !== null, slot = d.slot, name = d.name ?? '';
+    const deps: AvatarDeps = create
+      ? { choices: (i, look) => freeChoices(i, look[0] === 1), busy: !!state.busy,
+          confirm: look => { ui.dialog = null; ctx.send({ type: 'createCharacter', slot: slot!, name, appearance: look }); ctx.rerender(); } }
+      : ctx.changeAvatar ? { ...ctx.changeAvatar, back: () => { ui.dialog = null; ctx.rerender(); } } : { choices: (i, look) => freeChoices(i, look[0] === 1), confirm: () => {}, back: () => { ui.dialog = null; ctx.rerender(); } };
+    out.push(avatarSwitch(ctx, d, deps));
   }
   if (ctx.prompts) out.push(...ctx.prompts);
   return out;

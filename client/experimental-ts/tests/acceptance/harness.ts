@@ -160,6 +160,8 @@ export async function createCharacter(page:Page,name:string,{ wait = true,timeou
   await until(page,freeSlot,timeout); await press(page,freeSlot);
   await until(page,byKey('character-name'),10000); await type(page,byKey('character-name'),name);
   await until(page,`!${byKey('character-create-ok')}?.disabled`,5000); await press(page,byKey('character-create-ok'));
+  // the original's first dressing (Change Avatar): the starter look as it comes, Confirm
+  await until(page,byKey('avatar-confirm'),10000); await press(page,byKey('avatar-confirm'));
   if (wait) await until(page,characterSlot(name),30000);
 }
 /** Delete on a character's row: the account's password (the original asks for it first), Yes in the game's warning, OK on
