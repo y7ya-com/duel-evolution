@@ -143,7 +143,9 @@ describe('UI ownership and semantic interaction', () => {
   it('renders index zero as the deck top and preserves access to nonrendered pile actions', async () => {
     const f = fixture(); f.update({ scene: 'duel', duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [{ id: 'top', name: 'Hidden', controller: 0, zone: 'deck', index: 0, faceUp: false }, { id: 'bottom', name: 'Hidden', controller: 0, zone: 'deck', index: 1, faceUp: false }], prompt: null, turn: 1, turnPlayer: 0, phase: 'Main', log: [], actions: [{ id: 'pile-action', cardId: 'bottom', label: 'Server pile action' }] } }); await Promise.resolve();
     const keys = f.root.querySelectorAll('button').map(n => n.dataset.key); expect(keys).toContain('field-card:top'); expect(keys).not.toContain('field-card:bottom');
-    findButton(f.root, 'Server pile action').onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'duelAction', actionId: 'pile-action' }); f.mounted.dispose();
+    // live's command list: the pile's top card opens it, the hidden card's action a row of it
+    f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:top')!.onclick?.({}); await Promise.resolve();
+    f.root.querySelectorAll('button').find(n => n.dataset.key === 'duel-cmd:pile-action')!.onclick?.({}); expect(f.commands.at(-1)).toEqual({ type: 'duelAction', actionId: 'pile-action' }); f.mounted.dispose();
   });
   it('updates walking avatars in place and keyboard navigation reads the latest position', async () => {
     const f = fixture(), lobby: NonNullable<ClientView['lobby']> = { name: 'Academy', width: 1024, height: 768, avatars: [{ id: 1, name: 'A', x: 100, y: 100, self: true }], chat: [], channels: ['global'], connected: true };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, byKey, byText, type Page, lobbyShown } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, byKey, byText, type Page, lobbyShown, pressSurrender, surrenderRow } from './harness';
 
 const dialog = `document.querySelector('[data-key="tag-lobby"]')`;
 const tagKey = (key:string) => `document.querySelector('[data-key="tag-${key}"]')`;
@@ -104,7 +104,7 @@ async function relayTurns(pages:Page[],roles:Awaited<ReturnType<typeof relayRole
       for (const r of rivals) expect(new Set(await handNames(pages[r]!,'opponent'))).toEqual(new Set(['Face-down card']));
       const waiting = await pages[partner]!.ev(`document.body.innerText.includes('Waiting for')`);
       expect(waiting).toBe(true);
-      expect(await pages[partner]!.ev(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Surrender')?.disabled`)).toBe(true);
+      expect(await pages[partner]!.ev(`(${await surrenderRow(pages[partner]!)})?.disabled`)).toBe(true); await press(pages[partner]!,byKey('duel-cmd-close')).catch(() => {});
       for (const r of rivals) expect(await canEnd(pages[r]!)).toBe(false);
       const ros = await roster(pages[pilot]!), partnerRos = await roster(pages[partner]!);
       log.push(`turn ${turn}: pilot ${pageName(roles,pilot)} (End Turn only there); partner's field identical (${own.split('\n').length} cards, hand ${hand.length} visible to partner: ${hand.slice(0,2).join(', ')}…); rival sees ${rivalView.length} hidden hand cards; partner waits, Surrender disabled; roster pilot [${ros.join(' ')}] partner [${partnerRos.join(' ')}]`);
@@ -113,7 +113,7 @@ async function relayTurns(pages:Page[],roles:Awaited<ReturnType<typeof relayRole
       // Server prompts reach only the pilot: surrender before turn 10 is refused with an information box.
       if (shots && k === 1) {
         // the client asks first (main's YesNo "Surrender this duel?", surrender-yes), then the server answers
-        await click(pages[pilot]!,'Surrender'); await until(pages[pilot]!,byKey('surrender-yes'),20000); await press(pages[pilot]!,byKey('surrender-yes'));
+        await pressSurrender(pages[pilot]!); await until(pages[pilot]!,byKey('surrender-yes'),20000); await press(pages[pilot]!,byKey('surrender-yes'));
         const box = `document.querySelector('.de-duel-notice')`;
         await until(pages[pilot]!,`${box}?.querySelector('button')`,30000);
         const said = (await pages[pilot]!.ev(`${box}.innerText.replace(/\\s+/g,' ')`) as string).slice(0,140);
@@ -211,7 +211,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       const turns = await relayTurns(pages,roles,10,'tag');
       // tag.end (surrender): the turn-10 pilot surrenders; both teams see the result; every seat is released.
       const loser = turns.pilot!, loserTeam = roles.team[loser]!;
-      await click(pages[loser]!,'Surrender'); await until(pages[loser]!,byKey('surrender-yes'),20000); await press(pages[loser]!,byKey('surrender-yes'));
+      await pressSurrender(pages[loser]!); await until(pages[loser]!,byKey('surrender-yes'),20000); await press(pages[loser]!,byKey('surrender-yes'));
       const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
       await until(pages[loser]!,yes,60000);
       // the server's confirmation (main's duel.js dialog: its prompt-option buttons) on the pilot's screen only

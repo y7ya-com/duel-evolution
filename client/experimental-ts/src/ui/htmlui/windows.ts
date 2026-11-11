@@ -753,6 +753,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   if (ctx.scene) out.push(...ctx.scene);
   // the shop keeps the chat (main's shop capture: the lobby's chat under the windows); not over the card-get reveal
   if (state.scene === 'shop' && state.connection === 'online' && ctx.scene?.length) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
+  // the duel keeps the chat (live: the engine's chat under the hand, 248, 608), the Duels tab and whispers with it
+  if (state.scene === 'duel' && state.connection === 'online') { const chat = chatWindow(ctx); if (chat) out.push(chat); }
   const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient

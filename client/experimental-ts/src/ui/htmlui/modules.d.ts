@@ -78,6 +78,12 @@ declare module '@htmlui/rewards/launcher.js' {
   export function missionsLauncherFrame(snap: unknown, wait?: boolean): void;
   export function _resetMissionsLauncher(): void;
 }
+declare module '@htmlui/rewards/api.js' {
+  /** The rewards view (GET /api/de/rewards), cached and coalesced; force asks the server again and tells onChange's
+   *  listeners (the Missions button's badge) when it changed. */
+  export function getView(opts?: { force?: boolean }): Promise<unknown>;
+  export function peekView(): unknown;
+}
 declare module '@htmlui/cosmetics/trade-cosmetics.js' {
   /** bridge.js, every frame: the trade's Cosmetics panel over Card Swap's trade window (scene 0x26, CWindowModelTrade). */
   export function tradeOverlayFrame(snap: unknown, wait?: boolean, opts?: unknown): void;

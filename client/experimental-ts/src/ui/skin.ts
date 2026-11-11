@@ -34,14 +34,14 @@ export const SKIN_CSS = `
 .de-client:not([data-scene=title]):not([data-scene=duel]) .de-stage>.de-scene { bottom:4.1667%; overflow:auto; }
 
 /* Keys: the original's blue bevelled key; gold for the primary. Metrics stay the layout's. */
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)) { color:#072b50; font-weight:bold; text-shadow:0 1px #f0ffff; border:1px solid #267dbb; border-radius:3px;
   background:linear-gradient(180deg,#fff 0%,#e7fbff 12%,#b5eaff 48%,#83cef5 51%,#5bb3e9 100%); box-shadow:inset 0 1px #fff,inset 1px 0 #d9ffff,inset 0 -2px #2d83b74d,0 1px 0 #1f629a; transition:filter .1s,box-shadow .1s; }
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card)):hover:not(:disabled) { filter:none; background:linear-gradient(180deg,#fff,#d7ffff 50%,#a3edff 52%,#7acdf5); box-shadow:inset 0 1px #fff,0 0 0 1px #bcffff,0 1px 0 #1e659a; }
-.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card)):active:not(:disabled) { transform:translateY(1px); box-shadow:inset 0 2px 3px #12538455,0 0 0 1px #efffff; }
-.de-client button:disabled { opacity:.5; filter:saturate(.35); }
-.de-client button.gold { color:#432e08; text-shadow:0 1px #fffddd; border-color:#bf7819; background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); box-shadow:inset 0 1px #ffffe6,inset 1px 0 #fff8bc,inset 0 -2px #be7c2440,0 1px #9e6117; }
-.de-client button.gold:hover:not(:disabled) { background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); filter:brightness(1.08); box-shadow:inset 0 1px #fff,0 0 0 1px #fffeb8,0 1px #a36a18; }
-.de-client :is(button,input,select,textarea,summary,canvas):focus-visible { outline:2px solid #ffdc65; outline-offset:2px; }
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)):hover:not(:disabled) { filter:none; background:linear-gradient(180deg,#fff,#d7ffff 50%,#a3edff 52%,#7acdf5); box-shadow:inset 0 1px #fff,0 0 0 1px #bcffff,0 1px 0 #1e659a; }
+.de-client button:where(:not(.de-card,.de-avatar,.de-zone-target,.de-janken-card,.de-janken-order,.de-field-card,.de-card-shop *)):active:not(:disabled) { transform:translateY(1px); box-shadow:inset 0 2px 3px #12538455,0 0 0 1px #efffff; }
+.de-client button:where(:not(.de-card-shop *)):disabled { opacity:.5; filter:saturate(.35); }
+.de-client button.gold:where(:not(.de-card-shop *)) { color:#432e08; text-shadow:0 1px #fffddd; border-color:#bf7819; background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); box-shadow:inset 0 1px #ffffe6,inset 1px 0 #fff8bc,inset 0 -2px #be7c2440,0 1px #9e6117; }
+.de-client button.gold:where(:not(.de-card-shop *)):hover:not(:disabled) { background:linear-gradient(180deg,#fffbd0 0%,#fffba1 12%,#fae773 47%,#f2cd51 51%,#eca431 100%); filter:brightness(1.08); box-shadow:inset 0 1px #fff,0 0 0 1px #fffeb8,0 1px #a36a18; }
+.de-client :is(button,input,select,textarea,summary,canvas):where(:not(.de-card-shop *)):focus-visible { outline:2px solid #ffdc65; outline-offset:2px; }
 
 /* Fields: the pale inset well. */
 .de-client :is(input:not([type=checkbox],[type=radio],[type=range],[type=file]),select,textarea) { color:#072b50; border:1px solid #5d95b6; border-radius:2px; background:linear-gradient(180deg,#d5eaf2 0,#f9ffff 5px,#effbff); box-shadow:inset 1px 1px 2px #16476a30,0 1px #e3ffff; }

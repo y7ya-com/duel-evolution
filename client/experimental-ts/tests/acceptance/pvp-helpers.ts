@@ -55,7 +55,7 @@ export const read = (page:Page) => page.ev(`(()=>{
     opponentHand:cards.filter(l=>/opponent hand/.test(l)).map(l=>l.startsWith('Face-down')?'back':l.split(',')[0]),
     clock:[...document.querySelectorAll('.de-duelist')].map(d=>[...d.querySelectorAll('.de-duel-clock')].map(n=>n.textContent).find(t=>t.startsWith('Time'))??''),
     ended:window.__duelEnd()??'',prompt:!!document.querySelector('.de-duel-prompt[role=dialog]'),
-    controls:[...document.querySelectorAll('.de-duel-actions button,.de-duel-prompt button')].filter(b=>!b.disabled).map(b=>b.textContent)};})()`) as Promise<DuelReading>;
+    controls:[...document.querySelectorAll('.de-duel-actions button,.de-phase-bar button,.de-duel-prompt button')].filter(b=>!b.disabled).map(b=>b.textContent)};})()`) as Promise<DuelReading>;
 /** A's own side is B's opponent side and vice versa. */
 export function mirrored(x:DuelReading,y:DuelReading):string[] {
   const issues:string[] = [];
@@ -103,7 +103,7 @@ export async function selectOnField(page:Page):Promise<boolean> {
 export async function stepBoth(a:Page,b:Page,idle:number[],options:{ attack?:boolean; summon?:boolean } = {}) {
   const [x,y] = await Promise.all([duelBot(a,options),duelBot(b,options)]);
   for (const [i,p] of [a,b].entries()) {
-    const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button')].some(b=>/^Inspect:/.test(b.textContent))`);
+    const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button,.de-duel-cmd-row')].some(b=>/^Inspect:/.test(b.getAttribute('aria-label')??b.textContent))`);
     idle[i] = stuck ? idle[i]! + 1 : 0;
     if (idle[i]! > 8) { idle[i] = 0; await selectOnField(p); }
   }

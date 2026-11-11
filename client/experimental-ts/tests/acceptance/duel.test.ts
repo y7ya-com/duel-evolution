@@ -18,7 +18,7 @@ const SNAP = `(()=>{
   const ins=document.querySelector('.de-duel-inspector');
   return {cards,players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',
     log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt,
-    actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
+    actions:[...document.querySelectorAll('.de-duel-actions button,.de-phase-bar button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
     inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:window.__duelEnd()??null,
     waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:document.body.innerText.includes('Resolving duel animations'),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
 })()`;
@@ -276,7 +276,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           // Stale action: keep the phase button of one turn and press it on the player's next turn.
           if (!staleAction && s.actions.includes('End Turn') && turnOf(s) >= 2 && !s.prompt) {
             const label = s.actions.find(t => t === 'Battle Phase') ?? 'End Turn';
-            await page.ev(`window.__staleAction=[...document.querySelectorAll('.de-duel-actions button')].find(b=>b.textContent===${JSON.stringify(label)})`);
+            await page.ev(`window.__staleAction=[...document.querySelectorAll('.de-phase-bar button')].find(b=>b.textContent===${JSON.stringify(label)})`);
             staleAction = { page,who,turn:turnOf(s),label };
           } else if (staleAction && staleAction.page === page && !staleActionResult && turnOf(s) >= staleAction.turn + 2 && s.actions.includes('End Turn') && !s.prompt) {
             prompts.probing = true; await page.ev(`window.__staleAction.click()`); await sleep(600);
@@ -286,7 +286,7 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             expect(after.bar).toBe(s.bar);
           }
           // duel.log: scroll the log while a prompt waits; the prompt stays and is then answered normally.
-          const box = !logProbe && s.prompt ? await page.ev(`(()=>{const l=document.querySelector('.de-duel-log');const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number } : null;
+          const box = !logProbe && s.prompt ? await page.ev(`(()=>{const l=document.querySelector('.de-duel-log');if(l.hidden)document.querySelector('[data-key="duel-log-toggle"]')?.click();const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number } : null;
           if (box && s.prompt && box.max > 20) {
             await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',x:box.x,y:box.y,deltaX:0,deltaY:-400 }); await sleep(400);
             const scrolled = await page.ev(`document.querySelector('.de-duel-log').scrollTop`) as number;
