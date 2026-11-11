@@ -337,6 +337,15 @@ export class HtmlUiLayer {
       const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
       // a list main's chat.js draws as a native scroller (ownList: role="list"), as the Friend / Team / Ignore Lists'
       const list = c.cls === 'CWindowTaskListbox';
+      // a list main draws as rows of its own buttons (the player list's .pl-row, CFindMenu's .ds-row): a row is a
+      // player's or a search's, named by its text; the list's words go on its scroller (role="list") when there is one,
+      // never on the row that happens to be the smallest button there. Its rows click themselves (no element id: the
+      // layer's own click on a tagged list would press the row twice)
+      if (c.cls === 'CWindowTaskActiveListbox') {
+        const el = els.filter(e => e.el.getAttribute('role') === 'list' && e.x >= p.x && e.x < p.x + p.w && e.y >= p.y && e.y < p.y + p.h).sort((a, b) => a.area - b.area)[0]?.el;
+        if (el) { if (h.key && el.dataset.key !== h.key) el.dataset.key = h.key; if (h.label && el.getAttribute('aria-label') !== h.label) el.setAttribute('aria-label', h.label); now.add(el); }
+        continue;
+      }
       // a button main's screen moved and the layout does not say where: the one button there with the control's words
       const named = () => { const l = plain(String(c.label ?? '')), m = l && !input && !list ? els.filter(e => e.el.tagName === 'BUTTON' && (plain(e.el.textContent ?? '') === l || plain(e.el.getAttribute('aria-label') ?? '') === l)) : []; return m.length === 1 ? m[0]!.el : undefined; };
       const at = tab ?? els.filter(e => (list ? e.el.getAttribute('role') === 'list' : input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
