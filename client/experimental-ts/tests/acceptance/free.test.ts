@@ -77,7 +77,12 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       expect(freeDeck).toContain(probe);
       // SAVE DECK over the deck in use (its row, OK), answering main's report
       await deckSide(a,'save'); await until(a,byKey('deck-files-new'),10000); await sleep(300);
+      // the deck in use is the list's "<name> (not saved)" row (a free deck the server has not stored): pick it first
+      const inUse = `[...document.querySelectorAll('#htmlui-host [aria-label],#htmlui-host button')].find(e=>/\\(not saved\\)$/.test((e.getAttribute('aria-label')??e.textContent).trim())&&e.getClientRects().length)`;
+      if (await a.ev(`Boolean(${inUse})`)) { await press(a,inUse); await sleep(300); }
       if (await a.ev(`Boolean(${byKey('deck-files-ok')})&&!${byKey('deck-files-ok')}.disabled`)) await press(a,byKey('deck-files-ok'));
+      // OK refused (nothing to save over): the dialog closes with Cancel, the deck stays unsaved (recorded)
+      if (await a.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(a,byKey('deck-files-cancel')).catch(() => {});
       for (const k of ['deck-dialog-yes','deck-dialog-ok']) { await sleep(500); if (await a.ev(`Boolean(${byKey(k)})`)) await press(a,byKey(k)); }
       await until(a,`!(window.__deApp?.getState()?.deckEditor?.dirty)`,15000).catch(() => {});
       const saved = !(await deckScreen(a))!.dirty;

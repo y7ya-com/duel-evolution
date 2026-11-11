@@ -396,6 +396,8 @@ export async function exitDeckEditor(page:Page) {
   for (let i = 0; i < 5 && await page.ev(`Boolean(${DECK_VIEW})`); i++) {
     await deckSide(page,'exit').catch(() => {}); await sleep(800);   // a press as the screen closes finds EXIT gone
     for (const label of ['Yes','OK']) if (await page.ev(`Boolean(${byText(label)})`)) { await press(page,byText(label)).catch(() => {}); await sleep(500); }
+    // a file list left open over EXIT (SAVE / LOAD DECK): its Cancel, as a player closes it
+    if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) { await press(page,byKey('deck-files-cancel')).catch(() => {}); await sleep(400); }
   }
   await until(page,lobbyShown,60000);
 }
