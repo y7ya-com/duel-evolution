@@ -18,11 +18,15 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       if (npcs.includes('Seto Kaiba')) {
         await openNpcCard(page,'Seto Kaiba'); await until(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].some(b=>!b.disabled)`,30000);
         await press(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`);
-        await until(page,npcPanel,20000);
-        refusal = (await page.ev(`${npcPanel}.innerText`) as string).replace(/\s+/g,' ').slice(0,160);
-        expect(await page.ev(`[...${npcPanel}.querySelectorAll('button')].some(b=>b.textContent==='Duel NPC')`)).toBe(false);
-        for (const label of ['Continue','Close NPC']) { await until(page,`[...(${npcPanel}?.querySelectorAll('button') ?? [])].some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`,20000); await press(page,`[...${npcPanel}.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)})`); }
-        await until(page,`!${npcPanel}`,20000);
+        // the NPC's refusal in its balloon (as live): its lines, no Start Duel?, a click and the talk ends
+        const balloon = `document.querySelector('button[data-key="npc-talk:next"]')`;
+        await until(page,balloon,20000);
+        refusal = (await page.ev(`${balloon}.getAttribute('aria-label')`) as string).replace(/\s+/g,' ').slice(0,160);
+        expect(await page.ev(`Boolean(document.querySelector('[data-key="npc-start:yes"]'))`)).toBe(false);
+        await until(page,`${balloon}&&!${balloon}.disabled`,20000); await press(page,balloon);
+        const closeNpc = `[...(${npcPanel}?.querySelectorAll('button') ?? [])].find(b=>b.textContent==='Close NPC'&&!b.disabled)`;
+        await until(page,closeNpc,20000); await press(page,closeNpc);
+        await until(page,`!${balloon}&&!${npcPanel}`,20000);
       }
       // A first duel: dialogue, rock-paper-scissors, first player, initial field.
       await startNpcDuel(page,'Yami Yugi');
