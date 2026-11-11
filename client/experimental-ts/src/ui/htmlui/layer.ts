@@ -200,6 +200,9 @@ export class HtmlUiLayer {
     if (this.wantBackdrop) this.bd.frame({ backdrop: { shown: true } });
   }
 
+  /** Re-place over the stage now (a visual-viewport scroll moves the stage without resizing it: ui/phone.ts). */
+  relayout(): void { this.place(); }
+
   private place = (): void => {
     const stage = this.options.stage(); if (!stage) return;
     const r = stage.getBoundingClientRect(), s = r.width / 1024 || 1;

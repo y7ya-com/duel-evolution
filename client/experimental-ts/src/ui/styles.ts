@@ -245,8 +245,8 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-actions { max-width:65%; } .de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-context { left:12px; right:12px; width:auto; top:auto; bottom:215px; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-social-grid { grid-template-columns:1fr; } .de-top { padding:7px; } }
 @media(prefers-reduced-motion:reduce) { .de-client * { animation:none!important; transition:none!important; } }
 .de-client[data-motion=reduced] * { animation:none!important; transition:none!important; }
-.de-client:fullscreen { --de-fullscreen-width:min(100%,calc((100vh - 120px)*1.333333)); width:100vw; max-width:none; height:100vh; margin:0; padding:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:auto; background:#093d6a; }
-.de-client:fullscreen>.de-stage,.de-client:fullscreen>.de-top,.de-client:fullscreen>.de-nav { width:var(--de-fullscreen-width); flex:none; }
-.de-client:fullscreen>.de-stage { min-height:0; height:auto; aspect-ratio:4/3; max-height:none; }
-@supports(height:100dvh) { .de-client:fullscreen { --de-fullscreen-width:min(100%,calc((100dvh - 120px)*1.333333)); height:100dvh; } }
+.de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone)) { --de-fullscreen-width:min(100%,calc((100vh - 120px)*1.333333)); width:100vw; max-width:none; height:100vh; margin:0; padding:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:auto; background:#093d6a; }
+.de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone))>.de-stage,.de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone))>.de-top,.de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone))>.de-nav { width:var(--de-fullscreen-width); flex:none; }
+.de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone))>.de-stage { min-height:0; height:auto; aspect-ratio:4/3; max-height:none; }
+@supports(height:100dvh) { .de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone)) { --de-fullscreen-width:min(100%,calc((100dvh - 120px)*1.333333)); height:100dvh; } }
 `;

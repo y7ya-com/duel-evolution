@@ -8,6 +8,7 @@ import { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { BrowserDisplaySettings, browserFullscreenAdapter } from './settings-browser';
+import { mountPhoneStage, holdToWalk, type PhoneStage, type HoldWalk } from './phone';
 import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
@@ -117,6 +118,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
+  // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
+  const phone: PhoneStage | null = typeof document !== 'undefined' && document.body && typeof matchMedia === 'function' ? mountPhoneStage({ host, stage, onFit: () => htmlUi?.relayout() }) : null;
+  // a finger held on the world (or the right button) walks toward it, steered by moving (live: the held right button);
+  // on the stage, which outlives the lobby's redraws, so a long walk survives them
+  const walkTo = (x: number, y: number): void => {
+    const current = controller.getState(), lobby = current.lobby, canvas = stage.querySelector('canvas[data-key="lobby-map"]') as HTMLCanvasElement | null;
+    if (current.scene !== 'lobby' || !lobby?.connected || current.busy || !canvas) return;
+    const useScene = !!worldRenderer && lobby.mapId !== undefined; if (useScene && !worldRenderer!.ready) return;
+    const p = useScene ? gamePoint(x, y, worldRenderer!.element.getBoundingClientRect()) : gamePoint(x, y, canvas.getBoundingClientRect(), lobby.width ?? 1024, lobby.height ?? 768);
+    if (p) { const target = useScene ? worldRenderer!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); }
+  };
+  let worldWalk: HoldWalk | null = null;
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
@@ -444,6 +457,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
   };
   const worldRenderer = controller.loadWorldScene ? new WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal), onViewport: () => { const current = controller.getState(); if (current.scene === 'lobby' && current.lobby) positionAvatars(current.lobby); } }) : null;
+  worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('canvas[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
   const showAvatarViews = (lobby: NonNullable<ClientView['lobby']>) => {
     const self = lobby.avatars.find(a => a.self), origin = self ?? { x: 512, y: 384 }, viewport = worldRenderer?.viewport;
     const candidates = controller.loadAvatar ? lobby.avatars.filter(a => a.parts?.length === 16 && (!viewport || a.x >= viewport.x - 128 && a.x <= viewport.x + viewport.width + 128 && a.y >= viewport.y - 160 && a.y <= viewport.y + viewport.height + 160)).sort((a, b) => Number(!!b.self) - Number(!!a.self) || Math.hypot(a.x - origin.x, a.y - origin.y) - Math.hypot(b.x - origin.x, b.y - origin.y) || a.id - b.id).slice(0, 24) : [];
@@ -573,7 +587,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   host.addEventListener?.('pointerdown', holdPointer, true);
   globalThis.addEventListener?.('pointerup', releasePointer, true); globalThis.addEventListener?.('pointercancel', releasePointer, true);
   const requestRender = () => { if (pointerHeld) { deferredRender = true; return; } if (!queued && !disposed) { queued = true; queueMicrotask(() => { queued = false; if (!disposed) render(); }); } };
-  const browserDisplay = new BrowserDisplaySettings(browserFullscreenAdapter(host), () => { if (!disposed && controller.getState().scene === 'settings') requestRender(); });
+  const browserDisplay = new BrowserDisplaySettings(browserFullscreenAdapter(globalThis.document?.documentElement && typeof globalThis.document.documentElement.requestFullscreen === 'function' ? globalThis.document.documentElement : host), () => { if (!disposed && controller.getState().scene === 'settings') requestRender(); });
   const send = (command: ClientCommand) => {
     if (disposed) return;
     local.message = '';
@@ -652,7 +666,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const mapUrl = safeImageUrl(lobby.mapImage);
     if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    canvas.onclick = e => { const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
+    canvas.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
     canvas.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
@@ -1145,5 +1159,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }
