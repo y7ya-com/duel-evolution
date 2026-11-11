@@ -16,7 +16,8 @@ async function choose(page:Page,key:string) {
 /** The room owners the player list finds (its search's Search for Match Duels: main's CFindMenu). */
 async function matchRooms(page:Page,owner:string) {
   // the search lists the rooms open when it is made (the server's room list): a room opened a moment ago needs a new search
-  for (let i = 0; ; i++) { await searchPlayers(page,'Search for Match Duels'); try { await until(page,listRow(owner),5000); return; } catch (e) { if (i >= 5) throw e; } }
+  // (choosing the same search twice clears it, as the original's list: Show all first on a retry)
+  for (let i = 0; ; i++) { if (i) await searchPlayers(page,'Show all'); await searchPlayers(page,'Search for Match Duels'); try { await until(page,listRow(owner),5000); return; } catch (e) { if (i >= 5) throw e; } }
 }
 const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
 const resultOf = (page:Page) => page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
