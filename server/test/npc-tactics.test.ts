@@ -47,6 +47,23 @@ describe("NPC battle replays", () => {
     expect(bot.choose(select("SELECT_YESNO", undefined, [], { description: 31 }))?.yes).toBe(true);
   });
 
+  it("a boost (Rush Recklessly) goes on our own monster in the battle, never the player's", () => {
+    // production: Rush Recklessly's pick was read as removal and raised the player's Celestia
+    const RUSH = 70046172;
+    const bot = new HeuristicBot(0, { ...cards, name: (c) => (c === RUSH ? "rush recklessly" : "") });
+    // the player's 1800 attacks our 1500
+    bot.observe({ ev: "msg", type: "ATTACK", card: { controller: 1, location: 4, sequence: 0 }, target: { controller: 0, location: 4, sequence: 1 } });
+    const own = [mon(2000, 0), mon(1500, 1)], opp = [mon(1800, 0)];
+    const more = { turn_player: 1, phase: 0x20 };
+    expect(bot.choose(select("SELECT_CHAIN", own, opp, { ...more, forced: false,
+      selects: [{ code: RUSH, controller: 0, location: 8, sequence: 0, description: 0 }] }))?.index).toBe(0);
+    expect(bot.choose(select("SELECT_CARD", own, opp, { ...more, min: 1, max: 1, selects: [
+      { code: 1800, controller: 1, location: 4, sequence: 0, position: 1 },
+      { code: 2000, controller: 0, location: 4, sequence: 0, position: 1 },
+      { code: 1500, controller: 0, location: 4, sequence: 1, position: 1 },
+    ] }))?.indicies).toEqual([2]);
+  });
+
   it("does not declare a losing attack even at easy difficulty", () => {
     const bot = new HeuristicBot(0, cards, { blunder: 1 });
     expect(bot.choose({ ...battle(), ...select("SELECT_BATTLECMD", undefined, [mon(3000)]),

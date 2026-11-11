@@ -1245,15 +1245,19 @@ export class HeuristicBot {
       const idx = this.#bestAttackTarget(ev.cards, atk);
       if (idx >= 0) return respCards([idx]);
     }
-    // An equip that buffs goes on our own strongest monster (the engine offers both fields; a steal or a weakening
-    // equip keeps the opponent's).
+    // An equip or a boost (Rush Recklessly) goes on our own monster: the one in the battle under way, else the strongest
+    // (the engine offers both fields; production: a boost picked as removal raised the player's Celestia). A steal or
+    // a weakening card keeps the opponent's.
     const hint = this.#hint;
     this.#hint = 0;
-    if (hint === H_EQUIP && ev.min <= 1 && !this.#cards.brain.get(this.#lastActivated)?.any(TAGS_NO_BOOST)) {
+    const k = this.#cards.brain.get(this.#lastActivated);
+    if ((hint === H_EQUIP || !!k?.has("boost")) && ev.min <= 1 && !k?.any(TAGS_NO_BOOST)) {
+      const battler = this.#turnPlayer === this.seat ? this.#declaredAttacker?.sequence
+        : this.#attack && this.#attack.target !== null ? this.#attack.target : undefined;
       let best = -1, bestAtk = -1;
       ev.cards.forEach((c, i) => {
         if (c.controller !== this.seat || (c.location & LOCATION.MZONE) === 0 || isFaceDown(c.position ?? 0)) return;
-        const atk = this.#liveAtk(c) ?? 0;
+        const atk = c.sequence === battler ? Infinity : this.#liveAtk(c) ?? 0;
         if (atk > bestAtk) { bestAtk = atk; best = i; }
       });
       if (best >= 0) return respCards([best]);
