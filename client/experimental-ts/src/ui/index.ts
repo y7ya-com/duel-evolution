@@ -26,7 +26,7 @@ import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
-import { npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
+import { fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi } from './htmlui/npc-pack';
 import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
 import { shopLocal, shopWindows } from './htmlui/shop';
@@ -205,8 +205,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
+  // the rows' completion (the original's packCompletionLine): the server's shop pack view (GET /api/de/shop/pack, its
+  // `collected`), online only; a pack the shop does not list stays without one
+  const packDone = new Map<number, number | null>();
+  const packCompletion = (id: number): number | undefined => {
+    if (!packDone.has(id) && state.online && state.connection === 'online' && typeof fetch === 'function') {
+      packDone.set(id, null);
+      void fetchPackCompletion(id).then(pct => { packDone.set(id, pct); if (pct !== null && npcPackOpen(controller.getState().npc)) showHtml(); });
+    }
+    return packDone.get(id) ?? undefined;
+  };
   const npcPackSpecs = (): WindowSpec[] => { if (!htmlUi || !['lobby', 'duel'].includes(state.scene)) return [];
-    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], busy: !!state.busy, rerender: () => showHtml(),
+    const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
   const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs()];

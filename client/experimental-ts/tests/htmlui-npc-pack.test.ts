@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FRAME, npcPackOpen, npcPackSelect, npcPackUi, packLine } from '../src/ui/htmlui/npc-pack';
+import { FRAME, fetchPackCompletion, npcPackOpen, npcPackSelect, npcPackUi, packLine } from '../src/ui/htmlui/npc-pack';
 import { Ids } from '../src/ui/htmlui/snapshot';
 import { columns } from '@htmlui/screens/packselect.js';
 import type { NpcState } from '../src/features/npc';
@@ -42,5 +42,11 @@ describe('NPC reward pack pick in main\'s CWindowPackSelect', () => {
   it('a new offer starts from its first row', () => {
     const ui = npcPackUi(); npcPackSelect(won([3, 5]), deps([], ui)); ui.selected = 1;
     npcPackSelect(won([3, 5], { npc: { id: 8, name: 'Other' } }), deps([], ui)); expect(ui.selected).toBe(0);
+  });
+  it('reads a pack\'s completion from the shop pack view, none when the shop does not list it', async () => {
+    const f = (async (url: string) => url.endsWith('id=3') ? new Response(JSON.stringify({ collected: { owned: 9, total: 36 } })) : new Response(JSON.stringify({ error: 'unknown-pack' }), { status: 400 })) as unknown as typeof fetch;
+    expect(await fetchPackCompletion(3, f)).toBe(25);
+    expect(await fetchPackCompletion(4, f)).toBeNull();
+    expect(await fetchPackCompletion(5, (async () => { throw new Error('down'); }) as unknown as typeof fetch)).toBeNull();
   });
 });

@@ -56,3 +56,14 @@ export function npcPackSelect(npc: Readonly<NpcState> | null | undefined, deps: 
     { key: 'npc-pack:ok', label: `Take ${names[ui.selected]}`, click: () => { if (!busy) deps.send({ type: 'npcSelectPack', pack: packs[ui.selected]! }); } });
   return b.spec();
 }
+
+/** A pack's completion in percent from the server's shop pack view (its `collected`: different cards owned of the
+ * pack's), null when the server has none for it (not in the shop) or cannot be reached. */
+export async function fetchPackCompletion(id: number, f: typeof fetch = globalThis.fetch): Promise<number | null> {
+  try {
+    const r = await f(`/api/de/shop/pack?id=${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) return null;
+    const c = (await r.json() as { collected?: { owned?: number; total?: number } } | null)?.collected;
+    return c && Number(c.total) > 0 ? Math.max(0, Math.min(100, Number(c.owned) / Number(c.total) * 100)) : null;
+  } catch { return null; }
+}
