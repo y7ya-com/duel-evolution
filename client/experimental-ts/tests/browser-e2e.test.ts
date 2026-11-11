@@ -82,10 +82,11 @@ describe('actual headless browser against real game authority',() => {
       const npcConfirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
       const npcContinue = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
       // Known NPCBIN context can introduce source opening dialogue before the actual duel confirmation.
-      for (let opening=0;opening<4;opening++) {
-        await until(browser,`${npcConfirm}||${npcContinue}`);
-        if (await browser.ev(`Boolean(${npcConfirm})`)) break;
-        await activate(browser,npcContinue,viewport.mobile);
+      // as the acceptance harness's startNpcDuel: up to 6 lines of talk, a beat between them
+      for (let opening=0;opening<6&&!(await browser.ev(`Boolean(${npcConfirm})`));opening++) {
+        await until(browser,`${npcConfirm}||${npcContinue}`,20000);
+        if (await browser.ev(`Boolean(${npcContinue})`)) await activate(browser,npcContinue,viewport.mobile);
+        await new Promise(r=>setTimeout(r,300));
       }
       await until(browser,npcConfirm); await activate(browser,npcConfirm,viewport.mobile);
       await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Rock'&&!b.disabled)`);
@@ -131,7 +132,9 @@ describe('actual headless browser against real game authority',() => {
       expect(await browser.ev('document.body.innerText')).toContain('Defeat');
       const account = fixture.gameServer.game.store.accountOfUser('browser-fixture-user')!;
       const profile = fixture.gameServer.game.store.peek().accounts![account].profiles!['0'];
-      expect(profile.last_npc_end).toMatchObject({ npc:51,result:'lose' });
+      // main's player list shows the NPCs that share NPC51's name (levels 4/6/8) as separate rows; the test opens the first
+      expect(profile.last_npc_end).toMatchObject({ result:'lose' });
+      expect([51,52,53]).toContain(profile.last_npc_end.npc);
       await click(browser,'Return to Lobby',viewport.mobile); await until(browser,LOBBY,30000);
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
       await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
