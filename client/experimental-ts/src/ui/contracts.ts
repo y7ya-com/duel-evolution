@@ -121,7 +121,15 @@ export interface SocialEntry { id: number | string; name: string; status?: strin
 export interface SocialView { friends: SocialEntry[]; mail?: { id: string; sender: string; subject: string; body: string }[]; loading?: boolean; }
 export interface SettingsView { sound: number; music: number; reducedMotion: boolean; showCardNames: boolean;
   /** The original game's text language letter (features/language.ts); absent means English. */
-  language?: GameLanguage; }
+  language?: GameLanguage;
+  /** DUEL OPTIONS (CWindowModelDuelConfig); absent means the engine's defaults (duelOptions). */
+  autoTracking?: boolean; autoPlacing?: boolean; activationMessage?: ActivationMessage; }
+/** DUEL OPTIONS' Activation Message: 0 Auto Cancel, 1 Semi Auto Cancel, 2 Manual. */
+export type ActivationMessage = 0 | 1 | 2;
+export interface DuelOptions { autoTracking: boolean; autoPlacing: boolean; activationMessage: ActivationMessage }
+/** The DUEL OPTIONS in effect: the engine starts with ON, ON, Semi Auto Cancel (CWindowModelDuelConfig's row1_/row2_/row3_). */
+export const duelOptions = (s: Partial<SettingsView>): DuelOptions => ({ autoTracking: s.autoTracking ?? true, autoPlacing: s.autoPlacing ?? true,
+  activationMessage: s.activationMessage === 0 || s.activationMessage === 2 ? s.activationMessage : 1 });
 /** A starter structure deck on offer (GET /api/de/starter): what main's picker (web-shell/starter.js) shows. */
 export interface StarterDeckChoice { id: number; name: string; blurb: string; cover: number; cards: { id: number; name: string; n: number; type: 'monster' | 'spell' | 'trap' | 'extra' }[]; mainCount?: number; extraCount?: number; }
 export interface ClientView {

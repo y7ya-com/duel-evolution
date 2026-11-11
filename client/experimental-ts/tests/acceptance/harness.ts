@@ -165,15 +165,13 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,`${byText(text)}||${titleButton(alias)}`,timeout);
     if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,titleButton(alias)); return; }
   }
-  // the title's OPTIONS opens DUEL OPTIONS; its More Options is the rewrite's options page (what Options opened before)
-  if (text === 'Options' && await page.ev(`document.querySelector('.de-client')?.dataset.scene==='title'&&!${byText('Options')}`)) {
-    await until(page,`${byText('Options')}||${titleButton('options')}`,timeout);
-    if (!await page.ev(`Boolean(${byText('Options')})`)) { await press(page,titleButton('options')); await until(page,byKey('opt-more'),timeout); await press(page,byKey('opt-more')); return; }
+  // the rewrite's own options page (game data, recording, local files) has no way in on live's screens (the title's
+  // OPTIONS is COptionDlg, the Main Menu's DUEL OPTIONS the duel settings): tests open it through the dev app
+  if (text === 'Options' && !await page.ev(`Boolean(${byText('Options')})`)) {
+    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'settings' })`); await until(page,byKey('options-language'),timeout); return;
   }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
-  // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
-  if (text === 'Options') { await until(page,`${byText(text)}||${inMainMenu('DUEL OPTIONS')}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = 'DUEL OPTIONS'; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
   // the menu already open (its entries waiting on a busy app): wait for the entry; closed: open it with MAIN
   if (!await page.ev(`Boolean(${byText(text)})`)) {

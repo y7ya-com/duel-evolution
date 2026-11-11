@@ -13,6 +13,7 @@ import { mountClient } from './ui';
 import type { SettingsView } from './ui/contracts';
 import { isGameLanguage } from './features/language';
 import { DEFAULT_ASSETS } from './site';
+import { installAudioPage } from './ui/htmlui/audio-page';
 const root = document.getElementById('app');
 if (!root) throw new Error('Missing client mount');
 const params = new URLSearchParams(location.search);
@@ -28,6 +29,9 @@ try {
     if (typeof s.reducedMotion === 'boolean') settings.reducedMotion = s.reducedMotion;
     if (typeof s.showCardNames === 'boolean') settings.showCardNames = s.showCardNames;
     if (isGameLanguage(s.language)) settings.language = s.language;
+    if (typeof s.autoTracking === 'boolean') settings.autoTracking = s.autoTracking;
+    if (typeof s.autoPlacing === 'boolean') settings.autoPlacing = s.autoPlacing;
+    if (s.activationMessage === 0 || s.activationMessage === 1 || s.activationMessage === 2) settings.activationMessage = s.activationMessage;
   }
 } catch { /* Storage is optional and never contains credentials or game inventory. */ }
 const abort = new AbortController();
@@ -71,7 +75,12 @@ if (typeof settings.sound !== 'number' || typeof settings.music !== 'number') {
 }
 settings = {sound:audio.volumes.sound,music:audio.volumes.music,...settings};
 const socialBox = browserSocialBox();
-const app = new ClientApp({ ...data, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
+// the mouse buttons held (DUEL OPTIONS: right skips an activation message, left shows it), from the window's own events
+const held = { left: false, right: false };
+const holdButtons = (e: MouseEvent) => { held.left = (e.buttons & 1) !== 0; held.right = (e.buttons & 2) !== 0; };
+for (const type of ['mousedown', 'mouseup', 'mousemove'] as const) globalThis.addEventListener?.(type, holdButtons, true);
+globalThis.addEventListener?.('blur', () => { held.left = held.right = false; });
+const app = new ClientApp({ heldButtons: () => ({ ...held }), ...data, audio, ...(preloader ? { preloader } : {}), sceneLoads, dataIssues:data.issues, reloadData:signal=>loadClientData({signal}), gatewayUrl:gateway.href,portOffset:offset,freeMode:params.get('free')==='1',catalog,assets,settings,...(socialBox ? { socialBox } : {}),
   persistSettings: s => { try { localStorage.setItem('de-client-settings-v1', JSON.stringify(s)); } catch { /* optional */ } },
 });
 // every scene change raises the veil too (main's loader.js on each scene "begin"), until the new scene has settled: its
@@ -87,6 +96,8 @@ const observeScene = (v: ReturnType<ClientApp['getState']>) => sceneWatch.observ
 observeScene(app.getState());
 const unwatchScenes = app.subscribe(observeScene);
 const ui = mountClient(root, app);
+// the Main Menu's Audio is main's Audio page (htmlui/audio-page.ts) over this manager; an audio pack dropped anywhere opens it, as live
+void installAudioPage({ audio, dispatch: action => app.dispatch({ type: 'audioAction', action }) });
 overlay.setLoader(app.loadArchiveImage?.bind(app) ?? null);
 overlay.follow(() => root.querySelector('.de-stage'));
 // the boot veil fades once the first screen's windows are up (or after 8 s whatever happens)
