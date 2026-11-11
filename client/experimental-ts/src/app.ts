@@ -145,6 +145,8 @@ export class ClientApp implements ClientController {
   private sideboard: DeckView | null = null;
   private sideboardRound: number | null = null;
   private duelState: DuelState = createDuelState();
+  /** The session's error as of the last sync (the app shows a session error once, when it changes). */
+  private sessionError: string | null = null;
   /** Process-lifetime, like the original's never-cleared result category global; never reset with a session. */
   private npcResult = createNpcResultContext();
   private timeline = new DuelTimeline(this.duelState);
@@ -449,6 +451,7 @@ export class ClientApp implements ClientController {
     const selected = state.characters.find(c => c.slot === state.selectedSlot);
     const profile = state.profile;
     // The Tag Duel lobby polls only while this character stands in a lobby; a duel owns the seats.
+    const shownSessionError = this.sessionError; this.sessionError = state.error ?? null;
     const tagPolling = state.phase === 'lobby' && !!profile && state.connection === 'connected'; queueMicrotask(() => { if (this.disposed) return; if (tagPolling) this.tagLobby.start(); else this.tagLobby.stop(); });
     const npcPlayer=profile ? `${profile.pid}:${state.selectedSlot}` : null;
     if (npcPlayer !== this.npcPlayer) {this.npcPlayer=npcPlayer;this.npc.reset();}
@@ -519,7 +522,10 @@ export class ClientApp implements ClientController {
         ready:false,
       } : undefined,
       status: state.phase === 'lobby' ? 'Online in Duel Academy.' : state.phase.replaceAll('-', ' '),
-      ...(state.error ? { error: state.error } : {}),
+      // The session's refusal is the app's error once, when it arrives: a later sync (any lobby command clears the app's
+      // error while it runs) must not bring back a message the player already closed with OK (pvp: "Refused." came back
+      // over the player menu after its OK).
+      ...(state.error && state.error !== shownSessionError ? { error: state.error } : {}),
     };
     if (this.view.duel && this.view.duel.spectating !== (state.spectating || !!this.replay)) {
       this.view = { ...this.view, duel: { ...this.view.duel, spectating: state.spectating || !!this.replay } };
