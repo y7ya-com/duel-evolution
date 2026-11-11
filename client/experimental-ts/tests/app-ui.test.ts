@@ -68,9 +68,12 @@ describe('actual ClientApp mounted through semantic UI', () => {
     const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:deck')).toBe(true); await flush();
     // main's deck screen (htmlui/deck-scene.ts): the Fusion Card's trunk row (the second) dragged onto the Main grid
     // goes to the Fusion Deck; then Save (the side menu's second button) and the list's OK over the deck being edited
-    const g = f.mounted.htmlUi.game!;
-    g('down', 800, 88 + 56 + 20); g('move', 600, 300); g('move', 400, 300); g('up', 400, 300); await flush();
-    g('down', 50, 77); g('up', 50, 77); await flush();
+    // deck-dom.ts: the trunk row's element picked up, released on the Main grid's drop zone; the Save Deck button
+    const all = () => (f.mounted.htmlUi.deck() as unknown as { querySelectorAll(s: string): any[] }).querySelectorAll('*');
+    const ev = (type: string) => ({ type, button: 0, clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} });
+    all().find(n => n.dataset.zone === 'trunk' && n.dataset.index === '1' && n.dataset.passcode)!.dispatchEvent(ev('mousedown'));
+    all().find(n => n.dataset.dropZone === 'main')!.dispatchEvent(ev('mouseup')); await flush();
+    all().find(n => n.getAttribute?.('aria-label') === 'Save Deck')!.onclick({}); await flush();
     expect(f.mounted.htmlUi.press('deck-files-ok')).toBe(true); await flush();
     expect(f.api.saveDeck).toHaveBeenCalledWith({ name: 'Starter', main: [1], side: [], extra: [2] }, 'world', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(f.app.getState().deckEditor?.dirty).toBe(false); f.dispose();

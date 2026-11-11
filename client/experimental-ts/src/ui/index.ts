@@ -27,7 +27,7 @@ import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, 
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 import { DeckScene } from './htmlui/deck-scene';
-import type { DeckStage } from './htmlui/deck-stage';
+import { DeckDom } from './htmlui/deck-dom';
 import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
@@ -93,8 +93,8 @@ interface LocalState {
 /** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
  * handlers the DOM's buttons and inputs call. */
 export interface HtmlUiDriver { windows(): WindowSpec[]; press(key: string): boolean; type(key: string, value: string): boolean; enter(key: string): boolean; text(): string;
-  /** The deck editor's mouse in game pixels, as main's canvas would take it (deck-scene.ts). */
-  game(type: 'down' | 'move' | 'up', x: number, y: number): void }
+  /** The deck editor's cards and buttons as DOM (deck-dom.ts), for tests and assistive tools. */
+  deck(): HTMLElement | null }
 export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUiDriver; }
 
 /** A fully disposable view. Networking, game rules and persistence are injected by the controller. */
@@ -167,7 +167,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       delete: index => send({ type: 'socialAction', action: { type: 'deleteMail', index } }) };
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
-  let deckStage: DeckStage | null = null, deckFile: HTMLInputElement | null = null;
+  let deckDom: DeckDom | null = null, deckFile: HTMLInputElement | null = null;
   const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
     notice: message => { local.message = message; requestRender(); },
     pickFile: (accept, then) => {
@@ -231,10 +231,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const discord = discordWire({ ui: htmlUiState, state: () => state, send: command => send(command), rerender: () => showHtml(), search: globalThis.location?.search ?? '' });
   const showHtml = () => {
     askGameTexts(); syncStartScene(); discord.tick();
-    if (!htmlUi || disposed) return;
+    if (disposed) return;
+    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
+    if (!htmlUi) { if (deckDom) { const d = deckScene.stageView(); deckDom.show(buildHtml(), d.detail, d.drag); } return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
-    deckStage?.show(specs, deck.detail, deck.drag);
+    deckDom?.show(specs, deck.detail, deck.drag);
   };
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
   const htmlDriver: HtmlUiDriver = {
@@ -243,10 +245,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     type: (key, value) => { const h = htmlHandler(key); h?.text?.(value); return !!h?.text; },
     enter: key => { const h = htmlHandler(key); h?.enter?.(); return !!h?.enter; },
     text: () => buildHtml().flatMap(s => s.win.controls.flatMap(c => [c.label, c.text, ...(Array.isArray(c.items) ? c.items : [])].filter(v => typeof v === 'string'))).join('\n'),
-    game: (type, x, y) => deckScene.input(type, x, y),
+    deck: () => deckDom?.el ?? null,
   };
   if (typeof document !== 'undefined' && document.body && typeof ResizeObserver === 'function') {
-    void Promise.all([import('./htmlui/layer'), import('./htmlui/deck-stage')]).then(([m, d]) => {
+    void import('./htmlui/layer').then(m => {
       if (disposed) return;
       const art = new URL('/ui/', location.href).href;
       htmlUi = new m.HtmlUiLayer({ art, stage: () => stage, frame: snap => pageMods.frame(snap), chatAvatars: () => {
@@ -256,9 +258,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const r = avatarNodes.get(a.id)!.getBoundingClientRect(); if (!r.width && !r.height) return [];
           return [{ pid: a.id, name: a.name, x: (r.left + r.width / 2 - box.left) / box.width * 1024, y: (r.top - box.top) / box.height * 768 }]; });
       } });
-      deckStage = new d.DeckStage(htmlUi.host, { art, input: (type, x, y) => deckScene.input(type, x, y),
-        ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}),
-        ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
+      if (deckDom) deckDom.dispose();
+      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
       const g = globalThis as { yo2Html?: Record<string, unknown> };
       if (g.yo2Html) {
@@ -966,5 +967,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

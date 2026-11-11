@@ -3,16 +3,17 @@
 // shows it in the detail and picks it up, a release over a grid or the trunk drops it (DeckEntryMain.cpp's drop rules:
 // the rewrite's deckCard / deckReorder), the side buttons open the Load / Save / Structure Deck lists and clear or leave,
 // the tabs switch Main / Fusion. main's own additions run as on main: its trunk search hands the filter to "the game"
-// (Module.yo2KabanFilter), its scroller wheels the trunk, its right-click / double-click moves replay a drag.
+// (Module.yo2KabanFilter), its scroller wheels the trunk. The mouse is the DOM's (deck-dom.ts: the cards and buttons as
+// elements over main's windows, each calling one of the actions below).
 import type { CardView, ClientCommand, ClientView, DeckView, DeckZone } from '../contracts';
 import { deckPlacementReason } from '../helpers';
 import { parseDeckImport, MAX_DECK_IMPORT_BYTES } from '../deck';
 import { deckProblems } from '../extra/deck-check';
 import { Ids, WindowBuilder } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
-import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, deckCardAt, gridIndex, dropZone, sideButtonAt, isFusion, isMonster, raceOf, attrOf, TRUNK_ROWS, ROW_H } from './deck';
+import { deckUi, detailWindow, kabanWindow, deckWindow, fileListWindow, trunkCards, copiesLeft, isFusion, isMonster, raceOf, attrOf, TRUNK_ROWS, SIDE_BUTTONS } from './deck';
 import type { DeckContext, DeckDialog, DeckFrom, DeckUi, FileButton, KabanFilter } from './deck';
-import type { PowerIcons } from './deck-stage';
+import type { PowerIcons } from './deck-dom';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
 import dialogOk from '@htmlui/mock/dialog-ok.json';
@@ -34,11 +35,9 @@ const named = (cs: HtmlControl[], cls: string, label?: string) => cs.find(c => c
 export class DeckScene {
   readonly ui: DeckUi = deckUi();
   private ids = new Ids();
-  private pressed: string | null = null;
   private shownNotice = '';
   private poolKey: unknown = null; private pool: CardView[] = []; private byPc = new Map<number, CardView>(); private order = new Map<number, number>();
   private trunkKey = ''; private trunk: CardView[] = [];
-  private lastDeck: DeckWindowCache | null = null;
 
   constructor(private o: DeckSceneOptions) {
     // main's search panel hands its filter to the game: here, to the trunk list
@@ -80,7 +79,6 @@ export class DeckScene {
     // the trunk wheels a line a notch (main's scroller: api.wheel on the list)
     const list = kaban.win.controls.find(c => c.cls === 'CWindowTaskKabanList');
     if (list) kaban.handlers.set(list.id, { hover: false, wheel: d => { this.scroll(d > 0 ? 1 : -1); } });
-    this.lastDeck = { deck: deckW };
     const out = [detailWindow(ctx), kaban, deckW];
     const files = this.filesWindow(view); if (files) out.push(files);
     const dialog = this.dialogWindow(); if (dialog) out.push(dialog);
@@ -98,49 +96,54 @@ export class DeckScene {
     if (top !== this.ui.top) { this.ui.top = top; this.o.rerender(); }
   }
 
-  // ---------------------------------------------------------------- the mouse (the engine's, on main's canvas)
-  input(type: 'down' | 'move' | 'up', x: number, y: number): void {
-    const ui = this.ui, view = this.o.state(), deck = view.deckEditor?.current ?? null;
-    if (view.scene !== 'deck') return;
-    this.refresh(view);   // the trunk as listed now, even before the first draw
-    if (type === 'move') {
-      const hover = (p: [number, number] | null) => p && sideButtonAt(p[0], p[1]);
-      const was = hover(ui.mouse); ui.mouse = [x, y];
-      if (ui.drag) {
-        ui.drag.at = [x, y];
-        if (!ui.drag.moved && Math.hypot(x - ui.drag.start[0], y - ui.drag.start[1]) > 4) ui.drag.moved = true;
-        if (ui.drag.moved) this.o.rerender();
-      } else if (hover(ui.mouse) !== was) this.o.rerender();
-      return;
-    }
-    if (ui.files || ui.dialog) return;   // the lists and dialogs take the mouse themselves (modal)
-    if (type === 'down') {
-      ui.mouse = [x, y];
-      const side = sideButtonAt(x, y); if (side) { this.pressed = side; return; }
-      if (y >= 56 && y < 84 && x >= 256 && x < 642) { const next = x < 450 ? 'main' : 'extra'; if (ui.view !== next) { ui.view = next; this.o.rerender(); } return; }
-      const top = ui.detail === 2 ? 711 : 175;
-      if (x >= 229 && x < 245 && y >= top && y < top + 24) { ui.detail = ui.detail === 0 ? 2 : 0; this.o.rerender(); return; }
-      // a trunk row (the list 744, 88: 11 rows of 256 x 56)
-      if (x >= 744 && x < 1000 && y >= 88 && y < 88 + TRUNK_ROWS * ROW_H) {
-        const c = this.trunk[ui.top + Math.floor((y - 88) / ROW_H)];
-        if (c?.passcode !== undefined) { ui.shown = c.passcode; ui.drag = { passcode: c.passcode, from: 'trunk', index: -1, at: [x, y], start: [x, y], moved: false }; this.o.rerender(); }
-        return;
-      }
-      const deckWin = this.lastDeck?.deck.win, hit = deckWin && deckCardAt(deckWin, x, y);
-      if (hit) { ui.shown = hit.passcode; ui.drag = { passcode: hit.passcode, from: hit.zone, index: hit.index, at: [x, y], start: [x, y], moved: false }; this.o.rerender(); }
-      return;
-    }
-    // up
-    const side = this.pressed; this.pressed = null;
-    if (side) { if (sideButtonAt(x, y) === side) this.side(side, view); return; }
-    const d = ui.drag; ui.drag = null;
-    if (!d) return;
-    if (d.moved || dropZone(ui.view, x, y) !== d.from) this.drop(d.passcode, d.from, d.index, dropZone(ui.view, x, y), x, y, deck);
+  // ---------------------------------------------------------------- the editor's actions (deck-dom.ts: the DOM's mouse)
+  private live(): { view: ClientView; deck: DeckView | null } | null {
+    const view = this.o.state(); if (view.scene !== 'deck' || this.ui.files || this.ui.dialog) return null;   // the lists and dialogs are modal
+    this.refresh(view); return { view, deck: view.deckEditor?.current ?? null };
+  }
+  /** A press on a trunk row (index: the trunk's, -1 for a row) or a deck card: shows it in the detail and picks it up. */
+  pick(from: DeckFrom, index: number, passcode: number, at: [number, number]): void {
+    if (!this.live() || !(passcode > 0)) return;
+    this.ui.shown = passcode; this.ui.drag = { passcode, from, index: from === 'trunk' ? -1 : index, at, start: at, moved: false }; this.o.rerender();
+  }
+  /** The pointer while a card is held (game pixels: where the dragged card is drawn). */
+  dragTo(at: [number, number]): void {
+    const d = this.ui.drag; if (!d) return;
+    d.at = at;
+    if (!d.moved && Math.hypot(at[0] - d.start[0], at[1] - d.start[1]) > 4) d.moved = true;
+    if (d.moved) this.o.rerender();
+  }
+  /** The held card let go over a zone (null: nowhere), on the card at `index` of it (null: the zone's free space). */
+  dropOn(to: DeckFrom | null, index: number | null): void {
+    const d = this.ui.drag; this.ui.drag = null; if (!d) return;
+    const live = this.live();
+    if (live && (d.moved || to !== d.from || index !== null && index !== d.index)) this.drop(d.passcode, d.from, d.index, to, index, live.deck);
     this.o.rerender();
   }
+  /** A double-click / right-click move (main's quick move): a trunk card into the deck, a deck card back to the trunk. */
+  quick(from: DeckFrom, index: number, passcode: number): void {
+    const live = this.live(); if (!live || !(passcode > 0)) return;
+    this.ui.shown = passcode; this.ui.drag = null;
+    if (from === 'trunk') this.drop(passcode, 'trunk', -1, this.ui.view === 'extra' ? 'extra' : 'main', null, live.deck);
+    else this.drop(passcode, from, index, 'trunk', null, live.deck);
+    this.o.rerender();
+  }
+  /** The scene's side buttons (Load, Save, Structure Deck, Clear, Exit). */
+  sideButton(button: string): void { const live = this.live(); if (live) this.side(button, live.view); }
+  /** The deck panel's Main / Fusion tabs. */
+  tab(view: 'main' | 'extra'): void { if (this.live() && this.ui.view !== view) { this.ui.view = view; this.o.rerender(); } }
+  /** The detail's collapse arrow. */
+  toggleDetail(): void { if (this.live()) { this.ui.detail = this.ui.detail === 0 ? 2 : 0; this.o.rerender(); } }
+  /** The hovered side button (its look, main's backdrop), null: none. */
+  hover(button: string | null): void {
+    const i = button ? SIDE_BUTTONS.indexOf(button as typeof SIDE_BUTTONS[number]) : -1, at: [number, number] | null = i < 0 ? null : [88, 40 + 27 * i + 13];
+    if (JSON.stringify(at) !== JSON.stringify(this.ui.mouse)) { this.ui.mouse = at; this.o.rerender(); }
+  }
+  /** The trunk's wheel (a line a notch). */
+  wheel(lines: number): void { if (this.live()) this.scroll(lines); }
   // DeckEntryMain.cpp's end of a drag: a trunk card onto a grid (a Fusion monster goes to the Fusion Deck), a deck card
-  // back to the trunk, between Main and Side, or to another place in its grid
-  private drop(pc: number, from: DeckFrom, index: number, to: DeckFrom | null, x: number, y: number, deck: DeckView | null): void {
+  // back to the trunk, between Main and Side, or to another place in its grid (the card dropped on, else the end)
+  private drop(pc: number, from: DeckFrom, index: number, to: DeckFrom | null, at: number | null, deck: DeckView | null): void {
     if (!to || !deck) return;
     const c = this.card(pc);
     if (from === 'trunk') {
@@ -154,8 +157,8 @@ export class DeckScene {
     }
     if (to === 'trunk') { this.o.send({ type: 'deckCard', passcode: pc, from, to: 'collection', index }); return; }
     if (to === from) {
-      const at = gridIndex(from, deck[from].length, x, y);
-      if (at !== index) this.o.send({ type: 'deckReorder', zone: from, fromIndex: index, toIndex: at });
+      const n = deck[from].length, target = Math.max(0, Math.min(n - 1, at ?? n - 1));
+      if (target !== index) this.o.send({ type: 'deckReorder', zone: from, fromIndex: index, toIndex: target });
       return;
     }
     if (from === 'extra' || to === 'extra') return this.refuse(from === 'extra' ? 'Fusion cards stay in the Fusion Deck.' : 'This card belongs in the Main or Side Deck.');
@@ -286,4 +289,3 @@ export class DeckScene {
 }
 export interface DeckInspection { deck: string; decks: string[]; dirty: boolean; view: 'main' | 'extra'; top: number; main: string[]; side: string[]; extra: string[];
   trunk: { passcode: number; name: string; owned: number; left: number }[]; shown: string; files: string | null; dialog: string | null; recipes: string[] }
-interface DeckWindowCache { deck: WindowSpec }
