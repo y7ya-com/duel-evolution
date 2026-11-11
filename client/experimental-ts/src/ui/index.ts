@@ -162,7 +162,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
       { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
       // Change Avatar (main's screens/avatar.js, htmlui/avatar.ts) on the player's own look; cosmetic items are main's Wardrobe's
-      ...(state.mode !== 'free' && state.online ? [{ label: 'Change Avatar', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openChangeAvatar(); } }] : []),
+      ...(state.mode !== 'free' && !!state.player && state.connection === 'online' ? [{ label: 'Change Avatar', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openChangeAvatar(); } }] : []),
     ];
     return [];
   };
