@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { exitDeckEditor } from './harness';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page, createCharacter, freeSlot, lobbyShown } from './harness';
 
 const pressed = (code:string) => `document.querySelector('[data-key="language:${code}"]')?.getAttribute('aria-pressed')==='true'`;
-const collectionNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].slice(0,40).map(b=>b.dataset.key.slice(16)+'='+b.title.split(' · ')[0])`) as Promise<string[]>;
+/** The deck screen's trunk (main's CWindowModelKaban, deck-dom.ts): passcode=name of its first cards. */
+const collectionNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-zone="trunk"][data-passcode]')].slice(0,40).map(b=>b.dataset.passcode+'='+b.getAttribute('aria-label'))`) as Promise<string[]>;
 /** A shop pack's name and description (the original English names are "Pack n"; descriptions carry the wording). */
 const shopNames = (page:Page) => page.ev(`[...document.querySelectorAll('.de-shop-item')].slice(0,12).map(a=>a.querySelector('h3').textContent+': '+([...a.querySelectorAll('p')].map(p=>p.textContent).join(' ').trim()))`) as Promise<string[]>;
 const stored = (page:Page) => page.ev(`JSON.parse(localStorage.getItem('de-client-settings-v1')??'{}')`) as Promise<Record<string,unknown>>;
@@ -11,7 +13,9 @@ async function key(page:Page,key:string,code = key,keyCode = 0) {
   await page.send('Input.dispatchKeyEvent',{ type:'keyDown',key,code,windowsVirtualKeyCode:keyCode });
   await page.send('Input.dispatchKeyEvent',{ type:'keyUp',key,code,windowsVirtualKeyCode:keyCode });
 }
-async function openDeck(page:Page) { await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-key^="collection-card:"]').length>0`,60000); await sleep(400); }
+async function openDeck(page:Page) { await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`,60000); await sleep(400); }
+/** Edit Deck, the trunk's first card names, EXIT back to the lobby (main's deck screen leaves through its EXIT). */
+async function trunkNames(page:Page) { await openDeck(page); const names = await collectionNames(page); await exitDeckEditor(page); return names; }
 async function openShop(page:Page) { await click(page,'Shop'); await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,60000); await sleep(800); }
 async function choose(page:Page,code:string) {
   await click(page,'Options'); await until(page,byKey(`language:${code}`),30000);
@@ -54,7 +58,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       const page = await openPage(); await openClient(page,await signIn(`TestSe${RUN}`));
       await enterWorld(page,`Set ${RUN}`);
       // settings.language-screen: the original Options' seven languages; English card and pack names first.
-      await openDeck(page); const english = await collectionNames(page);
+      const english = await trunkNames(page);
       await openShop(page); const englishPacks = await shopNames(page);
       await click(page,'Options'); await until(page,byKey('options-language'),30000);
       const offered = await page.ev(`[...document.querySelectorAll('[data-key^="language:"]')].map(b=>b.textContent)`) as string[];
@@ -64,7 +68,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await until(page,pressed('G'),90000);
       expect(await page.ev(`document.querySelector('[data-key="options-language"] .de-error')`)).toBe(null);
       await screenshot(page,'settings-language-de');
-      await openDeck(page); const german = await collectionNames(page);
+      const german = await trunkNames(page);
       const changed = german.filter((g,i) => g !== english[i]).length;
       expect(german.length).toBe(english.length);
       expect(changed).toBeGreaterThan(english.length / 2);
@@ -72,7 +76,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(germanPacks.filter((p,i) => p !== englishPacks[i]).length,JSON.stringify([englishPacks,germanPacks])).toBeGreaterThan(0);
       // Japanese: a different script and code page.
       await choose(page,'J'); await until(page,pressed('J'),90000);
-      await openDeck(page); const japanese = await collectionNames(page);
+      const japanese = await trunkNames(page);
       expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
       await openShop(page); const japanesePacks = await shopNames(page);
       expect(japanesePacks.some(n => /[぀-ヿ一-鿿＀-￯]/.test(n))).toBe(true);
@@ -87,7 +91,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await page.send('Network.setBlockedURLs',{ urls:[] });
       await press(page,byKey('language:F')); await until(page,pressed('F'),90000);
       expect(await page.ev(`document.querySelector('[data-key="options-language"] .de-error')`)).toBe(null);
-      await openDeck(page); const french = await collectionNames(page);
+      const french = await trunkNames(page);
       expect(french.filter((f,i) => f !== english[i] && f !== german[i]).length).toBeGreaterThan(english.length / 3);
 
       // Fullscreen: a refused request explains itself and a later click enters and leaves fullscreen.
