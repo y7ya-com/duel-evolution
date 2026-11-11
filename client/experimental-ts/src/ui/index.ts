@@ -878,10 +878,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
       panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
     }
-    if (duel.ended && !htmlUi) {
+    // A spectator is neither side: the result names the winner instead of Victory/Defeat.
+    const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
+    if (endedText && htmlUi) {
+      // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
+      const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
+    } else if (duel.ended && !htmlUi) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
-      // A spectator is neither side: the banner names the winner instead of Victory/Defeat.
-      const ended = duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended;
+      const ended = endedText as string;
       const kind = ended === 'Victory' ? 'win' : ended === 'Defeat' ? 'lose' : ended === 'Draw' ? 'drow' : null;
       const banner = el('div', 'de-duel-end', el('strong', 'de-duel-end-text', ended)); banner.setAttribute('role', 'status'); banner.setAttribute('aria-label', ended);
       if (kind && controller.loadArchiveImage) for (const layer of ['m02', 'm01']) {

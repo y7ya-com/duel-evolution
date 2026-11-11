@@ -136,6 +136,12 @@ export async function playBoth(a:Page,b:Page,options:{ stop?:(turn:number) => bo
 export async function backToLobby(page:Page) {
   await click(page,'Return to Lobby',60000);
   await until(page,inLobby,60000);
-  await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&!b.disabled)`,30000);
+  await createDuelOffered(page);
+}
+/** The lobby is usable: the bar's Duel key opens main's Duel menu with Create Duel enabled (then its Cancel). */
+export async function createDuelOffered(page:Page) {
+  await until(page,byKey('menubar-duel'),30000); await press(page,byKey('menubar-duel'));
+  await until(page,`${byKey('duel-create')}&&!${byKey('duel-create')}.disabled`,30000);
+  await press(page,byKey('duel-cancel')); await until(page,`!${byKey('duel-create')}`,10000);
 }
 export { byKey };

@@ -13,7 +13,7 @@ import chat from '@htmlui/screens/chat.js';
 import lobby from '@htmlui/screens/lobby.js';
 import social from '@htmlui/screens/social.js';
 import dialog from '@htmlui/screens/dialog.js';
-import duelsetup from '@htmlui/screens/duelsetup.js';
+import duelsetup, { prep as duelsetupPrep } from '@htmlui/screens/duelsetup.js';
 import deck from '@htmlui/screens/deck.js';
 import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
@@ -32,6 +32,7 @@ import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './sn
 const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel, avatar, result];
 // no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts);
 // Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
+const RELAID = new Set(['CWindowModelDuel', 'CWindowModelDuelFind', 'CWindowModelDuelWait']);   // duelsetup.js LAYOUT
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
@@ -40,7 +41,7 @@ const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBa
 // result.js (pass mode on main) replaces its Next plate on each look too: Return to Lobby is clicked on release
 const DECK_PANELS = /^(CWindowModelDeck|CWindowModelKaban|CCardDetailViewDlg)$/;
 const DUEL_DIALOGS = new Set([...duel.classes, ...result.classes]);
-const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/.test(cls) || DUEL_DIALOGS.has(cls) };
+const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$|CWindowResultNext$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box
@@ -216,6 +217,11 @@ export class HtmlUiLayer {
     }
     return 0;
   }
+  private listAt(t: EventTarget | null, id: number): HTMLElement | null {
+    for (let el = t instanceof Element ? t : null; el && el !== this.host; el = el.parentElement)
+      if (el instanceof HTMLElement && el.getAttribute('role') === 'list' && this.elementIds.get(el) === id) return this.handlers.get(id)?.click ? el : null;
+    return null;
+  }
   private looks(id: number): boolean {
     const win = id ? this.specs.find(s => s.handlers.has(id))?.win : undefined;
     return !!win && this.declared.get(win.cls) !== 'owned';
@@ -262,6 +268,23 @@ export class HtmlUiLayer {
   private onClick = (e: MouseEvent): void => {
     if (this.clicked || this.released) return;
     const id = this.control(e.target);
+    // a row of a native-scroller list (ownList): the engine's list took the click at its game point (the row under
+    // it); main's owned screens leave the scroller's clicks alone, so the list's control is clicked there
+    const list = id ? this.listAt(e.target, id) : null;
+    if (list) { const r = this.host.getBoundingClientRect(); void this.api.click(id, [(e.clientX - r.left) / this.scale, (e.clientY - r.top) / this.scale + list.scrollTop]); return; }
+    // a clickable text (a file list's row, CWindowTaskText): main draws it as text the pointer passes through, so the
+    // click lands on its window; the text under the pointer takes it, as the engine's hit test gave it
+    if (!id) {
+      const r = this.host.getBoundingClientRect(), x = (e.clientX - r.left) / this.scale, y = (e.clientY - r.top) / this.scale;
+      for (const spec of [...this.specs].reverse()) {
+        const w = spec.win;
+        if (x < w.x || y < w.y || x >= w.x + w.w || y >= w.y + w.h) continue;
+        const t = w.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
+        if (t) void this.api.click(t.id);
+        break;
+      }
+      return;
+    }
     if (!id || !this.handlers.get(id)?.click || !this.looks(id)) return;
     void this.api.click(id);
   };
@@ -291,23 +314,30 @@ export class HtmlUiLayer {
   }
   private tag(win: HtmlWindow, root: HTMLElement): void {
     const spec = this.specs.find(s => s.win.id === win.id); if (!spec) return;
+    // a window main's module lays out again (duelsetup.js relayout / tagRow: the Duel menu's switches on its own grid,
+    // Cancel a row lower): its controls' elements are where the module draws them, not at their places in the window
+    const placed = new Map(RELAID.has(win.cls) ? duelsetupPrep(win).controls.map(c => [c.id, c]) : []);
     const rr = root.getBoundingClientRect(), k = this.scale;
-    const els = [...root.querySelectorAll<HTMLElement>('button, input, textarea, [role="log"]')].map(el => {
+    const els = [...root.querySelectorAll<HTMLElement>('button, input, textarea, [role="log"], [role="list"]')].map(el => {
       const r = el.getBoundingClientRect();
       return { el, x: (r.left + r.width / 2 - rr.left) / k, y: (r.top + r.height / 2 - rr.top) / k, area: r.width * r.height };
     }).filter(e => e.area > 0);
     const now = new Set<HTMLElement>();
     for (const c of win.controls) {
       const h = spec.handlers.get(c.id); if (!h || !c.shown) continue;   // a hidden control's element keeps no key
+      // a part of a container (Write Mail's text: its Input inside the MultiInput, at 0, 0 of it) is drawn inside it
+      const up = c.parent ? win.controls.find(k => k.id === c.parent && /MultiInput$/.test(k.cls)) : undefined;
+      const p = placed.get(c.id) ?? (up ? { x: up.x + c.x, y: up.y + c.y, w: c.w, h: c.h } : c);
       const input = !!(h.text || h.enter);
       // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
       const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
       const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
-      // a button main's screen moved (duelsetup.js: the Duel menu's Cancel under its Tag Duel row): the one button there
-      // with the control's words
-      const named = () => { const l = plain(String(c.label ?? '')), m = l && !input ? els.filter(e => e.el.tagName === 'BUTTON' && (plain(e.el.textContent ?? '') === l || plain(e.el.getAttribute('aria-label') ?? '') === l)) : []; return m.length === 1 ? m[0]!.el : undefined; };
-      const at = tab ?? els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
-        e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el ?? named();
+      // a list main's chat.js draws as a native scroller (ownList: role="list"), as the Friend / Team / Ignore Lists'
+      const list = c.cls === 'CWindowTaskListbox';
+      // a button main's screen moved and the layout does not say where: the one button there with the control's words
+      const named = () => { const l = plain(String(c.label ?? '')), m = l && !input && !list ? els.filter(e => e.el.tagName === 'BUTTON' && (plain(e.el.textContent ?? '') === l || plain(e.el.getAttribute('aria-label') ?? '') === l)) : []; return m.length === 1 ? m[0]!.el : undefined; };
+      const at = tab ?? els.filter(e => (list ? e.el.getAttribute('role') === 'list' : input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
+        e.x >= p.x && e.x < p.x + p.w && e.y >= p.y && e.y < p.y + p.h).sort((a, b) => a.area - b.area)[0]?.el ?? named();
       if (!at) continue;
       this.elementIds.set(at, c.id);
       // a pass-mode screen's button (tabIndex -1: the game had the keys) is a real one here: focusable, Enter / Space

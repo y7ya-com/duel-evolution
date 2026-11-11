@@ -48,6 +48,11 @@ declare module '@htmlui/screens/deck.js' {
   /** The deck scene's brushed-metal ground (CDeckScene's deck_bg_01 as CSS): Card Swap's too. */
   export function deckBackdrop(el: HTMLElement): HTMLElement;
 }
+declare module '@htmlui/screens/duelsetup.js' {
+  const screen: HtmlUiScreen; export default screen;
+  /** The window as the module draws it: the lobby's duel windows relaid out (the same controls, moved: relayout, tagRow). */
+  export function prep(win: unknown): { controls: { id: number | string; x: number; y: number; w: number; h: number }[] };
+}
 declare module '@htmlui/screens/*.js' { const screen: HtmlUiScreen; export default screen; }
 declare module '@htmlui/mock/*.json' {
   const snapshot: { windows: { cls: string; x: number; y: number; w: number; h: number; controls: Record<string, unknown>[] }[] };

@@ -17,7 +17,7 @@ async function find(page:Page,name:string) {
     await type(page,input,name);
     await until(page,`${input}?.value===${JSON.stringify(name)}`,5000);
     await press(page,`document.querySelector('[data-key="find-search"]')`);
-    try { await until(page,`document.querySelector('[data-cls="CWindowModelFriendEnum"], .yo2-win')?.closest('body')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
+    try { await until(page,`document.querySelector('.win[data-window-class="CWindowModelFriendEnum"]')?.innerText.includes(${JSON.stringify(`${name} (ID `)})`,8000); return; } catch { await sleep(500); }
   }
   throw new Error(`Could not find ${name}`);
 }
@@ -85,47 +85,71 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await sleep(1500);
       expect((await chatLines(c)).some(l => l.includes(`psst ${RUN}`))).toBe(false);
       record('social.chat',{ actions:'Global message from A; whisper A→B with C present', expected:'Channel, ordering and duplicate suppression respected', observed:'global line shown exactly once to B and C; whisper shown to B, never to C' });
-      // social.friends: A finds B by name and adds; B accepts; both see each other online after a refresh.
+      // social.friends: A finds B by name in Find a Player and adds; B accepts the invitation there; A's Friend List shows B online.
       await social(a); await find(a,names.b);
-      await press(a,`document.querySelector('[data-key="find-friend"]')`);
+      await press(a,byKey('find-friend'));
       await social(b); await until(b,`document.querySelector('[data-key^="find-offer:"]')?.textContent.includes(${JSON.stringify(names.a)})`,30000);
-      await press(b,`(document.querySelector('[data-key^="find-offer:"]')?.click(), document.querySelector('[data-key="find-accept"]'))`);
-      await click(a,'Return to Lobby'); await social(a);
-      await until(a,`[...document.querySelectorAll('.de-social-friends .de-social-row')].some(r=>r.textContent.includes(${JSON.stringify(names.b)})&&r.querySelector('.de-presence.online'))`,30000);
+      await press(b,`document.querySelector('[data-key^="find-offer:"]')`);
+      await until(b,`!${byKey('find-accept')}?.disabled`,10000); await press(b,byKey('find-accept'));
+      await press(a,byKey('find-close')); await press(b,byKey('find-close'));
+      const friendList = (name:string) => `[...document.querySelectorAll('.win[data-window-class="CWindowModelFriendlist"] .row')].find(r=>r.textContent.includes(${JSON.stringify(name)}))`;
+      for (let i = 0; i < 6; i++) {
+        await click(a,'Friend List');
+        try { await until(a,`${friendList(names.b)}&&!/Offline/.test(${friendList(names.b)}.textContent)`,8000); break; }
+        catch (e) { if (i === 5) throw e; await press(a,byKey('list-close')); await sleep(2000); }
+      }
       await screenshot(a,'social-friends');
-      record('social.friends',{ actions:'Find by name, Add friend, accept on the other side, reopen the list', expected:'Friend list, online state and invitations persist', observed:`${names.b} listed online in A's friends after accepting` });
-      // social.mail: A mails B from the friend row; B refreshes and reads it.
-      await press(a,`[...[...document.querySelectorAll('.de-social-friends .de-social-row')].find(r=>r.textContent.includes(${JSON.stringify(names.b)}))?.querySelectorAll('button') ?? []].find(b=>b.textContent==='Mail')`);
-      await until(a,`document.body.innerText.includes(${JSON.stringify(`New mail to ${names.b}`)})`,10000);
-      await type(a,`document.querySelector('[data-key="social-Subject"]')`,`Note ${RUN}`);
-      await type(a,`document.querySelector('[data-key="social-Message"]')`,'Duel me later.');
-      await press(a,`[...document.querySelectorAll('.de-mail-compose button')].find(b=>b.textContent==='Send mail')`);
-      await press(a,`[...document.querySelectorAll('.de-mail-compose button')].find(b=>b.textContent==='Confirm')`);
-      await sleep(1500);
-      await click(b,'Refresh mailbox');
-      await until(b,`[...document.querySelectorAll('.de-mail-item summary')].some(s=>s.textContent.includes('Note ${RUN}'))`,30000);
-      record('social.mail',{ actions:"Mail from the friend row; recipient refreshes the mailbox", expected:'Send, list and read supported mail; empty state shown', observed:`B received "Note ${RUN}" from ${names.a}; empty mailbox reads "Your mailbox is empty."` });
-      // social.teams: A creates a team, invites B by name; B joins; team chat reaches B.
-      await type(a,`document.querySelector('[data-key="social-Team name"]')`,`T${RUN}`);
-      await press(a,`[...document.querySelectorAll('.de-social-team button')].find(b=>b.textContent==='Create team')`);
-      await until(a,`document.querySelector('.de-team-name')?.textContent.includes('T${RUN}')`,30000);
-      await find(a,names.b);
-      await press(a,`document.querySelector('[data-key="find-team"]')`);
-      await until(b,`[...document.querySelectorAll('.de-social-team button')].some(b=>b.textContent==='Join team')`,30000);
-      await press(b,`[...document.querySelectorAll('.de-social-team button')].find(b=>b.textContent==='Join team')`);
-      await until(b,`document.querySelector('.de-team-name')?.textContent.includes('T${RUN}')`,30000);
-      await click(a,'Refresh team');
-      await until(a,`[...document.querySelectorAll('.de-social-team .de-social-row')].some(r=>r.textContent.includes(${JSON.stringify(names.b)}))`,30000);
-      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
+      record('social.friends',{ actions:'Find a Player by name, Add to Friend List, accept the invitation in the other\'s Find a Player, open the Friend List', expected:'Friend list, online state and invitations persist', observed:`${names.b} listed online (not Offline) in A's Friend List after accepting` });
+      // social.mail: A picks B's row in the Friend List, Friend Options -> Send D-mail; B opens D-Mail and reads it.
+      await press(a,friendList(names.b));
+      await until(a,`${byKey('list-find')}?.textContent.includes('Friend Options')`,10000); await press(a,byKey('list-find'));
+      await until(a,`!${byKey('find-mail')}?.disabled`,10000); await press(a,byKey('find-mail'));
+      await until(a,`document.body.innerText.includes(${JSON.stringify(names.b)})&&${byKey('compose-subject')}`,10000);
+      await type(a,byKey('compose-subject'),`Note ${RUN}`);
+      await type(a,byKey('compose-body'),'Duel me later.');
+      await until(a,`!${byKey('compose-send')}?.disabled`,10000); await press(a,byKey('compose-send'));
+      await until(a,`!${byKey('compose-send')}`,10000);
+      const mailRow = `[...document.querySelectorAll('[data-key^="mail-row:"]')].some(r=>r.textContent.includes('Note ${RUN}'))`;
+      for (let i = 0; i < 6; i++) {
+        await click(b,'D-Mail');
+        try { await until(b,mailRow,8000); break; } catch (e) { if (i === 5) throw e; await press(b,byKey('mail-close')); await sleep(2000); }
+      }
+      await press(b,byKey('mail-close'));
+      record('social.mail',{ actions:"Friend List row -> Friend Options -> Send D-mail; recipient opens D-Mail", expected:'Send, list and read supported mail; empty state shown', observed:`B's D-Mail listed "Note ${RUN}" from ${names.a}` });
+      // social.teams: A forms a team (Team List -> Form Team, the name prompt), invites B from Find a Player; B accepts there; team chat reaches B.
+      await click(a,'Team List');
+      await until(a,byKey('team-form'),10000); await press(a,byKey('team-form'));
+      await until(a,byKey('team-name'),10000); await type(a,byKey('team-name'),`T${RUN}`);
+      await until(a,`!${byKey('team-name-ok')}?.disabled`,5000); await press(a,byKey('team-name-ok'));
+      await until(a,`document.body.innerText.includes('Team List: T${RUN}')`,30000);
+      await press(a,byKey('list-close'));
+      await social(a); await find(a,names.b);
+      await until(a,`!${byKey('find-team')}?.disabled`,10000); await press(a,byKey('find-team'));
+      await press(a,byKey('find-close'));
+      for (let i = 0; i < 6; i++) {
+        await social(b);
+        try { await until(b,`document.querySelector('[data-key^="find-teaminvite:"]')`,8000); break; } catch (e) { if (i === 5) throw e; await press(b,byKey('find-close')); await sleep(2000); }
+      }
+      await press(b,`document.querySelector('[data-key^="find-teaminvite:"]')`);
+      await until(b,`!${byKey('find-accept')}?.disabled`,10000); await press(b,byKey('find-accept'));
+      await press(b,byKey('find-close'));
+      const teamHas = (name:string) => `[...document.querySelectorAll('.win[data-window-class="CWindowModelTeamlist"] .row')].some(r=>r.textContent.includes(${JSON.stringify(name)}))`;
+      for (const [p,other] of [[b,names.a],[a,names.b]] as const) for (let i = 0; i < 6; i++) {
+        await click(p,'Team List');
+        try { await until(p,`document.body.innerText.includes('Team List: T${RUN}')&&${teamHas(other)}`,8000); await press(p,byKey('list-close')); break; }
+        catch (e) { if (i === 5) throw e; await press(p,byKey('list-close')); await sleep(2000); }
+      }
       await chat(a,'team',`team ${RUN}`);
       await until(b,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes('team ${RUN}'))`,20000);
       await sleep(1000); expect((await chatLines(c)).some(l => l.includes(`team ${RUN}`))).toBe(false);
-      record('social.teams',{ actions:'Create team, invite by name, join, team chat', expected:'Membership, presence and team-chat permissions correct', observed:`B joined T${RUN}; A's member list shows B; team chat reached B, not C` });
+      record('social.teams',{ actions:'Create team, invite by name, join, team chat', expected:'Membership, presence and team-chat permissions correct', observed:`B joined T${RUN} from its invitation; both Team Lists show the other; team chat reached B, not C` });
       // social.ignore + chat-policy: B ignores A; A's global messages no longer reach B; unignore restores them.
       await social(b); await find(b,names.a);
-      await press(b,`document.querySelector('[data-key="find-ignore"]')`);
-      await until(b,`document.querySelector('.de-social-ignored')`,20000);
-      await click(b,'Return to Lobby');
+      await until(b,`!${byKey('find-ignore')}?.disabled`,10000); await press(b,byKey('find-ignore'));
+      await until(b,`${byKey('find-ignore')}?.disabled`,20000); await press(b,byKey('find-close'));
+      await click(b,'Ignore List');
+      await until(b,`[...document.querySelectorAll('.win[data-window-class="CWindowModelBlacklist"] .row')].some(r=>r.textContent.includes(${JSON.stringify(names.a)}))`,20000);
+      await press(b,byKey('list-close'));
       await chat(a,'global',`ignored ${RUN}`);
       await until(c,`[...document.querySelectorAll('#htmlui-host [role="log"] > div')].some(l=>l.textContent.includes('ignored ${RUN}'))`,20000);
       await sleep(1500);
@@ -134,15 +158,17 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       const maxLength = await a.ev(`document.querySelector('[data-key="chat"]').maxLength`) as number;
       record('social.chat-policy',{ actions:'Chat length limit and ignore applied', expected:'Limits and ignore handled without leaking private messages', observed:`message box limited to ${maxLength} characters; ignored sender hidden; whispers never shown to third parties` });
       // lobby.rooms: A moves to another area; B (left behind) no longer sees A; A's NPC/room lists refresh.
-      const options = await a.ev(`[...document.querySelectorAll('[data-key="lobby-area"] option')].map(o=>o.value).filter(Boolean)`) as string[];
+      // the bar's Move list (main's CWindowModelMove): a row per area, "Name[kind]  people/32"
       const current = await a.ev(placeName) as string;
-      const target = options.find(v => !current.includes(`Area ${v.split('/')[0]}`)) ?? options[0]!;
-      await a.ev(`(()=>{const s=document.querySelector('[data-key="lobby-area"]');s.value=${JSON.stringify(target)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await press(a,byKey('menubar-move')); await until(a,`document.querySelector('[data-key^="move-area:"]')`,10000);
+      const rows = await a.ev(`[...document.querySelectorAll('[data-key^="move-area:"]')].map(b=>[b.dataset.key,b.getAttribute('aria-label')??b.textContent])`) as [string,string][];
+      const target = rows.find(([,l]) => !current.includes(l.split('[')[0]!.trim())) ?? rows[0]!;
+      await press(a,byKey(target[0]));
       await until(a,`(${placeName})!==${JSON.stringify(current)}`,30000);
       await until(b,`${avatarCount(names.a)}===0`,30000);
       const moved = await a.ev(placeName) as string;
       record('lobby.rooms',{ actions:'Choose another area from the area list', expected:'Change rooms and refresh player and NPC lists', observed:`A moved ${current} → ${moved}; A vanished from B's area` });
-      record('lobby.enter',{ actions:'Enter the world; leave for other screens and return', expected:'Correct world, room, occupants; no stale listeners', observed:`entered ${area}; after Friends & Mail and back each player appears once` });
+      record('lobby.enter',{ actions:'Enter the world; leave for other screens and return', expected:'Correct world, room, occupants; no stale listeners', observed:`entered ${area}; after the Find a Player, Friend List, D-Mail and Team List windows each player appears once` });
       c.close();
       await until(b,`${avatarCount(names.c)}===0`,60000);
     } finally { closeAll(); }
