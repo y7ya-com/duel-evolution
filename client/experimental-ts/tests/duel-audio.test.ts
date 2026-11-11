@@ -94,9 +94,11 @@ describe('source-backed duel sound cues', () => {
     expect(audio.consumeSample(sample(1))).toEqual([]); audio.enqueue(b, next(b, event('1a'))); expect(audio.pendingCues).toBe(0);
   });
   it('keeps unsupported sound associations silent instead of inferring paths from command names', () => {
-    const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event('12'), event('13'), event('55'));
+    // Chain resolution (0x13) and draw (0x55) have no source-verified sound yet.
+    const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event('13'), event('55'));
     audio.enqueue(a, b); expect(audio.consumeSample(sample(1))).toEqual([]);
-    expect(Object.keys(DUEL_SOUND_EVIDENCE)).toEqual(['attack', 'impact', 'summon', 'damage', 'recover', 'turn', 'battlePhase']);
+    expect(Object.keys(DUEL_SOUND_EVIDENCE)).toEqual(['attack', 'impact', 'summon', 'damage', 'recover', 'turn', 'battlePhase',
+      'destroy', 'battleDestroy', 'tribute', 'activate', 'chain', 'coin', 'dice']);
     expect(() => new DuelAudioDirector(0, { maxQueuedCues: 0 })).toThrow();
   });
   it('plays a battle gauge sound once, suppresses its matching LP completion, and retains later cost/recovery cues', () => {
@@ -141,5 +143,38 @@ describe.skipIf(!existsSync(exePath))('private original executable static sound 
     expect(target(0x73e25e)).toBe(0x408364); expect(target(0x408364)).toBe(0x7d46c0);
     expect(target(0x7d46d0)).toBe(0x40c310); expect(target(0x40c310)).toBe(0x7d4720);
     expect(target(0x7d4789)).toBe(0x405c95); expect(target(0x405c95)).toBe(0x7d3d90);
+  });
+});
+
+describe('destruction, activation, chain, coin and die sounds', () => {
+  const run = (audio: DuelAudioDirector, ...batches: PresentationEvent[][]) => {
+    let a = createDuelState(); const out: { kind: string; path: string; delay?: number }[] = [];
+    for (const events of batches) { const b = next(a, ...events); audio.enqueue(a, b); out.push(...audio.consumeSample(sample(b.sequence)).map(({ kind, path, delay }) => ({ kind, path, ...(delay ? { delay } : {}) }))); a = b; }
+    return out;
+  };
+  it('a field card broken by an effect is a normal break; one broken by battle is the attacked break', () => {
+    expect(run(new DuelAudioDirector(), [event('31', [2, 0x10, 0])])).toEqual([{ kind: 'destroy', path: 'se/card_normal_brake.wav' }]);
+    // A hand / pile card (zone 11+) moved with 0x31 breaks nothing on the field.
+    expect(run(new DuelAudioDirector(), [event('31', [11, 0x10, 5])])).toEqual([]);
+    const battle = run(new DuelAudioDirector(), [event('19', [0, 2 << 8 | 1, 0])], [event('17', [0, 0, 2 << 8])], [event('31', [2, 0x10, 0], 1)], [event('1c')], [event('31', [3, 0x10, 0])]);
+    expect(battle.map(c => c.kind)).toEqual(['attack', 'impact', 'battleDestroy', 'destroy']);
+    expect(battle[2].path).toBe('se/card_attacked_brake.wav');
+    expect(run(new DuelAudioDirector(), [event('46', [1, 0x10, 0])])).toEqual([{ kind: 'tribute', path: 'se/ikenie.wav' }]);
+  });
+  it('an activation plays magic_active; from Chain Link 2 the chain plaque adds chain.wav', () => {
+    expect(run(new DuelAudioDirector(), [event('12', [5, 0, 1])], [event('12', [6, 0, 2])]).map(c => c.path))
+      .toEqual(['se/magic_active.wav', 'se/magic_active.wav', 'se/chain.wav']);
+  });
+  it('coins sound at the toss, the die at its last two landings of the fx roll (immediately with reduced motion)', () => {
+    expect(run(new DuelAudioDirector(), [event('5c', [1 << 6, 0, 1])])).toEqual([{ kind: 'coin', path: 'se/coin.wav' }]);
+    expect(run(new DuelAudioDirector(), [event('5d', [0, 4, 0])])).toEqual([
+      { kind: 'dice', path: 'se/dice.wav', delay: 667 }, { kind: 'dice', path: 'se/dice.wav', delay: 1000 }]);
+    expect(run(new DuelAudioDirector(0, { reducedMotion: true }), [event('5d', [0, 4, 0])])).toEqual([{ kind: 'dice', path: 'se/dice.wav' }]);
+  });
+  it('every sound file is a line of the original se.txt at its id', () => {
+    const lines = ['cursor', 'decide', 'return', 'unable', 'start', 'turn_change', 'attack', 'card_attacked_brake', 'card_normal_brake', 'damage',
+      'equip', 'gofuken', 'ikenie', 'magic_active', 'reborn', 'card_move', 'card_open', 'battle_turn', 'scene_change', 'exodia_a1', 'exodia_b',
+      'exodia_c', 'exodia_d', 'exodia_e', 'dice', 'coin', 'chain', 'life_up'];
+    for (const { id, path } of Object.values(DUEL_SOUND_EVIDENCE)) expect(`se/${lines[id - 0x10000000]}.wav`).toBe(path);
   });
 });

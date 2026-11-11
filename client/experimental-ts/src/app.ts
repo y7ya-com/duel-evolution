@@ -622,7 +622,11 @@ export class ClientApp implements ClientController {
     const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
     const parts = this.duelParts(), duel = { ...timed, cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
-    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
+    for (const cue of this.duelAudio.consumeSample(sample)) {
+      const play = () => { if (!this.disposed) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error)); };
+      // Frame-timed sounds (the die's landings) play at their moment of the effect that starts now.
+      if (cue.delay) setTimeout(play, cue.delay); else play();
+    }
     this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
