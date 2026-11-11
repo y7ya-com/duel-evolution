@@ -85,6 +85,10 @@ export interface DuelView {
   /** `at`: when `seconds` was current (ms); the clock runs down from there unless paused. */
   timer?: { player: 0 | 1; seconds: number; paused: boolean; otherSeconds?: number; at?: number };
   ended?: string;
+  /** What the duel earned: the lobby's 0x4140 PLAYERDATAUPDATE against the profile when the duel began (src/duel/rewards.ts). */
+  rewards?: { mp: number; score: number; level: [number, number] };
+  /** After an NPC duel: the record against that NPC the server sends with 0x4140 (its NPCBIN row). */
+  npcRecord?: { name: string; wins: number; losses: number; draws: number };
   waiting?: string;
   /** The latest duel packet the client rejected whole (the board keeps its last good state). */
   issue?: string;

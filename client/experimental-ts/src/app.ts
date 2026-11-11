@@ -27,6 +27,7 @@ import { DuelTextCatalog } from './duel/text';
 import { DuelTimeline } from './duel/timeline';
 import { DuelCueQueue } from './duel/cues';
 import { DuelAudioDirector } from './duel/audio';
+import { duelRewards, pduNpcRecord, type NpcRecord, type ProfileSnapshot } from './duel/rewards';
 import { fieldAudioSlotForPasscode } from './duel/theme';
 import { AccountController } from './features/account';
 import { ProfileController } from './features/profile';
@@ -136,6 +137,9 @@ export class ClientApp implements ClientController {
     fieldKind: pc => { try { return fieldThemeKindForPasscode(pc, id => this.options.cardDetails?.get(id)?.internalId); } catch { return null; } } });
   private duelPortraits: [Uint8Array | undefined, Uint8Array | undefined] = [undefined, undefined];
   private duelAudio = new DuelAudioDirector();
+  /** The profile when the duel began, and the NPC record the server sent after it (the result board's rewards). */
+  private duelStartProfile: ProfileSnapshot | null = null;
+  private duelNpcRecord: NpcRecord | null = null;
   private animationFrame: number | null = null;
   private lastFrame: number | null = null;
   private settledDuel: DuelView | null = null;
@@ -507,6 +511,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return;
     this.capture.receive(channel, message, channel === this.game?.duel ? 'duel' : channel === this.game?.lobby ? 'lobby' : 'account');
     if (channel === this.game?.lobby) { this.social.receive(message); this.profile.receive(message); this.npc.receive(message); }
+    if (channel === this.game?.lobby && message.id === 0x4140) { const record = pduNpcRecord(message.data); if (record) this.duelNpcRecord = record; }
     if ( !duelIds.has(message.id) || channel !== this.game?.duel) return;
     const previousPrompt = this.duelState.prompt?.id;
     const previous = this.duelState;
@@ -578,6 +583,13 @@ export class ClientApp implements ClientController {
     this.duelAudio.reset(this.duelState.sequence); this.duelCues.reset(); this.duelPortraits = [undefined, undefined];
     this.settledDuel = null;
     this.fieldPasscode=0;this.fieldAudioSlot=11; this.duelIsPvp = false; this.duelNotice = null;
+    const profile = this.game?.state.profile; this.duelStartProfile = profile ? { level: profile.level, score: profile.score, mp: profile.mp } : null; this.duelNpcRecord = null;
+  }
+  /** The result board's extras once the duel is over: the profile's change since it began, and an NPC duel's record. */
+  private duelResultExtras(): Pick<DuelView, 'rewards' | 'npcRecord'> {
+    if (this.duelState.status !== 'finished' || this.game?.state.spectating) return {};
+    const rewards = duelRewards(this.duelStartProfile, this.game?.state.profile), record = this.duelIsPvp ? null : this.duelNpcRecord;
+    return { ...(rewards ? { rewards } : {}), ...(record ? { npcRecord: { name: this.duelNames()[1], wins: record.wins, losses: record.losses, draws: record.draws } } : {}) };
   }
   private syncDuel(): void {
     const background = this.duelBackground();
@@ -620,7 +632,7 @@ export class ClientApp implements ClientController {
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;
     const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
-    const parts = this.duelParts(), duel = { ...timed, cues: this.duelCues.release(this.timeline.acknowledgedThrough),
+    const parts = this.duelParts(), duel = { ...timed, ...this.duelResultExtras(), cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
     for (const cue of this.duelAudio.consumeSample(sample)) {
       const play = () => { if (!this.disposed) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error)); };
