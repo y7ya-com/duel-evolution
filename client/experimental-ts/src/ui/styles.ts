@@ -2,12 +2,14 @@
 export const CLIENT_CSS = `
 .de-client { --ink:#14365b; --well:#effcff; --edge:#1476c4; color:var(--ink); font:14px/1.4 Arial,sans-serif; width:min(100%,1280px,max(640px,calc((100vh - 104px)*1.333333))); margin:0 auto; font-variant-numeric:tabular-nums; }
 .de-client,.de-client * { box-sizing:border-box; }
-.de-client button,.de-client input,.de-client select,.de-client textarea { font:inherit; }
-.de-client button { cursor:pointer; color:#072b50; background:linear-gradient(#fff,#b5eaff 48%,#83cef5 51%,#5bb3e9); border:1px solid #267dbb; border-radius:3px; padding:6px 12px; min-height:32px; box-shadow:inset 0 1px #fff,0 1px #1f629a; }
-.de-client button:hover { filter:brightness(1.07); }
-.de-client button:disabled { cursor:default; opacity:.5; }
-.de-client button.gold { background:linear-gradient(#fffbd0,#fae773 47%,#f2cd51 51%,#eca431); border-color:#bf7819; color:#432e08; font-weight:bold; }
-.de-client button:focus-visible,.de-client input:focus-visible,.de-client select:focus-visible,.de-client textarea:focus-visible { outline:3px solid #ffdc65; outline-offset:2px; }
+/* main's card shop (htmlui/card-shop.ts: shop/index.js mounted unchanged) keeps live's own looks: the rewrite's keys
+   stay off its buttons (its MP (i), shop/mpinfo.js .mpi, is a 16 px round plate, not a 32 px key) */
+.de-client button:where(:not(.de-card-shop *)),.de-client input,.de-client select,.de-client textarea { font:inherit; }
+.de-client button:where(:not(.de-card-shop *)) { cursor:pointer; color:#072b50; background:linear-gradient(#fff,#b5eaff 48%,#83cef5 51%,#5bb3e9); border:1px solid #267dbb; border-radius:3px; padding:6px 12px; min-height:32px; box-shadow:inset 0 1px #fff,0 1px #1f629a; }
+.de-client button:where(:not(.de-card-shop *)):hover { filter:brightness(1.07); }
+.de-client button:where(:not(.de-card-shop *)):disabled { cursor:default; opacity:.5; }
+.de-client button.gold:where(:not(.de-card-shop *)) { background:linear-gradient(#fffbd0,#fae773 47%,#f2cd51 51%,#eca431); border-color:#bf7819; color:#432e08; font-weight:bold; }
+.de-client button:where(:not(.de-card-shop *)):focus-visible,.de-client input:focus-visible,.de-client select:focus-visible,.de-client textarea:focus-visible { outline:3px solid #ffdc65; outline-offset:2px; }
 .de-client input,.de-client textarea,.de-client select { color:#072b50; background:var(--well); border:1px solid #5d95b6; border-radius:2px; padding:7px 8px; min-width:0; }
 .de-client input[type=checkbox] { min-width:18px; min-height:18px; }
 .de-client label { display:flex; gap:7px; align-items:center; }
@@ -33,7 +35,6 @@ export const CLIENT_CSS = `
 .de-world-status button { pointer-events:auto; }
 .de-stage-layer { position:absolute; inset:0; }
 /* under the opponent's LP plate (live's top corners are the two plates alone) */
-.de-duel-options { position:absolute; right:8px; top:8.6%; z-index:9; display:flex; gap:6px; }
 .de-scene { position:absolute; inset:0; padding:18px; display:flex; flex-direction:column; gap:12px; }
 .de-panel { border:3px solid #87e9ff; outline:1px solid #1268b2; border-radius:4px; background:linear-gradient(#e2fcff,#a9e8fb 45%,#77cff2); box-shadow:0 3px 12px #082f6755; padding:12px; }
 .de-panel-title { margin:-10px -10px 12px!important; padding:5px 8px; color:white; background:linear-gradient(#a1def9,#2585dc 49%,#1761bf); text-shadow:0 1px #114d91; }
@@ -199,8 +200,25 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-field-card.defense { transform:translate(-50%,-50%) rotate(90deg); }
 .de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
 .de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
-.de-duel-actions { position:absolute; bottom:8px; left:12px; display:flex; gap:5px; max-width:75%; flex-wrap:wrap; z-index:4; }
-.de-duel-log { position:absolute; right:8px; bottom:8px; width:22%; max-height:150px; background:#e7faffdf; border:1px solid #5e9ebf; padding:5px; font-size:11px; overflow:auto; }
+.de-duel-actions { display:flex; gap:4px; flex-wrap:nowrap; }
+.de-duel-actions button { padding:1px 8px; font-size:11px; }
+.de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:linear-gradient(#cdefff,#5fb6e8 55%,#2f86c4); border-top:1px solid #e8fbff; }
+.de-duel-wrench { width:7.8125%; height:100%; padding:0; display:grid; place-items:center; background:linear-gradient(#ffe48a,#f6a313); border:1px solid #b06a00; border-radius:0 6px 0 0; cursor:pointer; }
+.de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
+.de-duel-help { flex:1; min-width:0; margin-left:16%; height:76%; padding:0 8px; display:flex; align-items:center; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font:13px Arial,sans-serif; color:#fff; background:#0d4f8fcc; border-radius:3px; }
+.de-duel-logtoggle { padding:1px 8px; font:12px Arial,sans-serif; margin-right:6px; }
+.de-duel-log { position:absolute; right:.8%; bottom:21%; width:22.5%; max-height:40%; background:#e7faffdf; border:1px solid #5e9ebf; padding:5px; font-size:11px; overflow:auto; z-index:8; }
+.de-duel-log[hidden] { display:none; }
+.de-duel-cmd { position:absolute; width:15.625%; z-index:14; padding:6px 6px 6px; background:#0a2d5ccc; border:2px solid #f0c040; border-radius:3px; box-shadow:0 0 0 1px #6b4a00,0 3px 10px #0008; display:flex; flex-direction:column; gap:0; }
+.de-duel-cmd-row { display:block; width:100%; height:20px; padding:0 6px 0 22px; text-align:left; font:14px/20px Arial,sans-serif; color:#fff; border:0; border-radius:0; cursor:pointer; position:relative; background:linear-gradient(#3d78c6,#1f4f98); }
+.de-duel-cmd-row:nth-of-type(even) { background:linear-gradient(#336bb6,#183f80); }
+.de-duel-cmd-row::before { content:''; position:absolute; left:5px; top:5px; width:10px; height:10px; background:#fff; clip-path:polygon(0 0,100% 50%,0 100%); opacity:.85; }
+.de-duel-cmd-row:hover:not(:disabled),.de-duel-cmd-row:focus-visible { background:linear-gradient(#ffffff,#c8e4ff); color:#06306a; }
+.de-duel-cmd-row:disabled { color:#9fb4cf; cursor:default; }
+.de-duel-cmd-close { position:absolute; right:-9px; top:-9px; width:18px; height:18px; padding:0; border-radius:50%; font:bold 12px/16px Arial; color:#6b4a00; background:#ffe48a; border:1px solid #b06a00; cursor:pointer; }
+.de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
+.de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
+.de-phase-bar>button.de-phase:disabled { cursor:default; }
 .de-duel-prompt { position:absolute; left:20%; right:20%; top:35%; max-height:52%; z-index:10; display:flex; flex-direction:column; gap:10px; }
 .de-target-prompt { top:65px; max-height:110px; }
 .de-prompt-inspector { overflow:auto; max-height:160px; background:#effcff; padding:7px; }

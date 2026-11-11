@@ -1,4 +1,4 @@
-import type { DuelCardView, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
+import type { DuelCardView, DuelOption, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
 import { sideboardDifference } from './deck';
 import { FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
@@ -107,6 +107,8 @@ interface LocalState {
   noticeSeen: number;
   /** The duel log's scroll position while the reader is not at the bottom (null: follow new lines). */
   logScroll: number | null;
+  /** The card whose command list (CWindowModelListDuelCmd) is open, and whether the duel log strip is open. */
+  duelCmd: string | null; duelLogOpen: boolean;
   tradeSearch: string;
   message: string; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel';
   promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
@@ -123,7 +125,7 @@ export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUi
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
   let disposed = false, rendering = false, queued = false, resetDraftsNextRender = false;
   let state = controller.getState();
-  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null };
+  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, duelLogOpen: false };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -909,11 +911,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
     bar.setAttribute('aria-label', `Turn ${duel.turn}${current ? `, ${current[2]}` : ''}, ${duel.players[duel.turnPlayer].name}'s turn`);
     bar.append(el('div', 'de-turn-box', el('small', '', 'Turn'), el('strong', '', String(duel.turn))));
+    // The phase buttons are the engine's (CDuelPhaseButton): on the player's turn BP / M2 / EP are pressed to enter the
+    // Battle Phase, Main Phase 2 or end the turn, as live; no separate action buttons.
+    const PHASE_ACTION: Partial<Record<string, string>> = { battle: 'phase:3', main2: 'phase:4', end: 'phase:5' };
     phases.forEach(([key, short, long], row) => {
-      const cell = el('div', `de-phase${key === duel.phase ? ' current' : ''}`); cell.title = long;
-      // duel_pbutton_01: c01 for the player's turn, c00 the opponent's; column 2 is the lit current phase.
-      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 0 : 1}.png`); sheet.style.left = key === duel.phase ? '-200%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', short)); }
-      else cell.textContent = short;
+      const act = (duel.actions ?? []).find(a => a.id === PHASE_ACTION[key]);
+      const cell: HTMLElement = act ? button('', () => { local.duelCmd = null; sendAction(duel, act.id); }, !!act.disabled || !!state.busy) : el('div');
+      cell.className = `de-phase${key === duel.phase ? ' current' : ''}${act ? ' de-phase-go' : ''}`; cell.title = act ? act.label : long;
+      if (act) { cell.dataset.key = `duel-phase:${key}`; cell.setAttribute('aria-label', act.label); }
+      // duel_pbutton_01: c01 for the player's turn, c00 the opponent's; column 2 is the lit current phase, 1 the hover.
+      if (archive) { const sheet = archive(`data/y/duel/phase/duel_pbutton_01_c0${duel.turnPlayer ? 0 : 1}.png`); sheet.style.left = key === duel.phase ? '-200%' : '0'; sheet.style.top = `-${row * 100}%`; cell.append(sheet, el('span', 'de-sr', act ? act.label : short)); }
+      else cell.textContent = act ? act.label : short;
       bar.append(cell);
     });
     board.append(bar);
@@ -926,6 +934,20 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const pileTop = new Map<string, number>();
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const c of duel.cards) if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone)) pileTop.set(`${c.controller}/${c.zone}`, c.zone === 'deck' ? Math.min(pileTop.get(`${c.controller}/${c.zone}`) ?? Infinity, c.index) : Math.max(pileTop.get(`${c.controller}/${c.zone}`) ?? -1, c.index));
+    const pileOf = new Map<string, string>();
+    for (const c of duel.cards) if (pileTop.has(`${c.controller}/${c.zone}`)) pileOf.set(c.id, `${c.controller}/${c.zone}`);
+    const topOf = new Map<string, string>();
+    for (const c of duel.cards) if (pileTop.get(`${c.controller}/${c.zone}`) === c.index && pileOf.has(c.id)) topOf.set(`${c.controller}/${c.zone}`, c.id);
+    // The command list (CWindowModelListDuelCmd) of each card: its own actions, a pile's on its top card
+    const commands = new Map<string, DuelOption[]>();
+    for (const a of duel.actions ?? []) {
+      if (!a.cardId || a.label.startsWith('Select:')) continue;
+      const pile = pileOf.get(a.cardId), at = pile ? topOf.get(pile) ?? a.cardId : a.cardId;
+      commands.set(at, [...commands.get(at) ?? [], a]);
+    }
+    const ownDeckTop = topOf.get('0/deck'), canSurrender = !duel.spectating && !duel.ended;
+    const surrenderNow = () => { local.duelCmd = null; confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'); };
+    const listed = new Set([...commands.values()].flat().map(a => a.id));
     for (const c of duel.cards) {
       if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone) && c.index !== pileTop.get(`${c.controller}/${c.zone}`)) continue;
       visibleCardIds.add(c.id);
@@ -934,7 +956,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const ownSet = isOwnSetCard(c);
       // A board selection (an attack target, a card to choose on either side) is made on the card itself, as in the original.
       const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && cardActions[0]!.label.startsWith('Select:') ? cardActions[0]! : null;
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (c.faceUp || ownSet || (duel.actions ?? []).some(a => a.cardId === c.id)) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      // live: a click (or a right click) on a card opens its command list; a card with none shows its details
+      const listOn = (commands.get(c.id)?.length ?? 0) > 0 || canSurrender && c.id === ownDeckTop;
+      // the hand's faces carry no names (live): the name is the card's label, tooltip and details
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, c.zone !== 'hand' && state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { local.duelCmd = local.duelCmd === c.id ? null : c.id; requestRender(); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) { local.duelCmd = c.id; requestRender(); } };
+      if (c.faceUp || ownSet) b.title = c.name;
+      if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
       b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${selection ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (selection) b.title = selection.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
@@ -959,17 +987,43 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       cards.append(zone);
     }
     board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
+    // The open command list (CUSummonDialogSp on CWindowModelListDuelCmd, main's duel.js look): the card's commands, one
+    // striped row each, over the card; Surrender on the player's own deck (as live)
+    const cmdCard = local.duelCmd ? duel.cards.find(c => c.id === local.duelCmd && visibleCardIds.has(c.id)) : undefined;
+    const cmdRows = cmdCard ? commands.get(cmdCard.id) ?? [] : [], cmdSurrender = !!cmdCard && canSurrender && cmdCard.id === ownDeckTop;
+    if (!cmdCard || !cmdRows.length && !cmdSurrender) local.duelCmd = null;
+    else {
+      const at = fieldCardPosition(cmdCard, handCounts[cmdCard.controller]), readable = cmdCard.faceUp || isOwnSetCard(cmdCard);
+      const list = el('div', 'de-duel-cmd'); list.setAttribute('role', 'menu'); list.setAttribute('aria-label', `${readable ? cmdCard.name : 'Card'}: commands`);
+      list.style.left = `${Math.max(4, Math.min(1024 - 164, at.x - 80)) / 1024 * 100}%`;
+      list.style.bottom = `${Math.min(700, 768 - (at.y - at.height / 2) + 4) / 768 * 100}%`;
+      const row = (word: string, label: string, key: string, run: () => void, disabled = false) => {
+        const r = button(word, run, disabled); r.className = 'de-duel-cmd-row'; r.dataset.key = key; r.setAttribute('role', 'menuitem'); r.setAttribute('aria-label', label); list.append(r);
+      };
+      for (const a of cmdRows) row(a.label.replace(/:.*$/, ''), a.label, `duel-cmd:${a.id}`, () => { local.duelCmd = null; sendAction(duel, a.id); }, !!a.disabled || !!state.busy);
+      if (cmdSurrender) row('Surrender', 'Surrender', 'duel-surrender', surrenderNow, !!state.busy || state.relay?.canAct === false);
+      if (readable) row('Card Details', `Details: ${cmdCard.name}`, 'duel-cmd:details', () => { local.duelCmd = null; inspect(cmdCard, 'duel'); if (cmdCard.faceUp) send({ type: 'inspectCard', cardId: cmdCard.id }); });
+      const close = button('×', () => { local.duelCmd = null; requestRender(); }); close.className = 'de-duel-cmd-close'; close.dataset.key = 'duel-cmd-close'; close.setAttribute('aria-label', 'Close');
+      list.append(close); list.onkeydown = event => { if (event.key === 'Escape') { local.duelCmd = null; requestRender(); } };
+      board.append(list);
+    }
+    // what live has no card for: a Cancel of a board selection (live: the right button), commands of a card not on the
+    // screen, Leave Duel for a spectator, Surrender with no deck left
     const actions = el('div', 'de-duel-actions');
-    for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
+    for (const a of (duel.actions ?? []).filter(a => !a.place && !a.id.startsWith('phase:') && !listed.has(a.id) && (!a.cardId || !visibleCardIds.has(a.cardId)))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
-    else if (!duel.ended) actions.append(button('Surrender', () => confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'), !!state.busy || state.relay?.canAct === false));
-    else if ((!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
-    stage.append(actions);
-    // main's menu bar is not on the duel screen (as in the game): Options (sound, display) stays reachable, apart from
-    // the duel's own actions
-    stage.append(el('div', 'de-duel-options', button('Options', () => open('settings')), ...(state.connection === 'online' ? [button('Return to Title', () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect'))] : [])));
-    const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
-    for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log);
+    else if (canSurrender && !ownDeckTop) actions.append(button('Surrender', surrenderNow, !!state.busy || state.relay?.canAct === false));
+    else if (duel.ended && (!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
+    // live's bottom bar (the engine's duel menu strip): the wrench (Options) at its left, the help line; the duel log is
+    // the rewrite's addition, closed until asked for, over the right portrait (never the field)
+    const wrench = button('', () => open('settings')); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'Options'); wrench.title = 'Options';
+    wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
+    const logToggle = button('Duel Log', () => { local.duelLogOpen = !local.duelLogOpen; requestRender(); }); logToggle.className = 'de-duel-logtoggle'; logToggle.dataset.key = 'duel-log-toggle'; logToggle.setAttribute('aria-expanded', String(local.duelLogOpen));
+    const help = el('div', 'de-duel-help', duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Left click a card to confirm a selection, or the right button to open its menu.'));
+    board.append(el('div', 'de-duel-bar', wrench, help, actions, logToggle));
+    const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log'); log.hidden = !local.duelLogOpen;
+    for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     // Follow new lines only while the reader is at the bottom; a player reading older lines keeps their place.
     log.scrollTop = local.logScroll === null ? log.scrollHeight : local.logScroll;
     log.onscroll = () => { local.logScroll = log.scrollHeight - log.scrollTop - log.clientHeight < 8 ? null : log.scrollTop; };
@@ -987,7 +1041,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (inspected) {
       const readable = inspected.faceUp || isOwnSetCard(inspected);
       const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-      for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
       panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
     }
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.

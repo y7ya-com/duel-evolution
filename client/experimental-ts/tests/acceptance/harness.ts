@@ -312,6 +312,14 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       if(cancel)return {kind:'key',key:cancel.dataset.key};
     }
     const zone=[...document.querySelectorAll('.de-zone-target,.de-card-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
+    // a card's command list (live's CWindowModelListDuelCmd: the rows' labels 'Summon: <card>'), or Close
+    const cmd=document.querySelector('.de-duel-cmd');
+    if(cmd){
+      const rows=[...cmd.querySelectorAll('[data-key^="duel-cmd:"]')].filter(ok).filter(b=>b.dataset.key!=='duel-cmd:details');
+      const want=${JSON.stringify([...(options.set ? ['Set monster','Set spell/trap'] : []),...(options.activate ? ['Activate'] : []),...(options.summon === false ? [] : ['Summon','Set monster']),...(options.attack === false ? [] : ['Attack'])])};
+      const pick=want.map(w=>rows.find(b=>(b.getAttribute('aria-label')??'').startsWith(w+':'))).find(Boolean);
+      return {kind:'key',key:pick?pick.dataset.key:'duel-cmd-close'};
+    }
     const ins=document.querySelector('.de-duel-inspector');
     if(ins){
       const acts=[...ins.querySelectorAll('button')].filter(ok).filter(b=>b.textContent!=='Close');
@@ -412,6 +420,16 @@ export async function ownedCopies(page:Page,name:string):Promise<number> {
   await exitDeckEditor(page);
   return deck.collection.filter(c => !name || c.name === name).reduce((n,c) => n + c.owned,0);
 }
+/** live's Surrender: a row of the player's own deck's command list (a click on the deck opens it); the duel bar's
+ * button when no deck is left. Opens the list and returns the row's selector (to read or press). */
+export async function surrenderRow(page:Page):Promise<string> {
+  const deck = `document.querySelector('.de-field-card[data-side="your"][data-zone="deck"]')`;
+  if (!(await page.ev(`Boolean(${deck})`))) return byText('Surrender');
+  if (!(await page.ev(`Boolean(${byKey('duel-surrender')})`))) await press(page,deck);
+  await until(page,byKey('duel-surrender'),20000);
+  return byKey('duel-surrender');
+}
+export async function pressSurrender(page:Page) { const row = await surrenderRow(page); await until(page,`(${row})&&!(${row}).disabled`,60000); await press(page,row); }
 /** Surrender the current duel (confirming the server's question) and wait for the result. */
 export async function surrender(page:Page) {
   // The server answers a surrender with its Yes/No question when this side may act: wait for our own turn.
@@ -422,7 +440,7 @@ export async function surrender(page:Page) {
     await sleep(200);
   }
   if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) return;
-  await click(page,'Surrender',60000);
+  await pressSurrender(page);
   // the client's own question first (main's YesNo, surrender-yes), then the server's when it asks one
   const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;

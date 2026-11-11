@@ -78,9 +78,11 @@ export function fieldCardPosition(card: DuelCardView, handCount: number): CardPo
   const pile = (zone: keyof typeof FIELD_LAYOUT.piles) => { [x, y] = FIELD_LAYOUT.piles[zone][side]; width = 48; height = 70; };
   switch (card.zone) {
     case 'hand': {
-      const span = Math.min(560, Math.max(0, handCount - 1) * 76);
+      // live's hand (the 2008 duel screen): the player's faces 80 x 116, 82 apart, their tops at 530 over the chat;
+      // the opponent's backs 96 x 140, 112 apart, cut by the screen's top edge (only their lower half shows)
+      const stride = side ? 112 : 82, span = Math.min(side ? 448 : 492, Math.max(0, handCount - 1) * stride);
       x = 512 - span / 2 + (handCount > 1 ? card.index * span / (handCount - 1) : 0);
-      y = side ? 24 : 604; width = 72; height = 104;
+      y = side ? 2 : 588; width = side ? 96 : 80; height = side ? 140 : 116;
       break;
     }
     case 'monster': x = FIELD_LAYOUT.cellX(card.index); y = FIELD_LAYOUT.rows.monster[side]; break;
