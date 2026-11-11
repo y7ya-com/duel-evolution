@@ -30,8 +30,8 @@ import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './sn
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
 const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade, packselect, dialog, duelsetup, duel, avatar, result];
-// no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts)
-const PASS = new Set<HtmlUiScreen>([avatar]);   // Change Avatar: its plates are drawn, the clicks hit-tested here
+// no screen runs in pass mode: the deck editor is owned, its cards and buttons DOM over main's windows (deck-dom.ts);
+// Change Avatar is owned, its plates, page arrows and Confirm / Back each take input on their own element
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js): clicked on release
@@ -73,6 +73,7 @@ export class HtmlUiLayer {
   private roots = new Map<number, HTMLElement>(); private scale = 1; private disposed = false;
   private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
   private tagged = new WeakMap<HTMLElement, Set<HTMLElement>>();   // per window root: the elements tag() keyed
+  // the mode main's module declares (on main, 'pass': the engine has the pointer): there the looks are the layer's to give
   private declared = new Map<string, 'pass' | 'owned'>();
   private screens = new Map<string, HtmlUiScreen>();
   // an invisible box kept over the stage: the "canvas" main's page-level modules place themselves over
@@ -95,10 +96,10 @@ export class HtmlUiLayer {
     if (!document.getElementById('htmlui-rewrite-css')) {
       const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
       // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
-      // over everything the engine draws. Change Avatar is a pass-mode window (its root lets the pointer through to
-      // main's engine): here no engine stands under it, its plates take the pointer themselves
+      // over everything the engine draws. A page arrow (screens/avatar.js) redraws its picture on each look: the
+      // picture never takes the pointer, so the press and the release both land on the arrow's own button
       // main's starter picker (web-shell/starter.js, z 10) stands over main's windows (bridge.js's host, z 4): here too
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .win[data-window-class="CWindowDialogAvatarSwitch"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);
@@ -258,7 +259,7 @@ export class HtmlUiLayer {
   private wrap(mod: HtmlUiScreen): HtmlUiScreen {
     // the shop's and the trade's roots overlap (the mileage plate over the item window's Confirm): as on main, where the
     // engine has the pointer, only their buttons take it
-    return { ...mod, mode: PASS.has(mod) ? 'pass' : 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
+    return { ...mod, mode: 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
       mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
       update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); },
       unmount: (root, st) => { mod.unmount?.(root, st); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };

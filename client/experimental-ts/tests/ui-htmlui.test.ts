@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Ids, applyPointer } from '../src/ui/htmlui/snapshot';
 import { chatCommand, htmlUiLocal, htmlWindows } from '../src/ui/htmlui/windows';
 import type { BuildContext } from '../src/ui/htmlui/windows';
+import { avatarSwitch, starterLook } from '../src/ui/htmlui/avatar';
 import type { ClientView } from '../src/ui/contracts';
 
 const view = (patch: Partial<ClientView>): ClientView => ({ scene: 'title', connection: 'online', status: '', player: null, characters: [], lobby: null, deckEditor: null, shop: null, duel: null, social: null,
@@ -136,5 +137,35 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     applyPointer(specs, back.id, 0); expect(back.state).toBe('hover');
     applyPointer(specs, back.id, back.id); expect(back.state).toBe('pressed');
     applyPointer(specs, 0, 0); expect(back.state).toBe('normal');
+  });
+  it('Change Avatar: every plate, page arrow and Confirm / Back has its own hover / pressed looks, and its label shows', () => {
+    const dialog = { kind: 'avatar' as const, slot: 0, look: starterLook(), category: 1, page: 0 };
+    const choices = Array.from({ length: 20 }, (_, value) => ({ value, label: `Part ${value}` }));
+    const spec = avatarSwitch({ ids: new Ids(), rerender: vi.fn() }, dialog, { choices: () => choices, confirm: vi.fn(), back: vi.fn() });
+    const by = (key: string) => spec.win.controls.find(c => spec.handlers.get(c.id)?.key === key)!;
+    // main's screens/avatar.js draws the shown sprite's column (normal 0 / hover 1 / chosen or pressed 2), an arrow's number
+    const shown = (id: number) => { const c = spec.win.controls.find(x => x.id === id)!; return Object.values(c.art as Record<string, { tex: string; src: number[]; shown: boolean }>).find(a => a.shown)!; };
+    const col = (id: number) => { const a = shown(id); return a.src[0]! / a.src[2]!; };
+    const keys = ['avatar-category:0', 'avatar-item:1:3', 'avatar-confirm', 'avatar-back'];
+    for (const key of keys) {
+      const c = by(key); expect(spec.handlers.get(c.id)?.hover).toBe(true); expect(spec.handlers.get(c.id)?.click).toBeTypeOf('function');
+      applyPointer([spec], 0, 0); expect(col(c.id)).toBe(0);
+      applyPointer([spec], c.id, 0); expect(col(c.id)).toBe(1);
+      applyPointer([spec], c.id, c.id); expect(col(c.id)).toBe(2);
+    }
+    // the chosen category and the chosen item show the chosen column at rest and under the pointer
+    applyPointer([spec], by('avatar-category:1').id, 0); expect(col(by('avatar-category:1').id)).toBe(2);
+    applyPointer([spec], by('avatar-item:1:0').id, 0); expect(col(by('avatar-item:1:0').id)).toBe(2);
+    const next = by('avatar-page-next');
+    expect(shown(next.id).tex).toMatch(/shop_arrow_04_/);
+    applyPointer([spec], next.id, 0); expect(shown(next.id).tex).toMatch(/shop_arrow_05_/);
+    applyPointer([spec], next.id, next.id); expect(shown(next.id).tex).toMatch(/shop_arrow_06_/);
+    // the first page has no previous one: the arrow stays disabled, its look normal
+    const prev = by('avatar-page-prev'); expect(prev.state).toBe('disabled');
+    applyPointer([spec], prev.id, prev.id); expect(shown(prev.id).tex).toMatch(/shop_arrow_10_/);
+    // the labels (main's textBox colours them from an [r, g, b, a] array: a CSS string came out transparent)
+    const labels = spec.win.controls.filter(c => c.cls === 'CWindowTaskText');
+    expect(labels.map(c => c.text)).toEqual(expect.arrayContaining(['Body', 'Duel Disk', 'Part 0', 'Part 13', 'Confirm', 'Back']));
+    for (const c of labels) expect(c.color).toEqual([0, 0, 0, 1]);
   });
 });

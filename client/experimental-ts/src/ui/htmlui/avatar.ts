@@ -54,7 +54,18 @@ export function changeBody(look: number[], female: boolean): number[] {
 }
 
 const PER_PAGE = 14;
-const art = (tex: string, w: number, h: number, col: number) => ({ normal: { tex: `data/menu/${tex}.png`, src: [col * w, 0, w, h], shown: true } });
+// a plate's four sprites (CWindowTaskPictureSwitch: normal, hover, pressed, checked), each a column of its atlas: the
+// layer's applyPointer shows the one for the pointer (hover on pointerover, pressed on pointerdown / Enter / Space).
+// Categories and items: normal 0, hover 1, chosen 2 (pressed shows chosen); Confirm / Back: normal 0, hover 1, pressed 2
+const art = (tex: string, w: number, h: number, checked = false) => {
+  const look = (col: number, shown: boolean) => ({ tex: `data/menu/${tex}.png`, src: [col * w, 0, w, h], shown });
+  return { normal: look(0, !checked), hover: look(1, false), pressed: look(2, false), checked: look(2, checked) };
+};
+// the page arrows' sprites (shop_arrow_04..06 next, 10..12 previous: normal, hover, pressed)
+const arrowArt = (first: number) => {
+  const look = (k: number, shown: boolean) => ({ tex: `data/shop/shop_arrow_${String(k).padStart(2, '0')}_c01.png`, src: [0, 0, 32, 64], shown });
+  return { normal: look(first, true), hover: look(first + 1, false), pressed: look(first + 2, false) };
+};
 
 export interface AvatarDeps {
   /** The choices of a category for this look (Change Avatar: the server's owned parts; first dressing: the free ones). */
@@ -66,11 +77,11 @@ export interface AvatarDeps {
 }
 export function avatarSwitch(ctx: Pick<BuildContext, 'ids' | 'rerender'>, dialog: AvatarDialog, deps: AvatarDeps): WindowSpec {
   const b = new WindowBuilder(ctx.ids, 'avatar', 'CWindowDialogAvatarSwitch', { x: 0, y: 0, w: 336, h: 550 }, { modal: true, z: 51203 });
-  const text = (name: string, t: string, x: number, y: number, w: number, px: number) => b.add('CWindowTaskText', name, { x, y, w, h: px + 8 }, { text: t, align: 1, fontSize: px, color: '#000000' });
+  const text = (name: string, t: string, x: number, y: number, w: number, px: number) => b.add('CWindowTaskText', name, { x, y, w, h: px + 8 }, { text: t, align: 1, fontSize: px, color: [0, 0, 0, 1] });
   const look = dialog.look, female = look[0] === 1;
   CATEGORIES.forEach((cat, i) => {
     const x = 348, y = 60 + i * 47, chosen = dialog.category === cat.index;
-    b.add('CWindowTaskPictureSwitch', `cat${cat.index}`, { x, y, w: 324, h: 44 }, { state: 'normal', checked: chosen, art: art(`abmake_btn_01_c0${cat.plate}`, 324, 44, chosen ? 2 : 0) },
+    b.add('CWindowTaskPictureSwitch', `cat${cat.index}`, { x, y, w: 324, h: 44 }, { state: 'normal', checked: chosen, art: art(`abmake_btn_01_c0${cat.plate}`, 324, 44, chosen) },
       { key: `avatar-category:${cat.index}`, label: cat.label, click: () => { dialog.category = cat.index; dialog.page = 0; ctx.rerender(); } });
     text(`cat${cat.index}-label`, cat.label, x, y + 4, 324, 32);
   });
@@ -80,20 +91,20 @@ export function avatarSwitch(ctx: Pick<BuildContext, 'ids' | 'rerender'>, dialog
     dialog.page = Math.min(dialog.page, pages - 1);
     choices.slice(dialog.page * PER_PAGE, dialog.page * PER_PAGE + PER_PAGE).forEach((choice, i) => {
       const x = 722, y = 76 + i * 40, on = look[cat.index] === choice.value;
-      b.add('CWindowTaskPictureSwitch', `item${i}`, { x, y, w: 254, h: 34 }, { state: 'normal', checked: on, art: art('abmake_btn_02_01', 254, 34, on ? 2 : 0) },
+      b.add('CWindowTaskPictureSwitch', `item${i}`, { x, y, w: 254, h: 34 }, { state: 'normal', checked: on, art: art('abmake_btn_02_01', 254, 34, on) },
         { key: `avatar-item:${cat.index}:${choice.value}`, label: choice.label, click: () => {
           dialog.look = cat.index === 0 ? changeBody(look, choice.value === 1) : Object.assign([...look], { [cat.index]: choice.value }); ctx.rerender(); } });
       text(`item${i}-label`, choice.label, x, y + 2, 254, 24);
     });
     if (pages > 1) {
-      b.add('CWindowTaskPictureSwitch', 'prev', { x: 724, y: 600, w: 32, h: 64 }, { state: dialog.page > 0 ? 'normal' : 'disabled', art: { normal: { tex: 'data/shop/shop_arrow_10_c01.png', src: [0, 0, 32, 64], shown: true } } },
+      b.add('CWindowTaskPictureSwitch', 'prev', { x: 724, y: 600, w: 32, h: 64 }, { state: dialog.page > 0 ? 'normal' : 'disabled', art: arrowArt(10) },
         { key: 'avatar-page-prev', label: 'Previous page', click: () => { if (dialog.page > 0) { dialog.page--; ctx.rerender(); } } });
-      b.add('CWindowTaskPictureSwitch', 'next', { x: 942, y: 600, w: 32, h: 64 }, { state: dialog.page < pages - 1 ? 'normal' : 'disabled', art: { normal: { tex: 'data/shop/shop_arrow_04_c01.png', src: [0, 0, 32, 64], shown: true } } },
+      b.add('CWindowTaskPictureSwitch', 'next', { x: 942, y: 600, w: 32, h: 64 }, { state: dialog.page < pages - 1 ? 'normal' : 'disabled', art: arrowArt(4) },
         { key: 'avatar-page-next', label: 'Next page', click: () => { if (dialog.page < pages - 1) { dialog.page++; ctx.rerender(); } } });
     }
   }
   const plate = (name: string, label: string, x: number, key: string, click: () => void) => {
-    b.add('CWindowTaskPictureSwitch', name, { x, y: 690, w: 162, h: 42 }, { state: deps.busy ? 'disabled' : 'normal', art: art('abmake_btn_03_01', 162, 42, 0) }, { key, label, click: () => { if (!deps.busy) click(); } });
+    b.add('CWindowTaskPictureSwitch', name, { x, y: 690, w: 162, h: 42 }, { state: deps.busy ? 'disabled' : 'normal', art: art('abmake_btn_03_01', 162, 42) }, { key, label, click: () => { if (!deps.busy) click(); } });
     text(`${name}-label`, label, x, 698, 162, 24);
   };
   plate('confirm', 'Confirm', 348, 'avatar-confirm', () => deps.confirm([...dialog.look]));
