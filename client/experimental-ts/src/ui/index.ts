@@ -181,7 +181,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const shopUi = shopLocal(); let shopCosmetics: 'boxes' | 'wardrobe' | null = null, shopScene = false;
   // online, the shop is main's new card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's
   // /api/de/shop itself); offline (the local catalogue) keeps main's older CShop* windows below
-  const cardShop = cardShopHost(globalThis.document, () => open('lobby'), e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
+  // Back on the card shop leaves at once; while the app is still busy (opening the shop refreshes the catalogue, the wallet
+  // and the cosmetics behind the shop, which draws itself from /api/de/shop first) it leaves as soon as that finishes,
+  // rather than refusing the player with "Wait for the current action to finish."
+  let leaveShop = false;
+  const leaveCardShop = () => { if (state.busy) { leaveShop = true; requestRender(); } else open('lobby'); };
+  const cardShop = cardShopHost(globalThis.document, leaveCardShop, e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
   // main's Wardrobe and Missions buttons on the menu bar and the trade's Cosmetics panel (htmlui/page-modules.ts), online
   const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
     overworld: () => state.scene === 'lobby' && !!state.player && !appearanceOpen(),
@@ -874,7 +879,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const status = el('div', 'de-status', el('span', `de-connection ${state.connection}`), state.player ? `${state.player.name}${state.player.level ? ` · Lv ${state.player.level}` : ''} · ` : '', state.mode === 'free' ? 'Free Duel · ' : '', state.status);
       status.setAttribute('role', 'status');
       stage.replaceChildren(); stage.setAttribute('aria-busy', String(!!state.busy)); host.dataset.scene = state.scene; host.dataset.motion = state.settings.reducedMotion ? 'reduced' : 'full';
-      if (state.scene !== 'shop') { shopScene = false; cardShop.dispose(); }
+      if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
+      else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding) renderPreparation();
