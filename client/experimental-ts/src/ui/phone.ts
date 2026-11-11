@@ -12,6 +12,8 @@
 //   the right mouse button held; a tap is the DOM's own click. The game's text boxes are real <input>s here (main's
 //   HTML UI), so a tap on one brings up the keyboard by itself, and the fitted frame keeps it in view.
 export const W = 1024, H = 768, HOLD_MS = 400, SLOP = 10, WALK_MS = 200;
+/** A window too small for the rewrite's desktop layout (its stage is at least 640x480): framed as on a phone. */
+export const COMPACT = '(max-height: 540px), (max-width: 700px)';
 
 export interface Viewport { offsetLeft: number; offsetTop: number; width: number; height: number; }
 export interface Insets { top: number; right: number; bottom: number; left: number; }
@@ -27,12 +29,18 @@ export function fitFrame(vv: Viewport, inset: Insets = { top: 0, right: 0, botto
 }
 
 export const PHONE_CSS = `
+/* the letterbox is the page's black; the host stays clear, so main's 2008 backdrop (#mu-titlebg, on <body> under the
+   stage) shows through on the title and Select Player as on live */
 html.de-phone-page, html.de-phone-page body { overflow:hidden; overscroll-behavior:none; margin:0; background:#000; }
-.de-client.de-phone { position:fixed; left:0; top:0; width:100%; height:100%; max-width:none; margin:0; box-sizing:border-box; background:#000; display:block; overflow:hidden;
+.de-client.de-phone { position:fixed; left:0; top:0; width:100%; height:100%; max-width:none; margin:0; box-sizing:border-box; background:transparent; display:block; overflow:hidden;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
 .de-client.de-phone>.de-top, .de-client.de-phone>.de-nav { display:none; }
 .de-client.de-phone>.de-stage { position:absolute; flex:none; min-height:0; max-height:none; aspect-ratio:auto; border:0; box-sizing:border-box; left:var(--de-frame-x,0); top:var(--de-frame-y,0); width:var(--de-frame-w,100%); height:var(--de-frame-h,75%); }
+/* every rewrite window on the stage scales with the frame as the game does (the frame is the 1024x768 game at
+   --de-frame-s; main's HTML layer scales itself by the same factor): px sizes shrink, % placement stays the stage's.
+   The world view and the lobby canvas size themselves to the stage. */
+.de-client.de-phone>.de-stage>:where(:not(canvas,.de-world-view,.de-stage-layer,.de-avatar)) { zoom:var(--de-frame-s,1); }
 .de-phone input, .de-phone textarea, #htmlui-host input, #htmlui-host textarea { user-select:text; -webkit-user-select:text; touch-action:manipulation; }
 #de-fs { position:fixed; z-index:47; width:32px; height:32px; padding:7px; border:0; border-radius:6px; background:rgba(0,0,0,.45); color:#fff; opacity:.35; cursor:pointer; transition:opacity .15s; }
 #de-fs:hover, #de-fs:focus-visible { opacity:1; }
@@ -76,52 +84,71 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
   };
   on(win, 'keydown', ((e: KeyboardEvent) => { if (e.altKey && e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); toggleFullscreen(); } }) as EventListener, true);
 
-  if (!coarse) return { coarse, fit: () => null, toggleFullscreen, dispose: () => { for (const [t, type, fn, opt] of listeners) t.removeEventListener(type, fn, opt); } };
+  // the fitted frame: phones and tablets always (coarse pointer), and any window too small for the rewrite's desktop
+  // layout (its stage is at least 640x480 and the page would scroll; live's stage.js fits every window)
+  const compactQuery = win.matchMedia?.(COMPACT);
+  const framed = (): boolean => coarse || !!compactQuery?.matches;
+  if (!coarse && !compactQuery) return { coarse, fit: () => null, toggleFullscreen, dispose: () => { for (const [t, type, fn, opt] of listeners) t.removeEventListener(type, fn, opt); } };
 
-  // ---- the page is the game
-  const meta = (name: string, content: string) => {
-    let m = doc.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
-    if (!m) { m = doc.createElement('meta'); m.name = name; doc.head.append(m); }
-    const before = m.content; m.content = content; const el = m; cleanups.push(() => { el.content = before; });
-  };
-  meta('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
-  meta('theme-color', '#000000');
-  meta('mobile-web-app-capable', 'yes');   // Add to Home Screen = full screen (iPhone Safari has no fullscreen API)
-  meta('apple-mobile-web-app-capable', 'yes');
-  meta('apple-mobile-web-app-status-bar-style', 'black-translucent');
-  try { Object.defineProperty(win, 'devicePixelRatio', { get: () => 1, configurable: true }); } catch { /* read-only here */ }
-  root.classList?.add('de-phone-page'); host.classList.add('de-phone');
   const css = doc.createElement('style'); css.id = 'de-phone-css'; css.textContent = PHONE_CSS; doc.head.append(css);
-  const rot = doc.createElement('div'); rot.id = 'de-rotate'; rot.className = 'de-on'; rot.setAttribute('role', 'alert');
-  rot.innerHTML = '<svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="20" height="40" rx="3"/><path d="M21 39h6"/></svg><div>Turn your device sideways to play.</div>';
-  doc.body.append(rot);
   const btn = doc.createElement('button'); btn.id = 'de-fs'; btn.type = 'button'; btn.tabIndex = -1; btn.title = 'Full screen (Alt+Enter)'; btn.setAttribute('aria-label', 'Toggle full screen');
   btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
-  btn.hidden = !canFs;   // iPhone Safari: elements can't go full screen
+  btn.hidden = true;
   doc.body.append(btn);
   on(btn, 'click', (e => { e.stopPropagation(); toggleFullscreen(); }) as EventListener);
-  on(doc, 'gesturestart', (e => e.preventDefault()) as EventListener, { passive: false });
+  let rot: HTMLElement | null = null;
+  if (coarse) {
+    // ---- the page is the game
+    const meta = (name: string, content: string) => {
+      let m = doc.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+      if (!m) { m = doc.createElement('meta'); m.name = name; doc.head.append(m); }
+      const before = m.content; m.content = content; const el = m; cleanups.push(() => { el.content = before; });
+    };
+    meta('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+    meta('theme-color', '#000000');
+    meta('mobile-web-app-capable', 'yes');   // Add to Home Screen = full screen (iPhone Safari has no fullscreen API)
+    meta('apple-mobile-web-app-capable', 'yes');
+    meta('apple-mobile-web-app-status-bar-style', 'black-translucent');
+    try { Object.defineProperty(win, 'devicePixelRatio', { get: () => 1, configurable: true }); } catch { /* read-only here */ }
+    rot = doc.createElement('div'); rot.id = 'de-rotate'; rot.className = 'de-on'; rot.setAttribute('role', 'alert');
+    rot.innerHTML = '<svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="20" height="40" rx="3"/><path d="M21 39h6"/></svg><div>Turn your device sideways to play.</div>';
+    doc.body.append(rot);
+    on(doc, 'gesturestart', (e => e.preventDefault()) as EventListener, { passive: false });
+  }
 
   const insets = (): Insets => {
     const cs = win.getComputedStyle?.(host), n = (v: string | undefined) => parseFloat(v ?? '') || 0;
     return { top: n(cs?.paddingTop), right: n(cs?.paddingRight), bottom: n(cs?.paddingBottom), left: n(cs?.paddingLeft) };
   };
-  let last = '';
+  let last = '', framedNow = false;
+  const vars = ['--de-frame-x', '--de-frame-y', '--de-frame-w', '--de-frame-h', '--de-frame-s'];
+  const unframe = (): void => {
+    if (!framedNow) return;
+    framedNow = false; last = '';
+    root.classList?.remove('de-phone-page'); host.classList.remove('de-phone');
+    for (const k of ['left', 'top', 'width', 'height'] as const) host.style[k] = '';
+    for (const v of vars) stage.style.removeProperty?.(v);
+    btn.hidden = true;
+  };
   const fit = (): FrameFit | null => {
-    const vv = win.visualViewport, st = host.style;
+    if (!framed()) { unframe(); o.onFit?.(); return null; }
+    if (!framedNow) { framedNow = true; root.classList?.add('de-phone-page'); host.classList.add('de-phone'); btn.hidden = !canFs; }   // iPhone Safari: elements can't go full screen
+    const vv = coarse ? win.visualViewport : null, st = host.style;   // the visible part: smaller while the keyboard is up
     const view: Viewport = vv ? { offsetLeft: vv.offsetLeft, offsetTop: vv.offsetTop, width: vv.width, height: vv.height } : { offsetLeft: 0, offsetTop: 0, width: win.innerWidth, height: win.innerHeight };
     st.left = view.offsetLeft + 'px'; st.top = view.offsetTop + 'px'; st.width = view.width + 'px'; st.height = view.height + 'px';
     // the stage is placed inside the host's padding box: offsets are the host's own
-    const f = fitFrame({ ...view, offsetLeft: 0, offsetTop: 0 }, insets());
+    const inset = insets(), f = fitFrame({ ...view, offsetLeft: 0, offsetTop: 0 }, inset);
     if (f) {
       const key = [f.left, f.top, f.width, f.height].join();
       if (key !== last) {
         last = key;
         stage.style.setProperty('--de-frame-x', f.left + 'px'); stage.style.setProperty('--de-frame-y', f.top + 'px');
         stage.style.setProperty('--de-frame-w', f.width + 'px'); stage.style.setProperty('--de-frame-h', f.height + 'px');
+        stage.style.setProperty('--de-frame-s', String(f.scale));
       }
-      btn.style.top = Math.max(8, view.offsetTop + f.top + 8) + 'px';
-      btn.style.left = (view.offsetLeft + f.left + f.width - 40) + 'px';
+      // live's #fs: the screen's top right corner, out of the notch
+      btn.style.top = (view.offsetTop + Math.max(8, inset.top)) + 'px';
+      btn.style.left = (view.offsetLeft + view.width - Math.max(8, inset.right) - 32) + 'px';
     }
     o.onFit?.();
     return f;
@@ -131,10 +158,11 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
   on(win, 'orientationchange', () => { clearTimeout(orientTimer); orientTimer = setTimeout(fit, 300); });
   on(win.visualViewport, 'resize', () => fit());
   on(win.visualViewport, 'scroll', () => fit());
+  on(compactQuery, 'change', () => fit());
   on(doc, 'fullscreenchange', () => fit());
   on(doc, 'webkitfullscreenchange', () => fit());
   // the first tap goes full screen (Android; iPad), inside its touchend: only a release counts as a gesture on mobile
-  let firstTap = true;
+  let firstTap = coarse;
   on(win, 'touchend', (e => {
     if (!firstTap) return;
     const t = e.target as Element | null;
@@ -149,8 +177,9 @@ export function mountPhoneStage(o: PhoneStageOptions): PhoneStage {
       clearTimeout(orientTimer);
       for (const [t, type, fn, opt] of listeners) t.removeEventListener(type, fn, opt);
       for (const c of cleanups) c();
-      rot.remove(); btn.remove(); css.remove(); host.classList.remove('de-phone'); root.classList?.remove('de-phone-page');
-      try { delete (win as { devicePixelRatio?: number }).devicePixelRatio; } catch { /* kept */ }
+      unframe();
+      rot?.remove(); btn.remove(); css.remove();
+      if (coarse) try { delete (win as { devicePixelRatio?: number }).devicePixelRatio; } catch { /* kept */ }
     },
   };
 }
