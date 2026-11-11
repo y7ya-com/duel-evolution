@@ -79,3 +79,21 @@ describe('tournament windows (Legacy look)', () => {
     expect(duelHelpStrip(new Ids(), 'Select a card.\nmore')!.win.controls.find(c => c.cls === 'CWindowTaskHelp')!.text).toBe('Select a card.');
   });
 });
+
+describe('tournament through the real server and GameSession', () => {
+  it('requests, enters, and reads the bracket and EVENTINFO on the lobby', async () => {
+    const { setup, drive } = await import('./network-server-fixture');
+    const { session, server } = setup();
+    try {
+      await drive(session.start()); await drive(session.createCharacter(0, 'Tour Duelist')); await drive(session.selectCharacter(0));
+      const tm = (server.game as unknown as { to: Tournaments }).to; tms.push(tm);
+      session.requestTournament(); await drive(new Promise(r => setTimeout(r, 500)));
+      expect(session.state.tournament).toMatchObject({ state: TOUR_STATE.STANDBY, running: false });
+      tm.startTournament(5, 1, 'CUP', 8); await drive(new Promise(r => setTimeout(r, 500)));
+      expect(session.state.tournament).toMatchObject({ serial: 5, name: 'CUP', state: TOUR_STATE.ENTRY, running: true, entries: 1 });
+      expect(session.state.tournament!.entryList[0].name).toBe('Tour Duelist');
+      tm.pushEvent(2, 6, 9); await drive(new Promise(r => setTimeout(r, 500)));
+      expect(session.state.eventInfo).toEqual({ serial: 9, world: 6, state: 2 });
+    } finally { session.dispose(); }
+  });
+});
