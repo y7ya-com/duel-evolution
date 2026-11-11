@@ -223,7 +223,10 @@ function searchMenu(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   const list = cs.find(c => top(c) && c.cls === 'CWindowTaskActiveListbox');
   if (list) b.on(list, { label: 'Search', click: point => {
     if (!point) return; const i = Math.floor((point[1] - b.win.y - list.y) / 16), s = SEARCHES[i]; if (!s) return;
-    ui.search = s === 'all' || ui.search !== s ? s : null; ui.searching = false; ctx.rerender();
+    ui.search = s === 'all' || ui.search !== s ? s : null; ui.searching = false;
+    // a search for duels lists the rooms open now: the server's room list asked again (the original's 0x4280)
+    if ((ui.search === 'single' || ui.search === 'match') && !ctx.state.busy) ctx.send({ type: 'refreshMatchmaking' });
+    ctx.rerender();
   } });
   return b.spec();
 }
