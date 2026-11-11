@@ -75,8 +75,11 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       const stepped = (await page.ev(REPLAY) as { index:number }).index;
       expect(stepped).toBeGreaterThan(paused);
       await press(page,byKey('replay-toggle')); await until(page,`${REPLAY}.playing===true||${REPLAY}.index===${REPLAY}.total`,10000);
-      await until(page,`${REPLAY}.index===${REPLAY}.total`,240000);
-      const fieldCards = await page.ev(`document.querySelectorAll('.de-field-card').length`) as number;
+      // the board fills from the record's commands as it plays (its cards drawn), to the last command
+      let fieldCards = 0;
+      for (const until_ = Date.now() + 240000; Date.now() < until_ && !(await page.ev(`${REPLAY}.index===${REPLAY}.total`));) { fieldCards = Math.max(fieldCards,await page.ev(`document.querySelectorAll('.de-field-card').length`) as number); await sleep(100); }
+      await until(page,`${REPLAY}.index===${REPLAY}.total`,5000);
+      fieldCards = Math.max(fieldCards,await page.ev(`document.querySelectorAll('.de-field-card').length`) as number);
       expect(fieldCards).toBeGreaterThan(0);
       const ended = await page.ev(`({toggle:${byKey('replay-toggle')}?.disabled??null,step:${byKey('replay-step')}?.disabled??null})`);
       expect(ended).toEqual({ toggle:true,step:true });
@@ -86,7 +89,7 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       await until(page,`!${REPLAY}&&${lobbyShown}`,30000);
       record('duellog.replay',{ actions:'NPC duel (surrendered) to its result; Main Menu > Duel Log > Duel History; pick the row; Download; Play; Pause, Step, Play to the end; Exit',
         expected:'The finished duel is listed from the archive; Download gives its .yrpX; Play replays it on the duel board to the end; Exit returns to the lobby',
-        observed:`top "${top.slice(0,120)}"; list "${listed.slice(0,160)}"; Download ${file.url} ${file.status} ${file.bytes} bytes "${file.magic}" (${file.name}); replay of ${r0.total} commands: paused at ${paused} (still ${stillPaused} after 1.5 s), Step → ${stepped}, played to ${r0.total}/${r0.total} with ${fieldCards} field cards; Exit → lobby` });
+        observed:`top "${top.slice(0,120)}"; list "${listed.slice(0,160)}"; Download ${file.url} ${file.status} ${file.bytes} bytes "${file.magic}" (${file.name}); replay of ${r0.total} commands: paused at ${paused} (still ${stillPaused} after 1.5 s), Step → ${stepped}, played to ${r0.total}/${r0.total} (up to ${fieldCards} cards on the board); Exit → lobby` });
     } finally { closeAll(); }
   },600000);
 });

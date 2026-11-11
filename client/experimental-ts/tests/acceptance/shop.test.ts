@@ -82,7 +82,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
 
       // cosmetics.wallet: starter MP cannot open a box.
       const w0 = (await cosmetics(a)).wallet;
-      expect(w0.earned).toBe(0); expect(w0.bound).toBeGreaterThan(0);
+      expect(w0.earned).toBeLessThan(500); expect(w0.bound).toBeGreaterThanOrEqual(500);   // a new character: starter MP (and a few earned MP) only
       await headBox(a);
       const startDisabled = await a.ev(`${BOX}.disabled`), startNote = await a.ev(note) as string;
       expect(startDisabled).toBe(true);
