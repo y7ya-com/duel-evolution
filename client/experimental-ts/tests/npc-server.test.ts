@@ -34,8 +34,13 @@ it.each([false,true])('actual NPC natural outcome and authoritative pack claim (
  if(win){const raw=f.server.game.store.loadRaw(); const p=Object.values(raw.accounts!)[0].profiles['0'];p.npcbin={'9':[4,0,0,5]};f.server.game.store.saveRaw(raw);}
  c.open(s.state.npcs.find(n=>n.id===(win?9:35))!); await drive(c.answer(true)); expect(c.state.error).toBeNull();
  s.duel!.subscribe(m=>{if([0x6202,0x6610,0x6611,0x6612,0x6461,0x6613,0x649b].includes(m.id))board=reduceDuelMessage(board,m);});
- let hand:'draw'|'win'|'lose'='draw'; for(let i=0;hand==='draw'&&i<20;i++)hand=await drive(s.chooseHand(i%3));
- if(hand==='win')await drive(s.chooseFirst(true));else await vi.advanceTimersByTimeAsync(100);
+ // The server throws the NPC's rock-paper-scissors hand from crypto randomness, so who starts (and with it the whole
+ // game) changed from run to run. The duel itself is seeded (PARITY_SEED); turning the hand's luck off on this
+ // server alone makes the player win every throw and pick the side, so each case replays one fixed game.
+ f.server.game.duel!.ls.npc_janken_azar=false;
+ expect(await drive(s.chooseHand(0))).toBe('win');
+ // The aggressive deck wins (turn 14) only with the NPC on the play; on the play itself it loses to NPC 9 by turn 6.
+ await drive(s.chooseFirst(!win));
  s.beginDuel(false);
  for(let step=0;step<8000&&board.status!=='finished';step++){
   await vi.advanceTimersByTimeAsync(100); expect(board.errors).toEqual([]); expect(board.unsupported).toEqual([]);
