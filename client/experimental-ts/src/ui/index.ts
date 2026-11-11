@@ -13,7 +13,7 @@ import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
 import { renderLanguageSettings } from './extra/language';
-import { renderSocialFeature, renderTradeTrunk } from './extra/social';
+import { renderTradeTrunk } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
@@ -186,6 +186,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
       removeFriend: pid => social({ type: 'removeFriend', pid }),
+      // Find a Player (CWindowModelFriendEnum) and Ignore by name (CWindowModelBlacklistInput)
+      lookup: sd.lookup?.name !== undefined ? { name: sd.lookup.name, pid: sd.lookup.result === 0 && sd.lookup.pid ? sd.lookup.pid : null } : null, error: sd.error,
+      offers: sd.friendOffers.map(o => ({ pid: o.pid, name: o.name, level: o.level })), teamInvites: sd.teamInvites.map(t => ({ teamId: t.teamId, teamName: t.teamName, inviterPid: t.inviterPid, inviterName: t.inviterName })),
+      canTrade: ['idle', 'finished', 'closing'].includes(sd.trade.phase),
+      find: name => social({ type: 'findPlayer', name }), inviteFriend: pid => social({ type: 'inviteFriend', pid }),
+      replyFriend: (pid, accept) => social({ type: 'replyFriend', pid, accept }), inviteTeam: pid => social({ type: 'inviteTeam', pid }),
+      inviteTrade: (pid, name) => social({ type: 'inviteTrade', pid, name }), ignore: pid => social({ type: 'ignore', pid }),
+      replyTeam: (teamId, inviterPid, accept) => social({ type: 'replyTeam', teamId, inviterPid, accept }),
+      whisper: name => { htmlUiState.chatDraft = `/w ${name} `; if (state.scene !== 'lobby') open('lobby'); },
+      duel: pid => send({ type: 'duelChallenge', playerId: pid }),
     };
   };
   // D-Mail: the rewrite's mail, sent through its social controller
@@ -455,7 +465,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level) return false;
     // Unrelated world packets must not replace open mail/trade confirmations or audio controls.
-    if (next.scene === 'social') return previous.social === next.social && previous.socialDetail === next.socialDetail;
     if (next.scene === 'shop') return previous.shop === next.shop && previous.online === next.online;
     if (next.scene === 'settings') return previous.audio === next.audio && previous.capture === next.capture && previous.dataStatus === next.dataStatus;
     return false;
@@ -919,11 +928,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       onDuel: (pid: number) => send({ type: 'duelChallenge', playerId: pid }),
     };
   }
-  function renderSocial(): void {
-    if (!state.socialDetail) return emptyPanel('social', 'Friends & Mail', 'Loading your friends and mail.');
-    const n = sceneRoot('Friends & Mail'), feature = renderSocialFeature(state.socialDetail, action => send({ type: 'socialAction', action }), socialOptions());
-    feature.className += ' de-panel de-feature-panel de-fill de-scroll'; n.append(title('Friends & Mail'), feature);
-  }
   function renderSettings(): void {
     const n = sceneRoot('Options'), panel = el('section', 'de-panel de-center de-stack', title('Options'));
     const display = browserDisplay.state, displayGroup = el('section', 'de-settings-row', el('h3', '', 'Display'), note(display.active ? 'Fullscreen' : 'Windowed'));
@@ -987,7 +991,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
-      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
+      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
       // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
@@ -1022,8 +1026,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.mode !== 'free' ? [
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           { label: 'Audio', key: 'audio', disabled: blocked, run: go('settings') },
-          // the rewrite's own social page (finding a player, answering friend and team invitations), not yet main's
-          { label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: go('social') },
+          // Find a Player (CWindowModelFriendEnum): a player by name, and the friend and team invitations waiting
+          ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } })) : []),

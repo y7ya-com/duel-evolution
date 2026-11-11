@@ -8,19 +8,19 @@ const scene = `document.querySelector('.de-trade-scene')`;
 const dialogText = (key:string) => `(document.querySelector('[data-key="${key}"]')?.closest('.win')?.innerText ?? '')`;
 const open = (page:Page) => page.ev(`Boolean(document.querySelector('#htmlui-host [data-window-class="CWindowModelTrade"]')||document.querySelector('[data-key^="trade-"]')||${scene})`) as Promise<boolean>;
 const closed = `!document.querySelector('#htmlui-host [data-window-class="CWindowModelTrade"]')&&!document.querySelector('[data-key^="trade-"]')&&!${scene}`;
-async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
+async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,30000); await sleep(800); }
 async function find(page:Page,name:string) {
-  const input = `document.querySelector('[data-key="social-Player name"]')`;
+  const input = `document.querySelector('[data-key="find-name"]')`;
   for (let attempt = 0; attempt < 3; attempt++) {
     await type(page,input,name); await until(page,`${input}?.value===${JSON.stringify(name)}`,5000);
-    await press(page,`[...document.querySelectorAll('.de-social-find button')].find(b=>b.textContent==='Find')`);
-    try { await until(page,`document.querySelector('.de-social-found')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
+    await press(page,`document.querySelector('[data-key="find-search"]')`);
+    try { await until(page,`document.querySelector('[data-cls="CWindowModelFriendEnum"], .yo2-win')?.closest('body')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
   }
   throw new Error(`Could not find ${name}`);
 }
 async function invite(from:Page,to:Page,name:string) {
   await social(from); await find(from,name);
-  await press(from,`[...document.querySelectorAll('.de-social-found button')].find(b=>b.textContent==='Invite to trade')`);
+  await press(from,`document.querySelector('[data-key="find-trade"]')`);
   await until(to,`${dialogText('trade-accept')}.includes('You have a Trade Request!')`,30000);
 }
 /** The trunk's offer count for a card (its Offer (×n) button). */

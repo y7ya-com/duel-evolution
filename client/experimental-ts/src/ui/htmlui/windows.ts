@@ -40,6 +40,11 @@ export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?
   compose: { toPid: number | null; toName: string; subject: string; body: string } | null;
   /** D-Mail open: the first row shown, the mail chosen. */
   mail: { top: number; selected: number } | null;
+  /** Find a Player (CWindowModelFriendEnum) open: the name typed, the player its buttons act on (a found one, or the
+   * friend it was opened for), the invitation row chosen. */
+  find?: { name: string; target: { pid: number; name: string } | null; selected: number; asked?: string } | null;
+  /** Ignore by name (CWindowModelBlacklistInput) open: the name typed; `asked`, the name looked up for it. */
+  ignoreInput?: { name: string; asked?: string } | null;
   /** Select Player's row under the pointer last (its character's waist-up portrait shows), null before one. */
   selected?: number | null }
 export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null, lists: null, mail: null, compose: null });
@@ -468,6 +473,16 @@ export interface SocialLists {
   unignore(pid: number): void; formTeam(name: string): void; leaveTeam(): void; disbandTeam(): void;
   /** Remove from Friend List (the character's own list, as the original's f0001.lst). */
   removeFriend(pid: number): void;
+  /** Find a Player: the last name looked up (its pid when found), the server's refusal, invitations waiting. */
+  lookup?: { name: string; pid: number | null } | null; error?: string | null;
+  offers?: { pid: number; name: string; level: number }[];
+  teamInvites?: { teamId: number; teamName: string; inviterPid: number; inviterName: string }[];
+  /** A Card Swap can start (none under way). */
+  canTrade?: boolean;
+  find?(name: string): void; inviteFriend?(pid: number): void; replyFriend?(pid: number, accept: boolean): void;
+  inviteTeam?(pid: number): void; inviteTrade?(pid: number, name: string): void; ignore?(pid: number): void;
+  replyTeam?(teamId: number, inviterPid: number, accept: boolean): void;
+  whisper?(name: string): void; duel?(pid: number): void;
 }
 // The Main Menu's list windows (CWindowModelFriendlist / Blacklist / Teamlist, main's social.js: the duel frame, the
 // list's rows a native scroller, the duel buttons). main's My Room captures (tools/flip.mjs sp-friends, sp-teams):
@@ -494,10 +509,15 @@ export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
   if (open.kind === 'friends' && open.pick) button('remove', 125, 200, 'Send D-mail', 'list-pick', chosen && ctx.ui.compose ? () => { ctx.ui.compose!.toPid = chosen.pid; ctx.ui.compose!.toName = chosen.name; ctx.ui.lists = null; ctx.rerender(); } : null);
   else if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', chosen ? () => { lists.removeFriend(chosen.pid); open.selected = -1; ctx.rerender(); } : null);
   if (open.kind === 'ignore') button('remove', 125, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
+  // the original's way to add: the Friend List opens Find a Player (CWindowModelFriendEnum: for the chosen friend, else
+  // a search), the Ignore List the name prompt (CWindowModelBlacklistInput)
+  if (open.kind === 'friends' && !open.pick && lists.find) button('find', 345, 120, chosen ? 'Friend Options' : 'Find a Player', 'list-find', () => { ctx.ui.find = { name: chosen?.name ?? '', target: chosen ? { pid: chosen.pid, name: chosen.name } : null, selected: -1 }; ctx.ui.lists = null; ctx.rerender(); });
+  if (open.kind === 'ignore' && lists.find) button('add', 345, 120, 'Add by Name', 'list-add', () => { ctx.ui.ignoreInput = { name: '' }; ctx.rerender(); });
   if (open.kind === 'team') {
     if (!lists.team) button('form', 403.5, 93, 'Form Team', 'team-form', () => { ctx.ui.dialog = { kind: 'team', name: '' }; ctx.rerender(); });
-    else if (lists.team.leader) button('disband', 391, 118, 'Disband Team', 'team-disband', () => lists.disbandTeam());
-    else button('leave', 400.5, 99, 'Leave Team', 'team-leave', () => lists.leaveTeam());
+    // the original asks first (a YesNo), as it does every irreversible step
+    else if (lists.team.leader) button('disband', 391, 118, 'Disband Team', 'team-disband', () => { ctx.ui.dialog = { kind: 'confirm', key: 'team-disband', text: 'Disband this team for every member?', yes: () => lists.disbandTeam() }; ctx.rerender(); });
+    else button('leave', 400.5, 99, 'Leave Team', 'team-leave', () => { ctx.ui.dialog = { kind: 'confirm', key: 'team-leave', text: 'Leave your current team?', yes: () => lists.leaveTeam() }; ctx.rerender(); });
   }
   button('close', 625, 100, 'Close', 'list-close', close);
   return b.spec();
@@ -514,6 +534,79 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
   if (okButton) { okButton.state = dialog.name.trim() ? 'normal' : 'disabled'; b.on(okButton, { key: 'team-name-ok', click: ok }); }
   if (cancel) b.on(cancel, { key: 'team-name-cancel', click: () => { ctx.ui.dialog = null; ctx.rerender(); } });
   return b.spec();
+}
+
+// Find a Player (CWindowModelFriendEnum, main's social.js draws it: the duel frame, its buttons, a real input). No
+// capture of it exists (web-shell/htmlui/mock) and the decomp data carries its class, not its numbers, so it stands in
+// the Friend List's frame family (listWindow: 62 wide margin, 900 wide, the title 0, 4, Close 625 at the foot): the
+// name field 73, 32 (15 characters, the server's limit) and Search 383, 32; the player it acts on 493, 36; the actions
+// on one row at 64 (116 wide, 124 apart); the friend and team invitations waiting, one row each (its own switch) from
+// 120, 28 apart; Accept 125 / Decline 235 and Close 625 at 237.
+export function findWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
+  const f = ctx.ui.find; if (!f) return null;
+  const b = new WindowBuilder(ctx.ids, 'friendenum', 'CWindowModelFriendEnum', { x: 62, y: 250, w: 900, h: 268 }, { z: 51453, modal: true });
+  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
+  const text = (name: string, x: number, y: number, w: number, t: string, align = 0) => b.add('CWindowTaskShadowText', name, { x, y, w, h: 24 }, { text: t, align, fontSize: 16, color: [1, 1, 1, 1] });
+  text('title', 0, 4, 900, 'Find a Player', 1);
+  const button = (name: string, x: number, y: number, w: number, label: string, key: string, run: (() => void) | null | undefined) =>
+    b.add('CWindowTaskButtonDuel', name, { x, y, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
+  const search = () => { const name = f.name.trim(); if (!name || !lists.find) return; f.asked = name; f.target = null; lists.find(name); ctx.rerender(); };
+  const look = lists.lookup, asked = f.asked && look?.name === f.asked ? look : null;
+  const target = f.target ?? (asked?.pid ? { pid: asked.pid, name: asked.name } : null);
+  text('nameLabel', 13, 36, 60, 'Name:');
+  b.add('CWindowTaskInput', 'name', { x: 73, y: 32, w: 300, h: 24 }, { value: f.name, focused: true, password: false, caret: null, caretOn: false, maxLen: 15, multiLine: false },
+    { key: 'find-name', label: 'Player name', text: v => { f.name = v; ctx.rerender(); }, enter: search });
+  button('search', 383, 32, 100, 'Search', 'find-search', f.name.trim() && lists.find ? search : null);
+  const result = lists.error ? lists.error : target ? `${target.name} (ID ${target.pid})` : asked ? `No player called "${asked.name}" was found.` : f.asked ? 'Searching…' : '';
+  text('result', 493, 36, 394, result);
+  const on = (run: ((t: { pid: number; name: string }) => void) | null | undefined) => target && run ? () => { run(target); ctx.rerender(); } : null;
+  const actions: [string, string, ((t: { pid: number; name: string }) => void) | null | undefined][] = [
+    ['Add to Friend List', 'find-friend', lists.friends.some(x => x.pid === target?.pid) ? null : lists.inviteFriend && (t => lists.inviteFriend!(t.pid))],
+    ['Send D-mail', 'find-mail', t => { ctx.ui.compose = { toPid: t.pid, toName: t.name, subject: '', body: '' }; ctx.ui.find = null; }],
+    ['Invite to Team', 'find-team', lists.team && lists.inviteTeam ? t => lists.inviteTeam!(t.pid) : null],
+    ['Card Swap', 'find-trade', lists.canTrade && lists.inviteTrade ? t => lists.inviteTrade!(t.pid, t.name) : null],
+    ['Duel', 'find-duel', lists.duel && (t => lists.duel!(t.pid))],
+    ['Whisper', 'find-whisper', lists.whisper && (t => { lists.whisper!(t.name); ctx.ui.find = null; })],
+    ['Ignore', 'find-ignore', lists.ignored.some(x => x.pid === target?.pid) ? null : lists.ignore && (t => lists.ignore!(t.pid))],
+  ];
+  actions.forEach(([label, key, run], i) => button(key, 13 + 124 * i, 64, 116, label, key, on(run)));
+  text('invitesLabel', 13, 96, 874, 'Invitations');
+  const invites: { label: string; key: string; reply(accept: boolean): void }[] = [
+    ...(lists.offers ?? []).map(o => ({ label: `${o.name} (Lv ${o.level}) wants to be friends.`, key: `find-offer:${o.pid}`, reply: (a: boolean) => lists.replyFriend?.(o.pid, a) })),
+    ...(lists.teamInvites ?? []).map(t => ({ label: `${t.inviterName} invites you to the team ${t.teamName}.`, key: `find-teaminvite:${t.teamId}`, reply: (a: boolean) => lists.replyTeam?.(t.teamId, t.inviterPid, a) })),
+  ];
+  if (f.selected >= invites.length) f.selected = -1;
+  invites.slice(0, 4).forEach((v, i) => b.add('CWindowTaskTextSwitch', `invite${i}`, { x: 13, y: 120 + 28 * i, w: 874, h: 24 }, { label: v.label, align: 0, state: 'normal', checked: i === f.selected, color: [0, 0, 0, 1] },
+    { key: v.key, click: () => { f.selected = i; ctx.rerender(); } }));
+  if (!invites.length) text('noInvites', 13, 120, 874, 'No invitations waiting.');
+  const chosen = invites[f.selected];
+  button('accept', 125, 237, 100, 'Accept', 'find-accept', chosen ? () => { chosen.reply(true); f.selected = -1; ctx.rerender(); } : null);
+  button('decline', 235, 237, 100, 'Decline', 'find-decline', chosen ? () => { chosen.reply(false); f.selected = -1; ctx.rerender(); } : null);
+  button('close', 625, 237, 100, 'Close', 'find-close', () => { ctx.ui.find = null; ctx.rerender(); });
+  return b.spec();
+}
+// Ignore by name (CWindowModelBlacklistInput, main's social.js; skin.js: the small dialog's frame round its body): main's
+// name prompt (mock/dialog-input1.json, as the team's name) asking for the player; OK looks the name up and ignores the
+// player it names, or says no such player was found (main's OK box).
+export function ignoreInputDialog(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
+  const d = ctx.ui.ignoreInput; if (!d) return null;
+  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'blacklist-input', 'CWindowModelBlacklistInput', { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51503 });
+  const cs = b.fromTemplate(t, true);
+  const ok = () => { const name = d.name.trim(); if (!name || d.asked || !lists.find) return; d.asked = name; lists.find(name); ctx.rerender(); };
+  const text = named(cs, 'CWindowTaskText'); if (text) Object.assign(text, { text: d.asked ? 'Looking up the player…' : 'Enter the name of the player to ignore', x: 0, y: 8, w: 336, align: 1 });
+  const input = named(cs, 'CWindowTaskInput'); if (input) Object.assign(input, { x: 8, y: 56, w: 320 });
+  const okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  if (input) { Object.assign(input, { value: d.name, focused: true, maxLen: 15 }); b.on(input, { key: 'ignore-name', label: 'Player name', text: v => { d.name = v; ctx.rerender(); }, enter: ok }); }
+  if (okButton) { okButton.state = d.name.trim() && !d.asked ? 'normal' : 'disabled'; b.on(okButton, { key: 'ignore-name-ok', click: ok }); }
+  if (cancel) b.on(cancel, { key: 'ignore-name-cancel', click: () => { ctx.ui.ignoreInput = null; ctx.rerender(); } });
+  return b.spec();
+}
+/** The name Ignore by name looked up has come back: ignore that player, or say there is none. */
+function settleIgnore(ctx: BuildContext, lists: SocialLists): void {
+  const d = ctx.ui.ignoreInput, look = lists.lookup; if (!d?.asked || look?.name !== d.asked) return;
+  ctx.ui.ignoreInput = null;
+  if (look.pid) lists.ignore?.(look.pid);
+  else ctx.ui.dialog = { kind: 'ok', text: `No player called "${look.name}" was found.` };
 }
 
 /** D-Mail's content (the rewrite's mail) and what its buttons do. */
@@ -596,6 +689,9 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient
   const lists = ctx.social ? listWindow(ctx, ctx.social) : null; if (lists) out.push(lists); else if (!ctx.social) ui.lists = null;
+  const find = ctx.social ? findWindow(ctx, ctx.social) : null; if (find) out.push(find); else if (!ctx.social) ui.find = null;
+  if (ctx.social) settleIgnore(ctx, ctx.social);
+  const ignoreInput = ctx.social ? ignoreInputDialog(ctx, ctx.social) : null; if (ignoreInput) out.push(ignoreInput); else if (!ctx.social) ui.ignoreInput = null;
   if (ctx.deckWindows) out.push(...ctx.deckWindows());
   const menu = ctx.menu;
   if (menu) { out.push(menuBar(ctx, menu)); if (ui.menu && menu.keys) out.push(mainMenu(ctx, menu)); else ui.menu = false; }

@@ -30,7 +30,7 @@ describe.skipIf(!enabled)('UI skin tour',() => {
       await press(page,byKey('profile-ok')); await sleep(300);
       await click(page,'Edit Deck'); await until(page,`document.querySelector('.de-deck-columns')`,60000); await sleep(2500); await shot('10-deck');
       await click(page,'Shop'); await until(page,`document.querySelector('.de-shop-grid')`,60000); await sleep(2500); await shot('11-shop');
-      await click(page,'Find Player'); await until(page,`document.querySelector('.social-feature')`,60000); await sleep(800); await shot('12-social');
+      await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,60000); await sleep(800); await shot('12-social');
       await click(page,'Options'); await until(page,`document.querySelector('[data-key="browser-fullscreen-toggle"]')`,30000); await sleep(300); await shot('13-options');
       await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); await sleep(800);
       await say(page,'Skin check'); await sleep(1200); await shot('14-chat');
