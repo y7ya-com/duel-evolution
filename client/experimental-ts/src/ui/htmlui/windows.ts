@@ -693,7 +693,7 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
       { key: `mail-row:${open.top + i}`, click: () => { open.selected = open.top + i; ctx.rerender(); } });
     row.alpha = 1;
   });
-  b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : box.mail.length ? '' : 'No mail.', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
+  b.add('CWindowTaskText', 'body', { x: 16, y: 272, w: 464, h: 192 }, { text: chosen ? chosen.body : '', align: 0, fontSize: 16, lineGap: 0, firstLine: 0, pageLines: 12, color: [0, 0, 0, 1] });
   button('close', 206, 481, 'Close', 'mail-close', () => { ctx.ui.mail = null; ctx.rerender(); });
   return b.spec();
 }
