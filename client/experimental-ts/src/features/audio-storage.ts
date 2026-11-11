@@ -1,6 +1,6 @@
 /** Only user-selected local files are stored. Blobs go straight to structured clone,
  * never through arrayBuffer/base64 or a second Blob copy. */
-export const AUDIO_FILE_LIMITS = Object.freeze({ perSlot: 8, perFileBytes: 64 * 1024 * 1024, totalFiles: 256, totalBytes: 256 * 1024 * 1024 });
+export const AUDIO_FILE_LIMITS = Object.freeze({ perSlot: 64, perFileBytes: 64 * 1024 * 1024, totalFiles: 256, totalBytes: 256 * 1024 * 1024 });
 export interface AudioSlotMode { shuffle: boolean; loop: boolean; volume: number; }
 export interface StoredAudioSlot extends AudioSlotMode { slot: number; files: File[]; }
 export interface StoredAudio { version: 1; music: number; sound: number; slots: StoredAudioSlot[]; }

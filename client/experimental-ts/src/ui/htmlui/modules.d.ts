@@ -80,6 +80,17 @@ declare module '@htmlui/cosmetics/trade-cosmetics.js' {
   export const CARD_SWAP: number;
 }
 
+declare module '@htmlui/cursor.js' {
+  export const HD: number;
+  export function cursorCss(c: unknown, base: string, scale: number, dpr: number): string | null | undefined;
+  export function ripple(c: unknown): unknown[];
+}
+declare module '@htmlui/screens/pack-contents.js' {
+  export function openPackContents(host: HTMLElement, opts: { id: number; name?: string; view?: string; onClose?: () => void; fetch?: typeof fetch }): { close(): void };
+  export function dropPackHotspots(): void;
+  export const ART: { x: number; y: number[]; pitch: number; w: number; h: number };
+  export function packAt(win: unknown, x: number, y: number): number | null;
+}
 declare module '@htmlui/chat-bubbles.js' {
   export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
 }

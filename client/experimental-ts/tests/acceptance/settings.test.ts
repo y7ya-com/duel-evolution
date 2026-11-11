@@ -11,12 +11,41 @@ async function key(page:Page,key:string,code = key,keyCode = 0) {
   await page.send('Input.dispatchKeyEvent',{ type:'keyDown',key,code,windowsVirtualKeyCode:keyCode });
   await page.send('Input.dispatchKeyEvent',{ type:'keyUp',key,code,windowsVirtualKeyCode:keyCode });
 }
-async function openDeck(page:Page) { await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`,60000); await sleep(400); }
+/** A Main Menu entry by its key (its label follows the chosen language): MAIN opens the menu, as a player would. */
+async function menuEntry(page:Page,key:string) {
+  await until(page,`${byKey('main-menu')}||${byKey(`menu:${key}`)}`,30000);
+  if (!(await page.ev(`Boolean(${byKey(`menu:${key}`)})`))) await press(page,byKey('main-menu'));
+  await until(page,`${byKey(`menu:${key}`)}&&!${byKey(`menu:${key}`)}.disabled`,30000); await press(page,byKey(`menu:${key}`));
+}
+async function openDeck(page:Page) { await menuEntry(page,'deck'); await until(page,`document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`,60000); await sleep(400); }
 /** Edit Deck, the trunk's first card names, EXIT back to the lobby (main's deck screen leaves through its EXIT). */
 async function trunkNames(page:Page) { await openDeck(page); const names = await collectionNames(page); await exitDeckEditor(page); return names; }
-async function choose(page:Page,code:string) {
-  await click(page,'Options'); await until(page,byKey(`language:${code}`),30000);
-  await press(page,byKey(`language:${code}`));
+/** DUEL OPTIONS (htmlui/options.ts, the original's COptionDlg) from the Main Menu. */
+async function duelOptions(page:Page) { await menuEntry(page,'settings'); await until(page,byKey('opt-lang'),30000); }
+/** The rewrite's own Options page, DUEL OPTIONS' More Options. */
+async function moreOptions(page:Page) { await duelOptions(page); await press(page,byKey('opt-more')); await until(page,byKey('options-language'),30000); }
+const LANGUAGES = ['日本語','English','Deutsch','Français','Italiano','Español','한국어'];
+const langShown = `document.querySelector('[data-key="opt-lang"]')?.textContent.trim()`;
+const langReady = `(!!${byKey('opt-lang-next')}&&!${byKey('opt-lang-next')}.disabled)`;
+/** DUEL OPTIONS' Language row: < / > until the chosen language is shown (each step loads that language). */
+async function chooseIn(page:Page,name:string) {
+  for (let i = 0; i < 8 && (await page.ev(langShown)) !== name; i++) {
+    await until(page,langReady,90000);
+    const from = LANGUAGES.indexOf(await page.ev(langShown) as string), to = LANGUAGES.indexOf(name), fwd = (to - from + 7) % 7;
+    const shown = await page.ev(langShown);
+    await press(page,byKey(fwd <= 3 ? 'opt-lang-next' : 'opt-lang-prev'));
+    await until(page,`${langShown}!==${JSON.stringify(shown)}||${byKey('language-error-ok')}`,90000);
+    if (await page.ev(`Boolean(${byKey('language-error-ok')})`)) return;
+  }
+  await until(page,`${langShown}===${JSON.stringify(name)}&&${langReady}`,90000);
+}
+async function choose(page:Page,name:string) { await duelOptions(page); await chooseIn(page,name); await press(page,byKey('opt-close')); await until(page,`!${byKey('opt-lang')}`,10000); }
+/** The Main Menu's entry labels (main's CMainMenu), opened and closed again. */
+async function menuLabels(page:Page) {
+  await press(page,byKey('main-menu')); await until(page,byKey('menu:deck'),10000);
+  const labels = await page.ev(`[...document.querySelectorAll('[data-key^="menu:"]')].map(b=>b.textContent.trim())`) as string[];
+  await press(page,byKey('main-menu-close')); await until(page,`!${byKey('menu:deck')}`,10000);
+  return labels;
 }
 
 /** Observes the client's Web Audio and media use without changing it: contexts, effect voices and their gain, decodes,
@@ -54,40 +83,52 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
     try {
       const page = await openPage(); await openClient(page,await signIn(`TestSe${RUN}`));
       await enterWorld(page,`Set ${RUN}`);
-      // settings.language-screen: the original Options' seven languages; English card and pack names first.
-      const english = await trunkNames(page);
-      await click(page,'Options'); await until(page,byKey('options-language'),30000);
-      const offered = await page.ev(`[...document.querySelectorAll('[data-key^="language:"]')].map(b=>b.textContent)`) as string[];
-      expect(offered).toEqual(['日本語','English','Deutsch','Français','Italiano','Español','한국어']);
-      expect(await page.ev(pressed('E'))).toBe(true);
-      await press(page,byKey('language:G'));
-      await until(page,pressed('G'),90000);
-      expect(await page.ev(`document.querySelector('[data-key="options-language"] .de-error')`)).toBe(null);
+      // settings.language-screen: DUEL OPTIONS' Language row (< name >) over the original's seven languages; card and
+      // pack names and main's labels (their yo2text ids) follow the choice.
+      const english = await trunkNames(page), englishMenu = await menuLabels(page);
+      await duelOptions(page);
+      expect(await page.ev(langShown)).toBe('English');
+      const englishOptions = await page.ev(`${byKey('opt-close')}.closest('.win').innerText`) as string;
+      await chooseIn(page,'Deutsch');
+      expect(await page.ev(`Boolean(${byKey('language-error-ok')})`)).toBe(false);
+      const germanOptions = await page.ev(`${byKey('opt-close')}.closest('.win').innerText`) as string;
+      expect(germanOptions).not.toBe(englishOptions);
       await screenshot(page,'settings-language-de');
+      await press(page,byKey('opt-close')); await until(page,`!${byKey('opt-lang')}`,10000);
+      const germanMenu = await menuLabels(page);
+      const menuChanged = germanMenu.filter((g,i) => g !== englishMenu[i]).length;
+      expect(germanMenu.length).toBe(englishMenu.length);
+      expect(menuChanged).toBeGreaterThanOrEqual(3);
       const german = await trunkNames(page);
       const changed = german.filter((g,i) => g !== english[i]).length;
       expect(german.length).toBe(english.length);
       expect(changed).toBeGreaterThan(english.length / 2);
-      // Japanese: a different script and code page.
-      await choose(page,'J'); await until(page,pressed('J'),90000);
-      const japanese = await trunkNames(page);
+      // Japanese: a different script and code page (< twice, through English).
+      await choose(page,'日本語');
+      const japanese = await trunkNames(page), japaneseMenu = await menuLabels(page);
       expect(japanese.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
+      expect(japaneseMenu.some(n => /[぀-ヿ一-鿿]/.test(n))).toBe(true);
       await screenshot(page,'settings-language-ja-deck');
-      await choose(page,'G'); await until(page,pressed('G'),90000);
-      // Refused data: the archive is unreachable while choosing French; German stays and the choice can be retried.
+      await choose(page,'Deutsch');
+      // Refused data: the archive is unreachable while choosing French: main's error dialog says so, German stays and
+      // the choice can be made again.
       await page.send('Network.setBlockedURLs',{ urls:['*/game-assets/*'] });
-      await choose(page,'F');
-      await until(page,`document.querySelector('[data-key="options-language"] .de-error')`,60000);
-      const refusal = await page.ev(`document.querySelector('[data-key="options-language"] .de-error').textContent`) as string;
-      expect(await page.ev(pressed('G'))).toBe(true);
+      await duelOptions(page); await chooseIn(page,'Français');
+      await until(page,byKey('language-error-ok'),60000);
+      const refusal = await page.ev(`${byKey('language-error-ok')}.closest('.win').innerText`) as string;
+      expect(refusal).toMatch(/Français|French/);
+      await screenshot(page,'settings-language-refused');
+      expect(await page.ev(langShown)).toBe('Deutsch');
+      await press(page,byKey('language-error-ok')); await until(page,`!${byKey('language-error-ok')}`,10000);
       await page.send('Network.setBlockedURLs',{ urls:[] });
-      await press(page,byKey('language:F')); await until(page,pressed('F'),90000);
-      expect(await page.ev(`document.querySelector('[data-key="options-language"] .de-error')`)).toBe(null);
+      await chooseIn(page,'Français');
+      expect(await page.ev(`Boolean(${byKey('language-error-ok')})`)).toBe(false);
+      await press(page,byKey('opt-close')); await until(page,`!${byKey('opt-lang')}`,10000);
       const french = await trunkNames(page);
       expect(french.filter((f,i) => f !== english[i] && f !== german[i]).length).toBeGreaterThan(english.length / 3);
 
       // Fullscreen: a refused request explains itself and a later click enters and leaves fullscreen.
-      await click(page,'Options'); await until(page,byKey('browser-fullscreen-toggle'),30000);
+      await moreOptions(page); await until(page,byKey('browser-fullscreen-toggle'),30000);
       await page.ev(`(()=>{const real=Element.prototype.requestFullscreen;window.__realFs=real;Element.prototype.requestFullscreen=function(){Element.prototype.requestFullscreen=real;return Promise.reject(new TypeError('Permissions check failed'));};})()`);
       await press(page,byKey('browser-fullscreen-toggle'));
       await until(page,`[...document.querySelectorAll('.de-settings-row [role=alert]')].some(n=>/refused/i.test(n.textContent))`,15000);
@@ -97,12 +138,12 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await screenshot(page,'settings-fullscreen');
       await press(page,byKey('browser-fullscreen-toggle'));
       await until(page,`document.fullscreenElement===null&&document.querySelector('[data-key="browser-fullscreen-toggle"]').textContent==='Enter Fullscreen'`,15000);
-      record('settings.language-screen',{ actions:'Options: list languages; Deutsch; deck editor; 日本語; Deutsch; Français with the archive blocked, then again; fullscreen refused once, then enter and exit',
-        expected:'The original seven languages; card text switches from that language\'s tables; a refused load or fullscreen keeps the old state with a retryable message',
-        observed:`offered ${offered.join('/')}; first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; blocked: "${refusal.slice(0,140)}" with Deutsch still selected, retry selected Français; fullscreen refusal "${fullscreenRefusal}", then document.fullscreenElement set and cleared` });
+      record('settings.language-screen',{ actions:'DUEL OPTIONS\' Language row: > to Deutsch; Main Menu and deck screen; < < to 日本語; Deutsch; Français with the archive blocked, OK, then again; More Options: fullscreen refused once, then enter and exit',
+        expected:'The original seven languages; card text and main\'s labels switch from that language\'s tables; a refused load shows main\'s error dialog and keeps the old language; a refused fullscreen explains itself',
+        observed:`first collection card "${english[0]}" → de "${german[0]}" (${changed}/${english.length} changed) → ja "${japanese[0]}" → fr "${french[0]}"; Main Menu ${englishMenu.join('/')} → de ${germanMenu.join('/')} (${menuChanged} changed) → ja ${japaneseMenu.join('/')}; blocked: error dialog "${refusal.replace(/\s+/g,' ').slice(0,160)}" with Deutsch still shown, retry chose Français; fullscreen refusal "${fullscreenRefusal}", then document.fullscreenElement set and cleared` });
 
       // settings.persist: volumes and toggles through the controls, then a reload restores all of them.
-      await click(page,'Options'); await until(page,byKey('options-language'),30000);
+      await moreOptions(page);
       const slider = `document.querySelector('input[type=range][aria-label="Sound effects"]')`;
       const before = await page.ev(`${slider}.value`);
       await press(page,slider);
@@ -146,11 +187,12 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await press(page,byKey('language:F')); await key(page,'Escape','Escape',27);
       await until(page,`document.querySelector('.de-client').dataset.scene==='title'`,30000);
       await reenterWorld(page,`Set ${RUN}`);
-      await click(page,'Options'); await until(page,byKey('language:F'),30000);
-      await press(page,byKey('language:F')); await key(page,'Escape','Escape',27);
-      await until(page,lobbyShown,30000);
+      // DUEL OPTIONS (a modal over the lobby) closes with Escape
+      await duelOptions(page); await press(page,byKey('opt-lang'));
+      await key(page,'Escape','Escape',27);
+      await until(page,`!${byKey('opt-lang')}&&${lobbyShown}`,30000);
       // Escape closes the player's own profile card.
-      await click(page,'My Profile');
+      await menuEntry(page,'profile');
       const profile = `document.querySelector('[data-key="profile-ok"]')`;   // main's Profile window
       await until(page,profile,20000);
       await page.ev(`document.activeElement?.blur()`);
@@ -178,7 +220,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(alerts).toBeGreaterThan(0);
       record('settings.accessibility',{ actions:'Tab through Options with the keyboard; reduced motion on; Escape in Options, profile card and the deck screen\'s LOAD DECK file list',
         expected:'Keyboard focus reaches every control with a visible outline; Escape closes the topmost modal then the screen; reduced motion stops CSS motion',
-        observed:`${focused.length} Tab stops incl. all 7 language buttons and fullscreen, outlines on language buttons; language button motion "${motion}" with Reduce animation; Escape: Options → title (offline) and → lobby (online), ${profileClosed}, trunk card "${inspected}" shown in the deck detail, LOAD DECK's file list closed by Escape (still in the deck screen), second Escape → lobby; ${alerts} live regions` });
+        observed:`${focused.length} Tab stops incl. all 7 language buttons and fullscreen, outlines on language buttons; language button motion "${motion}" with Reduce animation; Escape: Options → title (offline), DUEL OPTIONS closed over the lobby (online), ${profileClosed}, trunk card "${inspected}" shown in the deck detail, LOAD DECK's file list closed by Escape (still in the deck screen), second Escape → lobby; ${alerts} live regions` });
     } finally { closeAll(); }
   },600000);
   it('unlocks audio on the first gesture, follows scenes without overlap, plays duel cues at the set volume and keeps mute',async () => {

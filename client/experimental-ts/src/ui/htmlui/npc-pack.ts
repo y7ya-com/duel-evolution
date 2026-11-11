@@ -20,6 +20,8 @@ export interface NpcPackDeps {
   send(command: Extract<ClientCommand, { type: 'npcSelectPack' }>): void;
   rerender(): void;
   busy?: boolean;
+  /** What a pack holds (main's screens/pack-contents.js), opened from the picker's Contents key. */
+  contents?(id: number, name: string): void;
 }
 
 const ROWS = 6, ROW_H = 16;
@@ -55,6 +57,9 @@ export function npcPackSelect(npc: Readonly<NpcState> | null | undefined, deps: 
   const busy = !!deps.busy;
   b.add('CWindowTaskButtonDuel', 'ok', { x: 328, y: 112, w: 120, h: 24 }, { label: 'OK', state: busy ? 'disabled' : 'normal', enabled: !busy },
     { key: 'npc-pack:ok', label: `Take ${names[ui.selected]}`, click: () => { if (!busy) deps.send({ type: 'npcSelectPack', pack: packs[ui.selected]! }); } });
+  // what the chosen pack holds (main's pack-contents.js details sheet), beside OK
+  if (deps.contents) b.add('CWindowTaskButtonDuel', 'contents', { x: 456, y: 112, w: 120, h: 24 }, { label: 'Contents', state: 'normal', enabled: true },
+    { key: 'npc-pack:contents', label: `What ${names[ui.selected]} holds`, click: () => deps.contents!(packs[ui.selected]!, names[ui.selected]!) });
   return b.spec();
 }
 

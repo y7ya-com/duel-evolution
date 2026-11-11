@@ -4,7 +4,7 @@
 // result titles (glowing art) under holes: the rewrite has no engine, so the title is the record's ShadowText.
 // Every button is a real <button> main's modules draw (the layer takes input on elements).
 import type { DuelView } from '../contracts';
-import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
+import { WindowBuilder, type HtmlWindow, type Ids, type WindowSpec } from './snapshot';
 
 export interface DuelResultContext {
   ids: Ids;
@@ -12,6 +12,8 @@ export interface DuelResultContext {
   match?: { round: number; scores: [number, number, number]; complete: boolean } | undefined;
   /** Leave the result (the original's Next: back to the lobby); absent while a match's next game is coming. */
   next?: (() => void) | undefined;
+  /** An NPC duel: the NPC record (CWindowResultNpc) in place of the two player records. */
+  npc?: { name: string; record: { wins: number; loses: number; draws: number } } | undefined;
 }
 const WHITE = [1, 1, 1, 1], GOLD = [1, 0.9, 0.3, 1];
 
@@ -23,9 +25,34 @@ function outcome(ended: string | undefined, side: 0 | 1): 'WIN' | 'LOSE' | 'DRAW
   return '';
 }
 
+/** The NPC duel's record (CWindowResultNpc, src/Result/yo2ResultWindow.cpp): the 512 x 442 board
+ * (npc_result_dai_01_c01, a CSpriteElm member: an extra), the NPC's name on the plate, the result, and this
+ * character's wins / losses / draws against the NPC as ShadowTexts with their 1, 1 black shadow halves. */
+export function npcResultWindow(ctx: DuelResultContext & { npc: NonNullable<DuelResultContext['npc']> }): WindowSpec {
+  const { duel, npc } = ctx, x = 256, y = 64, w = 512, h = 442;
+  const b = new WindowBuilder(ctx.ids, 'duel-result:npc', 'CWindowResultNpc', { x, y, w, h }, { z: 51150 });
+  b.win.extras = [{ id: ctx.ids.of('duel-result:npc/board'), cls: 'CSpriteElm', shown: true, tex: 'npc_result_dai_01_c01', wx: x, wy: y, x: 0, y: 0, src: [0, 0, w, h], sx: 1, sy: 1 } as HtmlWindow['extras'][number]];
+  const text = (name: string, t: string, ty: number, px = 16, color = WHITE, tx = 40, tw = w - 80, align = 0) => {
+    const c = b.add('CWindowTaskShadowText', name, { x: tx, y: ty, w: tw, h: px + 4 }, { text: t, align, fontSize: px, color });
+    b.add('CWindowTaskText', `${name}/shadow`, { x: tx + 1, y: ty + 1, w: tw, h: px + 4 }, { parent: c.id, text: t, color: [0, 0, 0, 1] });
+    return c;
+  };
+  text('name', npc.name, 30, 16, WHITE, 40, w - 80, 1);
+  const result = outcome(duel.ended, 0);
+  text('title', result || duel.ended || '', 104, 24, GOLD, 40, w - 80, 1);
+  const r = npc.record;
+  ([['wins', 'Wins', r.wins, 170], ['loses', 'Losses', r.loses, 230], ['draws', 'Draws', r.draws, 290]] as const).forEach(([key, label, n, ty]) => {
+    text(`l:${key}`, label, ty, 16);
+    text(`n:${key}`, String(n), ty - 4, 24, WHITE, 40, w - 120, 2);
+  });
+  const spec = b.spec(); spec.win.controls[0]!.label = `${npc.name}: ${result || duel.ended || ''}, ${r.wins} wins, ${r.loses} losses, ${r.draws} draws`;
+  return spec;
+}
+
 export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   const { duel, match } = ctx, out: WindowSpec[] = [];
-  ([0, 1] as const).forEach(side => {
+  if (ctx.npc) out.push(npcResultWindow({ ...ctx, npc: ctx.npc }));
+  else ([0, 1] as const).forEach(side => {
     const p = duel.players[side], x = side === 0 ? 250 : 530, y = 64, w = 244, h = 442;
     const b = new WindowBuilder(ctx.ids, `duel-result:${side}`, 'CWindowResult', { x, y, w, h }, { z: 51150 });
     const tex = side === 0 ? 'result_dai_01_c01' : 'result_dai_01_c02';

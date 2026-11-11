@@ -38,13 +38,34 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
   500 x 32); the phase-by-phase help lines (yo2text's CHelpDialog strings) are not in the rewrite's gamedata, so only
   prompts get a strip.
 
+- **NPC duel record** (CWindowResultNpc): after an NPC duel the duel result shows main's `screens/result.js` NPC
+  record (`src/ui/htmlui/duel-result.ts` npcResultWindow: the 512 board npc_result_dai_01_c01 at 256, 64, the NPC's
+  name, the result, Wins / Losses / Draws with their 1, 1 shadow) in place of the two player records. The counts are
+  the server's NPCBIN entry (0x4234, bytes 0..2 of the NPC's 4: server persist.ts npcResult) read when the talk opens,
+  plus this duel's server result (the server counts the same result, capped at 255). The rewrite does not re-read
+  NPCBIN after the duel: the server's 0x4233 GETPBIN clears pending prizes (persist.ts h_getpbin pendingClear), so
+  asking for it before the gift is claimed would lose the gift. The title is ShadowText (the engine drew
+  npc_result_title_01_? art). Tests: `tests/npc-result-record.test.ts`.
+- **NPC talk balloon** (CWindowModelBalloon): the NPC's lines are drawn in the shop clerk's balloon look
+  (`src/ui/npc.ts` BALLOON_CSS).
+- **NPC item gifts by name, in part** (CWindowModelItemGet): "You got <item>!" per gifted bit the rewrite can name
+  (`src/npcs/gift-names.ts`): titles (class 10) from the server's title table (features/titles.ts). The rest are
+  counted ("N item rewards confirmed. Item names are unavailable."): see the server table below.
+
+- **What a pack holds** (CARD_PACK_CHECK): main's `screens/pack-contents.js` from the legacy shop's Booster Packs
+  window (its art hotspots: the window carries its packs' ids, `ShopItem.packId`) and from the NPC pack picker's
+  Contents key, as well as inside the card shop (`GET /api/de/shop/pack`).
+- **Account sanctions** (0x3004 flags 0x20 chat, 0x40 trade): decoded at login (`network/session.ts` decodeSanctions);
+  the chat line is greyed out, Card Swap (player card, Find a Player) disabled.
+- **Forbidden / limited list** (0x5600): decoded (`network/banlist.ts`) and used for the deck's limits, marks and checks.
+- **HD game cursor**: main's `cursor.js` (CSS cursor, HD art, the click ripple layer) on every screen.
+
 ## The server has it, the rewrite does not (client work only)
 
 | Original | Server today | Rewrite work |
 | --- | --- | --- |
-| CARD_PACK_CHECK (what a pack holds) | `GET /api/de/shop/pack?id=` (shop-api.ts shopPackView: cards, odds, owned, pulls) | Mount main's `screens/pack-contents.js` (`openPackContents`) from the rewrite's Legacy shop pack window and from the pack picker. Today it opens only inside the new card shop |
-| NPC duel record (CWindowResultNpc) | The NPC result arrives with the settlement | Mount main's `screens/result.js` (it lists CWindowResultNpc; layout in `mock/result-npc.json`) in the duel result (duel screen work) |
-| NPC talk balloon (CWindowModelBalloon) | NPC dialogue lines (features/npc.ts) | Draw the NPC's lines in a balloon like the shop clerk's (`src/ui/htmlui/pictures.ts` `balloon`) in place of the panel text; update `tests/acceptance/harness.ts` claimNpcReward when the panel's buttons move |
+| The HD cursor's hover and busy looks | nothing (client art: data/common/m_cursor, ui/hd/) | `src/ui/htmlui/cursor.ts` builds the hand's sprites for main's `cursor.js` itself (no engine): plain n01, over a control n02, busy t01..t08 at 12 Hz, the e01 ripple growing and fading over 330 ms. Which mausuk set the original's CHandCursorTask shows on hover / while waiting, and its frame timing, is not decompiled yet: match them once it is. Over a Booster Packs art (main's hotspot) the band no longer follows the hover (main forwards it to the engine's canvas) |
+| The sanctions' notices | chat.ts "Chat is disabled for this account.", trade.ts / cosmetics.ts refuse a barred trade | The rewrite greys the chat line out with the server's wording and disables Card Swap (its label says "Card Swap is disabled for this account."); the original's own notice text for 0x3004's 0x20 / 0x40 is not found in the decomp data |
 
 ## The server does not have it (server work first)
 
@@ -55,4 +76,4 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
 | Tournament Points (TP scene) | The player's TP total and what it buys | The rewrite's profile row reads the player info's u32 TP (features/profile.ts), but the server writes 0 there. `persist` keeps `rec.tp`, but `PRIZE_TP` is 0 in tournaments.ts, so nothing awards TP, and no message or endpoint reads it. Needs a TP award rule, a read (profile field or `/api/de/...`), and whatever TP exchanges for |
 | Information texts / event pages | The news and event descriptions the Information and AboutEvent windows showed; GoEvent's "go to the event" question. Missing texts: every event title and body, what each EVENTINFO state means, GoEvent's question | EVENTINFO carries only (serial, world, state). An event text source (admin-set titles and bodies, per language) and a message or endpoint that serves them |
 | Duel Log replays (CWindowModelDuellogOperation's Play, the saved duellogs\\*.log; DuellogTour, the championship logs) | The duel record of a game, replayed in the duel screen, and the operator's championship logs downloaded from the site | The server sends the record (0x6010..0x6016, duel/duellog.ts) after a PvP game but does not keep it. Needs the records stored (per game, by the Duel Log line's id), a read for one, and a replay viewer in the rewrite (none today: the Duel Log lists the games without a Play button) |
-| NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift | The gifts arrive as bits (`giftBits`); the rewrite cannot name them. Needs the item table (name per bit) served, or sent with the grant |
+| NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift, with the item's picture | The gifts arrive as PBIN bits only (0x5205; persist.ts pendingAdd keeps classes 1/2/3 avatar parts, 7 challenge rights, 8 recipes, 10 titles). Titles are named client-side; avatar parts and challenge rights have no name table in the rewrite's gamedata, and recipe bits are named only where the deck recipe catalogue carries the bit (`giftItemName`'s recipe lookup is not wired into the panel yet). Needs the item table (name and picture per bit) served, or sent with the grant |
