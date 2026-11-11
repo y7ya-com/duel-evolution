@@ -602,7 +602,9 @@ export function findWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
     ['Add to Friend List', 'find-friend', lists.friends.some(x => x.pid === target?.pid) ? null : lists.inviteFriend && (t => lists.inviteFriend!(t.pid))],
     ['Send D-mail', 'find-mail', t => { ctx.ui.compose = { toPid: t.pid, toName: t.name, subject: '', body: '' }; ctx.ui.find = null; }],
     ['Invite to Team', 'find-team', lists.team && lists.inviteTeam ? t => lists.inviteTeam!(t.pid) : null],
-    ['Card Swap', 'find-trade', lists.canTrade && lists.inviteTrade && !ctx.state.sanctions?.trade ? t => lists.inviteTrade!(t.pid, t.name) : null],
+    // Card Swap leaves for the trade (its request dialog, then its scene), as D-mail and Whisper leave for theirs: Find a
+    // Player (z 51453) would otherwise sit over the trade's dialogs (51203) and cover their buttons
+    ['Card Swap', 'find-trade', lists.canTrade && lists.inviteTrade && !ctx.state.sanctions?.trade ? t => { lists.inviteTrade!(t.pid, t.name); ctx.ui.find = null; } : null],
     ['Duel', 'find-duel', lists.duel && (t => lists.duel!(t.pid))],
     ['Whisper', 'find-whisper', lists.whisper && (t => { lists.whisper!(t.name); ctx.ui.find = null; })],
     ['Ignore', 'find-ignore', lists.ignored.some(x => x.pid === target?.pid) ? null : lists.ignore && (t => lists.ignore!(t.pid))],

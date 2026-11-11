@@ -118,8 +118,13 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     social.lookup = { name: 'Rival', pid: 1004 };
     const enumWin = t.windows().find(s => s.win.cls === 'CWindowModelFriendEnum')!.win;
     expect(enumWin.controls.find(c => c.name === 'result')!.text).toBe('Rival (ID 1004)');
-    for (const k of ['find-friend', 'find-team', 'find-trade', 'find-duel', 'find-ignore']) t.find(k)!.click!();
-    expect(calls.slice(-5)).toEqual(['friend 1004', 'team 1004', 'trade 1004 Rival', 'duel 1004', 'ignore 1004']);
+    for (const k of ['find-friend', 'find-team', 'find-duel', 'find-ignore']) t.find(k)!.click!();
+    expect(calls.slice(-4)).toEqual(['friend 1004', 'team 1004', 'duel 1004', 'ignore 1004']);
+    // Card Swap leaves the window for the trade (as D-mail and Whisper do): it would cover the trade's dialogs
+    t.find('find-trade')!.click!(); expect(calls.at(-1)).toBe('trade 1004 Rival'); expect(t.ctx.ui.find).toBe(null);
+    expect(t.windows().some(s => s.win.cls === 'CWindowModelFriendEnum')).toBe(false);
+    t.ctx.ui.lists = { kind: 'friends', selected: -1 }; t.find('list-find')!.click!();
+    t.find('find-name')!.text!('Rival'); t.find('find-search')!.click!();
     t.find('find-offer:5')!.click!(); t.find('find-accept')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
     t.find('find-mail')!.click!(); expect(t.ctx.ui.compose).toMatchObject({ toPid: 1004, toName: 'Rival' }); expect(t.ctx.ui.find).toBe(null);
     // Ignore List: Add by Name looks the name up, then ignores that player
