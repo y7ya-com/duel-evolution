@@ -13,16 +13,19 @@ export interface StarterHost {
 interface Yo2Starter { show(decks: StarterDeckChoice[], opts: object): unknown; close(): void; open: boolean }
 
 export class StarterPicker {
-  private opening = false; private shown = false; private declined = false; private abort: AbortController | null = null; private who: number | null = null;
+  private opening = false; private shown = false; private abort: AbortController | null = null; private who: number | null = null;
+  /** Characters that chose Later or claimed a deck on this page (main: until the next page load): the picker stays shut
+   * for them though the server's claimable flag lags the claim or the character drops out for a reconnect. */
+  private readonly done = new Set<number>();
   constructor(private readonly deps: StarterHost) {}
   /** Each render: open the picker while the character may claim one (once, until Later); close it on leaving the
    * character (another one, sign-out). `who` is the character, null for none. */
   sync(who: number | null, decks: StarterDeckChoice[] | undefined): void {
     if (typeof document === 'undefined') return;
-    if (who !== this.who) { this.who = who; this.declined = false; this.close(); }
+    if (who !== this.who) { this.who = who; this.close(); }
     const api = (globalThis as unknown as { yo2Starter?: Yo2Starter }).yo2Starter;
     if (this.shown && api && !api.open) this.shown = false;   // closed by its own OK
-    if (who === null || !decks?.length || this.shown || this.opening || this.declined) return;
+    if (who === null || !decks?.length || this.shown || this.opening || this.done.has(who)) return;
     this.opening = true; void this.open(decks).catch(e => console.warn('starter:', e)).finally(() => { this.opening = false; });
   }
   private async open(decks: StarterDeckChoice[]): Promise<void> {
@@ -32,8 +35,8 @@ export class StarterPicker {
     await api.show(decks, {
       ui, art: new URL('/ui/', location.href).href, host: this.deps.host(),
       ...(cover ? { coverUrl: (d: StarterDeckChoice) => cover(d.cover, abort.signal) } : {}),
-      claim: (id: number) => this.deps.claim(id),
-      later: () => { this.declined = true; this.shown = false; this.deps.later(); },
+      claim: async (id: number) => { const who = this.who, r = await this.deps.claim(id); if (r.ok && who !== null) this.done.add(who); return r; },
+      later: () => { if (this.who !== null) this.done.add(this.who); this.shown = false; this.deps.later(); },
     });
     this.shown = api.open;
   }

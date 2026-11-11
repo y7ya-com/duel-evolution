@@ -49,4 +49,20 @@ describe('NPC reward pack pick in main\'s CWindowPackSelect', () => {
     expect(await fetchPackCompletion(4, f)).toBeNull();
     expect(await fetchPackCompletion(5, (async () => { throw new Error('down'); }) as unknown as typeof fetch)).toBeNull();
   });
+  it('is a modal sized to its frame whose controls stay inside it, gone after OK', () => {
+    let npc = won([1, 2, 3, 4, 5, 6, 7, 8]);
+    const sent: ClientCommand[] = [], d = { ...deps(sent), send: (c: ClientCommand) => { sent.push(c); npc = { ...npc, packStatus: 'pending' }; } };
+    const spec = npcPackSelect(npc, d)!;
+    expect(spec.win).toMatchObject({ ...FRAME, modal: true });
+    for (const c of spec.win.controls) {
+      const parent = spec.win.controls.find(p => p.id === c.parent), ox = parent ? parent.x : 0, oy = parent ? parent.y : 0;
+      expect(ox + c.x).toBeGreaterThanOrEqual(0); expect(oy + c.y).toBeGreaterThanOrEqual(0);
+      expect(ox + c.x + c.w).toBeLessThanOrEqual(FRAME.w); expect(oy + c.y + c.h).toBeLessThanOrEqual(FRAME.h);
+    }
+    // no full-screen back plane: nothing outside the frame is covered
+    expect(spec.win.controls.some(c => c.w >= 1024 || c.h >= 768)).toBe(false);
+    const ok = spec.win.controls.find(c => c.name === 'ok')!; spec.handlers.get(ok.id)!.click!();
+    expect(sent).toHaveLength(1);
+    expect(npcPackSelect(npc, d)).toBeNull();
+  });
 });

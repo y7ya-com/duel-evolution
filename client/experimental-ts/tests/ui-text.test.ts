@@ -66,3 +66,23 @@ describe('the UI follows the chosen language through the original text tables', 
     expect(npc.textId(7, 0)).toBe(300); expect(npc.textId(7, 1)).toBeUndefined();
   });
 });
+
+describe('ui-text by context: a word the original table holds with another meaning', () => {
+  it('leaves DUEL OPTIONS\' Animation "Full" in English in German, where the table\'s "Full" is the screen mode', async () => {
+    const { optionsWindow } = await import('../src/ui/htmlui/options');
+    const english = ['', 'Full', 'Show', 'Hide', 'Close', 'Full'], german = ['', 'Vollbild', 'Zeigen', 'Verbergen', 'Schließen', 'Voll'];
+    const text = new UiText(); text.install(english, german, 'G');
+    const spec = optionsWindow(new Ids(), { settings: { sound: 1, music: 1, reducedMotion: false, showCardNames: true }, set: () => {}, more: () => {}, close: () => {} });
+    localizeSpecs([spec], text);
+    const row = (name: string) => spec.win.controls.find(c => c.name === name)!.label;
+    expect(row('motion-full')).toBe('Full');
+    expect(row('motion-full')).not.toBe('Vollbild');
+    expect(row('names-on')).toBe('Zeigen');
+    expect(row('close')).toBe('Schließen');
+    // elsewhere the table's first "Full" still translates; a control's own id wins over the word
+    expect(text.t('Full')).toBe('Vollbild');
+    const other = { win: { cls: 'CSomeDlg', title: 'x', controls: [{ cls: 'CWindowTaskText', text: 'Full', textId: 5 }, { cls: 'CWindowTaskText', text: 'Full', textId: false }] } };
+    localizeSpecs([other as never], text);
+    expect(other.win.controls.map(c => c.text)).toEqual(['Voll', 'Full']);
+  });
+});

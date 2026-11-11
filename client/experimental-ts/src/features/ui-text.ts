@@ -101,17 +101,32 @@ export class UiText {
 
 // What a player typed or chose (inputs, names in lists, decks) is never translated: only the words the screens show.
 const TYPED = /Input|Edit|TextField|Listbox|FileList|Kaban|ChatLog|Textlist/;
+/** Labels whose English word the original's table holds with another meaning: per window class, the string id that
+ * says it there, or false when the original has none for this use (the label stays as it is, a rewrite string). A
+ * control may also name its own id (`textId`: a number, or false for none), which wins. The table's first id for a
+ * word is taken everywhere else. */
+export const UI_TEXT_CONTEXT: Readonly<Record<string, Readonly<Record<string, number | false>>>> = {
+  // DUEL OPTIONS' Animation row: Full / Reduced motion (yo2text_e 2008 "Full" is the screen mode, German "Vollbild")
+  COptionDlg: { Full: false },
+};
+/** A label through the chosen language in its window's context. */
+function contextual(text: UiText, english: string, cls: string, own: unknown): string {
+  const id = typeof own === 'number' || own === false ? own : UI_TEXT_CONTEXT[cls]?.[english.trim()];
+  if (id === false) return english;
+  if (typeof id === 'number') { const local = text.text(id); return local === undefined ? english : local.trim(); }
+  return text.t(english);
+}
 /** Puts every label the rewrite gives main's screens through the chosen language (label / text / title / items). */
 export function localizeSpecs(specs: readonly WindowSpec[], text: UiText): void {
   if (!text.active) return;
   for (const { win } of specs) {
-    if (typeof win.title === 'string') win.title = text.t(win.title);
+    if (typeof win.title === 'string') win.title = contextual(text, win.title, win.cls, win.textId);
     for (const c of win.controls) {
       if (TYPED.test(c.cls)) continue;
-      if (typeof c.label === 'string') c.label = text.t(c.label);
-      if (typeof c.text === 'string') c.text = text.t(c.text);
-      if (typeof c.title === 'string') c.title = text.t(c.title);
-      if (Array.isArray(c.items)) c.items = c.items.map(item => typeof item === 'string' ? text.t(item) : item);
+      if (typeof c.label === 'string') c.label = contextual(text, c.label, win.cls, c.textId);
+      if (typeof c.text === 'string') c.text = contextual(text, c.text, win.cls, c.textId);
+      if (typeof c.title === 'string') c.title = contextual(text, c.title, win.cls, c.textId);
+      if (Array.isArray(c.items)) c.items = c.items.map(item => typeof item === 'string' ? contextual(text, item, win.cls, undefined) : item);
     }
   }
 }
