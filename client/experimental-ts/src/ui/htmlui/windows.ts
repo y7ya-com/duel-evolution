@@ -255,6 +255,9 @@ export function chatCommand(tab: number, line: string, names: readonly string[] 
   }
   return { type: 'chat', channel: CHAT_TABS[tab]?.channel ?? 'global', text };
 }
+/** The admin's sanctions (server/src/game/chat.ts, trade.ts refuse the same): the notices where the feature is greyed out. */
+export const CHAT_SANCTION_NOTICE = 'Chat is disabled for this account.';
+export const TRADE_SANCTION_NOTICE = 'Card Swap is disabled for this account.';
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
@@ -279,6 +282,11 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
   b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
   // nothing while the app is busy (the old Send was disabled then): the line stays to be sent with the next Enter
   const send = () => { const command = chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected || ctx.state.busy) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
+  // an account the admin barred from chat (0x3004's SANCTION_CHAT): the line greyed out with the notice, nothing to type
+  if (ctx.state.sanctions?.chat) {
+    b.add('CWindowTaskText', 'input', { x: 8, y: 104, w: 760, h: 16 }, { text: CHAT_SANCTION_NOTICE, align: 0, fontSize: 12, color: [0.5, 0.5, 0.5, 1] });
+    return b.spec();
+  }
   b.add('CWindowTaskInput', 'input', { x: 0, y: 96, w: 776, h: 32 }, { focused: true, value: ctx.ui.chatDraft, password: false, caret: null, caretOn: false, maxLen: 128, multiLine: false },
     { key: 'chat', label: 'Chat message', text: v => { ctx.ui.chatDraft = v; }, enter: send });
   return b.spec();
@@ -439,8 +447,10 @@ export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec 
   for (const c of cs) if (c.cls === 'CWindowTaskTextSwitch' && !c.parent) { c.shown = false; c.parts = undefined; }
   shown.forEach(([nm, k, key], i) => {
     const c = cs.find(x => x.cls === 'CWindowTaskTextSwitch' && x.name.trim() === nm); if (!c) return;
-    Object.assign(c, { shown: true, x: 24, y: 148 + 36 * i, w: 288, h: 24, state: 'normal' });
-    b.on(c, { key, click: () => actions[k]?.() });
+    // Card Swap greyed out for an account the admin barred from trading (0x3004's SANCTION_TRADE)
+    const barred = k === 'trade' && !!ctx.state.sanctions?.trade;
+    Object.assign(c, { shown: true, x: 24, y: 148 + 36 * i, w: 288, h: 24, state: barred ? 'disabled' : 'normal' }, barred ? { enabled: false } : {});
+    b.on(c, barred ? { key, label: TRADE_SANCTION_NOTICE } : { key, click: () => actions[k]?.() });
   });
   return b.spec();
 }
@@ -570,7 +580,7 @@ export function findWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
     ['Add to Friend List', 'find-friend', lists.friends.some(x => x.pid === target?.pid) ? null : lists.inviteFriend && (t => lists.inviteFriend!(t.pid))],
     ['Send D-mail', 'find-mail', t => { ctx.ui.compose = { toPid: t.pid, toName: t.name, subject: '', body: '' }; ctx.ui.find = null; }],
     ['Invite to Team', 'find-team', lists.team && lists.inviteTeam ? t => lists.inviteTeam!(t.pid) : null],
-    ['Card Swap', 'find-trade', lists.canTrade && lists.inviteTrade ? t => lists.inviteTrade!(t.pid, t.name) : null],
+    ['Card Swap', 'find-trade', lists.canTrade && lists.inviteTrade && !ctx.state.sanctions?.trade ? t => lists.inviteTrade!(t.pid, t.name) : null],
     ['Duel', 'find-duel', lists.duel && (t => lists.duel!(t.pid))],
     ['Whisper', 'find-whisper', lists.whisper && (t => { lists.whisper!(t.name); ctx.ui.find = null; })],
     ['Ignore', 'find-ignore', lists.ignored.some(x => x.pid === target?.pid) ? null : lists.ignore && (t => lists.ignore!(t.pid))],

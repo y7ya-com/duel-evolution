@@ -62,6 +62,8 @@ export interface SessionState {
   tournament?: TournamentState | null; eventInfo?: EventInfo | null;
   /** The server's forbidden/limited list (LIMIT_LIST 0x5600, network/banlist.ts): passcode to copies; unset until it arrives. */
   limits?: ReadonlyMap<number, number> | null;
+  /** The account's admin sanctions (0x3004 AUTHRESULT's flags: 0x20 chat, 0x40 trade, server lobby.ts): the client greys those out. */
+  sanctions?: AccountSanctions;
   matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
@@ -103,6 +105,15 @@ const LOBBY_ERROR_TEXT: Record<number, [string, boolean]> = {
 /** How long a sent duel request waits for its answer before it is given up (main's engine: 45 s). */
 export const CHALLENGE_WAIT_MS = 45_000;
 export function lobbyErrorText(code: number): string { const [text, withCode] = LOBBY_ERROR_TEXT[code] ?? ['An error occurred.', true]; return withCode ? `${text}(${code})` : text; }
+/** 0x3004 AUTHRESULT's flag bits for an admin's sanctions (server/src/game/lobby.ts SANCTION_CHAT, SANCTION_TRADE). */
+export const SANCTION_CHAT = 0x20, SANCTION_TRADE = 0x40;
+export interface AccountSanctions { chat: boolean; trade: boolean }
+/** The sanctions of a successful 0x3004 (s32 result 0, u32 flags, 4 B region); none when the flags are missing. */
+export const decodeSanctions = (data: Uint8Array): AccountSanctions => {
+  if (data.length < 8) return { chat: false, trade: false };
+  const r = new BinaryReader(data); r.i32(); const flags = r.u32();
+  return { chat: !!(flags & SANCTION_CHAT), trade: !!(flags & SANCTION_TRADE) };
+};
 const checkResult = (message: WireMessage, label: string): void => {
   const result = new BinaryReader(message.data).i32();
   if (result !== 0) throw new Error(RESULT_TEXT[label]?.[result] ?? `${label} refused (${result})`);
@@ -211,7 +222,10 @@ export class GameSession {
   private async authenticate(channel: Channel): Promise<void> {
     if (this.options.freeMode) channel.send(0xca10, Uint8Array.of(1));
     await channel.request(0x3001, EMPTY(), 0x3002);
-    checkResult(await channel.request(0x3003, this.blob, 0x3004), 'Login');
+    const result = await channel.request(0x3003, this.blob, 0x3004);
+    checkResult(result, 'Login');
+    const sanctions = decodeSanctions(result.data);
+    if (sanctions.chat !== this.state.sanctions?.chat || sanctions.trade !== this.state.sanctions?.trade) { this.state.sanctions = sanctions; this.emit(); }
   }
   async start(): Promise<Character[]> {
     this.assertLive(); if (this.state.phase !== 'idle') throw new Error('Session already started');

@@ -372,10 +372,10 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null };
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined };
     return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
-      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null };
+      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null, sanctions: game.sanctions };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);

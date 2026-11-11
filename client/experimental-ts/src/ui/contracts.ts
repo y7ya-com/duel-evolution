@@ -135,6 +135,8 @@ export interface ClientView {
   /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
   tournament?: import('../network/tournament').TournamentState | null;
   eventInfo?: import('../network/tournament').EventInfo | null;
+  /** The account's admin sanctions from the login result (0x3004): chat input and trade entry points are greyed out. */
+  sanctions?: { chat: boolean; trade: boolean };
   /** Where the character stands: the world's lobbies or their own My Room (the private lobby port). */
   location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };
