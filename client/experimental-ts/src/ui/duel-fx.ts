@@ -23,6 +23,10 @@ const MAX_ANIMS = 24, MAX_TINTS = 96, MAX_ART = 256;
  * 1024×768 screen: under each LP plate, measured against live's duel screen. */
 const THINKING = { 0: 'data/y/duel/field/duel_thinkicon_a01_c01_j.txt', 1: 'data/y/duel/field/duel_thinkicon_a01_c02_j.txt' } as const;
 const THINKING_AT = { 0: { x: -15, y: 52 }, 1: { x: 1024 - 160 + 15, y: 52 } } as const;
+/** The duel bar's ring (live's bottom bar: the sword ring between the wrench and the help line): the menu's icon movie
+ * data/common/window/icon/menuicon_03_a04.txt (menuicon_03_04 under a pulsing 03_00 halo, 26 frames at 30 fps, a
+ * 64×64 stage), centred at 264, 752 on the 1024×768 screen as on live. */
+const RING = 'data/common/window/icon/menuicon_03_a04.txt';
 /** One frame of the original's 60 Hz game loop. */
 const FRAME = 1000 / 60;
 /** CBattleManager state 4 (client/src/duel/SceneBattleManager.cpp): aim 8 frames, flight to frame 16, then the hit; the
@@ -39,6 +43,10 @@ const ease = (t: number) => 1 - (1 - t) * (1 - t);
 
 export class DuelFx {
   readonly element: HTMLDivElement;
+  /** The bar's ring (RING), its own 64×64 canvas: the bar stands above the effects layer. */
+  readonly ringCanvas: HTMLCanvasElement;
+  private readonly ringCtx: CanvasRenderingContext2D | null;
+  private ringFrom = 0;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly abort = new AbortController();
@@ -68,6 +76,8 @@ export class DuelFx {
     this.element = document.createElement('div'); this.element.className = 'de-duel-fx'; this.element.setAttribute('aria-hidden', 'true');
     this.canvas = document.createElement('canvas'); this.canvas.width = 1024; this.canvas.height = 768; this.element.append(this.canvas);
     this.ctx = this.canvas.getContext?.('2d') ?? null;
+    this.ringCanvas = document.createElement('canvas'); this.ringCanvas.width = 64; this.ringCanvas.height = 64; this.ringCanvas.className = 'de-duel-ring'; this.ringCanvas.setAttribute('aria-hidden', 'true');
+    this.ringCtx = this.ringCanvas.getContext?.('2d') ?? null;
     this.clock = options.now ?? (() => performance.now()); this.base = this.virt = this.clock();
     this.requestFrame = options.requestFrame ?? (cb => requestAnimationFrame(cb));
     this.cancelFrame = options.cancelFrame ?? (id => cancelAnimationFrame(id));
@@ -293,6 +303,13 @@ export class DuelFx {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, 1024, 768);
     this.anims = this.anims.filter(a => now - a.start < a.duration);
     let animating = this.anims.length > 0;
+    if (this.ringCtx) {
+      const movie = this.movie(RING), loop = movie ? movie.frameCount * 1000 / movie.frameRate : 1000;
+      if (!this.ringFrom) this.ringFrom = this.clock();
+      this.ringCtx.setTransform(1, 0, 0, 1, 0, 0); this.ringCtx.clearRect(0, 0, 64, 64);
+      try { this.playMovie(this.ringCtx, RING, this.reduced ? 0 : (this.clock() - this.ringFrom) % loop, 0, 0, 1); } catch { /* a broken asset never stops the duel */ }
+      animating = animating || !this.reduced || !movie;
+    }
     if (this.thinkingSide !== null) {
       // the loop runs on the page's clock (the duel speed does not hurry a plate); reduced motion holds its lit frame
       const side = this.thinkingSide, path = THINKING[side], movie = this.movie(path), loop = movie ? movie.frameCount * 1000 / movie.frameRate : 1000;

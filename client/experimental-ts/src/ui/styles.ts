@@ -203,8 +203,12 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-actions button { padding:1px 8px; font-size:11px; }
 .de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:linear-gradient(#cdefff,#5fb6e8 55%,#2f86c4); border-top:1px solid #e8fbff; }
 .de-duel-wrench { width:7.8125%; height:100%; padding:0; display:grid; place-items:center; background:linear-gradient(#ffe48a,#f6a313); border:1px solid #b06a00; border-radius:0 6px 0 0; cursor:pointer; }
+.de-duel-wrench.has-art { position:absolute; left:${4 / 1024 * 100}%; top:0; width:${80 / 1024 * 100}%; height:100%; background:none; border:0; border-radius:0; overflow:hidden; display:block; }
+.de-duel-wrench-art { position:absolute; left:0; top:-400%; width:300%; height:600%; pointer-events:none; }
+.de-duel-wrench.has-art:hover .de-duel-wrench-art { left:-100%; } .de-duel-wrench.has-art:active .de-duel-wrench-art { left:-200%; }
 .de-duel-wrench svg { width:20px; height:20px; fill:#1d5fa8; stroke:#fff; stroke-width:.8; }
 .de-duel-help { position:absolute; left:${392 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:12%; bottom:12%; overflow:hidden; white-space:nowrap; font:13px Arial,sans-serif; color:#20384f; background:linear-gradient(#fff5ea,#ffe9d6); border-radius:2px; box-shadow:inset 0 0 0 1px #ffffffb0; display:flex; align-items:center; }
+.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }

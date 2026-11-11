@@ -1104,12 +1104,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // across its box from the right as live's does. Live shows no duel log on the duel screen (main's chat.js hides the
     // Duel Log tab): the log is kept for assistive technology only, never drawn
     const wrench = button('', () => open('settings')); wrench.className = 'de-duel-wrench'; wrench.dataset.key = 'duel-options'; wrench.setAttribute('aria-label', 'Options'); wrench.title = 'Options';
-    wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
+    // the key's picture is the menu bar's (data/common/window/menuicon_02_c01.png: 80×32 cells, the wrench row 4,
+    // columns normal / hover / pressed), as live's bar draws it; without the art a plain wrench glyph stands in
+    const wrenchArt = controller.loadArchiveImage ? el('img', 'de-duel-wrench-art') as HTMLImageElement : null;
+    if (wrenchArt) { wrenchArt.alt = ''; wrenchArt.draggable = false; wrenchArt.style.visibility = 'hidden'; wrenchArt.onload = () => { wrenchArt.style.visibility = ''; }; loadArchiveArt('data/common/window/menuicon_02_c01.png', wrenchArt); wrench.append(wrenchArt); wrench.classList.add('has-art'); }
+    else wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
     const helpText = duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Left click a card to confirm a selection, or the right button to open its menu.');
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, help, actions));
+    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringCanvas, help, actions));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
     if (!duel.notice) local.noticeSeen = 0;
