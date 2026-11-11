@@ -5,6 +5,7 @@
 // Every button is a real <button> main's modules draw (the layer takes input on elements).
 import type { DuelView } from '../contracts';
 import { WindowBuilder, type HtmlWindow, type Ids, type WindowSpec } from './snapshot';
+import { signed } from '../../duel/rewards';
 
 export interface DuelResultContext {
   ids: Ids;
@@ -12,7 +13,8 @@ export interface DuelResultContext {
   match?: { round: number; scores: [number, number, number]; complete: boolean } | undefined;
   /** Leave the result (the original's Next: back to the lobby); absent while a match's next game is coming. */
   next?: (() => void) | undefined;
-  /** An NPC duel: the NPC record (CWindowResultNpc) in place of the two player records. */
+  /** An NPC duel: the record known from the talk (fallback until the server's 0x4140 update gives duel.npcRecord);
+   * either one draws CWindowResultNpc in place of the two player records. */
   npc?: { name: string; record: { wins: number; loses: number; draws: number } } | undefined;
 }
 const WHITE = [1, 1, 1, 1], GOLD = [1, 0.9, 0.3, 1];
@@ -25,11 +27,31 @@ function outcome(ended: string | undefined, side: 0 | 1): 'WIN' | 'LOSE' | 'DRAW
   return '';
 }
 
-/** The NPC duel's record (CWindowResultNpc, src/Result/yo2ResultWindow.cpp): the 512 x 442 board
- * (npc_result_dai_01_c01, a CSpriteElm member: an extra), the NPC's name on the plate, the result, and this
- * character's wins / losses / draws against the NPC as ShadowTexts with their 1, 1 black shadow halves. */
-export function npcResultWindow(ctx: DuelResultContext & { npc: NonNullable<DuelResultContext['npc']> }): WindowSpec {
-  const { duel, npc } = ctx, x = 256, y = 64, w = 512, h = 442;
+/** The rewards' rows (MP, the XP score, the level when it moved), each a caption and its number. */
+function rewardRows(rewards: DuelView['rewards']): [string, string, string][] {
+  if (!rewards) return [];
+  const rows: [string, string, string][] = [['mp', 'MP', signed(rewards.mp)], ['score', 'Score', signed(rewards.score)]];
+  if (rewards.level[0] !== rewards.level[1]) rows.push(['level', 'Level', `${rewards.level[0]} → ${rewards.level[1]}`]);
+  return rows;
+}
+
+type NpcResultRecord = NonNullable<DuelView['npcRecord']>;
+/** The record against the NPC: the server's post-duel 0x4140 player-data update (duel/rewards.ts, authoritative)
+ * when it has arrived, else the counts the server sent when the talk opened plus this duel (features/npc.ts). */
+export function npcResultRecord(ctx: DuelResultContext): NpcResultRecord | null {
+  if (ctx.match) return null;
+  if (ctx.duel.npcRecord) return ctx.duel.npcRecord;
+  const n = ctx.npc;
+  return n ? { name: n.name, wins: n.record.wins, losses: n.record.loses, draws: n.record.draws } : null;
+}
+
+/** The NPC duel's end (CWindowResultNpc, src/Result/yo2ResultWindow.cpp): the 512 x 442 board
+ * (npc_result_dai_01_c01, a CSpriteElm member: an extra), the NPC's name on the plate, the result, this character's
+ * wins / losses / draws against the NPC (setWins / setLoses / setDraws) and what the duel earned, as ShadowTexts with
+ * their 1, 1 black shadow halves. */
+export function npcResultWindow(ctx: DuelResultContext, record = npcResultRecord(ctx)): WindowSpec {
+  if (!record) throw new Error('npcResultWindow needs an NPC record');
+  const { duel } = ctx, x = 256, y = 64, w = 512, h = 442;
   const b = new WindowBuilder(ctx.ids, 'duel-result:npc', 'CWindowResultNpc', { x, y, w, h }, { z: 51150 });
   b.win.extras = [{ id: ctx.ids.of('duel-result:npc/board'), cls: 'CSpriteElm', shown: true, tex: 'npc_result_dai_01_c01', wx: x, wy: y, x: 0, y: 0, src: [0, 0, w, h], sx: 1, sy: 1 } as HtmlWindow['extras'][number]];
   const text = (name: string, t: string, ty: number, px = 16, color = WHITE, tx = 40, tw = w - 80, align = 0) => {
@@ -37,21 +59,26 @@ export function npcResultWindow(ctx: DuelResultContext & { npc: NonNullable<Duel
     b.add('CWindowTaskText', `${name}/shadow`, { x: tx + 1, y: ty + 1, w: tw, h: px + 4 }, { parent: c.id, text: t, color: [0, 0, 0, 1] });
     return c;
   };
-  text('name', npc.name, 30, 16, WHITE, 40, w - 80, 1);
+  text('name', record.name, 30, 16, WHITE, 40, w - 80, 1);
   const result = outcome(duel.ended, 0);
   text('title', result || duel.ended || '', 104, 24, GOLD, 40, w - 80, 1);
-  const r = npc.record;
-  ([['wins', 'Wins', r.wins, 170], ['loses', 'Losses', r.loses, 230], ['draws', 'Draws', r.draws, 290]] as const).forEach(([key, label, n, ty]) => {
+  const rewards = rewardRows(duel.rewards);
+  const rows: [string, string, string][] = [['wins', 'Wins', String(record.wins)], ['loses', 'Losses', String(record.losses)], ['draws', 'Draws', String(record.draws)], ...rewards];
+  rows.forEach(([key, label, value], i) => {
+    const ty = 160 + i * 44;
     text(`l:${key}`, label, ty, 16);
-    text(`n:${key}`, String(n), ty - 4, 24, WHITE, 40, w - 120, 2);
+    text(`n:${key}`, value, ty - 4, 24, WHITE, 40, w - 120, 2);
   });
-  const spec = b.spec(); spec.win.controls[0]!.label = `${npc.name}: ${result || duel.ended || ''}, ${r.wins} wins, ${r.loses} losses, ${r.draws} draws`;
+  const spec = b.spec();
+  spec.win.controls[0]!.label = `${record.name}: ${result || duel.ended || ''}, ${record.wins} wins, ${record.losses} losses, ${record.draws} draws` +
+    rewards.map(([, label, value]) => `; ${label} ${value}`).join('');
   return spec;
 }
 
 export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   const { duel, match } = ctx, out: WindowSpec[] = [];
-  if (ctx.npc) out.push(npcResultWindow({ ...ctx, npc: ctx.npc }));
+  const npcRecord = npcResultRecord(ctx);
+  if (npcRecord) out.push(npcResultWindow(ctx, npcRecord));
   else ([0, 1] as const).forEach(side => {
     const p = duel.players[side], x = side === 0 ? 250 : 530, y = 64, w = 244, h = 442;
     const b = new WindowBuilder(ctx.ids, `duel-result:${side}`, 'CWindowResult', { x, y, w, h }, { z: 51150 });
@@ -64,9 +91,11 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
     text('title', result || duel.ended || '', 104, 24, GOLD, 16, w - 32, 1);
     const nums: { id: number; shown: boolean; text: string; wy: number }[] = [];
     const row = (key: string, label: string, value: string, ty: number) => { text(`l:${key}`, label, ty); nums.push({ id: ctx.ids.of(`duel-result:${side}/n:${key}`), shown: true, text: value, wy: y + ty + 18 }); };
-    row('lp', 'Life Points', String(Math.max(0, p.lp)), 150);
-    row('turns', 'Turns', String(duel.turn), 210);
-    if (match) row('match', 'Games Won', String(match.scores[side] ?? 0), 270);
+    // Rows 48 apart, as the original's placeNumber rows (168 / 216 / 264): the duel, then what it earned this player.
+    const rows: [string, string, string][] = [['lp', 'Life Points', String(Math.max(0, p.lp))], ['turns', 'Turns', String(duel.turn)]];
+    if (match) rows.push(['match', 'Games Won', String(match.scores[side] ?? 0)]);
+    if (side === 0) rows.push(...rewardRows(duel.rewards));
+    rows.forEach(([key, label, value], i) => row(key, label, value, 140 + i * 48));
     b.win.nums = nums;
     const spec = b.spec(); spec.win.controls[0]!.label = `${p.name}: ${result || duel.ended || ''}, ${Math.max(0, p.lp)} LP`;
     out.push(spec);
