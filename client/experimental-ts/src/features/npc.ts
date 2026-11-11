@@ -20,6 +20,8 @@ export interface NpcState {
   /** The record against this NPC (CWindowResultNpc): the server's NPCBIN at the talk, plus this duel's server result
    * once it ends (the server counts the same result: persist.ts npcResult, capped at 255). Absent when unknown. */
   record?: NpcRecord | null;
+  /** The text on the NPC's card in its talk (CNpcListMenu::conditionText), when the data has it. */
+  bio?: string;
 }
 export interface NpcOptions {
   send(id: number, data: Uint8Array): void;
@@ -28,6 +30,8 @@ export interface NpcOptions {
   onRefreshCollection?(): void | Promise<void>;
   resolveLine?(npcId: number, line: number): string | null | undefined;
   resolvePresentText?(textId: number): string | null | undefined;
+  /** The NPC card's text (its bio) in the chosen language. */
+  resolveBio?(npcId: number): string | null | undefined;
   /** Refresh authoritative PBIN/NPCBIN after ITEMGET(1); its receipt can hide right bits. */
   onRefreshProgress?(): void | Promise<void>;
   /** Original duelResultLine (PE 0x007918c0) line for the finished duel, or null while its inputs are incomplete;
@@ -90,6 +94,7 @@ export class NpcController {
     const rec = context?.record, byte = (n: number | undefined) => Number.isInteger(n) && n! >= 0 && n! <= 255;
     this.value = { ...initial(), eligibility: this.value.eligibility, npc: { ...npc }, stage: 'ask',
       record: rec && rec.length === 3 && rec.every(byte) ? { wins: rec[0], loses: rec[1], draws: rec[2] } : null };
+    const bio = this.options.resolveBio?.(npc.id); if (bio) this.value.bio = bio;
     if (context) {
       this.value.stage = 'opening';
       const present = npcOpeningPresent(npc.id);
@@ -140,7 +145,8 @@ export class NpcController {
     if (this.disposed) return;
     const s = this.value;
     if (s.stage === 'opening') {
-      if (this.openingBlocked) this.patch({ stage: 'done', dialogue: null });
+      // a special NPC's refusal (no duel right yet): its click ends the talk, as live (no panel left to close)
+      if (this.openingBlocked) { this.patch({ stage: 'done', dialogue: null }); this.close(); }
       else if (this.authFlags & 0x100) this.patch({ stage: 'greeting', dialogue: this.dialogue(10) });
       else this.patch({ stage: 'ask', dialogue: this.acceptLine() });
     } else if (s.stage === 'ask' && s.dialogue) this.patch({ dialogue: null });

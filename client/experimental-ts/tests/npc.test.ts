@@ -39,19 +39,19 @@ it('preserves uncertain contact, rejects malformed acknowledgements and prevents
  c.receive(packet(0x5205,new W().u16(0).u16(0).bytes()));expect(c.state.firstContactStatus).toBe('confirmed');c.reset();c.receive(packet(0x5205,new W().u16(0).u16(0).bytes()));expect(c.state.npc).toBeNull();
 });
 it.each([0x36,0x42,0x4b])('special NPC %i never infers a gift from absent rights',id=>{
- const send=vi.fn();const c=new NpcController({send,onStartDuel:vi.fn()});c.open({id,name:'NPC'},0,{npcRank:0});expect(c.state.dialogue?.known).toBe(false);expect(c.state.error).toContain('eligibility data');expect(send).not.toHaveBeenCalled();c.advance();expect(c.state.stage).toBe('done');
+ const send=vi.fn();const c=new NpcController({send,onStartDuel:vi.fn()});c.open({id,name:'NPC'},0,{npcRank:0});expect(c.state.dialogue?.known).toBe(false);expect(c.state.error).toContain('eligibility data');expect(send).not.toHaveBeenCalled();c.advance();expect(c.state.stage).toBe('idle');expect(c.state.npc).toBeNull();
  c.open({id,name:'NPC'},0,{npcRank:2,specialPresentDone:true});expect(c.state.dialogue?.line).toBe(5);c.advance();expect(c.state.stage).toBe('ask');
 });
 it('checks world-init eligibility with the verified opcode and refreshes progress without inferring a hidden right',async()=>{
  let finish!:()=>void;const send=vi.fn(),progress=vi.fn(()=>new Promise<void>(yes=>{finish=yes;})),c=new NpcController({send,onStartDuel:vi.fn(),onRefreshProgress:progress});
  expect(c.checkEligibility()).toBe(true);expect(send.mock.calls).toEqual([[0x5204,new W().u16(1).u32(0).bytes()]]);expect(c.checkEligibility()).toBe(false);expect(()=>c.open({id:75,name:'NPC'},0,{npcRank:1,specialPresentDone:false})).toThrow('still being checked');
  c.receive(packet(0x5205,new W().u16(0).u16(0).bytes()));expect(c.state.eligibility).toEqual({status:'confirmed',refreshing:true,bits:[],cards:[]});expect(progress).toHaveBeenCalledOnce();expect(c.checkEligibility()).toBe(false);
- finish();await Promise.resolve();await Promise.resolve();c.open({id:75,name:'NPC'},0,{npcRank:1,specialPresentDone:false});expect(c.state.stage).toBe('opening');expect(c.state.error).toContain('does not currently have');c.advance();expect(c.state.stage).toBe('done');expect(c.close()).toBe(true);
+ finish();await Promise.resolve();await Promise.resolve();c.open({id:75,name:'NPC'},0,{npcRank:1,specialPresentDone:false});expect(c.state.stage).toBe('opening');expect(c.state.error).toContain('does not currently have');c.advance();expect(c.state.stage).toBe('idle');expect(c.state.npc).toBeNull();
  c.open({id:75,name:'NPC'},0,{npcRank:1,specialPresentDone:true});c.advance();expect(c.state.stage).toBe('ask');
 });
 it('accepts source refusal text blocks but never executes dialogue as a grant',()=>{
  const send=vi.fn(),c=new NpcController({send,onStartDuel:vi.fn(),resolvePresentText:id=>id===0x63e2?'Synthetic denial':id>=0x63e2&&id<=0x63e6?'':null});
- c.open({id:54,name:'NPC'},0,{npcRank:0,specialPresentDone:false});expect(c.state.dialogue).toMatchObject({line:null,text:'Synthetic denial',known:true});expect(send).not.toHaveBeenCalled();c.advance();expect(c.state.stage).toBe('done');
+ c.open({id:54,name:'NPC'},0,{npcRank:0,specialPresentDone:false});expect(c.state.dialogue).toMatchObject({line:null,text:'Synthetic denial',known:true});expect(send).not.toHaveBeenCalled();c.advance();expect(c.state.stage).toBe('idle');expect(c.state.npc).toBeNull();
 });
 it('keeps uncertain world eligibility fenced across tunnel loss and resolves a late acknowledged receipt once',async()=>{
  const send=vi.fn(()=>{throw Error('offline');}),progress=vi.fn(),c=new NpcController({send,onStartDuel:vi.fn(),onRefreshProgress:progress});c.checkEligibility();expect(c.state.eligibility.status).toBe('uncertain');expect(c.checkEligibility()).toBe(false);c.disconnected();expect(()=>c.open({id:9,name:'NPC'})).toThrow('uncertain');

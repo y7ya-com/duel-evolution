@@ -39,6 +39,7 @@ import { AccountController } from './features/account';
 import { ProfileController } from './features/profile';
 import { NpcController,npcOpeningPresent } from './features/npc';
 import type { NpcDialogueCatalog } from './npcs/dialogue';
+import { npcBioTextId } from './npcs/dialogue';
 import { AvatarLoader } from './avatars';
 import type { AvatarLoadOptions } from './avatars';
 import type { AvatarResource } from './avatars';
@@ -234,6 +235,7 @@ export class ClientApp implements ClientController {
       onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
       onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
       resolveLine:(id,line)=>this.npcLine(id,line),resolvePresentText:id=>(this.languageTexts.table?.[id]?.trim() ? this.languageTexts.table[id]! : this.options.npcDialogue?.resolveText(id)),
+      resolveBio:id=>{const t=npcBioTextId(id);return t!==undefined&&this.languageTexts.table?.[t]?.trim()?this.languageTexts.table[t]!.replace(/\s+$/,''):this.options.npcDialogue?.bio(id);},
       resultLine:()=>npcResultLine(this.npcResult)});
     this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => {
       const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;

@@ -24,9 +24,8 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
         await until(page,balloon,20000);
         refusal = (await page.ev(`${balloon}.getAttribute('aria-label')`) as string).replace(/\s+/g,' ').slice(0,160);
         expect(await page.ev(`Boolean(document.querySelector('[data-key="npc-start:yes"]'))`)).toBe(false);
+        // its click ends the talk (as live: no panel left to close)
         await until(page,`${balloon}&&!${balloon}.disabled`,20000); await press(page,balloon);
-        const closeNpc = `[...(${npcPanel}?.querySelectorAll('button') ?? [])].find(b=>b.textContent==='Close NPC'&&!b.disabled)`;
-        await until(page,closeNpc,20000); await press(page,closeNpc);
         await until(page,`!${balloon}&&!${npcPanel}`,20000);
       }
       // A first duel: dialogue, rock-paper-scissors, first player, initial field.

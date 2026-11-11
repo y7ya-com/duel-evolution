@@ -59,11 +59,11 @@ function balloon(d: NpcTalkDeps, name: string, text: string, label: string, bloc
   return b.spec();
 }
 
-// The NPC's card: 0, 222, 335 x 382 (live), its name red over the record rows
+// The NPC's card: 0, 222, 335 x 382 (live), its name red over the record rows and its text (bio) under them
 function infoCard(s: Readonly<NpcState>, d: NpcTalkDeps): WindowSpec {
   const r = s.record;
   return new WindowBuilder(d.ids, 'npc-talk:info', 'CNpcTalkInfo', { x: 0, y: 222, w: 335, h: 382 }, { z: 51005,
-    name: s.npc?.name ?? '', record: `Wins${r?.wins ?? 0}/Losses${r?.loses ?? 0}`, deck: '?????' }).spec();
+    name: s.npc?.name ?? '', record: `Wins${r?.wins ?? 0}/Losses${r?.loses ?? 0}`, deck: '?????', bio: s.bio ?? '' }).spec();
 }
 
 // "Start Duel?" (CUYesNoDialog, main's duel.js look): 344, 312, 336 x 144; Yes 45, 112 and No 212, 112 (80 x 24)
@@ -99,6 +99,7 @@ const CSS = `.npc-balloon { position: absolute; left: 0; top: 0; width: 446px; h
 .npc-info .name { top: 4px; height: 34px; background: rgba(150,150,150,.35); color: #ec1c1c; text-align: center; line-height: 22px; }
 .npc-info .band { top: 38px; height: 32px; background: rgba(140,140,140,.45); }
 .npc-info .white { top: 70px; height: 32px; background: rgba(255,255,255,.75); }
+.npc-info .bio { top: 104px; bottom: 4px; white-space: pre-wrap; word-break: break-all; line-height: 16px; overflow: hidden; }
 .npc-info .l { line-height: 16px; } .npc-info .v { text-align: right; line-height: 16px; }`;
 const css = () => { if (!document.getElementById('npc-talk-css')) { const st = document.createElement('style'); st.id = 'npc-talk-css'; st.textContent = CSS; document.head.append(st); } };
 type BalloonWin = { name?: string; text?: string; next?: number; label?: string; blocked?: boolean };
@@ -125,7 +126,7 @@ export const npcBalloonScreen: HtmlUiScreen = {
   unmount(root) { root.replaceChildren(); },
 };
 
-type InfoWin = { name?: string; record?: string; deck?: string };
+type InfoWin = { name?: string; record?: string; deck?: string; bio?: string };
 export const npcInfoScreen: HtmlUiScreen = {
   classes: ['CNpcTalkInfo'],
   mode: 'pass',
@@ -137,11 +138,13 @@ export const npcInfoScreen: HtmlUiScreen = {
       for (const [k, c] of html) { const e = document.createElement('div'); e.className = c; e.dataset.f = k; r.append(e); } card.append(r); return r; };
     row('name', -1, []);
     const band = row('band', -1, [['wl', 'l'], ['wv', 'v']]), white = row('white', -1, [['dl', 'l'], ['dv', 'v']]);
+    const bio = row('bio', -1, []);
     root.append(card);
-    return { card, name: card.querySelector('.name') as HTMLElement, band, white };
+    return { card, name: card.querySelector('.name') as HTMLElement, band, white, bio };
   },
   update(win, _prev, _root, _api, st) {
-    const w = win as InfoWin, s = st as { card: HTMLElement; name: HTMLElement; band: HTMLElement; white: HTMLElement };
+    const w = win as InfoWin, s = st as { card: HTMLElement; name: HTMLElement; band: HTMLElement; white: HTMLElement; bio: HTMLElement };
+    s.bio.textContent = w.bio ?? '';
     s.name.textContent = w.name ?? '';
     const [wl, wv] = s.band.children as unknown as HTMLElement[], [dl, dv] = s.white.children as unknown as HTMLElement[];
     wl!.textContent = 'Win%'; wv!.textContent = w.record ?? ''; dl!.textContent = 'Deck Name'; dv!.textContent = w.deck ?? '';

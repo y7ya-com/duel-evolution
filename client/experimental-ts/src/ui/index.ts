@@ -1095,7 +1095,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const wrenchArt = controller.loadArchiveImage ? el('img', 'de-duel-wrench-art') as HTMLImageElement : null;
     if (wrenchArt) { wrenchArt.alt = ''; wrenchArt.draggable = false; wrenchArt.style.visibility = 'hidden'; wrenchArt.onload = () => { wrenchArt.style.visibility = ''; }; loadArchiveArt('data/common/window/menuicon_02_c01.png', wrenchArt); wrench.append(wrenchArt); wrench.classList?.add('has-art'); }
     else wrench.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 6.5a5 5 0 0 1-6.9 4.6l-8 8a2 2 0 0 1-2.8-2.8l8-8A5 5 0 0 1 17.5 3l-3 3 .5 3 3 .5z"/></svg>';
-    const helpText = duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Left click a card to confirm a selection, or the right button to open its menu.');
+    const helpText = duel.instruction ?? (duel.spectating ? 'Watching the duel.' : 'Click the left mouse button to confirm selection or the right mouse button to open menu.');
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;

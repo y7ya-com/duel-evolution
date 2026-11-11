@@ -6,6 +6,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const need = (v, m) => { if (!v) throw new Error(m); };
 /** Source CFukiDictionary::load: paired text/style rows, strtok skips empty tokens.
  * CStringDB offsets are little endian; original English strings use Windows-1252. */
+/** CNpcListMenu::conditionText's table (client/src/Lobby/yo2NpcListMenu.cpp): the NPC card's text ids. */
+export const NPC_BIO_TEXTS = [0x22c6,0x22c5,0x22c7,0x22c8,0x22c9,0x22ca,0x22cd,0x22ce,0x22cf,0x22d0,0x22d1,0x22d2,0x22d4,0x22d3,0x22d5];
 export function buildNpcData(csv, index, bin) {
   need(csv.length <= 1024*1024 && index.length <= 4*1024*1024 && index.length % 4 === 0 && bin.length <= 16*1024*1024, 'NPC input budget exceeded');
   const strings = new DataView(index.buffer, index.byteOffset, index.byteLength), decoder = new TextDecoder('windows-1252');
@@ -41,7 +43,15 @@ export function buildNpcData(csv, index, bin) {
     const end=bin.indexOf(0,offset); need(end>=offset && end-offset<=16384,'Unterminated NPC eligibility string');
     presentTexts[id]=decoder.decode(bin.subarray(offset,end));
   }
-  return {version:1, lines, presentTexts};
+  // The NPC card's text (CNpcListMenu::conditionText, @yo2 0x0089e250): one yo2text string per three NPCs 0x33..0x5f
+  const bios = {};
+  for (const id of NPC_BIO_TEXTS) {
+    if (id*4+4 > index.length) continue;
+    const offset=strings.getUint32(id*4,true); need(offset < bin.length,'NPC card text offset outside table');
+    const end=bin.indexOf(0,offset); need(end>=offset && end-offset<=16384,'Unterminated NPC card text');
+    bios[id]=decoder.decode(bin.subarray(offset,end)).replace(/\s+$/,'');
+  }
+  return {version:1, lines, presentTexts, bios};
 }
 export async function generateNpcData(output, csvPath, indexPath, binPath) {
   const dest = await assertPrivateOutput(output), inputs = [csvPath,indexPath,binPath], limits = [1024*1024,4*1024*1024,16*1024*1024];
