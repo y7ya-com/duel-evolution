@@ -55,6 +55,7 @@ import type { OriginalCardTextCatalog } from './cards/original-text';
 import type { DeckView } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
+import { ownedTitles } from './features/titles';
 import { createNpcResultContext, npcResultLine, reduceNpcResultContext } from './npcs/result';
 
 export interface AppOptions {
@@ -257,7 +258,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return () => {};
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
+  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
     if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
@@ -369,6 +370,11 @@ export class ClientApp implements ClientController {
   }
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
+  /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
+  private place(): Pick<ClientView, 'titles' | 'location'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined };
+    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world' };
+  }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);
     if (cached && cached.source === source) return cached.result as T;
@@ -794,6 +800,7 @@ export class ClientApp implements ClientController {
           if(this.worldRuntime){this.worldRuntime.retry();await this.runtimeLoad;this.assertEpoch(epoch);await this.worldRuntime.prepare(this.world.position,this.connectionScope.signal);this.assertEpoch(epoch);}
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
           this.scheduleWorld(); break;
+        case 'myRoom': this.stopWorld();this.arrivalFrom=null;if(command.enter)await this.requireGame().enterMyRoom();else await this.requireGame().leaveMyRoom();break;
         case 'moveArea': this.stopWorld();this.arrivalFrom=null;await this.requireGame().enterArea(command.area);break;
         case 'chat': {
           if (!['global', 'trade', 'whisper', 'team'].includes(command.channel)) throw new Error('Unknown chat channel.');
