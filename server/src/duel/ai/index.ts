@@ -1,16 +1,14 @@
-// Duel Evolution's NPC AI: the default NPC player of NPC duels (ocgSession.ts), in three tiers.
+// Duel Evolution's NPC AI: the default NPC player of NPC duels (ocgSession.ts). Every NPC plays at the same strength,
+// the elite tier: the heuristic player (heuristicBot.ts) plus replay-fork lookahead (simSearch.ts) on its own main
+// phase, within a CPU budget per decision. An NPC's level only decides its deck (owner, 2026-11-11: difficulty comes
+// from the deck, not from an AI that plays badly on purpose).
 //
-//   easy  (NPC level 1-3): the heuristic player (heuristicBot.ts), weak the way a real beginner is: demanding before it
-//                          commits a monster (strength 40: it sets more, tributes less) and thinking one step less (no
-//                          look at the opponent's next Battle Phase). Not random.
-//   hard  (level 4-6):     the heuristic player at full strength.
-//   elite (level 7-9):     the heuristic player plus replay-fork lookahead (simSearch.ts) on its own main phase, within
-//                          a CPU budget per decision.
+// The easy and hard tiers remain for the A/B tools (test/duel-ai.test.ts AI_AB_TIERS): easy demands more before it
+// commits a monster (strength 40) and thinks one step less; hard is the heuristic player without the lookahead.
 //
 // Honest play by default: the AI sees only what the select's `view` shows (and its own cards). SPY (`spy: true`, off
 // by default, elite only) reads the opponent's hidden cards and widens the lookahead to the opponent's whole turn.
-// The level comes from npc_profiles.json; TIER_BY_NPC overrides it per NPC id. STYLE_BY_NPC gives an NPC a personality
-// on top of its tier (heuristicBot.ts BotStyle: attackOnly, myTurnOnly, def, fool, light).
+// STYLE_BY_NPC can give an NPC a personality (heuristicBot.ts BotStyle: attackOnly, myTurnOnly, def, fool, light).
 //
 // Interface as the parity brain's: observe(ev) for every duelcore "msg" event, choose(sel) for the NPC's select
 // (not a retry); null = no answer, the host lets the engine decide (`auto`).
@@ -29,12 +27,9 @@ export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 4;
+export const NPC_AI_REV = 5;
 
-/** Per-NPC tier overrides (NPC id -> tier), for later tuning. */
-export const TIER_BY_NPC: Record<number, Tier> = {};
-
-/** Per-NPC personalities (NPC id -> style), on top of the tier. */
+/** Per-NPC personalities (NPC id -> style). */
 export const STYLE_BY_NPC: Record<number, BotStyle> = {};
 
 export interface TierConfig {
@@ -56,12 +51,9 @@ export const TIERS: Record<Tier, TierConfig> = {
   elite: { blunder: 0, strength: 100, light: false, search: true, budgetMs: 150, maxCandidates: 6 },
 };
 
-/** The NPC's tier: TIER_BY_NPC, else its npc_profiles.json level (1-3 easy, 4-6 hard, 7-9 elite; none = 2). */
-export function tierFor(npcId: number, profiles?: NpcProfilesJson | null): Tier {
-  const own = TIER_BY_NPC[npcId];
-  if (own) return own;
-  const level = Number(profiles?.[String(npcId)]?.nivel ?? 2) || 2;
-  return level >= 7 ? "elite" : level >= 4 ? "hard" : "easy";
+/** The NPC's tier: elite for every NPC, whatever its level (npc_profiles.json's level only picks the deck). */
+export function tierFor(_npcId: number, _profiles?: NpcProfilesJson | null): Tier {
+  return "elite";
 }
 
 const DISRUPTIVE = tagMask("destroy_monster", "destroy_st", "destroy_any", "nuke_opp", "nuke_all", "storm_opp", "storm_all",

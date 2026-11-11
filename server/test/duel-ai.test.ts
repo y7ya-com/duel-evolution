@@ -77,11 +77,11 @@ function duel(dc: DuelCore, npcId: number, tier: Tier, aiSeat: 0 | 1, first: 0 |
 }
 
 describe("tiers", () => {
-  it("NPC level -> tier (1-3 easy, 4-6 hard, 7-9 elite)", () => {
+  it("every NPC plays at the same strength (elite), whatever its level", () => {
     const at = (nivel: number) => tierFor(1, { 1: { nivel, perfil: {} } });
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 9].map(at)).toEqual(["easy", "easy", "easy", "hard", "hard", "hard", "elite", "elite", "elite"]);
-    expect(tierFor(999, NPC_PROFILES)).toBe("easy"); // no profile: level 2
-    expect([tierFor(28, NPC_PROFILES), tierFor(35, NPC_PROFILES), tierFor(53, NPC_PROFILES)]).toEqual(["easy", "hard", "elite"]);
+    expect(new Set([1, 2, 3, 4, 5, 6, 7, 8, 9].map(at))).toEqual(new Set(["elite"]));
+    expect(tierFor(999, NPC_PROFILES)).toBe("elite"); // no profile
+    expect([tierFor(28, NPC_PROFILES), tierFor(35, NPC_PROFILES), tierFor(53, NPC_PROFILES)]).toEqual(["elite", "elite", "elite"]);
   });
 });
 
