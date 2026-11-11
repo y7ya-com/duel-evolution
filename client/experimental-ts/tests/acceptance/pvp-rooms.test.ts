@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, sleep, screenshot, record, stack, byKey, searchPlayers, listRow, cardButton, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, sleep, screenshot, record, stack, byKey, searchPlayers, listRow, cardButton, pressSurrender, type Page } from './harness';
 import { avatar, invitation, requesting, onDuel, finished, menuActions, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Create Duel (CWindowModelDuelWait, src/ui/htmlui/lobby.ts): the bar's Duel key, Create Duel. */
@@ -25,13 +25,13 @@ async function surrenderAt10(a:Page,b:Page,loser:Page) {
   // Before turn 10 the server refuses with its information box; the duel goes on.
   // the client asks first (main's YesNo "Surrender this duel?", surrender-yes), then the server answers
   const ask = byKey('surrender-yes');
-  await click(loser,'Surrender',60000); await until(loser,ask,20000); await press(loser,ask);
+  await pressSurrender(loser); await until(loser,ask,20000); await press(loser,ask);
   await until(loser,`document.querySelector('.de-duel-notice')?.textContent.includes('10th turn')`,30000);
   const refusal = await loser.ev(`document.querySelector('.de-duel-notice p').textContent`) as string;
   await press(loser,`document.querySelector('.de-duel-notice button')`);
   const played = await playBoth(a,b,{ attack:false,stop:turn => turn >= 10,timeout:400000 });
   expect(played.turn).toBeGreaterThanOrEqual(10);
-  await click(loser,'Surrender',60000); await until(loser,ask,20000); await press(loser,ask);
+  await pressSurrender(loser); await until(loser,ask,20000); await press(loser,ask);
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
   await until(loser,yes,60000); await press(loser,yes);
   for (const p of [a,b]) await until(p,`window.__duelEnd()||${sideboard}`,90000);

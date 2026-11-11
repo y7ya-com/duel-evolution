@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
+import { surrenderRow, RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -51,7 +51,7 @@ async function giveUp(page:Page):Promise<number> {
   for (let i = 0; i < 600 && !(await page.ev(done)); i++) {
     if (await page.ev(`Boolean(${ask})`)) { await press(page,ask).catch(() => {}); }
     else if (await page.ev(`Boolean(${yes})`)) { await press(page,yes).catch(() => {}); }
-    else if (Date.now() - last > 15000 && await page.ev(`Boolean(${byText('Surrender')})`)) { await press(page,byText('Surrender')).catch(() => {}); presses++; last = Date.now(); }
+    else if (Date.now() - last > 15000) { const row = await surrenderRow(page).catch(() => null); if (row && await page.ev(`Boolean(${row})`)) { await press(page,row).catch(() => {}); presses++; } last = Date.now(); }
     await sleep(150);
   }
   await until(page,done,5000);
