@@ -57,10 +57,15 @@ describe('discord wire (chat Duels tab, Discord rows, ?duel= link)', () => {
     expect(n.sent).toEqual([]); expect(n.ui.dialog).toEqual({ kind: 'ok', text: 'That duel is gone.' });
   });
 
-  it('a Discord row shows the duelist\'s name, LV and rank', () => {
+  it('a Discord row opens the duelist\'s card (live: a card, not a message box)', () => {
     const r = rig(world());
-    r.ui.onDiscordCard!({ pid: 99, name: 'Yugi', lv: 12, rank: { label: 'Gold II' }, parts: [] });
-    expect(r.ui.dialog).toEqual({ kind: 'ok', text: 'Yugi (Discord)\nLV 12\nRank: Gold II' });
+    const p = { pid: 99, name: 'Yugi', lv: 12, rank: { label: 'Gold II' }, parts: [] };
+    r.ui.onDiscordCard!(p);
+    expect(r.ui.dialog).toBeNull(); expect(r.ui.discordCard).toEqual(p); expect(r.sent).toEqual([]);
+    // another player's card open: closed first, one card at a time
+    const q = rig(world({ profileDetail: { selectedPid: 42, selfPid: 1 } } as Partial<ClientView>));
+    q.ui.onDiscordCard!(p);
+    expect(q.sent).toEqual([{ type: 'profileAction', action: { type: 'close' } }]); expect(q.ui.discordCard).toEqual(p);
     expect(discordCardText({ pid: 1, name: 'A', lv: 3, rank: null, parts: [] })).toBe('A (Discord)\nLV 3');
   });
 

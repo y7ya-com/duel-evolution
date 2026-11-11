@@ -225,7 +225,8 @@ export class ClientApp implements ClientController {
     if (options.assets) this.loadArchiveImage = (path, signal) => this.readArchiveImage(path, signal);
     this.profile = new ProfileController({send:command=>this.sendGameplay(command),onChange:profileDetail=>this.patch({profileDetail})});
     this.npc = new NpcController({send:(id,data)=>this.requireGame().sendLobby(id,data),onChange:npc=>{ if (npc.packs.length) this.loadPackNames(); this.patch({npc,
-      npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}); },
+      npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)])),
+      npcGiftRecipes:Object.fromEntries(npc.giftBits.flatMap(bit=>{const name=this.options.recipes?.nameOfBit(bit);return name?[[bit,name]]:[];}))}); },
       onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
       onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
       resolveLine:(id,line)=>this.npcLine(id,line),resolvePresentText:id=>(this.languageTexts.table?.[id]?.trim() ? this.languageTexts.table[id]! : this.options.npcDialogue?.resolveText(id)),

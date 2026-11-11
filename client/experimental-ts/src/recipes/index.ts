@@ -38,6 +38,8 @@ export class RecipeCatalog {
     }
     this.records = records;
   }
+  /** The recipe a PBIN bit grants (an NPC's gifted recipe: CWindowModelItemGet names it), if the catalogue has it. */
+  nameOfBit(bit: number): string | undefined { return this.records.find(r => r.recipeBit === bit)?.name; }
   /** Native 0x00983c80 tests right+1 for pack types 1/4. Free mode changes
    * the trunk, not PBIN (server h_getpbin); it does not grant every recipe.
    * Missing/truncated/oversized PBIN is unknown, never proof of ownership. */

@@ -32,7 +32,7 @@ export type HtmlDialog =
   /** Change Avatar (htmlui/avatar.ts): first dressing after Create Player's name (`slot`, `name`), or from the game (slot null). */
   | { kind: 'avatar'; slot: number | null; name?: string; look: number[]; category: number; page: number };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
-export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
+export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; discordCard?: DiscordDuelist | null; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
   /** My Profile's first shown row (its scroll; the rows past ten scroll in). */
   profileTop?: number;
@@ -517,6 +517,49 @@ export function playerCard(ctx: BuildContext, actions: CardActions): WindowSpec 
   });
   return b.spec();
 }
+// A Discord duelist's card (live: main 4fe1425 / 2020bff, screens/playerlist.js discordCard): the game's player card
+// (main's captured CPlayerListMenu, as playerCard) where it opens (336 wide, its bottom on the player list's top, from
+// x 248), with "LV12  Name" in the card's red and the ranked standing under it (main's lobby.js cardRank by the pid),
+// Status / the Discord logo and "Online on Discord, not in the game", and Close: live offers no duel to someone who is
+// not in the game (the Discord flow is the #duels Accept link, ?duel=). The bust is the rewrite's (index.ts: the
+// WaistUpComposer at BUST_AT, under the windows); the logo is drawn in the card's own root (WindowSpec.after).
+export const DISCORD_ONLINE = 'Online on Discord, not in the game';
+/** Where live draws the bust: its 768 x 768 waist-up canvas at 1:1 from (530, 0), cut at the screen's right edge. */
+export const BUST_AT = { x: 530, y: 0, size: 768 } as const;
+export const DISCORD_LOGO_SVG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 127.14 96.36"><path fill="#5865F2" d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.11 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.25 8.09C2.79 32.65-1.71 56.6.54 80.21a105.73 105.73 0 0 0 32.17 16.15 77.7 77.7 0 0 0 6.89-11.11 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.34 2.66-2a75.57 75.57 0 0 0 64.32 0c.87.71 1.76 1.39 2.66 2a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.1 105.25 105.25 0 0 0 32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45 65.69C36.18 65.69 31 60 31 53s5-12.74 11.43-12.74S54 46 53.89 53s-5.05 12.69-11.44 12.69Zm42.24 0C78.41 65.69 73.25 60 73.25 53s5-12.74 11.44-12.74S96.23 46 96.12 53s-5.04 12.69-11.43 12.69Z"/></svg>');
+export function discordCard(ctx: BuildContext, p: DiscordDuelist): WindowSpec {
+  const t = lobbyCard.windows[0]!, h = 148 + 36, x = 248, y = 608 - 1 - h;
+  const b = new WindowBuilder(ctx.ids, `discord-card:${p.pid}`, t.cls, { x, y, w: t.w, h }, { modal: false, z: 51603, pid: p.pid });
+  const cs = b.fromTemplate(t, true);
+  const helpOf = (key: string) => cs.find(c => c.cls === 'CWindowTaskHelp' && c.name.includes(key));
+  const help = (key: string, text: string) => { const hp = helpOf(key); const tx = hp && cs.find(c => c.parent === hp.id && c.cls === 'CWindowTaskText'); if (tx) tx.text = text; };
+  const hide = (key: string) => { const hp = helpOf(key); if (!hp) return; hp.shown = false; for (const c of cs) if (c.parent === hp.id) c.shown = false; };
+  help('レベル＆名前', `LV${String(p.lv).padStart(2, '0')}  ${p.name}\n`);
+  // the card's label row and its value row: Status / the logo and the words (the value right-aligned past the logo)
+  help('『称号：』', 'Status'); help('称号テキスト', `     ${DISCORD_ONLINE}`);
+  for (const k of ['『勝率：』', '勝率テキスト', '『コメント:』', 'コメントテキスト']) hide(k);
+  const frame = cs.find(c => c.cls === 'CWindowTaskFrameThin');
+  if (frame) { frame.h = h; frame.parts = { sprites: [], labels: [], swfs: [] }; }
+  const plane = cs.find(c => c.cls === 'CWindowTaskBackPlane' && !c.parent && c.name.includes('背景')); if (plane) { plane.y = 84; plane.h = 36; }
+  for (const c of cs) if (c.cls === 'CWindowTaskTextSwitch' && !c.parent) { c.shown = false; c.parts = undefined; }
+  const close = cs.find(c => c.cls === 'CWindowTaskTextSwitch' && c.name.trim() === 'フレンド申し込みボタン');
+  if (close) {
+    Object.assign(close, { shown: true, x: 24, y: 92, w: 288, h: 24, state: 'normal', label: 'Close' });
+    const relabel = (id: number) => { for (const c of cs) if (c.parent === id) { if (typeof c.text === 'string') c.text = 'Close'; relabel(c.id); } };
+    relabel(close.id);
+    b.on(close, { key: 'discord-card-close', label: 'Close', click: () => { ctx.ui.discordCard = null; ctx.rerender(); } });
+  }
+  const spec = b.spec();
+  return { ...spec, after: root => discordLogoIn(root, 8 + 4, 60 + 3) };
+}
+/** The Discord logo (13 x 10 beside 16-px text, as live's discord-logo.js) at (x, y) of a window's root, once. */
+export function discordLogoIn(root: HTMLElement, x: number, y: number): void {
+  if (root.querySelector('img.de-discord-logo')) return;
+  const img = root.ownerDocument.createElement('img');
+  img.className = 'de-discord-logo'; img.src = DISCORD_LOGO_SVG; img.alt = 'Discord'; img.draggable = false;
+  Object.assign(img.style, { position: 'absolute', left: `${x}px`, top: `${y}px`, width: '13px', height: '10px', pointerEvents: 'none', zIndex: '5' });
+  root.append(img);
+}
 // The lobby's player list (CPlayerListDlg, main's playerlist.js through duelsetup.js): main's capture with a second
 // player (mock/duelsetup-plist.json: 0, 608, 248 x 128, six 16-pixel rows) listing the other players here, each row
 // "Name" at the game's name column (@>40/); a row opens that player's card.
@@ -763,10 +806,12 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
     const list = !ctx.covered && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) out.push(card);
+    if (card) ui.discordCard = null;   // one card at a time
+    else if (ui.discordCard) out.push(discordCard(ctx, ui.discordCard));
     if (ctx.lobby) out.push(...ctx.lobby.windows(ctx));
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
-  } else ui.comment = null;
+  } else { ui.comment = null; ui.discordCard = null; }
   if (ctx.scene) out.push(...ctx.scene);
   // the shop keeps the chat (main's shop capture: the lobby's chat under the windows); not over the card-get reveal
   if (state.scene === 'shop' && state.connection === 'online' && ctx.scene?.length) { const chat = chatWindow(ctx); if (chat) out.push(chat); }

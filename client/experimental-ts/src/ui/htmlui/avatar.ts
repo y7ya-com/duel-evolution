@@ -53,6 +53,15 @@ export function changeBody(look: number[], female: boolean): number[] {
   return next;
 }
 
+/** Change Avatar's Confirm from the game: one call to the server's appearance route (server/src/game/cosmetics.ts
+ * cosmeticAppearance) with the whole look, and the body too when it changed: the server switches the body and puts
+ * these parts on in the same step. Before, a body change sent the body alone, and the other picks were lost (the
+ * server re-dressed the new body with its own stand-ins). */
+export function changeAvatarAction(look: number[], current?: { gender: 'male' | 'female'; world: number } | null): { type: 'appearance'; world: number; parts: number[]; gender?: 'male' | 'female' } {
+  const gender = look[0] === 1 ? 'female' : 'male', world = current?.world ? 1 : 0;
+  return { type: 'appearance', world, parts: [...look], ...(current && current.gender !== gender ? { gender } : {}) };
+}
+
 const PER_PAGE = 14;
 // a plate's four sprites (CWindowTaskPictureSwitch: normal, hover, pressed, checked), each a column of its atlas: the
 // layer's applyPointer shows the one for the pointer (hover on pointerover, pressed on pointerdown / Enter / Space).

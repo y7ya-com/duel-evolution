@@ -13,7 +13,8 @@ export const LOGO_AT = { x: 212, y: 84 } as const;
 /** The waist-up portrait's 768 x 768 composition: its centre column at x 200 (waistUpAvatarSetPos(200, 0)), its top at 0. */
 export const PORTRAIT_AT = { x: 200 - 384, y: 0 } as const;
 
-export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; reducedMotion: boolean }
+/** `at`: where the portrait's 768 x 768 composition stands (PORTRAIT_AT unless given). */
+export interface StartSceneView { logo: boolean; portrait: Uint8Array | null; reducedMotion: boolean; at?: { x: number; y: number } }
 
 export class StartScene {
   readonly element: HTMLCanvasElement;
@@ -80,7 +81,7 @@ export class StartScene {
       const items: Parameters<SwfInstance['draw']>[0] = []; instance.draw(items);
       drawSwfItems(ctx, items, movie, file => this.images.get(`data/menu/${file.replace('?', 'j')}`), LOGO_AT);
     }
-    if (this.view.portrait && this.portrait) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(this.portrait, PORTRAIT_AT.x, PORTRAIT_AT.y); }
+    if (this.view.portrait && this.portrait) { ctx.setTransform(1, 0, 0, 1, 0, 0); const at = this.view.at ?? PORTRAIT_AT; ctx.drawImage(this.portrait, at.x, at.y); }
   }
   dispose(): void { this.disposed = true; this.abort.abort(); if (this.timer) clearInterval(this.timer); this.timer = null; this.element.remove(); }
 }

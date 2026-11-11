@@ -347,7 +347,7 @@ export class HtmlUiLayer {
     // engine has the pointer, only their buttons take it
     return { ...mod, mode: 'owned', ...(mod === shop || mod === trade ? { rootInput: 'none' } : {}),
       mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); this.watch(root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
-      update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); },
+      update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); this.specs.find(s => s.win.id === (win as HtmlWindow).id)?.after?.(root); },
       unmount: (root, st) => { mod.unmount?.(root, st); this.watched.get(root)?.disconnect(); this.watched.delete(root); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };
   }
   // a screen that redraws its elements on its own (a hover look, art loaded late) gets its keys back on the next frame,
