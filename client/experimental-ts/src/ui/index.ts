@@ -36,6 +36,7 @@ import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene } from './htmlui/start-scene';
+import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -202,7 +203,24 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
       name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
   };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...duelSpecs()];
+  // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
+  // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
+  let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
+  const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
+  const duelSpecs = (): WindowSpec[] => {
+    const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
+    const out: WindowSpec[] = [];
+    if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
+    const prompt = duel.prompt;
+    if (prompt && htmlDuelPrompt(prompt)) {
+      if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
+      duelHover.selected = local.selected;
+      const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml }, prompt);
+      if (spec) out.push(spec);
+    }
+    return out;
+  };
   const shopSpecs = (): WindowSpec[] => {
     const shop = state.shop;
     if (state.scene !== 'shop' || !shop || useCardShop() || shopCosmetics || shop.opening && !cardGetClosed(shop.opening)) return [];
@@ -274,6 +292,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         if (base) g.yo2Html.snapshot = () => { const s = base(); return s && { ...s, deckDrag: { state: deckScene.ui.drag ? 1 : 0 } }; };
       }
       showHtml();
+      // a duel prompt the layer now shows leaves the duel screen's own panel
+      if (state.scene === 'duel' && htmlDuelPrompt(state.duel?.prompt)) requestRender();
     })
       .catch((e: unknown) => console.warn('htmlui', e));
   }
@@ -281,6 +301,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const fieldNodes = new Map<string, HTMLElement>();
   const announce = new AnnouncePanel();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
+  duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
   const avatarViews = new Map<number, AvatarView>();
   let effectsLayer: HTMLElement | null = null;
@@ -705,7 +726,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const box = el('section', 'de-panel de-duel-notice', el('p', '', notice.text), button('OK', close, false, true)); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', notice.text);
       stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
     }
-    if (duel.prompt) renderPrompt(duel.prompt);
+    if (duel.prompt && !htmlDuelPrompt(duel.prompt)) renderPrompt(duel.prompt);
     // A stale inspection (the card moved or its action is gone) is dropped and the result or waiting banner shown instead.
     const inspected = local.inspected && local.inspectedFrom === 'duel' ? duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id))) : undefined;
     if (local.inspected && local.inspectedFrom === 'duel' && !inspected) local.inspected = null;
