@@ -25,6 +25,9 @@ async function activate(browser:Browser,selector:string,touch = false) {
     await browser.send('Input.dispatchTouchEvent',{ type:'touchStart',touchPoints:[{ x:point.x,y:point.y }] });
     await browser.send('Input.dispatchTouchEvent',{ type:'touchEnd',touchPoints:[] });
   } else {
+    // the pointer arrives before it presses, as a mouse does (main's HTML UI buttons take the press they hover)
+    await browser.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
+    await browser.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
     // Queue both ordered input events before awaiting CDP acknowledgements. A repaint between
     // separate round trips can replace this renderer's button after mouse-down.
     const pressed = browser.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
@@ -68,6 +71,9 @@ describe('actual headless browser against real game authority',() => {
       await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player',viewport.mobile); await until(browser,`document.querySelector('[data-key="character-name"]')`);
       await browser.ev(`(()=>{const input=document.querySelector('[data-key="character-name"]');input.value='Browser Duelist';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await click(browser,'OK',viewport.mobile);
+      // the original's first dressing (Change Avatar) after Create Player: the starter look as it comes, Confirm
+      const avatarConfirm = `document.querySelector('[data-key="avatar-confirm"]')`;
+      await until(browser,avatarConfirm); await activate(browser,avatarConfirm,viewport.mobile);
       await until(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes('Browser Duelist')&&!b.disabled)`);
       await activate(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Browser Duelist'))`,viewport.mobile);
       await until(browser,LOBBY,30000);
@@ -81,7 +87,7 @@ describe('actual headless browser against real game authority',() => {
         await until(browser,`!document.getElementById('starter')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
-      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
+      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'More Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Start Recording',viewport.mobile);
       await until(browser,`document.querySelector('[data-key="options-capture"]')?.textContent.includes('recording ·')`);
       await click(browser,'Back',viewport.mobile);
@@ -106,6 +112,8 @@ describe('actual headless browser against real game authority',() => {
       await until(browser,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Rock'&&!b.disabled)`);
       for (let round = 0; round < 20; round++) {
         await click(browser,['Rock','Scissors','Paper'][round % 3],viewport.mobile);
+        // the hand is sent: its buttons go (or lock) until the server's result; a tie offers them again
+        await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Rock'&&!b.disabled)||[...document.querySelectorAll('button')].some(b=>['Go First','Start Duel'].includes(b.textContent)&&!b.disabled)`,5000).catch(() => {});
         await until(browser,`[...document.querySelectorAll('button')].some(b=>['Rock','Go First','Start Duel'].includes(b.textContent)&&!b.disabled)`);
         const ready = await browser.ev(`[...document.querySelectorAll('button')].some(b=>['Go First','Start Duel'].includes(b.textContent)&&!b.disabled)`);
         if (ready) break;
@@ -114,8 +122,10 @@ describe('actual headless browser against real game authority',() => {
       if (first) await click(browser,'Go First',viewport.mobile);
       await click(browser,'Start Duel',viewport.mobile);
       await until(browser,`document.querySelector('canvas[aria-label="Duel field"]')`);
-      await until(browser,`document.querySelectorAll('.de-field-card .de-card-name').length>0`);
-      expect(await browser.ev(`[...document.querySelectorAll('.de-field-card .de-card-name')].some(n=>!/^Card [0-9]+$/.test(n.textContent))`),'Generated catalog must not silently fail as a whole').toBe(true);
+      // the hand draws art only (live's look): each face-up card's picture carries its name
+      const named = `[...document.querySelectorAll('.de-field-card:not(.de-card-back) img')].map(n=>n.alt).filter(Boolean)`;
+      await until(browser,`${named}.length>0`);
+      expect(await browser.ev(`${named}.some(n=>!/^Card [0-9]+$/.test(n))`),'Generated catalog must not silently fail as a whole').toBe(true);
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-duel.png`,await browser.shot());
       let end = false, actions = 0;
       const start = Date.now();
@@ -151,7 +161,7 @@ describe('actual headless browser against real game authority',() => {
       expect([51,52,53]).toContain(profile.last_npc_end.npc);
       await click(browser,'Return to Lobby',viewport.mobile); await until(browser,LOBBY,30000);
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
-      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
+      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'More Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Stop Recording',viewport.mobile);
       await until(browser,`/stopped *· *[1-9][0-9]* records/.test(document.querySelector('[data-key="options-capture"]')?.textContent ?? '')`);
       const downloadDir = await mkdtemp(join(tmpdir(),`duel-ts-capture-${viewport.name}-`));
