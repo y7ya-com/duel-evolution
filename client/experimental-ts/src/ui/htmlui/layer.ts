@@ -87,7 +87,7 @@ export class HtmlUiLayer {
   readonly host: HTMLElement;
   private specs: WindowSpec[] = []; private handlers = new Map<number, ControlHandlers>();
   private render: ((snap: unknown, owned: Set<number>, api: HtmlUiApi) => void) | null = null;
-  private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false; private released = false;
+  private frame = 0; private hover = 0; private pressed = 0; private focus = 0; private clicked = false; private released = false; private upPending = 0;
   private roots = new Map<number, HTMLElement>(); private scale = 1; private disposed = false;
   private elementIds = new WeakMap<Element, number>();   // a drawn element -> the control it stands for (tag)
   private tagged = new WeakMap<HTMLElement, Set<HTMLElement>>();   // per window root: the elements tag() keyed
@@ -273,6 +273,12 @@ export class HtmlUiLayer {
     this.pressed = 0;
     const win = this.specs.find(s => s.handlers.has(was))?.win;
     if (win && REBUILT.test(win.cls) && e.button === 0 && this.control(e.target) === was) { this.released = true; setTimeout(() => { this.released = false; }, 0); void this.api.click(was); }
+    // elsewhere the browser's click follows, unless the press's redraw (its pressed look) replaced the element the
+    // mouse went down on: then the browser drops the click, and a release on the control pressed clicks it
+    else if (e.button === 0 && this.control(e.target) === was) {
+      this.upPending = was;
+      setTimeout(() => { if (this.upPending === was) { this.upPending = 0; if (!this.clicked && !this.disposed) void this.api.click(was); } }, 0);
+    }
     this.draw();
   };
   // Enter / Space on a focused control's button: its pressed look while held (the browser's own click follows)
@@ -286,8 +292,9 @@ export class HtmlUiLayer {
   // A module main runs in pass mode draws buttons the engine would click: the element clicked (or Enter / Space on it)
   // clicks its control. An owned screen's controls click themselves (their own listeners: controls/basic.js, lobby.js)
   private onClick = (e: MouseEvent): void => {
-    if (this.clicked || this.released) return;
     const id = this.control(e.target);
+    if (id && id === this.upPending) this.upPending = 0;   // the browser's own click came: no stand-in
+    if (this.clicked || this.released) return;
     // a row of a native-scroller list (ownList): the engine's list took the click at its game point (the row under
     // it); main's owned screens leave the scroller's clicks alone, so the list's control is clicked there
     const list = id ? this.listAt(e.target, id) : null;
