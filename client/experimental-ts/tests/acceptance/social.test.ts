@@ -9,15 +9,15 @@ async function chat(page:Page,channel:string,message:string,target?:string) {
   if (channel === 'whisper') return say(page,message,{ to:target! });
   await say(page,message,{ tab:channel === 'global' ? 'all' : channel as 'trade' | 'team' });
 }
-async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('.social-feature')`,30000); await sleep(800); }
+async function social(page:Page) { await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,30000); await sleep(800); }
 /** Find a player by name; the field must hold the name when Find is pressed (the screen refreshes as it opens). */
 async function find(page:Page,name:string) {
-  const input = `document.querySelector('[data-key="social-Player name"]')`;
+  const input = `document.querySelector('[data-key="find-name"]')`;
   for (let attempt = 0; attempt < 3; attempt++) {
     await type(page,input,name);
     await until(page,`${input}?.value===${JSON.stringify(name)}`,5000);
-    await press(page,`[...document.querySelectorAll('.de-social-find button')].find(b=>b.textContent==='Find')`);
-    try { await until(page,`document.querySelector('.de-social-found')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
+    await press(page,`document.querySelector('[data-key="find-search"]')`);
+    try { await until(page,`document.querySelector('[data-cls="CWindowModelFriendEnum"], .yo2-win')?.closest('body')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
   }
   throw new Error(`Could not find ${name}`);
 }
@@ -87,9 +87,9 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('social.chat',{ actions:'Global message from A; whisper A→B with C present', expected:'Channel, ordering and duplicate suppression respected', observed:'global line shown exactly once to B and C; whisper shown to B, never to C' });
       // social.friends: A finds B by name and adds; B accepts; both see each other online after a refresh.
       await social(a); await find(a,names.b);
-      await press(a,`[...document.querySelectorAll('.de-social-found button')].find(b=>b.textContent==='Add friend')`);
-      await social(b); await until(b,`document.querySelector('.de-social-request')?.textContent.includes(${JSON.stringify(names.a)})`,30000);
-      await press(b,`[...document.querySelectorAll('.de-social-request button')].find(b=>b.textContent==='Accept')`);
+      await press(a,`document.querySelector('[data-key="find-friend"]')`);
+      await social(b); await until(b,`document.querySelector('[data-key^="find-offer:"]')?.textContent.includes(${JSON.stringify(names.a)})`,30000);
+      await press(b,`(document.querySelector('[data-key^="find-offer:"]')?.click(), document.querySelector('[data-key="find-accept"]'))`);
       await click(a,'Return to Lobby'); await social(a);
       await until(a,`[...document.querySelectorAll('.de-social-friends .de-social-row')].some(r=>r.textContent.includes(${JSON.stringify(names.b)})&&r.querySelector('.de-presence.online'))`,30000);
       await screenshot(a,'social-friends');
@@ -110,7 +110,7 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await press(a,`[...document.querySelectorAll('.de-social-team button')].find(b=>b.textContent==='Create team')`);
       await until(a,`document.querySelector('.de-team-name')?.textContent.includes('T${RUN}')`,30000);
       await find(a,names.b);
-      await press(a,`[...document.querySelectorAll('.de-social-found button')].find(b=>b.textContent==='Invite to team')`);
+      await press(a,`document.querySelector('[data-key="find-team"]')`);
       await until(b,`[...document.querySelectorAll('.de-social-team button')].some(b=>b.textContent==='Join team')`,30000);
       await press(b,`[...document.querySelectorAll('.de-social-team button')].find(b=>b.textContent==='Join team')`);
       await until(b,`document.querySelector('.de-team-name')?.textContent.includes('T${RUN}')`,30000);
@@ -123,7 +123,7 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('social.teams',{ actions:'Create team, invite by name, join, team chat', expected:'Membership, presence and team-chat permissions correct', observed:`B joined T${RUN}; A's member list shows B; team chat reached B, not C` });
       // social.ignore + chat-policy: B ignores A; A's global messages no longer reach B; unignore restores them.
       await social(b); await find(b,names.a);
-      await press(b,`[...document.querySelectorAll('.de-social-found button')].find(b=>b.textContent==='Ignore')`);
+      await press(b,`document.querySelector('[data-key="find-ignore"]')`);
       await until(b,`document.querySelector('.de-social-ignored')`,20000);
       await click(b,'Return to Lobby');
       await chat(a,'global',`ignored ${RUN}`);

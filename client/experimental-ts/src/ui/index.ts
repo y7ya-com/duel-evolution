@@ -15,8 +15,7 @@ import { renderAudioFeature } from './extra/audio';
 import { audioWindow, optionsWindow, type OptionsDeps, type OptionsUi } from './htmlui/options';
 import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
-import { renderSocialFeature, renderTradeTrunk } from './extra/social';
-import { renderOnlineFeature } from './extra/online';
+import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, cardGetClosed, CARD_GET_CSS } from './extra/card-get';
 import { accessoryName } from './extra/wallet';
@@ -27,7 +26,9 @@ import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
+import { duellogUi, duellogWindow, fetchDuellog, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
+import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
@@ -178,16 +179,33 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     };
   };
   // the list windows' content: the rewrite's social state (an ignored player's name from the players the client sees)
+  // the Friend List's presence, asked as it opens: the original's online query, and the server's friend list for places
+  const loadPresence = () => { send({ type: 'socialAction', action: { type: 'refreshOnline' } }); send({ type: 'refreshFriends' }); };
   const socialLists = (): SocialLists | null => {
     const sd = state.socialDetail; if (!sd) return null;
     const known = (pid: number) => state.lobby?.avatars.find(a => a.id === pid)?.name ?? sd.friends.find(f => f.pid === pid)?.name ?? `Player ${pid}`;
     const social = (action: import('../features/social').SocialAction) => send({ type: 'socialAction', action });
     return {
-      friends: [...sd.friends], ignored: sd.ignored.map(pid => ({ pid, name: known(pid) })),
+      // presence: online as the original's 0x3604 answers it; the place the server's friend list names (GET /api/de/friends)
+      friends: sd.friends.map(f => {
+        if (!sd.online) return { ...f };
+        const here = sd.online[f.pid], http = state.social?.friends.find(x => x.id === f.pid && x.online);
+        return { ...f, online: !!here, ...(here ? { place: http?.status ?? (here.kind === 12 ? 'My Room' : 'Online') } : {}) };
+      }), ignored: sd.ignored.map(pid => ({ pid, name: known(pid) })),
       team: sd.team ? { name: sd.team.name, members: sd.teamMembers.map(m => ({ pid: m.pid, name: m.name })), leader: sd.teamMembers.some(m => m.pid === state.player?.id && (m.authority & 2) !== 0) } : null,
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
       removeFriend: pid => social({ type: 'removeFriend', pid }),
+      // Find a Player (CWindowModelFriendEnum) and Ignore by name (CWindowModelBlacklistInput)
+      lookup: sd.lookup?.name !== undefined ? { name: sd.lookup.name, pid: sd.lookup.result === 0 && sd.lookup.pid ? sd.lookup.pid : null } : null, error: sd.error,
+      offers: sd.friendOffers.map(o => ({ pid: o.pid, name: o.name, level: o.level })), teamInvites: sd.teamInvites.map(t => ({ teamId: t.teamId, teamName: t.teamName, inviterPid: t.inviterPid, inviterName: t.inviterName })),
+      canTrade: ['idle', 'finished', 'closing'].includes(sd.trade.phase),
+      find: name => social({ type: 'findPlayer', name }), inviteFriend: pid => social({ type: 'inviteFriend', pid }),
+      replyFriend: (pid, accept) => social({ type: 'replyFriend', pid, accept }), inviteTeam: pid => social({ type: 'inviteTeam', pid }),
+      inviteTrade: (pid, name) => social({ type: 'inviteTrade', pid, name }), ignore: pid => social({ type: 'ignore', pid }),
+      replyTeam: (teamId, inviterPid, accept) => social({ type: 'replyTeam', teamId, inviterPid, accept }),
+      whisper: name => { htmlUiState.chatDraft = `/w ${name} `; if (state.scene !== 'lobby') open('lobby'); },
+      duel: pid => send({ type: 'duelChallenge', playerId: pid }),
     };
   };
   // D-Mail: the rewrite's mail, sent through its social controller
@@ -241,6 +259,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return [titleConfigWindow(htmlIds, titleUi, { titles: state.titles, current: p?.selfPid === p?.selectedPid ? p?.comments[1] ?? undefined : undefined, busy: !!state.busy || p?.pending != null,
       wear: bit => send({ type: 'profileAction', action: { type: 'setTitle', bit } }), close: () => { titleUi = null; showHtml(); }, rerender: () => showHtml() })];
   };
+  // Duel Log (CWindowModelDuellogTop / List / Search) over the scene, opened from the Main Menu: GET /api/de/duellog
+  let duellog: DuellogUi | null = null, duellogAsk = 0;
+  const loadDuellog: (search: DuellogUi['search'], page: number) => void = (search, page) => {
+    const ui = duellog; if (!ui) return;
+    const ask = ++duellogAsk; ui.loading = true; ui.error = null; showHtml();
+    void fetchDuellog(search, page).then(out => {
+      if (duellog !== ui || ask !== duellogAsk) return;
+      ui.loading = false;
+      if ('error' in out) ui.error = out.error; else { ui.data = out; ui.page = out.page; }
+      showHtml();
+    });
+  };
+  const duellogSpecs = (): WindowSpec[] => {
+    if (!duellog || !state.player || state.scene === 'duel' || state.scene === 'title' || state.connection !== 'online') { duellog = null; return []; }
+    return [duellogWindow(htmlIds, duellog, { load: loadDuellog, close: () => { duellog = null; showHtml(); }, rerender: () => showHtml() })];
+  };
   // the NPC reward pack pick in main's pack picker (htmlui/npc-pack.ts: CWindowPackSelect) over the lobby or the duel
   const npcPack = npcPackUi();
   // the rows' completion (the original's packCompletionLine): the server's shop pack view (GET /api/de/shop/pack, its
@@ -257,6 +291,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
+  // Tournaments (htmlui/tournament.ts): JoinGunsling from the Main Menu, the bracket while joined, the end result once;
+  // the server's event state (EVENTINFO) in the Information window until closed. Over the lobby only (a pairing is a duel).
+  const tourUi = tournamentUi();
+  const tournamentSpecs = (): WindowSpec[] => {
+    if (!state.player || state.scene !== 'lobby' || state.mode === 'free') return [];
+    const t = state.tournament ?? null, out: WindowSpec[] = [], refresh = () => send({ type: 'tournamentRefresh' });
+    const e = state.eventInfo; if (e && tourUi.eventSeen !== eventKey(e)) out.push(informationWindow(htmlIds, e, t, () => { tourUi.eventSeen = eventKey(e); showHtml(); }));
+    if (tourUi.join) out.push(joinGunslingWindow(htmlIds, t, { join: () => { tourUi.join = false; tourUi.joined = tourUi.bracket = true; refresh(); showHtml(); }, cancel: () => { tourUi.join = false; showHtml(); } }));
+    else if (tourUi.bracket && t) out.push(bracketWindow(htmlIds, tourUi, t, { selfPid: state.player.id, refresh, close: () => { tourUi.bracket = false; showHtml(); }, rerender: showHtml }));
+    if (t?.result && tourUi.joined && tourUi.resultSeen !== t.result) { const r = t.result; const spec = resultWindow(htmlIds, t, () => { tourUi.resultSeen = r; showHtml(); }); if (spec) out.push(spec); }
+    return out;
+  };
   // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
   let optionsUi: OptionsUi | null = null;
   const optionsSpecs = (): WindowSpec[] => {
@@ -268,7 +314,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
     return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
   };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duelSpecs(), ...prepSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
@@ -296,6 +342,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       duelHover.selected = local.selected;
       const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml }, prompt);
       if (spec) out.push(spec);
+    } else if (prompt && htmlUi && !state.preparation) {
+      // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
+      const help = duelHelpStrip(htmlIds, prompt.text); if (help) out.push(help);
     }
     return out;
   };
@@ -468,7 +517,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (previous.scene !== next.scene || previous.status !== next.status || previous.connection !== next.connection || previous.error !== next.error || previous.busy !== next.busy || previous.settings !== next.settings || previous.relay !== next.relay || previous.sideboarding !== next.sideboarding || previous.match !== next.match || previous.preparation !== next.preparation || previous.unavailable?.[previous.scene] !== next.unavailable?.[next.scene]) return false;
     if (previous.player?.id !== next.player?.id || previous.player?.name !== next.player?.name || previous.player?.level !== next.player?.level) return false;
     // Unrelated world packets must not replace open mail/trade confirmations or audio controls.
-    if (next.scene === 'social') return previous.social === next.social && previous.socialDetail === next.socialDetail;
     if (next.scene === 'shop') return previous.shop === next.shop && previous.online === next.online;
     if (next.scene === 'settings') return previous.audio === next.audio && previous.capture === next.capture && previous.dataStatus === next.dataStatus;
     return false;
@@ -932,11 +980,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       onDuel: (pid: number) => send({ type: 'duelChallenge', playerId: pid }),
     };
   }
-  function renderSocial(): void {
-    if (!state.socialDetail) return emptyPanel('social', 'Friends & Mail', 'Loading your friends and mail.');
-    const n = sceneRoot('Friends & Mail'), feature = renderSocialFeature(state.socialDetail, action => send({ type: 'socialAction', action }), socialOptions());
-    feature.className += ' de-panel de-feature-panel de-fill de-scroll'; n.append(title('Friends & Mail'), feature);
-  }
   function renderSettings(): void {
     const n = sceneRoot('Options'), panel = el('section', 'de-panel de-center de-stack', title('Options'));
     const display = browserDisplay.state, displayGroup = el('section', 'de-settings-row', el('h3', '', 'Display'), note(display.active ? 'Fullscreen' : 'Windowed'));
@@ -1000,7 +1043,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.scene !== 'shop') { shopScene = false; leaveShop = false; cardShop.dispose(); }
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
-      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
+      else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'settings': renderSettings(); break; }
       if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
       // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
@@ -1025,6 +1068,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // Change Title (CWindowModelTitleConfig): the earned titles, one worn
           ...(state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),
+        // Tournament (SCENE_TOURNAMENT): JoinGunsling, then the bracket once joined (the server enters on its first request)
+        ...(state.mode !== 'free' && state.connection === 'online' ? [{ label: 'Tournament', key: 'tournament', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); if (tourUi.joined) { tourUi.bracket = true; send({ type: 'tournamentRefresh' }); } else tourUi.join = true; showHtml(); } }] : []),
         ...(state.mode !== 'free' && state.location ? [
           // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
           state.location === 'my-room'
@@ -1034,12 +1079,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         { label: 'DUEL OPTIONS', key: 'settings', disabled: blocked, run: () => { optionsUi = { kind: 'options' }; showHtml(); } },
         ...(state.mode !== 'free' ? [
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
+          // Duel Log (CWindowModelDuellogTop): the character's duel history, its stats and the search
+          { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
           { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; showHtml(); } },
-          // the rewrite's own social page (finding a player, answering friend and team invitations), not yet main's
-          { label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: go('social') },
+          // Find a Player (CWindowModelFriendEnum): a player by name, and the friend and team invitations waiting
+          ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
-            disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } })) : []),
+            disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
           { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),

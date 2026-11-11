@@ -11,6 +11,7 @@ import { bootDuel } from "./duel/boot.ts";
 import { attach, loadState, type D1Sink } from "./db/d1.ts";
 import { adminSink, loadAdmin } from "./db/admin.ts";
 import { starterClaim, starterInfo, walletInfo } from "./game/starter.ts";
+import { duellogApi } from "./game/duellogList.ts";
 import { tagApi } from "./duel/tagRelay.ts";
 import { adminDeck, currentOf, deckCurrent, deckDelete, deckIn, deckOwner, deckPut, decksGet, type Owner } from "./game/decks.ts";
 import { logLevel } from "./util/loglevel.ts";
@@ -329,6 +330,16 @@ export class WorldDO extends DurableObject<Env> {
       const [status, out] = await new Promise<[number, Record<string, unknown>]>((res) => this.srv.world.run(() => {
         try { res(tagApi(this.srv.game, user, request.method, url.pathname.slice("/__de/tag".length).replace(/^\//, ""), body)); }
         catch (e) { console.error(`[tag] ${e}`); res([500, { error: "server error" }]); }
+      }));
+      return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/__de/duellog") {
+      // the Worker forwards GET /api/de/duellog?opp=&result=&from=&to=&page= with x-de-user; game/duellogList.ts
+      const user = request.headers.get("x-de-user");
+      if (!user) return Response.json({ error: "signed out" }, { status: 401 });
+      const [status, out] = await new Promise<[number, unknown]>((res) => this.srv.world.run(() => {
+        try { res(duellogApi(this.srv.game, user, url.searchParams)); }
+        catch (e) { console.error(`[duellog] ${e}`); res([500, { error: "server error" }]); }
       }));
       return Response.json(out, { status, headers: { "Cache-Control": "no-store" } });
     }

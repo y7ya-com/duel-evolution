@@ -371,9 +371,10 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined };
-    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world' };
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null };
+    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
+      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);
@@ -706,6 +707,11 @@ export class ClientApp implements ClientController {
       ...(this.options.reloadData ? {dataStatus:{loading:false,issues:[...(this.options.dataIssues ?? [])]}} : {}),
       ...(this.options.audio ? {audio:this.options.audio.getState()} : {}), status:'Disconnected.' }; this.emit();
   }
+  /** The Friend List's presence (the server's friendsInfo: each friend online or not, and where). */
+  private async refreshFriends(): Promise<void> {
+    const epoch = this.epoch, friends = await this.services.refreshFriends({ signal: this.connectionScope.signal });
+    if (epoch === this.epoch && !this.disposed) this.patch({ social: toSocialView(friends) });
+  }
   private async refresh(scene: Scene): Promise<void> {
     const options = { signal: this.connectionScope.signal }, epoch = this.epoch;
     if (scene === 'deck') {
@@ -733,9 +739,6 @@ export class ClientApp implements ClientController {
     } else if (scene === 'shop') {
       const shop = await this.services.refreshShop(options);
       if (epoch === this.epoch && !this.disposed) { const view = await this.shopView(shop); if (epoch === this.epoch && !this.disposed) { this.patch({ shop: view }); await this.online.refresh(); } }
-    } else if (scene === 'social') {
-      const friends = await this.services.refreshFriends(options);
-      if (epoch === this.epoch && !this.disposed) { this.patch({ social: toSocialView(friends) }); this.social.dispatch({ type: 'refreshMail' }); this.social.dispatch({ type: 'refreshTeam' }); }
     } else if (scene === 'lobby') {
       if (this.freeMode) { this.patch({starter:undefined}); return; }
       await this.requireGame().refreshNpcs();
@@ -759,8 +762,8 @@ export class ClientApp implements ClientController {
     if (this.disposed) throw new Error('Client is disposed.');
     // Reject rather than queue stale prompt actions behind an unrelated request.
     // The Tag Duel window serializes its own requests (TagLobbyController.busy); picking seats never waits on the lobby.
-    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction'].includes(command.type)) throw new Error('Wait for the current action to finish.');
-    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction'].includes(command.type);
+    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction', 'tournamentRefresh'].includes(command.type)) throw new Error('Wait for the current action to finish.');
+    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction', 'tournamentRefresh'].includes(command.type);
     const token = {};
     if (locking) { this.lockToken = token; this.patch({ busy: true, error: undefined }); }
     const epoch = this.epoch;
@@ -768,6 +771,7 @@ export class ClientApp implements ClientController {
       switch (command.type) {
         case 'connect': await this.connectAfterLoss(command.freeMode); break;
         case 'disconnect': this.disconnect(); break;
+        case 'tournamentRefresh': this.requireGame().requestTournament(); break;
         case 'signIn': {
           // A refused sign-in is a 401 too, but it is a wrong User ID or Password, not an ended session (failure()).
           const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal })
@@ -791,8 +795,9 @@ export class ClientApp implements ClientController {
           if ((this.view.scene === 'duel' || ['preparing-duel', 'rock-paper-scissors', 'choose-first', 'duel', 'sideboarding'].includes(this.game?.state.phase ?? '')) && (this.duelState.status !== 'finished' || this.game?.state.match && !this.game.state.match.complete) && !['duel', 'settings'].includes(command.scene)) throw new Error('Finish or surrender the duel first.');
           if (command.scene === 'lobby' && this.duelState.status === 'finished') {this.eligibilityDue=true;await this.requireGame().finishDuel();}
           this.patch({ scene: command.scene });
-          if (['deck', 'shop', 'social'].includes(command.scene)) await this.refresh(command.scene); break;
+          if (['deck', 'shop'].includes(command.scene)) await this.refresh(command.scene); break;
         case 'refresh': await this.refresh(command.scene); break;
+        case 'refreshFriends': await this.refreshFriends(); break;
         case 'move':
           this.requireGame();
           if (!this.options.worldMaps || !this.world.position) throw new Error('Original collision data is unavailable. Generate the world maps before walking.');

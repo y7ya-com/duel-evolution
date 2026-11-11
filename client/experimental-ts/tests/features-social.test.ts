@@ -14,6 +14,15 @@ describe('social controller authority and lifecycle', () => {
     c.dispatch(action); expect(c.state.error).toBe('Backpressure'); expect(c.state.mailLoading).toBe(false); expect(c.state.teamLoading).toBe(false); expect(c.state.trade.phase).toBe('idle');
     blocked=false; c.dispatch(action); expect(sent).toHaveLength(1); expect(c.state.error).toBeNull();
   });
+  it('asks who on the Friend List is online as the original does (0x3603 with the pids) and keeps the 0x3604 answer', () => {
+    const { controller: c, sent } = setup();
+    c.dispatch({ type: 'refreshOnline' }); expect(sent).toHaveLength(0); expect(c.state.online).toEqual({});
+    receive(c, 0x4515, new W().u32(1).u32(1004).s('Bob', 16).bytes()); receive(c, 0x4515, new W().u32(1).u32(1008).s('Cy', 16).bytes());
+    expect(c.state.friends.map(f => f.pid)).toEqual([1004, 1008]);
+    c.dispatch({ type: 'refreshOnline' }); expect(sent.at(-1)).toMatchObject({ id: 0x3603, data: new W().u32(2).u32(1004).u32(1008).bytes() });
+    receive(c, 0x3604, new W().u32(0).u32(1).u32(1004).u8(0).u8(12).u8(0).u8(0).u8(0).bytes());
+    expect(c.state.online).toEqual({ 1004: { kind: 12, area: 0 } });
+  });
   it('retains an invitation when its reply could not be sent',()=>{
     let blocked=true; const send=vi.fn(()=>{if(blocked)throw new Error('Backpressure');});
     const c=new SocialController({send,onChange:()=>{}}); receive(c,0x4512,new W().u32(1004).s('Bob',16).u8(4).bytes());

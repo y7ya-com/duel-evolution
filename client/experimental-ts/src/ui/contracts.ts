@@ -10,7 +10,7 @@ import type { SocialAction, SocialState } from '../features/social';
 import type { OnlineAction, OnlineState } from '../features/online';
 import type { TagLobbyAction, TagLobbyState } from '../features/tag';
 /** Render-only browser UI contract. No component reads guest memory or opens a socket. */
-export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'social' | 'settings';
+export type Scene = 'title' | 'characters' | 'lobby' | 'deck' | 'shop' | 'duel' | 'settings';
 export type DeckZone = 'main' | 'side' | 'extra';
 export interface CharacterView { slot: number; name: string; level?: number; selected?: boolean; /** The 16 avatar bytes Select Player's waist-up portrait wears. */ parts?: number[]; }
 export interface PlayerView { id: number; name: string; level?: number; mp?: number; }
@@ -132,6 +132,9 @@ export interface ClientView {
   profileDetail?: ProfileState;
   /** The titles the character has earned (the PBIN snapshot, features/titles.ts): Change Title's list. */
   titles?: import('../features/titles').OwnedTitle[];
+  /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
+  tournament?: import('../network/tournament').TournamentState | null;
+  eventInfo?: import('../network/tournament').EventInfo | null;
   /** Where the character stands: the world's lobbies or their own My Room (the private lobby port). */
   location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };
@@ -186,6 +189,8 @@ export type ClientCommand =
   | { type: 'onlineAction'; action: OnlineAction }
   | { type: 'tagAction'; action: TagLobbyAction }
   | { type: 'disconnect' }
+  /** Tournaments: ask the server for the state, entries and bracket (entering it while its entry is open). */
+  | { type: 'tournamentRefresh' }
   | { type: 'signIn'; username: string; password: string }
   | { type: 'signOut' }
   | { type: 'createCharacter'; slot: number; name: string; /** the first dressing's look (Change Avatar), worn on entering */ appearance?: number[] }
@@ -227,6 +232,8 @@ export type ClientCommand =
   | { type: 'deleteDeck'; name: string }
   | { type: 'buy'; itemId: number; count: number }
   | { type: 'refresh'; scene: Scene }
+  /** The Friend List's presence: who is online and where (GET /api/de/friends), loaded as the list opens. */
+  | { type: 'refreshFriends' }
   | { type: 'duelRespond'; promptId: string; response: DuelResponse }
   | { type: 'duelAction'; actionId: string; promptId?: string }
   | { type: 'inspectCard'; cardId: string }

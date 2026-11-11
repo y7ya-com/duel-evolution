@@ -92,6 +92,43 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     t.find('mail-reply')!.click!(); t.find('compose-subject')!.text!('Re: Hi'); t.find('compose-body')!.text!('Sure'); t.find('compose-send')!.click!();
     expect(calls.at(-1)).toBe('mail 2 Re: Hi Sure');
   });
+  it('the Friend List shows each friend online and where, or Offline, in the Team List\'s row columns', () => {
+    const social: Record<string, unknown> = { friends: [{ pid: 2, name: 'Bo', online: true, place: 'Domino City' }, { pid: 3, name: 'C@t', online: false }, { pid: 4, name: 'Di' }], ignored: [], team: null,
+      unignore: () => {}, formTeam: () => {}, leaveTeam: () => {}, disbandTeam: () => {}, removeFriend: () => {} };
+    const t = context(view({ scene: 'lobby' }), { social: social as never });
+    t.ctx.ui.lists = { kind: 'friends', selected: 0 };
+    const items = t.windows().find(s => s.win.cls === 'CWindowModelFriendlist')!.win.controls.find(c => c.cls === 'CWindowTaskListbox')!.items;
+    expect(items).toEqual(['> @>16/Bo@>230/Domino City', '@>16/C@@t@>230/Offline', 'Di']);
+  });
+  it('Find a Player (FriendEnum), Ignore by name (BlacklistInput) and the team confirmations: the old Friends & Mail page\'s functions', () => {
+    const calls: string[] = [];
+    const social: Record<string, unknown> = { friends: [{ pid: 2, name: 'Bo' }], ignored: [], team: { name: 'Aces', members: [{ pid: 7, name: 'Me' }], leader: false }, lookup: null, error: null,
+      offers: [{ pid: 5, name: 'Di', level: 4 }], teamInvites: [], canTrade: true,
+      unignore: () => {}, formTeam: () => {}, leaveTeam: () => calls.push('leave'), disbandTeam: () => calls.push('disband'), removeFriend: () => {},
+      find: (n: string) => calls.push(`find ${n}`), inviteFriend: (pid: number) => calls.push(`friend ${pid}`), replyFriend: (pid: number, a: boolean) => calls.push(`reply ${pid} ${a}`),
+      inviteTeam: (pid: number) => calls.push(`team ${pid}`), inviteTrade: (pid: number, n: string) => calls.push(`trade ${pid} ${n}`), ignore: (pid: number) => calls.push(`ignore ${pid}`),
+      duel: (pid: number) => calls.push(`duel ${pid}`) };
+    const mailBox = { mail: [], send: () => {}, delete: () => {} };
+    const t = context(view({ scene: 'lobby' }), { social: social as never, mailBox });
+    // the Friend List opens it; a name is searched, the found player acted on
+    t.ctx.ui.lists = { kind: 'friends', selected: -1 }; t.find('list-find')!.click!();
+    expect(t.windows().some(s => s.win.cls === 'CWindowModelFriendEnum')).toBe(true);
+    t.find('find-name')!.text!('Rival'); t.find('find-search')!.click!(); expect(calls.at(-1)).toBe('find Rival');
+    social.lookup = { name: 'Rival', pid: 1004 };
+    const enumWin = t.windows().find(s => s.win.cls === 'CWindowModelFriendEnum')!.win;
+    expect(enumWin.controls.find(c => c.name === 'result')!.text).toBe('Rival (ID 1004)');
+    for (const k of ['find-friend', 'find-team', 'find-trade', 'find-duel', 'find-ignore']) t.find(k)!.click!();
+    expect(calls.slice(-5)).toEqual(['friend 1004', 'team 1004', 'trade 1004 Rival', 'duel 1004', 'ignore 1004']);
+    t.find('find-offer:5')!.click!(); t.find('find-accept')!.click!(); expect(calls.at(-1)).toBe('reply 5 true');
+    t.find('find-mail')!.click!(); expect(t.ctx.ui.compose).toMatchObject({ toPid: 1004, toName: 'Rival' }); expect(t.ctx.ui.find).toBe(null);
+    // Ignore List: Add by Name looks the name up, then ignores that player
+    t.ctx.ui.lists = { kind: 'ignore', selected: -1 }; t.find('list-add')!.click!(); t.ctx.ui.lists = null;
+    t.find('ignore-name')!.text!('Zed'); t.find('ignore-name-ok')!.click!(); expect(calls.at(-1)).toBe('find Zed');
+    social.lookup = { name: 'Zed', pid: 77 }; t.windows(); expect(calls.at(-1)).toBe('ignore 77'); expect(t.ctx.ui.ignoreInput).toBe(null);
+    // Leave Team asks first (main's YesNo)
+    t.ctx.ui.compose = null; t.ctx.ui.lists = { kind: 'team', selected: -1 }; t.find('team-leave')!.click!(); expect(calls.at(-1)).not.toBe('leave');
+    t.find('team-leave-yes')!.click!(); expect(calls.at(-1)).toBe('leave');
+  });
   it('pointer: the hover and pressed looks go to the control whose element the pointer is on (no hit test by position)', () => {
     const t = context(view({ scene: 'characters' })), specs = t.windows();
     const back = specs.flatMap(s => s.win.controls).find(c => c.label === 'Back')!;

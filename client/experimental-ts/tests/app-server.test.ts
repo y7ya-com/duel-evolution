@@ -116,7 +116,7 @@ describe('ClientApp with actual server and GameSession', () => {
     // Saved under a new name, the deck is renamed: the old name is deleted after the new one is written.
     expect(f.requests.filter(r => r.method === 'DELETE').map(r => r.path)).toEqual(['/api/de/decks/Fixture']);
     expect(f.app.getState().deckEditor?.decks.map(d => d.name)).toEqual(['Saved by App']);
-    await f.send({ type: 'openScene', scene: 'social' }); expect(f.app.getState().social?.friends).toEqual([]);
+    await f.send({ type: 'refreshFriends' }); expect(f.app.getState().social?.friends).toEqual([]);
     expect(f.server.game.hub.sessions.size).toBe(1);
   });
   it('automatically attaches both real PvP offers and completes preparation', async () => {
