@@ -76,7 +76,7 @@ const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 
 // (live, the frame's bottom 13 px over the chat were outside that rect: a press there went to the chat's DOM)
 export function menuFrame(win) {
   const rows = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown).sort((a, b) => a.y - b.y);
-  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + 1) * pitch + 8;
+  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + (globalThis.yo2Html?.modernOffered === false ? 0 : 1)) * pitch + 8;
   return { rows, h, pitch, height, y: Math.max(4, Math.min(736 - height, win.y + win.h - height)) - win.y };
 }
 export const menuBox = win => { const f = menuFrame(win); return { x: win.x, y: win.y + f.y, w: win.w, h: f.height }; };
@@ -89,7 +89,8 @@ function mainMenu(win, root, st, api) {
   const close = win.controls.find(c => c.cls === 'CWindowTaskIconHide');
   const { rows, h, pitch, height, y } = menuFrame(win);
   const entries = rows.map(c => ({ label: c.label, c }));
-  entries.push({ label: 'Modern UI', action: () => globalThis.yo2Html?.modern(true) });
+  // (a page that parks the Modern UI, as live and the TS rewrite do, says so: yo2Html.modernOffered false, no row)
+  if (globalThis.yo2Html?.modernOffered !== false) entries.push({ label: 'Modern UI', action: () => globalThis.yo2Html?.modern(true) });
   const key = JSON.stringify([win.w, y, height, title, entries.map(e => [e.label, e.c?.id])]);
   if (st.key !== key) {
     root.replaceChildren(); st.key = key;

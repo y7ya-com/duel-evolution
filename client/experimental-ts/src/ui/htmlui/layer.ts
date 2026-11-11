@@ -24,6 +24,7 @@ import result from '@htmlui/screens/result.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
+import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
@@ -46,8 +47,19 @@ const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTask
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box
 const GENERIC: HtmlUiScreen = { classes: [], mode: 'owned', mount: () => new Map(),
-  update: (win, _prev, root, api, st) => { const s = st as Map<number, unknown>; syncWindow(root, win, s, { ...api, owned: true }); fallback(win as HtmlWindow, root, api); },
+  update: (win, _prev, root, api, st) => { const s = st as Map<number, unknown>; syncWindow(root, win, s, { ...api, owned: true }); frameDuel(win as HtmlWindow, root); fallback(win as HtmlWindow, root, api); },
   unmount: (root, st) => { root.replaceChildren(); (st as Map<number, unknown>).clear(); } };
+// basic.js draws no window frame: a window the rewrite adds with a FrameDuel (DUEL OPTIONS, Audio, the Duel Log, ...)
+// gets main's duel frame (skin.js duelWindow, as social.js / dialog.js draw theirs) under its controls, the window's size
+const FRAMES = new WeakMap<HTMLElement, { el: HTMLElement; key: string }>();
+function frameDuel(win: HtmlWindow, root: HTMLElement): void {
+  const has = win.controls.some(c => !c.parent && c.cls === 'CWindowTaskFrameDuel' && c.shown !== false), key = `${win.w}x${win.h}`;
+  const cur = FRAMES.get(root);
+  if (!has) { cur?.el.remove(); FRAMES.delete(root); return; }
+  if (cur?.key !== key) { cur?.el.remove(); const el = duelWindow(root, { w: win.w, h: win.h }) as HTMLElement; FRAMES.set(root, { el, key }); }
+  const el = FRAMES.get(root)!.el;
+  if (root.firstChild !== el) root.prepend(el);
+}
 const FALLBACK = new WeakMap<HTMLElement, Map<number, HTMLButtonElement>>();
 function fallback(win: HtmlWindow, root: HTMLElement, api: HtmlUiApi): void {
   const els = FALLBACK.get(root) ?? new Map<number, HTMLButtonElement>(); FALLBACK.set(root, els);
@@ -108,7 +120,9 @@ export class HtmlUiLayer {
       // main's pack picker (screens/packselect.js) runs in pass mode on main (its window box pointer-events: none, the
       // engine hit-tests): owned here, its OK and its rows take the pointer on their own elements
       // main's starter picker (web-shell/starter.js, z 10) stands over main's windows (bridge.js's host, z 4): here too
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } body .de-npc-panel { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .yo2ps-ok, .yo2ps-row) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win:has(.dk-pop) { z-index: 59000 !important; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
+      // main's chat.js adds a DOM Duels tab after the game's tabs; the rewrite's chat has its own Duels tab (CHAT_TABS, Join through
+      // the rewrite's session), so main's second one (.dz-layer) stays hidden: one Duels tab, as live
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } body #starter { z-index: 46; } body .de-npc-panel { z-index: 46; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button, .yo2ps-ok, .yo2ps-row) { pointer-events: auto; } #htmlui-host[data-rewrite] .av-arrow > svg { pointer-events: none; } #htmlui-host[data-rewrite] .win:has(.dk-pop) { z-index: 59000 !important; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; } #htmlui-host[data-rewrite] .dz-layer { display: none !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);
@@ -128,9 +142,9 @@ export class HtmlUiLayer {
       art: (path: string) => this.options.art + path,
     };
     // main's Main Menu asks the page's yo2Html for the scene (its Appearance entry) and a Modern UI switch: the
-    // rewrite's snapshot, and Legacy UI only
+    // rewrite's snapshot, and Legacy UI only (the Modern UI parked, as live: no Main Menu row for it)
     const g = globalThis as { yo2Html?: unknown };
-    if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false };
+    if (!g.yo2Html) g.yo2Html = { snapshot: () => this.last, modern: () => false, modernOffered: false };
     this.place();
     this.tick = setInterval(() => { this.bubbles(); this.pageModules(); }, 1000);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })

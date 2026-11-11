@@ -62,7 +62,9 @@ export const CLIENT_CSS = `
 .de-avatar-name { display:block; color:white; background:#073e91bb; padding:1px 5px; border-radius:2px; font-size:11px; white-space:nowrap; }
 .de-avatar.has-original { width:12.5%; height:auto; aspect-ratio:4/5; min-width:0; transform:translate(-50%,-90%); }
 .de-avatar-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
-.de-avatar.has-original .de-avatar-name { position:absolute; top:90%; left:50%; transform:translateX(-50%); }
+/* the name over the head as the game draws it (main's live lobby: its left edge on the avatar's centre line, where the
+ * flag ends; its middle about 21 px over the head's top, 13% of the 160-px box) */
+.de-avatar.has-original .de-avatar-name { position:absolute; top:13%; left:50%; transform:translateY(-50%); }
 .de-avatar.has-original .de-avatar-placeholder { position:absolute; bottom:10%; left:50%; transform:translateX(-50%); }
 .de-avatar-canvas[data-avatar-painted="true"]~.de-avatar-placeholder { visibility:hidden; }
 .de-lobby-places { z-index:6; position:absolute; right:12px; top:65px; width:205px; max-height:40%; overflow:auto; }

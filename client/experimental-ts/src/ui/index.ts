@@ -1198,6 +1198,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         // Return to Title stays available while busy: it is how a player abandons a request that never answers
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
       ];
+      // live's order (main's Main Menu over the 2008 engine, top to bottom): Edit Deck, My Profile, Create Comment, DUEL
+      // OPTIONS, D-Mail, Audio, Duel Log, Ignore / Friend / Team List, Return to your Room, Return to Title; the
+      // rewrite's own entries after the lists, before the ways out
+      const LIVE_ORDER = ['deck', 'profile', 'comment', 'settings', 'mail', 'audio', 'duellog', 'ignore', 'friends', 'teams', 'change-title', 'tournament', 'find', 'shop', 'my-room', 'leave-room', 'duel', 'lobby', 'title'];
+      const rank = (e: MenuEntry) => { const i = LIVE_ORDER.indexOf(e.key); return i < 0 ? LIVE_ORDER.length - 4 : i; };
+      entries.sort((a, b) => rank(a) - rank(b));
       const world = state.scene === 'lobby' && state.lobby;
       // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves.
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
