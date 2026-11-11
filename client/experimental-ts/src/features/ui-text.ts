@@ -105,10 +105,7 @@ const TYPED = /Input|Edit|TextField|Listbox|FileList|Kaban|ChatLog|Textlist/;
  * says it there, or false when the original has none for this use (the label stays as it is, a rewrite string). A
  * control may also name its own id (`textId`: a number, or false for none), which wins. The table's first id for a
  * word is taken everywhere else. */
-export const UI_TEXT_CONTEXT: Readonly<Record<string, Readonly<Record<string, number | false>>>> = {
-  // DUEL OPTIONS' Animation row: Full / Reduced motion (yo2text_e 2008 "Full" is the screen mode, German "Vollbild")
-  COptionDlg: { Full: false },
-};
+export const UI_TEXT_CONTEXT: Readonly<Record<string, Readonly<Record<string, number | false>>>> = {};
 /** A label through the chosen language in its window's context. */
 function contextual(text: UiText, english: string, cls: string, own: unknown): string {
   const id = typeof own === 'number' || own === false ? own : UI_TEXT_CONTEXT[cls]?.[english.trim()];

@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, startNpcDuel, surrender, claimNpcReward, lobbyShown, type Page } from './harness';
 
-/** The Duel Log (Main Menu > Duel Log, src/ui/htmlui/duellog.ts) over main's duel archive (GET /api/de/replays,
- * server/src/duel/duelArchive.ts): an NPC duel played to its end is listed, Download gives its EDOPro .yrpX
- * (/api/de/replays/<id>), Play replays the duel record this browser kept on the duel screen with the replay's
- * Play/Pause, Step and Exit, and Exit returns to the lobby. */
+/** The Duel Log (Main Menu > Duel Log, src/ui/htmlui/duellog.ts, live's flow): Server Duel Logs over main's duel
+ * archive (GET /api/de/replays, server/src/duel/duelArchive.ts) lists an NPC duel played to its end; the row's menu
+ * gives Download (its EDOPro .yrpX, /api/de/replays/<id>) and Play (the duel record this browser kept, on the duel
+ * screen with the replay's Play/Pause, Step and Exit); Latest Duel Logs lists that record; Exit returns to the lobby. */
 const REPLAY = `window.__deApp?.getState?.().replay`;
 const archive = (page:Page) => page.ev(`fetch('/api/de/replays?limit=1000',{credentials:'same-origin',cache:'no-store'}).then(r=>r.json()).then(b=>b.replays??[])`) as Promise<{ id:number; kind:string; opponent:string|null; result:string; turns:number }[]>;
-/** The Duel History row naming this opponent (the listbox draws each row as its own line of text). */
+/** The list's row naming this opponent (the listbox draws each row as its own line of text). */
 const rowLine = (opponent:string) => `[...document.querySelectorAll('#htmlui-host *')].filter(e=>e.children.length===0&&e.textContent.includes(${JSON.stringify(`vs ${opponent}`)})&&e.getClientRects().length)[0]`;
 /** Selects that row with a real press at its line (the list takes the point). */
+// (the list is one text box, its lines one element: the first line's middle is its first row, the only one listed here)
 async function pickRow(page:Page,opponent:string) {
-  const point = await page.ev(`(()=>{const r=${rowLine(opponent)}.getBoundingClientRect();return {x:Math.round(r.x+Math.min(r.width/2,60)),y:Math.round(r.y+r.height/2)};})()`) as { x:number; y:number };
+  const point = await page.ev(`(()=>{const r=${rowLine(opponent)}.getBoundingClientRect();return {x:Math.round(r.x+Math.min(r.width/2,60)),y:Math.round(r.y+Math.min(r.height/2,8))};})()`) as { x:number; y:number };
   await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
   await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
   await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
@@ -36,14 +37,19 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       expect(rows.length).toBe(before + 1);
       const row = rows[0]!;
       expect(row.kind).toMatch(/npc/i);
-      // Main Menu > Duel Log: the top's stats, Duel History, the row.
+      // Main Menu > Duel Log: live's plates; Latest Duel Logs lists the record this browser kept; Server Duel Logs, the row.
       await click(page,'Duel Log');
-      await until(page,`${byKey('duellog-history')}&&!${byKey('duellog-history')}.disabled`,30000);
-      const top = (await page.ev(`document.querySelector('#htmlui-host').innerText.replace(/\\s+/g,' ')`) as string).replace(/^.*?(Duel Log)/,'$1');
-      await press(page,byKey('duellog-history'));
+      await until(page,byKey('duellog-server'),30000);
+      const top = (await page.ev(`document.querySelector('#htmlui-host').innerText.replace(/\\s+/g,' ')`) as string).replace(/^.*?(Latest Duel Logs)/,'$1');
+      expect(top).toContain('Server Duel Logs'); expect(top).toContain('Duel Log Collection');
+      await press(page,byKey('duellog-latest'));
+      await until(page,rowLine(row.opponent ?? 'Yami Yugi'),20000);
+      await press(page,byKey('duellog-back'));
+      await until(page,byKey('duellog-server'),10000);
+      await press(page,byKey('duellog-server'));
       const opponent = row.opponent ?? 'Yami Yugi';
       await until(page,rowLine(opponent),20000);
-      const listed = (await page.ev(`document.querySelector('#htmlui-host').innerText.replace(/\\s+/g,' ')`) as string).replace(/^.*?(Duel Log: History)/,'$1');
+      const listed = (await page.ev(`document.querySelector('#htmlui-host').innerText.replace(/\\s+/g,' ')`) as string).replace(/^.*?(Server Duel Logs)/,'$1');
       expect(listed).toContain(`vs ${opponent}`);
       await screenshot(page,'replay-duellog-list');
       await pickRow(page,opponent);
@@ -58,7 +64,8 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       expect(file.name).toMatch(/\.yrpX/);
       expect(file.bytes).toBeGreaterThan(32);
       expect(file.magic).toBe('yrpX');
-      // Play: the record this browser kept, on the duel screen.
+      // Play (the row's menu again): the record this browser kept, on the duel screen.
+      await pickRow(page,opponent);
       await until(page,`${byKey('duellog-play')}&&!${byKey('duellog-play')}.disabled`,10000);
       await press(page,byKey('duellog-play'));
       await until(page,`${REPLAY}&&document.querySelector('.de-client').dataset.scene==='duel'&&${byKey('replay-toggle')}`,30000);
@@ -87,7 +94,7 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       // Exit: back to the lobby.
       await press(page,byKey('replay-exit'));
       await until(page,`!${REPLAY}&&${lobbyShown}`,30000);
-      record('duellog.replay',{ actions:'NPC duel (surrendered) to its result; Main Menu > Duel Log > Duel History; pick the row; Download; Play; Pause, Step, Play to the end; Exit',
+      record('duellog.replay',{ actions:'NPC duel (surrendered) to its result; Main Menu > Duel Log > Latest Duel Logs (the record listed), Back, Server Duel Logs; the row menu: Download; again: Play; Pause, Step, Play to the end; Exit',
         expected:'The finished duel is listed from the archive; Download gives its .yrpX; Play replays it on the duel board to the end; Exit returns to the lobby',
         observed:`top "${top.slice(0,120)}"; list "${listed.slice(0,160)}"; Download ${file.url} ${file.status} ${file.bytes} bytes "${file.magic}" (${file.name}); replay of ${r0.total} commands: paused at ${paused} (still ${stillPaused} after 1.5 s), Step → ${stepped}, played to ${r0.total}/${r0.total} (up to ${fieldCards} cards on the board); Exit → lobby` });
     } finally { closeAll(); }

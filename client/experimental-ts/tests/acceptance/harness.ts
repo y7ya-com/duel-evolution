@@ -144,7 +144,7 @@ export async function openNpcCard(page:Page,npc:string) {
   await until(page,`document.querySelector('[data-key^="npc-duel:"]')`,20000);
 }
 /** The Main Menu's entries (main's CMainMenu, src/ui/htmlui) while it is closed: reached through the menu bar's MAIN key. */
-const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Duel Log','Audio','Ignore List','Friend List','Team List','Shop','Return to Duel','Return to Lobby','Return to Title'];
+const MAIN_MENU = ['Edit Deck','My Profile','Create Comment','DUEL OPTIONS','D-Mail','Audio','Duel Log','Ignore List','Friend List','Team List','Return to your Room','Return to Duel','Return to Lobby','Return to Title'];
 const inMainMenu = (text:string) => `(${JSON.stringify(MAIN_MENU)}.includes(${JSON.stringify(text)})&&!!document.querySelector('[data-key="main-menu"]'))`;
 /** Presses the visible control with this text; a Main Menu entry is reached through the MAIN key, as a player would. */
 /** The title's sign-in window, as live: ONLINE (the title movie's button, htmlui/title-scene.ts) opens it signed out.
@@ -165,15 +165,18 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,`${byText(text)}||${titleButton(alias)}`,timeout);
     if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,titleButton(alias)); return; }
   }
-  // the title's OPTIONS opens DUEL OPTIONS; its More Options is the rewrite's options page (what Options opened before)
-  if (text === 'Options' && await page.ev(`document.querySelector('.de-client')?.dataset.scene==='title'&&!${byText('Options')}`)) {
-    await until(page,`${byText('Options')}||${titleButton('options')}`,timeout);
-    if (!await page.ev(`Boolean(${byText('Options')})`)) { await press(page,titleButton('options')); await until(page,byKey('opt-more'),timeout); await press(page,byKey('opt-more')); return; }
+  // the rewrite's own options page (game data, recording, local files) has no way in on live's screens (the title's
+  // OPTIONS is COptionDlg, the Main Menu's DUEL OPTIONS the duel settings): tests open it through the dev app
+  if (text === 'Options' && !await page.ev(`Boolean(${byText('Options')})`)) {
+    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'settings' })`); await until(page,byKey('options-language'),timeout); return;
+  }
+  // the Shop is no Main Menu entry (as live: the store's door on the map, which the rewrite's world does not have yet;
+  // free mode's own Shop button stays): tests open the shop scene through the dev app
+  if (text === 'Shop' && !await page.ev(`Boolean(${byText('Shop')})`)) {
+    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'shop' })`); return;
   }
   // Find Player is no Main Menu entry (as live): the Friend List's Find a Player opens it
   if (text === 'Find Player') { await click(page,'Friend List',timeout); await until(page,byKey('list-find'),timeout); await press(page,byKey('list-find')); return; }
-  // Options: the title's button, or in the game the Main Menu's DUEL OPTIONS (the rewrite's Options scene)
-  if (text === 'Options') { await until(page,`${byText(text)}||${inMainMenu('DUEL OPTIONS')}`,timeout); if (!await page.ev(`Boolean(${byText(text)})`)) text = 'DUEL OPTIONS'; }
   await until(page,`${byText(text)}||${inMainMenu(text)}`,timeout);
   // the menu already open (its entries waiting on a busy app): wait for the entry; closed: open it with MAIN
   if (!await page.ev(`Boolean(${byText(text)})`)) {

@@ -25,6 +25,7 @@ import { OnlineController } from './features/online';
 import { TagLobbyController } from './features/tag';
 import type { GameplayCommand } from './gameplay/binary';
 import { CardCatalog } from './catalog';
+import { autoAnswer, type HeldButtons } from './duel/auto-answer';
 import { projectDuel, interpretResponse, interpretAction, applyTimeline, describeEvent } from './presentation';
 import { fieldThemeKindForPasscode } from './duel/theme';
 import { describeNotice } from './duel/text';
@@ -60,6 +61,7 @@ import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
 import type { DeckView } from './ui/contracts';
+import { duelOptions } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
 import { ownedTitles } from './features/titles';
@@ -93,6 +95,8 @@ export interface AppOptions {
   sessionFactory?: (options: SessionOptions) => GameSession;
   settings?: Partial<SettingsView>;
   persistSettings?: (settings: SettingsView) => void;
+  /** The mouse buttons held now (DUEL OPTIONS: holding right skips an activation message, left shows it). */
+  heldButtons?: () => HeldButtons;
   /** The character's own Friend List and deleted mail (the original's per-character files); the browser's storage in main.ts. */
   socialBox?: SocialBox;
 }
@@ -586,7 +590,25 @@ export class ClientApp implements ClientController {
     if (!this.replay && this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
     if (this.npcResult.complete && !npcResult.complete) this.npc.refreshResultLine();
     if (this.duelState.prompt?.id !== previousPrompt) this.submittedPrompt = null;
+    if (this.duelState.prompt && this.duelState.prompt.id !== previousPrompt && this.autoRespond()) return;
     this.syncDuel();
+  }
+  /** DUEL OPTIONS' own answers (duel/auto-answer.ts) to a new prompt of the player's live duel; one the server asks
+   * again straight after (nothing else happened) is shown instead, so a refused answer never loops. */
+  private lastAuto: { sig: string; events: number } | null = null;
+  private autoRespond(): boolean {
+    if (this.replay || this.game?.state.spectating || !this.game?.duel) return false;
+    const state = this.duelState, response = autoAnswer(state, duelOptions(this.view.settings), this.options.heldButtons?.());
+    if (!response) return false;
+    const p = state.prompt!, sig = JSON.stringify([p.kind, p.actions, p.text]), events = state.events.length;
+    if (this.lastAuto?.sig === sig && this.lastAuto.events === events) return false;
+    this.lastAuto = { sig, events };
+    try {
+      const messages = encodeDuelResponse(state, response);
+      this.submittedPrompt = p.id; this.lastDuelAction = response.type === 'action' ? response : null;
+      for (const m of messages) this.requireGame().sendDuel(m.id, m.data);
+    } catch { return false; }
+    this.syncDuel(); return true;
   }
   private stopWorld(): void {
     this.world.cancel();
@@ -973,7 +995,8 @@ export class ClientApp implements ClientController {
             this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
               ...(npc.id*4+2 < state.npcbin.length ? {record:[state.npcbin[npc.id*4]!,state.npcbin[npc.id*4+1]!,state.npcbin[npc.id*4+2]!] as const} : {}),
               ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
-          } else this.profile.dispatch({type:'open',pid:command.playerId});
+          // one's own avatar opens nothing, as live (My Profile is the Main Menu's)
+          } else if (command.playerId !== this.profile.state.selfPid) this.profile.dispatch({type:'open',pid:command.playerId});
           break;
         case 'npcAnswer': await this.npc.answer(command.accept); break;
         case 'npcAdvance': this.npc.advance(); break;
@@ -1174,6 +1197,8 @@ export class ClientApp implements ClientController {
           const next = { ...this.view.settings, ...changes };
           for (const key of ['sound', 'music'] as const) if (!Number.isFinite(next[key]) || next[key] < 0 || next[key] > 1) throw new Error('Invalid volume.');
           if (typeof next.reducedMotion !== 'boolean' || typeof next.showCardNames !== 'boolean') throw new Error('Invalid settings.');
+          if (next.autoTracking !== undefined && typeof next.autoTracking !== 'boolean' || next.autoPlacing !== undefined && typeof next.autoPlacing !== 'boolean'
+            || next.activationMessage !== undefined && ![0, 1, 2].includes(next.activationMessage)) throw new Error('Invalid settings.');
           this.options.persistSettings?.(next); this.options.audio?.setVolumes(next);
           this.timeline.setReducedMotion(next.reducedMotion || !this.frameRequest);
           this.duelAudio.setReducedMotion(next.reducedMotion || !this.frameRequest); this.duelAudio.setMuted(!this.options.audio || next.sound === 0);

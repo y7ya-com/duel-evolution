@@ -76,7 +76,8 @@ const look = c => c.state === 'disabled' ? 'disabled' : c.state === 'pressed' ? 
 // (live, the frame's bottom 13 px over the chat were outside that rect: a press there went to the chat's DOM)
 export function menuFrame(win) {
   const rows = win.controls.filter(c => c.cls === 'CWindowTaskButtonMain' && c.shown).sort((a, b) => a.y - b.y);
-  const h = rows[0]?.h || 24, pitch = h + 4, height = 32 + (rows.length + (globalThis.yo2Html?.modernOffered === false ? 0 : 1)) * pitch + 8;
+  // live's (the engine's) rows: from 27, 26 apart (24 high), the frame 11 below the last (12 rows: 350 high)
+  const h = rows[0]?.h || 24, pitch = h + 2, height = 27 + (rows.length + (globalThis.yo2Html?.modernOffered === false ? 0 : 1)) * pitch + 11;
   return { rows, h, pitch, height, y: Math.max(4, Math.min(736 - height, win.y + win.h - height)) - win.y };
 }
 export const menuBox = win => { const f = menuFrame(win); return { x: win.x, y: win.y + f.y, w: win.w, h: f.height }; };
@@ -97,7 +98,7 @@ function mainMenu(win, root, st, api) {
     st.panel = panel(root, { y, w: win.w, h: height, band: 6 });
     st.title = titleBar(st.panel, { w: win.w, title, close: !!close });
     st.buttons = entries.map((e, i) => {
-      const b = menuButton(st.panel, { x: rows[0]?.x ?? 12, y: 32 + i * pitch, w: rows[0]?.w ?? win.w - 24, h, label: e.label });
+      const b = menuButton(st.panel, { x: rows[0]?.x ?? 12, y: 27 + i * pitch, w: rows[0]?.w ?? win.w - 24, h, label: e.label });
       b.style.pointerEvents = 'auto'; b.dataset.modernOwned = '';
       b.onclick = () => e.c ? api.click(e.c.id) : e.action();
       return b;

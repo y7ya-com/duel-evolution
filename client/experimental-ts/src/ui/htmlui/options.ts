@@ -1,155 +1,110 @@
-// DUEL OPTIONS and Audio (the Main Menu's, the original's COptionDlg): main has no module for either, so both are built
-// here in main's Legacy look, the Main Menu's list windows' frame (windows.ts listWindow, title-config.ts: the duel
-// frame, the shadow-text title on 4, duel buttons), each option a row of main's text switches (checked = chosen).
-// The rewrite's own options (fullscreen, language, motion, card names) sit in the same rows; game data, recording and
-// the local audio files keep the rewrite's Options page, opened from "More Options". Pure: no DOM.
+// The two option windows live has. DUEL OPTIONS (the Main Menu's, the engine's CWindowModelDuelConfig): main's
+// capture of it (mock/duelsetup-config.json) drawn by main's generic renderer: Auto Tracking ON / OFF, Auto Card Placing
+// ON / OFF, Activation Message Auto Cancel / Semi Auto Cancel / Manual (picture switches, the checked one is the
+// setting), the help text the engine writes for the hovered choice (yo2text 0x1982..0x1989), OK keeps the choices and
+// Cancel drops them (the engine keeps a choice only on OK). The title's OPTIONS (the engine's COptionDlg): language,
+// screen mode and volume, OK / Cancel. Pure: no DOM.
+import duelConfigMock from '@htmlui/mock/duelsetup-config.json';
 import { GAME_LANGUAGES, type GameLanguage } from '../../features/language';
-import type { SettingsView } from '../contracts';
-import type { AudioAction } from '../../features/audio';
-import type { AudioPackPlan } from '../../features/audio-pack';
+import { duelOptions, type ActivationMessage, type DuelOptions, type SettingsView } from '../contracts';
 import { Ids, WindowBuilder } from './snapshot';
-import type { WindowSpec } from './snapshot';
+import type { HtmlControl, WindowSpec } from './snapshot';
 
-export interface OptionsUi { kind: 'options' | 'audio' }
+/** Which window is open; `draft` holds DUEL OPTIONS' unsaved choices, `hover` the choice whose help shows; the title's
+ * window remembers the settings it opened with (Cancel puts them back). */
+export interface OptionsUi { kind: 'options' | 'title' | 'audio'; draft?: DuelOptions; hover?: string | null; before?: Partial<SettingsView>; beforeFullscreen?: boolean }
 export interface OptionsDeps {
   settings: SettingsView;
   fullscreen?: { active: boolean; supported: boolean; pending: boolean; toggle(): void };
-  /** The audio manager's own volumes (extra/audio.ts) and whether it plays. */
-  audio?: { music: number; sound: number; activated: boolean; slots: readonly { slot: number; label: string; files: readonly string[]; shuffle?: boolean; loop?: boolean; volume?: number }[] };
   languageReady?: boolean;
   busy?: boolean;
+  /** The original's UI texts by id (yo2text_?: the help lines), once read. */
+  text?: (id: number) => string | undefined;
   set(settings: Partial<SettingsView>): void;
-  audioAction?(action: AudioAction): void;
-  /** The rewrite's full Options page (game data, recording, local audio files). */
-  more(): void;
   close(): void;
-}
-const W = 600, X = 212;
-const pct = (v: number) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`;
-const step = (v: number, d: number) => Math.round(Math.max(0, Math.min(1, v + d)) * 20) / 20;
-
-function frame(ids: Ids, key: string, cls: string, title: string, rows: number) {
-  // centred over the scene above the chat (608: the lobby's chat and player list), as live keeps its windows clear of
-  // it; one too tall for that, centred on the screen
-  const h = 72 + rows * 32, y = h <= 592 ? Math.round((608 - h) / 2) : Math.round((768 - h) / 2);
-  const b = new WindowBuilder(ids, key, cls, { x: X, y, w: W, h }, { z: 51453, modal: true });
-  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: W, h: 16 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
-  let row = 0;
-  const label = (text: string) => b.add('CWindowTaskShadowText', `l${row}`, { x: 20, y: 36 + row * 32 + 4, w: 180, h: 16 }, { text, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
-  const sw = (name: string, x: number, w: number, text: string, key: string, checked: boolean, run: (() => void) | null) =>
-    b.add('CWindowTaskTextSwitch', name, { x, y: 36 + row * 32, w, h: 24 }, { label: text, align: 1, state: run ? 'normal' : 'disabled', checked, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
-  const next = () => { row++; };
-  const text = (value: string, x: number, w: number) => b.add('CWindowTaskShadowText', `t${row}`, { x, y: 36 + row * 32 + 4, w, h: 16 }, { text: value, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
-  const button = (name: string, x: number, w: number, text: string, key: string, run: (() => void) | null) =>
-    b.add('CWindowTaskButtonDuel', name, { x, y: h - 32, w, h: 24 }, { label: text, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
-  return { b, label, text, sw, next, button };
-}
-
-/** A volume row: Down / the level / Up, main's text switches. */
-function volumeRow(f: ReturnType<typeof frame>, name: string, key: string, value: number, set: ((v: number) => void) | null): void {
-  f.label(name);
-  f.sw(`${key}-down`, 220, 60, '-', `${key}-down`, false, set && value > 0 ? () => set(step(value, -0.1)) : null);
-  f.sw(`${key}-level`, 290, 80, pct(value), `${key}-level`, true, null);
-  f.sw(`${key}-up`, 380, 60, '+', `${key}-up`, false, set && value < 1 ? () => set(step(value, 0.1)) : null);
-  f.next();
-}
-
-export function optionsWindow(ids: Ids, d: OptionsDeps): WindowSpec {
-  const f = frame(ids, 'options', 'COptionDlg', 'DUEL OPTIONS', 6);
-  const s = d.settings, on = (key: 'reducedMotion' | 'showCardNames', value: boolean) => () => d.set({ [key]: value });
-  volumeRow(f, 'Sound effects', 'opt-sound', s.sound, v => d.set({ sound: v }));
-  volumeRow(f, 'Background audio', 'opt-bg', s.music, v => d.set({ music: v }));
-  f.label('Animation'); f.sw('motion-full', 220, 110, 'Full', 'opt-motion-full', !s.reducedMotion, on('reducedMotion', false)); f.sw('motion-reduced', 340, 110, 'Reduced', 'opt-motion-reduced', s.reducedMotion, on('reducedMotion', true)); f.next();
-  f.label('Card names'); f.sw('names-on', 220, 110, 'Show', 'opt-names-on', s.showCardNames, on('showCardNames', true)); f.sw('names-off', 340, 110, 'Hide', 'opt-names-off', !s.showCardNames, on('showCardNames', false)); f.next();
-  const fs = d.fullscreen;
-  f.label('Display'); f.sw('fs-off', 220, 110, 'Windowed', 'opt-windowed', !!fs && !fs.active, fs?.supported && !fs.pending && fs.active ? () => fs.toggle() : null);
-  f.sw('fs-on', 340, 110, 'Fullscreen', 'opt-fullscreen', !!fs?.active, fs?.supported && !fs.pending && !fs.active ? () => fs.toggle() : null); f.next();
-  const current = s.language ?? 'E', at = GAME_LANGUAGES.findIndex(l => l.code === current), lang = GAME_LANGUAGES[Math.max(0, at)]!;
-  const cycle = (dir: number) => () => { const n = GAME_LANGUAGES[(Math.max(0, at) + dir + GAME_LANGUAGES.length) % GAME_LANGUAGES.length]!; d.set({ language: n.code as GameLanguage }); };
-  f.label('Language'); f.sw('lang-prev', 220, 40, '<', 'opt-lang-prev', false, d.languageReady && !d.busy ? cycle(-1) : null);
-  f.sw('lang', 270, 140, lang.name, 'opt-lang', true, null); f.sw('lang-next', 420, 40, '>', 'opt-lang-next', false, d.languageReady && !d.busy ? cycle(1) : null); f.next();
-  f.button('more', 150, 140, 'More Options', 'opt-more', () => d.more());
-  f.button('close', 350, 100, 'Close', 'opt-close', () => d.close());
-  return f.b.spec();
-}
-
-/** The Audio window's own state: the slot page, a pack under review (nothing changes until it is used), a message. */
-export interface AudioUi { page: number; review?: AudioPackPlan | null; message?: string }
-export const AUDIO_PAGE = 10;
-export interface AudioWindowDeps extends OptionsDeps {
-  ui: AudioUi;
-  /** Opens the browser's file picker for a pack (.zip, a folder's files); the plan comes back as ui.review. */
-  pickPack?(): void;
-  /** Opens the file picker for one slot's playlist (the pack builder). */
-  pickSlotFiles?(slot: number): void;
   rerender(): void;
 }
-type SlotView = NonNullable<OptionsDeps['audio']>['slots'][number] & { shuffle?: boolean; loop?: boolean; volume?: number };
 
-/** Main Menu > Audio (live's Audio page, web/audiopage.js, in the Legacy window look): volumes and playback, the 46
- * slots a page at a time (each: its files, picked here, the pack builder; Shuffle, Repeat, its volume, Play), and the
- * pack buttons: Open Pack (a .zip, reviewed before use), Save Pack (the setup as a .zip, live's format), Clear All. */
-export function audioWindow(ids: Ids, d: AudioWindowDeps): WindowSpec {
-  if (d.ui.review) return packReviewWindow(ids, d, d.ui.review);
-  const a = d.audio, slots = (a?.slots ?? []) as readonly SlotView[], act = d.audioAction;
-  const pages = Math.max(1, Math.ceil(slots.length / AUDIO_PAGE)), page = Math.max(0, Math.min(pages - 1, d.ui.page));
-  const shown = slots.slice(page * AUDIO_PAGE, page * AUDIO_PAGE + AUDIO_PAGE);
-  const f = frame(ids, 'audio', 'COptionDlg', 'Audio', 4 + AUDIO_PAGE + (d.ui.message ? 1 : 0));
-  const vol = (v: { music?: number; sound?: number }) => { if (v.music !== undefined) d.set({ music: v.music }); if (v.sound !== undefined) d.set({ sound: v.sound }); act?.({ type: 'set-volumes', ...v }); };
-  volumeRow(f, 'Background audio', 'au-bg', a?.music ?? d.settings.music, v => vol({ music: v }));
-  volumeRow(f, 'Sound effects', 'au-sound', a?.sound ?? d.settings.sound, v => vol({ sound: v }));
-  f.label('Playback'); f.sw('au-on', 220, 110, 'On', 'au-on', !!a?.activated, a && act ? () => act({ type: 'activate' }) : null);
-  f.sw('au-off', 340, 110, 'Off', 'au-off', !!a && !a.activated, a?.activated && act ? () => act({ type: 'stop' }) : null); f.next();
-  for (const slot of shown) {
-    const n = slot.slot, files = slot.files.length, mode = act as ((x: AudioAction) => void) | undefined, volume = slot.volume ?? 1;
-    f.text(slot.label, 20, 172);
-    f.sw(`au-files-${n}`, 196, 78, files ? `${files} file${files > 1 ? 's' : ''}` : 'Add', `au-files-${n}`, files > 0, d.pickSlotFiles ? () => d.pickSlotFiles!(n) : null);
-    f.sw(`au-clear-${n}`, 277, 20, 'x', `au-clear-${n}`, false, files && act ? () => act({ type: 'set-slot-files', slot: n, files: [] }) : null);
-    f.sw(`au-shuffle-${n}`, 301, 62, 'Shuffle', `au-shuffle-${n}`, !!slot.shuffle, mode ? () => mode({ type: 'set-slot-mode', slot: n, shuffle: !slot.shuffle }) : null);
-    f.sw(`au-loop-${n}`, 366, 62, 'Repeat', `au-loop-${n}`, slot.loop !== false, mode ? () => mode({ type: 'set-slot-mode', slot: n, loop: slot.loop === false }) : null);
-    f.sw(`au-vol-down-${n}`, 431, 18, '-', `au-vol-down-${n}`, false, mode && volume > 0 ? () => mode({ type: 'set-slot-mode', slot: n, volume: step(volume, -0.1) }) : null);
-    f.sw(`au-vol-${n}`, 450, 44, pct(volume), `au-vol-${n}`, true, null);
-    f.sw(`au-vol-up-${n}`, 495, 18, '+', `au-vol-up-${n}`, false, mode && volume < 1 ? () => mode({ type: 'set-slot-mode', slot: n, volume: step(volume, 0.1) }) : null);
-    f.sw(`au-play-${n}`, 517, 63, 'Play', `au-play-${n}`, false, act ? () => act({ type: 'play-slot', slot: n }) : null); f.next();
+// yo2text: each choice's help (0x1982..0x1988), the help shown first (0x1989); English as the engine has it
+const HELP: Record<string, [number, string]> = {
+  'track-on': [0x1982, 'The Mouse cursor will automatically track any card that can be targetted or activated.'],
+  'track-off': [0x1983, 'Your cursor will be set to manual.'],
+  'place-on': [0x1984, 'The game will place the card on any available position for you.'],
+  'place-off': [0x1985, 'You decide which position the card will go.'],
+  'act-0': [0x1986, 'The game will automatically answer "NO" to and close all messages asking you to confirm the activation or positioning of cards.'],
+  'act-1': [0x1987, 'The game will automatically answer "NO" to and close  messages asking you to confirm the activation or positioning of cards which are judged to be of low priority.'],
+  'act-2': [0x1988, 'The game will show all messages asking you to confirm the activation or positioning of cards.'],
+};
+const HELP_FIRST: [number, string] = [0x1989, 'To skip these messages, hold the Right Mouse button at the appropriate times.'];
+export const DUEL_OPTIONS_TEXTS = [...Object.values(HELP).map(([id]) => id), HELP_FIRST[0]];
+
+type Art = Record<string, { shown: boolean } | null>;
+const showArt = (c: HtmlControl, checked: boolean) => { c.checked = checked; const art = c.art as Art | undefined; if (art) for (const [k, v] of Object.entries(art)) if (v) v.shown = k === (checked ? 'checked' : 'normal'); };
+
+/** DUEL OPTIONS (CWindowModelDuelConfig) at live's place: 266, 158, 492 x 452. */
+export function duelConfigWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): WindowSpec {
+  const win = duelConfigMock.windows[0]!;
+  const b = new WindowBuilder(ids, 'duel-config', win.cls, { x: win.x, y: win.y, w: win.w, h: win.h }, { z: 51403, modal: true, topmost: true });
+  // with the ShadowTexts' own text and shadow children, as the renderer draws them
+  const controls = b.fromTemplate(win as unknown as { controls: Record<string, unknown>[] }, true);
+  const draft = ui.draft ??= duelOptions(d.settings);
+  // the choices by their place in the capture (the switch at x, y and its caption ShadowText 8 px lower)
+  const CHOICES: { key: string; x: number; y: number; on: boolean; set: () => void }[] = [
+    { key: 'track-on', x: 22, y: 53, on: draft.autoTracking, set: () => { draft.autoTracking = true; } },
+    { key: 'track-off', x: 246, y: 53, on: !draft.autoTracking, set: () => { draft.autoTracking = false; } },
+    { key: 'place-on', x: 22, y: 105, on: draft.autoPlacing, set: () => { draft.autoPlacing = true; } },
+    { key: 'place-off', x: 246, y: 105, on: !draft.autoPlacing, set: () => { draft.autoPlacing = false; } },
+    ...([0, 1, 2] as ActivationMessage[]).map(v => ({ key: `act-${v}`, x: [22, 246, 134][v]!, y: [157, 157, 198][v]!, on: draft.activationMessage === v, set: () => { draft.activationMessage = v; } })),
+  ];
+  const help = (key: string | null | undefined) => { const h = key ? HELP[key] : undefined; const [id, en] = h ?? HELP_FIRST; return d.text?.(id)?.trim() || en; };
+  for (const c of controls) {
+    if (c.cls === 'CWindowTaskPictureSwitch' && c.w >= 64) {
+      const choice = CHOICES.find(x => x.x === c.x && x.y === c.y); if (!choice) continue;
+      showArt(c, choice.on);
+      const caption = controls.find(t => t.cls === 'CWindowTaskShadowText' && t.x === c.x && t.y === c.y + 8);
+      b.on(c, { key: `duel-config:${choice.key}`, label: String(caption?.text ?? choice.key), click: () => { choice.set(); d.rerender(); },
+        pointer: over => { const next = over ? choice.key : ui.hover === choice.key ? null : ui.hover ?? null; if (next !== ui.hover) { ui.hover = next; d.rerender(); } } });
+    } else if (c.cls === 'CWindowTaskShadowText' && c.name === '説明') { const t = help(ui.hover); c.text = t; for (const k of controls) if (k.parent === c.id) k.text = t; }
+    else if (c.cls === 'CWindowTaskButtonDuel' && c.label === 'OK') b.on(c, { key: 'duel-config-ok', click: () => { d.set({ ...draft }); d.close(); } });
+    else if (c.cls === 'CWindowTaskButtonDuel' && c.label === 'Cancel') b.on(c, { key: 'duel-config-cancel', click: () => d.close() });
   }
-  for (let i = shown.length; i < AUDIO_PAGE; i++) f.next();
-  const turn = (p: number) => () => { d.ui.page = p; d.rerender(); };
-  f.sw('au-page-prev', 196, 40, '<', 'au-page-prev', false, page > 0 ? turn(page - 1) : null);
-  f.sw('au-page', 240, 120, `Page ${page + 1} / ${pages}`, 'au-page', true, null);
-  f.sw('au-page-next', 364, 40, '>', 'au-page-next', false, page < pages - 1 ? turn(page + 1) : null); f.next();
-  if (d.ui.message) { f.text(d.ui.message, 20, 560); f.next(); }
-  const any = slots.some(s => s.files.length);
-  f.button('pack-open', 20, 110, 'Open Pack', 'au-pack-open', d.pickPack ? () => d.pickPack!() : null);
-  f.button('pack-save', 138, 110, 'Save Pack', 'au-pack-save', act ? () => act({ type: 'export-pack' }) : null);
-  f.button('clear-all', 256, 100, 'Clear All', 'au-clear-all', any && act ? () => act({ type: 'clear-all' }) : null);
-  f.button('more', 364, 120, 'Audio Files', 'au-more', () => d.more());
-  f.button('close', 492, 88, 'Close', 'au-close', () => d.close());
-  return f.b.spec();
+  return b.spec();
 }
 
-/** A pack's review (live's: what it covers; nothing changes until "Use this pack"). */
-function packReviewWindow(ids: Ids, d: AudioWindowDeps, plan: AudioPackPlan): WindowSpec {
-  const labels = new Map((d.audio?.slots ?? []).map(s => [s.slot, s.label]));
-  const set = Object.keys(plan.slots).map(Number).sort((x, y) => x - y);
-  const names = set.map(s => `${labels.get(s) ?? `Slot ${s}`}${plan.slots[s]!.files.length ? ` (${plan.slots[s]!.files.length})` : ' (empty)'}`);
-  const lines: string[] = [];
-  for (let i = 0; i < names.length; i += 3) lines.push(names.slice(i, i + 3).join(', '));
-  const parts = lines.slice(0, 8);
-  if (lines.length > 8) parts.push(`and ${names.length - 24} more`);
-  const info = [plan.name && `Name: ${plan.name}`, plan.author && `By: ${plan.author}`, plan.description && plan.description.slice(0, 80)].filter(Boolean) as string[];
-  const notes = [...plan.notes.slice(0, 3), ...(plan.unused.length ? [`${plan.unused.length} file${plan.unused.length > 1 ? 's' : ''} in the pack match no part: left out`] : [])];
-  const f = frame(ids, 'audio', 'COptionDlg', 'Audio Pack', info.length + 1 + parts.length + notes.length + (d.ui.message ? 1 : 0));
-  for (const line of info) { f.text(line, 20, 560); f.next(); }
-  f.text(set.length ? `This pack sets ${set.length} part${set.length > 1 ? 's' : ''}:` : 'This pack has no audio for any part of the game.', 20, 560); f.next();
-  for (const line of parts) { f.text(line, 36, 544); f.next(); }
-  for (const line of notes) { f.text(line, 20, 560); f.next(); }
-  if (d.ui.message) { f.text(d.ui.message, 20, 560); f.next(); }
-  const use = (replace: boolean) => set.length && d.audioAction ? () => {
-    d.ui.review = null; d.audioAction!({ type: 'apply-pack', slots: plan.slots, replace, ...(plan.master !== undefined ? { master: plan.master } : {}) }); d.rerender();
-  } : null;
-  f.button('pack-use', 60, 160, 'Use this pack', 'au-pack-use', use(false));
-  f.button('pack-replace', 230, 160, 'Use it alone', 'au-pack-replace', use(true));
-  f.button('pack-cancel', 400, 120, 'Cancel', 'au-pack-cancel', () => { d.ui.review = null; d.ui.message = undefined; d.rerender(); });
-  return f.b.spec();
+// ---- the title's OPTIONS (COptionDlg): language, screen mode, volume; OK keeps them, Cancel puts back what was there
+const W = 600, X = 212;
+const pct = (v: number) => `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`;
+const step = (v: number, dv: number) => Math.round(Math.max(0, Math.min(1, v + dv)) * 20) / 20;
+export function titleOptionsWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): WindowSpec {
+  const s = d.settings, fs = d.fullscreen;
+  ui.before ??= { sound: s.sound, language: s.language ?? 'E' }; ui.beforeFullscreen ??= !!fs?.active;
+  const h = 72 + 3 * 32, y = Math.round((768 - h) / 2);
+  const b = new WindowBuilder(ids, 'options', 'COptionDlg', { x: X, y, w: W, h }, { z: 51453, modal: true });
+  b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
+  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: W, h: 16 }, { text: 'OPTIONS', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  let row = 0;
+  const label = (text: string) => b.add('CWindowTaskShadowText', `l${row}`, { x: 20, y: 40 + row * 32, w: 180, h: 16 }, { text, align: 0, fontSize: 16, color: [1, 1, 1, 1] });
+  const sw = (name: string, x: number, w: number, text: string, key: string, checked: boolean, run: (() => void) | null) =>
+    b.add('CWindowTaskTextSwitch', name, { x, y: 36 + row * 32, w, h: 24 }, { label: text, align: 1, state: run ? 'normal' : 'disabled', checked, color: [0, 0, 0, 1] }, { key, click: () => run?.() });
+  const current = s.language ?? 'E', at = GAME_LANGUAGES.findIndex(l => l.code === current), lang = GAME_LANGUAGES[Math.max(0, at)]!;
+  const cycle = (dir: number) => () => { const n = GAME_LANGUAGES[(Math.max(0, at) + dir + GAME_LANGUAGES.length) % GAME_LANGUAGES.length]!; d.set({ language: n.code as GameLanguage }); };
+  label('Language'); sw('lang-prev', 220, 40, '<', 'opt-lang-prev', false, d.languageReady && !d.busy ? cycle(-1) : null);
+  sw('lang', 270, 140, lang.name, 'opt-lang', true, null); sw('lang-next', 420, 40, '>', 'opt-lang-next', false, d.languageReady && !d.busy ? cycle(1) : null); row++;
+  label('Screen'); sw('fs-on', 220, 110, 'Full screen', 'opt-fullscreen', !!fs?.active, fs?.supported && !fs.pending && !fs.active ? () => fs.toggle() : null);
+  sw('fs-off', 340, 110, 'Window', 'opt-windowed', !!fs && !fs.active, fs?.supported && !fs.pending && fs.active ? () => fs.toggle() : null); row++;
+  label('Volume'); sw('vol-down', 220, 60, '-', 'opt-sound-down', false, s.sound > 0 ? () => d.set({ sound: step(s.sound, -0.1) }) : null);
+  sw('vol-level', 290, 80, pct(s.sound), 'opt-sound-level', true, null);
+  sw('vol-up', 380, 60, '+', 'opt-sound-up', false, s.sound < 1 ? () => d.set({ sound: step(s.sound, 0.1) }) : null); row++;
+  const button = (name: string, x: number, text: string, key: string, run: () => void) =>
+    b.add('CWindowTaskButtonDuel', name, { x, y: h - 32, w: 140, h: 24 }, { label: text, align: 1, state: 'normal', color: [0, 0, 0, 1] }, { key, click: run });
+  button('ok', 130, 'OK', 'opt-ok', () => d.close());
+  button('cancel', 330, 'Cancel', 'opt-cancel', () => {
+    const before = ui.before!, back: Partial<SettingsView> = {};
+    if (before.sound !== s.sound) back.sound = before.sound!;
+    if ((before.language ?? 'E') !== current) back.language = before.language!;
+    if (Object.keys(back).length) d.set(back);
+    if (fs && fs.active !== ui.beforeFullscreen && fs.supported && !fs.pending) fs.toggle();
+    d.close();
+  });
+  return b.spec();
 }

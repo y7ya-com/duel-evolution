@@ -76,7 +76,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       // pvp.end (time-out): a Single room with Time limit; the player to move does nothing and loses on time.
       await duelMenu(b);
       // Create Duel takes a press once the lobby's last request is answered (it is disabled while busy), as a player waits for it
-      await until(b,`${byKey('duel-create')}&&!${byKey('duel-create')}.disabled`,30000); await press(b,byKey('duel-create')); await until(b,byKey('room-ok'),10000); await press(b,byKey('room-ok'));
+      await until(b,`${byKey('duel-create')}&&!${byKey('duel-create')}.disabled`,30000); await press(b,byKey('duel-create')); await until(b,byKey('room-ok'),10000); await press(b,byKey('room-single')); await sleep(300); await press(b,byKey('room-ok'));
       await searchPlayers(a,'Search for Single Duels'); await until(a,listRow(names.b),30000);
       await playerMenu(a,names.b,'Send Duel Request');
       await until(b,invitation,20000);

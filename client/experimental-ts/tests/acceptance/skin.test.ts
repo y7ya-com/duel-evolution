@@ -34,8 +34,8 @@ describe.skipIf(!enabled)('UI skin tour',() => {
       await press(page,`document.querySelector('[data-key="card-shop"] [aria-label="Leave the shop"]')`); await until(page,lobbyShown,30000);
       await click(page,'Find Player'); await until(page,`document.querySelector('[data-key="find-name"]')`,60000); await sleep(800); await shot('12-social'); await press(page,byKey('find-close')); await sleep(300);
       // main's DUEL OPTIONS window (htmlui/options.ts), closed by its Close
-      await click(page,'Options'); await until(page,byKey('opt-fullscreen'),30000); await sleep(300); await shot('13-options');
-      await press(page,byKey('opt-close')); await until(page,lobbyShown,60000); await sleep(800);
+      await click(page,'DUEL OPTIONS'); await until(page,byKey('duel-config-ok'),30000); await sleep(300); await shot('13-options');
+      await press(page,byKey('duel-config-cancel')); await until(page,lobbyShown,60000); await sleep(800);
       await say(page,'Skin check'); await sleep(1200); await shot('14-chat');
       expect(await page.ev(`document.body.innerText.includes('Skin check')`)).toBe(true);
     } finally { closeAll(); }

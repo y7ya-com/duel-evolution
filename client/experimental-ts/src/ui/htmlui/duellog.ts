@@ -1,10 +1,14 @@
-// Duel Log (the Main Menu's: CWindowModelDuellogTop / List / Search): the character's duel history from main's duel
-// archive, GET /api/de/replays?limit= (server/src/duel/duelArchive.ts: every NPC duel and PvP game of the last 90 days,
-// one source of truth with the /replays page). The stats, the search by opponent, result and date and the pages are
-// computed here over that list. Each row: Download (its .yrpX, /api/de/replays/<id>) and Play (the duel record the
-// server sent at its end, kept in this browser: services/duel-records.ts, replayed on the duel screen). main's Legacy
-// look, the Main Menu's list windows' frame (windows.ts listWindow: the duel frame 62, 282, 900 x 204, the title 0, 4,
-// the listbox 13, 32 of 8 rows, the duel buttons on 173). Pure but for fetchDuellog: no DOM.
+// Duel Log (the Main Menu's: CWindowModelDuellogTop / List / Operation / Search), live's flow: the top window's four
+// plates (yo2text 5212 Latest Duel Logs, 5211 Server Duel Logs, 5213 Duel Log Collection, 5226 YOC FINAL TOURNAMENT
+// DUEL LOGS) over the blue box that tells what the plate under the pointer holds (5221-5223), and Close. A plate opens
+// its list (CWindowModelDuellogList: the title, the listbox, Search / Back / Close); a row opens the operation menu at
+// it (CWindowModelDuellogOperation: Play, Add to Collection; in the Collection Play, Add Comment, Delete).
+// Latest Duel Logs: the duel records this browser kept (services/duel-records.ts: live's client keeps its duellogs\
+// folder, the newest 100). Server Duel Logs: main's duel archive, GET /api/de/replays?limit= (server/src/duel/
+// duelArchive.ts: every NPC duel and PvP game of the last 90 days), each with its .yrpX (Download) and Play where this
+// browser kept its record. Duel Log Collection: the logs the player kept, in this browser (localStorage). YOC: the
+// 2008 finals' logs, none on this server. Layout from live's capture (the window 267, 158, 490 x 450). Pure but for
+// fetchDuellog and the collection's storage: no DOM.
 import { REWRITE_TEXT } from '../../features/ui-text';
 import { matchRecord } from '../../services/duel-records';
 import { Ids, WindowBuilder } from './snapshot';
@@ -18,25 +22,35 @@ export interface DuellogPage { you: string; stats: { total: number; wins: number
 export interface DuellogSearch { opp: string; result: '' | 'win' | 'lose' | 'draw'; from: string; to: string }
 /** A duel record kept in this browser (what Play replays). */
 export interface LocalRecord { key: string; when: number; names: [string, string] }
+export type DuellogSource = 'latest' | 'server' | 'collection' | 'yoc';
+/** A log kept in the Duel Log Collection (this browser): a local record's key and/or an archive row's id. */
+export interface CollectedLog { when: number; names: [string, string]; local?: string; server?: number; result?: string; comment?: string }
 export interface DuellogUi {
   view: 'top' | 'list' | 'search';
+  /** The list open (the plate pressed) and the plate under the pointer on the top (its description). */
+  source: DuellogSource; hover: DuellogSource | null;
   page: number; selected: number;
+  /** The operation menu over the selected row; the comment being written (Add Comment). */
+  op: boolean; comment: string | null;
   /** The search in force (the list's) and the one being typed in the Search window. */
   search: DuellogSearch; draft: DuellogSearch;
   data: DuellogPage | null; loading: boolean; error: string | null;
-  /** The archive as read (the whole list; the pages are cut from it), and this browser's records. */
+  /** The archive as read (the whole list), and this browser's records. */
   all: DuellogRow[] | null; local: LocalRecord[];
-  /** The server ignored ?limit= and listed its default 100 (live's server, before REPLAYS_MAX): the stats and the search
-   *  cover the latest 100 duels only, and the top view says so. */
+  /** The server ignored ?limit= and listed its default 100 (live's server, before REPLAYS_MAX). */
   capped?: boolean;
+  /** A line under the list (Add to Collection's answer). */
+  message?: string;
 }
-export const DUELLOG_ROWS = 8;
+export const DUELLOG_ROWS = 20;
+/** Live's client keeps the newest 100 duel logs (yo2text 5221). */
+export const LATEST_KEEP = 100;
 /** The whole 90 days (duelArchive.ts REPLAYS_MAX). */
 export const DUELLOG_LIMIT = 1000;
 export const REPLAYS_PAGE = '/replays';
 export const replayDownloadUrl = (id: number): string => `/api/de/replays/${id}`;
 const emptySearch = (): DuellogSearch => ({ opp: '', result: '', from: '', to: '' });
-export const duellogUi = (): DuellogUi => ({ view: 'top', page: 1, selected: -1, search: emptySearch(), draft: emptySearch(), data: null, loading: false, error: null, all: null, local: [] });
+export const duellogUi = (): DuellogUi => ({ view: 'top', source: 'latest', hover: null, page: 1, selected: -1, op: false, comment: null, search: emptySearch(), draft: emptySearch(), data: null, loading: false, error: null, all: null, local: [] });
 
 export const duellogUrl = (limit = DUELLOG_LIMIT): string => `/api/de/replays?limit=${limit}`;
 const ERRORS: Record<string, string> = { 'no game account': 'Enter the game to see your Duel Log.', 'signed out': 'Sign in to see your Duel Log.', 'no database': 'The Duel Log is not available on this server.' };
@@ -93,83 +107,163 @@ export function searchText(s: DuellogSearch): string {
 }
 
 export interface DuellogDeps {
-  /** Ask for page `page` of `search` (the caller fetches and sets ui.data / ui.loading / ui.error, then rerenders). */
+  /** Read the archive and this browser's records (the caller sets ui.all / ui.local / ui.loading / ui.error, then rerenders). */
   load(search: DuellogSearch, page: number): void;
   close(): void;
   rerender(): void;
-  /** Download a row's .yrpX / open main's /replays page. */
+  /** Download a row's .yrpX. */
   open(url: string, download: boolean): void;
   /** Replay a duel record kept in this browser on the duel screen. */
   play(key: string): void;
+  /** The Duel Log Collection's storage (default: this browser's localStorage). */
+  collection?: { get(): CollectedLog[]; set(list: CollectedLog[]): void };
 }
 
+export const COLLECTION_KEY = 'de.duellog.collection';
+export const localCollection = {
+  get(): CollectedLog[] { try { const v = JSON.parse(globalThis.localStorage?.getItem(COLLECTION_KEY) ?? '[]'); return Array.isArray(v) ? v as CollectedLog[] : []; } catch { return []; } },
+  set(list: CollectedLog[]): void { try { globalThis.localStorage?.setItem(COLLECTION_KEY, JSON.stringify(list)); } catch { /* storage off: the collection lives this page only */ } },
+};
+
+/** The original's texts (yo2text_e): the plates' names and what each list holds. */
+export const DUELLOG_TEXT = {
+  latest: 'Latest Duel Logs', server: 'Server Duel Logs', collection: 'Duel Log Collection', yoc: 'YOC FINAL TOURNAMENT DUEL LOGS',
+  latestHelp: 'This is a list of logs that record every Duel you have played in this game.\nA Duel Log is saved automatically on to your computer after each Duel you play.\nYou can save up to 100 on to your PC and from the 101st onwards, the oldest Duel Log will be deleted to make space.\nIf you select a Log from the list and press the left mouse button, a menu will appear from which you can select the below options.\n"Play": Watch the selected Duel Log.\n"Add to Collection": Add the selected Duel Log to your personal "Duel Log Collection".',
+  serverHelp: 'This is a list of logs that record every Duel you were allowed to watch.\nA log will be saved on to the server everytime a Duel is played.\nIf you select a Log from the list and press the left mouse button, a menu will appear from which you can select the below options.\n"Play": Watch the selected Duel Log.\n"Add to collection": Add the selected Duel Log to the "Duel Log Collection"',
+  collectionHelp: 'This is a list of your favourite Duel Logs.\nYou can select Logs from "Latest Duel Logs" or "Server Duel Logs" and keep them here.\nIf you select a Log from the list and press the left mouse button, a menu will appear from which you can select the below options.\n"Play": Watch the selected Duel Log.\n"Add Comment": You can add personalized comments to Duel Logs. This will make them instantly distinguishable from the rest.\n"Delete": Delete the selected Duel Log.',
+  yocHelp: 'The duel logs of the YOC finals. There are none on this server.',
+  play: 'Play', add: 'Add to Collection', comment: 'Add Comment', del: 'Delete', download: 'Download',
+} as const;
+const HELP: Record<DuellogSource, string> = { latest: DUELLOG_TEXT.latestHelp, server: DUELLOG_TEXT.serverHelp, collection: DUELLOG_TEXT.collectionHelp, yoc: DUELLOG_TEXT.yocHelp };
+
+/** Wrap text to lines of at most `n` characters (the blue box's width in Arial 16). */
+export function wrapLines(text: string, n: number): string[] {
+  const out: string[] = [];
+  for (const para of text.split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/).filter(Boolean)) {
+      if (line && line.length + 1 + word.length > n) { out.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** One row of a list: what it shows, what Play replays, what Download fetches. */
+export interface DuellogEntry { line: string; when: number; names: [string, string]; local: string | null; server: number | null; result?: string; comment?: string; at: number }
+const vs = (names: readonly string[]) => `${names[0] || 'Duelist'} vs ${names[1] || 'Duelist'}`;
+/** The rows of a source (newest first), the search applied (opponent substring, result). */
+export function duellogEntries(ui: DuellogUi, you: string, collection: readonly CollectedLog[]): DuellogEntry[] {
+  const all = ui.all ?? [], s = ui.search, opp = s.opp.trim().toLowerCase();
+  let rows: DuellogEntry[];
+  if (ui.source === 'latest') {
+    rows = ui.local.slice(0, LATEST_KEEP).map((r, i) => {
+      const row = all.find(a => matchRecord(a, [r]) === r);
+      return { line: `${duellogDate(r.when)}   ${vs(r.names)}${row ? `   ${RESULT_TEXT[row.result] ?? row.result}` : ''}`, when: r.when, names: r.names, local: r.key, server: row?.id ?? null, result: row?.result, at: i };
+    });
+  } else if (ui.source === 'server') {
+    rows = all.map((r, i) => {
+      const rec = matchRecord(r, ui.local);
+      return { line: `${duellogDate(r.at)}   ${vs([r.me ?? you, r.opponent ?? ''])}   ${RESULT_TEXT[r.result] ?? r.result}   ${r.turns} turn${r.turns === 1 ? '' : 's'}${r.game > 1 ? `   Game ${r.game}` : ''}`,
+        when: r.at, names: [r.me ?? you, r.opponent ?? 'Duelist'], local: rec?.key ?? null, server: r.id, result: r.result, at: i };
+    });
+  } else if (ui.source === 'collection') {
+    rows = collection.map((c, i) => ({ line: `${duellogDate(c.when)}   ${vs(c.names)}${c.result ? `   ${RESULT_TEXT[c.result] ?? c.result}` : ''}${c.comment ? `   "${c.comment}"` : ''}`,
+      when: c.when, names: c.names, local: c.local ?? null, server: c.server ?? null, result: c.result, comment: c.comment, at: i }));
+  } else rows = [];
+  return rows.filter(r => (!opp || r.names.some(n => n.toLowerCase().includes(opp))) && (!s.result || r.result === s.result));
+}
+
+const X = 267, Y = 158, W = 490, H = 450;
 export function duellogWindow(ids: Ids, ui: DuellogUi, d: DuellogDeps): WindowSpec {
   const cls = { top: 'CWindowModelDuellogTop', list: 'CWindowModelDuellogList', search: 'CWindowModelDuellogSearch' }[ui.view];
-  const b = new WindowBuilder(ids, `duellog:${ui.view}`, cls, { x: 62, y: 282, w: 900, h: 204 }, { z: 51453, modal: true });
+  const store = d.collection ?? localCollection;
+  const rect = ui.view === 'search' ? { x: 312, y: 250, w: 400, h: 180 } : { x: X, y: Y, w: W, h: H };
+  const b = new WindowBuilder(ids, `duellog:${ui.view}`, cls, rect, { z: 51453, modal: true });
   b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
-  const title = { top: 'Duel Log', list: 'Duel Log: History', search: 'Duel Log: Search' }[ui.view];
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 900, h: 16 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   const text = (name: string, x: number, y: number, w: number, t: string, align = 0) => b.add('CWindowTaskShadowText', name, { x, y, w, h: 16 }, { text: t, align, fontSize: 16, color: [1, 1, 1, 1] });
-  const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null, y = 173) =>
+  const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null, y = 419) =>
     b.add('CWindowTaskButtonDuel', name, { x, y, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
-  const status = ui.loading ? 'Reading the Duel Log…' : ui.error;
+  const close = () => d.close();
   if (ui.view === 'top') {
-    const s = ui.data?.stats;
-    if (status) text('status', 0, 80, 900, status, 1);
-    else if (s) {
-      const decided = s.wins + s.losses, rate = decided ? Math.round(s.wins / decided * 100) : 0;
-      text('duelist', 0, 40, 900, ui.data!.you ? `Duelist: ${ui.data!.you}` : '', 1);
-      text('stats', 0, 72, 900, `Duels: ${s.total}     Wins: ${s.wins}     Losses: ${s.losses}     Draws: ${s.draws}`, 1);
-      text('rate', 0, 96, 900, `Win rate: ${rate}%`, 1);
-      text('note', 0, 128, 900, s.total ? `${ui.capped ? `Your latest ${REPLAYS_DEFAULT} duels.` : 'Duels of the last 90 days.'} ▶ = saved in this browser: Play replays it.` : 'No duels yet. Your duels of the last 90 days are kept here.', 1);
-    }
-    button('history', 125, 150, 'Duel History', 'duellog-history', s && s.total ? () => { ui.selected = -1; ui.view = 'list'; d.load(ui.search, 1); } : null);
-    button('search', 300, 150, 'Search', 'duellog-search', s && s.total ? () => { ui.draft = { ...ui.search }; ui.view = 'search'; d.rerender(); } : null);
-    button('replays', 465, 150, 'All Replays', 'duellog-replays', () => d.open(REPLAYS_PAGE, false));
-    button('close', 625, 100, 'Close', 'duellog-close', () => d.close());
+    // the window's title band is empty on live; the four plates, two by two
+    text('title', 0, 4, W, '', 1);
+    const plate = (src: DuellogSource, x: number, y: number) => {
+      const press = () => { ui.source = src; ui.view = 'list'; ui.selected = -1; ui.op = false; ui.page = 1; ui.message = undefined; ui.search = emptySearch(); d.load(ui.search, 1); };
+      const pointer = (over: boolean) => { const next = over ? src : ui.hover === src ? null : ui.hover; if (next !== ui.hover) { ui.hover = next; d.rerender(); } };
+      // a switch per plate (main's screen gives the engine's picture switches no element of their own to press)
+      b.add('CWindowTaskTextSwitch', `plate:${src}`, { x, y, w: 205, h: 31 }, { label: DUELLOG_TEXT[src], align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] },
+        { key: `duellog-${src}`, label: DUELLOG_TEXT[src], click: press, pointer });
+    };
+    plate('latest', 35, 54); plate('server', 250, 54); plate('collection', 35, 109); plate('yoc', 250, 109);
+    const lines = ui.hover ? wrapLines(HELP[ui.hover], 50) : [];
+    b.add('CWindowTaskListbox', 'help', { x: 21, y: 169, w: 432, h: 224 }, { items: lines, selected: -1, top: 0, topLine: 0, rows: 14 });
+    b.add('CWindowTaskScroll', 'helpScroll', { x: 454, y: 169, w: 16, h: 224 }, { value: 0, max: 0, page: 14, thumb: { pos: 0, len: 224 }, length: 224, horizontal: false });
+    button('close', 175, 140, 'Close', 'duellog-close', close);
     return b.spec();
   }
   if (ui.view === 'list') {
-    const rows = ui.data?.rows ?? [];
-    if (ui.selected >= rows.length) ui.selected = -1;
-    const saved = rows.map(r => matchRecord(r, ui.local));
-    const items = status ? [status] : rows.length ? rows.map((r, i) => `${i === ui.selected ? '> ' : ''}${duellogLine(r, !!saved[i])}`) : ['No duels match the search.'];
-    const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: 874, h: 128 }, { items, selected: ui.selected, top: 0, topLine: 0, rows: DUELLOG_ROWS });
-    b.on(list, { label: 'Duel history', click: point => { if (!point || status) return; const i = Math.floor((point[1] - 282 - 32) / 16); if (i >= 0 && i < rows.length) { ui.selected = i; d.rerender(); } },
-      wheel: delta => { const p = (ui.data?.page ?? 1) + (delta > 0 ? 1 : -1); if (ui.data && p >= 1 && p <= ui.data.pages && !ui.loading) { ui.selected = -1; d.load(ui.search, p); } } });
-    const page = ui.data?.page ?? 1, pages = ui.data?.pages ?? 1;
-    text('filter', 13, 164, 300, searchText(ui.search));
-    text('page', 13, 180, 100, `Page ${page}/${pages}`);
-    const turn = (p: number) => !ui.loading && ui.data && p >= 1 && p <= pages ? () => { ui.selected = -1; d.load(ui.search, p); } : null;
-    const row = ui.selected >= 0 ? rows[ui.selected] : undefined, rec = ui.selected >= 0 ? saved[ui.selected] : null;
-    button('prev', 125, 70, 'Back Page', 'duellog-prev', turn(page - 1));
-    button('next', 200, 70, 'Next Page', 'duellog-next', turn(page + 1));
-    button('search', 275, 80, 'Search', 'duellog-search', () => { ui.draft = { ...ui.search }; ui.view = 'search'; d.rerender(); });
-    button('play', 360, 80, 'Play', 'duellog-play', rec ? () => d.play(rec.key) : null);
-    button('download', 445, 90, 'Download', 'duellog-download', row ? () => d.open(replayDownloadUrl(row.id), true) : null);
-    button('top', 540, 80, 'Back', 'duellog-back', () => { ui.view = 'top'; d.load(ui.search, 1); });
-    button('close', 625, 100, 'Close', 'duellog-close', () => d.close());
-    if (row && !rec) text('playHint', 380, 196, 500, 'Play: only duels saved in this browser (Download works for all).');
+    const status = ui.loading ? 'Reading the Duel Log…' : ui.source !== 'latest' && ui.source !== 'collection' ? ui.error : null;
+    const collection = store.get();
+    const rows = status ? [] : duellogEntries(ui, '', collection);
+    const pages = Math.max(1, Math.ceil(rows.length / DUELLOG_ROWS)), page = ui.page = Math.min(pages, Math.max(1, ui.page));
+    const shown = rows.slice((page - 1) * DUELLOG_ROWS, page * DUELLOG_ROWS);
+    if (ui.selected >= shown.length) { ui.selected = -1; ui.op = false; }
+    text('title', 0, 4, W, DUELLOG_TEXT[ui.source], 1);
+    text('header', 21, 32, 448, rows.length ? `${rows.length} log${rows.length === 1 ? '' : 's'}${pages > 1 ? `   Page ${page}/${pages}` : ''}${ui.search.opp || ui.search.result ? `   ${searchText(ui.search)}` : ''}` : '', 0);
+    const items = status ? [status] : shown.length ? shown.map(r => r.line) : ['There are no Duel Logs.'];
+    const list = b.add('CWindowTaskListbox', 'list', { x: 21, y: 56, w: 432, h: 16 * DUELLOG_ROWS }, { items, selected: ui.selected, top: 0, topLine: 0, rows: DUELLOG_ROWS });
+    const turn = (p: number) => { if (p >= 1 && p <= pages && p !== page) { ui.page = p; ui.selected = -1; ui.op = false; d.rerender(); } };
+    b.on(list, { label: DUELLOG_TEXT[ui.source], click: point => { if (!point || status) return; const i = Math.floor((point[1] - Y - 56) / 16); if (i >= 0 && i < shown.length) { ui.selected = i; ui.op = true; ui.comment = null; d.rerender(); } },
+      wheel: delta => turn(page + (delta > 0 ? 1 : -1)) });
+    b.add('CWindowTaskScroll', 'scroll', { x: 454, y: 56, w: 16, h: 16 * DUELLOG_ROWS }, { value: page - 1, max: pages - 1, page: 1, thumb: { pos: pages > 1 ? Math.round((page - 1) * (320 - 320 / pages) / (pages - 1)) : 0, len: Math.round(320 / pages) }, length: 320, horizontal: false },
+      { value: v => turn(Math.round(v) + 1), wheel: delta => turn(page + (delta > 0 ? 1 : -1)) });
+    if (ui.message) text('message', 21, 384, 448, ui.message, 1);
+    button('search', 35, 130, 'Search', 'duellog-search', ui.source === 'yoc' ? null : () => { ui.draft = { ...ui.search }; ui.op = false; ui.view = 'search'; d.rerender(); });
+    button('back', 180, 130, 'Back', 'duellog-back', () => { ui.view = 'top'; ui.op = false; ui.selected = -1; ui.message = undefined; d.rerender(); });
+    button('close', 325, 130, 'Close', 'duellog-close', close);
+    // the operation menu (CWindowModelDuellogOperation: the thin frame, its plane, a text switch per choice) at the row
+    const row = ui.op && ui.selected >= 0 ? shown[ui.selected] : undefined;
+    if (row) {
+      const ops: [string, string, (() => void) | null][] = [];
+      const done = (message?: string) => { ui.op = false; ui.comment = null; ui.message = message; d.rerender(); };
+      ops.push(['play', DUELLOG_TEXT.play, row.local ? () => { ui.op = false; d.play(row.local!); } : null]);
+      if (ui.source !== 'collection') {
+        const kept = collection.some(c => (row.local && c.local === row.local) || (row.server !== null && c.server === row.server));
+        ops.push(['add', DUELLOG_TEXT.add, kept ? null : () => { store.set([{ when: row.when, names: row.names, ...(row.local ? { local: row.local } : {}), ...(row.server !== null ? { server: row.server } : {}), ...(row.result ? { result: row.result } : {}) }, ...collection]); done('Added to the Duel Log Collection.'); }]);
+      } else {
+        ops.push(['comment', DUELLOG_TEXT.comment, () => { ui.comment = row.comment ?? ''; d.rerender(); }]);
+        ops.push(['delete', DUELLOG_TEXT.del, () => { store.set(collection.filter((_, i) => i !== row.at)); ui.selected = -1; done(); }]);
+      }
+      if (row.server !== null) ops.push(['download', DUELLOG_TEXT.download, () => { ui.op = false; d.open(replayDownloadUrl(row.server!), true); d.rerender(); }]);
+      ops.push(['cancel', 'Cancel', () => done()]);
+      const ow = 200, editing = ui.comment !== null, oh = 8 + 28 * (editing ? 2 : ops.length);
+      const ox = 140, oy = Math.min(H - 40 - oh, 56 + 16 * ui.selected + 16);
+      b.add('CWindowTaskFrameThin', 'opFrame', { x: ox, y: oy, w: ow, h: oh }, { style: 0 });
+      b.add('CWindowTaskBackPlane', 'opPlane', { x: ox + 4, y: oy + 4, w: ow - 8, h: oh - 8 });
+      if (editing) {
+        b.add('CWindowTaskInput', 'commentInput', { x: ox + 8, y: oy + 6, w: ow - 16, h: 24 }, { value: ui.comment, focused: true, password: false, caret: null, caretOn: false, maxLen: 32, multiLine: false },
+          { key: 'duellog-comment-input', label: 'Comment', text: v => { ui.comment = v; d.rerender(); }, enter: () => save() });
+        const save = () => { store.set(collection.map((c, i) => i === row.at ? { ...c, comment: (ui.comment ?? '').trim() || undefined } : c)); done(); };
+        b.add('CWindowTaskTextSwitch', 'op:save', { x: ox + 8, y: oy + 34, w: (ow - 24) / 2, h: 24 }, { label: 'OK', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'duellog-op-ok', click: save });
+        b.add('CWindowTaskTextSwitch', 'op:back', { x: ox + 16 + (ow - 24) / 2, y: oy + 34, w: (ow - 24) / 2, h: 24 }, { label: 'Cancel', align: 1, state: 'normal', checked: false, color: [0, 0, 0, 1] }, { key: 'duellog-op-cancel', click: () => done() });
+      } else ops.forEach(([name, label, run], i) => b.add('CWindowTaskTextSwitch', `op:${name}`, { x: ox + 8, y: oy + 6 + 28 * i, w: ow - 16, h: 24 },
+        { label, align: 1, state: run ? 'normal' : 'disabled', checked: false, color: [0, 0, 0, 1] }, { key: `duellog-${name}`, click: () => run?.() }));
+    }
     return b.spec();
   }
-  // search: the opponent's name, the result, a date range (YYYY-MM-DD)
+  // Search (CWindowModelDuellogSearch: the opponent's name, the result's three boxes, OK / Cancel)
   const s = ui.draft;
-  const input = (name: string, x: number, y: number, w: number, value: string, maxLen: number, label: string, set: (v: string) => void, focused = false) =>
-    b.add('CWindowTaskInput', name, { x, y, w, h: 24 }, { value, focused, password: false, caret: null, caretOn: false, maxLen, multiLine: false },
-      { key: `duellog-${name}`, label, text: v => { set(v); d.rerender(); }, enter: run });
-  const run = () => { ui.search = { ...ui.draft, opp: ui.draft.opp.trim() }; ui.selected = -1; ui.view = 'list'; d.load(ui.search, 1); };
-  text('oppLabel', 40, 40, 160, 'Opponent'); input('opp', 200, 36, 300, s.opp, 16, 'Opponent name', v => { s.opp = v; }, true);
-  text('resultLabel', 40, 76, 160, 'Result');
-  (['', 'win', 'lose', 'draw'] as const).forEach((r, i) => b.add('CWindowTaskTextSwitch', `result:${r || 'all'}`, { x: 200 + 100 * i, y: 72, w: 92, h: 24 },
-    { label: r ? RESULT_TEXT[r]! : 'All', align: 1, state: 'normal', checked: s.result === r, color: [0, 0, 0, 1] }, { key: `duellog-result:${r || 'all'}`, click: () => { s.result = r; d.rerender(); } }));
-  text('fromLabel', 40, 112, 160, 'From (YYYY-MM-DD)'); input('from', 200, 108, 140, s.from, 10, 'From date', v => { s.from = v; });
-  text('toLabel', 360, 112, 40, 'To'); input('to', 400, 108, 140, s.to, 10, 'To date', v => { s.to = v; });
-  const bad = [s.from, s.to].some(v => v !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(v));
-  if (bad) text('dateHint', 560, 112, 330, 'Dates are written YYYY-MM-DD.');
-  button('run', 125, 100, 'Search', 'duellog-run', bad ? null : run);
-  button('clear', 235, 100, 'Clear', 'duellog-clear', () => { ui.draft = emptySearch(); d.rerender(); });
-  button('back', 415, 100, 'Back', 'duellog-back', () => { ui.view = 'top'; d.load(ui.search, 1); });
-  button('close', 625, 100, 'Close', 'duellog-close', () => d.close());
+  text('title', 0, 4, 400, 'Search', 1);
+  const run = () => { ui.search = { ...ui.draft, opp: ui.draft.opp.trim() }; ui.selected = -1; ui.page = 1; ui.view = 'list'; d.rerender(); };
+  text('oppLabel', 30, 44, 120, 'Opponent');
+  b.add('CWindowTaskInput', 'opp', { x: 120, y: 40, w: 250, h: 24 }, { value: s.opp, focused: true, password: false, caret: null, caretOn: false, maxLen: 16, multiLine: false },
+    { key: 'duellog-opp', label: 'Opponent name', text: v => { s.opp = v; d.rerender(); }, enter: run });
+  text('resultLabel', 30, 88, 120, 'Result');
+  (['win', 'lose', 'draw'] as const).forEach((r, i) => b.add('CWindowTaskTextSwitch', `result:${r}`, { x: 120 + 85 * i, y: 84, w: 80, h: 24 },
+    { label: RESULT_TEXT[r]!, align: 1, state: 'normal', checked: s.result === r, color: [0, 0, 0, 1] }, { key: `duellog-result:${r}`, click: () => { s.result = s.result === r ? '' : r; d.rerender(); } }));
+  button('run', 60, 130, 'OK', 'duellog-run', run, 140);
+  button('cancel', 210, 130, 'Cancel', 'duellog-cancel', () => { ui.view = 'list'; d.rerender(); }, 140);
   return b.spec();
 }
 

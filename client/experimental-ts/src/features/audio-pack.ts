@@ -266,8 +266,8 @@ export async function fetchAudioPack(url: string, fetcher: typeof fetch = fetch,
 export interface AudioPackSource { master: number; slots: readonly { id: string; files: readonly File[]; shuffle: boolean; loop: boolean; volume: number }[] }
 export interface AudioPackMeta { name?: string; author?: string; description?: string }
 const README = 'Duel Evolution audio pack.\n\nTo use it: drop this .zip anywhere on the game (or open it from Main Menu > Audio).\n\n'
-  + 'audiopack.json says which file plays where; the files are in audio/. To make your own pack, set each part in the\n'
-  + "game's Audio window and press Save Pack, or put your files in audio/ and list them under \"slots\". A file or\n"
+  + 'audiopack.json says which file plays where; the files are in audio/. To make your own pack, use Create\n'
+  + "audio pack on the game's Audio page, or put your files in audio/ and list them under \"slots\". A file or\n"
   + 'folder named after a part also works without audiopack.json: title.mp3, my_room/, duel/ (every duel), field/.\n';
 /** The player's setup (or, with nothing set, an empty template over all 46 parts) as a pack zip, live's format. */
 export async function buildAudioPack(source: AudioPackSource, meta: AudioPackMeta = {}): Promise<Blob> {

@@ -68,18 +68,15 @@ describe('the UI follows the chosen language through the original text tables', 
 });
 
 describe('ui-text by context: a word the original table holds with another meaning', () => {
-  it('leaves DUEL OPTIONS\' Animation "Full" in English in German, where the table\'s "Full" is the screen mode', async () => {
-    const { optionsWindow } = await import('../src/ui/htmlui/options');
-    const english = ['', 'Full', 'Show', 'Hide', 'Close', 'Full'], german = ['', 'Vollbild', 'Zeigen', 'Verbergen', 'Schließen', 'Voll'];
+  it('translates the title OPTIONS window\'s words, and a control\'s own text id wins over the word', async () => {
+    const { titleOptionsWindow } = await import('../src/ui/htmlui/options');
+    const english = ['', 'Full', 'Cancel', 'Volume', '', 'Full'], german = ['', 'Vollbild', 'Abbrechen', 'Lautstärke', '', 'Voll'];
     const text = new UiText(); text.install(english, german, 'G');
-    const spec = optionsWindow(new Ids(), { settings: { sound: 1, music: 1, reducedMotion: false, showCardNames: true }, set: () => {}, more: () => {}, close: () => {} });
+    const spec = titleOptionsWindow(new Ids(), { kind: 'title' }, { settings: { sound: 1, music: 1, reducedMotion: false, showCardNames: true }, set: () => {}, close: () => {}, rerender: () => {} });
     localizeSpecs([spec], text);
-    const row = (name: string) => spec.win.controls.find(c => c.name === name)!.label;
-    expect(row('motion-full')).toBe('Full');
-    expect(row('motion-full')).not.toBe('Vollbild');
-    expect(row('names-on')).toBe('Zeigen');
-    expect(row('close')).toBe('Schließen');
-    // elsewhere the table's first "Full" still translates; a control's own id wins over the word
+    const control = (name: string) => spec.win.controls.find(c => c.name === name)!;
+    expect(control('cancel').label).toBe('Abbrechen');
+    expect(control('l2').text).toBe('Lautstärke');
     expect(text.t('Full')).toBe('Vollbild');
     const other = { win: { cls: 'CSomeDlg', title: 'x', controls: [{ cls: 'CWindowTaskText', text: 'Full', textId: 5 }, { cls: 'CWindowTaskText', text: 'Full', textId: false }] } };
     localizeSpecs([other as never], text);

@@ -128,3 +128,5 @@ declare module '@web-shell/starter.js' {}
 declare module '@html-ui/ui.js' {
   export function loadGlyphs(base?: string): Promise<unknown>;
 }
+// main's Audio page (client/recomp/web/audiopage.js): a page script that sets Module.rcAudioUI (htmlui/audio-page.ts)
+declare module '@recomp-web/audiopage.js' {}

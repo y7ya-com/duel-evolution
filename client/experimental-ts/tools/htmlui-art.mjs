@@ -54,7 +54,9 @@ export function htmlUiModules(root) {
   const htmlui = resolve(root, '../web-shell/htmlui'), shellUi = resolve(root, '../web-shell/ui.js'), ui = resolve(root, '../html-ui/ui.js');
   return { name:'htmlui-modules', enforce:'pre',
     // '@web-shell/starter.js': main's starter deck picker (a page script that also imports as a module); '@html-ui/ui.js': its ui.js
-    config: () => ({ resolve:{ alias:{ '@htmlui':htmlui, '@web-shell/starter.js':resolve(root, '../web-shell/starter.js'), '@html-ui/ui.js':ui } } }),
+    config: () => ({ resolve:{ alias:{ '@htmlui':htmlui, '@web-shell/starter.js':resolve(root, '../web-shell/starter.js'), '@html-ui/ui.js':ui,
+      // main's Audio page (recomp/web/audiopage.js, a page script over Module): the Main Menu's Audio (htmlui/audio-page.ts)
+      '@recomp-web/audiopage.js':resolve(root, '../recomp/web/audiopage.js') } } }),
     resolveId(id, importer) {
       if (importer && id.startsWith('.') && id.endsWith('/ui.js') && resolve(dirname(importer.split('?')[0]), id) === shellUi) return ui;
       return null;
