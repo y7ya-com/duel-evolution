@@ -421,6 +421,9 @@ export async function openDeckEditor(page:Page,minMain = 0):Promise<DeckScreen> 
 /** The deck screen's side menu (DeckEntry.cpp: five buttons at 0, 40 + 27 i), deck-dom.ts's labelled buttons. */
 export const DECK_SIDE = { load:'deck-load-deck',save:'deck-save-deck',structure:'deck-structure-deck',clear:'deck-clear-deck',exit:'deck-exit' } as const;
 export const deckSide = (page:Page,button:keyof typeof DECK_SIDE) => press(page,byKey(DECK_SIDE[button]));
+/** A deck file list's button ready to press: the list opens when asked and greys its buttons while the deck screen's
+ * own request is out (its refresh as it opens), as a player waits for them to light. */
+export const filesReady = (key:string) => `(()=>{const b=${byKey(key)};return !!b&&!b.disabled})()`;
 /** EXIT the deck screen back to the lobby (answering a keep/discard question with Yes when there are edits). */
 export async function exitDeckEditor(page:Page) {
   for (let i = 0; i < 5 && await page.ev(`Boolean(${DECK_VIEW})`); i++) {

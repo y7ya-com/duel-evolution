@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, byKey, type Page, lobbyShown,
-  deckScreen, openDeckEditor, deckSide, type DeckScreen } from './harness';
+  deckScreen, openDeckEditor, deckSide, filesReady, type DeckScreen } from './harness';
 
 /** Deck editor flows on main's HTML deck screen (src/ui/htmlui/deck.ts, deck-dom.ts, deck-scene.ts) against the real
  * server: the saved decks and active deck (user_decks / user_deck_current), the character's trunk, the deck check and
@@ -70,12 +70,12 @@ async function captureDownloads(page:Page) {
 }
 async function exportAs(page:Page,row:string):Promise<{ name:string; bytes:number[] }> {
   await page.ev('window.__downloads=[]');
-  await deckSide(page,'load'); await until(page,byKey('deck-files-export'),10000); await sleep(300); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
+  await deckSide(page,'load'); await until(page,filesReady('deck-files-export'),30000); await sleep(300); await press(page,byKey('deck-files-export')); await fileRow(page,row); await press(page,byKey('deck-files-ok'));
   await until(page,'window.__downloads.length>0',10000); return page.ev('window.__downloads[0]') as Promise<{ name:string; bytes:number[] }>;
 }
 async function importFile(page:Page,name:string,bytes:number[]) {
   await page.ev(`window.__nextFile=${JSON.stringify({ name,bytes })}`);
-  await deckSide(page,'load'); await until(page,byKey('deck-files-import'),10000); await sleep(300); await press(page,byKey('deck-files-import')); await sleep(800);
+  await deckSide(page,'load'); await until(page,filesReady('deck-files-import'),30000); await sleep(300); await press(page,byKey('deck-files-import')); await sleep(800);
   if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
 }
 const zones = (d:DeckScreen) => ({ main:d.main,side:d.side,extra:d.extra });
@@ -111,7 +111,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const inDeck = new Map<string,number>(); for (const n of [...starter.main,...starter.extra,...starter.side]) inDeck.set(n,(inDeck.get(n) ?? 0) + 1);
       for (const [n,k] of inDeck) expect(ownedByName.get(n),n).toBe(k);
       expect(await page.ev(`document.querySelectorAll('[data-zone="main"][data-passcode]').length`)).toBeGreaterThanOrEqual(Math.min(40,starter.main.length));
-      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300);
+      await deckSide(page,'load'); await until(page,filesReady('deck-files-cancel'),30000); await sleep(300);
       const loadList = await hostText(page); expect(loadList).toContain('LOAD DECK'); expect(loadList).toContain(starterName);
       await press(page,byKey('deck-files-cancel')); await sleep(400);
       record('deck.list',{ actions:'Fresh character claims a starter deck; Edit Deck; LOAD DECK', expected:'Saved decks, active deck and trunk counts from authoritative data',
@@ -161,7 +161,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       // deck.persist + deck.validate: SAVE DECK → Save New (a short deck: the deck check says why it can't duel), reload
       // from the server, Save New under another name and delete the first (rename), delete, reload.
       const deckA = `Acc A${RUN}`.slice(0,40), deckB = `Acc B${RUN}`.slice(0,40);
-      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await press(page,byKey('deck-files-new'));
+      await deckSide(page,'save'); await until(page,filesReady('deck-files-new'),30000); await press(page,byKey('deck-files-new'));
       await typeName(page,deckA);
       const report = await page.ev(dialogUp) ? await answer(page) : '';
       expect(report).toMatch(/can't be used in a duel/i); expect(report).toMatch(/Main Deck/i);
@@ -170,10 +170,10 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       let v = await view(page);
       expect(v.name).toBe(deckA); expect(zones(v)).toEqual(edited); expect(v.decks).toEqual(expect.arrayContaining([starterName,deckA]));
       await deckSide(page,'save');
-      await until(page,byKey('deck-files-new'),10000); await sleep(300);
+      await until(page,filesReady('deck-files-new'),30000); await sleep(300);
       await press(page,byKey('deck-files-new')); await typeName(page,deckB);
       if (await page.ev(dialogUp)) await answer(page);
-      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await deckSide(page,'save'); await until(page,filesReady('deck-files-new'),30000); await sleep(300); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
       await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);
       if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
       await reload(page,character);
@@ -181,11 +181,11 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const renamed = v.decks;
       expect(v.name).toBe(deckB); expect(renamed).not.toContain(deckA); expect(zones(v)).toEqual(edited);
       // LOAD DECK the starter, then delete B
-      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      await deckSide(page,'load'); await until(page,filesReady('deck-files-cancel'),30000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
       if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
       await settle(page,`window.__deApp?.getState()?.deckEditor?.current?.name===${JSON.stringify(starterName)}`,15000);
       expect(zones(await view(page))).toEqual(starter);
-      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await fileRow(page,deckB); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
+      await deckSide(page,'save'); await until(page,filesReady('deck-files-new'),30000); await sleep(300); await fileRow(page,deckB); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
       await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckB)})`,15000);
       if (await page.ev(`Boolean(${byKey('deck-files-cancel')})`)) await press(page,byKey('deck-files-cancel'));
       await reload(page,character);
@@ -199,7 +199,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       const forbiddenYdk = ['#created by test','#main',...Array(3).fill('55144522'),...Array(2).fill('19613556'),'#extra','!side',''].join('\n');
       await importFile(page,'Forbidden Test.ydk',[...new TextEncoder().encode(forbiddenYdk)]);
       await sleep(600); if (await page.ev(dialogUp)) await answer(page);
-      await deckSide(page,'save'); await until(page,byKey('deck-files-new'),10000); await sleep(300); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
+      await deckSide(page,'save'); await until(page,filesReady('deck-files-new'),30000); await sleep(300); await press(page,byKey('deck-files-new')); await typeName(page,`Acc F${RUN}`.slice(0,40));
       const forbiddenReport = await page.ev(dialogUp) ? await answer(page) : '';
       expect(forbiddenReport).toMatch(/can't be used in a duel/i);
       await screenshot(page,'deck-check');
@@ -207,7 +207,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
         observed:`short deck: "${report.replace(/\s+/g,' ').slice(0,120)}"; imported: "${forbiddenReport.replace(/\s+/g,' ').slice(0,200)}"` });
 
       // deck.recipes: STRUCTURE DECK loads a recipe; YDK, JSON and YDC exports (LOAD DECK → Export) re-import to the same cards.
-      await deckSide(page,'structure'); await until(page,byKey('deck-files-ok'),10000);
+      await deckSide(page,'structure'); await until(page,byKey('deck-files-ok'),30000);
       const recipeName = (await page.ev(`window.__deApp.getState().deckEditor.recipes?.[0]?.name ?? ''`)) as string;
       expect(recipeName).not.toBe('');
       await fileRow(page,recipeName); await press(page,byKey('deck-files-ok'));
@@ -226,7 +226,7 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       }
       record('deck.recipes',{ actions:`STRUCTURE DECK "${recipeName}"; for YDK, JSON and YDC: LOAD DECK → Export, Clear Deck, LOAD DECK → Import the file`, expected:'Structure decks load; deck files round-trip without losing identities',
         observed:`recipe loaded ${recipe.main.length} main/${recipe.extra.length} fusion; ${rounds.join('; ')}` });
-      await deckSide(page,'load'); await until(page,byKey('deck-files-ok'),10000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
+      await deckSide(page,'load'); await until(page,filesReady('deck-files-cancel'),30000); await sleep(300); await fileRow(page,starterName); await press(page,byKey('deck-files-ok'));
       if (await page.ev(`Boolean(${byKey('deck-dialog-yes')})`)) await answer(page,'deck-dialog-yes');
       await sleep(800);
 

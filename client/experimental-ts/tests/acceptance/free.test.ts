@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, deckScreen, deckSide } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, deckScreen, deckSide, filesReady } from './harness';
 import { playerMenu } from './pvp-helpers';
 
 /** deck.test: the original has no separate deck-test button (PRACTICE.md); deck testing is Free Duel: a free session
@@ -76,7 +76,7 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       const freeDeck = (await deckScreen(a))!.main;
       expect(freeDeck).toContain(probe);
       // SAVE DECK over the deck in use (its row, OK), answering main's report
-      await deckSide(a,'save'); await until(a,byKey('deck-files-new'),10000); await sleep(300);
+      await deckSide(a,'save'); await until(a,filesReady('deck-files-new'),30000); await sleep(300);
       // the deck in use is the list's "<name> (not saved)" row (a free deck the server has not stored): pick it first
       const inUse = `[...document.querySelectorAll('#htmlui-host [aria-label],#htmlui-host button')].find(e=>/\\(not saved\\)$/.test((e.getAttribute('aria-label')??e.textContent).trim())&&e.getClientRects().length)`;
       if (await a.ev(`Boolean(${inUse})`)) { await press(a,inUse); await sleep(300); }

@@ -212,7 +212,10 @@ export class DeckScene {
 
   // ---------------------------------------------------------------- the side buttons
   private side(button: string, view: ClientView): void {
-    const editor = view.deckEditor, ui = this.ui; if (!editor || view.busy) return;
+    // LOAD / SAVE / STRUCTURE DECK open when pressed, as live's: while a request is out (the deck screen's own refresh
+    // as it opens, after a reload) the list shows with its buttons greyed until the reply (filesWindow's busy)
+    const editor = view.deckEditor, ui = this.ui; if (!editor) return;
+    if (view.busy && !['LoadBtn', 'SaveBtn', 'RecipeBtn'].includes(button)) return;
     if (button === 'LoadBtn') ui.files = { mode: 'load', selected: Math.max(-1, editor.decks.findIndex(d => d.name === editor.current?.name)) };
     else if (button === 'SaveBtn') ui.files = { mode: 'save', selected: Math.max(-1, editor.decks.findIndex(d => d.name === editor.current?.name)) };
     else if (button === 'RecipeBtn') ui.files = { mode: 'recipe', selected: -1 };
