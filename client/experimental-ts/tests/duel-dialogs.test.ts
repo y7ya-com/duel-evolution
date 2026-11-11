@@ -17,7 +17,7 @@ describe("main's duel dialogs from the prompt model", () => {
   it('a longer choice is a CUSelectDialog list, its rows and Cancel answer', () => {
     const { spec, sent, press } = run({ id: 'p2', text: 'Choose an effect', kind: 'choice', cancelable: true, options: ['a', 'b', 'c'].map(id => ({ id, label: id.toUpperCase() })) });
     expect(spec.win.cls).toBe('CUSelectDialog');
-    expect(spec.win.controls.find(c => c.cls === 'CWindowTaskListbox')?.items).toEqual(['A', 'B', 'C', 'Cancel']);
+    expect(spec.win.controls.filter(c => c.name.startsWith('row:')).map(c => [c.cls, c.label])).toEqual(['A', 'B', 'C', 'Cancel'].map(l => ['CWindowTaskTextSwitch', l]));
     press('prompt-option:p2:b'); press('prompt-cancel:p2'); expect(sent).toEqual([{ optionId: 'b' }, { cancel: true }]);
   });
   it('attributes mark rows and OK sends them once the count is right', () => {

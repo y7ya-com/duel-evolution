@@ -41,6 +41,7 @@ import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene } from './htmlui/start-scene';
 import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
+import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -253,14 +254,27 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...duelSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
   const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
+  // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
+  const prepChoice = (): PrepChoice | null => {
+    const prep = state.preparation; if (!prep || state.sideboarding) return null;
+    const phase = prep.phase.toLowerCase(), seen = prep.opponentHand !== undefined && prep.opponentHand !== null ? ` Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand!] ?? 'an unknown hand'}.` : '';
+    if (prep.role === 'partner' || prep.role === 'spectator') return { text: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…', buttons: [] };
+    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) return { text: `Choose your hand.${seen}`, buttons: (['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => ({ id: label.toLowerCase(), label, act: () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }) })) };
+    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { text: `You won! Choose who goes first.${seen}`, buttons: [{ id: 'first', label: 'Go First', act: () => send({ type: 'chooseFirst', first: true }) }, { id: 'second', label: 'Go Second', act: () => send({ type: 'chooseFirst', first: false }) }] };
+    if (/ready|begin|confirm|invitation/.test(phase)) return { text: `Duel Preparation${seen}`, buttons: [{ id: 'start', label: 'Start Duel', act: () => send({ type: 'beginDuel' }) }] };
+    return { text: `Waiting for the other duelist…${seen}`, buttons: [] };
+  };
+  const prepSpecs = (): WindowSpec[] => { const c = prepChoice(); return c ? [preparationDialog(htmlIds, !!state.busy, c)] : []; };
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
+    // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over)
+    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
@@ -771,7 +785,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
     else if (!duel.ended) actions.append(button('Surrender', () => confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'), !!state.busy || state.relay?.canAct === false));
-    else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    else if ((!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
     stage.append(actions);
     // main's menu bar is not on the duel screen (as in the game): Options (sound, display) stays reachable, apart from
     // the duel's own actions
@@ -798,7 +812,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       for (const action of (duel.actions ?? []).filter(a => a.cardId === inspected.id)) panel.append(button(action.label, () => { sendAction(duel, action.id); local.inspected = null; }, !!action.disabled || !!state.busy, true));
       panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
     }
-    if (duel.ended) {
+    if (duel.ended && !htmlUi) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
       // A spectator is neither side: the banner names the winner instead of Victory/Defeat.
       const ended = duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended;
@@ -967,7 +981,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       else if (leaveShop && !state.busy) { leaveShop = false; queueMicrotask(() => open('lobby')); }
       if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; case 'social': renderSocial(); break; case 'settings': renderSettings(); break; }
-      if (state.preparation && !state.sideboarding) renderPreparation();
+      if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
       // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
       if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
         stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));
