@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fitFrame, holdToWalk, mountPhoneStage, HOLD_MS, WALK_MS } from '../src/ui/phone';
+import { fitFrame, holdToWalk, mountPhoneStage, COMPACT, HOLD_MS, WALK_MS } from '../src/ui/phone';
 
 // a fake page: enough DOM for the phone stage (live's stage.js) with a visual viewport that moves and shrinks
 type Fn = (e: Record<string, unknown>) => void;
@@ -11,7 +11,7 @@ function target() {
 function node(tag = 'div') {
   const t = target(), vars = new Map<string, string>(), classes = new Set<string>();
   const n = { ...t, tagName: tag.toUpperCase(), id: '', className: '', innerHTML: '', hidden: false, type: '', tabIndex: 0, title: '', name: '', content: '', attrs: new Map<string, string>(), removed: false,
-    style: { setProperty: (k: string, v: string) => vars.set(k, v), getPropertyValue: (k: string) => vars.get(k) ?? '' } as Record<string, unknown>,
+    style: { setProperty: (k: string, v: string) => vars.set(k, v), getPropertyValue: (k: string) => vars.get(k) ?? '', removeProperty: (k: string) => vars.delete(k) } as Record<string, unknown>,
     classList: { add: (c: string) => classes.add(c), remove: (c: string) => classes.delete(c), contains: (c: string) => classes.has(c) },
     setAttribute(k: string, v: string) { n.attrs.set(k, v); }, append() {}, remove() { n.removed = true; }, closest: () => null };
   return n;
@@ -58,6 +58,17 @@ describe('phone stage (live stage.js)', () => {
     p.doc.fullscreenElement = null; p.win.fire('touchend', { target: { closest: () => null } }); expect(p.root.requestFullscreen).toHaveBeenCalledOnce();
     s.toggleFullscreen(); expect(p.root.requestFullscreen).toHaveBeenCalledTimes(2); await Promise.resolve(); s.toggleFullscreen(); expect(p.doc.exitFullscreen).toHaveBeenCalledOnce();
     s.dispose();
+  });
+  it('frames a window too small for the desktop layout as live does, without the phone extras, and lets it go on growing', () => {
+    const p = page({ coarse: false }); let compact = true;
+    p.win.matchMedia = ((q: string) => ({ get matches() { return q === COMPACT && compact; } })) as never;
+    const s = mount(p);
+    expect(s.coarse).toBe(false); expect(p.win.devicePixelRatio).toBe(3); expect(p.metas).toHaveLength(0);
+    expect(p.host.classList.contains('de-phone')).toBe(true); expect(p.stage.style.getPropertyValue('--de-frame-h')).toBe('369px');
+    expect(Number(p.stage.style.getPropertyValue('--de-frame-s'))).toBeCloseTo(369 / 768);
+    compact = false; p.win.fire('resize');
+    expect(p.host.classList.contains('de-phone')).toBe(false); expect(p.stage.style.getPropertyValue('--de-frame-h')).toBe('');
+    s.dispose(); expect(p.win.count()).toBe(0);
   });
   it('leaves a desktop alone but for Alt+Enter', () => {
     const p = page({ coarse: false }), s = mount(p);
