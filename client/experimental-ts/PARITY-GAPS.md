@@ -51,9 +51,11 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
   npc_result_title_01_? art). Tests: `tests/npc-result-record.test.ts`.
 - **NPC talk balloon** (CWindowModelBalloon): the NPC's lines are drawn in the shop clerk's balloon look
   (`src/ui/npc.ts` BALLOON_CSS).
-- **NPC item gifts by name, in part** (CWindowModelItemGet): "You got <item>!" per gifted bit the rewrite can name
-  (`src/npcs/gift-names.ts`): titles (class 10) from the server's title table (features/titles.ts). The rest are
-  counted ("N item rewards confirmed. Item names are unavailable."): see the server table below.
+- **NPC item gifts by name** (CWindowModelItemGet): "You got <item>!" per gifted bit (`src/npcs/gift-names.ts`):
+  titles (class 10) from the server's title table, challenge rights (class 7, 592..594) by the famous NPC they unlock,
+  recipes (class 8) from the deck recipe catalogue's recipeBit, avatar parts (classes 1..3) from the cosmetics data
+  (variants' PBIN bits) once loaded. Still left: the lines are the NPC panel's, not the CWindowModelItemGet window
+  with the item's picture; an avatar part gifted before the cosmetics data loads is counted, not named.
 
 - **What a pack holds** (CARD_PACK_CHECK): main's `screens/pack-contents.js` from the legacy shop's Booster Packs
   window (its art hotspots: the window carries its packs' ids, `ShopItem.packId`) and from the NPC pack picker's
@@ -79,4 +81,4 @@ What the 2008 client did, what server/src (the protocol truth) has for it today,
 | Tournament Points (TP scene) | The player's TP total and what it buys | The rewrite's profile row reads the player info's u32 TP (features/profile.ts), but the server writes 0 there. `persist` keeps `rec.tp`, but `PRIZE_TP` is 0 in tournaments.ts, so nothing awards TP, and no message or endpoint reads it. Needs a TP award rule, a read (profile field or `/api/de/...`), and whatever TP exchanges for |
 | Information texts / event pages | The news and event descriptions the Information and AboutEvent windows showed; GoEvent's "go to the event" question. Missing texts: every event title and body, what each EVENTINFO state means, GoEvent's question | EVENTINFO carries only (serial, world, state). An event text source (admin-set titles and bodies, per language) and a message or endpoint that serves them |
 | Duel Log replays of other browsers; DuellogTour (the championship logs) | Play of any duel, and the operator's championship logs | Play needs the duel record saved in this browser at the duel's end; the archive's .yrpX (EDOPro's format) downloads for any duel but is not replayed in the rewrite |
-| NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift, with the item's picture | The gifts arrive as PBIN bits only (0x5205; persist.ts pendingAdd keeps classes 1/2/3 avatar parts, 7 challenge rights, 8 recipes, 10 titles). Titles are named client-side; avatar parts and challenge rights have no name table in the rewrite's gamedata, and recipe bits are named only where the deck recipe catalogue carries the bit (`giftItemName`'s recipe lookup is not wired into the panel yet). Needs the item table (name and picture per bit) served, or sent with the grant |
+| NPC item gifts by name (CWindowModelItemGet) | "You got <item>" for each gift, with the item's picture | The gifts arrive as PBIN bits only (0x5205; persist.ts pendingAdd keeps classes 1/2/3 avatar parts, 7 challenge rights, 8 recipes, 10 titles). All classes are named client-side (gift-names.ts); the item's picture in CWindowModelItemGet's own window is still missing |
