@@ -10,8 +10,9 @@ const archive = (page:Page) => page.ev(`fetch('/api/de/replays?limit=1000',{cred
 /** The list's row naming this opponent (the listbox draws each row as its own line of text). */
 const rowLine = (opponent:string) => `[...document.querySelectorAll('#htmlui-host *')].filter(e=>e.children.length===0&&e.textContent.includes(${JSON.stringify(`vs ${opponent}`)})&&e.getClientRects().length)[0]`;
 /** Selects that row with a real press at its line (the list takes the point). */
+// (the list is one text box, its lines one element: the first line's middle is its first row, the only one listed here)
 async function pickRow(page:Page,opponent:string) {
-  const point = await page.ev(`(()=>{const r=${rowLine(opponent)}.getBoundingClientRect();return {x:Math.round(r.x+Math.min(r.width/2,60)),y:Math.round(r.y+r.height/2)};})()`) as { x:number; y:number };
+  const point = await page.ev(`(()=>{const r=${rowLine(opponent)}.getBoundingClientRect();return {x:Math.round(r.x+Math.min(r.width/2,60)),y:Math.round(r.y+Math.min(r.height/2,8))};})()`) as { x:number; y:number };
   await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
   await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
   await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
@@ -93,7 +94,7 @@ describe.skipIf(!enabled)('Duel Log and replays against the real server',() => {
       // Exit: back to the lobby.
       await press(page,byKey('replay-exit'));
       await until(page,`!${REPLAY}&&${lobbyShown}`,30000);
-      record('duellog.replay',{ actions:'NPC duel (surrendered) to its result; Main Menu > Duel Log > Latest Duel Logs (the record listed), Back, Server Duel Logs; the row's menu: Download; again: Play; Pause, Step, Play to the end; Exit',
+      record('duellog.replay',{ actions:'NPC duel (surrendered) to its result; Main Menu > Duel Log > Latest Duel Logs (the record listed), Back, Server Duel Logs; the row menu: Download; again: Play; Pause, Step, Play to the end; Exit',
         expected:'The finished duel is listed from the archive; Download gives its .yrpX; Play replays it on the duel board to the end; Exit returns to the lobby',
         observed:`top "${top.slice(0,120)}"; list "${listed.slice(0,160)}"; Download ${file.url} ${file.status} ${file.bytes} bytes "${file.magic}" (${file.name}); replay of ${r0.total} commands: paused at ${paused} (still ${stillPaused} after 1.5 s), Step → ${stepped}, played to ${r0.total}/${r0.total} (up to ${fieldCards} cards on the board); Exit → lobby` });
     } finally { closeAll(); }

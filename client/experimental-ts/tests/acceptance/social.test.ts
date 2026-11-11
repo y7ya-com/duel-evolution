@@ -66,9 +66,9 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       record('social.profile',{ actions:"Open another player's profile", expected:'Correct identity, progression, title and status', observed:profile.replace(/\s+/g,' ').slice(0,200) });
       await closeCard(a);
       // avatars.titles: A sets a comment and personal title; B sees them on A's profile.
-      await click(a,'My Profile');
-      await until(a,byKey('profile-comment'),20000); await press(a,byKey('profile-comment'));
-      await until(a,byKey('comment-greeting'),10000);
+      // (live's own profile has OK alone: the comment is the Main Menu's Create Comment, which opens over My Profile)
+      await click(a,'Create Comment');
+      await until(a,byKey('comment-greeting'),20000);
       await type(a,byKey('comment-greeting'),`Hello from ${RUN}`); await type(a,byKey('comment-duel'),`Champ ${RUN}`);
       await press(a,byKey('comment-ok'));
       // My Profile shows ten rows (live's CWindowModelProfile); the Comment row past them is scrolled in, as a player would

@@ -241,6 +241,8 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       expect(beforeGesture).toEqual({ contexts:0,plays:0 });
       // Choose local files for the scene slots in Options; the first press there unlocks audio.
       await click(page,'Options'); await until(page,`document.querySelector('[aria-label="Audio settings"]')`,30000);
+      // (the rewrite's Options page has no way in on live's screens: the dev hook opens it, so a press on the page is the gesture)
+      await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',x:4,y:4,button:'left',clickCount:1 }); await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',x:4,y:4,button:'left',clickCount:1 });
       await until(page,`window.__audio.contexts.length===1&&window.__audio.contexts[0].state==='running'`,10000);
       for (const [slot,name] of Object.entries(slots)) await assignSlot(page,Number(slot),silentWav(`${dir}/${name}.wav`,20));
       await click(page,'Back');
