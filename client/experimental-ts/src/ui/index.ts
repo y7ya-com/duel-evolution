@@ -740,7 +740,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const titlePress = (name: TitleButton) => {
     if (state.busy) return;
     if (name === 'online') {
-      if (state.auth && !state.auth.signedIn) { loginUi.open = true; showHtml(); return; }
+      if (state.auth && !state.auth.signedIn) { loginUi.open = true; requestRender(); return; }
       if (state.connection === 'online' && state.mode !== 'free') open('characters'); else send({ type: 'connect', freeMode: false });
     } else if (name === 'options') { optionsUi = { kind: 'options' }; showHtml(); }
     else {
@@ -752,7 +752,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderTitle(): void {
     const n = sceneRoot('Title'), panel = el('section', 'de-panel de-center de-stack');
     // the engine's title movie and its buttons (htmlui/title-scene.ts), over the 2008 backdrop; signed out, ONLINE
-    // opens live's sign-in window over it (loginSpecs)
+    // leaves the title as live: the movie goes, the start screens' ring turns on the backdrop and live's sign-in window
+    // (loginSpecs) stands over it, with no way back to the title (live's CWindowLogin has no Cancel; Esc and clicks
+    // outside it do nothing)
+    if (controller.loadArchiveImage && loginUi.open && showsLogin()) {
+      titleScene?.hide(); titleScene?.element.remove(); titleScene?.controls.remove();
+      startScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
+      n.append(startScene.element); startScene.show({ logo: true, portrait: null, reducedMotion: !!state.settings.reducedMotion });
+      return;
+    }
     if (controller.loadArchiveImage) {
       titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller));
       n.append(titleScene.element, titleScene.controls); titleScene.show(!!state.settings.reducedMotion);
