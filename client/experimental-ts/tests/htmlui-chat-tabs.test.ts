@@ -30,3 +30,22 @@ describe('Discord lines keep their mark', async () => {
     expect(name.startsWith('¤Ann')).toBe(true);
   });
 });
+
+describe('the duel scene\'s chat tab (live: the engine\'s duel chat window, "Duel (n.)")', async () => {
+  const { chatTabsFor, DUEL_CHAT_INDEX } = await import('../src/ui/htmlui/windows');
+  it('is added between Trade and Team in the duel only, after the lobby tab indexes', () => {
+    expect(chatTabsFor(null)).toBe(CHAT_TABS);
+    const tabs = chatTabsFor(['Ann', 'Yami Yugi']);
+    expect(tabs.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels', 'duel']);
+    expect(DUEL_CHAT_INDEX).toBe(4);
+    expect([...tabs].sort((a, b) => a.x - b.x).map(t => t.label.trim())).toEqual(['All Chat', 'TRADE', 'Duel (n.)', 'Team', 'Duels']);
+  });
+  it('shows the two duelists\' own lines; the Duel Log lines stay off All Chat', () => {
+    const duel = chatTabsFor(['Ann', 'Yami Yugi'])[DUEL_CHAT_INDEX]!;
+    expect(duel.shows('global', 'Ann')).toBe(true);
+    expect(duel.shows('global', 'Bob')).toBe(false);
+    expect(duel.shows('trade', 'Ann')).toBe(false);
+    expect(CHAT_TABS[0]!.shows('duel-log', '')).toBe(false);
+    expect(chatCommand(DUEL_CHAT_INDEX, 'gg')).toEqual({ type: 'chat', channel: 'global', text: 'gg' });
+  });
+});

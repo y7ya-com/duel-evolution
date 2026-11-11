@@ -258,7 +258,9 @@ export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 
 // line 0, 96, 776 x 32 (128 characters). Each tab has its own log (the reader's pairs): All Chat every line, the
 // others their channel's, so main's screen counts what arrives on a tab that isn't shown.
 export const CHAT_TABS: readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string) => boolean }[] = [
-  { key: 'all', label: 'All Chat', x: 8, w: 81, channel: 'global', shows: () => true },
+  // every line but the server's Duel Log lines (channel 9, app.ts 'duel-log'): live's ovr/duellog.c keeps those on its own
+  // Duel Log tab, which main's chat.js hides; the duel screen has its own log strip
+  { key: 'all', label: 'All Chat', x: 8, w: 81, channel: 'global', shows: c => c !== 'duel-log' },
   // the released chat has no proximity channel (main's chat-policy.js): its tab is left out, as main's chat.js hides it,
   // and the tabs after it stand where the engine moves them (8 px over each other)
   { key: 'trade', label: 'TRADE', x: 81, w: 72, channel: 'trade', shows: c => c === 'trade' },
@@ -266,6 +268,20 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
   // main b70a104: the Duels tab lists the open duels (discord.ts), not chat lines; a row Joins
   { key: 'duels', label: 'Duels', x: 209, w: 72, channel: 'global', shows: () => false },
 ];
+/** The duel scene's chat tab (live: the engine's duel chat window adds 『デュエル中』, its string 'Duel (n.)', between
+ * TRADE and Team; main's chat.js keeps it, plain-cases nothing in it, and moves Team and Duels along by its width less
+ * the 8 px overlap). It is the CHAT_TABS index after the last, so the lobby's tab indexes never move. The server has no
+ * duel channel (chat.ts channelFor drops the 2008 client's kind 4), so the tab shows the two duelists' own lines and
+ * what is typed there goes out on the public channel, where the opponent reads it. */
+export const DUEL_CHAT_TAB = { key: 'duel', label: 'Duel (n.)', x: 145, w: 88, channel: 'global' } as const;
+export const DUEL_CHAT_INDEX = CHAT_TABS.length;
+/** The chat's tabs in a scene: the duel's adds DUEL_CHAT_TAB at live's place, `names` the two duelists. */
+export function chatTabsFor(duelists: readonly string[] | null): readonly { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender: string) => boolean }[] {
+  if (!duelists) return CHAT_TABS;
+  const shift = DUEL_CHAT_TAB.w - 8, names = new Set(duelists.map(n => n.trim()).filter(Boolean));
+  return [...CHAT_TABS.map(t => t.x > 81 ? { ...t, x: t.x + shift } : t),
+    { ...DUEL_CHAT_TAB, shows: (c: string, sender: string) => (c === 'global' || c === 'whisper') && names.has(sender.trim()) }];
+}
 /** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. A name may have spaces:
  * the longest name of a player the client knows wins, or the name in quotes ('/w "Ann Lee" hi'). */
 export function chatCommand(tab: number, line: string, names: readonly string[] = []): Extract<ClientCommand, { type: 'chat' }> | null {
@@ -288,16 +304,17 @@ export const TRADE_SANCTION_NOTICE = 'Card Swap is disabled for this account.';
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
-  const tab = Math.max(0, Math.min(CHAT_TABS.length - 1, ctx.ui.chatTab));
+  const duel = ctx.state.scene === 'duel' ? ctx.state.duel : null, tabs = chatTabsFor(duel ? duel.players.map(p => p.name) : null);
+  const tab = ctx.ui.chatTab >= 0 && ctx.ui.chatTab < tabs.length ? ctx.ui.chatTab : 0;   // the duel's tab after the duel: All Chat
   b.add('CWindowTaskIconbar', 'bar', { x: 0, y: 0, w: 776, h: 24 }, { active: true });
   b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: 104 });
   b.add('CWindowTaskBackPlane', 'plane', { x: 8, y: 24, w: 760, h: 96 });
   const lines = lobby.chat.slice(-200);
-  const pairs = CHAT_TABS.map((t, i) => {
+  const pairs = tabs.map((t, i) => {
     const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w, h: 24 }, { label: t.label, active: i === tab },
       { key: `chat-tab:${t.key}`, label: t.label.trim(), click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
     const duels = t.key === 'duels';
-    const items = duels ? duelLines(ctx.ui.duels) : lines.filter(l => t.shows(l.channel)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
+    const items = duels ? duelLines(ctx.ui.duels) : lines.filter(l => t.shows(l.channel, l.sender)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
     const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: 80 }, { shown: i === tab, items, selected: -1, top: 0, topLine: 0, rows: 5 });
     if (duels && i === tab) {
       const rows = duelRows(ctx.ui.duels);

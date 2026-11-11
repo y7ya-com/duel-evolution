@@ -209,12 +209,14 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-duel-logtoggle { padding:1px 8px; font:12px Arial,sans-serif; margin-right:6px; }
 .de-duel-log { position:absolute; right:.8%; bottom:21%; width:22.5%; max-height:40%; background:#e7faffdf; border:1px solid #5e9ebf; padding:5px; font-size:11px; overflow:auto; z-index:8; }
 .de-duel-log[hidden] { display:none; }
-.de-duel-cmd { position:absolute; width:15.625%; z-index:14; padding:6px 6px 6px; background:#0a2d5ccc; border:2px solid #f0c040; border-radius:3px; box-shadow:0 0 0 1px #6b4a00,0 3px 10px #0008; display:flex; flex-direction:column; gap:0; }
-.de-duel-cmd-row { display:block; width:100%; height:20px; padding:0 6px 0 22px; text-align:left; font:14px/20px Arial,sans-serif; color:#fff; border:0; border-radius:0; cursor:pointer; position:relative; background:linear-gradient(#3d78c6,#1f4f98); }
-.de-duel-cmd-row:nth-of-type(even) { background:linear-gradient(#336bb6,#183f80); }
-.de-duel-cmd-row::before { content:''; position:absolute; left:5px; top:5px; width:10px; height:10px; background:#fff; clip-path:polygon(0 0,100% 50%,0 100%); opacity:.85; }
-.de-duel-cmd-row:hover:not(:disabled),.de-duel-cmd-row:focus-visible { background:linear-gradient(#ffffff,#c8e4ff); color:#06306a; }
-.de-duel-cmd-row:disabled { color:#9fb4cf; cursor:default; }
+.de-duel-cmd { position:absolute; width:15.625%; z-index:14; padding:6px; background:#f2d64a99; border:1px solid #c9a21acc; border-radius:2px; box-shadow:inset 1px 1px 0 #fff7c0cc,inset -1px -1px 0 #9a7a10aa,0 2px 6px #0005; display:flex; flex-direction:column; gap:0; }
+/* live's CWindowModelListDuelCmd (de-scratch/visual/live/x-duel-cmd.png): a translucent gold frame 6 px wide, each command a
+   19 px blue row (the cursor row lighter), the command's dark text in Arial after its small white mark */
+.de-duel-cmd-row { display:block; width:100%; height:19px; padding:0 6px 0 22px; text-align:left; font:15px/19px Arial,"Liberation Sans",sans-serif; letter-spacing:.06em; color:#0b1830; border:0; border-radius:0; cursor:pointer; position:relative; background:#1a7fe0e0; }
+.de-duel-cmd-row:nth-of-type(even) { background:#2a8ae6e0; }
+.de-duel-cmd-row::before { content:''; position:absolute; left:6px; top:4px; width:9px; height:10px; background:#fff; clip-path:polygon(0 0,100% 20%,100% 70%,25% 60%,25% 100%,0 100%); }
+.de-duel-cmd-row:hover:not(:disabled),.de-duel-cmd-row:focus-visible { background:#5ab0ff; color:#04122a; outline:none; }
+.de-duel-cmd-row:disabled { color:#5d7a9e; cursor:default; }
 .de-duel-cmd-close { position:absolute; right:-9px; top:-9px; width:18px; height:18px; padding:0; border-radius:50%; font:bold 12px/16px Arial; color:#6b4a00; background:#ffe48a; border:1px solid #b06a00; cursor:pointer; }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
 .de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }

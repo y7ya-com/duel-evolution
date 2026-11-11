@@ -545,6 +545,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // The turn clock runs down between the server's readings; only its text changes each second.
   let duelClock: ReturnType<typeof setInterval> | null = null, duelClockNode: HTMLElement | null = null;
   const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
+  /** The TIME gauge's fraction left: the clock's seconds at `at` run down between redraws (the plate's whole is 180 s,
+   * or the clock's own start when longer). */
+  const timeFraction = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - (Date.now() - timer.at) / 1000); return left / Math.max(180, timer.seconds); };
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
@@ -911,9 +914,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // the text HUD stays for assistive technology (and draws itself without the art)
     delete lpPlates[0]; delete lpPlates[1];
     if (archive) {
-      hud.classList.add('de-sr');
+      hud.className += ' de-sr';
       for (const i of [0, 1] as const) {
-        const t = duel.timer && duel.timer.player === i ? duel.timer.seconds / Math.max(180, duel.timer.seconds) : null;
+        const t = duel.timer && duel.timer.player === i ? timeFraction(duel.timer) : null;
         const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, image: archive });
         plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
       }
@@ -1199,7 +1202,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
-      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; }, 1000); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
+      if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; if (timer) lpPlates[timer.player]?.setTime(timeFraction(timer)); }, 250); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
       const identity = `${state.scene}/${state.player?.id ?? 'none'}`;
       if (renderedIdentity !== identity || !restoreDrafts) { drafts.clear(); expanded.clear(); renderedIdentity = identity; }
