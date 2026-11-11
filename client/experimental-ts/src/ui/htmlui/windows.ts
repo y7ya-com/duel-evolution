@@ -3,6 +3,7 @@
 // captured windows (client/web-shell/htmlui/mock/*.json) or numbers measured from main's game (tools/flip.mjs), cited.
 import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelView } from './discord';
 import type { ClientCommand, ClientView } from '../contracts';
+import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
 import { avatarSwitch, freeChoices, starterLook, type AvatarDeps } from './avatar';
@@ -170,7 +171,7 @@ export function stockDialog(ctx: Pick<BuildContext, 'ids'>, key: string, kind: '
 // 332, 324, TXT_DELETE_CONFIRM 0xc1c), the deletion, and TXT_DELETE_DONE (0xc1e). The words are the original's
 // (yo2text_?); without the original data, plain ones stand in.
 export const DELETE_TEXT = { prompt: 0xc26, wrong: 0xc27, confirm: 0xc1c, done: 0xc1e } as const;
-const DELETE_FALLBACK: Record<keyof typeof DELETE_TEXT, string> = { prompt: 'Enter your password', wrong: 'The password is incorrect.',
+const DELETE_FALLBACK: Record<keyof typeof DELETE_TEXT, string> = { prompt: REWRITE_TEXT.enterPassword, wrong: REWRITE_TEXT.wrongPassword,
   confirm: 'Delete this player? A deleted player cannot be restored.', done: 'Player deleted.' };
 const deleteText = (ctx: BuildContext, k: keyof typeof DELETE_TEXT) => ctx.text?.(DELETE_TEXT[k]) ?? DELETE_FALLBACK[k];
 export function deletePasswordDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'delpw' }>): WindowSpec {

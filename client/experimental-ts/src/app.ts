@@ -48,6 +48,7 @@ import type { WorldMaps } from './world';
 import { LiveCapture, captureDownload } from './parity/live';
 import { BrowserAudioManager } from './features/audio';
 import { gameLanguage, isGameLanguage, loadGameLanguage, type GameLanguage, type LocalizedGameText } from './features/language';
+import { decodeDialogTable, decodeStringTable } from './features/ui-text';
 import type { ClientController, ClientView, ClientCommand, Scene, CardView, SettingsView, DuelView } from './ui/contracts';
 import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
@@ -204,7 +205,7 @@ export class ClientApp implements ClientController {
       npcCardViews:Object.fromEntries([...npc.cards.map(c=>c.id),...npc.giftCards].map(id=>[id,this.catalog.card(id)]))}); },
       onStartDuel:id=>this.startNpcDuel(id),onRefreshCollection:async()=>{const game=this.requireGame();await game.refreshCollection();await game.refreshPlayerBits();},
       onRefreshProgress:()=>this.requireGame().refreshPlayerBits(),
-      resolveLine:(id,line)=>this.options.npcDialogue?.resolve(id,line),resolvePresentText:id=>this.options.npcDialogue?.resolveText(id),
+      resolveLine:(id,line)=>this.npcLine(id,line),resolvePresentText:id=>(this.languageTexts.table?.[id]?.trim() ? this.languageTexts.table[id]! : this.options.npcDialogue?.resolveText(id)),
       resultLine:()=>npcResultLine(this.npcResult)});
     this.account = new AccountController({ http: this.services.api.http, onChange: accountDetail => {
       const changed = accountDetail.session !== this.observedAccountSession; this.observedAccountSession = accountDetail.session;
@@ -235,19 +236,39 @@ export class ClientApp implements ClientController {
       if (shop && this.view.shop) void this.shopView(shop).then(view => { if (token === this.languageToken && !this.disposed && this.view.shop) this.patch({ shop:{ ...this.view.shop, ...view } }); }).catch(() => {});
       this.emit();
     };
-    if (language === 'E') { done(null); return; }
+    if (language === 'E') { this.languageTexts = { table: null, dialogs: null }; done(null); return; }
     const name = gameLanguage(language).english;
     if (!this.options.assets || !this.options.cardTexts?.size) { this.patch({ languageStatus:{ loading:null, available:false, error:`${name} needs the original game data, which is not available here.` } }); return; }
     this.patch({ languageStatus:{ loading:language, available:true } });
     try {
-      const localized = await loadGameLanguage(this.options.assets, language, this.options.cardTexts.entries, this.scope.signal);
-      if (token === this.languageToken && !this.disposed) done(localized);
+      // NPC dialogue (yo2text_?) and the duel dialog texts (dlg_text_?) of that language; either missing keeps English
+      const [localized, table, dialogs] = await Promise.all([loadGameLanguage(this.options.assets, language, this.options.cardTexts.entries, this.scope.signal),
+        this.gameTextTable(language, this.scope.signal).catch(() => null), this.loadDialogs(language).catch(() => null)]);
+      if (token === this.languageToken && !this.disposed) { this.languageTexts = { table, dialogs }; done(localized); }
     } catch (error) {
       if (token !== this.languageToken || this.disposed || error instanceof DOMException && error.name === 'AbortError') return;
       this.patch({ languageStatus:{ loading:null, available:true, error:`Could not load the ${name} game text (${error instanceof Error ? error.message : String(error)}). Still showing ${gameLanguage(previous).english}; choose ${gameLanguage(language).name} again to retry.` } });
     }
   }
+  /** The chosen language's yo2text table and duel dialog texts (null: English, or not in the original data). */
+  private languageTexts: { table: readonly string[] | null; dialogs: ReadonlyMap<number, string> | null } = { table: null, dialogs: null };
+  private async loadDialogs(language: GameLanguage): Promise<ReadonlyMap<number, string>> {
+    const assets = this.options.assets!, letter = language.toLowerCase();
+    const read = async (path: string) => { const lease = await assets.readScene(path, this.scope.signal); try { return lease.value.bytes.slice(); } finally { lease.release(); } };
+    const [index, text] = await Promise.all([read(`data/bin#/dlg_indx_${letter}.bin`), read(`data/bin#/dlg_text_${letter}.bin`)]);
+    return decodeDialogTable(index, text);
+  }
+  /** An NPC's balloon line in the chosen language: the five strings from its text id (CFukiDictionary), else English. */
+  private npcLine(npc: number, line: number): string | null | undefined {
+    const table = this.languageTexts.table, textId = this.options.npcDialogue?.textId(npc, line);
+    if (table && textId !== undefined) {
+      const rows = table.slice(textId, textId + 5).filter(row => row.trim()).map(row => row.trim());
+      if (rows.length) return rows.join('\n');
+    }
+    return this.options.npcDialogue?.resolve(npc, line);
+  }
   private installLanguageTexts(): void {
+    this.options.duelTexts?.localizeDialogs(this.languageTexts.dialogs);
     if (this.options.cardTexts) this.catalog.installOriginalTexts(this.options.cardTexts);
     if (this.localized) this.catalog.installLocalizedTexts(this.localized.cards, this.localized.language);
   }
@@ -329,27 +350,23 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
-  private gameTexts = new Map<string, Promise<{ idx: DataView; bin: Uint8Array; decoder: TextDecoder }>>();
-  /** The original's own UI strings (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by text id. */
-  readonly gameText = async (ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>> => {
-    const assets = this.options.assets; if (!assets) throw new Error('The original game text is not configured.');
-    const language = this.view.settings.language ?? 'E';
+  private gameTexts = new Map<string, Promise<readonly string[]>>();
+  /** A language's whole UI string table (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by id. */
+  readonly gameTextTable = (language: GameLanguage, signal?: AbortSignal): Promise<readonly string[]> => {
+    const assets = this.options.assets; if (!assets) return Promise.reject(new Error('The original game text is not configured.'));
     let table = this.gameTexts.get(language);
     if (!table) {
       const read = async (path: string) => { const lease = await assets.readScene(path, signal); try { return lease.value.bytes.slice(); } finally { lease.release(); } };
       const base = `data/common/yo2text_${language.toLowerCase()}`;
-      table = Promise.all([read(`${base}.idx`), read(`${base}.bin`)]).then(([idx, bin]) => ({ idx: new DataView(idx.buffer, idx.byteOffset, idx.byteLength), bin, decoder: new TextDecoder(gameLanguage(language).encoding) }));
+      table = Promise.all([read(`${base}.idx`), read(`${base}.bin`)]).then(([idx, bin]) => Object.freeze(decodeStringTable(idx, bin, gameLanguage(language).encoding)));
       this.gameTexts.set(language, table); table.catch(() => this.gameTexts.delete(language));
     }
-    const { idx, bin, decoder } = await table, out = new Map<number, string>();
-    for (const id of ids) {
-      if (!Number.isInteger(id) || id < 0 || id * 4 + 4 > idx.byteLength) continue;
-      // the strings lie back to back: one ends at its NUL or where the next id's begins
-      const at = idx.getUint32(id * 4, true); if (at >= bin.length) continue;
-      const next = id * 4 + 8 <= idx.byteLength ? idx.getUint32(id * 4 + 4, true) : bin.length, nul = bin.indexOf(0, at);
-      const end = Math.min(nul < 0 ? bin.length : nul, next > at ? next : bin.length, at + 4096);
-      out.set(id, decoder.decode(bin.subarray(at, end)).replace(/\s+$/, ''));
-    }
+    return table;
+  };
+  /** The original's own UI strings in the chosen language, by text id. */
+  readonly gameText = async (ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>> => {
+    const table = await this.gameTextTable(this.view.settings.language ?? 'E', signal), out = new Map<number, string>();
+    for (const id of ids) if (Number.isInteger(id) && id >= 0 && id < table.length && table[id]) out.set(id, table[id]!);
     return out;
   };
   /** Whether `password` is the signed-in account's: the original compares the typed password with the login's before

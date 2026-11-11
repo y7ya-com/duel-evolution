@@ -24,6 +24,7 @@ import { freeChoices } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
+import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
 import { duellogUi, duellogWindow, fetchDuellog, type DuellogUi } from './htmlui/duellog';
@@ -364,16 +365,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     gameTextsFor = language;
     void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT)], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
+    // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
+    if (language === 'E') { uiText.install([], null, 'E'); return; }
+    if (controller.gameTextTable) void Promise.all([controller.gameTextTable('E'), controller.gameTextTable(language)])
+      .then(([english, local]) => { if (gameTextsFor !== language) return; uiText.install(english, local, language); showHtml(); }, () => {});
   };
+  const uiText = new UiText();
   const checkPassword = controller.checkPassword?.bind(controller);
   const lobbyDeps = () => ({ ui: lobbyUi, friends: state.socialDetail?.friends.map(f => f.pid) ?? [] });
   // main's Duel menu's Tag Duel (screens/duelsetup.js tagRow) asks the page for its tag lobby: the rewrite's
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
+  const buildHtml = () => localized(htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, changeAvatar: changeAvatar(), menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
     deckWindows: () => deckScene.windows(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
-    ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) });
+    ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) }));
+  const localized = (specs: WindowSpec[]): WindowSpec[] => { localizeSpecs(specs, uiText); return specs; };
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
   // 12 Free Duel's lobby, 14 the shop, 0x24 the deck editor)
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;

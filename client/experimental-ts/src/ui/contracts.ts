@@ -253,6 +253,8 @@ export interface ClientController {
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
   /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */
   gameText?(ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>>;
+  /** A language's whole yo2text table by id (the English one indexes the labels the rewrite gives main's screens). */
+  gameTextTable?(language: import('../features/language').GameLanguage, signal?: AbortSignal): Promise<readonly string[]>;
   /** Whether `password` is the signed-in account's (asked before deleting a character); null when it has none. */
   checkPassword?(password: string, signal: AbortSignal): Promise<boolean | null>;
 }
