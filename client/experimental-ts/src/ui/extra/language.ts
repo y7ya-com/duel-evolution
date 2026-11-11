@@ -1,5 +1,6 @@
 import { GAME_LANGUAGES, gameLanguage, type GameLanguage } from '../../features/language';
 import type { ClientView } from '../contracts';
+import { REWRITE_TEXT } from '../../features/ui-text';
 
 /** Options → Language: the original's seven language flags (Japanese, English, German, French / Italian, Spanish,
  * Korean), each named in its own language; the chosen one is pressed and named on the section line. */
@@ -20,7 +21,7 @@ export function renderLanguageSettings(state: ClientView, choose: (language: Gam
   const note = (text: string, cls = 'de-note') => { const p = document.createElement('p'); p.className = cls; p.textContent = text; root.append(p); return p; };
   if (status?.loading) note(`Loading ${gameLanguage(status.loading).english} game text…`).setAttribute('role', 'status');
   else if (!status?.available) note('Other languages need the original game data.');
-  else note(`Card names, card text and pack names follow this choice${status.missing ? ` (${status.missing} cards are not in these tables and stay in English)` : ''}. Menus stay in English.`);
+  else note(`${REWRITE_TEXT.languageFollows}${status.missing ? ` (${status.missing} cards are not in these tables and stay in English)` : ''}. ${REWRITE_TEXT.addedEnglish}`);
   if (status?.error) note(status.error, 'de-error').setAttribute('role', 'alert');
   return root;
 }

@@ -1,3 +1,4 @@
+import { REWRITE_TEXT } from '../features/ui-text';
 import type { DuelPrompt } from './types';
 
 export interface TextAlternative { card: number; text: string }
@@ -61,7 +62,11 @@ export class DuelTextCatalog {
   option(id: number, card?: number): string | null { return this.resolve(this.options, id, card); }
   prompt(id: number, card?: number): string | null { return this.resolve(this.prompts, id, card); }
   cardName(card: number): string | null { return this.names.get(card) ?? null; }
-  dialog(id: number): string | null { return this.dialogs.get(id) ?? null; }
+  private localDialogs: ReadonlyMap<number, string> | null = null;
+  /** The chosen language's dialog texts (dlg_text_?, applyLanguage); null: the installed (English) ones. A text the
+   * language lacks keeps its English (the duel resources' English fallback). */
+  localizeDialogs(dialogs: ReadonlyMap<number, string> | null): void { this.localDialogs = dialogs?.size ? dialogs : null; }
+  dialog(id: number): string | null { return this.localDialogs?.get(id) ?? this.dialogs.get(id) ?? null; }
   /** The card's place in the original name order (CARD_Sort), when generated. */
   cardOrder(passcode: number): number | undefined { return this.order.get(passcode); }
 }
@@ -80,7 +85,7 @@ const PROMPT_MEANINGS: Record<number, string> = {
 /** Server information boxes (dialog kind 0): the original text when generated, else its translator meaning. */
 const NOTICE_MEANINGS: Record<number, string> = { 82: 'You may surrender starting from the 10th turn.' };
 export function describeNotice(id: number, texts?: DuelTextCatalog): string {
-  return texts?.dialog(id) ?? NOTICE_MEANINGS[id] ?? 'The server declined that action.';
+  return texts?.dialog(id) ?? NOTICE_MEANINGS[id] ?? REWRITE_TEXT.serverDeclined;
 }
 
 export function describePrompt(prompt: DuelPrompt, texts: DuelTextCatalog, contextPasscode?: number): { title: string; optionLabels: Map<number, string> } {

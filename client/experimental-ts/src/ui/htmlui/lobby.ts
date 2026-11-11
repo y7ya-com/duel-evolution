@@ -3,6 +3,7 @@
 // prompts), built from main's captured windows (mock/duelsetup-*.json, lobby-npc.json, dialog-*.json) with the rewrite's
 // lobby in them: its rooms, its matchmaking queue, its areas and NPCs. What a control does is a ClientApp command.
 // Owned screens (duelsetup.js) take the pointer themselves, so a choice switch's look (normal / checked) is set here.
+import { REWRITE_TEXT } from '../../features/ui-text';
 import type { ClientView } from '../contracts';
 import { WindowBuilder } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
@@ -19,8 +20,8 @@ import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
 
 /** The original's words these windows say (yo2text_?), by text id; the rewrite's stand in without the original data. */
 export const LOBBY_TEXT = { cancelRoom: 0x1484, seeking: 0x13cb, searching: 0xfbf, password: 0x13c3, noMove: 0x13e4 } as const;
-const LOBBY_FALLBACK: Record<keyof typeof LOBBY_TEXT, string> = { cancelRoom: 'Close the duel you created?', seeking: 'Waiting for an opponent',
-  searching: 'Searching for an opponent', password: 'Password', noMove: 'Close your duel before moving.' };
+const LOBBY_FALLBACK: Record<keyof typeof LOBBY_TEXT, string> = { cancelRoom: REWRITE_TEXT.closeDuel, seeking: REWRITE_TEXT.waitingOpponent,
+  searching: REWRITE_TEXT.searchingOpponent, password: REWRITE_TEXT.password, noMove: REWRITE_TEXT.closeBeforeMove };
 /** The areas' names (yo2text_?): Domino City's 0x1fa4.. (maps 0..3, then the R&D Lab, map 9), Duel Academy's 0x1fd6.. (4..7). */
 export const AREA_TEXT: Record<number, number> = { 0: 0x1fa4, 1: 0x1fa5, 2: 0x1fa6, 3: 0x1fa7, 9: 0x1fa8, 4: 0x1fd6, 5: 0x1fd7, 6: 0x1fd8, 7: 0x1fd9 };
 

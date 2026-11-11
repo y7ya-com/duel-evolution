@@ -3,6 +3,7 @@
 // Legacy look, the Main Menu's list windows' frame (windows.ts listWindow: the duel frame 62, 282, 900 x 204, the title
 // 0, 4, the listbox 13, 32 of 8 rows, the duel buttons on 173). The original's replay entry (CWindowModelDuellogOperation's
 // Play) needs a replay viewer the rewrite does not have (PARITY-GAPS.md). Pure but for fetchDuellog: no DOM.
+import { REWRITE_TEXT } from '../../features/ui-text';
 import { Ids, WindowBuilder } from './snapshot';
 import type { WindowSpec } from './snapshot';
 
@@ -40,10 +41,10 @@ export async function fetchDuellog(s: DuellogSearch, page: number, f: typeof fet
   } catch { return { error: 'The Duel Log could not be read.' }; }
 }
 
-const RESULT_TEXT: Record<DuellogResult, string> = { win: 'Win', lose: 'Loss', draw: 'Draw' };
+const RESULT_TEXT: Record<DuellogResult, string> = { win: REWRITE_TEXT.win, lose: REWRITE_TEXT.loss, draw: REWRITE_TEXT.draw };
 const pad2 = (n: number) => String(n).padStart(2, '0');
 export function duellogDate(t: number): string { const d = new Date(t * 1000); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
-const ORIGIN_TEXT: Record<string, string> = { autoduel: 'Autoduel', room: 'Duel Room', invite: 'Invitation', tournament: 'Tournament' };
+const ORIGIN_TEXT: Record<string, string> = { autoduel: REWRITE_TEXT.autoduel, room: REWRITE_TEXT.duelRoom, invite: REWRITE_TEXT.invitation, tournament: REWRITE_TEXT.tournament };
 export function duellogLine(r: DuellogRow): string {
   return `${duellogDate(r.t)}   vs ${r.opp}   ${RESULT_TEXT[r.result]}   ${r.turns} turn${r.turns === 1 ? '' : 's'}   ${ORIGIN_TEXT[r.origin] ?? r.origin}${r.ranked ? ' (Ranked)' : ''}${r.match ? ' · Match' : ''}`;
 }

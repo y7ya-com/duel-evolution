@@ -29,6 +29,8 @@ export class NpcDialogueCatalog {
     this.lines = lines; this.presentTexts = presentTexts;
   }
   resolve(npc: number, line: number): string | null { return this.lines[String(npc)]?.[String(line)]?.text ?? null; }
+  /** The line's first yo2text id (its five strings follow it). */
+  textId(npc: number, line: number): number | undefined { return this.lines[String(npc)]?.[String(line)]?.textId; }
   resolveText(textId: number): string | null { return this.presentTexts[String(textId)] ?? null; }
   clear(): void { this.lines = {}; this.presentTexts = {}; }
 }
