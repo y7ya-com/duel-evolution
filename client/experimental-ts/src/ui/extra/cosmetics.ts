@@ -1,11 +1,11 @@
-import type { BoxId, Cosmetic, CosmeticsState, OnlineAction, OnlineState, Rarity } from '../../features/online';
+import type { BoxId, Cosmetic, CosmeticKind, CosmeticsState, OnlineAction, OnlineState, Rarity } from '../../features/online';
 
 /** The shop's cosmetic departments (Cosmetic Boxes, Wardrobe) and the Main Menu's Appearance editor, after htmlui
  * cosmetic-shop.js: boxes are paid with earned MP only, every reward and catalogue item can be previewed on the
  * player's own avatar, only owned and wearable items can be equipped, and the server confirms each change. */
 export type CosmeticsTab = 'boxes' | 'wardrobe';
 export const WORLD_NAMES = ['Domino City', 'Duel Academy'] as const;
-const KIND_NAMES: Readonly<Record<BoxId, string>> = { hair: 'Hair', dueldisk: 'Duel Disks', outfit: 'Outfits' };
+const KIND_NAMES: Readonly<Record<BoxId | CosmeticKind, string>> = { head: 'Head & Hair', hair: 'Hair', accessory: 'Accessories', dueldisk: 'Duel Disks', outfit: 'Outfits' };
 const RARITY_NAMES: Readonly<Record<Rarity, string>> = { common: 'Common', rare: 'Rare', super: 'Super Rare', ultra: 'Ultra Rare' };
 export interface CosmeticsDeps {
   dispatch(action: OnlineAction): void;

@@ -1,11 +1,13 @@
 import { ApiError, HttpClient, ResponseError } from '../services/http';
 import { serverMessage } from '../shop/errors';
 
-export type BoxId = 'hair' | 'dueldisk' | 'outfit';
+/** Main's Wardrobe boxes: 'head' draws hair and accessories (server cosmetics.ts). */
+export type BoxId = 'head' | 'dueldisk' | 'outfit';
+export type CosmeticKind = 'hair' | 'accessory' | 'dueldisk' | 'outfit';
 export type Rarity = 'common' | 'rare' | 'super' | 'ultra';
 export interface Player { pid: number; name: string }
 export interface Cosmetic {
-  id: string; name: string; kind: BoxId; rarity: Rarity; slot: number;
+  id: string; name: string; kind: CosmeticKind; rarity: Rarity; slot: number;
   variants: { gender: 'male' | 'female'; bit: number; number: number; worlds: number[]; name?: string }[];
   owned: boolean; compatible: boolean; copies: number; tradable: number; artwork?: string;
 }
@@ -62,7 +64,8 @@ function num(v: unknown, max = Number.MAX_SAFE_INTEGER): number { if (typeof v !
 function nat(v: unknown, max = Number.MAX_SAFE_INTEGER): number { const n = num(v, max); if (!Number.isSafeInteger(n)) return bad(); return n; }
 function list<T>(v: unknown, read: (x: unknown) => T, max = 2048): T[] { if (!Array.isArray(v) || v.length > max) return bad(); return v.map(read); }
 function one<T extends string>(v: unknown, choices: readonly T[]): T { if (!choices.includes(v as T)) return bad(); return v as T; }
-const kinds = ['hair', 'dueldisk', 'outfit'] as const;
+const kinds = ['hair', 'accessory', 'dueldisk', 'outfit'] as const;
+const boxIds = ['head', 'dueldisk', 'outfit'] as const;
 const rarities = ['common', 'rare', 'super', 'ultra'] as const;
 const genders = ['male', 'female'] as const;
 function player(v: unknown): Player { const o = obj(v); return { pid: nat(o.pid), name: str(o.name) }; }
@@ -87,9 +90,9 @@ export function decodeCosmetics(value: unknown): CosmeticsState {
     players: list(o.players, player), catalog: list(o.catalog, cosmetic), inventory: list(o.inventory, cosmetic), trades: list(o.trades, offer, 32),
     appearance: { gender: one(a.gender, genders), world: world(a.world), parts: parts(a.parts), looks: { '0': parts(looks['0']), '1': parts(looks['1']) } },
     appearanceOptions: options(o.appearanceOptions), appearanceOptionsByWorld: { '0': options(byWorld['0']), '1': options(byWorld['1']) },
-    boxes: list(o.boxes, x => { const b = obj(x), p = obj(b.pity); return { id: one(b.id, kinds), name: str(b.name), price: nat(b.price), available: bool(b.available), baseOdds: odds(b.baseOdds), nextOdds: odds(b.nextOdds),
+    boxes: list(o.boxes, x => { const b = obj(x), p = b.pity === undefined ? { superMisses: 0, ultraMisses: 0, superAt: b.superAt, ultraAt: b.ultraAt ?? null } : obj(b.pity); /* main's boxes: superAt / ultraAt, no per-player pity */ return { id: one(b.id, boxIds), name: str(b.name), price: nat(b.price), available: bool(b.available), baseOdds: odds(b.baseOdds), nextOdds: odds(b.nextOdds),
       pity: { superMisses: nat(p.superMisses), ultraMisses: nat(p.ultraMisses), superAt: nat(p.superAt), ultraAt: p.ultraAt === null ? null : nat(p.ultraAt) },
-      pool: list(b.pool, x => { const c = obj(x); return { ...cosmetic(c), baseChance: num(c.baseChance, 100), nextChance: num(c.nextChance, 100) }; }) }; }, 3) };
+      pool: b.pool === undefined ? [] : list(b.pool, x => { const c = obj(x); return { ...cosmetic(c), baseChance: num(c.baseChance, 100), nextChance: num(c.nextChance, 100) }; }) }; }, 3) };
   if (o.reward !== undefined) result.reward = { ...cosmetic(o.reward), duplicate: bool(obj(o.reward).duplicate) };
   if (o.requestId !== undefined) result.requestId = token(o.requestId);
   if (o.replay !== undefined) result.replay = bool(o.replay);

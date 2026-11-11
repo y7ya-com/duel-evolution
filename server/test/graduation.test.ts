@@ -52,7 +52,8 @@ function world(n: number, who: (i: number) => Who) {
   const play = async (a: number, b: number, o: { winner: 0 | 1 | null; secs?: number; turns?: number; surrender?: boolean }) => {
     const m = g.pvp!.reserve(players[a].s, players[b].s, "autoduel") as unknown as PvpMatch;
     m.attach(players[a].duel); m.attach(players[b].duel);
-    const e = { started: true, over: false, ended: false, turn: 12, stats: null, lastLp: [4000, 0], pending: () => 0, resend: () => {},
+    // the turn the duel reached (pvpMatch counts it for the economy's minimum length): an instant surrender reached none
+    const e = { started: true, over: false, ended: false, turn: o.turns ?? (o.surrender ? 0 : 12), stats: null, lastLp: [4000, 0], pending: () => 0, resend: () => {},
       end: vi.fn(() => { e.over = e.ended = true; }), surrender: vi.fn(), abandon: vi.fn() };
     m.ps = e as unknown as PvpSession;
     (m as any).t0 = Date.now() / 1000 - (o.secs ?? 600);

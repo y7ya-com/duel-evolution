@@ -39,7 +39,7 @@ describe("«Watch» OFF rooms", () => {
       const h = harness();
       const [A, B, C] = await players(h, 3);
       await ask(A, 0x4288, roomReq(wmode, dstyle), 0x428a);
-      h.game.pvp!.reserve(sess(h, B), sess(h, A));       // B takes A's room
+      h.game.pvp!.reserve(sess(h, B), sess(h, A), "room");       // B takes A's room
       const d = await ask(C, 0x4320, be32(A.pid!), 0x4321);
       expect(i32(d)).toBe(watchable ? 0 : 1);
       expect(i32(await ask(C, 0x4320, be32(B.pid!), 0x4321))).toBe(watchable ? 0 : 1);   // by either player
@@ -105,7 +105,7 @@ describe("PvP MP: the minimum length", () => {
     const [A, B] = await players(h, 2);
     const mp = (i: number) => (Object.values(h.state().accounts) as any[]).find((a) => a.idx === i + 1).profiles["0"].rec.mp;
     const before = [mp(0), mp(1)];
-    const m = h.game.pvp!.reserve(sess(h, A), sess(h, B)) as unknown as Record<string, any>;   // its private t0 / surrender
+    const m = h.game.pvp!.reserve(sess(h, A), sess(h, B), "room") as unknown as Record<string, any>;   // its private t0 / surrender
     m.ps = { turn, started: true, over: false, stats: null, lastLp: null, end() {}, resend() {}, pending() { return "nobody"; } } as any;
     m.t0 = Date.now() / 1000 - secs;
     m.surrender(1);

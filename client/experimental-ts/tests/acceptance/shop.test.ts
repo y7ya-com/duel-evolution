@@ -156,7 +156,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(reason).toBe('Needs 500 more earned MP. Starter MP cannot buy boxes.');
       expect(await a.ev(`[...document.querySelector('[data-key="cosmetic-box:hair"]').querySelectorAll('button')].find(b=>b.textContent==='Open box').disabled`)).toBe(true);
       // The server agrees: a hand-made open request is refused with no charge.
-      const refused = await a.ev(`(async()=>{const s=await (await fetch('/api/de/cosmetics',{credentials:'include'})).json();const r=await fetch('/api/de/cosmetics/open',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({boxId:'hair',requestId:s.nextRequestId})});return {status:r.status,body:await r.json()};})()`) as { status:number; body:{ error:string } };
+      const refused = await a.ev(`(async()=>{const s=await (await fetch('/api/de/cosmetics',{credentials:'include'})).json();const r=await fetch('/api/de/cosmetics/open',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({boxId:'head',requestId:s.nextRequestId})});return {status:r.status,body:await r.json()};})()`) as { status:number; body:{ error:string } };
       expect(refused.status).toBeGreaterThanOrEqual(400); expect(refused.body.error).toBe('insufficient-earned-mp');
       await screenshot(a,'cosmetics-boxes-starter');
 

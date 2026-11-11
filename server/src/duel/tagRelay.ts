@@ -37,7 +37,7 @@ export class TagRelayMatch extends PvpMatch {
   private readyData: Uint8Array[] = [EMPTY, EMPTY];
   private initial: SItem[][] = [[], []];
   constructor(hub: Matches, seats: Four<Session>, readonly dropRelay: () => void) {
-    super(hub, seats[0], seats[1]);
+    super(hub, seats[0], seats[1], "room");   // unranked (ranking.ts isRankedOrigin)
     this.seats = seats;
     this.matchStyle = null; // single casual game; no ranked rewards or match side decking
   }
@@ -290,7 +290,7 @@ export function installTagRelays(g: Game, hub: Matches) {
     if (m && !X(c).pvp && mid === 0x6001) m.attach(c);
     return route(c, mid);
   };
-  hub.reserve = (a, b) => { for (const s of [a, b]) { const m = relay.matches.get(s.pid!); if (m) m.cancelRelay(); } return reserve(a, b); };
+  hub.reserve = (a, b, origin) => { for (const s of [a, b]) { const m = relay.matches.get(s.pid!); if (m) m.cancelRelay(); } return reserve(a, b, origin); };
 }
 export const tagChat = (g: Game, s: Session | null, c: Conn, bytes: Uint8Array) => !!s && !!services.get(g)?.chat(s, c, enc.decode(bytes));
 

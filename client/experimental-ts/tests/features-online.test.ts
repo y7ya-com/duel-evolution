@@ -30,9 +30,9 @@ describe('online server contracts', () => {
   it('decodes actual server catalogue, open, replay, equip and trade receipts', () => {
     const f = fixture();
     const info = decodeCosmetics(cosmeticInfo(f.game, f.a)); expect(info.boxes).toHaveLength(3); expect(info.catalog.length).toBeGreaterThan(20);
-    const opened = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'hair', requestId: info.nextRequestId }));
+    const opened = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'head', requestId: info.nextRequestId }));
     expect(opened.requestId).toBe('0'); expect(opened.nextRequestId).toBe('1'); expect(opened.reward?.owned).toBe(true);
-    const replay = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'hair', requestId: '0' })); expect(replay.replay).toBe(true); expect(replay.wallet).toEqual(opened.wallet);
+    const replay = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'head', requestId: '0' })); expect(replay.replay).toBe(true); expect(replay.wallet).toEqual(opened.wallet);
     expect(decodeCosmetics(cosmeticEquip(f.game, f.a, { id: opened.reward!.id })).equipped?.id).toBe(opened.reward!.id);
     const raw = f.game.store.loadRaw(); raw.accounts.alice.cosmetics.copies[opened.reward!.id] = 1; f.game.store.saveRaw(raw);
     expect(decodeCosmetics(cosmeticTrade(f.game, f.a, { targetPid: f.b.pid, give: [{ id: opened.reward!.id, count: 1 }], want: [], requestId: 'stable-trade-1' })).offer?.status).toBe('pending');
@@ -58,9 +58,9 @@ describe('online request lifecycle', () => {
     const f = fixture(); let resolve!: (r: Response) => void;
     const fetch = vi.fn().mockImplementation((url: string) => url.endsWith('/open') ? new Promise<Response>(r => { resolve = r; }) : Promise.resolve(json(url.endsWith('/tag') ? tagApi(f.game, 'user-alice', 'GET')[1] : cosmeticInfo(f.game, f.a))));
     const { controller: c, http } = setup(fetch); await c.refresh();
-    const opening = c.dispatch({ type: 'open-box', boxId: 'hair' }); await c.dispatch({ type: 'open-box', boxId: 'hair' });
+    const opening = c.dispatch({ type: 'open-box', boxId: 'head' }); await c.dispatch({ type: 'open-box', boxId: 'head' });
     expect(fetch).toHaveBeenCalledTimes(3); expect(c.state.receipt).toBeNull();
-    resolve(json(cosmeticOpen(f.game, f.a, { boxId: 'hair', requestId: '0' }))); await opening;
+    resolve(json(cosmeticOpen(f.game, f.a, { boxId: 'head', requestId: '0' }))); await opening;
     expect(c.state.receipt?.cosmetics?.requestId).toBe('0'); c.dispose(); http.dispose();
   });
   it('never silently retries, retains an ambiguous box token across refresh, and rejects missing receipts', async () => {
@@ -69,9 +69,9 @@ describe('online request lifecycle', () => {
       if (url.endsWith('/open')) { if (fail) { fail = false; cosmeticOpen(f.game, f.a, JSON.parse(init.body as string)); return Promise.reject(new TypeError('connection lost')); } return Promise.resolve(json(cosmeticOpen(f.game, f.a, JSON.parse(init.body as string)))); }
       return Promise.resolve(json(url.endsWith('/tag') ? tagApi(f.game, 'user-alice', 'GET')[1] : cosmeticInfo(f.game, f.a)));
     });
-    const { controller: c, http } = setup(fetch); await c.refresh(); await c.dispatch({ type: 'open-box', boxId: 'hair' });
+    const { controller: c, http } = setup(fetch); await c.refresh(); await c.dispatch({ type: 'open-box', boxId: 'head' });
     expect(fetch).toHaveBeenCalledTimes(3); expect(c.state.retryAction).toMatchObject({ requestId: '0' }); expect(c.state.receipt).toBeNull();
-    await c.refresh(); expect(c.state.cosmetics?.nextRequestId).toBe('1'); await c.dispatch({ type: 'open-box', boxId: 'hair' });
+    await c.refresh(); expect(c.state.cosmetics?.nextRequestId).toBe('1'); await c.dispatch({ type: 'open-box', boxId: 'head' });
     expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).requestId).toBe('0'); expect(c.state.receipt?.cosmetics?.replay).toBe(true);
     fetch.mockResolvedValueOnce(json(cosmeticInfo(f.game, f.a))); await c.dispatch({ type: 'equip', id: 'hair:anything' }); expect(c.state.error).toBe('Missing equip receipt'); expect(c.state.receipt).toBeNull(); c.dispose(); http.dispose();
   });

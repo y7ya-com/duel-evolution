@@ -77,7 +77,7 @@ export const DISCORD_MARK = "\xa4";
  *  who ignores that pid doesn't get it. The text is already Latin-1 and short (bridge.ts gameText / gameLines). */
 export function relayIn(g: Game, from: { name: string; pid: number; text: string; channel?: number }): ChatMessage | null {
   if (g.restarting) return null;
-  const recipients = [...g.hub.sessions.values()].filter(s => online(s) && !(from.pid && ignores(g, s, from.pid)));
+  const recipients = [...g.hub.sessions.values()].filter(s => online(s) && !(from.pid && ignores(g, s.pid, from.pid)));
   const log = stream(g);
   const message: Stored = { id: ++log.next, at: Date.now(), channel: "global", pid: from.pid, name: from.name, text: from.text,
     audience: new Set(recipients.map(s => s.acct)) };
