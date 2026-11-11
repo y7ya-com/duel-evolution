@@ -5,6 +5,8 @@ import * as PP from "../src/game/persist.ts";
 import { REWARDS, rewardLogin, rewardDuel, rewardEvent, rewardsView, rewardsClaim, rewardDeckSaved } from "../src/game/rewards.ts";
 import { newRewardState, rollover, progress, utcWeek, type RewardEvent } from "../src/game/missions.ts";
 import { stateToRows, rowsToState } from "../src/db/project.ts";
+import { mapNpcs } from "../src/game/npcs.ts";
+import { shardValues } from "../src/game/shards-config.ts";
 const day = 86400, now = Date.UTC(2026, 10, 5) / 1000;
 beforeEach(() => { REWARDS.enabled = true; PP.setProgression(true); });
 afterEach(() => { REWARDS.enabled = false; PP.setProgression(false); vi.restoreAllMocks(); });
@@ -175,5 +177,81 @@ describe("reward server integration", () => {
     const p: any = {}; REWARDS.enabled = false; rewardLogin(null, p); rewardEvent(null, p, "shop");
     expect(p.rewards).toBeUndefined();
     REWARDS.enabled = true; PP.setProgression(false); rewardLogin(null, p); expect(p.rewards).toBeUndefined();
+  });
+});
+
+describe("limited-time NPC event (REWARDS.events)", () => {
+  const ev = REWARDS.events[0]!, id = `event:${ev.key}`;
+  const opened = Date.parse(`${ev.from}T00:00:00Z`) / 1000, closes = Date.parse(`${ev.until}T00:00:00Z`) / 1000;
+  async function eventSetup(t = opened + 3600) {
+    const f = await setup();
+    const clock = vi.spyOn(f.h.game.clock, "time").mockReturnValue(t);
+    const win = (npc: number, result = "win") => f.h.game.withCtx(f.session, () => {
+      const st = f.h.game.loadState(); PP.npcDuelResult(f.h.game, PP.profile(st, 0)!, npc, result, 10, 4000); f.h.game.saveState(st);
+    });
+    const mission = () => f.view().missions.find((m: any) => m.id === id);
+    return { ...f, clock, win, mission, map: mapNpcs(f.h.game) };
+  }
+
+  it("is worth 3 UR crafts, in shards", () => {
+    expect(ev.shards).toBe(3 * shardValues().craft.UR);
+    expect(ev.shards).toBe(24000);
+  });
+  it("counts each of the 36 map NPCs once, a famous one's higher levels as that character; losses and wins before it opened don't count", async () => {
+    const f = await eventSetup(opened - 60);
+    f.win(51);                                                   // the day before: no event, nothing counted
+    expect(f.mission()).toBeUndefined();
+    f.clock.mockReturnValue(opened + 60);
+    expect(f.map).toHaveLength(36);
+    expect(f.mission()).toMatchObject({ kind: "event", target: 36, progress: 0, mp: 0, shards: 24000, label: "Beat all 36 NPCs on the map",
+      ends: new Date(closes * 1000).toISOString(), claimable: false });
+    expect(f.mission().left).toHaveLength(36);
+    f.win(51); f.win(52); f.win(53);                              // Yami Yugi at three levels: one NPC
+    f.win(2, "lose"); f.win(2, "draw");                          // not wins
+    expect(f.mission().progress).toBe(1);
+    expect(f.mission().left).not.toContain("Yami Yugi");
+    for (const n of f.map) f.win(n);
+    expect(f.mission()).toMatchObject({ progress: 36, claimable: true });
+  });
+  it("pays 24,000 shards into the shard wallet with an audit line, once; the rows survive D1", async () => {
+    const f = await eventSetup();
+    for (const n of f.map) f.win(n);
+    f.edit((p) => { p.shards = 500; });
+    const requestId = f.view().nextRequestId, mpBefore = f.p().rec.mp;
+    expect(f.claim(id, requestId)).toMatchObject({ grant: { id, mp: 0, shards: 24000 }, replayed: false, shards: 24500 });
+    expect([f.p().shards, f.p().rec.mp]).toEqual([24500, mpBefore]);
+    expect(f.p().shard_audit.at(-1)).toMatchObject({ operation: "reward", reward: id, shardDelta: 24000, balance: 24500, requestId });
+    const restored = rowsToState(stateToRows(f.h.state())); f.h.game.store.saveRaw(restored);
+    expect(f.claim(id, requestId)).toMatchObject({ replayed: true });
+    expect(f.claim(id)).toMatchObject({ error: "not-claimable" });
+    expect(f.p().shards).toBe(24500);
+    expect(f.p().rewards.beaten[ev.key]).toHaveLength(36);
+  });
+  it("once per account: claimed on another character, it shows claimed here and can't be claimed", async () => {
+    const f = await eventSetup();
+    for (const n of f.map) f.win(n);
+    f.edit((_p, account) => {
+      account.profiles[1] = { name: "Bob", rewards: { ...structuredClone(account.profiles[0].rewards),
+        missions: [{ id, label: "x", event: "npc", kind: "event", target: 36, progress: 36, mp: 0, shards: 24000, claimed: true }] } };
+    });
+    expect(f.mission()).toMatchObject({ claimed: true, claimable: false });
+    expect(f.claim(id)).toMatchObject({ error: "not-claimable" });
+    expect(f.p().shards ?? 0).toBe(0);
+  });
+  it("ends at until: an unfinished one goes, a finished one stays until claimed, no wins counted after", async () => {
+    const f = await eventSetup();
+    f.win(f.map[0]!);
+    f.clock.mockReturnValue(closes);
+    expect(f.mission()).toBeUndefined();
+    const g = await eventSetup();
+    for (const n of g.map) g.win(n);
+    g.clock.mockReturnValue(closes + 86400 * 3);
+    expect(g.mission()).toMatchObject({ progress: 36, claimable: true });
+    expect(g.claim(id)).toMatchObject({ grant: { shards: 24000 } });
+  });
+  it("free mode and progression off don't track", async () => {
+    const f = await eventSetup();
+    PP.setProgression(false); f.win(f.map[0]!); PP.setProgression(true);
+    expect(f.mission().progress).toBe(0);
   });
 });

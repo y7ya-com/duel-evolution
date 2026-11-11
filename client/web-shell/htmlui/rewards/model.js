@@ -1,8 +1,10 @@
-// What the Missions window (rewards/missions.js) shows, from the server's rewards view (rewards/api.js): the four tabs
+// What the Missions window (rewards/missions.js) shows, from the server's rewards view (rewards/api.js): the tabs (Event
+// only while the server has a limited-time event: its reward is shards, not MP)
 // and their claimable counts, each tab's rows and its strip (the daily stockpile and reset, the weekly reset, the first
 // steps' overall progress, the achievements done), and the login calendar's 30 days. Pure: no DOM, no fetch.
 // Every day boundary is the server's: 00:00 UTC, weeks from Monday 00:00 UTC (server/src/game/missions.ts).
 export const TABS = [
+  { key: 'event', label: 'Event' },
   { key: 'daily', label: 'Daily' },
   { key: 'weekly', label: 'Weekly' },
   { key: 'first', label: 'First Steps' },
@@ -34,15 +36,18 @@ const ORDER = { claimable: 0, open: 1, done: 2 };
 export function rowsOf(view, tab) {
   const ms = (view?.missions || []).filter(m => m.kind === tab);
   return ms.map((m, i) => ({ m, i })).sort((a, b) => ORDER[missionState(a.m)] - ORDER[missionState(b.m)] || a.i - b.i)
-    .map(({ m }) => ({ id: m.id, label: m.label, mp: m.mp, target: m.target, state: missionState(m),
+    .map(({ m }) => ({ id: m.id, label: m.label, mp: m.mp, shards: m.shards || 0, left: m.left || null, target: m.target, state: missionState(m),
       progress: Math.min(m.target, Math.max(0, m.progress)), pct: m.target > 0 ? Math.min(1, Math.max(0, m.progress / m.target)) : 0 }));
 }
 
 /** The claimable mission ids, all tabs or one. */
 export const claimableIds = (view, tab) => (view?.missions || []).filter(m => (!tab || m.kind === tab) && missionState(m) === 'claimable').map(m => m.id);
 
-/** The tab strip: each tab's label and claimable count. */
-export const tabsOf = view => TABS.map(t => ({ ...t, count: claimableIds(view, t.key).length }));
+/** The tab strip: each tab's label and claimable count (Event only while there is one). */
+export const tabsOf = view => TABS.filter(t => t.key !== 'event' || (view?.missions || []).some(m => m.kind === 'event'))
+  .map(t => ({ ...t, count: claimableIds(view, t.key).length }));
+/** An unclaimed limited-time event: the tab the window opens on. */
+export const openEvent = view => (view?.missions || []).find(m => m.kind === 'event' && !m.claimed) || null;
 
 /** The strip under the tabs for `tab` at `now` (ms): { text, sub, bar?: { done, total, pct } }. */
 export function stripOf(view, tab, now = Date.now()) {
@@ -54,6 +59,12 @@ export function stripOf(view, tab, now = Date.now()) {
       note: held >= cap ? 'Your stockpile is full: finish some to make room for tomorrow’s.' : '' };
   }
   if (tab === 'weekly') return { text: `${done} of ${ms.length} claimed`, sub: `Resets in ${duration(nextWeek(now) - now)}` };
+  if (tab === 'event') {
+    const m = ms[0];
+    if (!m) return { text: 'No event right now', sub: '' };
+    if (m.claimed) return { text: 'Event reward claimed', sub: `${fmt(m.shards)} shards are in your wallet` };
+    return { text: `${fmt(m.progress)} of ${fmt(m.target)} NPCs beaten`, sub: `Ends in ${duration(Date.parse(m.ends) - now)}`, clock: true };
+  }
   if (tab === 'first') {
     const total = ms.reduce((n, m) => n + m.mp, 0), got = ms.filter(m => m.claimed).reduce((n, m) => n + m.mp, 0);
     return { text: `${done} of ${ms.length} complete`, sub: `${fmt(got)} / ${fmt(total)} MP earned`,

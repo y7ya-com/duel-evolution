@@ -132,7 +132,7 @@ export async function claimAll(ids) {
   for (const id of ids) {
     try { grants.push((await claim(id)).grant); } catch (e) { error = e; break; }
   }
-  return { view, grants, mp: grants.reduce((n, g) => n + (g.mp || 0), 0), error };
+  return { view, grants, mp: grants.reduce((n, g) => n + (g.mp || 0), 0), shards: grants.reduce((n, g) => n + (g.shards || 0), 0), error };
 }
 
 export function onChange(cb) {

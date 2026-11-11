@@ -1,7 +1,7 @@
 // node client/web-shell/htmlui/rewards/model_test.mjs: rewards/model.js: the tabs' counts, the rows' order and states,
 // each tab's strip (the UTC resets, the first steps' total), the login calendar. Synthetic data only.
 import assert from 'node:assert/strict';
-import { TABS, duration, nextDay, nextWeek, missionState, rowsOf, claimableIds, tabsOf, stripOf, calendarOf } from './model.js';
+import { TABS, duration, nextDay, nextWeek, missionState, rowsOf, claimableIds, tabsOf, stripOf, calendarOf, openEvent } from './model.js';
 
 const m = (id, kind, progress, target, extra = {}) => ({ id, label: id, event: 'play', target, progress, mp: 80, kind, claimed: false,
   claimable: progress >= target, ...extra });
@@ -17,7 +17,7 @@ const V = {
   login: { day: '2026-11-05', count: 12, streak: 3, cycleDay: 12, calendar: cal },
 };
 
-assert.deepEqual(TABS.map(t => t.label), ['Daily', 'Weekly', 'First Steps', 'Achievements']);
+assert.deepEqual(TABS.map(t => t.label), ['Event', 'Daily', 'Weekly', 'First Steps', 'Achievements']);
 assert.equal(duration(5 * 3600e3 + 12 * 60e3 + 30e3), '5h 12m');
 assert.equal(duration(2 * 86400e3 + 5 * 3600e3), '2d 5h');
 assert.equal(duration(12 * 60e3), '12m');
@@ -78,3 +78,19 @@ assert.equal(c.days.filter(d => d.received).length, 0);
 assert.equal(c.tomorrow.day, 1);
 assert.deepEqual(c.nextMilestone, { day: 10, mp: 100, in: 10 });
 console.log('rewards model_test: ok');
+
+// a limited-time event: its tab only while the view has one; shards, not MP; the NPCs still to beat; the time left
+{
+  const EV = { id: 'event:npc-sweep-2026-11', label: 'Beat all 36 NPCs on the map', event: 'npc', kind: 'event', target: 36, progress: 5, mp: 0,
+    shards: 24000, ends: '2026-11-25T00:00:00.000Z', claimed: false, claimable: false, left: ['Yami Yugi', 'Seto Kaiba'] };
+  const now = Date.parse('2026-11-11T12:00:00Z');
+  assert.deepEqual(tabsOf({ missions: [] }).map(t => t.key), ['daily', 'weekly', 'first', 'lifetime']);
+  assert.deepEqual(tabsOf({ missions: [EV] }).map(t => t.key), ['event', 'daily', 'weekly', 'first', 'lifetime']);
+  assert.equal(openEvent({ missions: [EV] }), EV);
+  assert.equal(openEvent({ missions: [{ ...EV, claimed: true }] }), null);
+  const [r] = rowsOf({ missions: [EV] }, 'event');
+  assert.deepEqual([r.shards, r.mp, r.left, r.state, r.progress], [24000, 0, ['Yami Yugi', 'Seto Kaiba'], 'open', 5]);
+  assert.deepEqual(stripOf({ missions: [EV] }, 'event', now), { text: '5 of 36 NPCs beaten', sub: 'Ends in 13d 12h', clock: true });
+  assert.equal(stripOf({ missions: [{ ...EV, claimed: true }] }, 'event', now).text, 'Event reward claimed');
+  assert.deepEqual(tabsOf({ missions: [{ ...EV, progress: 36, claimable: true }] }).map(t => t.count), [1, 0, 0, 0, 0]);
+}

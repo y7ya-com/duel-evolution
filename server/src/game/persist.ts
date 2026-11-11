@@ -1,4 +1,4 @@
-import { rewardDuel, rewardEvent } from "./rewards.ts";
+import { rewardDuel, rewardEvent, rewardNpcWin } from "./rewards.ts";
 // Per-character persistence (py research/persistencia/proposal.py): the player record, trunk, PBIN/NPCBIN, the prize
 // queue, NPC chains, titles, duel results and XP, plus make_handlers (PH). Formats: that file's docstring.
 // Env knobs are fixed at py's defaults as the server runs them (arranque sets YO2_TRUNK_START=all3).
@@ -1072,7 +1072,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   recInc(r, "duels");
   recInc(r, "turns", Math.max(0, int(turns || 0)));
   applyDuelStats(p, stats, lpLeft, surrender);
-  if (result === "win") { recInc(r, "duels_won"); if (NPC_IN_RECORD) recInc(r, "wins"); }
+  if (result === "win") { recInc(r, "duels_won"); if (NPC_IN_RECORD) recInc(r, "wins"); rewardNpcWin(g, p, npc); }
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);

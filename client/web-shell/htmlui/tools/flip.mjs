@@ -265,6 +265,13 @@ export const ROUTES = {
     steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500]], flip: ['CWindowPlayerSelect'] },
   // the lobby's chat: Chat Tester's My Room, the red door held with the right button (its room menu), Lobby, the NPC
   // popup's OK
+  // the Missions window over the lobby from its menu-bar button (rewards/launcher.js), on the server's limited-time event
+  // (REWARDS.events: its Event tab, the NPCs still to beat) while one is on
+  'missions-event': { player: 'Event Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
+    ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
+    ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 4000], ['shot', 'lobby'],
+    ['js', "document.querySelector('.de-rwl button').click()"], ['wait', 4000], ['shot', 'missions'],
+    ['js', "document.querySelector('.de-rw [data-tab=event]')?.click()"], ['wait', 2000], ['shot', 'event'], ['snap', 'event']], flip: [] },
   chat: { player: 'Chat Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500],
     ['leave', 600, 344, 7], ['scene', 10, 90000], ['wait', 4000], ['rhold', 855, 300, 2000], ['wait', 3000], ['leave', 504, 240, 10],
     ['wait', 8000], ['click', 511, 670], ['wait', 3000], ['window', 'CChatWindow', 30000], ['wait', 2000],
