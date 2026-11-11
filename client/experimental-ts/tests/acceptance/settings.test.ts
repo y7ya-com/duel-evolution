@@ -269,7 +269,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       for (let i = 0; i < 400 && (await page.ev(`window.__audio.starts.length`) as number) < startsBefore + 3; i++) { if (await duelBot(page) === 'finished') break; await sleep(150); }
       const cues = await page.ev(`window.__audio.starts.slice(${startsBefore})`) as { gain:number; dur:number }[];
       expect(cues.length).toBeGreaterThan(0);
-      expect(cues.every(c => Math.abs(c.gain - 0.8) < 0.01 && c.dur > 0)).toBe(true);
+      expect(cues.filter(c => !(Math.abs(c.gain - 0.8) < 0.01 && c.dur > 0))).toEqual([]);
       const decodes = await page.ev(`window.__audio.decoded`) as number;
       // Mute effects in Options mid-duel: no further cues; the background track keeps its own level.
       await click(page,'Options'); await until(page,`document.querySelector('input[type=range][aria-label="Sound effects"]')`,30000);

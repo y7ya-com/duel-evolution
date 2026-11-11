@@ -346,8 +346,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // a language that could not load (CSystemConfigManager::applyLanguage refused): main's error dialog over DUEL
     // OPTIONS; the previous language stays and < / > choose it again
     const refused = state.languageStatus?.error;
-    if (refused && refused !== languageErrorSeen) out.push(stockDialog({ ids: htmlIds }, 'language-error', 'error', refused,
-      [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]));
+    if (refused && refused !== languageErrorSeen) {
+      const dialog = stockDialog({ ids: htmlIds }, 'language-error', 'error', refused, [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]);
+      Object.assign(dialog.win, { z: 51503 }); out.push(dialog);   // over DUEL OPTIONS (51453)
+    }
     else if (!refused) languageErrorSeen = '';
     return out;
   };

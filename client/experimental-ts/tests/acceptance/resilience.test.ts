@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -24,10 +24,16 @@ async function resumed(page:Page,timeout = 30000) {
   await until(page,`window.__net.statuses.includes('reconnecting')`,timeout);
   await until(page,`document.querySelector('.de-connection.online')&&window.__net.urls.at(-1).includes('resume=1')&&${live}.readyState===1`,timeout);
 }
-/** Every owned copy in the deck editor's collection (owned-only view). */
+/** Every owned copy in the deck screen's trunk (main's CWindowModelKaban: the character's cards and their counts). */
 async function collection(page:Page):Promise<number> {
-  await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-key^="collection-card:"]').length>0`,60000); await sleep(600);
-  return page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].reduce((n,b)=>n+Number(/×(\\d+)/.exec(b.querySelector('.de-card-count')?.textContent??'')?.[1]??0),0)`) as Promise<number>;
+  const deck = await openDeckEditor(page); await sleep(600);
+  return deck.collection.reduce((n,c) => n + c.owned,0);
+}
+const TRUNK = `document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`;
+/** Back to the lobby: main's deck screen leaves through its EXIT, other screens through Return to Lobby. */
+async function backToLobby(page:Page) {
+  if (await page.ev(lobbyShown)) return;
+  if (await page.ev(deckShown)) await exitDeckEditor(page); else { await backToLobby(page); }
 }
 async function chat(page:Page,message:string) { await say(page,message); }
 const mp = (page:Page) => page.ev(`Number((/([\\d,]+) MP/.exec(document.querySelector('.de-shop-grid')?.parentElement?.innerText ?? '')?.[1] ?? '-1').replaceAll(',',''))`) as Promise<number>;
@@ -106,13 +112,13 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       expect(await mp(page)).toBe(after);
       expect(granted).toBeGreaterThan(copies);
       // Deck editor: the collection reloads over a resumed tunnel.
-      await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-key^="collection-card:"]').length>0`,60000);
+      await click(page,'Edit Deck'); await until(page,TRUNK,60000);
       await drop(page); await resumed(page);
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       const again = await collection(page);
       expect(again).toBe(granted);
       // Duel: drop during the player's own main phase; one End Turn after the resume ends exactly one turn.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await startNpcDuel(page,'Yami Yugi');
       let mine = false;
       for (let i = 0; i < 400 && !mine; i++) {
@@ -199,7 +205,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const copies = await collection(page);
       await reload(); const copies2 = await collection(page);
       expect(copies2).toBe(copies); seen.push(`deck: ${copies2} copies`);
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`document.querySelectorAll('.de-field-card').length>=10`,60000);
       await page.ev(`sessionStorage.removeItem('net-closed')`);
@@ -260,7 +266,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await reenterWorld(page,me);
       // Malformed inventory: a collection row block of the wrong width mid-transaction; the collection is unchanged.
       const copies = await collection(page);
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await tamper(page,`m=>m.id===0x3102`,`m=>({id:m.id,data:m.data.slice(0,m.data.length-2)})`);
       await click(page,'Edit Deck');
       const inventory = await lostToTitle(page);
@@ -269,7 +275,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const copies2 = await collection(page);
       expect(copies2).toBe(copies);
       // Unsupported message: an unknown id on the lobby channel is ignored and the session carries on.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await tamper(page,`m=>m.id!==0xca01`,`m=>({id:0x7ff0,data:m.data})`);
       await chat(page,`after-unknown ${RUN}`);
       await until(page,`window.__net.tampered`,20000);
@@ -339,14 +345,14 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const broken = `[...document.querySelectorAll('.de-client img')].filter(i=>i.getAttribute('src')&&i.complete&&i.naturalWidth===0&&getComputedStyle(i).visibility!=='hidden'&&i.getClientRects().length).length`;
       const shopBroken = await page.ev(broken) as number;
       await screenshot(page,'resilience-no-art-shop');
-      await click(page,'Edit Deck'); await until(page,`document.querySelectorAll('[data-key^="collection-card:"]').length>0`,60000); await sleep(3000);
+      await click(page,'Edit Deck'); await until(page,TRUNK,60000); await sleep(3000);
       const deckBroken = await page.ev(broken) as number;
-      const deckNames = await page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].slice(0,3).map(b=>b.innerText.replace(/\\s+/g,' ').trim()).join(' / ')`);
+      const deckNames = await page.ev(`[...document.querySelectorAll('[data-zone="trunk"][data-passcode]')].slice(0,3).map(b=>b.getAttribute('aria-label')).join(' / ')`);
       await screenshot(page,'resilience-no-art-deck');
       expect([shopBroken,deckBroken]).toEqual([0,0]);
       await page.send('Network.setBlockedURLs',{ urls:[] });
       // Signed out elsewhere: the session cookie is gone; the next account request asks to sign in again.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await page.send('Network.clearBrowserCookies');
       await click(page,'Edit Deck');
       await until(page,`[...document.querySelectorAll('[role=alert]')].length>0`,30000);
@@ -389,7 +395,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       expect(before - after).toBe(200);
       // Navigation while a reply is pending: the shop is requested, the player opens the deck editor, the late
       // shop reply does not take the screen back.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/shop/`);
       // Shop is a Main Menu entry: open the menu, then click without the pointer (the reply is being held).
       await menuClick(page,'Shop');
@@ -399,7 +405,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       await page.ev(`window.__net.http.delay=null;window.__net.http.release();window.__net.http.release=null`);
       await until(page,`document.querySelectorAll('.de-shop-item h3').length>0`,30000);
       // Disconnect with a reply outstanding, go online again: the old session's late reply is dropped.
-      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
+      await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/(shop|decks)/`);
       await menuClick(page,'Edit Deck');
       await until(page,`window.__net.http.release`,10000);
