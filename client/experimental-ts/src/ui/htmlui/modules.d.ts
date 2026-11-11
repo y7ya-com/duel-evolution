@@ -100,6 +100,10 @@ declare module '@htmlui/controls/basic.js' {
   /** Whether a generic renderer draws this control's class. */
   export function covers(c: { cls: string }): boolean;
 }
+declare module '@htmlui/controls/skin.js' {
+  /** main's duel window frame (the grey FrameDuel panel and its well), appended to parent at the given size. */
+  export function duelWindow(parent: HTMLElement, size: { w: number; h: number }): HTMLElement;
+}
 declare module '@htmlui/crafting/api.js' {
   export function peekView(): unknown;
   export function onChange(cb: (view: unknown) => void): () => void;

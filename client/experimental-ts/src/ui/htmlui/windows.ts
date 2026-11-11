@@ -338,9 +338,9 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
 // capture: 0, 386, 282 x 350 for 12 entries, the title 'Main Menu' 8, 0, 264 x 24, the close box 263, 0, the entries
 // 12, 27 + 26 n, 258 x 24; the window stands on the menu bar (its bottom at 736).
 export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
-  // main's lobby.js (menuFrame) lays the entries out itself, a 28 px pitch from 32 plus its own Modern UI row, the panel
+  // main's lobby.js (menuFrame) lays the entries out itself, a 28 px pitch from 32 (its Modern UI row parked here, as live), the panel
   // standing on the bar: the window is that box, so the panel sits at its top
-  const h = 32 + 28 * (menu.entries.length + 1) + 8, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
+  const h = 32 + 28 * menu.entries.length + 8, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
   const close = () => { ctx.ui.menu = false; ctx.rerender(); };
   b.add('CWindowTaskFrameMain', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   b.add('CWindowTaskShadowText', 'title', { x: 8, y: 0, w: 264, h: 24 }, { text: 'Main Menu', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
@@ -609,7 +609,11 @@ export function findWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
     ['Whisper', 'find-whisper', lists.whisper && (t => { lists.whisper!(t.name); ctx.ui.find = null; })],
     ['Ignore', 'find-ignore', lists.ignored.some(x => x.pid === target?.pid) ? null : lists.ignore && (t => lists.ignore!(t.pid))],
   ];
-  actions.forEach(([label, key, run], i) => button(key, 13 + 124 * i, 64, 116, label, key, on(run)));
+  // each button as wide as its label (16-px duel-button text, about 8.6 px a character, 8 px padding a side: 'Add to
+  // Friend List' was cut in a 116-px button), the row spread over the well's 874 px
+  const widths = actions.map(([label]) => Math.round(label.length * 8.6 + 16)), gap = (874 - widths.reduce((a, w) => a + w, 0)) / (actions.length - 1);
+  let ax = 13;
+  actions.forEach(([label, key, run], i) => { button(key, Math.round(ax), 64, widths[i]!, label, key, on(run)); ax += widths[i]! + gap; });
   text('invitesLabel', 13, 96, 874, 'Invitations');
   const invites: { label: string; key: string; reply(accept: boolean): void }[] = [
     ...(lists.offers ?? []).map(o => ({ label: `${o.name} (Lv ${o.level}) wants to be friends.`, key: `find-offer:${o.pid}`, reply: (a: boolean) => lists.replyFriend?.(o.pid, a) })),
