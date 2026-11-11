@@ -99,7 +99,7 @@ export const SKIN_CSS = `
  * plate keys). */
 .de-client .de-lobby-name { left:8px; top:8px; min-width:250px; padding:5px 18px 5px 14px; font:16px/22px Arial,sans-serif; letter-spacing:.06em; color:#fff; ${OUTLINE}; border:2px solid #f2b42a; border-radius:5px;
   background:linear-gradient(to right,#1f7cf7,#4aa6fb 55%,#8ff3ff); box-shadow:inset 0 0 0 1px #ffe57a,0 1px 3px #0005; }
-.de-client .de-avatar-name { color:#fff; background:none; padding:0 2px; font:14px/16px Arial,sans-serif; letter-spacing:.04em; ${OUTLINE}; }
+.de-client .de-avatar-name { color:#fff; background:none; padding:0 2px; font:16px/18px Arial,sans-serif; letter-spacing:.04em; ${OUTLINE}; }
 .de-client .de-context { border:0; outline:0; border-radius:2px; padding:10px 14px 12px; background:rgba(255,255,255,.78); box-shadow:inset 0 0 0 1px #ecf481,inset 0 0 0 3px #ebf368,inset 0 0 0 5px #e9ea54,inset -1px -1px 0 5px #e2cf32,0 3px 10px #0004; }
 .de-client .de-context>.de-panel-title:first-child { margin:-10px -14px 8px!important; padding:4px 10px; color:#e8202a; text-shadow:none; background:#c8c8d0b3; border-radius:0; text-align:left; letter-spacing:.04em; }
 .de-client .de-context button:where(:not(:disabled)),.de-client .de-context button:disabled { color:#111; text-shadow:none; font-weight:normal; letter-spacing:.04em; border:1px solid #011434; border-radius:0; box-shadow:none; background:${PLATE}; }

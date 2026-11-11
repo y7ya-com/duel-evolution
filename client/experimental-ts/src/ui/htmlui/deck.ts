@@ -237,7 +237,9 @@ export function kabanWindow(ctx: DeckContext): WindowSpec {
   control(b, ids, 'frame', 'CWindowTaskFrameThin', 'Frame', { x: 736, y: 80, w: 288, h: 632, z: z + 6 }, { style: 8, parts: frame });
   const bar = t.parts(), tex = 'data/deck/deckbar_01_c03.png';
   t.sprite(bar, 'LT', tex, [0, 0, 8, 88], 736, 0, z + 7); t.sprite(bar, 'Top', tex, [8, 0, 8, 88], 744, 0, z + 7, { sx: 34 }); t.sprite(bar, 'RT', tex, [16, 0, 8, 88], 1016, 0, z + 7);
-  t.sprite(bar, 'TitleTop', 'data/deck/deck_moji_01_?.png', [0, 84, 160, 28], 744, 0, z + 14); t.sprite(bar, 'TitleMiddle', 'data/deck/deck_moji_01_?.png', [0, 112, 160, 28], 744, 28, z + 14);
+  t.sprite(bar, 'TitleTop', 'data/deck/deck_moji_01_?.png', [0, 84, 160, 28], 744, 0, z + 14);
+  // (the 'Rearrange' title under it: main's search panel stands over that row on live, its plate hiding the title; drawn
+  // here it came out over the search field)
   control(b, ids, 'bar', 'CWindowTaskDeckBar', 'Bar', { x: 736, y: 0, z: z + 7 }, { parts: bar });
   const total = deck ? deck.main.length + deck.side.length + deck.extra.length : 0;
   const num = t.parts(); t.swf(num, 'KabanCountBtn', 944, 4, z + 10); t.label(num, 'KabanCountNumber', `@9${total}`, total < 10 ? 1000 : total < 100 ? 992 : 984, 6, z + 16);
