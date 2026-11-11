@@ -12,6 +12,13 @@ export const DUEL_SOUND_EVIDENCE = {
   turn: { id: 0x10000005, path: 'se/turn_change.wav', volume: 120, source: 'View6→0x007d46c0→0x007d4720 player changed→sound call0x007d4762' },
   battlePhase: { id: 0x10000011, path: 'se/battle_turn.wav', volume: 125, source: 'View5 phase3→0x007d3d90→sound call0x007d3dea' },
   move: { id: 0x1000000f, path: 'se/card_move.wav', volume: 122, source: 'View 0x19 (dispatcher 0x0073de88): subkind P0>>16 in {0,1,3,4} → table 0x00741ca8 → sound call 0x0073dfd2' },
+  destroy: { id: 0x10000008, path: 'se/card_normal_brake.wav', volume: 126, source: 'EngineCmd3.cpp engCmdDestroy (0x31) CARD_BREAK view 0x1e; break.txt effect 0x007a46b0, push 0x10000008 at 0x007a487a' },
+  battleDestroy: { id: 0x10000007, path: 'se/card_attacked_brake.wav', volume: 122, source: 'explosion.txt / duel_ef_break_a effects 0x007a4ce0, 0x007b1120, push 0x10000007 at 0x007a4e4b / 0x007b1414 (a card broken by battle)' },
+  tribute: { id: 0x1000000c, path: 'se/ikenie.wav', volume: 123, source: 'yo2SummonManager.cpp 0x007ee020, push 0x1000000c at 0x007ee0a7 (0x46 tribute)' },
+  activate: { id: 0x1000000d, path: 'se/magic_active.wav', volume: 120, source: 'activation effects 0x007a3e90 / 0x007a44a0 / 0x007b4580: SE13 when their counter is 0 (0x12 chain set)' },
+  chain: { id: 0x1000001a, path: 'se/chain.wav', volume: 123, source: 'chain.txt plaque 0x00763610, push 0x1000001a at 0x0076374e; not for the first link' },
+  coin: { id: 0x10000019, path: 'se/coin.wav', volume: 127, source: '0x007ab4f0, push 0x10000019 at 0x007ab5ee: at each coin\'s relative counter 0 (0x5c)' },
+  dice: { id: 0x10000018, path: 'se/dice.wav', volume: 127, source: '0x007aa990, push 0x10000018 at 0x007aafa1: counter == 0x100 and == 0x180, the die\'s two landings (0x5d)' },
 } as const;
 /** Relative linear gain for a se.txt volume (127 = 1). The original's conversion of this
  * value into DirectSound attenuation is not verified; this is a proportional scale only. */
@@ -19,12 +26,19 @@ export function duelSoundGain(volume: number): number {
   if (!Number.isInteger(volume) || volume < 0 || volume > 127) throw new Error('Invalid duel sound volume');
   return volume / 127;
 }
+/** When a frame-timed sound plays after its cue starts, in the rewrite's duel-fx timeline (ui/duel-fx.ts). The die
+ * rolls for 1000 ms there and its hops land every third of that; the original's die lands twice, at 0x100 and 0x180
+ * of a 0x180 roll (2/3 and 3/3), so the two dice sounds fall on the fx's last two landings. Coins in the fx toss together,
+ * so their relative counter 0 is the toss itself. The chain plaque and the activation effect start with their cue. */
+export const DUEL_SOUND_DELAYS = { dice: [667, 1000] } as const;
 export interface DuelSoundCue {
   readonly sequence: number; readonly ordinal: number; readonly player: Player;
   readonly kind: keyof typeof DUEL_SOUND_EVIDENCE;
   readonly id: number; readonly path: string;
   /** se.txt per-file volume (0..127) and its relative gain; see duelSoundGain. */
   readonly volume: number; readonly gain: number;
+  /** Milliseconds after the cue's effect starts (frame-timed sounds); absent = at once. */
+  readonly delay?: number;
 }
 export interface DuelAudioOptions { maxQueuedCues?: number; maxCuesPerSample?: number; muted?: boolean; reducedMotion?: boolean; }
 export interface DuelAudioCounters { enqueued: number; emitted: number; muted: number; dropped: number; skipped: number; }
@@ -48,7 +62,7 @@ export class DuelAudioDirector {
   private enqueuedThrough: number;
   private acknowledged: number;
   private skippedEvents = 0;
-  private attack: { player: Player; targetPlayer: Player; targetField: boolean } | null = null;
+  private attack: { player: Player; targetPlayer: Player; targetField: boolean; destroyed?: boolean } | null = null;
   private battleGauge: [number, number] = [0, 0];
   private deckLeft: [number, number] = [0, 0];
   private muted: boolean;
@@ -72,17 +86,24 @@ export class DuelAudioDirector {
     this.deckLeft = [previous.sides[0].deck.length, previous.sides[1].deck.length];
     for (let ordinal = 0; ordinal < events.length; ordinal++) {
       const event = events[ordinal];
-      for (const { kind, player = event.player } of this.cues(event)) {
+      for (const { kind, player = event.player, delay } of this.cues(event)) {
         this.counts.enqueued++;
         if (this.queue.length >= this.maxQueued) { this.queue.shift(); this.counts.dropped++; }
         const { id, path, volume } = DUEL_SOUND_EVIDENCE[kind];
-        this.queue.push({ sequence: event.sequence, ordinal, player, kind, id, path, volume, gain: duelSoundGain(volume) });
+        this.queue.push({ sequence: event.sequence, ordinal, player, kind, id, path, volume, gain: duelSoundGain(volume), ...(delay ? { delay } : {}) });
       }
     }
     this.enqueuedThrough = next.sequence;
   }
-  private cues(event: PresentationEvent): { kind: DuelSoundCue['kind']; player?: Player }[] {
+  private cues(event: PresentationEvent): { kind: DuelSoundCue['kind']; player?: Player; delay?: number }[] {
     const p = event.params;
+    // 0x31 CARD_BREAK from a field slot (P0 low byte 0..10; 11+ are the hand and piles): broken by battle while an
+    // attack that destroyed something is still open (0x17 with destroyed flags, until 0x1c), otherwise a normal break.
+    if (event.type === 'engine:31') return (p[0] & 0xff) <= 10 ? [{ kind: this.attack?.destroyed ? 'battleDestroy' : 'destroy' }] : [];
+    if (event.type === 'engine:46') return [{ kind: 'tribute' }];
+    if (event.type === 'engine:12') return p[2] > 1 ? [{ kind: 'activate' }, { kind: 'chain' }] : [{ kind: 'activate' }];
+    if (event.type === 'engine:5c') return [{ kind: 'coin' }];
+    if (event.type === 'engine:5d') return p[1] ? this.reducedMotion ? [{ kind: 'dice' }] : DUEL_SOUND_DELAYS.dice.map(delay => ({ kind: 'dice' as const, delay })) : [];
     if (event.type === 'engine:19' || event.type === 'engine:1a') {
       this.attack = { player: event.player, targetPlayer: (event.type === 'engine:19' ? p[1] & 1 : event.player ^ 1) as Player,
         targetField: event.type === 'engine:19' && ((p[1] >>> 8) & 255) < 5 };
@@ -91,6 +112,7 @@ export class DuelAudioDirector {
     if (event.type === 'engine:17') {
       if (!this.attack || this.attack.player !== event.player) return [];
       const flags = p[2] ?? 0, attacker = (flags >>> (8 * event.player)) & 255, defender = (flags >>> (8 * (event.player ^ 1))) & 255;
+      this.attack.destroyed = !!((attacker | defender) & 2);   // translator _m_BATTLE: bit 2 = that side was destroyed
       // The battle manager starts the same LP gauge used by commands24/25.
       // Subsequent equal-amount LP commands finish that gauge without a second sound.
       this.battleGauge = [0, 0]; const result: { kind: DuelSoundCue['kind']; player: Player }[] = [];
