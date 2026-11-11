@@ -25,7 +25,7 @@ export type HtmlDialog =
   | { kind: 'ok'; text: string; at?: [number, number] }
   | { kind: 'team'; name: string }
   /** A Yes / No question (the rewrite's confirmations: surrender, disconnect, a starter claim): main's YesNo. */
-  | { kind: 'confirm'; text: string; yes: () => void; key?: string };
+  | { kind: 'confirm'; text: string; yes: () => void; key?: string }
   /** Change Avatar (htmlui/avatar.ts): first dressing after Create Player's name (`slot`, `name`), or from the game (slot null). */
   | { kind: 'avatar'; slot: number | null; name?: string; look: number[]; category: number; page: number };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
