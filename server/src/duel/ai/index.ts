@@ -17,10 +17,12 @@ import type { Json } from "../engine/core.ts";
 import { tagMask, type CardDB as BrainDB } from "../brain/cards.ts";
 import type { NpcProfilesJson } from "../brain/index.ts";
 import { HeuristicBot, type CardInfo } from "./heuristicBot.ts";
+import { activeRules, type RuleSet } from "./ruleSet.ts";
 import type { ForkLink, SearchAccess } from "./simSearch.ts";
 
 export { HeuristicBot, type CardInfo } from "./heuristicBot.ts";
 export { simStats, type ForkLink, type LoggedCmd } from "./simSearch.ts";
+export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet.ts";
 
 export type Tier = "easy" | "hard" | "elite";
 
@@ -97,29 +99,33 @@ export interface NpcAiOptions {
   link?: () => ForkLink | null;
   /** The live duel's full state (duelcore `query`), for spy vision only. */
   peek?: () => Json;
+  /** The card rules (ruleSet.ts): the set active when the duel starts, kept for the whole duel. */
+  rules?: RuleSet;
 }
 
 export class NpcAi {
   readonly tier: Tier;
   readonly bot: HeuristicBot;
+  readonly rules: RuleSet;
   /** Decisions answered, the CPU spent in choose() (ms) and the exceptions caught (answered by the engine instead). */
   readonly stats = { decisions: 0, ms: 0, maxMs: 0, errors: 0 };
 
   constructor(o: NpcAiOptions) {
     this.tier = o.tier;
+    const rules = this.rules = o.rules ?? activeRules();
     const cfg = TIERS[o.tier];
     const spy = !!o.spy && o.tier === "elite";
     let search: SearchAccess | undefined;
     if (cfg.search && o.link) {
       search = {
         link: o.link,
-        makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, { npcId: own ? o.npcId : undefined, spy, peek }),
+        makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, { npcId: own ? o.npcId : undefined, spy, peek, rules }),
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
         spy,
       };
     }
-    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder });
+    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules });
   }
 
   observe(ev: Json): void {

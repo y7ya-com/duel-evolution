@@ -23,7 +23,7 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite"); // vite 
 
 function d1(): D1Database {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(join(import.meta.dirname, "../migrations/0008_duel_archive.sql"), "utf8").replaceAll("--> statement-breakpoint", ""));
+  for (const m of ["0008_duel_archive.sql", "0009_npc_ai_rules.sql"]) db.exec(readFileSync(join(import.meta.dirname, "../migrations", m), "utf8").replaceAll("--> statement-breakpoint", ""));
   const stmt = (sql: string, args: unknown[] = []): any => ({
     bind: (...a: unknown[]) => stmt(sql, a),
     first: async () => db.prepare(sql).get(...(args as any[])) ?? null,
@@ -82,7 +82,7 @@ describe.skipIf(!haveData)("the duel archive", () => {
       s.abandon();   // the connection closing after it: no second entry
       expect(got.length).toBe(1);
       const e = got[0]!;
-      expect([e.kind, e.result, e.reason, e.rival, e.npc, e.tier, e.aiRev, e.first, e.b]).toEqual(["npc", "lose", "surrender", 51, 53, "elite", NPC_AI_REV, 1, null]);
+      expect([e.kind, e.result, e.reason, e.rival, e.npc, e.tier, e.aiRev, e.aiRules, e.first, e.b]).toEqual(["npc", "lose", "surrender", 51, 53, "elite", NPC_AI_REV, 0, 1, null]);
       const r = readYrpx(e.yrpx!);
       expect(r.names).toEqual(["Yami Yugi", "Yugi"]);   // the NPC went first: core player 0
       const win = r.packets.at(-1)!;
@@ -156,7 +156,7 @@ describe.skipIf(!haveData)("the duel archive", () => {
     const db = d1(), { bucket } = r2();
     const yrpx = Uint8Array.of(1, 2, 3);
     await recordDuel(db, bucket, { at: 1794400000, kind: "pvp", a: { acct: "u:a", slot: 0, name: "Alfa" }, b: { acct: "u:b", slot: 1, name: "Beta" },
-      rival: null, npc: null, tier: null, aiRev: null, game: 2, result: "win", reason: "lp", turns: 9, secs: 300, first: 1, lp: [1200, 0], decisions: null, yrpx, commands: null });
+      rival: null, npc: null, tier: null, aiRev: null, aiRules: null, game: 2, result: "win", reason: "lp", turns: 9, secs: 300, first: 1, lp: [1200, 0], decisions: null, yrpx, commands: null });
     const name = () => "?";
     const [a] = await listReplays(db, "u:a", name), [b] = await listReplays(db, "u:b", name);
     expect([a!.me, a!.opponent, a!.result, a!.game]).toEqual(["Alfa", "Beta", "win", 2]);

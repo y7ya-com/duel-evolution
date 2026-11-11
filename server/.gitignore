@@ -7,3 +7,6 @@ __pycache__/
 parity/_out/
 *.sql.local
 .dev.vars
+# scripts/ai-rules.sh: the pulled overlay and the replay traces
+ai-rules.json
+ai-rules-replay/

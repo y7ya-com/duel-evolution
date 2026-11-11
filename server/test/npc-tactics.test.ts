@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HeuristicBot, chooseTargets, type CardInfo } from "../src/duel/ai/heuristicBot.ts";
-import { STAPLE_RULES, tagRule, type RuleCtx } from "../src/duel/ai/cardRules.ts";
+import { tagRule, type RuleCtx } from "../src/duel/ai/cardRules.ts";
+import { bundledRules } from "../src/duel/ai/ruleSet.ts";
 import { brainDb } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
 import { nrCompWins } from "../src/game/npcs.ts";
@@ -8,6 +9,7 @@ import { lobbyAfterDuelMsgs, RESULT_WIN } from "../src/duel/duelfin.ts";
 import * as PP from "../src/game/persist.ts";
 import { harness } from "./notes-harness.ts";
 
+const STAPLE_RULES = bundledRules().compiled.staples;   // rules.json
 const cards: CardInfo = {
   stat: (code) => ({ atk: code, def: 1000, level: 4 }), name: () => "", flipRisk: () => 0, brain: brainDb(),
 };

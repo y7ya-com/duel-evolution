@@ -19,7 +19,8 @@
 //     stays a uniformly random pick (#removalValue).
 //   - search: the elite tier scores its real decisions with replay-fork rollouts (simSearch.ts).
 //   - blunder: the easy tier sometimes plays a random legal line instead of the heuristic's.
-import { type CardRule, type RuleCtx, type RuleMon, rulesFor, tagRule } from "./cardRules.ts";
+import { type CardRule, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
+import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
 import { H_EQUIP, TAGS_NO_BOOST, TYPE_CONTINUOUS, TYPE_EQUIP, TYPE_FIELD, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_TRAP } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
@@ -64,6 +65,8 @@ export interface CardInfo {
 export interface BotOpts {
   /** The NPC id: its own rules (NPC_RULES) and combo plan (COMBO_PLANS). */
   npcId?: number;
+  /** The card rules (ruleSet.ts): the active set when absent. */
+  rules?: RuleSet;
   /** Spy vision: boards come from `peek` (the full duel state) instead of the select's honest `view`. */
   spy?: boolean;
   /** The duel's full state (duelcore `query`), for spy vision. */
@@ -152,7 +155,7 @@ export class HeuristicBot {
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
     this.#cards = cards;
-    this.#rules = rulesFor(opts.npcId);
+    this.#rules = rulesOf(opts.rules ?? activeRules(), opts.npcId);
     this.#combo = opts.npcId !== undefined ? COMBO_PLANS[opts.npcId] : undefined;
     this.#vision = !!opts.spy && !!opts.peek;
     this.#peek = opts.peek;
