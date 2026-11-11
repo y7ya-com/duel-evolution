@@ -332,7 +332,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
-  let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
+  let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
   const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
   // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
   const prepChoice = (): PrepChoice | null => {
@@ -355,7 +355,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
       duelHover.selected = local.selected;
-      const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml }, prompt);
+      const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml,
+        inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) { inspect(card, 'duel'); requestRender(); } } }, prompt);
       if (spec) out.push(spec);
     } else if (prompt && htmlUi && !state.preparation) {
       // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
