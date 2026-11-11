@@ -97,7 +97,8 @@ export interface AppOptions {
   socialBox?: SocialBox;
 }
 const duelIds = new Set([0x6202, 0x6610, 0x6611, 0x6612, 0x6461, 0x6613, 0x649b]);
-const channelName = (kind: number) => ({ 0: 'global', 1: 'global', 2: 'trade', 3: 'whisper', 5: 'team' })[kind] ?? 'global';
+// 9: the server's Duel Log lines (ocgSession.ts DUEL_LOG_CHANNEL), kept off All Chat as live's chat keeps them (htmlui/windows.ts)
+const channelName = (kind: number) => ({ 0: 'global', 1: 'global', 2: 'trade', 3: 'whisper', 5: 'team', 9: 'duel-log' })[kind] ?? 'global';
 const initial = (settings: Partial<SettingsView> = {}): ClientView => ({
   scene: 'title', auth: { signedIn: false }, connection: 'offline', status: 'Checking your account…',
   player: null, characters: [], lobby: null, deckEditor: null, shop: null, duel: null, social: null,

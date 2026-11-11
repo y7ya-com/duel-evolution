@@ -214,7 +214,10 @@ export function nextDuelSpeed(speed: number): number {
   return k;
 }
 export function duelSpeedWindow(ids: Ids, speed: number, change: () => void): WindowSpec {
-  const W = 48, H = 24, b = new WindowBuilder(ids, 'duel-speed', 'CWindowDuelSpeed', { x: 1024 - W - 48, y: 8, w: W, h: H }, { z: 51100 });
+  // main's duelspeed.js: 8 px in from the page's top right corner. Live's page is wider than the 4:3 canvas on a desktop,
+  // so the button sits in the margin beside the canvas, clear of the opponent's plate; the rewrite's stage is the board
+  // itself, so it keeps that corner's 8 px inset under the plate (y 64), where it covers no name, LP or TIME.
+  const W = 48, H = 24, b = new WindowBuilder(ids, 'duel-speed', 'CWindowDuelSpeed', { x: 1024 - W - 8, y: 64 + 8, w: W, h: H }, { z: 51100 });
   const c = b.add('CWindowTaskTextSwitch', 'speed', { x: 0, y: 0, w: W, h: H }, { label: `${speed}×`, align: 1, state: 'normal' });
   b.on(c, { key: 'duel-speed', label: `Duel speed: ${speed}×${speed === 1 ? ' (original)' : ''}. Click to change`, click: change });
   return b.spec();

@@ -66,7 +66,8 @@ class SlicedBar {
     const px = Number(this.root.dataset.px) || caps, scale = Math.min(1, px / caps);
     const l = left * scale, r = right * scale, mid = Math.max(0, px - l - r);
     const place = (el: HTMLElement | undefined, x: number, w: number) => { if (el) { el.style.left = pct(x, px); el.style.width = pct(w, px); } };
-    place(this.parts[0], 0, l); place(this.parts[1], l, mid); place(this.parts[2], l + mid, r);
+    // the stretched middle overlaps both caps by half a game pixel, so no seam shows between the slices at any scale
+    place(this.parts[0], 0, l); place(this.parts[1], Math.max(0, l - 0.5), Math.min(px, mid + 1)); place(this.parts[2], l + mid, r);
   }
 }
 
@@ -101,18 +102,18 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
   const at = (el: HTMLElement, x: number, y: number, w: number) => { el.style.left = pct(mirror(x, w), PLATE_W); el.style.top = pct(y, PLATE_H); el.style.width = pct(w, PLATE_W); };
 
   const visual = document.createElement('div'); visual.setAttribute('aria-hidden', 'true');
-  if (image) { const plate = crop(image, PLATE, PLATE_W, 128, 0, side * PLATE_H, PLATE_W, PLATE_H); plate.classList.add('de-lpp-plate'); visual.append(plate); }
+  if (image) { const plate = crop(image, PLATE, PLATE_W, 128, 0, side * PLATE_H, PLATE_W, PLATE_H); plate.className += ' de-lpp-plate'; visual.append(plate); }
   const nameEl = document.createElement('div'); nameEl.className = 'de-lpp-name'; nameEl.textContent = name; visual.append(nameEl);
 
   // 'LP' and 'TIME' are not mirrored, only placed.
   for (const [spot, sx] of [[LP_LABEL, 0], [TIME_LABEL, 32]] as const) {
     if (!image) break;
-    const label = crop(image, LABELS, 64, 16, sx, 0, 32, 16); label.classList.add('de-lpp-label'); at(label, spot.x, spot.y, 32); label.style.height = pct(16, PLATE_H); visual.append(label);
+    const label = crop(image, LABELS, 64, 16, sx, 0, 32, 16); label.className += ' de-lpp-label'; at(label, spot.x, spot.y, 32); label.style.height = pct(16, PLATE_H); visual.append(label);
   }
 
   /** A gauge: the track, and a fill anchored at the plate's outer edge whose width follows the fraction. */
   const gauge = (spot: { x: number; y: number; w: number }) => {
-    const box = document.createElement('div'); box.className = 'de-lpp-gauge'; at(box, spot.x, spot.y, spot.w);
+    const box = document.createElement('div'); box.className = 'de-lpp-gauge'; at(box, spot.x, spot.y, spot.w); visual.append(box);
     const fillBox = document.createElement('div'); fillBox.className = 'de-lpp-gauge'; fillBox.style.top = '0'; fillBox.style.height = '100%';
     let trackBar: SlicedBar | null = null, fillBar: SlicedBar | null = null, band = -1;
     if (image) {
@@ -126,7 +127,7 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
     }
     box.append(fillBox);
     return (fraction: number | null) => {
-      const f = fraction === null ? 0 : clamp01(fraction), px = Math.round(f * (spot.w - 2));
+      const f = fraction === null ? 0 : clamp01(fraction), px = Math.round(f * spot.w);   // full: the fill's slanted end on the track's (live)
       fillBox.hidden = px <= 0;
       fillBox.style.width = pct(px, spot.w); fillBox.style.left = side ? pct(spot.w - px, spot.w) : '0';
       if (fillBar && image) {
@@ -140,7 +141,7 @@ export function lpPlate(opts: { side: 0 | 1; name: string; lp: number; time: num
   const digits = document.createElement('div'); digits.className = 'de-lpp-digits';
   const drawDigits = (lp: number) => {
     const text = lpDigits(lp);
-    if (!image) { digits.classList.add('is-text'); digits.textContent = text; return; }
+    if (!image) { digits.className = 'de-lpp-digits is-text'; digits.textContent = text; return; }
     digits.replaceChildren(...[...text].map(ch => { const d = crop(image, DIGITS, 176, 16, Number(ch) * DIGIT, 0, DIGIT, 16); d.className = 'de-lpp-digit'; return d; }));
   };
   visual.append(digits);
