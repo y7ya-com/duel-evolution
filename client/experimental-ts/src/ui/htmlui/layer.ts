@@ -39,7 +39,8 @@ const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBa
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
 const DUEL_DIALOGS = new Set(duel.classes);
-const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/.test(cls) || DUEL_DIALOGS.has(cls) };
+// (main's result.js redraws its Next plate when its look changes: hover, pressed)
+const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$|CWindowResultNext$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box
