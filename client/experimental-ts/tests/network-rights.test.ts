@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as PP from '../../../server/src/game/persist';
 import { shopView, shopPurchaseApi } from '../../../server/src/game/shop-api';
+import { rankView } from '../../../server/src/game/ranking';
 import { drive, setup } from './network-server-fixture';
 
 afterEach(() => { PP.setProgression(false); vi.clearAllTimers(); vi.useRealTimers(); });
@@ -36,7 +37,8 @@ describe('authoritative native ownership and NPC progression snapshots',() => {
       await drive(session.refreshPlayerBits());
       expect(session.state.npcbin).not.toBe(oldNpcbin);
       expect([...session.state.npcbin!.slice(51*4,51*4+4)]).toEqual([8,2,1,4]);
-      expect(session.state.pbin).toEqual(PP.pbinBytes(server.game.store.peek().accounts[account].profiles['0']));
+      // Main's server sends PBIN with the rank uniforms its best school unlocked (persist.ts pbinBytes(p, rankView(p))).
+      { const p = server.game.store.peek().accounts[account].profiles['0']; expect(session.state.pbin).toEqual(PP.pbinBytes(p, rankView(p))); }
       session.dispose(); expect(session.state.pbin).toBeUndefined(); expect(session.state.npcbin).toBeUndefined();
     } finally { session.dispose(); }
   });

@@ -42,28 +42,33 @@ describe('independent client against actual server/World', () => {
     expect(session.state.collection.size).toBe(0);
   });
 
-  it('uploads source-default new-character appearances for each world and preserves every nonempty custom byte', async () => {
+  it('keeps main\'s server-created new-character look in each world and preserves every nonempty custom byte', async () => {
     const { session,server,logs } = setup(undefined,'native-avatar-default');
     const uploads:Uint8Array[] = [];
     session.gateway.options.onOutgoing = (_,message) => { if (message.id === 0x4170) uploads.push(message.data.slice()); };
     try {
       await drive(session.start()); await drive(session.createCharacter(0,'Native Look'));
-      expect([...session.state.characters[0].avatarA,...session.state.characters[0].avatarB].every(byte => byte === 0)).toBe(true);
+      // Main's server creates every character with one look for both worlds (persist.ts newProfile: Slifer Red default outfit).
+      const serverLook = Uint8Array.from(Buffer.from('0000203040608090b820000000000000','hex'));
+      expect(session.state.characters[0].avatarA).toEqual(serverLook); expect(session.state.characters[0].avatarB).toEqual(serverLook);
       await drive(session.selectCharacter(0));
       const world = new BinaryReader(uploads[0]).u32() as 0|1;
-      expect(uploads[0].slice(4,20)).toEqual(defaultAvatar(0,world));
+      // A nonempty server look is preserved byte for byte, never replaced by the client's source default.
+      expect(uploads[0].slice(4,20)).toEqual(serverLook);
       const player = [...server.game.hub.sessions.values()][0];
-      expect(player.partsW.get(world)).toEqual(defaultAvatar(0,world));
-      expect(session.state.players.find(p=>p.pid===player.pid)?.parts).toEqual(defaultAvatar(0,world));
+      expect(player.partsW.get(world)).toEqual(serverLook);
+      expect(session.state.players.find(p=>p.pid===player.pid)?.parts).toEqual(serverLook);
       await drive(session.enterArea(0));
-      expect(uploads.at(-1)!.slice(4,20)).toEqual(defaultAvatar(0,0));
-      expect(player.partsW.get(0)).toEqual(defaultAvatar(0,0));
+      expect(uploads.at(-1)!.slice(4,20)).toEqual(serverLook);
+      expect(player.partsW.get(0)).toEqual(serverLook);
       expect(logs.some(line=>line.includes("items this character doesn't own"))).toBe(false);
       const state = server.game.store.loadRaw(), account = server.game.store.accountOfUser('native-avatar-default')!;
-      state.accounts[account].profiles['0'].avatar.b = '01000000000000000000000000000000'; server.game.store.saveRaw(state);
+      // One look per character on main: both stored worlds carry the same custom look.
+      state.accounts[account].profiles['0'].avatar = { a: '01000000000000000000000000000000', b: '01000000000000000000000000000000' }; server.game.store.saveRaw(state);
       await drive(session.refreshCharacters()); await drive(session.enterArea(5));
       // A partial/unknown custom look remains unchanged; the server owns its validation.
-      expect(uploads.at(-1)!.slice(4,20)).toEqual(Uint8Array.of(1,...Array(15).fill(0)));
+      // Main's server completes a partial look with its body's default rows; the client uploads that look unchanged.
+      expect(uploads.at(-1)![4]).toBe(1); expect(uploads.at(-1)!.slice(4,20)).toEqual(session.state.characters[0].avatarA);
     } finally { session.dispose(); }
   });
 
@@ -215,7 +220,9 @@ describe('independent client against actual server/World', () => {
     } finally { session.dispose(); setDuelCore(null); }
   },15000);
 
-  it('interoperates with native MD5 room-password bytes in both directions, including all 16 password bytes', async () => {
+  // Main's server (93ea733 / b70a104): open duels, no room passwords. The client still sends native MD5 bytes, but the
+  // server stores a zero digest, never sets the room's pw flag, and lets any challenger (any password) through.
+  it('sends native MD5 room-password bytes, which main\'s password-free server ignores in both directions', async () => {
     const a = setup(undefined,'password-a'), b = setup(a.server,'password-b'), password = Array.from({ length: 16 }, (_, i) => String(i % 10)).join('');
     try {
       for (const [session,name] of [[a.session,'Password A'],[b.session,'Password B']] as const) {
@@ -223,19 +230,17 @@ describe('independent client against actual server/World', () => {
       }
       await drive(a.session.createDuelRoom({ password }));
       let room = a.session.state.rooms.find(r => r.owner === a.session.state.profile!.pid)!;
-      expect(a.server.game.lp.mem.rooms.get(room.id)!.pwd).toEqual(new Uint8Array(createHash('md5').update(password,'latin1').digest()));
-      // Native reqMatch sends MD5(password), never the plaintext or a padded password.
+      expect(a.server.game.lp.mem.rooms.get(room.id)!.pwd).toEqual(new Uint8Array(16));
+      expect(a.server.game.lp.mem.rooms.get(room.id)!.pw).toBe(false);
       b.session.sendLobby(0x4300,new BinaryWriter().u32(room.id).raw(createHash('md5').update(password,'latin1').digest()).bytes());
       await vi.advanceTimersByTimeAsync(100); expect(a.session.state.challenge?.pid).toBe(b.session.state.profile!.pid);
       a.session.replyToChallenge(false); await vi.advanceTimersByTimeAsync(100); await drive(a.session.deleteDuelRoom());
-      // Native reqCreateRoom places the same 16-byte digest at byte 4; a TypeScript challenger must match it.
+      // A native reqCreateRoom with a digest at byte 4 still opens an open room: a wrong password reaches the owner.
       const payload = new BinaryWriter().u8(3).u8(0).u8(0).u8(1).raw(createHash('md5').update(password,'latin1').digest())
         .u8(0).u8(1).u8(1).u8(1).u32(0).bytes();
       await drive(a.session.lobby!.request(0x4288,payload,0x428a)); await drive(a.session.refreshRooms());
       room = a.session.state.rooms.find(r => r.owner === a.session.state.profile!.pid)!;
       b.session.challengeRoom(room.id,'wrong'); await vi.advanceTimersByTimeAsync(100);
-      expect(a.session.state.challenge).toBeNull(); expect(b.session.state.error).toBe('That room no longer exists.(-495)');
-      b.session.challengeRoom(room.id,password); await vi.advanceTimersByTimeAsync(100);
       expect(a.session.state.challenge?.pid).toBe(b.session.state.profile!.pid);
       a.session.replyToChallenge(false); await vi.advanceTimersByTimeAsync(100);
     } finally { a.session.dispose(); b.session.dispose(); }

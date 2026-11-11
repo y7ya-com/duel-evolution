@@ -8,9 +8,13 @@ export type Rarity = 'common' | 'rare' | 'super' | 'ultra';
 export interface Player { pid: number; name: string }
 export interface Cosmetic {
   id: string; name: string; kind: CosmeticKind; rarity: Rarity; slot: number;
-  variants: { gender: 'male' | 'female'; bit: number; number: number; worlds: number[]; name?: string }[];
+  variants: { gender: 'male' | 'female'; /** -1: a free colour row with no PBIN bit */ bit: number; number: number; worlds: number[]; name?: string }[];
   owned: boolean; compatible: boolean; copies: number; tradable: number; artwork?: string;
+  /** Main's body disclosure (cosmetics-catalog.ts bodyInfo): which bodies can wear it, and a notice when not both. */
+  bodies?: ('male' | 'female')[]; notice?: string;
 }
+/** Main's inventory also lists the free default rows (FREE_COSMETICS): rarity null, kind may be 'face', `free: true`. */
+export interface FreeCosmetic extends Omit<Cosmetic, 'kind' | 'rarity'> { kind: CosmeticKind | 'face'; rarity: null; free: true; school?: 'slifer'; uniform?: true }
 export type Odds = Record<Rarity, number>;
 export interface CosmeticBox {
   id: BoxId; name: string; price: number; available: boolean; baseOdds: Odds; nextOdds: Odds;
@@ -26,7 +30,7 @@ export interface CosmeticOffer {
 export interface AppearanceOption { index: number; label: string; choices: { value: number; label: string }[] }
 export interface CosmeticsState {
   available: true; wallet: { total: number; bound: number; earned: number }; nextRequestId: string; selfPid: number;
-  players: Player[]; boxes: CosmeticBox[]; inventory: Cosmetic[]; catalog: Cosmetic[]; trades: CosmeticOffer[];
+  players: Player[]; boxes: CosmeticBox[]; inventory: Cosmetic[]; freeItems: FreeCosmetic[]; catalog: Cosmetic[]; trades: CosmeticOffer[];
   appearance: { gender: 'male' | 'female'; world: number; parts: number[]; looks: Record<'0' | '1', number[]> };
   appearanceOptions: AppearanceOption[]; appearanceOptionsByWorld: Record<'0' | '1', AppearanceOption[]>;
   requestId?: string; reward?: Cosmetic & { duplicate: boolean }; replay?: boolean;
@@ -72,12 +76,21 @@ function player(v: unknown): Player { const o = obj(v); return { pid: nat(o.pid)
 function parts(v: unknown): number[] { const a = list(v, x => nat(x, 255), 16); if (a.length !== 16) return bad(); return a; }
 function world(v: unknown): number { return nat(v, 1); }
 function token(v: unknown): string { const s = str(v, 15); if (!/^(0|[1-9][0-9]{0,14})$/.test(s)) return bad(); return s; }
-function cosmetic(v: unknown): Cosmetic {
+function body(v: unknown): Pick<Cosmetic, 'bodies' | 'notice'> {
   const o = obj(v);
-  return { id: str(o.id), name: str(o.name), kind: one(o.kind, kinds), rarity: one(o.rarity, rarities), slot: nat(o.slot, 15),
+  return { ...(o.bodies === undefined ? {} : { bodies: list(o.bodies, x => one(x, genders), 2) }), ...(o.notice === undefined ? {} : { notice: str(o.notice, 512) }) };
+}
+function free(v: unknown): FreeCosmetic {
+  const o = obj(v); if (o.free !== true || o.rarity !== null) return bad();
+  return { ...cosmetic({ ...o, kind: o.kind === 'face' ? 'hair' : o.kind, rarity: 'common' }, true), kind: one(o.kind, [...kinds, 'face'] as const), rarity: null, free: true,
+    ...(o.school === 'slifer' ? { school: 'slifer' as const } : {}), ...(o.uniform === true ? { uniform: true as const } : {}) };
+}
+function cosmetic(v: unknown, freeRow = false): Cosmetic {
+  const o = obj(v);
+  return { ...body(o), id: str(o.id), name: str(o.name), kind: one(o.kind, kinds), rarity: one(o.rarity, rarities), slot: nat(o.slot, 15),
     owned: bool(o.owned), compatible: bool(o.compatible), copies: nat(o.copies), tradable: nat(o.tradable),
     ...(o.artwork === undefined ? {} : { artwork: str(o.artwork) }),
-    variants: list(o.variants, x => { const a = obj(x); return { gender: one(a.gender, genders), bit: nat(a.bit), number: nat(a.number, 255), worlds: list(a.worlds, world, 2), ...(a.name === undefined ? {} : { name: str(a.name) }) }; }, 16) };
+    variants: list(o.variants, x => { const a = obj(x); return { gender: one(a.gender, genders), bit: freeRow && a.bit === -1 ? -1 : nat(a.bit), number: nat(a.number, 255), worlds: list(a.worlds, world, 2), ...(a.name === undefined ? {} : { name: str(a.name) }) }; }, 16) };
 }
 function odds(v: unknown): Odds { const o = obj(v); return { common: num(o.common, 100), rare: num(o.rare, 100), super: num(o.super, 100), ultra: num(o.ultra, 100) }; }
 function line(v: unknown): TradeLine { const o = obj(v); const count = nat(o.count, 99); if (!count) return bad(); return { id: str(o.id), count }; }
@@ -87,7 +100,8 @@ export function decodeCosmetics(value: unknown): CosmeticsState {
   const o = obj(value), w = obj(o.wallet), a = obj(o.appearance), looks = obj(a.looks), byWorld = obj(o.appearanceOptionsByWorld);
   if (o.available !== true) return bad();
   const result: CosmeticsState = { available: true, wallet: { total: nat(w.total), bound: nat(w.bound), earned: nat(w.earned) }, nextRequestId: token(o.nextRequestId), selfPid: nat(o.selfPid),
-    players: list(o.players, player), catalog: list(o.catalog, cosmetic), inventory: list(o.inventory, cosmetic), trades: list(o.trades, offer, 32),
+    players: list(o.players, player), catalog: list(o.catalog, cosmetic), inventory: list(o.inventory, x => obj(x).free === true ? null : cosmetic(x)).filter((x): x is Cosmetic => x !== null),
+    freeItems: list(o.inventory, x => obj(x).free === true ? free(x) : null).filter((x): x is FreeCosmetic => x !== null), trades: list(o.trades, offer, 32),
     appearance: { gender: one(a.gender, genders), world: world(a.world), parts: parts(a.parts), looks: { '0': parts(looks['0']), '1': parts(looks['1']) } },
     appearanceOptions: options(o.appearanceOptions), appearanceOptionsByWorld: { '0': options(byWorld['0']), '1': options(byWorld['1']) },
     boxes: list(o.boxes, x => { const b = obj(x), p = b.pity === undefined ? { superMisses: 0, ultraMisses: 0, superAt: b.superAt, ultraAt: b.ultraAt ?? null } : obj(b.pity); /* main's boxes: superAt / ultraAt, no per-player pity */ return { id: one(b.id, boxIds), name: str(b.name), price: nat(b.price), available: bool(b.available), baseOdds: odds(b.baseOdds), nextOdds: odds(b.nextOdds),
