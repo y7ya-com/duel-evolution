@@ -119,7 +119,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
-  const phone: PhoneStage | null = typeof document !== 'undefined' && document.body && typeof matchMedia === 'function' ? mountPhoneStage({ host, stage, onFit: () => htmlUi?.relayout() }) : null;
   // a finger held on the world (or the right button) walks toward it, steered by moving (live: the held right button);
   // on the stage, which outlives the lobby's redraws, so a long walk survives them
   const walkTo = (x: number, y: number): void => {
@@ -136,6 +135,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let startScene: StartScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
   let menuView: MenuView | null = null;
+  // (after htmlUi: the first fit runs at once and re-places the layer)
+  const phone: PhoneStage | null = typeof document !== 'undefined' && document.body && typeof matchMedia === 'function' ? mountPhoneStage({ host, stage, onFit: () => htmlUi?.relayout() }) : null;
   const profileActions = (): { label: string; key: string; run(): void; disabled?: boolean }[] => {
     const p = state.profileDetail; if (!p || p.selectedPid === null) return [];
     const pid = p.selectedPid;
