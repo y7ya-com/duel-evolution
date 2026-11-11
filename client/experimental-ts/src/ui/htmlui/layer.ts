@@ -25,7 +25,7 @@ import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
-import { applyPointer } from './snapshot';
+import { applyPointer, areaAt } from './snapshot';
 import { TouchTaps } from './touch-tap';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
@@ -109,7 +109,26 @@ export class HtmlUiLayer {
     click: (el, x, y) => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, detail: 1, view: window })); },
     now: () => performance.now(),
   });
-  private onTapMove = (e: PointerEvent): void => this.taps.pointerMove(e);
+  private onTapMove = (e: PointerEvent): void => { this.taps.pointerMove(e); this.areaHover(e); };
+  // main's shop.js lets the pointer through its pictures to the engine's canvas (the pack art over a price plate): on
+  // live the engine hit-tests its controls by rect there, so its hover (the description band) follows the mouse over
+  // the art. Here a pointer over no control's element is over the topmost area control whose rect holds the point.
+  // main's modules hand the engine's canvas (#canvas: this box when the page has none) the mouse over what they draw
+  // for the engine (screens/pack-contents.js: its hotspot over each pack's art sends mousemove to #canvas): the same.
+  private onCanvasMove = (e: MouseEvent): void => { if (e.target instanceof Element && e.target.id === 'canvas') this.areaPoint(e.clientX, e.clientY); };
+  private areaHover(e: PointerEvent): void {
+    if (e.pointerType === 'touch' || !this.specs.length || this.control(e.target)) return;
+    if (e.target instanceof Element && this.host.contains(e.target) && e.target.closest('button, input, textarea, select, [role="list"]')) return;
+    this.areaPoint(e.clientX, e.clientY);
+  }
+  private areaPoint(clientX: number, clientY: number): void {
+    if (!this.specs.length) return;
+    const r = this.host.getBoundingClientRect(); if (!r.width) return;
+    const id = areaAt(this.specs, (clientX - r.left) / this.scale, (clientY - r.top) / this.scale);
+    const cur = this.hover && this.handlers.get(this.hover)?.area;
+    if (id) { if (id !== this.hover) this.setHover(id); } else if (cur) this.setHover(0);
+  }
+
   private onTapCancel = (e: PointerEvent): void => this.taps.pointerCancel(e);
   private onTapClick = (e: MouseEvent): void => { if (!this.taps.pass(e)) { e.stopImmediatePropagation(); e.preventDefault(); } };
 
@@ -172,6 +191,7 @@ export class HtmlUiLayer {
     addEventListener('pointerup', this.onUp, true);
     addEventListener('pointermove', this.onTapMove, true); addEventListener('pointercancel', this.onTapCancel, true);
     addEventListener('click', this.onTapClick, true);
+    document.addEventListener('mousemove', this.onCanvasMove, true);
     this.host.addEventListener('keydown', this.onKey, true);
     this.host.addEventListener('keyup', this.onKey, true);
     this.host.addEventListener('focusout', this.onBlur, true);
@@ -439,7 +459,7 @@ export class HtmlUiLayer {
     for (const o of this.watched.values()) o.disconnect(); this.watched.clear();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
     removeEventListener('pointerup', this.onUp, true); removeEventListener('pointermove', this.onTapMove, true);
-    removeEventListener('pointercancel', this.onTapCancel, true); removeEventListener('click', this.onTapClick, true);
+    removeEventListener('pointercancel', this.onTapCancel, true); removeEventListener('click', this.onTapClick, true); document.removeEventListener('mousemove', this.onCanvasMove, true);
     if (this.tick) clearInterval(this.tick);
     this.host.remove(); this.box.remove(); document.getElementById('mu-titlebg')?.remove();
   }

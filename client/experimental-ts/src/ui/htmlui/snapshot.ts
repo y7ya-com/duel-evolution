@@ -38,8 +38,24 @@ export interface ControlHandlers {
   wheel?(delta: number): void;
   /** The pointer came over it (true) or left it (false): what the engine does on mouse-over (the shop's description). */
   pointer?(over: boolean): void;
+  /** The engine's hover by the point: the pointer over its rect counts as over it even where main's screen lets the
+   * pointer through to the engine's canvas (the shop's pack art: a picture the engine draws over the price plate). */
+  area?: boolean;
 }
 export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers> }
+/** The topmost control flagged `area` whose rect (game px) holds the point, shown and with a pointer handler. */
+export function areaAt(specs: readonly WindowSpec[], x: number, y: number): number {
+  for (let i = specs.length - 1; i >= 0; i--) {
+    const { win: w, handlers } = specs[i]!;
+    for (const c of w.controls) {
+      if (c.shown === false || !handlers.get(c.id)?.area) continue;
+      const cx = w.x + c.x, cy = w.y + c.y;
+      if (x >= cx && x < cx + c.w && y >= cy && y < cy + c.h) return c.id;
+    }
+  }
+  return 0;
+}
+
 
 /** Stable ids per key (a guest address in the game): the screens key their DOM by id, so a control keeps its element
  * (and an input its focus) from one snapshot to the next. Multiples of 8, as addresses are. */
