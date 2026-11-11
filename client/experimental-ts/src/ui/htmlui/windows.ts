@@ -34,6 +34,8 @@ export type HtmlDialog =
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
+  /** My Profile's first shown row (its scroll; the rows past ten scroll in). */
+  profileTop?: number;
   comment: [string, string] | null; commentQueue: { line: 0 | 1; text: string }[];
   /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
   commentWait: null | 'sent' | 'pending';
@@ -402,13 +404,19 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   ];
   const b = new WindowBuilder(ctx.ids, 'profile', 'CWindowModelProfile', { x: 212, y: 186, w: 600, h: 396 }, { z: 51453, modal: true });
   b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
-  b.add('CWindowTaskScroll', 'scroll', { x: 571, y: 32, w: 16, h: 318 }, { value: 0, max: Math.max(0, rows.length - 10), page: 10, thumb: { pos: 0, len: 318 }, length: 318, horizontal: false });
-  rows.forEach((_, i) => b.add('CWindowTaskBackPlane', `plane${i}`, { x: 14, y: 32 + 32 * i, w: 557, h: 32 }, { shown: i < 10 }));
+  // ten rows at a time; the scroll (drag or wheel) brings the rest in
+  const max = Math.max(0, rows.length - 10), top = ctx.ui.profileTop = Math.max(0, Math.min(max, ctx.ui.profileTop ?? 0));
+  const scrollTo = (v: number) => { const t = Math.max(0, Math.min(max, Math.round(v))); if (t !== ctx.ui.profileTop) { ctx.ui.profileTop = t; ctx.rerender(); } };
+  const wheel = (delta: number) => scrollTo(top + Math.sign(delta));
+  b.add('CWindowTaskScroll', 'scroll', { x: 571, y: 32, w: 16, h: 318 }, { value: top, max, page: 10, thumb: { pos: max ? Math.round(top * (318 - 318 * 10 / rows.length) / max) : 0, len: Math.round(318 * Math.min(1, 10 / rows.length)) }, length: 318, horizontal: false },
+    { value: scrollTo, wheel });
+  const shown = (i: number) => i >= top && i < top + 10, rowY = (i: number) => 32 * (i - top);
+  rows.forEach((_, i) => b.add('CWindowTaskBackPlane', `plane${i}`, { x: 14, y: 32 + rowY(i), w: 557, h: 32 }, { shown: shown(i) }, { wheel }));
   rows.forEach(([name, value], i) => {
-    const t = { align: 0, fontSize: 16, color: [1, 1, 1, 1], shown: i < 10 };
+    const t = { align: 0, fontSize: 16, color: [1, 1, 1, 1], shown: shown(i) };
     // main's control names (social.js profileLevel: the LV row's value gets the player's rank, GET /api/de/rank)
-    b.add('CWindowTaskText', `name${i}`, { x: 16, y: 32 + 32 * i, w: 552, h: 32 }, { ...t, text: name }).name = PROFILE_ITEM;
-    b.add('CWindowTaskText', `value${i}`, { x: 16, y: 48 + 32 * i, w: 552, h: 32 }, { ...t, text: value, align: 2 }).name = PROFILE_VALUE;
+    b.add('CWindowTaskText', `name${i}`, { x: 16, y: 32 + rowY(i), w: 552, h: 32 }, { ...t, text: name }).name = PROFILE_ITEM;
+    b.add('CWindowTaskText', `value${i}`, { x: 16, y: 48 + rowY(i), w: 552, h: 32 }, { ...t, text: value, align: 2 }).name = PROFILE_VALUE;
   });
   const title = b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 600, h: 16 }, { text: self ? 'My Profile' : 'Profile', align: 1, fontSize: 16, color: [0.2, 1, 0.2, 1] });
   b.add('CWindowTaskText', 'titleShadow', { x: 1, y: 5, w: 600, h: 16 }, { parent: title.id, text: title.text, align: 1, fontSize: 16, color: [0, 0, 0, 1] });
@@ -418,7 +426,7 @@ export function profileWindow(ctx: BuildContext): WindowSpec | null {
   actions.forEach((a, i) => b.add('CWindowTaskButtonDuel', `action:${a.key}`, { x: x0 + i * (w + 4), y: 364, w, h: 24 }, { label: a.label, align: 1, state: a.disabled ? 'disabled' : 'normal', color: [0, 0, 0, 1] },
     { key: `profile-${a.key}`, click: () => { if (!a.disabled) a.run(); } }));
   b.add('CWindowTaskButtonDuel', 'ok', { x: x0 + (n - 1) * (w + 4), y: 364, w, h: 24 }, { label: 'OK', align: 1, state: 'normal', color: [0, 0, 0, 1] },
-    { key: 'profile-ok', label: 'Close the profile', click: () => { ctx.ui.comment = null; ctx.send({ type: 'profileAction', action: { type: 'close' } }); } });
+    { key: 'profile-ok', label: 'Close the profile', click: () => { ctx.ui.comment = null; ctx.ui.profileTop = 0; ctx.send({ type: 'profileAction', action: { type: 'close' } }); } });
   return b.spec();
 }
 

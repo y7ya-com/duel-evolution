@@ -71,7 +71,14 @@ describe.skipIf(!enabled)('lobby, avatars and social features between real playe
       await until(a,byKey('comment-greeting'),10000);
       await type(a,byKey('comment-greeting'),`Hello from ${RUN}`); await type(a,byKey('comment-duel'),`Champ ${RUN}`);
       await press(a,byKey('comment-ok'));
-      await until(a,`(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`,20000);
+      // My Profile shows ten rows (live's CWindowModelProfile); the Comment row past them is scrolled in, as a player would
+      const both = `(${profileText})?.includes('Hello from ${RUN}')&&(${profileText})?.includes('Champ ${RUN}')`;
+      for (let i = 0; i < 40 && !await a.ev(`Boolean(${both})`); i++) {
+        const r = await a.ev(`(()=>{const w=${byKey('profile-ok')}?.closest('.win')?.getBoundingClientRect();return w&&[w.x+w.width/2,w.y+w.height/2]})()`) as [number,number]|null;
+        if (r) await a.send('Input.dispatchMouseEvent',{ type:'mouseWheel',x:r[0],y:r[1],deltaX:0,deltaY:120 });
+        await sleep(500);
+      }
+      await until(a,both,5000);
       await press(a,byKey('profile-ok'));
       await pressAvatar(b,avatar(names.a));
       await until(b,`${cardText}.includes('Hello from ${RUN}')&&${cardText}.includes('Champ ${RUN}')`,20000);
