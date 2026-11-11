@@ -152,6 +152,8 @@ export interface ClientView {
   preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null };
   starter?: { claimable: boolean; decks: StarterDeckChoice[] };
   connection: 'offline' | 'connecting' | 'online' | 'reconnecting' | 'error';
+  /** A lost lobby or duel connection being re-made (live's window.yo2Net): the notice while it lasts. */
+  net?: { reconnecting: boolean; attempt: number; what: 'lobby' | 'duel' | null };
   status: string;
   error?: string;
   busy?: boolean;

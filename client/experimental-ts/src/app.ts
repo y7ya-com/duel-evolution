@@ -446,7 +446,10 @@ export class ClientApp implements ClientController {
       this.sideboardRound = state.match.round;
     }
     if (!state.match || state.match.complete) { this.sideboard = null; this.sideboardRound = null; }
-    this.view = { ...this.view, connection, scene,
+    // live's window.yo2Net = {reconnecting, attempt} (ovr/lobbyretry.c), for the page and its tests
+    const net = state.net ?? { reconnecting:false, attempt:0, what:null };
+    try { (globalThis as { yo2Net?: unknown }).yo2Net = { reconnecting:net.reconnecting, attempt:net.attempt }; } catch { /* read-only global */ }
+    this.view = { ...this.view, connection, scene, net,
       characters: state.characters.map(c => ({ slot: c.slot, name: c.name, level: c.level, selected: c.slot === state.selectedSlot, parts: Array.from(c.avatarA) })),
       player: profile ? { id: profile.pid, name: selected?.name ?? this.view.auth?.name ?? 'Duelist', level: profile.level, mp: profile.mp } : null,
       lobby: profile ? {

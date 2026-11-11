@@ -39,6 +39,8 @@ interface PendingBytes { start: number; bytes: Uint8Array }
 const MAX_RETAINED = 256 * 1024;
 const MAX_BACKPRESSURE = 1024 * 1024;
 const OPEN = 1;
+/** The gateway's close code for a deploy (server/src/do.ts): live's lobbyretry.c reconnects through it. */
+export const SERVER_UPDATE_CLOSE = 4012;
 
 export class Channel {
   private readonly reader: PacketReader;
@@ -162,6 +164,8 @@ export class GatewayClient {
   private reconnectStarted = 0;
   private reconnectAttempts = 0;
   private disposed = false;
+  /** The WebSocket close code that ended this gateway, when it was one the server gives a meaning (4012). */
+  closeCode: number | null = null;
   readonly sid: string;
   constructor(readonly options: GatewayOptions) {
     this.sid = options.sid ?? globalThis.crypto.randomUUID().replaceAll('-', '');
@@ -209,9 +213,13 @@ export class GatewayClient {
       } catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
     };
     socket.onerror = () => {}; // close provides the reconnect boundary; no duplicate failure notifications
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (this.socket !== socket || this.disposed) return;
       this.clearConnectTimer(); this.socket = null;
+      // 4012: the server is going down for an update (server/src/do.ts /__admin/shutdown). Its sockets are closed, not
+      // held, so a tunnel resume can only be refused: fail at once and let the session's reconnect (lobbyretry) start.
+      const code = (event as { code?: number } | null)?.code;
+      if (code === SERVER_UPDATE_CLOSE) { this.closeCode = code; return this.fail(new Error('The server is updating (4012).')); }
       if (this.options.reconnect !== false && this.channels.size && (this.status === 'connected' || this.status === 'reconnecting')) this.reconnect();
       else this.fail(new Error('Gateway connection closed'));
     };
