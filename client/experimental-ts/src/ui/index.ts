@@ -347,13 +347,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // OPTIONS; the previous language stays and < / > choose it again
     const refused = state.languageStatus?.error;
     if (refused && refused !== languageErrorSeen) {
-      const dialog = stockDialog({ ids: htmlIds }, 'language-error', 'error', refused, [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]);
+      const dialog = stockDialog({ ids: htmlIds }, 'language-error', 'error', wrapLines(refused, 34), [{ from: 'OK', key: 'language-error-ok', click: () => { languageErrorSeen = refused; showHtml(); } }]);
       Object.assign(dialog.win, { z: 51503 }); out.push(dialog);   // over DUEL OPTIONS (51453)
     }
     else if (!refused) languageErrorSeen = '';
     return out;
   };
   let languageErrorSeen = '';
+  // the dialog's text field breaks lines only where the text does (the original's messages carry their own breaks)
+  const wrapLines = (text: string, width: number) => text.split(' ').reduce<string[]>((lines, word) => {
+    const last = lines[lines.length - 1]; if (last !== undefined && (last + ' ' + word).length <= width) lines[lines.length - 1] = last + ' ' + word; else lines.push(word); return lines; }, []).join('\n');
   // The Audio window's pack flow (live's audiopage.js): a pack picked or dropped anywhere on the game is read
   // (features/audio-pack.ts) and reviewed in the Audio window; nothing changes until the player uses it.
   const audioUi: AudioUi = { page: 0 };

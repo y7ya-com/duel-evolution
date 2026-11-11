@@ -26,7 +26,7 @@ async function resumed(page:Page,timeout = 30000) {
 }
 /** Every owned copy in the deck screen's trunk (main's CWindowModelKaban: the character's cards and their counts). */
 async function collection(page:Page):Promise<number> {
-  const deck = await openDeckEditor(page); await sleep(600);
+  const deck = await openDeckEditor(page); await sleep(600); await exitDeckEditor(page);
   return deck.collection.reduce((n,c) => n + c.owned,0);
 }
 const TRUNK = `document.querySelectorAll('[data-zone="trunk"][data-passcode]').length>0`;

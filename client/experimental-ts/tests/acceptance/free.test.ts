@@ -12,6 +12,10 @@ const worldSnapshot = async (page:Page, probe:string) => {
   await exitDeckEditor(page);
   await click(page,'Shop'); await until(page,`/[0-9,]+ MP/.test(document.body.innerText)`,60000);
   const wallet = /([0-9,]+) MP/.exec(await page.ev('document.body.innerText') as string)?.[1];
+  // main's card shop leaves through its Back
+  const back = `document.querySelector('[aria-label="Leave the shop"]')`;
+  if (await page.ev(`Boolean(${back})`)) await press(page,back);
+  await until(page,lobbyShown,60000);
   return { ...deck, owned, wallet };
 };
 /** The trunk's search (main's searchPanel "Search the trunk"). */

@@ -23,7 +23,7 @@ async function trunkNames(page:Page) { await openDeck(page); const names = await
 /** DUEL OPTIONS (htmlui/options.ts, the original's COptionDlg) from the Main Menu. */
 async function duelOptions(page:Page) { await menuEntry(page,'settings'); await until(page,byKey('opt-lang'),30000); }
 /** The rewrite's own Options page, DUEL OPTIONS' More Options. */
-async function moreOptions(page:Page) { await duelOptions(page); await press(page,byKey('opt-more')); await until(page,byKey('options-language'),30000); }
+async function moreOptions(page:Page) { if (await page.ev(`Boolean(${byKey('options-language')})`)) return; await duelOptions(page); await press(page,byKey('opt-more')); await until(page,byKey('options-language'),30000); }
 const LANGUAGES = ['日本語','English','Deutsch','Français','Italiano','Español','한국어'];
 const langShown = `document.querySelector('[data-key="opt-lang"]')?.textContent.trim()`;
 const langReady = `(!!${byKey('opt-lang-next')}&&!${byKey('opt-lang-next')}.disabled)`;
@@ -48,10 +48,11 @@ async function menuLabels(page:Page) {
   return labels;
 }
 
-/** Observes the client's Web Audio and media use without changing it: contexts, effect voices and their gain, decodes,
+/** Observes the client's Web Audio and media use without changing it: contexts, effect voices and the output gain
+ * (the context's first gain node; a cue's own level from Sound.dat is a gain under it), decodes,
  * media elements and what they play (by the File name behind each object URL). */
 const AUDIO_PROBE = `(()=>{const A=window.__audio={contexts:[],starts:[],active:0,maxActive:0,decoded:0,media:[],plays:[],names:new Map()};
-const C=window.AudioContext;window.AudioContext=class extends C{constructor(...a){super(...a);A.contexts.push(this);const cg=this.createGain.bind(this);this.createGain=()=>{const g=cg();A.gain=g;return g;};
+const C=window.AudioContext;window.AudioContext=class extends C{constructor(...a){super(...a);A.contexts.push(this);const cg=this.createGain.bind(this);this.createGain=()=>{const g=cg();if(!this.__out){this.__out=g;A.gain=g;}return g;};
 const cb=this.createBufferSource.bind(this);this.createBufferSource=()=>{const s=cb();const st=s.start.bind(s);s.start=(...x)=>{A.starts.push({at:Math.round(performance.now()),gain:A.gain?.gain.value,dur:s.buffer?.duration});A.active++;A.maxActive=Math.max(A.maxActive,A.active);s.addEventListener('ended',()=>A.active--);return st(...x);};return s;};
 const d=this.decodeAudioData.bind(this);this.decodeAudioData=(b,...r)=>{A.decoded++;return d(b,...r);};}};
 const Au=window.Audio;window.Audio=function(...a){const m=new Au(...a);A.media.push(m);return m;};window.Audio.prototype=Au.prototype;
