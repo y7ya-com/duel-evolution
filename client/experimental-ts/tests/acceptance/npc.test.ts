@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
 
 const npcPanel = `document.querySelector('[aria-label="NPC interaction"]')`;
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -18,11 +18,15 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       if (npcs.includes('Seto Kaiba')) {
         await openNpcCard(page,'Seto Kaiba'); await until(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].some(b=>!b.disabled)`,30000);
         await press(page,`[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`);
-        await until(page,npcPanel,20000);
-        refusal = (await page.ev(`${npcPanel}.innerText`) as string).replace(/\s+/g,' ').slice(0,160);
-        expect(await page.ev(`[...${npcPanel}.querySelectorAll('button')].some(b=>b.textContent==='Duel NPC')`)).toBe(false);
-        for (const label of ['Continue','Close NPC']) { await until(page,`[...(${npcPanel}?.querySelectorAll('button') ?? [])].some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`,20000); await press(page,`[...${npcPanel}.querySelectorAll('button')].find(b=>b.textContent===${JSON.stringify(label)})`); }
-        await until(page,`!${npcPanel}`,20000);
+        // the NPC's refusal in its balloon (as live): its lines, no Start Duel?, a click and the talk ends
+        const balloon = `document.querySelector('button[data-key="npc-talk:next"]')`;
+        await until(page,balloon,20000);
+        refusal = (await page.ev(`${balloon}.getAttribute('aria-label')`) as string).replace(/\s+/g,' ').slice(0,160);
+        expect(await page.ev(`Boolean(document.querySelector('[data-key="npc-start:yes"]'))`)).toBe(false);
+        await until(page,`${balloon}&&!${balloon}.disabled`,20000); await press(page,balloon);
+        const closeNpc = `[...(${npcPanel}?.querySelectorAll('button') ?? [])].find(b=>b.textContent==='Close NPC'&&!b.disabled)`;
+        await until(page,closeNpc,20000); await press(page,closeNpc);
+        await until(page,`!${balloon}&&!${npcPanel}`,20000);
       }
       // A first duel: dialogue, rock-paper-scissors, first player, initial field.
       await startNpcDuel(page,'Yami Yugi');
@@ -55,13 +59,13 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       expect(again).toBe(after);
       record('npc.rewards',{ actions:`Return to lobby after the duel; choose ${pack}; close; read the collection, reconnect, read it again`, expected:'Rewards and unlocks applied exactly once', observed:`received ${received.join(', ')}; ${card} owned ×${after}, still ×${again} after reconnecting; dialog: ${receipt}` });
       // Rematch lifecycle: the same NPC accepts another duel.
-      if (!await page.ev(lobbyShown)) await click(page,'Return to Lobby');   // in the lobby the Main Menu has none (as live)
+      if (await page.ev(resultShown)) await press(page,`${resultNext}??${byText('Return to Lobby')}`);   // the result's Next (in the lobby the Main Menu has no Return to Lobby, as live)
       await until(page,lobbyShown,60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);
       // Surrender: the client's own Yes / No (main's YesNo, surrender-yes), then the server's question when it asks one
       await surrender(page);
-      await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
+      await until(page,resultShown,60000);
       const rematch = await page.ev(`window.__duelEnd()`);
       expect(rematch).toBe('Defeat');
       record('npc.rewards',{ actions:'Rematch the same NPC and surrender', expected:'Rematch lifecycle works', observed:`second duel started and ended by surrender: ${rematch}` });

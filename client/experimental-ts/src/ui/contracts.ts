@@ -200,7 +200,7 @@ export type ClientCommand =
   | { type: 'replayControl'; action: 'toggle' | 'step' | 'exit' }
   | { type: 'connect'; freeMode?: boolean }
   | { type: 'npcAnswer'; accept: boolean }
-  | { type: 'npcAdvance' | 'npcClose' | 'npcRefreshInventory' }
+  | { type: 'npcAdvance' | 'npcDismiss' | 'npcClose' | 'npcRefreshInventory' }
   | { type: 'npcSelectPack'; pack: number }
   | { type: 'reloadData' }
   | { type: 'profileAction'; action: ProfileAction }

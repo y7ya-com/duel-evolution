@@ -1,7 +1,7 @@
 import type { NpcState } from '../features/npc';
 import type { CardView, ClientCommand } from './contracts';
 
-export type NpcCommand = Extract<ClientCommand, { type: 'npcAnswer' | 'npcAdvance' | 'npcClose' | 'npcRefreshInventory' | 'npcSelectPack' }>;
+export type NpcCommand = Extract<ClientCommand, { type: 'npcAnswer' | 'npcAdvance' | 'npcDismiss' | 'npcClose' | 'npcRefreshInventory' | 'npcSelectPack' }>;
 export interface NpcPanelOptions {
   /** Receipt wire IDs need an explicit catalog mapping; do not guess passcodes. */
   resolveCard?(id: number): CardView | undefined;

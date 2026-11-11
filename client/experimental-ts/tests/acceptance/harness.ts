@@ -118,6 +118,9 @@ const DUEL_END = `window.__duelEnd=()=>{const b=document.querySelector('.de-duel
   if(!r)return null;const t=r.innerText.split(/\\n/).map(l=>l.trim());return t.includes('WIN')?'Victory':t.includes('LOSE')?'Defeat':t.includes('DRAW')?'Draw':(t.find(l=>/ wins$|^(Victory|Defeat|Draw)$/.test(l))??'ended');};`;
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>(b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
+/** The result screen's plate (CWindowResultNext): Next after an NPC duel (as live), Return to Lobby after a PvP one. */
+export const resultNext = `[...document.querySelectorAll('[data-key="duel-result-next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+export const resultShown = `(Boolean(${resultNext})||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled&&b.getClientRects().length))`;
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
  * unreachable, the map's own failure with Retry Map). */
 export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'))`;
@@ -320,7 +323,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
   const next = await page.ev(`(()=>{
     const ok=b=>b&&!b.disabled&&b.getClientRects().length, all=[...document.querySelectorAll('button')].filter(ok);
     const find=(t,scope=document)=>[...scope.querySelectorAll('button')].filter(ok).find(b=>b.textContent===t);
-    if(find('Return to Lobby'))return {kind:'finished'};
+    if(find('Return to Lobby')||ok(document.querySelector('[data-key="duel-result-next"]')))return {kind:'finished'};
     const turn=/Turn (\\d+)/.exec(document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'')?.[1]??'0';
     if(window.__botTurn!==turn){window.__botTurn=turn;window.__tried=new Set();window.__battled=false;}
     const notice=document.querySelector('.de-duel-notice button');if(ok(notice))return {kind:'press',sel:'.de-duel-notice button'};
@@ -409,7 +412,7 @@ export async function playDuel(page:Page,options:{ attack?:boolean; summon?:bool
   }
   return page.ev(`window.__duelEnd() ?? ''`) as Promise<string>;
 }
-/** The NPC's card → first contact dialogue → Duel NPC → rock-paper-scissors → first/second → start. */
+/** The NPC's card → its talk (the balloon's lines, clicked on) → Start Duel? Yes → rock-paper-scissors → first/second → start. */
 export async function startNpcDuel(page:Page,npc:string) {
   // the player list's Show all, the NPC's row (several NPCs share a name, levels 4/6/8: the first), its card's
   // Send Duel Request once eligibility allows it
@@ -417,9 +420,9 @@ export async function startNpcDuel(page:Page,npc:string) {
   const entry = `[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`;
   await until(page,entry,30000);
   await press(page,entry);
-  const confirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
-  const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
-  for (let i = 0; i < 6 && !(await page.ev(`Boolean(${confirm})`)); i++) { await until(page,`${confirm}||${next}`,20000); if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(300); }
+  const confirm = `[...document.querySelectorAll('[data-key="npc-start:yes"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+  const next = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
+  for (let i = 0; i < 6 && !(await page.ev(`Boolean(${confirm})`)); i++) { await until(page,`${confirm}||${next}`,20000); if (await page.ev(`Boolean(${next})`) && !(await page.ev(`Boolean(${confirm})`))) await press(page,next); await sleep(300); }
   await press(page,confirm);
   await prepareDuel(page);
 }
@@ -488,29 +491,32 @@ export async function pressSurrender(page:Page) { const row = await surrenderRow
 export async function surrender(page:Page) {
   // The server answers a surrender with its Yes/No question when this side may act: wait for our own turn.
   for (const start = Date.now(); Date.now() - start < 180000;) {
-    if (await page.ev(`Boolean(${byText('End Turn')}||${byText('Return to Lobby')})`)) break;
+    if (await page.ev(`Boolean(${byText('End Turn')})||${resultShown}`)) break;
     // Answer whatever the server asks meanwhile (chains, targets), without playing anything.
     if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog],.de-zone-target,.de-duel-notice'))`)) await duelBot(page,{ summon:false,attack:false });
     await sleep(200);
   }
-  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) return;
+  if (await page.ev(resultShown)) return;
   await pressSurrender(page);
   // the client's own question first (main's YesNo, surrender-yes), then the server's when it asks one
   const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
-  const ended = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`;
+  const ended = resultShown;
   await until(page,`${ask}||${yes}||${ended}`,60000);
   if (await page.ev(`Boolean(${ask})`)) { await press(page,ask); await until(page,`${yes}||${ended}`,60000); }
   if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
-  await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
+  await until(page,resultShown,60000);
 }
-/** After an NPC duel: back to the lobby, through the NPC's result dialogue, choose the offered reward pack, close.
+/** After an NPC duel: the result's Next back to the lobby, the NPC's lines (its balloon), the offered reward pack, close.
  * Returns the pack label, the received card names ("Name · New" rows) and the dialog text seen. */
 export async function claimNpcReward(page:Page):Promise<{ pack:string|null; received:string[]; dialog:string }> {
   const panel = `document.querySelector('[aria-label="NPC interaction"]')`;
-  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) await click(page,'Return to Lobby');
+  if (await page.ev(resultShown)) await press(page,`${resultNext}??${byText('Return to Lobby')}`);
+  const balloon = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   let pack:string|null = null, received:string[] = [], dialog = '';
-  for (let i = 0; i < 40 && (await page.ev(`Boolean(${panel})`) || i < 6); i++) {
+  for (let i = 0; i < 40 && (await page.ev(`Boolean(${panel})||Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(document.querySelector('.yo2ps-list .yo2ps-row'))`) || i < 6); i++) {
+    // the NPC's lines after the duel (its balloon): clicked on, the gift's line too (Receive Gift)
+    if (await page.ev(`Boolean(${balloon})`)) { dialog ||= (await page.ev(`${balloon}.getAttribute('aria-label') ?? ''`) as string).slice(0,240); await press(page,balloon); await sleep(500); continue; }
     const rows = await page.ev(`[...(${panel}?.querySelectorAll('.de-receipt-cards article p') ?? [])].map(p=>p.textContent.split(' · ')[0])`) as string[];
     if (rows.length) { received = rows; dialog = (await page.ev(`${panel}?.innerText ?? ''`) as string).replace(/\s+/g,' ').slice(0,240); }
     const packButton = `[...(${panel}?.querySelectorAll('button') ?? [])].find(b=>b.dataset.key?.includes('npcSelectPack')&&!b.disabled)`;
@@ -528,8 +534,8 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     else if ((pack || !(await page.ev(`[...(${panel}?.querySelectorAll('button') ?? [])].some(b=>b.dataset.key?.includes('npcSelectPack'))||Boolean(${htmlRow})`))) && await page.ev(`Boolean(${other})`)) await press(page,other);
     await sleep(800);
   }
-  // main's result boards stay up under the NPC's reward talk: their Next plate (Return to Lobby) leaves them
-  if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) { await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); }
+  // the result boards (their Next plate) if still up
+  if (await page.ev(resultShown)) { await press(page,`${resultNext}??${byText('Return to Lobby')}`); await until(page,lobbyShown,60000); }
   return { pack, received, dialog };
 }
 /** Earn tradeable (not soul-bound) cards: lose an NPC duel by passing every turn (a surrender earns no reward pack)
