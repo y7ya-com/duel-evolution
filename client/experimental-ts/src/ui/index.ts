@@ -5,7 +5,7 @@ import { DuelPresentation } from './duel-scene';
 import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
-import { WorldRenderer, pictureTexture } from './world';
+import type { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { giftItemName } from '../npcs/gift-names';
@@ -575,12 +575,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (worldRenderer && lobby.mapId !== undefined) { worldRenderer.setAvatars(lobby.avatars); return; }
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue; node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
   };
-  // the overworld on PixiJS (ui/world.ts): map, objects, avatars, names and flags on one canvas under the HTML UI
-  const worldRenderer = controller.loadWorldScene ? new WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal),
-    ...(controller.loadAvatar ? { loadAvatar: (parts: Uint8Array, options: import('../avatars').AvatarLoadOptions) => controller.loadAvatar!(parts, options) } : {}),
-    loadFlagAtlas: async signal => pictureTexture(await pictureArt.resolve({ archive: FLAG_ATLAS }, signal), signal),
-    reducedMotion: () => !!controller.getState().settings.reducedMotion }) : null;
-  if (worldRenderer) (globalThis as { __deWorld?: () => unknown }).__deWorld = () => worldRenderer.inspect();
+  // the overworld on PixiJS (ui/world.ts): map, objects, avatars, names and flags on one canvas under the HTML UI. PixiJS
+  // loads when the lobby first opens (its own chunk): until then the lobby draws its plain backdrop
+  let worldRenderer: WorldRenderer | null = null, worldLoading = false;
+  const ensureWorld = () => {
+    if (worldRenderer || worldLoading || !controller.loadWorldScene || disposed) return;
+    worldLoading = true;
+    void import('./world').then(m => {
+      if (disposed) return;
+      const renderer = new m.WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal),
+        ...(controller.loadAvatar ? { loadAvatar: (parts: Uint8Array, options: import('../avatars').AvatarLoadOptions) => controller.loadAvatar!(parts, options) } : {}),
+        loadFlagAtlas: async signal => m.pictureTexture(await pictureArt.resolve({ archive: FLAG_ATLAS }, signal), signal),
+        reducedMotion: () => !!controller.getState().settings.reducedMotion });
+      worldRenderer = renderer;
+      (globalThis as { __deWorld?: () => unknown }).__deWorld = () => renderer.inspect();
+      requestRender();
+    }).catch((e: unknown) => { worldLoading = false; console.warn('world renderer', e); });
+  };
   worldWalk = typeof stage.addEventListener === 'function' ? holdToWalk(stage, walkTo, t => { const e = t as Element | null; if (!e?.closest || e.closest('button, input, textarea, a, [data-key^="avatar:"]')) return false; return !!e.closest('canvas[data-key="lobby-map"]') || !!worldRenderer?.element.contains(e); }) : null;
   const drafts = new Map<string, string>();
   const expanded = new Map<string, boolean>();
@@ -812,12 +823,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const lobby = state.lobby;
     const canvas = el('canvas'); canvas.width = 1024; canvas.height = 768; canvas.setAttribute('aria-label', 'Lobby map'); canvas.tabIndex = 0; canvas.dataset.key = 'lobby-map';
     stage.append(canvas); drawLobby(canvas);
-    const useScene = worldRenderer && lobby.mapId !== undefined;
-    if (useScene) { stage.append(worldRenderer.element); worldRenderer.avatars.replaceChildren(); const self = lobby.avatars.find(a => a.self); worldRenderer.show(lobby.mapId!, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
+    ensureWorld(); const world = worldRenderer, useScene = !!world && lobby.mapId !== undefined;
+    if (useScene) { stage.append(world!.element); world!.avatars.replaceChildren(); const self = lobby.avatars.find(a => a.self); world!.show(lobby.mapId!, self ?? { x: (lobby.width ?? 1024) / 2, y: (lobby.height ?? 768) / 2 }); }
     const mapUrl = safeImageUrl(lobby.mapImage);
     if (mapUrl && !useScene) { const image = el('img', 'de-stage-layer'); image.src = mapUrl; image.alt = lobby.name; image.style.width = '100%'; image.style.height = '100%'; image.style.objectFit = 'fill'; image.style.pointerEvents = 'none'; stage.append(image); }
     const worldW = lobby.width ?? 1024, worldH = lobby.height ?? 768;
-    canvas.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !worldRenderer.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, worldRenderer.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? worldRenderer.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
+    canvas.onclick = e => { if (worldWalk?.consumeClick()) return; const card = state.profileDetail; if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) { send({ type: 'profileAction', action: { type: 'close' } }); return; } if (lobby.connected && !state.busy) { if (useScene && !world!.ready) { local.message = 'Map artwork is still loading.'; requestRender(); return; } const p = useScene ? gamePoint(e.clientX, e.clientY, world!.element.getBoundingClientRect()) : gamePoint(e.clientX, e.clientY, canvas.getBoundingClientRect(), worldW, worldH); if (p) { const target = useScene ? world!.screenToWorld(p) : p; send({ type: 'move', x: Math.round(target.x), y: Math.round(target.y) }); } } };
     canvas.onkeydown = e => {
       const currentLobby = controller.getState().lobby, self = currentLobby?.avatars.find(a => a.self); if (!self || !currentLobby?.connected) return;
       const delta: Record<string, [number, number]> = { ArrowLeft: [-32, 0], ArrowRight: [32, 0], ArrowUp: [0, -32], ArrowDown: [0, 32] };
@@ -828,9 +839,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       b.className = 'de-avatar' + (avatar.self ? ' self' : ''); b.style.left = `${avatar.x / worldW * 100}%`; b.style.top = `${avatar.y / worldH * 100}%`; b.setAttribute('aria-label', `${avatar.name}${avatar.npc ? ', NPC' : ''}`);
       const art = safeImageUrl(avatar.image);
       if (art) { const img = el('img', 'de-avatar-sprite'); img.src = art; img.alt = ''; b.append(img); } else b.append(el('span', 'de-avatar-placeholder'));
-      const nameTag = el('span', 'de-avatar-name', avatar.name), cell = useScene ? null : flagCell(avatar.country); if (cell) nameTag.prepend(nationFlag(cell)); b.append(nameTag); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) worldRenderer.avatars.append(b); else stage.append(b);
+      const nameTag = el('span', 'de-avatar-name', avatar.name), cell = useScene ? null : flagCell(avatar.country); if (cell) nameTag.prepend(nationFlag(cell)); b.append(nameTag); b.dataset.key = `avatar:${avatar.id}`; avatarNodes.set(avatar.id, b); if (useScene) world!.avatars.append(b); else stage.append(b);
     }
-    if (useScene) worldRenderer.bindHits(avatarNodes);
+    if (useScene) world!.bindHits(avatarNodes);
     positionAvatars(lobby);
     // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list; the chat,
     // the Duel menu, the Move list, the player list's search and an NPC's card are main's (src/ui/htmlui/lobby.ts)

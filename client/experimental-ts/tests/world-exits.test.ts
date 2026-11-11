@@ -4,10 +4,10 @@ import { EXIT_HIT_PIXELS } from '../src/world/collision';
 const entry = (from: number, x = 10, direction = 0) => ({from,x,y:20,direction});
 const map = {id:2,entries:[entry(0),entry(8),entry(11),entry(8,30),entry(12),entry(8,99)]};
 describe('source-backed exit/entrance helpers', () => {
-  it('maps all four colors to entry index, rejecting special/missing destinations', () => {
+  it('maps all four colors to entry index, the shop door (11) kept, END and missing destinations rejected', () => {
     expect(detectExit(map,EXIT_HIT_PIXELS[0],{x:0,y:0})).toMatchObject({index:0,destination:0,source:'mask'});
     expect(detectExit(map,EXIT_HIT_PIXELS[1],{x:0,y:0})?.destination).toBe(8);
-    expect(detectExit(map,EXIT_HIT_PIXELS[2],{x:0,y:0})).toBeNull();
+    expect(detectExit(map,EXIT_HIT_PIXELS[2],{x:0,y:0})).toMatchObject({index:2,destination:11});   // the card shop's door
     expect(detectExit(map,EXIT_HIT_PIXELS[3],{x:0,y:0})?.destination).toBe(8);
     expect(detectExit(map,null,{x:0,y:0})).toBeNull(); expect(detectExit(map,0xff000000,{x:0,y:0})).toBeNull();
     expect(detectExit({id:0,entries:[]},EXIT_HIT_PIXELS[0],{x:0,y:0})).toBeNull();

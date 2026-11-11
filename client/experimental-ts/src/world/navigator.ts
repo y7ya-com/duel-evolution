@@ -7,6 +7,8 @@ export interface WorldNavigatorOptions {
   send(position: WorldPosition): void;
   physics?: WorldPhysics;
   onExit?(exit: ExitTrigger, position: WorldPosition): void | Promise<void>;
+  /** False lets the walk go on over an exit (the shop door already used, until the avatar walks off its mat). */
+  acceptExit?(exit: ExitTrigger, position: WorldPosition): boolean;
   onError?(error: Error): void;
 }
 export class WorldNavigator {
@@ -110,7 +112,7 @@ export class WorldNavigator {
       this.sent = rounded; this.send({ ...rounded });
       if (generation !== this.routeGeneration || this.disposed) return;
     }
-    if (result.exit) {
+    if (result.exit && (this.options.acceptExit?.(result.exit, { ...result.position }) ?? true)) {
       this.cancel();
       try { const returned = this.options.onExit?.(result.exit, { ...result.position }); if (returned) void returned.catch(error => this.report(error)); }
       catch (error) { this.report(error); }

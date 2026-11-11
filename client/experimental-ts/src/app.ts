@@ -46,7 +46,7 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
-import { chooseArrival } from './world/exits';
+import { chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
 import { SceneLoader } from './world/scene';
@@ -171,6 +171,10 @@ export class ClientApp implements ClientController {
   private runtimeLoad: Promise<void> | null = null;
   private worldTransition = false;
   private arrivalFrom: {from:number;to:number} | null = null;
+  /** The Move list's area: CWorldMng::enterArea's arrival (map 8's entries, jittered), not the old map's spot. */
+  private arrivalArea: number | null = null;
+  /** Where the avatar entered the shop door; the door ignores it until it walks 48 px away. */
+  private shopDoor: {x:number;y:number} | null = null;
   private scenes: SceneLoader | null = null;
   private avatars: AvatarLoader | null = null;
   private worldArea: number | null = null;
@@ -480,9 +484,9 @@ export class ClientApp implements ClientController {
     if (worldMap && self?.x !== undefined && self.y !== undefined && spawnContext !== this.worldSpawnContext) {
       this.worldSpawnContext = spawnContext;
       // A fresh server presence uses (0,0) until the client sends its initial move.
-      if (this.arrivalFrom?.to===state.area || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
+      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
         spawn = this.arrivalFrom?.to===state.area ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
-        this.arrivalFrom=null;
+        this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
         queueMicrotask(()=> {
           if (this.disposed || this.game !== game || epoch !== this.epoch || this.worldSpawnContext !== spawnContext) return;
@@ -590,8 +594,10 @@ export class ClientApp implements ClientController {
   private resetWorldRuntime(): void {
     this.world.dispose();this.worldRuntime?.dispose();this.runtimeMap=null;this.runtimeLoad=null;
     this.worldRuntime=this.options.assets ? new WorldRuntime({assets:this.options.assets,crossings:true}) : null;
+    // the current map's exit areas from its hit mask (the shop counter, the doors), for tools and the acceptance tests
+    if(this.worldRuntime){const runtime=this.worldRuntime;(globalThis as {__deExits?:()=>unknown}).__deExits=()=>runtime.exitRegions();}
     this.world=new WorldNavigator({send:p=>this.requireGame().move(p.x,p.y,p.direction),...(this.worldRuntime ? {physics:this.worldRuntime} : {}),
-      onExit:exit=>this.enterWorldExit(exit),onError:error=>{this.stopWorld();this.failure(error);}});
+      onExit:(exit,at)=>this.enterWorldExit(exit,at),acceptExit:exit=>exit.destination!==SHOP_DOOR||!this.shopDoor,onError:error=>{this.stopWorld();this.failure(error);}});
   }
   private loadWorldRuntime(map:WorldMap,position:WorldPosition): void {
     const runtime=this.worldRuntime;if(!runtime)return;const epoch=this.epoch;
@@ -600,8 +606,16 @@ export class ClientApp implements ClientController {
     // bare "Failed to fetch" dialog over the lobby; anything else is the app's
     void load.catch(error=>{if(this.worldRuntime!==runtime || epoch!==this.epoch)return;if(/Failed to fetch|NetworkError|Load failed/.test(String((error as Error)?.message))){console.warn('world runtime:',error);return;}this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
   }
-  private async enterWorldExit(exit:ExitTrigger): Promise<void> {
+  private async enterWorldExit(exit:ExitTrigger,at?:{x:number;y:number}): Promise<void> {
     if(this.worldTransition || !this.game || this.game.state.phase!=='lobby')return;
+    // the shop counter (entry source 11): the walk that entered it stops and the card shop opens, as the original's
+    // SCENE_SHOP; the door re-arms once the avatar is 48 px off the spot it entered (recomp shopdirect.c)
+    if(exit.destination===SHOP_DOOR){
+      if(this.shopDoor)return;
+      const p=at??this.world.position;this.shopDoor=p?{x:p.x,y:p.y}:{x:0,y:0};this.stopWorld();
+      if(this.view.scene==='lobby'){this.patch({scene:'shop'});await this.refresh('shop');}
+      return;
+    }
     const game=this.game,epoch=this.epoch,from=game.state.area;this.worldTransition=true;this.arrivalFrom={from,to:exit.destination};this.stopWorld();
     try {await game.enterArea(exit.destination);this.assertEpoch(epoch);}
     catch(error) {if(epoch===this.epoch){this.arrivalFrom=null;throw error;}}
@@ -617,6 +631,7 @@ export class ClientApp implements ClientController {
         this.world.update(delta);
         if(this.worldRuntime?.status.error)throw new Error(this.worldRuntime.status.error);
         const position = this.world.position, lobby = this.view.lobby;
+        if (this.shopDoor && position && Math.hypot(position.x-this.shopDoor.x,position.y-this.shopDoor.y) >= SHOP_DOOR_REARM) this.shopDoor = null;
         if (position && lobby) this.patch({ lobby: { ...lobby, avatars: lobby.avatars.map(a => a.self ? { ...a,x:position.x,y:position.y,direction:position.direction,motion:this.world.walking ? 'walk' : 'stand' } : a) } });
         if (this.world.moving) this.scheduleWorld(); else this.worldLastFrame = null;
       } catch (e) { this.stopWorld(); this.failure(e); }
@@ -948,7 +963,7 @@ export class ClientApp implements ClientController {
           if (!this.world.moveTo({ x: command.x, y: command.y })) throw new Error('That destination is blocked or unreachable.');
           this.scheduleWorld(); break;
         case 'myRoom': this.stopWorld();this.arrivalFrom=null;if(command.enter)await this.requireGame().enterMyRoom();else await this.requireGame().leaveMyRoom();break;
-        case 'moveArea': this.stopWorld();this.arrivalFrom=null;await this.requireGame().enterArea(command.area);break;
+        case 'moveArea': this.stopWorld();this.arrivalFrom=null;this.arrivalArea=command.area===8?null:command.area;await this.requireGame().enterArea(command.area);break;
         case 'chat': {
           if (!['global', 'trade', 'whisper', 'team'].includes(command.channel)) throw new Error('Unknown chat channel.');
           let targetPid: number | undefined;

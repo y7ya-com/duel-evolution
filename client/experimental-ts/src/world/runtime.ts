@@ -1,7 +1,7 @@
 import type { AssetLease } from '../assets';
 import { checkAbort, WorkQueue } from '../assets/async';
 import { playerFootTransform, IDENTITY_FOOT_TRANSFORM } from '../avatars/transform';
-import { CollisionTiles, CollisionUnavailableError, decodeCollisionMask, finishProbedStep, footGeometry, heightScaleFromPixel, probeWalls, smoothGroundStep } from './collision';
+import { exitIndexFromPixel, CollisionTiles, CollisionUnavailableError, decodeCollisionMask, finishProbedStep, footGeometry, heightScaleFromPixel, probeWalls, smoothGroundStep } from './collision';
 import type { FootTransform } from './collision';
 import { detectExit } from './exits';
 import type { ExitTrigger } from './exits';
@@ -118,6 +118,21 @@ export class WorldRuntime implements WorldPhysics {
       work.then(() => finish(resolve), error => finish(() => reject(error)));
       if (signal.aborted) cancel();
     });
+  }
+  /** The map's exit areas from its hit mask (each exit colour's bounding box, sampled every 4 px), one tile at a time:
+   * for tools and the acceptance tests (the shop counter, the My Room door), never the walk. */
+  async exitRegions(): Promise<{ index: number; x0: number; y0: number; x1: number; y1: number }[]> {
+    const d = this.scene; if (!d || !this.tiles) return [];
+    const boxes = new Map<number, { index: number; x0: number; y0: number; x1: number; y1: number }>();
+    for (let column = 0; column < d.columns; column++) for (let row = 0; row < d.rows; row++) {
+      try { await this.tile(column, row); } catch { continue; }
+      if (!this.tiles) return [];
+      for (let y = row * d.tileHeight; y < (row + 1) * d.tileHeight; y += 4) for (let x = column * d.tileWidth; x < (column + 1) * d.tileWidth; x += 4) {
+        const color = this.tiles.pixel(x, y); const index = color === null ? null : exitIndexFromPixel(color); if (index === null) continue;
+        const b = boxes.get(index); if (!b) boxes.set(index, { index, x0: x, y0: y, x1: x, y1: y }); else { b.x0 = Math.min(b.x0, x); b.y0 = Math.min(b.y0, y); b.x1 = Math.max(b.x1, x); b.y1 = Math.max(b.y1, y); }
+      }
+    }
+    return [...boxes.values()].sort((a, b) => a.index - b.index);
   }
   private tile(column: number, row: number): Promise<void> {
     const key = column * 16 + row, old = this.retained.get(key);
