@@ -158,6 +158,7 @@ export class ClientApp implements ClientController {
   /** The last board action sent, so a Tribute choice after a summon reads as one (presentation.ts boardInstruction). */
   private lastDuelAction: import('./duel/types').DuelResponse | null = null;
   private collectionRef: ReadonlyMap<number, number> | null = null;
+  private limitsRef: ReadonlyMap<number, number> | null = null;
   private collection: CardView[] = [];
   private catalogCards: CardView[] | null = null;
   private projections = new Map<string, { source: unknown; result: unknown }>();
@@ -396,6 +397,11 @@ export class ClientApp implements ClientController {
       // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
       const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
       if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+    }
+    if ((state.limits ?? null) !== this.limitsRef) {
+      // the server's forbidden/limited list: the deck's marks, limits and checks follow it (CLimitationList)
+      this.limitsRef = state.limits ?? null; this.catalog.installLimits(this.limitsRef);
+      this.catalogCards = null; this.collectionRef = null; this.projections.clear();
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
@@ -823,6 +829,7 @@ export class ClientApp implements ClientController {
             this.stopWorld();
             const state=this.requireGame().state, special=npcOpeningPresent(npc.id);
             this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
+              ...(npc.id*4+2 < state.npcbin.length ? {record:[state.npcbin[npc.id*4]!,state.npcbin[npc.id*4+1]!,state.npcbin[npc.id*4+2]!] as const} : {}),
               ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
           } else this.profile.dispatch({type:'open',pid:command.playerId});
           break;

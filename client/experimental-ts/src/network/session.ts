@@ -1,3 +1,4 @@
+import { LIMIT_LIST, reduceLimitList } from './banlist';
 import { avatarParts, defaultAvatar } from '../avatars/appearance';
 import { TM, TOURNAMENT_REQUESTS, decodeAutoDuel, decodeEventInfo, emptyTournament, isTournamentMessage, reduceTournament } from './tournament';
 import type { EventInfo, TournamentState } from './tournament';
@@ -59,6 +60,8 @@ export interface SessionState {
   watchNames?: [string, string] | null;
   /** The admin's tournament (0x51xx, network/tournament.ts) and the event state (EVENTINFO 0x5000), once the server sent them. */
   tournament?: TournamentState | null; eventInfo?: EventInfo | null;
+  /** The server's forbidden/limited list (LIMIT_LIST 0x5600, network/banlist.ts): passcode to copies; unset until it arrives. */
+  limits?: ReadonlyMap<number, number> | null;
   matchmaking:MatchmakingState; relay: RelayState | null; duelRole: 'player' | 'partner' | 'spectator'; match: MatchState | null; duelFirst: number | null; opponentHand: number | null; rpsLost: boolean; error: string | null;
 }
 export interface DuelDeck { main: number[]; extra: number[]; side?: number[] }
@@ -655,6 +658,8 @@ export class GameSession {
       this.options.onDuelOffer?.(this.state.duelOffer);
     } else if (channel === this.lobby && isTournamentMessage(id)) {
       this.state.tournament = reduceTournament(this.state.tournament ?? emptyTournament(), id, data);
+    } else if (channel === this.lobby && id === LIMIT_LIST) {
+      try { this.state.limits = reduceLimitList(this.state.limits, data); } catch { /* a malformed list keeps the last one */ }
     } else if (channel === this.lobby && id === TM.EVENTINFO && data.length >= 12) {
       this.state.eventInfo = decodeEventInfo(data);
     } else if (channel === this.lobby && id === 0x43a0 && data.length === 42 && this.state.tournament?.running && !this.pendingNpc && !this.pendingMatchmaking && this.state.matchmaking.status === 'idle') {
