@@ -46,6 +46,7 @@ import { WorldNavigator } from './world';
 import { chooseInitialArrival } from './world/arrival';
 import { isWalkable } from './world/pathfinding';
 import { WorldRuntime } from './world/runtime';
+import { npcsOnMap, npcStance } from './world/npcs';
 import { arrivalEntries, chooseArrival, SHOP_DOOR, SHOP_DOOR_REARM } from './world/exits';
 import type { ExitTrigger } from './world/exits';
 import type { WorldMap, WorldPosition } from './world/maps';
@@ -59,7 +60,7 @@ import type { ClientController, ClientView, ClientCommand, Scene, CardView, Sett
 import { serializeDeck } from './ui/deck';
 import { CardDetailsCatalog, decodeLegacyDeck, encodeLegacyDeck } from './cards';
 import type { OriginalCardTextCatalog } from './cards/original-text';
-import type { DeckView } from './ui/contracts';
+import type { DeckView, LobbyAvatar } from './ui/contracts';
 import type { ClientData } from './data';
 import type {RecipeCatalog} from './recipes';
 import { ownedTitles } from './features/titles';
@@ -481,10 +482,13 @@ export class ClientApp implements ClientController {
     const self = state.players.find(p => p.pid === profile?.pid);
     const spawnContext = self && profile ? `${profile.pid}:${state.areaBlock}:${state.area}` : null;
     let spawn: ReturnType<typeof chooseInitialArrival> | null = null;
-    if (worldMap && self?.x !== undefined && self.y !== undefined && spawnContext !== this.worldSpawnContext) {
+    // My Room's own list has no position for this player until its first move: that is a fresh entry, as (0,0) is
+    const selfAt = self ? { x:self.x ?? 0, y:self.y ?? 0, direction:(self.direction ?? 0)&7 } : null;
+    if (worldMap && selfAt && spawnContext !== this.worldSpawnContext) {
       this.worldSpawnContext = spawnContext;
-      // A fresh server presence uses (0,0) until the client sends its initial move.
-      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || self.x === 0 && self.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,self as {x:number;y:number})) && worldMap.entries.some(e=>e.from===8)) {
+      // A fresh server presence uses (0,0) until the client sends its initial move. My Room (map 8, Map_r01) is the
+      // area map scene too: its player stands at GetInitPos(8, 8) = (680,400) plus rand()%60-30 each way (0x00a01575..)
+      if (this.arrivalFrom?.to===state.area || this.arrivalArea===state.area || this.arrivalArea===-1 && state.location!=='my-room' || selfAt.x === 0 && selfAt.y === 0 && (!worldMap.grid || !isWalkable(worldMap.grid,selfAt)) && worldMap.entries.some(e=>e.from===8)) {
         spawn = this.arrivalFrom?.to===state.area && arrivalEntries(worldMap,this.arrivalFrom.from,{crossings:true}).length ? chooseArrival(worldMap,this.arrivalFrom.from,{crossings:true,random:this.options.random}) : chooseInitialArrival(worldMap,this.options.random);
         this.arrivalFrom=null;this.arrivalArea=null;this.shopDoor=null;
         const game = this.game, epoch = this.epoch, position = spawn;
@@ -494,8 +498,8 @@ export class ClientApp implements ClientController {
         });
       }
     }
-    if (worldMap && self?.x !== undefined && self.y !== undefined && (this.worldArea !== state.area || !this.world.moving)) {
-      this.world.reset(worldMap, spawn ?? { x:self.x,y:self.y,direction:(self.direction ?? 0)&7 }); this.worldArea = state.area;
+    if (worldMap && selfAt && (this.worldArea !== state.area || !this.world.moving)) {
+      this.world.reset(worldMap, spawn ?? selfAt); this.worldArea = state.area;
       if(this.worldRuntime && this.runtimeMap!==state.area) this.loadWorldRuntime(worldMap,this.world.position!);
     }
     const connection = state.connection === 'connected' ? 'online' : state.connection === 'connecting' ? 'connecting'
@@ -525,7 +529,7 @@ export class ClientApp implements ClientController {
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
         outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
-        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const })),
+        avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
@@ -585,6 +589,22 @@ export class ClientApp implements ClientController {
     if (this.npcResult.complete && !npcResult.complete) this.npc.refreshResultLine();
     if (this.duelState.prompt?.id !== previousPrompt) this.submittedPrompt = null;
     this.syncDuel();
+  }
+  private npcAvatarCache:{key:readonly unknown[];avatars:LobbyAvatar[]}|null = null;
+  /** The NPCs standing on this map (the area map's NPC builder, src/world/npcs.ts) as avatars: id -npc (the NPC
+   * card's own entry), standing idle where their spot puts them; built once per map visit and NPC list, so a spot
+   * that faces a random way keeps that facing while the player stays. */
+  private mapNpcAvatars(state:SessionState,worldMap:WorldMap|undefined): LobbyAvatar[] {
+    if (!worldMap || this.freeMode || state.location==='my-room' || !worldMap.npcSpots.length) return [];
+    const key = [worldMap,state.npcs,state.npcbin,this.worldSpawnContext];
+    if (this.npcAvatarCache && this.npcAvatarCache.key.every((v,i)=>v===key[i])) return this.npcAvatarCache.avatars;
+    const npcbin = state.npcbin, rank = (id:number) => npcbin && id*4+3 < npcbin.length ? npcbin[id*4+3]! : 0;
+    const world = ([4,5,6,7].includes(worldMap.id)?1:0) as 0|1, old = new Map((this.npcAvatarCache?.avatars ?? []).map(a=>[a.id,a]));
+    const avatars = npcsOnMap(worldMap,state.npcs,rank).map(({npc,spot}):LobbyAvatar => {
+      const kept = old.get(-npc.id), at = kept && kept.x===spot.x && kept.y===spot.y ? { x:kept.x,y:kept.y,direction:kept.direction ?? 0 } : npcStance(spot,this.options.random);
+      return { id:-npc.id,name:npc.name,x:at.x,y:at.y,direction:at.direction,npc:true,parts:npc.parts,world,motion:'stand' };
+    });
+    this.npcAvatarCache = { key,avatars }; return avatars;
   }
   private stopWorld(): void {
     this.world.cancel();
