@@ -12,7 +12,11 @@ import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { renderAccountFeature } from './extra/account';
 import { renderAudioFeature } from './extra/audio';
-import { audioWindow, optionsWindow, type OptionsDeps, type OptionsUi } from './htmlui/options';
+import { audioWindow, optionsWindow, type AudioUi, type OptionsDeps, type OptionsUi } from './htmlui/options';
+import { isAudioPackItem, readAudioPack } from '../features/audio-pack';
+import { AUDIO_FILE_LIMITS } from '../features/audio';
+const AUDIO_ACCEPT = 'audio/*,.mp3,.m4a,.aac,.wav,.flac,.aiff,.aif,.ogg,.opus';
+const AUDIO_PACK_ACCEPT = `.zip,application/zip,${AUDIO_ACCEPT},.json`;
 import type { AudioAction } from '../features/audio';
 import { renderLanguageSettings } from './extra/language';
 import { renderTradeTrunk } from './extra/social';
@@ -312,8 +316,33 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       ...(a ? { audio: { music: a.music, sound: a.sound, activated: a.activated, slots: a.slots }, audioAction: (action: AudioAction) => send({ type: 'audioAction', action }) } : {}),
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
-    return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
+    return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, { ...deps, ui: audioUi, rerender: showHtml, pickPack: () => pickFiles(AUDIO_PACK_ACCEPT, openAudioPack),
+      pickSlotFiles: slot => pickFiles(AUDIO_ACCEPT, files => { audioUi.message = undefined; send({ type: 'audioAction', action: { type: 'set-slot-files', slot, files: files.slice(0, AUDIO_FILE_LIMITS.perSlot) } }); }) }) : optionsWindow(htmlIds, deps)];
   };
+  // The Audio window's pack flow (live's audiopage.js): a pack picked or dropped anywhere on the game is read
+  // (features/audio-pack.ts) and reviewed in the Audio window; nothing changes until the player uses it.
+  const audioUi: AudioUi = { page: 0 };
+  let packDragOver: ((event: Event) => void) | null = null, packDropped: ((event: Event) => void) | null = null;
+  const pickFiles = (accept: string, done: (files: File[]) => void) => {
+    const input = document.createElement('input'); input.type = 'file'; input.multiple = true; input.accept = accept;
+    input.onchange = () => { const files = [...(input.files ?? [])]; if (files.length) done(files); };
+    input.click();
+  };
+  const openAudioPack = (files: File[]) => {
+    audioUi.message = 'Reading the pack…'; audioUi.review = null; optionsUi = { kind: 'audio' }; showHtml();
+    void readAudioPack(files).then(plan => { audioUi.review = plan; audioUi.message = undefined; }, error => { audioUi.message = error instanceof Error ? error.message : String(error); })
+      .finally(() => { if (optionsUi?.kind === 'audio') showHtml(); });
+  };
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    const packDrop = (event: DragEvent) => [...(event.dataTransfer?.files ?? [])].some(file => /\.zip$/i.test(file.name) || /zip/.test(file.type));
+    packDragOver = event => { if (state.audio && htmlUi && packDrop(event as DragEvent)) event.preventDefault(); };
+    packDropped = event => {
+      const e = event as DragEvent;
+      if (!state.audio || !htmlUi || !state.player || !packDrop(e)) return;
+      e.preventDefault(); openAudioPack([...(e.dataTransfer?.files ?? [])].filter(file => isAudioPackItem(file.name, file.type)));
+    };
+    document.addEventListener('dragover', packDragOver); document.addEventListener('drop', packDropped);
+  }
   const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
@@ -1081,7 +1110,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'D-Mail', key: 'mail', disabled: blocked || sideboard || !state.socialDetail, run: () => { htmlUiState.mail = { top: 0, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshMail' } }); showHtml(); } },
           // Duel Log (CWindowModelDuellogTop): the character's duel history, its stats and the search
           { label: 'Duel Log', key: 'duellog', disabled: blocked || sideboard, run: () => { duellog = duellogUi(); loadDuellog(duellog.search, 1); } },
-          { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; showHtml(); } },
+          { label: 'Audio', key: 'audio', disabled: blocked, run: () => { optionsUi = { kind: 'audio' }; audioUi.message = undefined; showHtml(); } },
           // Find a Player (CWindowModelFriendEnum): a player by name, and the friend and team invitations waiting
           ...(state.socialDetail ? [{ label: 'Find Player', key: 'find', disabled: blocked || sideboard, run: () => { htmlUiState.find = { name: '', target: null, selected: -1 }; send({ type: 'socialAction', action: { type: 'refreshTeam' } }); showHtml(); } }] : []),
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
@@ -1145,5 +1174,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (packDragOver) globalThis.document?.removeEventListener?.('dragover', packDragOver); if (packDropped) globalThis.document?.removeEventListener?.('drop', packDropped); packDragOver = packDropped = null; if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

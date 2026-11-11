@@ -74,7 +74,7 @@ describe('bounded optional audio persistence', () => {
     expect(() => validateStoredAudio({ ...stored(), slots: Array(47).fill(stored().slots[0]) }, 46)).toThrow();
     const large = file(); Object.defineProperty(large, 'size', { value: AUDIO_FILE_LIMITS.perFileBytes + 1 });
     expect(() => validateStoredAudio({ ...stored(), slots: [{ ...stored().slots[0], files: [large] }] }, 46)).toThrow();
-    const nine = { ...stored(), slots: [{ ...stored().slots[0], files: Array(9).fill(file()) }] };
+    const nine = { ...stored(), slots: [{ ...stored().slots[0], files: Array(65).fill(file()) }] };
     expect(() => validateStoredAudio(nine, 46)).toThrow();
   });
   it('enforces aggregate count/bytes and per-file limits before mutating a playlist', () => {

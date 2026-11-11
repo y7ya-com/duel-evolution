@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DuelAudioDirector, DUEL_SOUND_EVIDENCE, fieldAudioSlot, resultAudioSlot } from '../src/duel/audio';
+import { DuelAudioDirector, DUEL_SOUND_EVIDENCE, duelSoundGain, fieldAudioSlot, resultAudioSlot } from '../src/duel/audio';
 import { createDuelState, reduceDuelMessage } from '../src/duel/model';
 import type { DuelState, PresentationEvent } from '../src/duel/types';
 import { engine } from '../../../server/src/duel/translator/lockstep';
@@ -31,7 +31,7 @@ describe('source-backed duel sound cues', () => {
     audio.enqueue(before, after); expect(audio.pendingCues).toBe(1);
     expect(audio.consumeSample(sample(0))).toEqual([]);
     const cues = audio.consumeSample(sample(0, after.events));
-    expect(cues).toEqual([{ sequence: 1, ordinal: 0, player: 0, kind: 'attack', id: 0x10000006, path: 'se/attack.wav' }]);
+    expect(cues).toEqual([{ sequence: 1, ordinal: 0, player: 0, kind: 'attack', id: 0x10000006, path: 'se/attack.wav', volume: 122, gain: 122 / 127 }]);
     expect(audio.consumeSample(sample(0, after.events))).toEqual([]);
     expect(audio.consumeSample(sample(1))).toEqual([]); expect(audio.pendingCues).toBe(0);
   });
@@ -96,7 +96,7 @@ describe('source-backed duel sound cues', () => {
   it('keeps unsupported sound associations silent instead of inferring paths from command names', () => {
     const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event('12'), event('13'), event('55'));
     audio.enqueue(a, b); expect(audio.consumeSample(sample(1))).toEqual([]);
-    expect(Object.keys(DUEL_SOUND_EVIDENCE)).toEqual(['attack', 'impact', 'summon', 'damage', 'recover', 'turn', 'battlePhase']);
+    expect(Object.keys(DUEL_SOUND_EVIDENCE)).toEqual(['attack', 'impact', 'summon', 'damage', 'recover', 'turn', 'battlePhase', 'move']);
     expect(() => new DuelAudioDirector(0, { maxQueuedCues: 0 })).toThrow();
   });
   it('plays a battle gauge sound once, suppresses its matching LP completion, and retains later cost/recovery cues', () => {
@@ -141,5 +141,54 @@ describe.skipIf(!existsSync(exePath))('private original executable static sound 
     expect(target(0x73e25e)).toBe(0x408364); expect(target(0x408364)).toBe(0x7d46c0);
     expect(target(0x7d46d0)).toBe(0x40c310); expect(target(0x40c310)).toBe(0x7d4720);
     expect(target(0x7d4789)).toBe(0x405c95); expect(target(0x405c95)).toBe(0x7d3d90);
+  });
+});
+
+describe('card_move (view 0x19) and the se.txt per-file volume', () => {
+  const withDeck = (n0: number, n1 = 0): DuelState => {
+    const s = createDuelState();
+    return { ...s, sides: [{ ...s.sides[0], deck: Array.from({ length: n0 }, (_, i) => i * 2) }, { ...s.sides[1], deck: Array.from({ length: n1 }, (_, i) => i * 2 + 1) }] as DuelState['sides'] };
+  };
+  it('plays one card_move per drawn card, bounded by the cards left in the deck', () => {
+    for (const [deck, count, expected] of [[40, 1, 1], [40, 5, 5], [2, 5, 2], [0, 1, 0], [40, 0, 0]]) {
+      const audio = new DuelAudioDirector(), a = withDeck(deck, 40), b = next(a, event('55', [0xffff, count, 0]));
+      audio.enqueue(a, b); const cues = audio.consumeSample(sample(1));
+      expect(cues.map(c => c.path)).toEqual(Array(expected).fill('se/card_move.wav'));
+    }
+    // Two draws in one packet share the remaining deck count; the other player's deck is separate.
+    const audio = new DuelAudioDirector(), a = withDeck(3, 1), b = next(a, event('55', [0xffff, 2, 0]), event('55', [0xffff, 2, 0]), event('55', [0xffff, 2, 0], 1));
+    audio.enqueue(a, b); expect(audio.consumeSample(sample(1)).map(c => [c.ordinal, c.player])).toEqual([[0, 0], [0, 0], [1, 0], [2, 1]]);
+  });
+  it.each(['4f', '50', '3d', '3f', '40', '41'])('plays card_move once for view-0x19 subkind 0/1/3/4 command %s', type => {
+    const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event(type, [0, 0x4000, 0], 1));
+    audio.enqueue(a, b);
+    expect(audio.consumeSample(sample(1))).toEqual([{ sequence: 1, ordinal: 0, player: 1, kind: 'move', id: 0x1000000f, path: 'se/card_move.wav', volume: 122, gain: 122 / 127 }]);
+  });
+  it('keeps UID summon (view 0x19 subkind 2) on reborn only and leaves swap / chain / coin / die / destruction silent', () => {
+    const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event('2d'), event('3e'), event('12'), event('13'), event('5c'), event('5d'), event('17'));
+    audio.enqueue(a, b); expect(audio.consumeSample(sample(1)).map(c => c.path)).toEqual(['se/reborn.wav']);
+  });
+  it('carries the se.txt volume column for every cue and derives a proportional gain', () => {
+    expect(Object.fromEntries(Object.entries(DUEL_SOUND_EVIDENCE).map(([k, v]) => [k, [v.id - 0x10000000, v.path, v.volume]]))).toEqual({
+      attack: [6, 'se/attack.wav', 122], impact: [9, 'se/damage.wav', 125], summon: [14, 'se/reborn.wav', 125],
+      damage: [9, 'se/damage.wav', 125], recover: [27, 'se/life_up.wav', 126], turn: [5, 'se/turn_change.wav', 120],
+      battlePhase: [17, 'se/battle_turn.wav', 125], move: [15, 'se/card_move.wav', 122],
+    });
+    expect([0, 127, 120].map(duelSoundGain)).toEqual([0, 1, 120 / 127]);
+    for (const bad of [-1, 128, 1.5]) expect(() => duelSoundGain(bad)).toThrow();
+    const audio = new DuelAudioDirector(), a = createDuelState(), b = next(a, event('4'), event('24', [100, 0, 0]));
+    audio.enqueue(a, b); expect(audio.consumeSample(sample(1)).map(c => [c.kind, c.volume, c.gain])).toEqual([['turn', 120, 120 / 127], ['recover', 126, 126 / 127]]);
+  });
+});
+
+const decompExe = `${process.env.HOME}/Documents/GitHub/yo2-decomp-data/yo2.exe`;
+describe.skipIf(!existsSync(decompExe))('private executable: view 0x19 card_move call site', () => {
+  it('confirms the subkind table and the SE15 operand without running the executable', () => {
+    const bytes = readFileSync(decompExe), word = (va: number) => bytes.readUInt32LE(va - 0x400000);
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe('d25d4b135602eafe9db1a709ac5d2367295ba1dad084366d37a1a7577021e613');
+    expect(word(0x741b80 + 24 * 4)).toBe(0x73de88); // view 0x19 = dispatcher index 0x18
+    expect(Array.from({ length: 9 }, (_, i) => word(0x741ca8 + i * 4) === 0x73dfcb)).toEqual([true, true, false, true, true, false, false, false, false]);
+    expect(word(0x73dfce)).toBe(DUEL_SOUND_EVIDENCE.move.id);
+    expect(0x73dfd2 + 5 + bytes.readInt32LE(0x73dfd3 - 0x400000)).toBe(0x411fcc);
   });
 });

@@ -1,4 +1,5 @@
 import { ArchiveReader, normalizeAssetPath } from '../assets/archive';
+import { buildAudioPack, type AudioPackMeta, type AudioPackSlot, type AudioPackSource } from './audio-pack';
 import { AUDIO_FILE_LIMITS, IndexedDBAudioStorage, validateStoredAudio, type AudioStorage, type AudioSlotMode, type StoredAudio } from './audio-storage';
 export { AUDIO_FILE_LIMITS } from './audio-storage';
 export type { AudioStorage, AudioSlotMode } from './audio-storage';
@@ -27,7 +28,12 @@ export interface AudioState {
   slots: readonly { slot: number; id: string; label: string; loop: boolean; shuffle?: boolean; volume?: number; files: readonly string[] }[];
 }
 export type AudioAction = { type: 'restore' } | { type: 'set-slot-mode'; slot: number; shuffle?: boolean; loop?: boolean; volume?: number } | { type: 'activate' } | { type: 'stop' } | { type: 'play-slot'; slot: number }
-  | { type: 'set-slot-files'; slot: number; files: File[] } | { type: 'set-volumes'; music?: number; sound?: number };
+  | { type: 'set-slot-files'; slot: number; files: File[] } | { type: 'set-volumes'; music?: number; sound?: number }
+  /** An audio pack (features/audio-pack.ts readAudioPack): its slots over the current ones, or replacing all of them. */
+  | { type: 'apply-pack'; slots: Readonly<Record<number, AudioPackSlot>>; master?: number; replace?: boolean }
+  | { type: 'clear-all' }
+  /** Handled by the app: the current setup saved as a pack .zip (buildAudioPack), downloaded. */
+  | { type: 'export-pack'; name?: string; author?: string; description?: string };
 export interface BrowserAudioOptions {
   /** false disables persistence; otherwise manager owns adapter lifetime. */
   storage?: AudioStorage | false;
@@ -119,6 +125,9 @@ export class BrowserAudioManager {
       }
       case 'set-slot-files': this.setSlotFiles(action.slot, action.files); break;
       case 'set-volumes': this.setVolumes(action); break;
+      case 'apply-pack': this.setMany(action.slots, { replace: action.replace, master: action.master }); break;
+      case 'clear-all': this.setMany({}, { replace: true }); break;
+      case 'export-pack': break;
     }
   }
   private mode(slot: number): AudioSlotMode {
@@ -141,6 +150,40 @@ export class BrowserAudioManager {
     if (slot === this.playing && (old.shuffle !== mode.shuffle || old.loop !== mode.loop)) { this.releaseMusic(); void this.updateMusic(); }
     else this.applyMusicVolume();
   }
+  /** Many slots at once (an audio pack, live's yo2Audio.setMany): files and modes per slot; `replace` empties every
+   * slot the change leaves out (their modes back to defaults). Validated as a whole before anything changes. */
+  setMany(changes: Readonly<Record<number, AudioPackSlot>>, { replace = false, master }: { replace?: boolean; master?: number } = {}): void {
+    this.check();
+    if (master !== undefined && (!Number.isFinite(master) || master < 0 || master > 1)) throw new RangeError('Audio volume must be between 0 and 1');
+    const next = new Map(replace ? [] : this.files), modes = new Map(replace ? [] : this.modes);
+    for (const [key, change] of Object.entries(changes)) {
+      const slot = Number(key); this.checkSlot(slot);
+      const files = change.files ?? [];
+      if (files.length > AUDIO_FILE_LIMITS.perSlot) throw new RangeError(`${AUDIO_SLOTS[slot]!.label}: more than ${AUDIO_FILE_LIMITS.perSlot} files`);
+      if (files.some(file => !(file instanceof Blob) || typeof file.name !== 'string' || file.name.length > 4096 || file.size > AUDIO_FILE_LIMITS.perFileBytes)) throw new RangeError(`${AUDIO_SLOTS[slot]!.label}: a file is over ${AUDIO_FILE_LIMITS.perFileBytes / MiB} MB`);
+      if (files.length) next.set(slot, [...files]); else next.delete(slot);
+      const mode = { ...(modes.get(slot) ?? { shuffle: false, loop: AUDIO_SLOTS[slot]!.loop, volume: 1 }) };
+      if (typeof change.shuffle === 'boolean') mode.shuffle = change.shuffle;
+      if (typeof change.loop === 'boolean') mode.loop = change.loop;
+      if (change.volume !== undefined) { if (!Number.isFinite(change.volume) || change.volume < 0 || change.volume > 1) throw new RangeError('Invalid slot volume'); mode.volume = change.volume; }
+      modes.set(slot, mode);
+    }
+    let count = 0, bytes = 0;
+    for (const list of next.values()) { count += list.length; bytes += list.reduce((n, file) => n + file.size, 0); }
+    if (count > AUDIO_FILE_LIMITS.totalFiles) throw new RangeError(`Too many audio files (over ${AUDIO_FILE_LIMITS.totalFiles})`);
+    if (bytes > AUDIO_FILE_LIMITS.totalBytes) throw new RangeError(`Too much audio (over ${AUDIO_FILE_LIMITS.totalBytes / MiB} MB)`);
+    this.files.clear(); for (const [k, v] of next) this.files.set(k, v);
+    this.modes.clear(); for (const [k, v] of modes) this.modes.set(k, v);
+    if (master !== undefined) this.musicVolume = master;
+    this.changed();
+    this.releaseMusic(); void this.updateMusic();
+  }
+  /** The setup as buildAudioPack's source. */
+  packSource(): AudioPackSource {
+    return { master: this.musicVolume, slots: AUDIO_SLOTS.map(slot => ({ id: slot.id, files: [...(this.files.get(slot.slot) ?? [])], ...this.mode(slot.slot) })) };
+  }
+  /** The current setup (or an empty template over every part) as an audio pack .zip. */
+  exportPack(meta: AudioPackMeta = {}): Promise<Blob> { this.check(); return buildAudioPack(this.packSource(), meta); }
   /** Explicit boot step. Never activates or resumes audio. Concurrent local edits win. */
   restore(): Promise<boolean> {
     this.check();
@@ -339,7 +382,8 @@ export class BrowserAudioManager {
     this.applyMusicVolume(); this.changed();
   }
   private applyMusicVolume(): void { if (this.media) this.media.volume = this.musicVolume * this.mode(this.playing).volume * (this.voices.size && this.soundVolume > 0 ? 0.35 : 1); }
-  async playEffect(path: string): Promise<boolean> {
+  /** `gain` (0..1): the original's per-file volume (se.txt, DuelSoundCue.gain); 1 plays at the sound-effects volume. */
+  async playEffect(path: string, gain = 1): Promise<boolean> {
     this.check(); path = normalizeAssetPath(path);
     if (!/^se\/.+\.wav$/.test(path)) throw new Error('Expected an SE/*.wav effect path');
     if (!this.activated || !this.soundVolume || this.context?.state !== 'running' || this.voices.size >= 16) return false;
@@ -347,7 +391,8 @@ export class BrowserAudioManager {
     try {
       const entry = await this.decodeEffect(path);
       if (this.closed || token !== this.effectToken || !this.soundVolume || this.voices.size >= 16 || this.context?.state !== 'running' || this.decoded.get(path) !== entry) return false;
-      const source = this.context.createBufferSource(); source.buffer = entry.buffer; source.connect(this.output!);
+      const source = this.context.createBufferSource(); source.buffer = entry.buffer;
+      if (gain < 1 && Number.isFinite(gain) && typeof this.context.createGain === 'function') { const level = this.context.createGain(); level.gain.value = Math.max(0, gain); source.connect(level); level.connect(this.output!); } else source.connect(this.output!);
       const voice = { source, entry }; entry.refs++; this.voices.add(voice); this.applyMusicVolume();
       source.onended = () => this.releaseVoice(voice);
       try { source.start(); } catch (error) { this.releaseVoice(voice); throw error; }

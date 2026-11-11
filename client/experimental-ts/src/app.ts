@@ -605,7 +605,7 @@ export class ClientApp implements ClientController {
     const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
     const parts = this.duelParts(), duel = { ...timed, cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
-    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path).catch(error=>this.failure(error));
+    for (const cue of this.duelAudio.consumeSample(sample)) void this.options.audio?.playEffect(cue.path, cue.gain).catch(error=>this.failure(error));
     this.patch({ duel: relay && !relay.canAct ? { ...duel, prompt:null, actions:[], waiting:relay.self === 255 ? 'Watching a tag duel.' : duel.turnPlayer === 1 ? `The opponents are playing. ${relay.players[relay.active[0]]?.name ?? 'Your teammate'} answers for your team.` : `Waiting for ${relay.players[relay.active[0]]?.name ?? 'your teammate'} to play.` } : duel });
     this.duelState = acknowledgePresentation(this.duelState, this.timeline.acknowledgedThrough);
   }
@@ -984,9 +984,13 @@ export class ClientApp implements ClientController {
         }
         case 'audioAction': {
           if (!this.options.audio) throw new Error('Audio is unavailable.');
+          if (command.action.type === 'export-pack') {
+            const a = command.action, name = (a.name || 'My audio pack').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+            this.download(await this.options.audio.exportPack({ name: a.name, author: a.author, description: a.description }), `${name}.zip`); break;
+          }
           // Dispatch starts synchronously to preserve browser gesture activation.
           await this.options.audio.dispatch(command.action);
-          if (command.action.type === 'set-volumes' || command.action.type === 'restore') {
+          if (command.action.type === 'set-volumes' || command.action.type === 'restore' || (command.action.type === 'apply-pack' && command.action.master !== undefined)) {
             const settings = {...this.view.settings,...this.options.audio.volumes}; this.options.persistSettings?.(settings); this.patch({settings});
             this.duelAudio.setMuted(settings.sound === 0);
           }

@@ -1,20 +1,30 @@
 import type { DuelState, Player, PresentationEvent } from './types';
 import type { TimelineSample } from './timeline';
 
-/** IDs are source playSe calls; filenames are matching zero-based data/etc/se.txt lines. */
+/** IDs are source playSe calls; filenames are matching zero-based data/etc/se.txt lines.
+ * `volume` is that line's second column (0..127), the original per-file effect volume. */
 export const DUEL_SOUND_EVIDENCE = {
-  attack: { id: 0x10000006, path: 'se/attack.wav', source: 'SceneBattleManager.cpp draw: SE_ATTACK_SWING, counter == 0x90' },
-  impact: { id: 0x10000009, path: 'se/damage.wav', source: 'SceneBattleManager.cpp update: conditional SE_ATTACK_HIT after battle flags/damage' },
-  summon: { id: 0x1000000e, path: 'se/reborn.wav', source: 'EngineCmd6.cpp engCmdSummon (0x2d), RUN_SUMMON view 0x35 / reborn.wav' },
-  damage: { id: 0x10000009, path: 'se/damage.wav', source: 'LP gauge 0x007cefc0, signed amount negative, sound call0x007cf004' },
-  recover: { id: 0x1000001b, path: 'se/life_up.wav', source: 'LP gauge 0x007cefc0, signed amount nonnegative, sound call0x007cf004' },
-  turn: { id: 0x10000005, path: 'se/turn_change.wav', source: 'View6→0x007d46c0→0x007d4720 player changed→sound call0x007d4762' },
-  battlePhase: { id: 0x10000011, path: 'se/battle_turn.wav', source: 'View5 phase3→0x007d3d90→sound call0x007d3dea' },
+  attack: { id: 0x10000006, path: 'se/attack.wav', volume: 122, source: 'SceneBattleManager.cpp draw: SE_ATTACK_SWING, counter == 0x90' },
+  impact: { id: 0x10000009, path: 'se/damage.wav', volume: 125, source: 'SceneBattleManager.cpp update: conditional SE_ATTACK_HIT after battle flags/damage' },
+  summon: { id: 0x1000000e, path: 'se/reborn.wav', volume: 125, source: 'EngineCmd6.cpp engCmdSummon (0x2d), RUN_SUMMON view 0x35 / reborn.wav' },
+  damage: { id: 0x10000009, path: 'se/damage.wav', volume: 125, source: 'LP gauge 0x007cefc0, signed amount negative, sound call0x007cf004' },
+  recover: { id: 0x1000001b, path: 'se/life_up.wav', volume: 126, source: 'LP gauge 0x007cefc0, signed amount nonnegative, sound call0x007cf004' },
+  turn: { id: 0x10000005, path: 'se/turn_change.wav', volume: 120, source: 'View6→0x007d46c0→0x007d4720 player changed→sound call0x007d4762' },
+  battlePhase: { id: 0x10000011, path: 'se/battle_turn.wav', volume: 125, source: 'View5 phase3→0x007d3d90→sound call0x007d3dea' },
+  move: { id: 0x1000000f, path: 'se/card_move.wav', volume: 122, source: 'View 0x19 (dispatcher 0x0073de88): subkind P0>>16 in {0,1,3,4} → table 0x00741ca8 → sound call 0x0073dfd2' },
 } as const;
+/** Relative linear gain for a se.txt volume (127 = 1). The original's conversion of this
+ * value into DirectSound attenuation is not verified; this is a proportional scale only. */
+export function duelSoundGain(volume: number): number {
+  if (!Number.isInteger(volume) || volume < 0 || volume > 127) throw new Error('Invalid duel sound volume');
+  return volume / 127;
+}
 export interface DuelSoundCue {
   readonly sequence: number; readonly ordinal: number; readonly player: Player;
   readonly kind: keyof typeof DUEL_SOUND_EVIDENCE;
   readonly id: number; readonly path: string;
+  /** se.txt per-file volume (0..127) and its relative gain; see duelSoundGain. */
+  readonly volume: number; readonly gain: number;
 }
 export interface DuelAudioOptions { maxQueuedCues?: number; maxCuesPerSample?: number; muted?: boolean; reducedMotion?: boolean; }
 export interface DuelAudioCounters { enqueued: number; emitted: number; muted: number; dropped: number; skipped: number; }
@@ -26,6 +36,7 @@ function limit(n: number | undefined, fallback: number, max: number): number {
 function sequence(n: number): number {
   if (!Number.isSafeInteger(n) || n < 0) throw new Error('Invalid duel audio sequence'); return n;
 }
+const MOVE_COMMANDS = new Set(['engine:3d', 'engine:3f', 'engine:40', 'engine:41', 'engine:4f', 'engine:50']);
 function hitFlag(n: number): boolean { return !!(n & 2) || (n & 0x1c) === 4; }
 
 /** Pure cue director. Feed packet states once, then consume each displayed timeline
@@ -39,6 +50,7 @@ export class DuelAudioDirector {
   private skippedEvents = 0;
   private attack: { player: Player; targetPlayer: Player; targetField: boolean } | null = null;
   private battleGauge: [number, number] = [0, 0];
+  private deckLeft: [number, number] = [0, 0];
   private muted: boolean;
   private reducedMotion: boolean;
   private closed = false;
@@ -56,13 +68,15 @@ export class DuelAudioDirector {
     if (this.closed) return;
     if (previous.sequence !== this.enqueuedThrough || next.sequence <= previous.sequence) throw new Error('Duel audio states must be enqueued once in packet order');
     const events = next.events.filter(e => e.sequence > previous.sequence);
+    // Draw 0x55 stops when the deck runs out, so its card_move count is bounded by the cards left.
+    this.deckLeft = [previous.sides[0].deck.length, previous.sides[1].deck.length];
     for (let ordinal = 0; ordinal < events.length; ordinal++) {
       const event = events[ordinal];
       for (const { kind, player = event.player } of this.cues(event)) {
         this.counts.enqueued++;
         if (this.queue.length >= this.maxQueued) { this.queue.shift(); this.counts.dropped++; }
-        this.queue.push({ sequence: event.sequence, ordinal, player, kind,
-          id: DUEL_SOUND_EVIDENCE[kind].id, path: DUEL_SOUND_EVIDENCE[kind].path });
+        const { id, path, volume } = DUEL_SOUND_EVIDENCE[kind];
+        this.queue.push({ sequence: event.sequence, ordinal, player, kind, id, path, volume, gain: duelSoundGain(volume) });
       }
     }
     this.enqueuedThrough = next.sequence;
@@ -93,6 +107,14 @@ export class DuelAudioDirector {
       this.battleGauge[event.player] = 0;
       return alreadyPlayed ? [] : [{ kind: event.type === 'engine:24' || p[0] === 0 ? 'recover' : 'damage' }];
     }
+    if (event.type === 'engine:55') {
+      // engCmdDraw issues one view 0x19 subkind0 per drawn card (EngineCmd5.cpp step1, repeated P1 times).
+      const n = Math.max(0, Math.min(p[1] ?? 0, this.deckLeft[event.player])); this.deckLeft[event.player] -= n;
+      return Array.from({ length: n }, () => ({ kind: 'move' as const }));
+    }
+    // View 0x19 subkind0: moves 0x3d / 0x3f / 0x40 / 0x41; subkind1/4: 0x4f face-up summon / set;
+    // subkind3/4: 0x50 face-up / face-down spell-trap placement. 0x2d uses subkind2 (no card_move).
+    if (MOVE_COMMANDS.has(event.type)) return [{ kind: 'move' }];
     if (['engine:1', 'engine:4', 'engine:5', 'engine:15', 'engine:1c'].includes(event.type)) { this.attack = null; this.battleGauge = [0, 0]; }
     return event.type === 'engine:2d' ? [{ kind: 'summon' }] : event.type === 'engine:4' ? [{ kind: 'turn', player: (event.player ^ 1) as Player }]
       : event.type === 'engine:f' ? [{ kind: 'battlePhase' }] : [];
@@ -125,7 +147,7 @@ export class DuelAudioDirector {
   dispose(): void { this.closed = true; this.queue = []; this.attack = null; this.battleGauge = [0, 0]; }
 }
 
-/** Source result constants: 1 won, 2 lost, 3 draw. Unknown results have no guessed music. */
+/** Source result constants: 1 won, 2 lost, 3 draw. Unknown results have no guessed audio. */
 export function resultAudioSlot(result: number): 26 | 27 | 28 | null { return result === 1 ? 28 : result === 2 ? 27 : result === 3 ? 26 : null; }
 /** SceneDuelScene.cpp fieldBgm kind switch. This accepts the original scene's kind,
  * not a passcode/internal ID; deriving kind from a card is deliberately separate. */
