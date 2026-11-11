@@ -118,6 +118,8 @@ export interface SocialView { friends: SocialEntry[]; mail?: { id: string; sende
 export interface SettingsView { sound: number; music: number; reducedMotion: boolean; showCardNames: boolean;
   /** The original game's text language letter (features/language.ts); absent means English. */
   language?: GameLanguage; }
+/** A starter structure deck on offer (GET /api/de/starter): what main's picker (web-shell/starter.js) shows. */
+export interface StarterDeckChoice { id: number; name: string; blurb: string; cover: number; cards: { id: number; name: string; n: number; type: 'monster' | 'spell' | 'trap' | 'extra' }[]; mainCount?: number; extraCount?: number; }
 export interface ClientView {
   npc?: Readonly<NpcState>;
   npcCardViews?: Readonly<Record<number, CardView>>;
@@ -145,7 +147,7 @@ export interface ClientView {
   auth?: { signedIn: boolean; name?: string };
   relay?: { active: [0 | 1, 0 | 1]; self: 0 | 1 | 255; players: { pid: number; name: string }[]; canAct: boolean };
   preparation?: { role?: 'player' | 'partner' | 'spectator'; phase: string; opponentHand?: number | null };
-  starter?: { claimable: boolean; decks: { id: number; name: string; mainCount?: number; extraCount?: number }[] };
+  starter?: { claimable: boolean; decks: StarterDeckChoice[] };
   connection: 'offline' | 'connecting' | 'online' | 'reconnecting' | 'error';
   status: string;
   error?: string;

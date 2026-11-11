@@ -14,7 +14,8 @@
     // a plain assignment ADDS a listener (loader.js's collector before preRun, lazyfs's dispatcher after); wrapping the
     // old value would recurse through the collector (crash-signatures.md #1)
     let scene = 0;   // the scene the picker was asked from
-    Module.onYo2Scene = (kind, from, to) => {
+    // no Module: a page without the game (the TS client imports this file and opens the picker itself, with opts)
+    if (typeof Module !== "undefined") Module.onYo2Scene = (kind, from, to) => {
         if (kind === "end" && (to === MY_ROOM || to === LOBBY || to === DECK)) { scene = to; check(); }
     };
 
@@ -36,11 +37,14 @@
     }
 
     // ---- the overlay
-    async function show(decks) {
-        ui ||= await import(UI);
-        await ui.loadGlyphs(ART);
+    // opts (all optional; without them it is the game page's picker): ui (ui.js, already imported), art (its ui/ base),
+    // host (the element it covers, else #canvas), coverUrl(deck) (a URL or a promise of one), claim(id) (resolves to
+    // { ok, status?, error?, message? }, in place of the POST and the install), later() (closed before a claim)
+    async function show(decks, opts = {}) {
+        ui ||= opts.ui || await import(UI);
+        await ui.loadGlyphs(opts.art || ART);
         const { windowFrame, text, measure, button, sprite, SHEET } = ui;
-        const canvas = document.getElementById("canvas");
+        const canvas = opts.host || document.getElementById("canvas");
         const root = document.createElement("div"), k = document.createElement("div");
         root.id = "starter";
         root.setAttribute("role", "dialog");
@@ -102,7 +106,8 @@
             img.className = "cover"; img.alt = ""; img.decoding = "async";
             Object.assign(img.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
             img.onerror = () => img.remove();
-            img.src = COVERS + d.cover + ".jpg";
+            if (opts.coverUrl) Promise.resolve(opts.coverUrl(d)).then((u) => { if (u) img.src = u; else img.remove(); }, () => img.remove());
+            else img.src = COVERS + d.cover + ".jpg";
             parent.append(img);
         };
 
@@ -223,18 +228,22 @@
         async function claim() {
             view = "busy"; render();
             try {
-                const r = await fetch(API + "/claim", { method: "POST", credentials: "same-origin",
-                    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: deck.id }) });
-                const j = await r.json().catch(() => ({}));
+                let r, j;
+                if (opts.claim) { j = (await opts.claim(deck.id)) || {}; r = { ok: j.ok !== false, status: j.status || 0 }; }
+                else {
+                    r = await fetch(API + "/claim", { method: "POST", credentials: "same-origin",
+                        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: deck.id }) });
+                    j = await r.json().catch(() => ({}));
+                }
                 if (r.ok && j.ok !== false) {
                     done = true; view = "done";
                     // in place, no reload: the game takes the deck now; the server's trunk push (0x7125-27) refreshes an open Edit Deck
                     // .main: the server's deck shape {id, name, main, extra}; an older server's answer just installs nothing
-                    if (j.deck?.main) try { await Module.yo2InstallStarterDeck?.(j.deck); } catch (e) { console.warn("starter: install", e); }
+                    if (!opts.claim && j.deck?.main) try { await Module.yo2InstallStarterDeck?.(j.deck); } catch (e) { console.warn("starter: install", e); }
                 }
                 else {
                     if (j.error === "claimed") done = true;
-                    msg = j.error === "claimed" ? "This character already has its starter deck."
+                    msg = j.message ? j.message : j.error === "claimed" ? "This character already has its starter deck."
                         : r.status === 409 ? "Pick a character and enter the game first."   // not-in-game / no-character
                         : r.status === 401 ? "You're signed out. Sign in again, then pick your deck."
                         : "That didn't work. Try again in a moment.";
@@ -257,13 +266,15 @@
             window.visualViewport?.removeEventListener("resize", again);
             root.remove(); css.remove();
             open = null;
+            const later = !done;
             if (!done) done = true;   // "Later": not again until the next page load
             canvas.focus?.();
+            if (later) opts.later?.();
         }
         open = { close, render };
         render();
     }
 
-    // demos and tests: yo2Starter.show(decks) opens the picker without the server
-    window.yo2Starter = { show: (decks) => open || show(decks), check, close: () => open?.close() };
+    // demos and tests: yo2Starter.show(decks) opens the picker without the server; the TS client passes opts (show())
+    window.yo2Starter = { show: (decks, opts) => open || show(decks, opts), check, close: () => open?.close(), get open() { return !!open; } };
 })();

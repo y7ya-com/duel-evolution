@@ -24,7 +24,7 @@ export default {
       '/__version':proxy(),
     },
     // main's Legacy HTML UI (its screens, controls and ui.js) is imported in place, so its commits flow in
-    fs: { strict:true,allow:[resolve(import.meta.dirname),resolve(import.meta.dirname,'../web-shell/htmlui'),resolve(import.meta.dirname,'../html-ui/ui.js')] },
+    fs: { strict:true,allow:[resolve(import.meta.dirname),resolve(import.meta.dirname,'../web-shell/htmlui'),resolve(import.meta.dirname,'../html-ui/ui.js'),resolve(import.meta.dirname,'../web-shell/starter.js')] },
   },
   build: { target:'es2022',outDir:'dist',sourcemap:true },
 };

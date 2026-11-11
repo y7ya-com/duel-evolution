@@ -740,7 +740,7 @@ export class ClientApp implements ClientController {
       if (this.freeMode) { this.patch({starter:undefined}); return; }
       await this.requireGame().refreshNpcs();
       const starter = await this.services.refreshStarter(options);
-      if (epoch === this.epoch && !this.disposed) this.patch({ starter: { claimable: starter.claimable, decks: starter.claimable ? starter.decks.map(d => ({ id: d.id, name: d.name, mainCount: d.cards.filter(c => c.type !== 'extra').reduce((n, c) => n + c.n, 0), extraCount: d.cards.filter(c => c.type === 'extra').reduce((n, c) => n + c.n, 0) })) : [] } });
+      if (epoch === this.epoch && !this.disposed) this.patch({ starter: { claimable: starter.claimable, decks: starter.claimable ? starter.decks.map(d => ({ id: d.id, name: d.name, blurb: d.blurb, cover: d.cover, cards: d.cards.map(c => ({ ...c })), mainCount: d.cards.filter(c => c.type !== 'extra').reduce((n, c) => n + c.n, 0), extraCount: d.cards.filter(c => c.type === 'extra').reduce((n, c) => n + c.n, 0) })) : [] } });
     } else if (scene === 'characters') await this.requireGame().refreshCharacters();
   }
   private currentDeck(): { main: number[]; side: number[]; extra: number[] } {
