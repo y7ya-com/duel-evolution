@@ -48,43 +48,48 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
     } finally { closeAll(); }
   },240000);
 
-  it('registers through the account panel, verifies through the Discord forward, refuses duplicates and bad input',async () => {
+  it('registers through the sign-in window\'s Create account, verifies through the Discord forward, refuses duplicates and bad input',async () => {
     resetRateLimits();
     try {
       const page = await openPage(); await openClient(page,null);
       await until(page,titleSignedOut,30000);
       const account = `Reg${RUN}`, password = `long-enough-${RUN}`;
-      await press(page,`[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('Registration'))`);
-      await click(page,'Register / recover verification code');
-      const field = (label:string) => `[...document.querySelectorAll('.account-feature label')].find(l=>l.textContent.startsWith(${JSON.stringify(label)}))?.querySelector('input')`;
-      // invalid: a name the server refuses
-      await type(page,field('Account name'),'x'); await type(page,field('Password'),password);
-      await press(page,`[...document.querySelectorAll('.account-feature button[type=submit]')].find(b=>b.textContent==='Register')`);
-      await until(page,`document.querySelector('.account-feature [role=alert]')`,20000);
-      const invalid = await page.ev(`document.querySelector('.account-feature [role=alert]').textContent`) as string;
-      // valid registration -> verification code
-      await type(page,field('Account name'),account); await type(page,field('Password'),password);
-      await press(page,`[...document.querySelectorAll('.account-feature button[type=submit]')].find(b=>b.textContent==='Register')`);
+      // live's CWindowLogin (src/ui/htmlui/login.ts): "Create account" turns the window to its sign-up mode
+      const signUp = async (p:typeof page,name:string,pass:string) => {
+        await type(p,byKey('username'),name); await type(p,byKey('password'),pass);
+        await press(p,byKey('login-submit'));
+      };
+      const refusal = `(()=>{const s=document.querySelector('.de-login-status[role=alert]');return s&&s.textContent.trim()})()`;
+      const openSignUp = async (p:typeof page) => {
+        await press(p,byKey('login-create-account'));
+        await until(p,`${byKey('login-back-to-sign-in')}&&document.querySelector('[data-key="password"]')?.autocomplete==='new-password'`,20000);
+      };
+      await openSignUp(page);
+      // invalid: a name the server refuses, said on the window's status line
+      await signUp(page,'x',password);
+      await until(page,refusal,20000);
+      const invalid = await page.ev(refusal) as string;
+      expect(invalid.length).toBeGreaterThan(5);
+      // valid registration -> the window's verify view with the code
+      await signUp(page,account,password);
       await until(page,`document.body.innerText.includes('/verify')`,20000);
       const pageText = await text(page), code = /\b([A-Z0-9]{6,12})\b/.exec(pageText.slice(pageText.indexOf('/verify')))?.[1] ?? /code[^A-Z0-9]*([A-Z0-9]{6,12})/i.exec(pageText)?.[1];
       await screenshot(page,'auth-register-code');
       expect(code,'verification code shown').toBeTruthy();
-      // login before verification is refused with a usable message
+      expect(await page.ev(`Boolean(${byText('Continue')})`)).toBe(true);
       // duplicate: another browser registering the same name with a different password is refused
       const other = await openPage(); await openClient(other,null); await until(other,titleSignedOut,30000);
-      await press(other,`[...document.querySelectorAll('summary')].find(s=>s.textContent.includes('Registration'))`);
-      await click(other,'Register / recover verification code');
-      await type(other,field('Account name'),account); await type(other,field('Password'),'a-different-password');
-      await press(other,`[...document.querySelectorAll('.account-feature button[type=submit]')].find(b=>b.textContent==='Register')`);
-      await until(other,`document.querySelector('.account-feature [role=alert]')`,20000);
-      const duplicate = await other.ev(`document.querySelector('.account-feature [role=alert]').textContent`) as string;
-      // Discord /verify with the shown code, then Continue signs in
+      await openSignUp(other);
+      await signUp(other,account,'a-different-password');
+      await until(other,refusal,20000);
+      const duplicate = await other.ev(refusal) as string;
+      expect(duplicate.length).toBeGreaterThan(5);
+      // Discord /verify with the shown code, then Continue signs in (the password typed at Create account)
       const verified = await discordForward('verify',code!,`${Date.now()}`.slice(-12));
       expect(verified.ok).toBe(true);
-      await type(page,field('Password'),password);
-      await press(page,`[...document.querySelectorAll('.account-feature button[type=submit]')].find(b=>b.textContent==='Continue')`);
+      await press(page,byKey('login-submit'));
       await until(page,`document.body.innerText.includes('Signed in as')`,30000);
-      record('auth.register',{ actions:'Account panel Register; invalid name; duplicate name from a second browser; Discord /verify forward; Continue', expected:'Valid account created and usable; duplicate and invalid refused', observed:`code shown; invalid: "${invalid}"; duplicate: "${duplicate}"; verified and signed in as ${account}`, accounts:'1 new account, 1 second browser' });
+      record('auth.register',{ actions:'Sign-in window Create account; invalid name; duplicate name from a second browser; Discord /verify forward; Continue', expected:'Valid account created and usable; duplicate and invalid refused', observed:`code shown; invalid: "${invalid}"; duplicate: "${duplicate}"; verified and signed in as ${account}`, accounts:'1 new account, 1 second browser' });
     } finally { closeAll(); }
   },240000);
 
