@@ -24,12 +24,16 @@ type Frames = {
   trade: (snap: unknown, wait?: boolean) => void;
 };
 
+/** main's starter deck chooser (client/web-shell/starter.js window.yo2Starter; htmlui/starter.ts opens it over the lobby). */
+const starterOpen = () => !!(globalThis as { yo2Starter?: { open?: boolean } }).yo2Starter?.open;
+
 export function pageModules(view: PageModulesView, onError: (e: unknown) => void = e => console.warn('htmlui: page modules', e)) {
-  let frames: Frames | null = null, loading = false, dead = false, failed = 0;
+  let frames: Frames | null = null, loading = false, dead = false, failed = 0, picking = false;
+  let rewards: { getView(opts?: { force?: boolean }): Promise<unknown> } | null = null;
   const load = () => {
     if (loading) return; loading = true;
-    Promise.all([import('@htmlui/cosmetics/wardrobe-launcher.js'), import('@htmlui/rewards/launcher.js'), import('@htmlui/cosmetics/trade-cosmetics.js')])
-      .then(([w, m, t]) => { if (!dead) frames = { wardrobe: w.wardrobeLauncherFrame, missions: m.missionsLauncherFrame, trade: t.tradeOverlayFrame }; }, onError);
+    Promise.all([import('@htmlui/cosmetics/wardrobe-launcher.js'), import('@htmlui/rewards/launcher.js'), import('@htmlui/cosmetics/trade-cosmetics.js'), import('@htmlui/rewards/api.js')])
+      .then(([w, m, t, r]) => { if (!dead) { frames = { wardrobe: w.wardrobeLauncherFrame, missions: m.missionsLauncherFrame, trade: t.tradeOverlayFrame }; rewards = r; } }, onError);
   };
   const run = (name: keyof Frames, snap: unknown, wait: boolean) => {
     try { frames?.[name](snap, wait); } catch (e) { if (failed++ < 5) onError(e); }
@@ -41,6 +45,13 @@ export function pageModules(view: PageModulesView, onError: (e: unknown) => void
       const on = !!snap && view.online();
       if (!on && !frames) return;
       if (!frames) { load(); return; }
+      // the starter deck chooser sits over the lobby, so the Missions button stays up and keeps the view it read on
+      // arriving (launcher.js asks again only on coming back to the bar, or after a minute). Its claim saves the deck
+      // (app.ts claimStarter: PUT /api/de/decks, the server's "Save a playable owned deck" mission): once it closes, ask
+      // the server again, and the badge (api.js onChange) shows the reward ready to claim at once
+      const pick = on && starterOpen();
+      if (picking && !pick && on) rewards?.getView({ force: true }).catch(() => {});
+      picking = pick;
       const trade = on && view.trade();
       // the launchers live on the overworld's bar; away from it (a duel, the deck editor, the shop, a trade) they go
       run('wardrobe', snap, !on || trade || !view.overworld());
@@ -50,7 +61,7 @@ export function pageModules(view: PageModulesView, onError: (e: unknown) => void
     },
     dispose(): void {
       if (frames) for (const k of ['wardrobe', 'missions', 'trade'] as const) run(k, null, true);
-      dead = true; frames = null;
+      dead = true; frames = null; rewards = null;
     },
   };
 }

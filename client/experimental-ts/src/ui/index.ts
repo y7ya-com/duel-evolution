@@ -4,6 +4,7 @@ import { FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, game
 import { DuelPresentation } from './duel-scene';
 import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
+import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import { WorldRenderer } from './world';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
@@ -127,7 +128,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, duelLogOpen: false };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS + LP_PLATE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
@@ -544,7 +545,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // The turn clock runs down between the server's readings; only its text changes each second.
   let duelClock: ReturnType<typeof setInterval> | null = null, duelClockNode: HTMLElement | null = null;
   const clockText = (timer: NonNullable<DuelView['timer']>) => { const left = Math.max(0, timer.paused || !timer.at ? timer.seconds : timer.seconds - Math.floor((Date.now() - timer.at) / 1000)); return `${timer.paused ? 'Paused · ' : ''}${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
-  const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {};
+  const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
       if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; }
@@ -668,7 +669,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const present = (duel: DuelView) => {
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
-    for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); }
+    for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); lpPlates[i]?.setLp(duel.players[i].lp); }
     presentEffects(duel); duelScene.update(duel, state.settings.reducedMotion);
   };
   const pruneArt = () => {
@@ -906,6 +907,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       return panel;
     };
     hud.append(duelist(0), duelist(1)); stage.append(hud);
+    // with the game's art, live's framed LP plates (duel-plate.ts: duel_window_01, the LP / TIME gauges, the digit font);
+    // the text HUD stays for assistive technology (and draws itself without the art)
+    delete lpPlates[0]; delete lpPlates[1];
+    if (archive) {
+      hud.classList.add('de-sr');
+      for (const i of [0, 1] as const) {
+        const t = duel.timer && duel.timer.player === i ? duel.timer.seconds / Math.max(180, duel.timer.seconds) : null;
+        const plate = lpPlate({ side: i, name: duel.players[i].name, lp: duel.players[i].lp, time: t, image: archive });
+        plate.root.setAttribute('aria-hidden', 'true'); board.append(plate.root); lpPlates[i] = plate;
+      }
+    }
     const phases = [['draw', 'DP', 'Draw Phase'], ['standby', 'SP', 'Standby Phase'], ['main1', 'M1', 'Main Phase 1'], ['battle', 'BP', 'Battle Phase'], ['main2', 'M2', 'Main Phase 2'], ['end', 'EP', 'End Phase']] as const;
     const current = phases.find(([key]) => key === duel.phase);
     const bar = el('div', `de-phase-bar${duel.turnPlayer ? ' opponent' : ''}`); bar.setAttribute('role', 'status');
