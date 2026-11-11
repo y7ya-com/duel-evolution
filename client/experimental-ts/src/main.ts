@@ -81,7 +81,7 @@ const pendingWork = new PendingWork();
   pics.loadCardImage = (pc, signal) => pendingWork.track(card(pc, signal)); }
 const sceneWatch = watchSceneChanges({ tracker: sceneLoads, pending: pendingWork,
   roots: () => [document.getElementById('htmlui-host'), root.querySelector('.de-stage')].filter((e): e is HTMLElement => !!e) });
-const observeScene = (v: ReturnType<ClientApp['getState']>) => sceneWatch.observe(sceneKey({ ...v, trade: !!v.socialDetail && tradeScene(v.socialDetail.trade) }));
+const observeScene = (v: ReturnType<ClientApp['getState']>) => sceneWatch.observe(sceneKey({ ...v, trade: !!v.socialDetail && tradeScene(v.socialDetail.trade), map: v.lobby?.mapId }));
 observeScene(app.getState());
 const unwatchScenes = app.subscribe(observeScene);
 const ui = mountClient(root, app);

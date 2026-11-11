@@ -219,7 +219,8 @@ export class SceneLoadingOverlay {
 // the server data it fetched). The veil ends then: never an artificial wait.
 
 /** The scene a view shows, as the original's CSceneMng would name it (a change is a scene load). */
-export function sceneKey(view: { scene: string; duel?: { ended?: string | undefined } | null | undefined; sideboarding?: unknown; replay?: unknown; trade?: boolean }): string {
+export function sceneKey(view: { scene: string; duel?: { ended?: string | undefined } | null | undefined; sideboarding?: unknown; replay?: unknown; trade?: boolean; map?: number | undefined }): string {
+  if (view.scene === 'lobby' && !view.trade && view.map !== undefined) return `lobby@${view.map}`;   // a map change (doors, My Room) waits for its scenery too
   if (view.scene === 'duel' && view.duel?.ended && !view.sideboarding && !view.replay) return 'result';
   if (view.trade && !['title', 'characters'].includes(view.scene)) return 'trade';
   return view.scene;
@@ -246,6 +247,8 @@ export function pendingPictures(roots: Element[]): number {
     if (!done) n++;
   };
   for (const root of roots) for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
+    // the world's scenery still decoding its first frame (ui/world.ts: "Loading map artwork…" until data-map-ready)
+    if (el instanceof HTMLElement && el.dataset.mapReady === 'false' && el.dataset.mapFailed !== 'true' && el.isConnected && el.getClientRects().length > 0) { n++; continue; }
     if (el instanceof HTMLImageElement) { if (el.getAttribute('src') && !el.complete) n++; continue; }
     const bg = getComputedStyle(el).backgroundImage;
     if (bg && bg !== 'none') for (const m of bg.matchAll(/url\((['"]?)(.*?)\1\)/g)) if (m[2] && !m[2].startsWith('data:')) css(m[2]);

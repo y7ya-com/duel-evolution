@@ -9,6 +9,7 @@ describe('scene veil on every scene change (main loader.js: each scene "begin")'
     expect(sceneKey({ scene: 'duel', duel: { ended: 'Victory' }, sideboarding: {} })).toBe('duel');
     expect(sceneKey({ scene: 'lobby', trade: true })).toBe('trade');
     expect(sceneKey({ scene: 'characters', trade: true })).toBe('characters');
+    expect(sceneKey({ scene: 'lobby', map: 8 })).toBe('lobby@8');
   });
   it('begins a load on a change, never on the first screen, and ends it once the scene has settled: no fixed wait', async () => {
     vi.useFakeTimers();

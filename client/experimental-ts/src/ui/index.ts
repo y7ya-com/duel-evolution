@@ -849,7 +849,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // main's card shop says its own failures in its page ("Couldn't open the shop", Try again): the app's catalogue
     // refresh behind it failing is no dialog of its own (one would sit under the shop, out of reach)
     const message = state.scene === 'deck' || useCardShop() && !local.message ? '' : state.error || local.message;
-    if (message && message !== errorSeen) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
+    // the sign-in window says its own refusals on its status line (live session.cpp status): no dialog over its button
+    const onLogin = showsLogin() && (message === state.error || message === state.accountDetail?.error);
+    if (message && message !== errorSeen && !onLogin) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
       [{ from: 'OK', key: 'error-ok', click: () => { errorSeen = message; if (local.message === message) local.message = ''; requestRender(); } }]));
     else if (!message) errorSeen = '';
     return out;
