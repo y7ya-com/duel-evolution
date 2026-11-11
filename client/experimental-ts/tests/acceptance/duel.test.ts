@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -100,11 +100,9 @@ async function artRanges(names:string[]) {
 const ART_SPY = `(()=>{const f=window.fetch;window.__art=[];window.fetch=function(input,init){try{const u=String(input&&input.url||input);if(/merge\\.dat|card\\.dat/.test(u)){const h=init&&init.headers||{};const r=h.Range||h.range||(h.get&&h.get('Range'))||'';window.__art.push(u.replace(/^.*\\/game-assets\\//,'')+' '+r);}}catch{}return f.apply(this,arguments);};})();`;
 /** The deck card names a character owns, read from its deck editor. */
 async function deckNames(page:Page):Promise<string[]> {
-  await click(page,'Edit Deck');
-  await until(page,`document.querySelector('[data-key^="deck-card:main:"]')`,60000);
-  const names = await page.ev(`[...document.querySelectorAll('[data-key^="deck-card:"]')].map(b=>b.title.split(' · ')[0])`) as string[];
-  await click(page,'Return to Lobby'); await until(page,lobbyShown,60000);
-  return [...new Set(names)];
+  const deck = await openDeckEditor(page,1);
+  await exitDeckEditor(page);
+  return [...new Set([...deck.main,...deck.extra,...deck.side])];
 }
 /** Go online and create a character; claim the starter deck at `starter` (so the two players hold different decks). */
 async function enterWith(page:Page,name:string,starter:number) {
