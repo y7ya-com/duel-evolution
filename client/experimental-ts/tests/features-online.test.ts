@@ -28,10 +28,13 @@ afterEach(() => { PP.setProgression(false); vi.restoreAllMocks(); });
 
 describe('online server contracts', () => {
   it('decodes actual server catalogue, open, replay, equip and trade receipts', () => {
+    // The box roll is crypto-random and the pool holds female-only designs this male character cannot equip,
+    // so pin the server's draw to the first design of the first tier: the same item every run.
+    vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(a: T) => { if (a) new Uint8Array(a.buffer, a.byteOffset, a.byteLength).fill(0); return a; });
     const f = fixture();
     const info = decodeCosmetics(cosmeticInfo(f.game, f.a)); expect(info.boxes).toHaveLength(3); expect(info.catalog.length).toBeGreaterThan(20);
     const opened = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'head', requestId: info.nextRequestId }));
-    expect(opened.requestId).toBe('0'); expect(opened.nextRequestId).toBe('1'); expect(opened.reward?.owned).toBe(true);
+    expect(opened.requestId).toBe('0'); expect(opened.nextRequestId).toBe('1'); expect(opened.reward?.owned).toBe(true); expect(opened.reward?.compatible).toBe(true);
     const replay = decodeCosmetics(cosmeticOpen(f.game, f.a, { boxId: 'head', requestId: '0' })); expect(replay.replay).toBe(true); expect(replay.wallet).toEqual(opened.wallet);
     expect(decodeCosmetics(cosmeticEquip(f.game, f.a, { id: opened.reward!.id })).equipped?.id).toBe(opened.reward!.id);
     const raw = f.game.store.loadRaw(); raw.accounts.alice.cosmetics.copies[opened.reward!.id] = 1; f.game.store.saveRaw(raw);
