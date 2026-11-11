@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createServer, type Socket } from 'node:net';
 import { surrenderRow, RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, type, sleep, screenshot, record, byKey, byText, goOnlineButton, startNpcDuel, duelBot, claimNpcReward, type Page, createCharacter, freeSlot, say, chatLines, lobbyShown, openDeckEditor, exitDeckEditor, deckShown, SHOP, openShop, leaveShop, shopWallet, shopPacks, shopBuyKey, takeReveal } from './harness';
+import { resultShown } from './harness';
 /** Main Menu entries (Lobby, Edit Deck, Shop, Disconnect, ...) live behind the menu bar's Menu key; a click without
  * the pointer, for steps where a reply is being held and the pointer guard must not delay the click. */
 async function openMenu(page:Page) { if (!(await page.ev(`Boolean(${byText('Return to Lobby')}||${byText('Edit Deck')})`))) await press(page,`document.querySelector('[data-key="main-menu"]')`); }
@@ -43,7 +44,7 @@ const board = (page:Page) => page.ev(`JSON.stringify({lp:[...document.querySelec
 /** Surrender and confirm, tolerating a prompt that re-renders under the press; returns how many Surrender presses the
  * server needed (more than one means an unanswered request). */
 async function giveUp(page:Page):Promise<number> {
-  const done = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`;
+  const done = resultShown;
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
   // main's own Surrender question first (the client's YesNo, surrender-yes), then the server's when it asks one
   const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
@@ -322,7 +323,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const turnAtIssue = await turn(page);
       for (let i = 0; i < 400 && await turn(page) <= turnAtIssue; i++) { if (await duelBot(page,{ attack:false,summon:false }) === 'finished') break; await sleep(150); }
       const turnAfter = await turn(page), duelConnection = await connection(page);
-      if (!(await page.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`))) await giveUp(page);
+      if (!(await page.ev(resultShown))) await giveUp(page);
       await claimNpcReward(page);
       const reentered = await page.ev(`document.querySelector('.de-client').dataset.scene`);
       await screenshot(page,'resilience-protocol');

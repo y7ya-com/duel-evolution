@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard, lobbyShown, searchPlayers, listRow } from './harness';
+import { resultShown, resultLeave } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
 /** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
@@ -129,7 +130,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       const endSeen = await b.ev(`window.__duelEnd() ?? (document.querySelector('.de-duel-board') ? 'board still shown' : 'left the duel view')`) as string;
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Leave Duel')`)) await click(b,'Leave Duel');
       // Leave Duel may already be taking the spectator back (its result screen's Return to Lobby goes with it)
-      if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`)) await click(b,'Return to Lobby').catch(e => { if (!/Control is gone/.test(String(e))) throw e; });
+      if (await b.ev(resultShown)) await press(b,resultLeave).catch(e => { if (!/Control is gone/.test(String(e))) throw e; });
       await until(b,inLobby,60000);
       await until(b,lobbyShown,30000);
       await screenshot(b,'npc-spectator-left');

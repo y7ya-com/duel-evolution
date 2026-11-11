@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { CLIENT, RUN, enabled, openPage, closeAll, openClient, enterWorld, until, press, text, byKey, click, byText, startNpcDuel, surrender, lobbyShown, stack, sleep } from './harness';
+import { resultShown, resultLeave } from './harness';
 
 /** The v2 front (infra/v2) in front of a live-server stack: `wrangler dev -c infra/v2/wrangler.jsonc -c
  *  infra/v2/dev/live-stub.jsonc` (infra/v2/README.md "Local check"), its build from infra/ship-v2.sh (VITE_DE_ASSETS=/game/,
@@ -64,9 +65,9 @@ describe.skipIf(!on)('v2 front over the live server', () => {
       await until(page, `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', your hand')).length>=5`, 60000);
       await sleep(1000); await shot(page, 'v2-duel');
       await surrender(page);
-      await until(page, `[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Return to Lobby')`, 60000);
+      await until(page, resultShown, 60000);
       await shot(page, 'v2-duel-end');
-      await press(page, `[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Return to Lobby')`);
+      await press(page, resultLeave);
       await until(page, lobbyShown, 60000);
     } finally { closeAll(); }
   }, 600000);

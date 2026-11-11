@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, sleep, screenshot, record, startNpcDuel, duelBot, surrender, claimNpcReward, byKey, lobbyShown } from './harness';
+import { resultShown } from './harness';
 
 /** In the page: while the effects layer reports an active effect, how many pixels of its canvas are painted
  * (every 16th pixel's alpha), per effect kind. Proves the original-art effects are drawn, not only scheduled. */
@@ -59,7 +60,7 @@ describe.skipIf(!enabled)('duel presentation with original art',() => {
       record('duel.presentation',{ actions:'NPC duel (Yami Yugi) with motion on; bot summons, sets, attacks and ends turns; canvas sampled while effects run',
         expected:'Original-art duel presentation: waist-up portraits both sides, card box, phase/turn banners, summon/set, attack, LP damage digits, other cue effects drawn',
         observed:`${duels} duel(s); cues played ${cued}; portrait pixels ${portraits.join('/')}; painted samples per effect ${JSON.stringify(seen)}; card box "${info}"` });
-      if (!(await page.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`))) await surrender(page);
+      if (!(await page.ev(resultShown))) await surrender(page);
     } finally { closeAll(); }
   },600000);
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, byKey, byText, sleep, screenshot, record, prepareDuel, stack, type Page, cardButton, closeCard, lobbyShown, openDeckEditor, exitDeckEditor, deckSide } from './harness';
+import { resultShown, resultLeave } from './harness';
 
 /** Duel cases ordinary play rarely reaches (control changes, tokens, counters, shuffles, declarations, ritual and
  * discard selections, cancellation), forced with tiny decks: a deck of 6 is the whole opening hand plus the first draw,
@@ -127,7 +128,7 @@ async function finish(a:Page,b:Page) {
   }
   const result = [await a.ev(`window.__duelEnd()`),await b.ev(`window.__duelEnd()`)] as string[];
   // main's result screen (CWindowResult) follows the result: its Return to Lobby
-  for (const p of [a,b]) { await until(p,`${byText('Return to Lobby')}||${lobbyShown}`,30000); if (await p.ev(`Boolean(${byText('Return to Lobby')})`)) await click(p,'Return to Lobby'); }
+  for (const p of [a,b]) { await until(p,`${resultShown}||${lobbyShown}`,30000); if (await p.ev(resultShown)) await press(p,resultLeave); }
   for (const p of [a,b]) await until(p,lobbyShown,60000);
   return result;
 }

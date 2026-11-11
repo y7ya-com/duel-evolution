@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
+import { resultLeave } from './harness';
 
 const npcPanel = `document.querySelector('[aria-label="NPC interaction"]')`;
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
@@ -59,7 +60,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
       expect(again).toBe(after);
       record('npc.rewards',{ actions:`Return to lobby after the duel; choose ${pack}; close; read the collection, reconnect, read it again`, expected:'Rewards and unlocks applied exactly once', observed:`received ${received.join(', ')}; ${card} owned ×${after}, still ×${again} after reconnecting; dialog: ${receipt}` });
       // Rematch lifecycle: the same NPC accepts another duel.
-      if (await page.ev(resultShown)) await press(page,`${resultNext}??${byText('Return to Lobby')}`);   // the result's Next (in the lobby the Main Menu has no Return to Lobby, as live)
+      if (await page.ev(resultShown)) await press(page,resultLeave);   // the result's Next (in the lobby the Main Menu has no Return to Lobby, as live)
       await until(page,lobbyShown,60000);
       await startNpcDuel(page,'Yami Yugi');
       await until(page,`${fieldCount('your','hand')}>=5`,60000);

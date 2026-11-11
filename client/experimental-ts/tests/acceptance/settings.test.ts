@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { exitDeckEditor } from './harness';
+import { resultShown } from './harness';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page, createCharacter, freeSlot, lobbyShown } from './harness';
 
 const pressed = (code:string) => `document.querySelector('[data-key="language:${code}"]')?.getAttribute('aria-pressed')==='true'`;
@@ -286,7 +287,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       const mutedCues = (await page.ev(`window.__audio.starts.length`) as number) - mutedFrom;
       expect(mutedCues).toBe(0);
       // Surrender: the result slot; back in the lobby the area track returns and nothing is left playing.
-      if (!(await page.ev(`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`))) await surrender(page);
+      if (!(await page.ev(resultShown))) await surrender(page);
       await until(page,`window.__duelEnd()`,30000);
       const result = await page.ev(`window.__duelEnd()`) as string;
       const resultTrack = result === 'Victory' ? 'win.wav' : result === 'Draw' ? 'draw.wav' : 'lose.wav';

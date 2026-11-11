@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, deckScreen, deckSide, filesReady, openShop, leaveShop, shopWallet } from './harness';
+import { resultShown, leaveResult } from './harness';
 import { playerMenu } from './pvp-helpers';
 
 /** deck.test: the original has no separate deck-test button (PRACTICE.md); deck testing is Free Duel: a free session
@@ -96,9 +97,9 @@ describe.skipIf(!enabled)('deck testing in Free Duel',() => {
       const turn = async () => Number(/Turn (\d+)/.exec(await a.ev(`document.querySelector('.de-phase-bar')?.getAttribute('aria-label') ?? ''`) as string)?.[1] ?? 0);
       for (const started = Date.now(); Date.now() - started < 240000 && await turn() < 10;) { await Promise.all([duelBot(a,{ summon:false,attack:false }),duelBot(b,{ summon:false,attack:false })]); await sleep(150); }
       await surrender(a);
-      for (const p of [a,b]) await until(p,byText('Return to Lobby'),60000);
+      for (const p of [a,b]) await until(p,resultShown,60000);
       const result = await a.ev(`window.__duelEnd()`);
-      for (const p of [a,b]) await click(p,'Return to Lobby');
+      for (const p of [a,b]) await leaveResult(p);
       // Back in World mode nothing changed.
       await backToWorld(a,names.a);
       const after = await worldSnapshot(a,probe);

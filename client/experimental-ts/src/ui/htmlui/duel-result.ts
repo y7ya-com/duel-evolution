@@ -113,8 +113,8 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
   if (titles.length) out.push(new WindowBuilder(ctx.ids, 'duel-result:titles', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51155, pics: titles }).spec());
   const W = 200, H = 40, b = new WindowBuilder(ctx.ids, 'duel-result:next', 'CWindowResultNext', { x: 512 - W / 2, y: 524, w: W, h: H }, { z: 51160 });
   if (ctx.next) {
-    // live's plate says Next (an NPC duel: live's capture); a PvP duel's keeps the rewrite's Return to Lobby for now
-    const label = npcRecord ? 'Next' : 'Return to Lobby';
+    // live's plate says Next after every duel (NPC or PvP)
+    const label = 'Next';
     const next = ctx.next, c = b.add('CWindowTaskResultNext', 'next', { x: 0, y: 0, w: W, h: H }, { label, align: 1, state: 'normal' });
     b.on(c, { key: 'duel-result-next', label, click: next });
   } else b.add('CWindowTaskShadowText', 'wait', { x: 0, y: 10, w: W, h: 20 }, { text: 'Next game…', align: 1, fontSize: 16, color: WHITE });

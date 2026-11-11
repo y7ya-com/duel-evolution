@@ -118,9 +118,13 @@ const DUEL_END = `window.__duelEnd=()=>{const b=document.querySelector('.de-duel
   if(!r)return null;const t=r.innerText.split(/\\n/).map(l=>l.trim());return t.includes('WIN')?'Victory':t.includes('LOSE')?'Defeat':t.includes('DRAW')?'Draw':(t.find(l=>/ wins$|^(Victory|Defeat|Draw)$/.test(l))??'ended');};`;
 export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>(b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
-/** The result screen's plate (CWindowResultNext): Next after an NPC duel (as live), Return to Lobby after a PvP one. */
+/** The result screen's plate (CWindowResultNext): Next after every duel, NPC or PvP, as live. */
 export const resultNext = `[...document.querySelectorAll('[data-key="duel-result-next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
 export const resultShown = `(Boolean(${resultNext})||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled&&b.getClientRects().length))`;
+/** The result's way out: its Next plate (the screen without the HTML layer keeps a Return to Lobby button). */
+export const resultLeave = `(${resultNext}??[...document.querySelectorAll('button')].find(b=>b.textContent==='Return to Lobby'&&!b.disabled&&b.getClientRects().length))`;
+/** Waits for the result screen and presses its Next. */
+export async function leaveResult(page:Page,timeout = 60000):Promise<void> { await until(page,resultShown,timeout); await press(page,resultLeave); }
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art; or its art
  * unreachable, the map's own failure with Retry Map). */
 export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&(document.querySelector('.de-world-view')?.dataset.mapReady!=='false'||document.querySelector('.de-world-view')?.dataset.mapFailed==='true'))`;
@@ -511,7 +515,7 @@ export async function surrender(page:Page) {
  * Returns the pack label, the received card names ("Name · New" rows) and the dialog text seen. */
 export async function claimNpcReward(page:Page):Promise<{ pack:string|null; received:string[]; dialog:string }> {
   const panel = `document.querySelector('[aria-label="NPC interaction"]')`;
-  if (await page.ev(resultShown)) await press(page,`${resultNext}??${byText('Return to Lobby')}`);
+  if (await page.ev(resultShown)) await press(page,resultLeave);
   const balloon = `[...document.querySelectorAll('button[data-key="npc-talk:next"]')].find(b=>!b.disabled&&b.getClientRects().length)`;
   let pack:string|null = null, received:string[] = [], dialog = '';
   for (let i = 0; i < 40 && (await page.ev(`Boolean(${panel})||Boolean(document.querySelector('button[data-key="npc-talk:next"]'))||Boolean(document.querySelector('.yo2ps-list .yo2ps-row'))`) || i < 6); i++) {
@@ -535,7 +539,7 @@ export async function claimNpcReward(page:Page):Promise<{ pack:string|null; rece
     await sleep(800);
   }
   // the result boards (their Next plate) if still up
-  if (await page.ev(resultShown)) { await press(page,`${resultNext}??${byText('Return to Lobby')}`); await until(page,lobbyShown,60000); }
+  if (await page.ev(resultShown)) { await press(page,resultLeave); await until(page,lobbyShown,60000); }
   return { pack, received, dialog };
 }
 /** Earn tradeable (not soul-bound) cards: lose an NPC duel by passing every turn (a surrender earns no reward pack)

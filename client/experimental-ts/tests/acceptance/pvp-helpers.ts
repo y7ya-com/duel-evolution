@@ -1,6 +1,6 @@
 /** Two- and three-player helpers for the PvP and spectator acceptance tests (see ACCEPTANCE.md). */
 import { expect } from 'vitest';
-import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard, lobbyShown } from './harness';
+import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard, lobbyShown, resultShown, leaveResult } from './harness';
 
 export const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 /** The duel invitation and the request's waiting dialog: main's stock dialogs (dialog.js YesNo / Ok), their windows. */
@@ -8,7 +8,7 @@ export const invitation = `document.querySelector('[data-key="duel-accept"]')?.c
 export const requesting = `document.querySelector('[data-key="duel-request-cancel"]')?.closest('.win')`;
 export const inLobby = `${lobbyShown}&&!document.querySelector('.de-duel-board')`;
 export const onDuel = `document.querySelectorAll('.de-field-card').length>0&&document.querySelector('.de-phase-bar')`;
-export const finished = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled)`;
+export const finished = resultShown;
 /** Opens a player's card from their avatar (main's CPlayerListMenu) and presses one of its actions. */
 export async function playerMenu(page:Page,name:string,action:string) {
   await until(page,avatar(name),30000);
@@ -134,7 +134,7 @@ export async function playBoth(a:Page,b:Page,options:{ stop?:(turn:number) => bo
 }
 /** Back to the lobby after a finished duel; the lobby must be usable (rooms can be created, NPCs listed). */
 export async function backToLobby(page:Page) {
-  await click(page,'Return to Lobby',60000);
+  await leaveResult(page);
   await until(page,inLobby,60000);
   await createDuelOffered(page);
 }

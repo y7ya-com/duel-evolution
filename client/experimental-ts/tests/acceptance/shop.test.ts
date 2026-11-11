@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { invitation, finished, playerMenu, startBoth } from './pvp-helpers';
 import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, reenterWorld, click, until, press, pressAvatar, sleep, screenshot, record, byKey, byText, duelBot, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, SHOP, openShop, leaveShop, shopWallet as wallet, shopPacks as packs, shopBuyKey as buyKey, shopReveal as reveal, takeReveal, surrender } from './harness';
+import { leaveResult } from './harness';
 
 /** main's card shop (htmlui/card-shop.ts mounting web-shell/htmlui/shop/index.js: GET /api/de/shop, POST
  * /api/de/shop/buy, its reveal) online, against the real server (harness: openShop, shopWallet, shopPacks, takeReveal). */
@@ -109,7 +110,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(await turn()).toBeGreaterThanOrEqual(3);
       const duelSeconds = Math.round((Date.now() - duelStart) / 1000), duelTurns = await turn();
       await surrender(b);
-      for (const p of [a,b]) { await until(p,finished,60000); await click(p,'Return to Lobby'); await until(p,lobbyShown,60000); }
+      for (const p of [a,b]) { await until(p,finished,60000); await leaveResult(p); await until(p,lobbyShown,60000); }
       b.close();
 
       // cosmetics.purchase: the Head & Hair box takes its price in earned MP and leaves starter MP alone, once.
