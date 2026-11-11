@@ -119,7 +119,7 @@ function findWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
 
 // Create Duel (CWindowModelDuelWait, mock/duelsetup-wait.json: 266, 204, 492 x 360): Single / Match, Time Limit ON / OFF,
 // Watch On / Off, Surrender ON / OFF (the left of each pair 22, the right 246; rows 48, 96, 144, 192), the password
-// (InputDuel 22, 269, 448 x 32, 8 characters), OK 50, 328 / Cancel 299, 328. OK opens the rewrite's room.
+// (InputDuel 22, 269, 448 x 32: hidden since main b70a104, open duels), OK 50, 328 / Cancel 299, 328. OK opens the rewrite's room.
 function waitWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   const { b, cs } = start(ctx, 'duelwait', duelWaitMock, 51403), ui = deps.ui, w = ui.wait;
   const set = (patch: Partial<LobbyLocal['wait']>) => () => { Object.assign(w, patch); ctx.rerender(); };
@@ -133,11 +133,13 @@ function waitWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec {
   const ok = () => {
     if (ctx.state.busy || !ctx.state.lobby?.connected) return;
     ui.open = null;
-    ctx.send({ type: 'createDuelRoom', options: { style: w.style, timeLimit: w.timeLimit, allowWatch: w.watch, allowSurrender: w.surrender, ...(w.password ? { password: w.password } : {}) } });
+    // main b70a104: no password (open duels: anyone joins from the chat's Duels tab or Discord)
+    ctx.send({ type: 'createDuelRoom', options: { style: w.style, timeLimit: w.timeLimit, allowWatch: w.watch, allowSurrender: w.surrender } });
     w.password = ''; ctx.rerender();
   };
   const input = cs.find(c => top(c) && c.cls === 'CWindowTaskInputDuel');
-  if (input) { Object.assign(input, { value: w.password, password: true, focused: false, maxLen: 8 }); b.on(input, { key: 'room-password', label: 'Room password', text: v => { w.password = v.slice(0, 8); }, enter: ok }); }
+  // main b70a104 (duelsetup.js): the password's field is not drawn, so the room is open
+  if (input) Object.assign(input, { shown: false, value: '', password: true, focused: false, maxLen: 8 });
   const okButton = button(cs, 'OK'); if (okButton) { okButton.state = ctx.state.busy ? 'disabled' : 'normal'; b.on(okButton, { key: 'room-ok', click: ok }); }
   const cancel = button(cs, 'Cancel'); if (cancel) b.on(cancel, { key: 'room-cancel', click: () => { ui.open = 'duel'; w.password = ''; ctx.rerender(); } });
   return b.spec();
