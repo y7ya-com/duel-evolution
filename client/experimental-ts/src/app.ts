@@ -15,6 +15,7 @@ import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
 import { ApiError } from './services/http';
 import { SocialController } from './features/social';
+import type { SocialBox } from './features/social';
 import { OnlineController } from './features/online';
 import { TagLobbyController } from './features/tag';
 import type { GameplayCommand } from './gameplay/binary';
@@ -78,6 +79,8 @@ export interface AppOptions {
   sessionFactory?: (options: SessionOptions) => GameSession;
   settings?: Partial<SettingsView>;
   persistSettings?: (settings: SettingsView) => void;
+  /** The character's own Friend List and deleted mail (the original's per-character files); the browser's storage in main.ts. */
+  socialBox?: SocialBox;
 }
 const duelIds = new Set([0x6202, 0x6610, 0x6611, 0x6612, 0x6461, 0x6613, 0x649b]);
 const channelName = (kind: number) => ({ 0: 'global', 1: 'global', 2: 'trade', 3: 'whisper', 5: 'team' })[kind] ?? 'global';
@@ -183,7 +186,7 @@ export class ClientApp implements ClientController {
     this.duelAudio.setReducedMotion(this.view.settings.reducedMotion || !this.frameRequest);
     this.duelAudio.setMuted(!options.audio || this.view.settings.sound === 0);
     if (options.audio) { options.audio.setVolumes(this.view.settings); this.view.audio = options.audio.getState(); }
-    this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }) });
+    this.social = new SocialController({ send: command => this.sendGameplay(command), onChange: socialDetail => this.patch({ socialDetail }), ...(options.socialBox ? { box: options.socialBox } : {}) });
     // A cosmetics response carries the authoritative wallet: the shop's wallet plate follows it.
     let cosmetics: unknown = null;
     this.online = new OnlineController({ http: this.services.api.http, onChange: online => {
@@ -319,11 +322,44 @@ export class ClientApp implements ClientController {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');
     // Duel effects are also movie/sheet scripts (.txt) next to their PNGs; the waist-up avatar parts are listed in .csv;
     // the menu bar and windows use data/common/window and data/common/icon; card-get uses data/y/result and data/card_get;
-    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck.
-    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|shop|deck|common\/window|common\/icon)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
+    // the shop data/shop and its clerk's picture data/avatar/npc (tiles listed in its .csv); the trade's lamps data/deck; the lobby data/menu.
+    if (!/^data\/(?:(?:cardpack|y\/duel|y\/duel_end|y\/janken|y\/result|card_get|card|avatar\/wu|avatar\/npc|shop|deck|common\/window|common\/icon|menu)\/(?:[\w#.-]+\/)*[\w#.-]+\.png|(?:y2?\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.txt|menu\/menu_mark_a01\.txt|y2\/duel\/(?:[\w#.-]+\/)*[\w#.-]+\.png|avatar\/wu\/w[mw]_data\.csv|avatar\/npc\/[ad]\d\d\.csv))$/i.test(path) || path.includes('..')) throw new Error('Not an original artwork path.');
     const lease = await this.options.assets.readScene(path, signal);
     return { url: lease.value.url, release: () => lease.release() };
   }
+  private gameTexts = new Map<string, Promise<{ idx: DataView; bin: Uint8Array; decoder: TextDecoder }>>();
+  /** The original's own UI strings (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by text id. */
+  readonly gameText = async (ids: readonly number[], signal: AbortSignal): Promise<ReadonlyMap<number, string>> => {
+    const assets = this.options.assets; if (!assets) throw new Error('The original game text is not configured.');
+    const language = this.view.settings.language ?? 'E';
+    let table = this.gameTexts.get(language);
+    if (!table) {
+      const read = async (path: string) => { const lease = await assets.readScene(path, signal); try { return lease.value.bytes.slice(); } finally { lease.release(); } };
+      const base = `data/common/yo2text_${language.toLowerCase()}`;
+      table = Promise.all([read(`${base}.idx`), read(`${base}.bin`)]).then(([idx, bin]) => ({ idx: new DataView(idx.buffer, idx.byteOffset, idx.byteLength), bin, decoder: new TextDecoder(gameLanguage(language).encoding) }));
+      this.gameTexts.set(language, table); table.catch(() => this.gameTexts.delete(language));
+    }
+    const { idx, bin, decoder } = await table, out = new Map<number, string>();
+    for (const id of ids) {
+      if (!Number.isInteger(id) || id < 0 || id * 4 + 4 > idx.byteLength) continue;
+      // the strings lie back to back: one ends at its NUL or where the next id's begins
+      const at = idx.getUint32(id * 4, true); if (at >= bin.length) continue;
+      const next = id * 4 + 8 <= idx.byteLength ? idx.getUint32(id * 4 + 4, true) : bin.length, nul = bin.indexOf(0, at);
+      const end = Math.min(nul < 0 ? bin.length : nul, next > at ? next : bin.length, at + 4096);
+      out.set(id, decoder.decode(bin.subarray(at, end)).replace(/\s+$/, ''));
+    }
+    return out;
+  };
+  /** Whether `password` is the signed-in account's: the original compares the typed password with the login's before
+   * it deletes a character (NetAccountTask.cpp DEL_PROMPT). The browser keeps no password, so the server checks it with a
+   * password sign-in of this account; null when the account has no password to check (Discord only, signed out). */
+  readonly checkPassword = async (password: string, signal: AbortSignal): Promise<boolean | null> => {
+    const session = await this.services.api.session({ signal });
+    if (!session.signedIn || !session.password || !session.name) return null;
+    if (!password || password.length > 128) return false;
+    try { await this.services.api.signIn(session.name, password, { signal }); return true; }
+    catch (e) { if (e instanceof ApiError && e.status === 401) return false; throw e; }
+  };
   private failure(e: unknown): void {
     if (this.disposed || e instanceof DOMException && e.name === 'AbortError') return;
     // A 401 means the browser's sign-in ended (signed out elsewhere, expired cookie), not a broken action.
@@ -367,7 +403,7 @@ export class ClientApp implements ClientController {
     if (state.connection !== 'connected' && this.view.connection === 'online') this.npc.disconnected();
     const context = profile ? `${profile.pid}:${state.areaBlock}` : null;
     if (context !== this.profileContext) {
-      this.profileContext = context;this.eligibilityDue=profile!==null;this.profile.reset(); this.profile.dispatch({type:'setSelf',pid:profile?.pid ?? null});
+      this.profileContext = context;this.eligibilityDue=profile!==null;this.profile.reset(); this.profile.dispatch({type:'setSelf',pid:profile?.pid ?? null}); this.social.setOwner(profile?.pid ?? null);
     }
     const worldMap = this.options.worldMaps?.maps.find(m => m.id === state.area);
     const self = state.players.find(p => p.pid === profile?.pid);
@@ -403,13 +439,13 @@ export class ClientApp implements ClientController {
     }
     if (!state.match || state.match.complete) { this.sideboard = null; this.sideboardRound = null; }
     this.view = { ...this.view, connection, scene,
-      characters: state.characters.map(c => ({ slot: c.slot, name: c.name, level: c.level, selected: c.slot === state.selectedSlot })),
+      characters: state.characters.map(c => ({ slot: c.slot, name: c.name, level: c.level, selected: c.slot === state.selectedSlot, parts: Array.from(c.avatarA) })),
       player: profile ? { id: profile.pid, name: selected?.name ?? this.view.auth?.name ?? 'Duelist', level: profile.level, mp: profile.mp } : null,
       lobby: profile ? {
         mapId:state.area, name: `Duel Academy · Area ${state.area}`, width: worldMap?.width ?? 1600, height: worldMap?.height ?? 1200, connected: connection === 'online',
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
         npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
-        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
+        rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, style: r.style, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
         invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
         outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.

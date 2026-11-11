@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, type Page, lobbyShown } from './harness';
 
 const dialog = `document.querySelector('[data-key="tag-lobby"]')`;
 const tagKey = (key:string) => `document.querySelector('[data-key="tag-${key}"]')`;
@@ -32,7 +32,7 @@ async function invite(p:Page,teammate:string,opponent:string,other:string) {
 async function mp(p:Page):Promise<number> {
   await click(p,'Shop'); await until(p,`[...document.querySelectorAll('strong')].some(s=>/^[\\d,]+ MP/.test(s.textContent))`,60000);
   const value = Number(String(await p.ev(`[...document.querySelectorAll('strong')].find(s=>/^[\\d,]+ MP/.test(s.textContent)).textContent`)).split(' ')[0]!.replace(/,/g,''));
-  await click(p,'Return to Lobby'); await until(p,`document.querySelector('[data-key="lobby-npcs"]')`,60000);
+  await click(p,'Return to Lobby'); await until(p,lobbyShown,60000);
   return value;
 }
 const relayNotices = (p:Page) => p.ev(`(document.body.innerText.match(/\\[Tag\\] Relay finished/g) ?? []).length`) as Promise<number>;
@@ -231,7 +231,7 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       const back = pages[gone]!;
       await click(back,'Go Online',60000);
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(names[gone])})&&!b.disabled)`;
-      await until(back,slot,60000); await press(back,slot); await until(back,`document.querySelector('[data-key="lobby-npcs"]')`,60000);
+      await until(back,slot,60000); await press(back,slot); await until(back,lobbyShown,60000);
       const released2 = await releasedSeats(pages,names);
       const notices2 = await Promise.all(stay.map(p => relayNotices(p)));
       const mpAfter2 = await Promise.all(pages.map(mp));

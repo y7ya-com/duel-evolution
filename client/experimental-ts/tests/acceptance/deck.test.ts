@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, screenshot, record, byKey, byText, type Page } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, screenshot, record, byKey, byText, type Page, lobbyShown } from './harness';
 
 /** Deck editor flows against the real server: the saved decks and active deck (user_decks / user_deck_current), the
  * character's trunk, the deck check and the file formats. */
@@ -35,7 +35,7 @@ async function reload(page:Page,character:string,assets = true) {
     await until(page,`${slot}||/already logged in/.test(document.body.innerText)`,30000).catch(() => {});
     if (!(await page.ev(`Boolean(${slot})`))) await sleep(5000);
   }
-  await until(page,slot,10000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
+  await until(page,slot,10000); await press(page,slot); await until(page,lobbyShown,60000);
   await editDeck(page);
 }
 /** The editor's exports: the anchor download is captured as bytes. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, ownedCopies, type Page, cardButton } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, ownedCopies, type Page, cardButton, lobbyShown } from './harness';
 
 /** deck.test: the original has no separate deck-test button (PRACTICE.md); deck testing is Free Duel: a free session
  * builds decks from the whole card pool and duels other free players with no MP, record, stats or card offer
@@ -16,14 +16,14 @@ async function enterFree(page:Page,character:string) {
   await click(page,'Return to Title');
   await click(page,'Free Duel & Deck Editor',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-  await until(page,`${slot}||document.querySelector('[data-key="lobby-npcs"],[data-key="lobby-map"]')`,60000);
+  await until(page,`${slot}||${lobbyShown}||document.querySelector('[data-key="lobby-map"]')`,60000);
   if (await page.ev(`Boolean(${slot})`)) await press(page,slot);
   await until(page,`document.querySelector('[data-key="lobby-map"]')`,60000);
 }
 async function backToWorld(page:Page,character:string) {
   await click(page,'Return to Title'); await click(page,'Go Online',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(character)})&&!b.disabled)`;
-  await until(page,slot,60000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000);
+  await until(page,slot,60000); await press(page,slot); await until(page,lobbyShown,60000);
 }
 
 describe.skipIf(!enabled)('deck testing in Free Duel',() => {

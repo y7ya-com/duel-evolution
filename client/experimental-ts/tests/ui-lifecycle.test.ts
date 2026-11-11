@@ -44,7 +44,8 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ scene: 'lobby', mode: 'free', player: { id: 1, name: 'A' }, lobby: { name: 'Free Duel', avatars: [], channels: [], chat: [], connected: true, npcs: [{ id: 1, name: 'NPC A' }] }, starter: { claimable: true, decks: [{ id: 1, name: 'Starter A' }] } }); await Promise.resolve();
     expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Shop' || b.textContent === 'NPC A')).toBe(false); expect(f.root.textContent).not.toContain('Choose your Starter Deck'); expect(f.root.textContent).toContain('Free Duel'); f.mounted.dispose();
   });
-  it('starts matchmaking with exact preferences and updates queue controls authoritatively', async () => {
+  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
+  it.skip('starts matchmaking with exact preferences and updates queue controls authoritatively', async () => {
     const f = fixture(), matchmaking: NonNullable<ClientView['matchmaking']> = { status: 'idle', style: 3, similarLevel: false, opponent: null, counts: { single: 2, match: 1, either: 3 }, matchSupported: false };
     f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, matchmaking }); await Promise.resolve();
     f.root.querySelectorAll('select').find(n => n.dataset.key === 'matchmaking-style')!.value = '6'; const preference = f.root.querySelectorAll('input').find(n => n.dataset.key === 'matchmaking-similar')!; preference.checked = true; preference.onchange?.({});
@@ -115,7 +116,8 @@ describe('UI ownership and semantic interaction', () => {
     f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:target1')!.onclick?.({});
     expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: 'target', response: { optionId: 'server-target' } }); f.mounted.dispose();
   });
-  it('routes duel-room invitations and spectator exit through semantic commands', async () => {
+  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
+  it.skip('routes duel-room invitations and spectator exit through semantic commands', async () => {
     const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [{ id: 9, owner: 2, name: 'B room', state: 0 }, { id: 10, owner: 3, name: 'C room', state: 1, opponent: 4, watch: true }], invitation: { name: 'B', pid: 2 } } }); await Promise.resolve();
     findButton(f.root, 'Create Duel').onclick?.({}); findButton(f.root, 'Challenge').onclick?.({}); findButton(f.root, 'Watch').onclick?.({}); findButton(f.root, 'Accept Duel').onclick?.({}); findButton(f.root, 'Decline').onclick?.({});
     expect(f.commands).toEqual([{ type: 'createDuelRoom' }, { type: 'challengeRoom', roomId: 9 }, { type: 'spectate', pid: 3 }, { type: 'replyChallenge', accept: true }, { type: 'replyChallenge', accept: false }]);
@@ -142,7 +144,8 @@ describe('UI ownership and semantic interaction', () => {
     expect(f.root.querySelectorAll('button').find(n => n.dataset.key === 'field-card:c1')).toBe(node);
     expect(node.style.left).toBe('50%'); expect(node.style.top).toBe('50%'); expect(node.style.transform).toContain('rotate(45deg) scaleX(0.5)'); expect(f.root.textContent).toContain('LP7,500'); f.mounted.dispose();
   });
-  it('preserves open game-menu disclosures and nonfocused form drafts across updates', async () => {
+  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
+  it.skip('preserves open game-menu disclosures and nonfocused form drafts across updates', async () => {
     const f = fixture(); f.update({ scene: 'lobby', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], chat: [], channels: ['global'], connected: true, rooms: [] } }); await Promise.resolve();
     const rooms = f.root.querySelectorAll('details').find(n => n.dataset.key === 'lobby-duel-rooms')!; rooms.open = true;
     f.update({ status: 'Another player arrived' }); await Promise.resolve(); expect(f.root.querySelectorAll('details').find(n => n.dataset.key === 'lobby-duel-rooms')?.open).toBe(true);
@@ -206,7 +209,8 @@ describe('UI ownership and semantic interaction', () => {
     f.update({ deckEditor: { ...deckEditor, current: { ...deckEditor.current!, main: [2, 1] } } }); await Promise.resolve(); drag(at(0), [850, 300]);
     expect(f.commands.at(-1)).toEqual({ type: 'deckCard', passcode: 2, from: 'main', to: 'collection', index: 0 }); f.mounted.dispose();
   });
-  it('opens player profiles through semantic commands and renders authoritative identity', async () => {
+  // skipped: drove the old DOM lobby panel (Duel Rooms / matchmaking / Area / NPC buttons), now main's HTML lobby (src/ui/htmlui/lobby.ts, browser-only); covered by tests/acceptance/pvp-rooms + pvp-end until ported
+  it.skip('opens player profiles through semantic commands and renders authoritative identity', async () => {
     const f = fixture(), profileDetail: NonNullable<ClientView['profileDetail']> = { selfPid: 1, selectedPid: null, details: null, location: null, summary: null, comments: [null, null], drafts: { playerId: '', comment: '', title: '' }, loading: false, pending: null, status: 'Choose a player.', error: null };
     f.update({ scene: 'lobby', connection: 'online', player: { id: 1, name: 'A' }, lobby: { name: 'Academy', avatars: [], channels: [], chat: [], connected: true }, profileDetail }); await Promise.resolve();
     findButton(f.root, 'My Profile').onclick?.({}); expect(f.commands).toEqual([{ type: 'profileAction', action: { type: 'open', pid: 1 } }]); expect(f.mounted.htmlUi.text()).not.toContain('My Profile');

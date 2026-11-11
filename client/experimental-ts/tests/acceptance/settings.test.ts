@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page, createCharacter, freeSlot } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, byKey, reenterWorld, startNpcDuel, duelBot, surrender, type, claimStarter, claimNpcReward, type Page, createCharacter, freeSlot, lobbyShown } from './harness';
 
 const pressed = (code:string) => `document.querySelector('[data-key="language:${code}"]')?.getAttribute('aria-pressed')==='true'`;
 const collectionNames = (page:Page) => page.ev(`[...document.querySelectorAll('[data-key^="collection-card:"]')].slice(0,40).map(b=>b.dataset.key.slice(16)+'='+b.title.split(' · ')[0])`) as Promise<string[]>;
@@ -152,7 +152,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await reenterWorld(page,`Set ${RUN}`);
       await click(page,'Options'); await until(page,byKey('language:F'),30000);
       await press(page,byKey('language:F')); await key(page,'Escape','Escape',27);
-      await until(page,byKey('lobby-npcs'),30000);
+      await until(page,lobbyShown,30000);
       // Escape closes the player's own profile card.
       await click(page,'My Profile');
       const profile = `document.querySelector('[data-key="profile-ok"]')`;   // main's Profile window
@@ -169,7 +169,7 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await key(page,'Escape','Escape',27);
       await until(page,`!document.querySelector('.de-card-inspector h3')`,10000);
       expect(await page.ev(`document.querySelector('.de-client').dataset.scene`)).toBe('deck');
-      await key(page,'Escape','Escape',27); await until(page,byKey('lobby-npcs'),30000);
+      await key(page,'Escape','Escape',27); await until(page,lobbyShown,30000);
       // Readable feedback: an error is announced as an alert.
       const alerts = await page.ev(`[...document.querySelectorAll('[role=alert],[role=status]')].length`) as number;
       expect(alerts).toBeGreaterThan(0);
@@ -208,11 +208,11 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await sample('characters','login.wav');
       await createCharacter(page,`Audio ${RUN}`,{ wait:false });
       const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Audio ${RUN}')&&!b.disabled)`;
-      await until(page,slot,30000); await press(page,slot); await until(page,byKey('lobby-npcs'),60000); await claimStarter(page);
+      await until(page,slot,30000); await press(page,slot); await until(page,lobbyShown,60000); await claimStarter(page);
       const area = await page.ev(`window.__audio.media.filter(m=>!m.paused&&m.src).map(m=>window.__audio.names.get(m.src)).join()`) as string;
       await sample('lobby',area === 'gx-area.wav' ? 'gx-area.wav' : 'yugi-area.wav');
       await openDeck(page); await sample('deck','deck.wav');
-      await click(page,'Return to Lobby'); await until(page,byKey('lobby-npcs'),60000); await sample('lobby',area);
+      await click(page,'Return to Lobby'); await until(page,lobbyShown,60000); await sample('lobby',area);
       // A duel: rock-paper-scissors slot, then a duel slot; effects from Sound.dat at the sound volume.
       const startsBefore = await page.ev(`window.__audio.starts.length`) as number;
       await startNpcDuel(page,'Yami Yugi');

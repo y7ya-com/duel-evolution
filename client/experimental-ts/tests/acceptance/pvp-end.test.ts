@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, sleep, screenshot, record, startNpcDuel, playDuel, byKey, type Page, placeName, cardOpen, cardButton, closeCard, lobbyShown, searchPlayers, listRow } from './harness';
 import { avatar, invitation, inLobby, onDuel, finished, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
-const rooms = `document.querySelector('[data-key="lobby-duel-rooms"]')`;
-async function openRooms(page:Page) {
-  await until(page,rooms,30000);
-  if (!await page.ev(`${rooms}.open`)) await press(page,`${rooms}.querySelector('summary')`);
-  await until(page,`${rooms}.open`,5000);
+/** Main's Duel menu (the bar's Duel key, src/ui/htmlui/lobby.ts) open. */
+async function duelMenu(page:Page) { if (!await page.ev(`Boolean(${byKey('duel-cancel')})`)) await press(page,byKey('menubar-duel')); await until(page,byKey('duel-cancel'),10000); }
+/** The Duel menu's counts, top to bottom: Auto Duel (searching), Create Duel (waiting), Duel (n.) (duelling). */
+const counts = (page:Page) => page.ev(`(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');if(!w)return '';return [...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top).map(e=>e.textContent.trim()).join(' / ');})()`) as Promise<string>;
+/** Auto Duel from the Duel menu: its choices pressed, OK. */
+async function autoDuel(page:Page,choices:string[] = []) {
+  await duelMenu(page); await press(page,byKey('duel-auto')); await until(page,byKey('find-ok'),10000);
+  for (const key of choices) { await press(page,byKey(key)); await until(page,`${byKey(key)}?.getAttribute('aria-pressed')==='true'`,5000); }
+  await press(page,byKey('find-ok')); await until(page,`!${byKey('find-ok')}`,10000);
 }
-const counts = (page:Page) => page.ev(`document.body.innerText.match(/\\d+ single · \\d+ match · \\d+ either rooms waiting/)?.[0] ?? ''`) as Promise<string>;
-const roomRow = (owner:string) => `[...document.querySelectorAll('.de-room-row')].find(r=>r.querySelector('strong')?.textContent===${JSON.stringify(owner)})`;
 /** The selected character again after a lost connection: Go Online, pick the slot, lobby. */
 async function reenter(page:Page,name:string) {
   await click(page,'Go Online',60000);
   const slot = `[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes(${JSON.stringify(name)})&&!b.disabled)`;
   await until(page,slot,60000); await press(page,slot);
-  await until(page,byKey('lobby-npcs'),60000);
+  await until(page,lobbyShown,60000);
 }
 const yourTurn = `[...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn'&&!b.disabled)`;
 
@@ -28,30 +30,31 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await openClient(a,cookies.a,{ assets:false }); await openClient(b,cookies.b,{ assets:false });
       await enterWorld(a,names.a); await enterWorld(b,names.b);
       await until(a,avatar(names.b),30000);
-      await openRooms(a); await openRooms(b);
-      // pvp.matchmaking: A searches (single); B's waiting counts show it; A cancels; the counts drop.
+      // pvp.matchmaking: A searches (Auto Duel, Single Mode); B's Duel menu counts it; A cancels; the count drops.
+      await duelMenu(b);
       const before = await counts(b);
-      await click(a,'Find Opponent');
-      await until(a,`document.body.innerText.includes('Searching for an opponent')`,20000);
-      await until(b,`/1 single · 0 match · 0 either/.test(document.body.innerText)`,30000);
+      await autoDuel(a);
+      const message = await a.ev(`document.getElementById('htmlui-host').innerText`) as string;
+      await until(b,`/^1 \\//.test(${counts.toString().includes('') ? '""' : '""'})||(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');return !!w&&[...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top)[0]?.textContent.trim()==='1';})()`,30000);
       const searching = await counts(b);
       await screenshot(a,'pvp-matchmaking-searching');
-      await click(a,'Cancel Search');
-      await until(a,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Find Opponent'&&!b.disabled)`,20000);
-      await until(b,`/0 single · 0 match · 0 either/.test(document.body.innerText)`,30000);
+      // the Duel key while searching: "Cancel the Duel you created?" (the original's), Yes
+      await press(a,byKey('menubar-duel')); await until(a,byKey('room-close-yes'),10000);
+      const cancelText = await a.ev(`document.querySelector('[data-key="room-close-yes"]').closest('.win').innerText`) as string;
+      await press(a,byKey('room-close-yes'));
+      await until(b,`(()=>{const w=document.querySelector('[data-key="duel-cancel"]')?.closest('.win');return !!w&&[...w.querySelectorAll('.ds-txt')].filter(e=>/^\\d+$/.test(e.textContent.trim())).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top)[0]?.textContent.trim()==='0';})()`,30000);
       const cancelled = await counts(b);
-      // Both search (A single, B either, similar level): the server pairs them and both prepare a duel.
-      await click(a,'Find Opponent');
-      await until(b,`/1 single/.test(document.body.innerText)`,30000);
-      await b.ev(`(()=>{const s=document.querySelector('[data-key="matchmaking-style"]');s.value='6';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-      await click(b,'Find Opponent');
+      await press(b,byKey('duel-cancel'));
+      // Both search (A Single Mode, B Both and a similar level): the server pairs them and both prepare a duel.
+      await autoDuel(a);
+      await autoDuel(b,['find-both','find-similar-level']);
       await startBoth(a,b);
       const paired = await settled(a,b);
       expect(mirrored(...paired)).toEqual([]);
       expect(new Set(paired[0].names)).toEqual(new Set([names.a,names.b]));
-      record('pvp.matchmaking',{ actions:'Duel Rooms → Automatic Matchmaking: A Find Opponent (Single), Cancel Search; then A Single and B Either, Prefer similar level',
+      record('pvp.matchmaking',{ actions:'Duel key → Auto Duel: A Single Mode OK; the Duel key again, Yes to cancel; then A Single Mode and B Both with Level Limit OFF (a similar level)',
         expected:'Find/cancel single or match opponents with level filters and correct searching/waiting counts',
-        observed:`B's counts "${before}" → "${searching}" while A searched → "${cancelled}" after Cancel Search; the second search paired A and B (similar level) into one duel, both screens mirrored (${paired[0].names.join(' vs ')})` });
+        observed:`B's Duel menu counts (Auto Duel / Create Duel / Duel (n.)) "${before}" → "${searching}" while A searched (A's bar: "${message.replace(/\s+/g,' ').trim().slice(0,60)}") → "${cancelled}" after "${cancelText.replace(/\s+/g,' ').trim()}" Yes; the second search paired A and B (similar level) into one duel, both screens mirrored (${paired[0].names.join(' vs ')})` });
 
       // pvp.end (disconnect): B's browser goes away mid-duel; A is told and wins after the server's grace period.
       await playBoth(a,b,{ stop:turn => turn >= 2,timeout:200000 });
@@ -66,14 +69,13 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       await backToLobby(a);
       // B comes back with the same account and character to a usable lobby.
       b = await openPage(); await openClient(b,cookies.b,{ assets:false }); await reenter(b,names.b);
-      await until(b,`[...document.querySelectorAll('button')].some(x=>x.textContent==='Create Duel'&&!x.disabled)`,30000);
+      await until(b,lobbyShown,30000);
       const bLobby = await b.ev(placeName) as string;
 
       // pvp.end (time-out): a Single room with Time limit; the player to move does nothing and loses on time.
-      await openRooms(b);
-      await click(b,'Create Duel');
-      await openRooms(a); await until(a,roomRow(names.b),30000);
-      await press(a,`[...(${roomRow(names.b)}).querySelectorAll('button')].find(x=>x.textContent==='Challenge')`);
+      await duelMenu(b); await press(b,byKey('duel-create')); await until(b,byKey('room-ok'),10000); await press(b,byKey('room-ok'));
+      await searchPlayers(a,'Search for Single Duels'); await until(a,listRow(names.b),30000);
+      await playerMenu(a,names.b,'Send Duel Request');
       await until(b,invitation,20000);
       await press(b,`[...document.querySelectorAll('[aria-label="Duel Invitation"] button')].find(x=>x.textContent==='Accept Duel')`);
       await startBoth(a,b);
@@ -125,7 +127,7 @@ describe.skipIf(!enabled)('PvP matchmaking, disconnect and time-out endings, and
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Leave Duel')`)) await click(b,'Leave Duel');
       if (await b.ev(`[...document.querySelectorAll('button')].some(x=>x.textContent==='Return to Lobby')`)) await click(b,'Return to Lobby');
       await until(b,inLobby,60000);
-      await until(b,`[...document.querySelectorAll('button')].some(x=>x.textContent==='Create Duel'&&!x.disabled)`,30000);
+      await until(b,lobbyShown,30000);
       await screenshot(b,'npc-spectator-left');
       record('spectate.leave',{ actions:"B watches A's NPC duel to its end, then leaves", expected:'Live updates, late join, duel end and leave clean up the view/channel', observed:`late join at turn ${join.turn}; ${updates} turn changes followed live up to turn ${lastTurn} (player's result ${result}); at the end the spectator saw: ${endSeen} (last LP ${seen.lp.join('/')}); left to a usable lobby` });
     } finally { closeAll(); }

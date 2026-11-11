@@ -21,7 +21,8 @@ import { accessoryName } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
-import { htmlUiLocal, htmlWindows } from './htmlui/windows';
+import { htmlUiLocal, htmlWindows, DELETE_TEXT } from './htmlui/windows';
+import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
 import { DeckScene } from './htmlui/deck-scene';
@@ -31,6 +32,7 @@ import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade'
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
+import { StartScene } from './htmlui/start-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -96,8 +98,6 @@ export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUi
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
   let disposed = false, rendering = false, queued = false, resetDraftsNextRender = false;
   let state = controller.getState();
-  let queueSimilarLevel: boolean | null = null;
-  let roomJoin: number | null = null, roomJoinPassword = '';
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
@@ -106,7 +106,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   host.append(css, extraCss, header, stage, nav); root.append(host);
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
-  const htmlUiState = htmlUiLocal(), htmlIds = new Ids();
+  const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
+  let startScene: StartScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
   let menuView: MenuView | null = null;
   const profileActions = (): { label: string; key: string; run(): void; disabled?: boolean }[] => {
@@ -128,7 +129,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const social = (type: 'inviteFriend' | 'inviteTrade' | 'inviteTeam' | 'ignore') => () => { send({ type: 'socialAction', action: { type, pid } }); close(); };
     const watchable = !!avatar?.duelling && !lobby?.rooms?.some(r => (r.owner === pid || r.opponent === pid) && r.watch === false);
     return {
-      ...(!avatar?.duelling ? { duel: () => { close(); send({ type: 'duelChallenge', playerId: pid }); } } : {}),
+      ...(!avatar?.duelling ? { duel: () => {
+        close();
+        // a player waiting in a duel they created: their room (its password first, main's prompt); else a challenge
+        const room = lobby?.rooms?.find(r => r.owner === pid && !r.opponent);
+        if (room?.password) { lobbyUi.join = { roomId: room.id, password: '' }; showHtml(); }
+        else if (room) send({ type: 'challengeRoom', roomId: room.id });
+        else send({ type: 'duelChallenge', playerId: pid });
+      } } : {}),
       ...(watchable ? { watch: () => { close(); send({ type: 'spectate', pid }); } } : {}),
       ...(state.socialDetail ? { friend: social('inviteFriend'), trade: social('inviteTrade'), team: social('inviteTeam'), ignore: social('ignore'),
         mail: () => { close(); htmlUiState.compose = { toPid: pid, toName: name, subject: '', body: '' }; showHtml(); } } : {}),
@@ -145,13 +153,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       team: sd.team ? { name: sd.team.name, members: sd.teamMembers.map(m => ({ pid: m.pid, name: m.name })), leader: sd.teamMembers.some(m => m.pid === state.player?.id && (m.authority & 2) !== 0) } : null,
       unignore: pid => social({ type: 'unignore', pid }), formTeam: name => social({ type: 'createTeam', name }),
       leaveTeam: () => social({ type: 'leaveTeam' }), disbandTeam: () => social({ type: 'disbandTeam' }),
+      removeFriend: pid => social({ type: 'removeFriend', pid }),
     };
   };
   // D-Mail: the rewrite's mail, sent through its social controller
   const mailBox = (): MailBox | null => {
     const sd = state.socialDetail; if (!sd) return null;
     return { mail: sd.mail.map(m => ({ from: m.fromName, fromPid: m.fromPid, subject: m.subject, body: m.body })),
-      send: (toPid, subject, body) => send({ type: 'socialAction', action: { type: 'sendMail', toPid, subject, body } }) };
+      send: (toPid, subject, body) => send({ type: 'socialAction', action: { type: 'sendMail', toPid, subject, body } }),
+      delete: index => send({ type: 'socialAction', action: { type: 'deleteMail', index } }) };
   };
   // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
   let deckStage: DeckStage | null = null, deckFile: HTMLInputElement | null = null;
@@ -186,11 +196,28 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       buy: (itemId, count) => send({ type: 'buy', itemId, count }), exit: () => open('lobby'),
       ...(state.online ? { cosmetics: () => { shopCosmetics = 'boxes'; send({ type: 'onlineAction', action: { type: 'refresh' } }); requestRender(); } } : {}) });
   };
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }), deckWindows: () => deckScene.windows(), scene: sceneWindows(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade) });
+  // the original's UI strings main's dialogs say (yo2text_?: Delete's prompts), read once the original data is there
+  const gameTexts = new Map<number, string>(); let gameTextsFor: string | null = null;
+  const askGameTexts = () => {
+    const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
+    gameTextsFor = language;
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT)], new AbortController().signal)
+      .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
+  };
+  const checkPassword = controller.checkPassword?.bind(controller);
+  const lobbyDeps = () => ({ ui: lobbyUi, friends: state.socialDetail?.friends.map(f => f.pid) ?? [] });
+  // main's Duel menu's Tag Duel (screens/duelsetup.js tagRow) asks the page for its tag lobby: the rewrite's
+  const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
+  globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
+    deckWindows: () => deckScene.windows(), scene: sceneWindows(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
+    text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
+    ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
   // 12 Free Duel's lobby, 14 the shop, 0x24 the deck editor)
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
   const showHtml = () => {
+    askGameTexts(); syncStartScene();
     if (!htmlUi || disposed) return;
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
@@ -415,8 +442,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (state.accountDetail) { const account = el('details', 'de-account-details'); account.dataset.key = `title-account:${state.accountDetail.panel}`; account.open = state.accountDetail.panel !== 'overview'; account.append(el('summary', '', 'Registration, password recovery & account options'), renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action }))); panel.append(account); }
     panel.append(button('Options', () => open('settings')), note(state.status)); n.append(panel);
   }
-  // Select Player is main's (src/ui/htmlui: its window over the 2008 backdrop); the stage only names the scene
-  function renderCharacters(): void { sceneRoot('Select Player'); }
+  // Select Player is main's (src/ui/htmlui: its window over the 2008 backdrop); under it the engine's own drawing, the
+  // ring logo and the selected character's waist-up portrait (src/ui/htmlui/start-scene.ts)
+  function renderCharacters(): void {
+    const n = sceneRoot('Select Player');
+    if (!controller.loadArchiveImage) return;
+    startScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
+    n.append(startScene.element); syncStartScene();
+  }
+  /** The start scene's drawing for the current state (each HTML redraw: the row under the pointer changes it). */
+  function syncStartScene(): void {
+    if (state.scene !== 'characters') { htmlUiState.selected = null; return; }
+    if (!startScene) return;
+    // the account prompts stand alone (main's game hides Select Player, and with it the portrait, under them)
+    const d = htmlUiState.dialog, alone = !!d && (['create', 'delete', 'delpw', 'deleting'].includes(d.kind) || d.kind === 'ok' && !!d.at);
+    const ch = alone ? undefined : state.characters.find(c => c.slot === htmlUiState.selected);
+    startScene.show({ logo: true, portrait: ch?.parts?.length === 16 ? Uint8Array.from(ch.parts) : null, reducedMotion: state.settings.reducedMotion });
+  }
   function drawLobby(canvas: HTMLCanvasElement): void {
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     ctx.fillStyle = '#77b6ca'; ctx.fillRect(0, 0, 1024, 768);
@@ -451,68 +493,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     }
     positionAvatars(lobby);
     showAvatarViews(lobby);
-    // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list
-    // the chat is main's (src/ui/htmlui: CChatWindow)
-    if (lobby.areas?.length || lobby.npcs?.length || lobby.rooms?.length || state.player) {
-      const places = el('section', 'de-panel de-lobby-places de-stack');
-      if (lobby.areas?.length) {
-        const select = el('select'); select.dataset.key = 'lobby-area'; select.setAttribute('aria-label', 'Lobby area');
-        const blank = el('option', '', 'Choose an area'); blank.value = ''; select.append(blank);
-        for (const a of lobby.areas) { const o = el('option', '', `${a.name}${a.population === undefined ? '' : ` (${a.population})`}`); o.value = `${a.area}/${a.block}`; select.append(o); }
-        select.onchange = () => { const area = lobby.areas?.find(a => `${a.area}/${a.block}` === select.value); if (area) send({ type: 'moveArea', area: area.area, block: area.block }); };
-        places.append(select);
-      }
-      if (state.mode !== 'free' && lobby.npcs?.length) {
-        const list = el('details'); list.dataset.key = 'lobby-npcs'; list.append(el('summary', '', 'NPC Duelists'));
-        const eligibility = state.npc?.eligibility, checking = eligibility?.status === 'pending' || eligibility?.refreshing;
-        if (checking) list.append(note('Checking NPC eligibility…'));
-        if (eligibility?.status === 'uncertain') list.append(note('NPC eligibility could not be confirmed. Disconnect and reconnect to refresh progress.'));
-        if (!state.npc?.npc && state.npc?.error) list.append(el('p', 'de-error', state.npc.error));
-        if (eligibility?.status === 'confirmed' && eligibility.bits.length + eligibility.cards.length > 0) list.append(note(`World rewards received: ${eligibility.bits.length} items · ${eligibility.cards.length} cards.`));
-        for (const npc of lobby.npcs) list.append(button(npc.name, () => send({ type: 'interact', playerId: -Math.abs(npc.id) }), !lobby.connected || !!state.busy || !!checking || eligibility?.status === 'uncertain'));
-        places.append(list);
-      }
-      const rooms = el('details'); rooms.dataset.key = 'lobby-duel-rooms'; rooms.append(el('summary', '', `Duel Rooms (${lobby.rooms?.length ?? 0})`));
-      if (state.matchmaking) {
-        const queue = state.matchmaking, panel = el('section', 'de-stack', title('Automatic Matchmaking'));
-        panel.append(note(`${queue.counts.single} single · ${queue.counts.match} match · ${queue.counts.either} either rooms waiting`), note('Room counts include all queued rooms; opponent eligibility is determined by the server.'));
-        if (queue.status === 'searching') panel.append(note('Searching for an opponent…'), button('Cancel Search', () => send({ type: 'cancelMatchmaking' }), !!state.busy), button('Refresh Queue', () => send({ type: 'refreshMatchmaking' }), !!state.busy), button('Retry Pairing', () => send({ type: 'retryMatchmaking' }), !!state.busy));
-        else if (queue.status === 'matched') panel.append(note(queue.opponent ? `Matched with ${queue.opponent.name}` : 'Opponent matched. Preparing duel.'));
-        else {
-          const format = el('select'); format.dataset.key = 'matchmaking-style'; format.setAttribute('aria-label', 'Automatic matchmaking format');
-          for (const [value, label] of [[3, 'Single Duel'], [6, 'Either (server currently pairs single duels)']] as const) { const option = el('option', '', label); option.value = String(value); format.append(option); } format.value = String(queue.style);
-          const similar = el('input'); similar.type = 'checkbox'; if (queueSimilarLevel === null) queueSimilarLevel = queue.similarLevel; similar.checked = queueSimilarLevel; similar.dataset.key = 'matchmaking-similar'; similar.onchange = () => { queueSimilarLevel = similar.checked; };
-          panel.append(labelled('Format', format), labelled('Prefer similar level', similar), button('Find Opponent', () => send({ type: 'startMatchmaking', style: Number(format.value) as 3 | 6, similarLevel: similar.checked }), !lobby.connected || !!state.busy), note('Automatic match-format pairing is unavailable on this server. Create a Match room manually.'));
-        }
-        rooms.append(panel);
-      }
-      rooms.append(button('Create Duel', () => { const options = { ...local.roomOptions, ...(local.roomPassword ? { password: local.roomPassword } : {}) }; send(Object.keys(options).length ? { type: 'createDuelRoom', options } : { type: 'createDuelRoom' }); local.roomPassword = ''; }, !lobby.connected || !!state.busy));
-      if (state.tagLobby) { const tag = button('Tag Duel', () => send({ type: 'tagAction', action: { type: 'open' } }), !lobby.connected || !!state.busy); tag.dataset.key = 'lobby-tag'; rooms.append(tag); }
-      const roomSettings = el('details'); roomSettings.dataset.key = 'lobby-room-options'; roomSettings.append(el('summary', '', 'Room Options'));
-      const style = el('select'); style.dataset.key = 'room-style'; style.setAttribute('aria-label', 'Duel format');
-      for (const [value, label] of [[3, 'Single Duel'], [4, 'Match']] as const) { const option = el('option', '', label); option.value = String(value); style.append(option); } style.value = String(local.roomOptions.style ?? 3); style.onchange = () => { local.roomOptions.style = Number(style.value) as 3 | 4; };
-      roomSettings.append(labelled('Duel format', style));
-      for (const [key, label] of [['allowSurrender', 'Allow surrender'], ['timeLimit', 'Time limit'], ['allowWatch', 'Allow spectators']] as const) { const input = el('input'); input.type = 'checkbox'; input.checked = local.roomOptions[key] !== false; input.onchange = () => { local.roomOptions[key] = input.checked; }; roomSettings.append(labelled(label, input)); }
-      const roomPassword = textField('room-password', local.roomPassword, 'Optional room password'); roomPassword.type = 'password'; roomPassword.maxLength = 16; roomPassword.autocomplete = 'off'; roomPassword.oninput = () => { local.roomPassword = roomPassword.value; }; roomSettings.append(labelled('Password', roomPassword)); rooms.append(roomSettings);
-      for (const room of lobby.rooms ?? []) {
-        const row = el('div', 'de-room-row', el('strong', '', room.name || `Room ${room.id}`));
-        row.append(button('Challenge', () => { if (room.password) { roomJoin = room.id; requestRender(); } else send({ type: 'challengeRoom', roomId: room.id }); }, !lobby.connected || !!state.busy || room.owner === state.player?.id || !!room.opponent), ...(room.opponent && room.watch !== false && room.owner !== state.player?.id && room.opponent !== state.player?.id ? [button('Watch', () => send({ type: 'spectate', pid: room.owner }), !lobby.connected || !!state.busy)] : []));
-        if (room.owner === state.player?.id) row.append(button('Close Your Duel Room', () => { if (confirmAction('Close your duel room?')) send({ type: 'deleteDuelRoom' }); }, !!state.busy));
-        rooms.append(row);
-      }
-      places.append(rooms);
-      if (state.profileDetail && state.player) places.append(button('My Profile', () => send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }), !!state.busy));
-      stage.append(places);
-    }
-    // a profile is main's window (src/ui/htmlui: CWindowModelProfile), its actions on its button row
-    if (roomJoin !== null && lobby.rooms?.some(r => r.id === roomJoin)) {
-      // The original's password input (CWindowModelInput1): the password is sent once and never kept or shown.
-      const roomId = roomJoin, form = el('form', 'de-panel de-duel-prompt de-stack'), field = textField('room-join-password', roomJoinPassword, 'Room password'); field.type = 'password'; field.oninput = () => { roomJoinPassword = field.value; }; field.maxLength = 16; field.autocomplete = 'off'; field.setAttribute('aria-label', 'Room password');
-      const ok = el('button', 'gold', 'OK'); ok.type = 'submit'; ok.disabled = !!state.busy;
-      form.onsubmit = e => { e.preventDefault(); const password = field.value; field.value = roomJoinPassword = ''; roomJoin = null; send({ type: 'challengeRoom', roomId, password }); };
-      form.append(title('Duel Request'), labelled('This duel has a password.', field), el('div', 'de-row', ok, button('Cancel', () => { roomJoin = null; roomJoinPassword = ''; requestRender(); })));
-      form.setAttribute('role', 'dialog'); form.setAttribute('aria-label', 'Room password'); stage.append(form);
-    } else { roomJoin = null; roomJoinPassword = ''; }
+    // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list; the chat,
+    // the Duel menu, the Move list, the player list's search and an NPC's card are main's (src/ui/htmlui/lobby.ts)
     if (lobby.outgoing) {
       const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Request'), el('p', '', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`), button('Cancel', () => send({ type: 'cancelChallenge' }), !!state.busy));
       panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Requesting Duel'); stage.append(panel);
@@ -528,12 +510,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Choose your Starter Deck'), el('p', '', 'Choose one free structure deck for this character.'));
     for (const d of state.starter?.decks ?? []) panel.append(button(`${d.name}${d.mainCount !== undefined ? ` · ${d.mainCount} cards` : ''}`, () => { if (confirmAction(`Claim ${d.name} as your starter deck? This choice is permanent.`)) send({ type: 'claimStarter', id: d.id }); }, !!state.busy, true));
     stage.append(panel);
-  }
-  /** The menu bar's Duel and Move keys: the lobby's duel rooms group, or its area list. */
-  function openLobbyGroup(key: string): void {
-    const node = Array.from(host.querySelectorAll<HTMLElement>('[data-key]')).find(x => x.dataset.key === key); if (!node) return;
-    if (node.tagName === 'DETAILS') { (node as HTMLDetailsElement).open = true; node.querySelector('summary')?.focus({ preventScroll: true }); } else node.focus({ preventScroll: true });
-    node.scrollIntoView?.({ block: 'nearest' });
   }
   function confirmAction(message: string): boolean { return typeof window.confirm === 'function' ? window.confirm(message) : false; }
   function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { local.inspected = card; local.inspectedFrom = from; requestRender(); }
@@ -853,7 +829,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed || rendering) return; rendering = true;
     try {
       state = controller.getState();
-      if (state.scene !== 'lobby') { worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
+      if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); }
       const restoreDrafts = !resetDraftsNextRender; resetDraftsNextRender = false;
       if (state.scene === 'duel' && state.duel?.timer && !state.duel.timer.paused && !state.duel.ended) { if (duelClock === null) duelClock = setInterval(() => { const timer = controller.getState().duel?.timer; if (duelClockNode && timer) duelClockNode.textContent = `Time ${clockText(timer)}`; }, 1000); } else if (duelClock !== null) { clearInterval(duelClock); duelClock = null; }
       if (state.scene === 'duel' && state.sideboarding?.deadline && !state.sideboarding.ready) { if (sideboardClock === null) sideboardClock = setInterval(() => requestRender(), 1000); } else if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; }
@@ -921,8 +897,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const world = state.scene === 'lobby' && state.lobby;
       // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves
       menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && state.scene !== 'deck' && state.scene !== 'shop',
-        message: state.player ? `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
-        ...(world ? { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } : {}) };
+        message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
+        ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); } } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {
@@ -969,5 +945,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

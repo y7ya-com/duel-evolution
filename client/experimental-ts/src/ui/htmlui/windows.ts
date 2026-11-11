@@ -15,7 +15,11 @@ import playerListMock from '@htmlui/mock/duelsetup-plist.json';
 export type HtmlDialog =
   | { kind: 'create'; slot: number; name: string }
   | { kind: 'delete'; slot: number; name: string }
-  | { kind: 'ok'; text: string }
+  /** Delete's password prompt (DEL_PROMPT) and the deletion under way (DEL_SEND .. DEL_DONE_OPEN). */
+  | { kind: 'delpw'; slot: number; name: string; value: string; checking?: boolean }
+  | { kind: 'deleting'; slot: number }
+  /** An OK box; `at`: the account task's own (uiOpenDialogOk: style 1, 360 x 120 there, Select Player hidden under it). */
+  | { kind: 'ok'; text: string; at?: [number, number] }
   | { kind: 'team'; name: string };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
@@ -28,7 +32,9 @@ export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatD
   /** Write Mail open: its recipient and what has been typed. */
   compose: { toPid: number | null; toName: string; subject: string; body: string } | null;
   /** D-Mail open: the first row shown, the mail chosen. */
-  mail: { top: number; selected: number } | null }
+  mail: { top: number; selected: number } | null;
+  /** Select Player's row under the pointer last (its character's waist-up portrait shows), null before one. */
+  selected?: number | null }
 export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatDraft: '', menu: false, comment: null, commentQueue: [], commentWait: null, lists: null, mail: null, compose: null });
 /** A Main Menu entry: its label (main's where the rewrite has the same thing), what it does. */
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
@@ -40,13 +46,18 @@ export interface BuildContext {
   send(command: ClientCommand): void;
   /** Redraw after a change to `ui` alone. */
   rerender(): void;
-  confirmDelete?: (name: string) => string;
+  /** The original's UI strings by text id (yo2text_?), once loaded. */
+  text?: (id: number) => string | undefined;
+  /** The account's password check before a deletion (null: the account has no password to check). */
+  checkPassword?: (password: string) => Promise<boolean | null>;
   menu?: MenuView | null;
   /** The list windows' rows and commands (the rewrite's social state). */
   social?: SocialLists | null;
   mailBox?: MailBox | null;
   /** Another player's card's actions (the rewrite's social and duel commands); opening a player's card. */
   cardActions?: CardActions; openPlayer?: (pid: number) => void;
+  /** The lobby's player list and its duel / move windows (./lobby.ts), when the rewrite shows them. */
+  lobby?: { list(ctx: BuildContext): WindowSpec | null; windows(ctx: BuildContext): WindowSpec[] };
   /** The profile's buttons the rewrite adds (one's own: comment, title, appearance). */
   profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
   /** The deck editor's windows (deck-scene.ts), under the menu bar. */
@@ -65,22 +76,25 @@ const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name)
 export function playerSelect(ctx: BuildContext): WindowSpec {
   const t = playerSelectLive.windows[0], b = new WindowBuilder(ctx.ids, 'select', t.cls, { x: t.x, y: t.y, w: t.w, h: t.h }, { modal: true, z: 51153 });
   const cs = b.fromTemplate(t);
-  // the frame, help text and level labels first, then the buttons top to bottom, left to right: the DOM (and Tab)
-  // order main's generic controls follow, and no label's box (the level's is 128 wide) over a button
-  const button = (c: HtmlControl) => c.cls === 'CWindowTaskTextSwitch' ? 1 : 0;
-  b.win.controls.sort((p, q) => button(p) - button(q) || p.y - q.y || p.x - q.x);
+  // the frame and help text first, then the buttons top to bottom, left to right (the DOM and Tab order main's generic
+  // controls follow), then the level labels: the engine draws them over their rows (read.js: their pos_.z), and a
+  // label's box takes no pointer (layer.ts: .txt), so the 128-wide level never covers Delete
+  const order = (c: HtmlControl) => c.cls === 'CWindowTaskTextSwitch' ? 1 : c.name === 'プレイヤ選択ボタンのLV表示文字' ? 2 : 0;
+  b.win.controls.sort((p, q) => order(p) - order(q) || p.y - q.y || p.x - q.x);
   const idle = () => !ctx.ui.dialog && !ctx.state.busy;
   const rows = byY(cs, 'プレイヤ選択ボタン'), dels = byY(cs, '削除ボタン'), levels = byY(cs, 'プレイヤ選択ボタンのLV表示文字');
   rows.forEach((row, slot) => {
     const ch = ctx.state.characters.find(c => c.slot === slot), del = dels[slot], lv = levels[slot];
     row.label = ch ? ch.name : 'Create Player';
     row.state = 'normal';
-    b.on(row, { key: ch ? `character-slot:${slot}` : `character-create:${slot}`, label: ch ? `${ch.name}${ch.level ? `, level ${ch.level}` : ''}` : `Create Player in slot ${slot + 1}`,
+    // the row (or its Delete) under the pointer becomes the selection: its character's portrait (CWindowPlayerSelect::onMain)
+    const over = () => { if (ctx.ui.selected !== slot) { ctx.ui.selected = slot; ctx.rerender(); } };
+    b.on(row, { over, key: ch ? `character-slot:${slot}` : `character-create:${slot}`, label: ch ? `${ch.name}${ch.level ? `, level ${ch.level}` : ''}` : `Create Player in slot ${slot + 1}`,
       click: () => { if (!idle()) return; if (ch) ctx.send({ type: 'selectCharacter', slot }); else { ctx.ui.dialog = { kind: 'create', slot, name: '' }; ctx.rerender(); } } });
     if (del) {
       Object.assign(del, { shown: !!ch, enabled: !!ch, state: ch ? 'normal' : 'disabled' });
-      b.on(del, { key: `character-delete:${slot}`, label: ch ? `Delete ${ch.name}` : 'Delete',
-        click: () => { if (!idle() || !ch) return; ctx.ui.dialog = { kind: 'delete', slot, name: ch.name }; ctx.rerender(); } });
+      b.on(del, { over, key: `character-delete:${slot}`, label: ch ? `Delete ${ch.name}` : 'Delete',
+        click: () => { if (!idle() || !ch) return; ctx.ui.dialog = { kind: 'delpw', slot, name: ch.name, value: '' }; ctx.rerender(); } });
     }
     if (lv) Object.assign(lv, { text: ch ? levelText(ch.level ?? 1) : '', shown: !!ch });
   });
@@ -118,15 +132,65 @@ export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, templ
   for (const [label, [dataKey, click]] of Object.entries(buttons)) { const c = named(cs, 'CWindowTaskTextSwitch', label); if (c) b.on(c, { key: dataKey, click }); }
   return b.spec();
 }
+// Delete (CNetAccountTask DEL_PROMPT .. DEL_DONE_WAIT, NetAccountTask.cpp): the password (uiOpenInput at 332, 324, style 4,
+// TXT_DELETE_PROMPT 0xc26: main's live capture, 360 x 120, its text centred at 0, 8, the masked field 8, 56, 344 x 32, OK
+// 50, 88 and Cancel 230, 88), a wrong one TXT_DELETE_BAD_PASSWORD (0xc27) in an OK box; then Yes / No (uiOpenYesNo at
+// 332, 324, TXT_DELETE_CONFIRM 0xc1c), the deletion, and TXT_DELETE_DONE (0xc1e). The words are the original's
+// (yo2text_?); without the original data, plain ones stand in.
+export const DELETE_TEXT = { prompt: 0xc26, wrong: 0xc27, confirm: 0xc1c, done: 0xc1e } as const;
+const DELETE_FALLBACK: Record<keyof typeof DELETE_TEXT, string> = { prompt: 'Enter your password', wrong: 'The password is incorrect.',
+  confirm: 'Delete this player? A deleted player cannot be restored.', done: 'Player deleted.' };
+const deleteText = (ctx: BuildContext, k: keyof typeof DELETE_TEXT) => ctx.text?.(DELETE_TEXT[k]) ?? DELETE_FALLBACK[k];
+export function deletePasswordDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'delpw' }>): WindowSpec {
+  const t = dialogInput1.windows[0]!, b = new WindowBuilder(ctx.ids, 'delpw', t.cls, { x: 332, y: 324, w: 360, h: 120 }, { modal: true, z: 51203 });
+  const cs = b.fromTemplate(t, true);
+  const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
+  const ok = () => {
+    if (dialog.checking || ctx.state.busy) return;
+    const confirm = () => { ctx.ui.dialog = { kind: 'delete', slot: dialog.slot, name: dialog.name }; ctx.rerender(); };
+    if (!ctx.checkPassword) { confirm(); return; }
+    dialog.checking = true; ctx.rerender();
+    ctx.checkPassword(dialog.value).then(right => { if (ctx.ui.dialog !== dialog) return; if (right === false) { ctx.ui.dialog = { kind: 'ok', text: deleteText(ctx, 'wrong'), at: [332, 324] }; ctx.rerender(); } else confirm(); },
+      (e: unknown) => { if (ctx.ui.dialog !== dialog) return; ctx.ui.dialog = { kind: 'ok', text: e instanceof Error ? e.message : String(e) }; ctx.rerender(); });
+  };
+  const frame = named(cs, 'CWindowTaskFramePlane'); if (frame) Object.assign(frame, { w: 360, h: 120, style: 4 });
+  const prompt = named(cs, 'CWindowTaskText'); if (prompt) Object.assign(prompt, { text: deleteText(ctx, 'prompt'), x: 0, y: 8, w: 360, align: 1 });
+  const input = named(cs, 'CWindowTaskInput'), okButton = named(cs, 'CWindowTaskTextSwitch', 'OK'), cancel = named(cs, 'CWindowTaskTextSwitch', 'Cancel');
+  if (input) { Object.assign(input, { x: 8, y: 56, w: 344, value: dialog.value, password: true, focused: true, maxLen: 16, caretOn: false });
+    b.on(input, { key: 'character-delete-password', label: 'Password', text: v => { dialog.value = v; }, enter: ok }); }
+  if (okButton) { Object.assign(okButton, { x: 50, y: 88, state: dialog.checking ? 'disabled' : 'normal' }); b.on(okButton, { key: 'character-delete-password-ok', click: ok }); }
+  if (cancel) { Object.assign(cancel, { x: 230, y: 88 }); b.on(cancel, { key: 'character-delete-password-cancel', click: close }); }
+  return b.spec();
+}
 export function deleteDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'delete' }>): WindowSpec {
   const close = () => { ctx.ui.dialog = null; ctx.rerender(); };
-  const text = ctx.confirmDelete?.(dialog.name) ?? `Permanently delete character ${dialog.name} and their game progress?`;
-  return messageDialog(ctx, 'delete', dialogYesNo, text, {
-    Yes: ['character-delete-yes', () => { if (ctx.state.busy) return; ctx.ui.dialog = null; ctx.send({ type: 'deleteCharacter', slot: dialog.slot }); ctx.rerender(); }],
+  const spec = messageDialog(ctx, 'delete', dialogYesNo, deleteText(ctx, 'confirm'), {
+    Yes: ['character-delete-yes', () => { if (ctx.state.busy) return; ctx.ui.dialog = { kind: 'deleting', slot: dialog.slot }; ctx.send({ type: 'deleteCharacter', slot: dialog.slot }); ctx.rerender(); }],
     No: ['character-delete-no', close] });
+  Object.assign(spec.win, { x: 332, y: 324, drawn: { ...spec.win.drawn!, x: 332, y: 324 } });
+  return spec;
+}
+/** The deletion under way: "Player Deleted." once the slot is free; a refusal (the app's error) just ends it. */
+function deletionDone(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'deleting' }>): void {
+  if (ctx.state.busy) return;
+  if (!ctx.state.characters.some(c => c.slot === dialog.slot)) ctx.ui.dialog = { kind: 'ok', text: deleteText(ctx, 'done'), at: [344, 312] };
+  else if (ctx.state.error) ctx.ui.dialog = null;
 }
 export function okDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { kind: 'ok' }>): WindowSpec {
-  return messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  const spec = messageDialog(ctx, 'ok', dialogOk, dialog.text, { OK: ['dialog-ok', () => { ctx.ui.dialog = null; ctx.rerender(); }] });
+  if (dialog.at) {
+    // main's live capture of the wrong password's box: the blue frame (style 1) 360 x 120, the text field 8, 8, 344 x 72
+    // (its plane 344 x 72, its text 328 wide, the scroll column at 328 hidden), OK 140, 88
+    const [x, y] = dialog.at, w = spec.win, cs = w.controls, field = cs.find(c => c.cls === 'CWindowTaskTextField');
+    Object.assign(w, { x, y, w: 360, h: 120, drawn: { x, y, w: 360, h: 120 } });
+    for (const c of cs) {
+      if (c.cls === 'CWindowTaskFrameBottomThick') Object.assign(c, { w: 360, h: 120, style: 1 });
+      else if (c === field) Object.assign(c, { w: 344, h: 72 });
+      else if (c.parent === field?.id) Object.assign(c, c.cls === 'CWindowTaskScroll' ? { x: 328, h: 72, shown: false } : c.cls === 'CWindowTaskBackPlane' ? { w: 344, h: 72 } : { w: 328, h: 72 });
+      else if (c.cls === 'CWindowTaskTextSwitch' && !c.parent) Object.assign(c, { x: 140, y: 88 });
+    }
+  }
+  return spec;
 }
 
 // The chat (CChatWindow, main's screens/chat.js: online only, unread counts on its tabs, 'Trade', no Duel Log). Layout
@@ -363,13 +427,16 @@ export interface SocialLists {
   friends: { pid: number; name: string }[]; ignored: { pid: number; name: string }[];
   team: { name: string; members: { pid: number; name: string }[]; leader: boolean } | null;
   unignore(pid: number): void; formTeam(name: string): void; leaveTeam(): void; disbandTeam(): void;
+  /** Remove from Friend List (the character's own list, as the original's f0001.lst). */
+  removeFriend(pid: number): void;
 }
 // The Main Menu's list windows (CWindowModelFriendlist / Blacklist / Teamlist, main's social.js: the duel frame, the
 // list's rows a native scroller, the duel buttons). main's My Room captures (tools/flip.mjs sp-friends, sp-teams):
 // 62, 282, 900 x 204; the title 0, 4, 900 wide; the list 13, 32, 874 x 128 (8 rows); Close 625, 173 (100 x 24) and the
 // window's action left of the centre (Remove from Friend List 125, 173, 200 wide; the Team List's Form Team 403.5, 93
-// wide, Disband Team 391, 118 wide, Leave Team 400.5, 99 wide). The Friend List has no remove in the rewrite's protocol:
-// its button stays disabled. A team is formed by name (the name prompt, main's dialog.js).
+// wide, Disband Team 391, 118 wide, Leave Team 400.5, 99 wide). Remove from Friend List takes the chosen friend off the
+// character's own list (the original keeps it in its f0001.lst; the server has no request for it). A team is formed by
+// name (the name prompt, main's dialog.js).
 export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
   const open = ctx.ui.lists; if (!open) return null;
   const cls = { friends: 'CWindowModelFriendlist', ignore: 'CWindowModelBlacklist', team: 'CWindowModelTeamlist' }[open.kind];
@@ -386,7 +453,7 @@ export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | 
     b.add('CWindowTaskButtonDuel', name, { x, y: 173, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
   const chosen = rows[open.selected];
   if (open.kind === 'friends' && open.pick) button('remove', 125, 200, 'Send D-mail', 'list-pick', chosen && ctx.ui.compose ? () => { ctx.ui.compose!.toPid = chosen.pid; ctx.ui.compose!.toName = chosen.name; ctx.ui.lists = null; ctx.rerender(); } : null);
-  else if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', null);
+  else if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', chosen ? () => { lists.removeFriend(chosen.pid); open.selected = -1; ctx.rerender(); } : null);
   if (open.kind === 'ignore') button('remove', 125, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
   if (open.kind === 'team') {
     if (!lists.team) button('form', 403.5, 93, 'Form Team', 'team-form', () => { ctx.ui.dialog = { kind: 'team', name: '' }; ctx.rerender(); });
@@ -411,10 +478,12 @@ export function teamNameDialog(ctx: BuildContext, dialog: Extract<HtmlDialog, { 
 }
 
 /** D-Mail's content (the rewrite's mail) and what its buttons do. */
-export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; send(toPid: number, subject: string, body: string): void }
+export interface MailBox { mail: { from: string; fromPid: number; subject: string; body: string }[]; send(toPid: number, subject: string, body: string): void;
+  /** Delete: the mail leaves the character's own mailbox (the original's mail\\rdm.dat; the server has no request for it). */
+  delete(index: number): void }
 // D-Mail (CWindowModelDMail, main's social.js: one 512 x 512 mail picture, skin.mailWindow). main's My Room capture
 // (tools/flip.mjs sp-dmail): 256, 128; the title 0, 4, 512 wide; Write Mail 16, 40, Send Mail 132, 40 (a reply: on the
-// chosen mail), Delete 395, 40 (100 x 24; the rewrite's protocol has no delete: disabled), Close 206, 481; five subject
+// chosen mail), Delete 395, 40 (100 x 24: the chosen mail), Close 206, 481; five subject
 // rows (DMailItem) at 16, 72 + 36 n, the body 16, 272, 464 x 192. A row's sender and subject are main's generic text
 // in the row's place; the chosen one's body below.
 export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
@@ -427,7 +496,7 @@ export function mailWindow(ctx: BuildContext, box: MailBox): WindowSpec | null {
   const write = (to?: { pid: number; name: string }) => { ctx.ui.compose = { toPid: to?.pid ?? null, toName: to?.name ?? '', subject: '', body: '' }; ctx.rerender(); };
   button('write', 16, 40, 'Write Mail', 'mail-write', () => write());
   button('reply', 132, 40, 'Send Mail', 'mail-reply', chosen ? () => write({ pid: chosen.fromPid, name: chosen.from }) : null);
-  button('delete', 395, 40, 'Delete', 'mail-delete', null);
+  button('delete', 395, 40, 'Delete', 'mail-delete', chosen ? () => { box.delete(open.selected); open.selected = -1; open.top = Math.max(0, Math.min(open.top, box.mail.length - 6)); ctx.rerender(); } : null);
   mail.forEach((m, i) => {
     const row = b.add('CWindowTaskTextSwitch', `row${i}`, { x: 16, y: 72 + 36 * i, w: 464, h: 32 }, { label: `${m.from}: ${m.subject}`, align: 0, state: 'normal', checked: open.top + i === open.selected, color: [0, 0, 0, 1] },
       { key: `mail-row:${open.top + i}`, click: () => { open.selected = open.top + i; ctx.rerender(); } });
@@ -465,16 +534,18 @@ export function composeWindow(ctx: BuildContext, send: (toPid: number, subject: 
 /** Every window the current state shows through main's screens, back to front. */
 export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const out: WindowSpec[] = [], { state, ui } = ctx;
-  const account = ui.dialog?.kind === 'create' || ui.dialog?.kind === 'delete';
+  if (ui.dialog?.kind === 'deleting') deletionDone(ctx, ui.dialog);
+  const account = ['create', 'delete', 'delpw', 'deleting'].includes(ui.dialog?.kind ?? '') || ui.dialog?.kind === 'ok' && !!ui.dialog.at;
   if (account && state.scene !== 'characters') ui.dialog = null;   // its screen is gone
   // the account dialogs stand alone: main's game hides Select Player under them (its create capture)
   else if (state.scene === 'characters' && !account) out.push(playerSelect(ctx));
   if (state.scene === 'lobby' && state.connection === 'online') {
     const place = !ctx.covered && placeBanner(ctx); if (place) out.push(place);
     const chat = chatWindow(ctx); if (chat) out.push(chat);
-    const list = !ctx.covered && ctx.openPlayer && playerList(ctx, ctx.openPlayer); if (list) out.push(list);
+    const list = !ctx.covered && (ctx.lobby ? ctx.lobby.list(ctx) : ctx.openPlayer && playerList(ctx, ctx.openPlayer)); if (list) out.push(list);
     const profile = profileWindow(ctx); if (profile) out.push(profile);
     const card = playerCard(ctx, ctx.cardActions ?? {}); if (card) out.push(card);
+    if (ctx.lobby) out.push(...ctx.lobby.windows(ctx));
     saveNextComment(ctx);
     if (ui.comment) out.push(commentDialog(ctx, ui.comment));
   } else ui.comment = null;
@@ -491,6 +562,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const d = ui.dialog;
   if (d?.kind === 'create') out.push(nameDialog(ctx, d));
   else if (d?.kind === 'delete') out.push(deleteDialog(ctx, d));
+  else if (d?.kind === 'delpw') out.push(deletePasswordDialog(ctx, d));
   else if (d?.kind === 'ok') out.push(okDialog(ctx, d));
   else if (d?.kind === 'team' && ctx.social) out.push(teamNameDialog(ctx, d, ctx.social));
   return out;
