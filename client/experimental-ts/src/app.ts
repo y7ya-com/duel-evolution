@@ -412,8 +412,9 @@ export class ClientApp implements ClientController {
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
   private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions' | 'cardsCollected'> {
     const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined, cardsCollected: undefined };
-    // My Profile's '% of Cards Collected': the card types the trunk holds of the catalogue's cards
-    const cardsCollected = this.project('cardsCollected', game.collection, c => { const total = (this.catalogCards ??= this.catalog.allCards()).length; return total ? [...c].filter(([, n]) => n > 0).length * 100 / total : 0; });
+    // My Profile's '% of Cards Collected': the card types the trunk holds of the collectible cards (the server's rarity
+    // catalogue: 3215 of them; live's 37 types read 1.15%), the whole catalogue until that has loaded
+    const cardsCollected = this.project('cardsCollected', game.collection, c => { const all = this.catalogCards ??= this.catalog.allCards(), rated = all.filter(v => v.rarity).length, total = rated || all.length; return total ? [...c].filter(([, n]) => n > 0).length * 100 / total : 0; });
     return { cardsCollected, titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
       tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null, sanctions: game.sanctions };
   }
