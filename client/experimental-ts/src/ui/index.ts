@@ -21,7 +21,7 @@ import { accessoryName } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
-import { htmlUiLocal, htmlWindows, DELETE_TEXT } from './htmlui/windows';
+import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
 import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
@@ -261,7 +261,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const onTagDuel = () => { if (!state.tagLobby || state.scene !== 'lobby' || !state.lobby?.connected || state.busy) return; lobbyUi.open = null; send({ type: 'tagAction', action: { type: 'open' } }); showHtml(); };
   globalThis.addEventListener?.('yo2-tag-lobby-open', onTagDuel);
   const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }),
-    deckWindows: () => deckScene.windows(), scene: sceneWindows(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
+    deckWindows: () => deckScene.windows(), scene: sceneWindows(), prompts: duelPrompts(), covered: !!state.socialDetail && tradeScene(state.socialDetail.trade),
     text: id => gameTexts.get(id), lobby: { list: ctx => lobbyList(ctx, lobbyDeps(), pid => send({ type: 'interact', playerId: pid })), windows: ctx => lobbyWindows(ctx, lobbyDeps()) },
     ...(checkPassword ? { checkPassword: (password: string) => checkPassword(password, new AbortController().signal) } : {}) });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
@@ -558,23 +558,33 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     showAvatarViews(lobby);
     // a player's card is main's (src/ui/htmlui: CPlayerListMenu), opened from the avatar or the player list; the chat,
     // the Duel menu, the Move list, the player list's search and an NPC's card are main's (src/ui/htmlui/lobby.ts)
-    if (lobby.outgoing) {
-      const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Request'), el('p', '', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`), button('Cancel', () => send({ type: 'cancelChallenge' }), !!state.busy));
-      panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Requesting Duel'); stage.append(panel);
-    }
-    if (lobby.invitation) {
-      const invitation = lobby.invitation;
-      const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Invitation'), el('p', '', `${invitation.name} challenges you to a duel.`), el('div', 'de-row', button('Accept Duel', () => send({ type: 'replyChallenge', accept: true }), !!state.busy, true), button('Decline', () => send({ type: 'replyChallenge', accept: false }), !!state.busy)));
-      panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Duel Invitation'); stage.append(panel);
-    }
+    // the duel request (waiting, Cancel) and the invitation (Yes / No) are main's stock dialogs: duelPrompts()
     if (state.mode !== 'free' && state.starter?.claimable) renderStarter();
   }
   function renderStarter(): void {
     const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Choose your Starter Deck'), el('p', '', 'Choose one free structure deck for this character.'));
-    for (const d of state.starter?.decks ?? []) panel.append(button(`${d.name}${d.mainCount !== undefined ? ` · ${d.mainCount} cards` : ''}`, () => { if (confirmAction(`Claim ${d.name} as your starter deck? This choice is permanent.`)) send({ type: 'claimStarter', id: d.id }); }, !!state.busy, true));
+    for (const d of state.starter?.decks ?? []) panel.append(button(`${d.name}${d.mainCount !== undefined ? ` · ${d.mainCount} cards` : ''}`, () => confirmAction(`Claim ${d.name} as your starter deck? This choice is permanent.`, () => send({ type: 'claimStarter', id: d.id }), 'starter'), !!state.busy, true));
     stage.append(panel);
   }
-  function confirmAction(message: string): boolean { return typeof window.confirm === 'function' ? window.confirm(message) : false; }
+  /** A Yes / No question: main's CWindowModelDialogYesNo (dialog.js) over the scene, `yes` on Yes. */
+  function confirmAction(message: string, yes: () => void, key = 'confirm'): void { htmlUiState.dialog = { kind: 'confirm', text: message, yes, key }; showHtml(); }
+  // The original's duel request (CNetDuelRequestTask): the challenger waits in an Ok dialog whose one button is Cancel;
+  // the one challenged answers a Yes / No (main's dialog.js: CWindowModelDialogOk / YesNo). The error dialog
+  // (CWindowModelDialogError, orange, topmost) shows a refusal or a lost connection until OK.
+  let errorSeen = '';
+  function duelPrompts(): WindowSpec[] {
+    const out: WindowSpec[] = [], lobby = state.scene === 'lobby' ? state.lobby : undefined, busy = !!state.busy;
+    if (lobby?.outgoing) out.push(stockDialog({ ids: htmlIds }, 'duel-request', 'ok', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`,
+      [{ from: 'OK', label: 'Cancel', key: 'duel-request-cancel', click: () => { if (!busy) send({ type: 'cancelChallenge' }); } }]));
+    if (lobby?.invitation) out.push(stockDialog({ ids: htmlIds }, 'duel-invitation', 'yesno', `${lobby.invitation.name} challenges you to a duel. Accept?`,
+      [{ from: 'Yes', key: 'duel-accept', aria: 'Accept Duel', click: () => { if (!busy) send({ type: 'replyChallenge', accept: true }); } },
+        { from: 'No', key: 'duel-decline', aria: 'Decline', click: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } }]));
+    const message = state.scene === 'deck' ? '' : state.error || local.message;
+    if (message && message !== errorSeen) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
+      [{ from: 'OK', key: 'error-ok', click: () => { errorSeen = message; if (local.message === message) local.message = ''; requestRender(); } }]));
+    else if (!message) errorSeen = '';
+    return out;
+  }
   function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { local.inspected = card; local.inspectedFrom = from; requestRender(); }
   // The deck editor is main's deck screen (src/ui/htmlui/deck-scene.ts: its windows on the layer, the card pictures and
   // the mouse on the layer's engine side); the stage keeps only the scene's name, and a refusal shows in main's dialog
@@ -725,12 +735,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const actions = el('div', 'de-duel-actions');
     for (const a of (duel.actions ?? []).filter(a => !a.cardId || !visibleCardIds.has(a.cardId))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
     if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
-    else if (!duel.ended) actions.append(button('Surrender', () => { if (confirmAction('Surrender this duel?')) send({ type: 'surrender' }); }, !!state.busy || state.relay?.canAct === false));
+    else if (!duel.ended) actions.append(button('Surrender', () => confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'), !!state.busy || state.relay?.canAct === false));
     else if (!state.match || state.match.complete) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
     stage.append(actions);
     // main's menu bar is not on the duel screen (as in the game): Options (sound, display) stays reachable, apart from
     // the duel's own actions
-    stage.append(el('div', 'de-duel-options', button('Options', () => open('settings')), ...(state.connection === 'online' ? [button('Return to Title', () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); })] : [])));
+    stage.append(el('div', 'de-duel-options', button('Options', () => open('settings')), ...(state.connection === 'online' ? [button('Return to Title', () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect'))] : [])));
     const log = el('div', 'de-duel-log'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); stage.append(log);
     // Follow new lines only while the reader is at the bottom; a player reading older lines keeps their place.
@@ -885,7 +895,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       recording.append(note('Record a duel for deterministic client comparison. Start before entering the duel for a complete recording.'), el('p', '', `${capture.state} · ${capture.records} records · ${(capture.jsonBytes / 1024).toFixed(1)} KiB`));
       if (capture.partial) recording.append(note('This recording is partial; it does not contain a complete duel start.'));
       if (capture.reason) recording.append(el('p', 'de-error', capture.reason));
-      recording.append(el('div', 'de-row', button('Start Recording', () => { if (!capture.records || confirmAction('Start a new recording? This replaces the current recording.')) send({ type: 'captureStart' }); }, capture.recording || !!state.busy), button('Stop Recording', () => send({ type: 'captureStop' }), !capture.recording), button('Download Recording', () => send({ type: 'captureDownload' }), capture.recording || !capture.records))); panel.append(recording);
+      recording.append(el('div', 'de-row', button('Start Recording', () => { if (!capture.records) send({ type: 'captureStart' }); else confirmAction('Start a new recording? This replaces the current recording.', () => send({ type: 'captureStart' }), 'recording'); }, capture.recording || !!state.busy), button('Stop Recording', () => send({ type: 'captureStop' }), !capture.recording), button('Download Recording', () => send({ type: 'captureDownload' }), capture.recording || !capture.records))); panel.append(recording);
     }
     if (state.audio) { const audio = el('details', 'de-audio-details'); audio.dataset.key = 'options-audio'; audio.append(el('summary', '', 'Audio files & playback'), renderAudioFeature(state.audio, action => send({ type: 'audioAction', action }))); panel.append(audio); }
     panel.append(button('Back', () => open(state.sideboarding || state.preparation || state.match && !state.match.complete || state.duel && !state.duel.ended ? 'duel' : state.player ? 'lobby' : 'title'))); n.append(panel);
@@ -931,7 +941,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.npc && state.npc.npc && !['idle', 'duel'].includes(state.npc.stage) && ['lobby', 'duel'].includes(state.scene)) {
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, htmlPackSelect: !!htmlUi, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
-      const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
+      // the message itself is main's error dialog (duelPrompts); the strip stays as the screen reader's live region only
+      const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
       // the same thing, then the rewrite's own scenes (Find Player, Shop), the way back to a duel or the lobby, and
       // Return to Title (Disconnect). Before a character is chosen the bar is its strip alone, as on Select Player.
@@ -958,7 +969,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         { label: 'Return to Lobby', key: 'lobby', disabled: blocked || sideboard, run: go('lobby') },
         // Return to Title stays available while busy: it is how a player abandons a request that never answers
-        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); } }] : []),
+        ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => confirmAction('Disconnect from the game?', () => send({ type: 'disconnect' }), 'disconnect') }] : []),
       ];
       const world = state.scene === 'lobby' && state.lobby;
       // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it); the shop's bar is its strip (main's capture): Exit Store leaves

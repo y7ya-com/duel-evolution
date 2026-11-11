@@ -3,8 +3,9 @@ import { expect } from 'vitest';
 import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard, lobbyShown } from './harness';
 
 export const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
-export const invitation = `document.querySelector('[aria-label="Duel Invitation"]')`;
-export const requesting = `document.querySelector('[aria-label="Requesting Duel"]')`;
+/** The duel invitation and the request's waiting dialog: main's stock dialogs (dialog.js YesNo / Ok), their windows. */
+export const invitation = `document.querySelector('[data-key="duel-accept"]')?.closest('.win')`;
+export const requesting = `document.querySelector('[data-key="duel-request-cancel"]')?.closest('.win')`;
 export const inLobby = `${lobbyShown}&&!document.querySelector('.de-duel-board')`;
 export const onDuel = `document.querySelectorAll('.de-field-card').length>0&&document.querySelector('.de-phase-bar')`;
 export const finished = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby'&&!b.disabled)`;

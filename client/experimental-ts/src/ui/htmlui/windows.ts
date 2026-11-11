@@ -9,6 +9,7 @@ import playerSelectLive from '@htmlui/mock/playerselect-live.json';
 import dialogInput1 from '@htmlui/mock/dialog-input1.json';
 import dialogYesNo from '@htmlui/mock/dialog-yesno.json';
 import dialogOk from '@htmlui/mock/dialog-ok.json';
+import dialogError from '@htmlui/mock/dialog-error.json';
 import lobbyCard from '@htmlui/mock/lobby-card.json';
 import playerListMock from '@htmlui/mock/duelsetup-plist.json';
 
@@ -21,7 +22,9 @@ export type HtmlDialog =
   | { kind: 'deleting'; slot: number }
   /** An OK box; `at`: the account task's own (uiOpenDialogOk: style 1, 360 x 120 there, Select Player hidden under it). */
   | { kind: 'ok'; text: string; at?: [number, number] }
-  | { kind: 'team'; name: string };
+  | { kind: 'team'; name: string }
+  /** A Yes / No question (the rewrite's confirmations: surrender, disconnect, a starter claim): main's YesNo. */
+  | { kind: 'confirm'; text: string; yes: () => void; key?: string };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
 export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
@@ -65,6 +68,8 @@ export interface BuildContext {
   deckWindows?: () => WindowSpec[];
   /** A scene's own windows (the shop: htmlui/shop.ts; the trade: htmlui/trade.ts), under the chat and the menu bar. */
   scene?: WindowSpec[];
+  /** Modal prompts over everything (the duel request / invitation, the error dialog): main's stock dialogs. */
+  prompts?: WindowSpec[];
   /** The trade scene covers the lobby (main's Card Swap: its windows and the chat, no place banner or player list). */
   covered?: boolean;
 }
@@ -132,6 +137,21 @@ export function messageDialog(ctx: Pick<BuildContext, 'ids'>, key: string, templ
   for (const child of cs) if (child.parent === field?.id && child.cls === 'CWindowTaskText') child.text = text;
   for (const [label, [dataKey, click]] of Object.entries(buttons)) { const c = named(cs, 'CWindowTaskTextSwitch', label); if (c) b.on(c, { key: dataKey, click }); }
   return b.spec();
+}
+/** A button of a stock dialog: the template's switch it takes (its label there), its own caption, data-key, aria-label. */
+export interface StockButton { from: string; label?: string; key: string; aria?: string; click(): void }
+/** main's stock dialogs by the original's class: YesNo (mock/dialog-yesno.json), Ok (dialog-ok.json), Error (the
+ * orange, topmost dialog-error.json); a button may take another caption (the original's Duel Request: an Ok with Cancel). */
+export function stockDialog(ctx: Pick<BuildContext, 'ids'>, key: string, kind: 'yesno' | 'ok' | 'error', text: string, buttons: StockButton[]): WindowSpec {
+  const template = kind === 'yesno' ? dialogYesNo : kind === 'error' ? dialogError as unknown as typeof dialogYesNo : dialogOk;
+  const spec = messageDialog(ctx, key, template, text, Object.fromEntries(buttons.map(b => [b.from, [b.key, b.click]])));
+  if (kind === 'error') Object.assign(spec.win, { topmost: true, z: 51403 });
+  for (const b of buttons) {
+    const c = spec.win.controls.find(k => k.cls === 'CWindowTaskTextSwitch' && k.label === b.from); if (!c) continue;
+    if (b.label && b.label !== b.from) { c.label = b.label; for (const t of spec.win.controls) if (t.parent === c.id && t.text === b.from) t.text = b.label; }
+    const h = spec.handlers.get(c.id); if (h && (b.aria ?? b.label)) h.label = b.aria ?? b.label;
+  }
+  return spec;
 }
 // Delete (CNetAccountTask DEL_PROMPT .. DEL_DONE_WAIT, NetAccountTask.cpp): the password (uiOpenInput at 332, 324, style 4,
 // TXT_DELETE_PROMPT 0xc26: main's live capture, 360 x 120, its text centred at 0, 8, the masked field 8, 56, 344 x 32, OK
@@ -578,5 +598,10 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   else if (d?.kind === 'delpw') out.push(deletePasswordDialog(ctx, d));
   else if (d?.kind === 'ok') out.push(okDialog(ctx, d));
   else if (d?.kind === 'team' && ctx.social) out.push(teamNameDialog(ctx, d, ctx.social));
+  else if (d?.kind === 'confirm') {
+    const close = () => { ctx.ui.dialog = null; ctx.rerender(); }, k = d.key ?? 'confirm';
+    out.push(stockDialog(ctx, `confirm:${k}`, 'yesno', d.text, [{ from: 'Yes', key: `${k}-yes`, click: () => { ctx.ui.dialog = null; d.yes(); ctx.rerender(); } }, { from: 'No', key: `${k}-no`, click: close }]));
+  }
+  if (ctx.prompts) out.push(...ctx.prompts);
   return out;
 }

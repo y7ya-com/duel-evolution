@@ -94,7 +94,7 @@ export async function press(page:Page,selector:string):Promise<void> {
 }
 /** Avatars spawn at random points and can sit under the chat or area panel, where a player would walk closer first. */
 export async function pressAvatar(page:Page,selector:string) { try { await press(page,selector); } catch { await page.ev(`(${selector}).click()`); } }
-export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length)`;
+export const byText = (text:string,scope = 'document') => `[...${scope}.querySelectorAll('button,summary,a')].find(b=>(b.textContent.trim()===${JSON.stringify(text)}||b.getAttribute('aria-label')===${JSON.stringify(text)})&&!b.disabled&&b.getClientRects().length)`;
 export const byKey = (key:string) => `document.querySelector(${JSON.stringify(`[data-key="${key}"]`)})`;
 /** In the lobby: main's menu bar with its Duel key, the map drawn (or none to draw: no original art). */
 export const lobbyShown = `(!!document.querySelector('[data-key="menubar-duel"]')&&document.querySelector('.de-world-view')?.dataset.mapReady!=='false')`;
@@ -212,9 +212,10 @@ export async function say(page:Page,message:string,{ tab, to }:{ tab?:'all'|'pro
 }
 
 export async function claimStarter(page:Page) {
+  // the rewrite's deck list, then main's Yes / No (dialog.js CWindowModelDialogYesNo, data-key starter-yes) to claim
   const starter = `[...document.querySelectorAll('section')].find(s=>s.querySelector(':scope>h2')?.textContent==='Choose your Starter Deck')?.querySelector('button')`;
   for (let i = 0; i < 30 && !(await page.ev(`Boolean(${starter})`)); i++) await sleep(100);
-  if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await press(page,starter); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
+  if (await page.ev(`Boolean(${starter})`)) { await until(page,`!(${starter})?.disabled`,30000); await press(page,starter); await until(page,byKey('starter-yes'),10000); await press(page,byKey('starter-yes')); await until(page,`!document.body.innerText.includes('Choose your Starter Deck')`,30000); }
 }
 
 /** Evidence: one JSON line per asserted flow, with the client commit and run time. */

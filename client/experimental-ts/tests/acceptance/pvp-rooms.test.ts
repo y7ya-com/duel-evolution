@@ -67,7 +67,7 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
       await press(b,byKey('room-join-ok'));
       await until(b,requesting,20000); await until(a,invitation,20000);
       expect(await a.ev(`${invitation}.innerText`)).toContain(names.b);
-      await press(a,`[...document.querySelectorAll('[aria-label="Duel Invitation"] button')].find(b=>b.textContent==='Accept Duel')`);
+      await press(a,`document.querySelector('[data-key="duel-accept"]')`);
       await startBoth(a,b);
       // The password is in no page, storage, console or server log.
       const leaks:string[] = [];

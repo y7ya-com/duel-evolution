@@ -7,7 +7,7 @@ async function challenge(from:Page,to:Page,name:string) {
   await until(from,requesting,20000);
   await until(to,invitation,20000);
 }
-const reply = (page:Page,label:'Accept Duel'|'Decline') => press(page,`[...document.querySelectorAll('[aria-label="Duel Invitation"] button')].find(b=>b.textContent===${JSON.stringify(label)})`);
+const reply = (page:Page,label:'Accept Duel'|'Decline') => press(page,`document.querySelector('[data-key="${label==='Accept Duel'?'duel-accept':'duel-decline'}"]')`);
 
 describe.skipIf(!enabled)('player-versus-player duels and spectators on the real stack',() => {
   it('invitations: cancel, decline, expiry; accepted duel with hidden hands, both screens agreeing to a natural result, a spectator joining and leaving',async () => {
@@ -25,7 +25,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       const waiting = (await a.ev(`${requesting}.innerText`) as string).replace(/\s+/g,' ');
       expect(waiting).toContain(names.b);
       await screenshot(a,'pvp-invite-waiting'); await screenshot(b,'pvp-invite-asked');
-      await press(a,`[...document.querySelectorAll('[aria-label="Requesting Duel"] button')].find(b=>b.textContent==='Cancel')`);
+      await press(a,`document.querySelector('[data-key="duel-request-cancel"]')`);
       await until(a,`!${requesting}`,20000); await until(b,`!${invitation}`,20000);
       // Decline: the challenger reads the original "Refused." and neither side keeps a dialog.
       await challenge(a,b,names.b);
