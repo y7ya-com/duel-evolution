@@ -236,7 +236,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     void Promise.all([import('./htmlui/layer'), import('./htmlui/deck-stage')]).then(([m, d]) => {
       if (disposed) return;
       const art = new URL('/ui/', location.href).href;
-      htmlUi = new m.HtmlUiLayer({ art, stage: () => stage });
+      htmlUi = new m.HtmlUiLayer({ art, stage: () => stage, chatAvatars: () => {
+        // All Chat's bubbles (main's chat-bubbles.js) over each shown avatar's top, in game px of the stage
+        const lobby = controller.getState().scene === 'lobby' ? controller.getState().lobby : null, box = stage?.getBoundingClientRect();
+        if (!lobby || !box?.width || !box.height) return [];
+        return lobby.avatars.filter(a => !a.npc && avatarNodes.has(a.id)).flatMap(a => { const r = avatarNodes.get(a.id)!.getBoundingClientRect(); if (!r.width && !r.height) return [];
+          return [{ pid: a.id, name: a.name, x: (r.left + r.width / 2 - box.left) / box.width * 1024, y: (r.top - box.top) / box.height * 768 }]; });
+      } });
       deckStage = new d.DeckStage(htmlUi.host, { art, input: (type, x, y) => deckScene.input(type, x, y),
         ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}),
         ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
