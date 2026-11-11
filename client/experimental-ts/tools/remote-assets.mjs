@@ -69,16 +69,18 @@ export function createRemoteAssetMiddleware({ baseUrl, allowOriginalHost = false
     req.once('aborted', disconnect); res.once('close', disconnect);
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
     timer.unref?.();
+    // live serves the 2x card art from its own directory, cards/ beside game/ (lazyfs.js mounts both)
+    const from = name.startsWith('merge/data/') && /\/game\/$/.test(base.pathname) ? new URL('../cards/' + name, base) : new URL(name, base);
     void (async () => {
       try {
-        upstream = await fetcher(new URL(name, base).href, {
+        upstream = await fetcher(from.href, {
           method:'GET', redirect:'manual', credentials:'omit', referrerPolicy:'no-referrer', cache:'no-store', signal:controller.signal,
           headers:{ Range:`bytes=${range.start}-${range.end}`, 'Accept-Encoding':'identity',
             ...(forwardValidators && ifRange ? { 'If-Range':ifRange } : {}) },
         });
         if (controller.signal.aborted) throw new Error('Cancelled');
         // Refuse redirects and full responses before ever reading their bodies.
-        if (upstream.status !== 206 || upstream.redirected || (upstream.url && upstream.url !== new URL(name, base).href)) {
+        if (upstream.status !== 206 || upstream.redirected || (upstream.url && upstream.url !== from.href)) {
           const status = upstream.status === 404 ? 404 : upstream.status === 412 ? 412 : 502;
           reply(res, status, status === 404 ? 'Asset not found' : status === 412 ? 'Archive changed; reload the client' : 'Upstream must return an exact partial response');
           return;

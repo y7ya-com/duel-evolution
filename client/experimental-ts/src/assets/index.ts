@@ -23,6 +23,9 @@ export interface Asset {
 export type AssetLease = Lease<Asset>;
 export interface AssetManagerOptions {
   baseUrl: string;
+  /** URL directory holding the 2x card art, `merge/data/card.dat` and `mini.dat` (live: /cards/ beside /game/, lazyfs.js
+   * mounts it as its own manifest); absent: `baseUrl`. merge.dat's data/card stays the fallback for a card card.dat lacks. */
+  cardsBaseUrl?: string;
   fetch?: AssetFetch;
   cacheBytes?: number;
   limits?: Partial<ArchiveLimits>;
@@ -62,8 +65,9 @@ export class AssetManager {
     const base = options.baseUrl.replace(/\/+$/, '') + '/';
     const queue = new WorkQueue(options.limits?.concurrency ?? 4);
     this.merge = new ArchiveReader(base + 'merge.dat', options.fetch, options.limits, queue, options.persistent);
-    this.card = new ArchiveReader(base + 'merge/data/card.dat', options.fetch, options.limits, queue, options.persistent);
-    this.mini = new ArchiveReader(base + 'merge/data/mini.dat', options.fetch, options.limits, queue, options.persistent);
+    const cards = options.cardsBaseUrl ? options.cardsBaseUrl.replace(/\/+$/, '') + '/' : base;
+    this.card = new ArchiveReader(cards + 'merge/data/card.dat', options.fetch, options.limits, queue, options.persistent);
+    this.mini = new ArchiveReader(cards + 'merge/data/mini.dat', options.fetch, options.limits, queue, options.persistent);
     this.onScene = options.onScene;
     this.fallback = { ...options.mergeCardPaths };
     this.imageLimits = { ...options.imageLimits };
@@ -146,6 +150,22 @@ export class AssetManager {
       }
     }, signal);
   }
+  /** A card's big art by its YO2 id, as live's lazyfs.js cardArt(id) reads it: card.dat's list_card.txt names the id's
+   * entry (`<passcode>.jpg`); without card.dat, merge.dat's data/card/list_card.txt and data/card/<name>. */
+  async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
+    this.check(signal);
+    const names = async (read: () => Promise<Uint8Array>) => new TextDecoder('latin1').decode(await read()).split(/\r?\n/).map(x => x.trim().toLowerCase());
+    try {
+      this.cardNames ??= names(() => this.card.read('list_card.txt', signal)).catch(e => { this.cardNames = null; throw e; });
+      const n = (await this.cardNames)[id];
+      if (n) { try { return (await this.card.read(n, signal)).slice(); } catch (e) { if (!(e instanceof AssetNotFoundError)) throw e; } }
+    } catch (e) { if (!(e instanceof AssetNotFoundError)) throw e; }
+    this.mergeNames ??= names(() => this.merge.read('data/card/list_card.txt', signal)).catch(e => { this.mergeNames = null; throw e; });
+    const m = (await this.mergeNames)[id];
+    return m ? (await this.merge.read('data/card/' + m, signal)).slice() : null;
+  }
+  private cardNames: Promise<string[]> | null = null;
+  private mergeNames: Promise<string[]> | null = null;
   loadMini(passcode: string | number, signal?: AbortSignal): Promise<AssetLease> {
     const pc = passcodeName(passcode), path = pc + '.jpg';
     return this.load(`mini:${pc}`, async s => ({ bytes: await this.mini.read(path, s), path }), signal);

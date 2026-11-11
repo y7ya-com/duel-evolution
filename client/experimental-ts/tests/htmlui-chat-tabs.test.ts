@@ -49,3 +49,37 @@ describe('the duel scene\'s chat tab (live: the engine\'s duel chat window, "Due
     expect(chatCommand(DUEL_CHAT_INDEX, 'gg')).toEqual({ type: 'chat', channel: 'global', text: 'gg' });
   });
 });
+
+// yo2WindowChat.cpp: the first tab at z = count, each next one 1 lower, the current one count + 2; main's chat.js draws
+// the controls back to front in array order (live's read.js sorts them by that z), and bb0c7de: the Duels tab under
+// the last game tab unless it is the current one
+describe('the chat\'s tabs stack as the game stacks them', async () => {
+  const { stackChatTabs } = await import('../src/ui/htmlui/windows');
+  const strip = (current: number, xs = CHAT_TABS.map(t => t.x)) => {
+    const controls = [{ cls: 'CWindowTaskIconbar', name: 'bar' }, ...xs.flatMap((x, i) => [
+      { cls: 'CWindowTaskTab', name: `tab${i}`, x, active: i === current }, { cls: 'CWindowTaskTextlist', name: `log${i}` }]), { cls: 'CWindowTaskInput', name: 'input' }]
+      .map((c, z) => ({ id: z, parent: 0, y: 0, w: 72, h: 24, z, x: 0, alpha: 1, shown: true, enabled: true, focused: false, ...c }));
+    stackChatTabs(controls as never);
+    return controls;
+  };
+  const tabOrder = (current: number, xs?: number[]) => strip(current, xs).filter(c => c.cls === 'CWindowTaskTab').map(c => c.name);
+  it('each tab over the one to its right, the current one over both neighbours (back to front)', () => {
+    expect(tabOrder(0)).toEqual(['tab3', 'tab2', 'tab1', 'tab0']);
+    expect(tabOrder(1)).toEqual(['tab3', 'tab2', 'tab0', 'tab1']);
+    expect(tabOrder(2)).toEqual(['tab3', 'tab1', 'tab0', 'tab2']);
+  });
+  it('the Duels tab lies under Team unless it is the current one', () => {
+    expect(tabOrder(0)[0]).toBe('tab3');
+    expect(tabOrder(3).at(-1)).toBe('tab3');
+  });
+  it('by place on the strip, not by index: the duel\'s tab between TRADE and Team', async () => {
+    const { chatTabsFor } = await import('../src/ui/htmlui/windows');
+    const xs = chatTabsFor(['A', 'B']).map(t => t.x);   // all, trade, team, duels, duel (x 145)
+    expect(tabOrder(0, xs)).toEqual(['tab3', 'tab2', 'tab4', 'tab1', 'tab0']);
+    expect(tabOrder(4, xs).at(-1)).toBe('tab4');
+  });
+  it('the tabs keep the slots the tabs had: logs and the rest stay where they were', () => {
+    const c = strip(1);
+    expect(c.map(k => k.cls === 'CWindowTaskTab' ? 'T' : k.name)).toEqual(['bar', 'T', 'log0', 'T', 'log1', 'T', 'log2', 'T', 'log3', 'input']);
+  });
+});

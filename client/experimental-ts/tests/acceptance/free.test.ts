@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, deckScreen, deckSide, filesReady } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, pressAvatar, type, sleep, screenshot, record, byKey, byText, prepareDuel, duelBot, surrender, type Page, cardButton, lobbyShown, openDeckEditor, exitDeckEditor, deckScreen, deckSide, filesReady, openShop, leaveShop, shopWallet } from './harness';
 import { playerMenu } from './pvp-helpers';
 
 /** deck.test: the original has no separate deck-test button (PRACTICE.md); deck testing is Free Duel: a free session
@@ -10,12 +10,10 @@ const worldSnapshot = async (page:Page, probe:string) => {
   const screen = await openDeckEditor(page);
   const deck = { name:screen.name,main:screen.main }, owned = screen.collection.filter(c => c.name === probe).reduce((n,c) => n + c.owned,0);
   await exitDeckEditor(page);
-  await click(page,'Shop'); await until(page,`/[0-9,]+ MP/.test(document.body.innerText)`,60000);
-  const wallet = /([0-9,]+) MP/.exec(await page.ev('document.body.innerText') as string)?.[1];
-  // main's card shop leaves through its Back
-  const back = `document.querySelector('[aria-label="Leave the shop"]')`;
-  if (await page.ev(`Boolean(${back})`)) await press(page,back);
-  await until(page,lobbyShown,60000);
+  // main's card shop: its wallet box (the figure and "MP" are separate elements: no "N MP" in the page's text), its Back
+  await openShop(page);
+  const wallet = (await shopWallet(page)).text;
+  await leaveShop(page);
   return { ...deck, owned, wallet };
 };
 /** The trunk's search (main's searchPanel "Search the trunk"). */

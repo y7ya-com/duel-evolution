@@ -384,6 +384,12 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
+  /** A card's big art by its YO2 id (lazy-shim.ts cardArt: the card shop's faces, the crafting editor), the 2x art as live's lazyfs reads it. */
+  async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
+    if (!this.options.assets) throw new Error('Original artwork is not configured.');
+    if (!Number.isInteger(id) || id <= 0) return null;
+    return this.options.assets.readCardArt(id, signal ?? this.scope.signal);
+  }
   private gameTexts = new Map<string, Promise<readonly string[]>>();
   /** A language's whole UI string table (CStringDB: data/common/yo2text_?.idx / .bin, the language's letter), by id. */
   readonly gameTextTable = (language: GameLanguage, signal?: AbortSignal): Promise<readonly string[]> => {

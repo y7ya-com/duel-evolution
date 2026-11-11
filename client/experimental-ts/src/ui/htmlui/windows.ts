@@ -287,6 +287,20 @@ export function chatCommand(tab: number, line: string, names: readonly string[] 
 /** The admin's sanctions (server/src/game/chat.ts, trade.ts refuse the same): the notices where the feature is greyed out. */
 export const CHAT_SANCTION_NOTICE = 'Chat is disabled for this account.';
 export const TRADE_SANCTION_NOTICE = 'Card Swap is disabled for this account.';
+/** The tabs stacked as the game stacks them (yo2WindowChat.cpp layout: along the bar the first tab at z = count, each
+ * next one 1 lower, the current one count + 2; live's read.js hands main's chat.js the controls by that z), so each
+ * tab lies over the one to its right and the current one over both neighbours: the Duels tab, the last, under Team
+ * unless it is the current one (main bb0c7de). main's chat.js draws the controls back to front in array order, so the
+ * tabs take the places they held there, rightmost first, the current one last. */
+export function stackChatTabs(controls: HtmlControl[]): void {
+  const at: number[] = [], tabs: HtmlControl[] = [];
+  controls.forEach((c, i) => { if (c.cls === 'CWindowTaskTab') { at.push(i); tabs.push(c); } });
+  const cur = tabs.find(c => c.active), n = tabs.length;
+  const byX = [...tabs].sort((a, b) => a.x - b.x);
+  byX.forEach((c, i) => { c.z = c === cur ? n + 2 : n - i; });
+  const order = [...tabs].sort((a, b) => a.z - b.z);
+  at.forEach((i, k) => { controls[i] = order[k]!; });
+}
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
@@ -309,6 +323,7 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
     return { tab: tc.id, log: log.id, visible: true };
   });
   b.win.pairs = pairs;
+  stackChatTabs(b.win.controls);
   b.add('CWindowTaskIconExpand', 'expand', { x: 757, y: 0, w: 16, h: 24 }, { pressed: false, enabled: false });
   // nothing while the app is busy (the old Send was disabled then): the line stays to be sent with the next Enter
   const send = () => { const command = chatCommand(tab, ctx.ui.chatDraft, lobby.avatars.map(a => a.name)); if (!command || !lobby.connected || ctx.state.busy) return; ctx.ui.chatDraft = ''; ctx.send(command); ctx.rerender(); };
