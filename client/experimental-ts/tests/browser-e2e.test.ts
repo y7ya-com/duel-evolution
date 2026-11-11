@@ -44,7 +44,7 @@ async function click(browser:Browser,text:string,touch = false) {
 }
 
 describe('actual headless browser against real game authority',() => {
-  it.each([{ name:'desktop',width:1280,height:900,mobile:false },{ name:'mobile',width:390,height:844,mobile:true }])('$name: creates a character, enters the lobby, prepares NPC51, plays exposed UI choices to a natural result, and returns',async viewport => {
+  it.each([{ name:'desktop',width:1280,height:900,mobile:false },{ name:'mobile',width:844,height:390,mobile:true }])('$name: creates a character, enters the lobby, prepares NPC51, plays exposed UI choices to a natural result, and returns',async viewport => {
     const fixture = await browserServerFixture();
     let browser:Browser | undefined;
     try {
@@ -52,6 +52,18 @@ describe('actual headless browser against real game authority',() => {
       await browser.send('Page.enable');
       await browser.send('Page.addScriptToEvaluateOnNewDocument',{ source:`try{localStorage.setItem('de-client-settings-v1',JSON.stringify({reducedMotion:true,sound:0,music:0}));}catch{};window.confirm=()=>true;` });
       await browser.go(fixture.origin+'/?portOffset=0',`document.querySelector('.de-client')`);
+      if (viewport.mobile) {
+        // as live (web-shell/stage.js): the page is the 4:3 frame; held upright, the phone asks to be turned sideways
+        const rotate = `getComputedStyle(document.getElementById('de-rotate')).display`;
+        expect(await browser.ev(`document.querySelector('.de-client').classList.contains('de-phone')`)).toBe(true);
+        expect(await browser.ev(rotate)).toBe('none');
+        await browser.send('Emulation.setDeviceMetricsOverride',{ width:390,height:844,deviceScaleFactor:1,mobile:true,screenOrientation:{ type:'portraitPrimary',angle:0 } });
+        await until(browser,`${rotate}==='flex'`);
+        await browser.send('Emulation.setDeviceMetricsOverride',{ width:viewport.width,height:viewport.height,deviceScaleFactor:1,mobile:true,screenOrientation:{ type:'landscapePrimary',angle:90 } });
+        await until(browser,`${rotate}==='none'`);
+        // the 4:3 frame fills the height of the sideways phone
+        await until(browser,`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect();return r.height>=${viewport.height - 2}&&Math.abs(r.width*3-r.height*4)<=4})()`,5000);
+      }
       await click(browser,'Go Online',viewport.mobile);
       await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player',viewport.mobile); await until(browser,`document.querySelector('[data-key="character-name"]')`);
       await browser.ev(`(()=>{const input=document.querySelector('[data-key="character-name"]');input.value='Browser Duelist';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
