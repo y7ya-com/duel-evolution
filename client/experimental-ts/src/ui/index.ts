@@ -348,8 +348,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
-    // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over)
-    if (duel.ended) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
+    // the end: main's result.js records and its Next plate ('Return to Lobby' once the duel or the match is over); a
+    // match's sideboarding (the original's Card Swap) replaces the game's result, as the result screen gives way to it there
+    if (duel.ended && !state.sideboarding) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (!duel.ended || state.match && !state.match.complete) out.push(duelSpeedWindow(htmlIds, duelSpeed, () => { duelSpeed = nextDuelSpeed(duelSpeed); duelScene.fx.speed = duelSpeed; showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
