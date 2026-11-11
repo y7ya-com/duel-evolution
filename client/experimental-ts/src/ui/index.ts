@@ -162,12 +162,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const profileActions = (): { label: string; key: string; run(): void; disabled?: boolean }[] => {
     const p = state.profileDetail; if (!p || p.selectedPid === null) return [];
     const pid = p.selectedPid;
-    if (p.selfPid === pid) return [
-      { label: 'Comment', key: 'comment', disabled: p.pending !== null, run: () => { htmlUiState.comment = [p.comments[0] ?? '', p.comments[1] ?? '']; showHtml(); } },
-      { label: 'Clear Title', key: 'clear-title', disabled: p.pending !== null, run: () => send({ type: 'profileAction', action: { type: 'setTitle', bit: 224 } }) },
-      // Change Avatar (main's screens/avatar.js, htmlui/avatar.ts) on the player's own look; cosmetic items are main's Wardrobe's
-      ...(state.mode !== 'free' && !!state.player && state.connection === 'online' ? [{ label: 'Change Avatar', key: 'appearance', run: () => { send({ type: 'profileAction', action: { type: 'close' } }); openChangeAvatar(); } }] : []),
-    ];
+    // live's own profile has OK alone: Create Comment is the Main Menu's, a new look the Wardrobe's
+    if (p.selfPid === pid) return [];
     return [];
   };
   /** Change Avatar from the game: the server's look (one for both worlds), its owned parts, saved on Confirm. */
@@ -304,7 +300,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const loginSpecs = (): WindowSpec[] => showsLogin() ? [loginWindow({ state, ui: loginUi, ids: htmlIds, send, rerender: () => showHtml(),
     discord: () => { globalThis.location.href = '/api/auth/sign-in/discord?return=/'; },
     open: url => { globalThis.open?.(url, '_blank', 'noopener,noreferrer'); } })] : [];
-  // Change Title (CWindowModelTitleConfig) over the scene, opened from the Main Menu
   let titleUi: TitleConfigUi | null = null;
   const titleSpecs = (): WindowSpec[] => {
     if (!titleUi || !state.player || !state.titles || state.scene === 'duel' || state.scene === 'title') { titleUi = null; return []; }
@@ -734,7 +729,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (controller.loadArchiveImage && loginUi.open && showsLogin()) {
       titleScene?.hide(); titleScene?.element.remove(); titleScene?.controls.remove();
       startScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
-      n.append(startScene.element); startScene.show({ logo: true, portrait: null, reducedMotion: !!state.settings.reducedMotion });
+      n.append(startScene.element); startScene.show({ logo: true, portrait: null, reducedMotion: false });
       return;
     }
     if (controller.loadArchiveImage) {
@@ -784,7 +779,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const ch = alone ? undefined : state.characters.find(c => c.slot === htmlUiState.selected);
     // first dressing: Change Avatar's portrait of the look being made (CChangeAvatarPack), no ring logo
     if (d?.kind === 'avatar') { startScene.show({ logo: false, portrait: Uint8Array.from(d.look), reducedMotion: state.settings.reducedMotion }); return; }
-    startScene.show({ logo: true, portrait: ch?.parts?.length === 16 ? Uint8Array.from(ch.parts) : null, reducedMotion: state.settings.reducedMotion });
+    // live's Select Player is the swirl backdrop and the turning ring alone: no portrait of the row under the pointer;
+    // the ring turns as live's engine turns it, whatever the reduced-motion setting
+    void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
   }
   function drawLobby(canvas: HTMLCanvasElement): void {
     const ctx = canvas.getContext('2d'); if (!ctx) return;
@@ -1298,7 +1295,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
-      // the same thing, then the rewrite's own scenes (Shop: the rewrite's world has no store door), the way back to a duel or the lobby, and
+      // the same thing, then the way back to a duel or the lobby, and
       // Return to Title (Disconnect). Before a character is chosen the bar is its strip alone, as on Select Player.
       const blocked = !!state.busy, sideboard = !!state.sideboarding;
       const go = (scene: Scene) => () => open(scene);
@@ -1308,11 +1305,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           { label: 'My Profile', key: 'profile', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); } },
           // Create Comment edits the player's own profile lines: it opens over that profile (the controller's rule)
           { label: 'Create Comment', key: 'comment', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); const p = state.profileDetail; if (p?.selectedPid !== state.player!.id) send({ type: 'profileAction', action: { type: 'open', pid: state.player!.id } }); htmlUiState.comment = [p?.selectedPid === state.player!.id ? p.comments[0] ?? '' : '', p?.selectedPid === state.player!.id ? p.comments[1] ?? '' : '']; showHtml(); } },
-          // Change Title (CWindowModelTitleConfig): the earned titles, one worn
-          ...(state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),
-        // Tournament (SCENE_TOURNAMENT): JoinGunsling, then the bracket once joined (the server enters on its first request)
-        ...(state.mode !== 'free' && state.connection === 'online' ? [{ label: 'Tournament', key: 'tournament', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); if (tourUi.joined) { tourUi.bracket = true; send({ type: 'tournamentRefresh' }); } else tourUi.join = true; showHtml(); } }] : []),
         ...(state.mode !== 'free' && state.location ? [
           // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
           state.location === 'my-room'
@@ -1330,7 +1323,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // main's list windows (src/ui/htmlui: CWindowModelBlacklist / Friendlist / Teamlist) over the scene
           ...(state.socialDetail ? (['ignore', 'friends', 'team'] as const).map(kind => ({ label: { ignore: 'Ignore List', friends: 'Friend List', team: 'Team List' }[kind], key: kind === 'team' ? 'teams' : kind,
             disabled: blocked || sideboard, run: () => { htmlUiState.lists = { kind, selected: -1 }; if (kind === 'team') send({ type: 'socialAction', action: { type: 'refreshTeam' } }); if (kind === 'friends') loadPresence(); showHtml(); } })) : []),
-          { label: 'Shop', key: 'shop', disabled: blocked || sideboard, run: go('shop') },
         ] : []),
         ...((state.duel || sideboard) && state.scene !== 'duel' ? [{ label: 'Return to Duel', key: 'duel', disabled: blocked, run: go('duel') }] : []),
         // the way back from the rewrite's own scenes; in the lobby itself there is nothing to return to (live has no entry)
@@ -1350,8 +1342,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
       menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
-        message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
-        ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); } } : {}) };
+        // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
+        message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
+        ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
       nav.replaceChildren(status);
       // Extension panels also get stable keyboard focus when their data changes.
       for (const tag of ['button', 'input', 'textarea', 'select', 'canvas']) for (const [i, control] of Array.from(host.querySelectorAll<HTMLElement>(tag)).entries()) {

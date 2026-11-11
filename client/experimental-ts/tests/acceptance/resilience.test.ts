@@ -439,7 +439,7 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       // shop, and the late reply does not take the screen back.
       await backToLobby(page);
       await page.ev(`window.__net.http.delay=/\\/api\\/de\\/shop/`);
-      await menuClick(page,'Shop');
+      await click(page,'Shop');
       await until(page,`window.__net.http.release`,10000);
       const leave = `${SHOP}?.querySelector('[aria-label="Leave the shop"]')`;
       await until(page,leave,30000);

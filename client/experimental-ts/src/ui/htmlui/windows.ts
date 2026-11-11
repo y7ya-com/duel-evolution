@@ -59,6 +59,8 @@ export const htmlUiLocal = (): HtmlUiLocal => ({ dialog: null, chatTab: 0, chatD
 export interface MenuEntry { label: string; key: string; disabled?: boolean; run(): void }
 /** The menu bar the scene shows: its keys (the Main Menu's, and the lobby's Duel and Move) and its message. */
 export interface MenuView { entries: MenuEntry[]; message: string; duel?: () => void; move?: () => void; keys: boolean;
+  /** The Duel / Move key's menu open: the key is drawn checked (pink), as live's. */
+  duelOpen?: () => boolean; moveOpen?: () => boolean;
   /** How far main's message field moved right for the page's own bar buttons (lobby.js fieldLeft - 391: the Wardrobe and
    * Missions slots, lobby_icons.js reserveBar): the message's x follows, so main's bar redraws it at the field's start. */
   fieldShift?: number }
@@ -337,8 +339,8 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
     const key = (name: string, x: number, v: number, run: (() => void) | undefined, dataKey: string, label: string, checked = false) =>
       b.add('CWindowTaskPictureSwitch', name, { x, y: 0, w: 80, h: 32 }, { state: run ? 'normal' : 'disabled', checked, art: pictureArt(v) }, { key: dataKey, label, click: () => run?.() });
     key('MENUBAR_MENU_MAIN', 0, 0, () => { ctx.ui.menu = !ctx.ui.menu; ctx.rerender(); }, 'main-menu', 'Main Menu', ctx.ui.menu);
-    key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel');
-    key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move');
+    key('MENUBAR_MENU_DUEL', 80, 32, menu.duel, 'menubar-duel', 'Duel', !!menu.duelOpen?.());
+    key('MENUBAR_MENU_MOVE', 160, 96, menu.move, 'menubar-move', 'Move', !!menu.moveOpen?.());
   }
   return b.spec();
 }
@@ -346,14 +348,13 @@ export function menuBar(ctx: BuildContext, menu: MenuView): WindowSpec {
 // capture: 0, 386, 282 x 350 for 12 entries, the title 'Main Menu' 8, 0, 264 x 24, the close box 263, 0, the entries
 // 12, 27 + 26 n, 258 x 24; the window stands on the menu bar (its bottom at 736).
 export function mainMenu(ctx: BuildContext, menu: MenuView): WindowSpec {
-  // main's lobby.js (menuFrame) lays the entries out itself, a 28 px pitch from 32 (its Modern UI row parked here, as live), the panel
-  // standing on the bar: the window is that box, so the panel sits at its top
-  const h = 32 + 28 * menu.entries.length + 8, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
+  // live's capture: the entries at 12, 27 + 26 n (24 high), the panel 38 + 26 n high standing on the bar (12 entries: 0, 386, 282 x 350)
+  const h = 38 + 26 * menu.entries.length, b = new WindowBuilder(ctx.ids, 'mainmenu', 'CMainMenu', { x: 0, y: 736 - h, w: 282, h }, { z: 51603, modal: false, drawn: { x: 0, y: 736 - h, w: 279, h: h - 13 } });
   const close = () => { ctx.ui.menu = false; ctx.rerender(); };
   b.add('CWindowTaskFrameMain', 'frame', { x: 0, y: 0, w: 0, h: 0 });
   b.add('CWindowTaskShadowText', 'title', { x: 8, y: 0, w: 264, h: 24 }, { text: 'Main Menu', align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   b.add('CWindowTaskIconHide', 'close', { x: 263, y: 0, w: 16, h: 24 }, { pressed: false }, { key: 'main-menu-close', label: 'Close the Main Menu', click: close });
-  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 32 + 28 * i, w: 258, h: 24 },
+  menu.entries.forEach((e, i) => b.add('CWindowTaskButtonMain', `entry:${e.key}`, { x: 12, y: 27 + 26 * i, w: 258, h: 24 },
     { label: e.label, state: e.disabled ? 'disabled' : 'normal', checked: false, align: 1, color: [1, 1, 1, 1] },
     { key: `menu:${e.key}`, click: () => { if (e.disabled) return; ctx.ui.menu = false; ctx.rerender(); e.run(); } }));
   return b.spec();
@@ -596,36 +597,40 @@ export interface SocialLists {
 export function listWindow(ctx: BuildContext, lists: SocialLists): WindowSpec | null {
   const open = ctx.ui.lists; if (!open) return null;
   const cls = { friends: 'CWindowModelFriendlist', ignore: 'CWindowModelBlacklist', team: 'CWindowModelTeamlist' }[open.kind];
-  const b = new WindowBuilder(ctx.ids, `list:${open.kind}`, cls, { x: 62, y: 282, w: 900, h: 204 }, { z: 51453, modal: true });
+  // live's Ignore List is narrower: 162, 282, 700 x 204 (Remove from Ignore List 50, Close 301, Add to Ignore List 451)
+  const W = open.kind === 'ignore' ? 700 : 900;
+  const b = new WindowBuilder(ctx.ids, `list:${open.kind}`, cls, { x: open.kind === 'ignore' ? 162 : 62, y: 282, w: W, h: 204 }, { z: 51453, modal: true });
   const close = () => { ctx.ui.lists = null; ctx.rerender(); };
   const rows = open.kind === 'friends' ? lists.friends : open.kind === 'ignore' ? lists.ignored : lists.team?.members ?? [];
   if (open.selected >= rows.length) open.selected = -1;
   b.add('CWindowTaskFrameDuel', 'frame', { x: 0, y: 0, w: 0, h: 0 });
-  const title = { friends: 'Friend List', ignore: 'Ignore List', team: lists.team ? `Team List: ${lists.team.name}` : 'Team List' }[open.kind];
-  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: 900, h: 204 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
+  const title = { friends: 'Friend List', ignore: 'Ignore List', team: lists.team ? `Team List: ${lists.team.name}` : '' }[open.kind];
+  // live's Team List has no title until there is a team
+  b.add('CWindowTaskShadowText', 'title', { x: 0, y: 4, w: W, h: 204 }, { text: title, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   // a friend's row as the Team List's: the name at 16, where they are at 230 ("@>N/" pen moves, main's chat.js rowRuns),
   // Offline when the server doesn't report them; a name's own "@" doubled so it can't read as a pen move
   const line = (r: { name: string; online?: boolean; place?: string }) => open.kind === 'friends' && r.online !== undefined
     ? `@>16/${r.name.replace(/[@＠]/g, '$&$&')}@>230/${r.online ? r.place || 'Online' : 'Offline'}` : r.name;
-  const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: 874, h: 128 }, { items: rows.map((r, i) => `${i === open.selected ? '> ' : ''}${line(r)}`), selected: open.selected, top: 0, topLine: 0, rows: 8 });
-  b.on(list, { label: title, click: point => { if (!point) return; const i = Math.floor((point[1] - 282 - 32) / 16); if (i >= 0 && i < rows.length) { open.selected = i; ctx.rerender(); } } });
+  const list = b.add('CWindowTaskListbox', 'list', { x: 13, y: 32, w: W - 26, h: 128 }, { items: rows.map((r, i) => `${i === open.selected ? '> ' : ''}${line(r)}`), selected: open.selected, top: 0, topLine: 0, rows: 8 });
+  b.on(list, { label: title || 'Team List', click: point => { if (!point) return; const i = Math.floor((point[1] - 282 - 32) / 16); if (i >= 0 && i < rows.length) { open.selected = i; ctx.rerender(); } } });
   const button = (name: string, x: number, w: number, label: string, key: string, run: (() => void) | null) =>
     b.add('CWindowTaskButtonDuel', name, { x, y: 173, w, h: 24 }, { label, align: 1, state: run ? 'normal' : 'disabled', color: [0, 0, 0, 1] }, { key, click: () => run?.() });
   const chosen = rows[open.selected];
   if (open.kind === 'friends' && open.pick) button('remove', 125, 200, 'Send D-mail', 'list-pick', chosen && ctx.ui.compose ? () => { ctx.ui.compose!.toPid = chosen.pid; ctx.ui.compose!.toName = chosen.name; ctx.ui.lists = null; ctx.rerender(); } : null);
   else if (open.kind === 'friends') button('remove', 125, 200, 'Remove from Friend List', 'list-remove', chosen ? () => { lists.removeFriend(chosen.pid); open.selected = -1; ctx.rerender(); } : null);
-  if (open.kind === 'ignore') button('remove', 125, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
-  // the original's way to add: the Friend List opens Find a Player (CWindowModelFriendEnum: for the chosen friend, else
-  // a search), the Ignore List the name prompt (CWindowModelBlacklistInput)
+  if (open.kind === 'ignore') button('remove', 50, 200, 'Remove from Ignore List', 'list-remove', chosen ? () => { lists.unignore(chosen.pid); open.selected = -1; } : null);
+  // the Friend List's Find a Player (the rewrite's: live has Remove and Close alone and asks friend / team requests in
+  // the engine's own dialog; here the requests waiting are answered in Find a Player, so it stays until that dialog exists);
+  // the Ignore List adds by name (CWindowModelBlacklistInput) from its Add to Ignore List, right of Close, as live
   if (open.kind === 'friends' && !open.pick && lists.find) button('find', 345, 120, chosen ? 'Friend Options' : 'Find a Player', 'list-find', () => { ctx.ui.find = { name: chosen?.name ?? '', target: chosen ? { pid: chosen.pid, name: chosen.name } : null, selected: -1 }; ctx.ui.lists = null; ctx.rerender(); });
-  if (open.kind === 'ignore' && lists.find) button('add', 345, 120, 'Add by Name', 'list-add', () => { ctx.ui.ignoreInput = { name: '' }; ctx.rerender(); });
+  if (open.kind === 'ignore' && lists.find) button('add', 451, 200, 'Add to Ignore List', 'list-add', () => { ctx.ui.ignoreInput = { name: '' }; ctx.rerender(); });
   if (open.kind === 'team') {
     if (!lists.team) button('form', 403.5, 93, 'Form Team', 'team-form', () => { ctx.ui.dialog = { kind: 'team', name: '' }; ctx.rerender(); });
     // the original asks first (a YesNo), as it does every irreversible step
     else if (lists.team.leader) button('disband', 391, 118, 'Disband Team', 'team-disband', () => { ctx.ui.dialog = { kind: 'confirm', key: 'team-disband', text: 'Disband this team for every member?', yes: () => lists.disbandTeam() }; ctx.rerender(); });
     else button('leave', 400.5, 99, 'Leave Team', 'team-leave', () => { ctx.ui.dialog = { kind: 'confirm', key: 'team-leave', text: 'Leave your current team?', yes: () => lists.leaveTeam() }; ctx.rerender(); });
   }
-  button('close', 625, 100, 'Close', 'list-close', close);
+  button('close', open.kind === 'ignore' ? 301 : 625, 100, 'Close', 'list-close', close);
   return b.spec();
 }
 // The team's name, asked in main's name prompt (mock/dialog-input1.json), as the game asks for one

@@ -169,7 +169,7 @@ function moveWindow(ctx: BuildContext, deps: LobbyDeps): WindowSpec | null {
   areas.forEach((a, i) => {
     const row = i - topRow, shown = row >= 0 && row < MOVE_ROWS, text = label(a);
     const c = b.add('CWindowTaskButtonDuel', `area:${a.area}:${a.block}`, shown ? { x: 11, y: 24 + 26 * row, w: widths[i]!, h: 24 } : { x: 0, y: 0, w: widths[i]!, h: 24 },
-      { shown, label: text, align: 0, state: ctx.state.busy ? 'disabled' : 'normal', color: [1, 1, 1, 1], shadow: { dx: 1, dy: 1, color: [0, 0, 0, 1] } },
+      { shown, label: text, align: 1, state: ctx.state.busy ? 'disabled' : 'normal', color: [1, 1, 1, 1], shadow: { dx: 1, dy: 1, color: [0, 0, 0, 1] } },
       { key: `move-area:${a.area}/${a.block}`, label: text, click: () => {
         if (ctx.state.busy) return;
         // the original keeps a player waiting for a duel where they are (0x13e4)

@@ -989,7 +989,8 @@ export class ClientApp implements ClientController {
             this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
               ...(npc.id*4+2 < state.npcbin.length ? {record:[state.npcbin[npc.id*4]!,state.npcbin[npc.id*4+1]!,state.npcbin[npc.id*4+2]!] as const} : {}),
               ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
-          } else this.profile.dispatch({type:'open',pid:command.playerId});
+          // one's own avatar opens nothing, as live (My Profile is the Main Menu's)
+          } else if (command.playerId !== this.profile.state.selfPid) this.profile.dispatch({type:'open',pid:command.playerId});
           break;
         case 'npcAnswer': await this.npc.answer(command.accept); break;
         case 'npcAdvance': this.npc.advance(); break;

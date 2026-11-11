@@ -129,6 +129,12 @@ html:has(.de-client[data-scene=title]:not(.de-phone)), html:has(.de-client[data-
 .de-client[data-scene=title]:not(.de-phone) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
 .de-client[data-scene=title]:not(.de-phone)>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; border:0; }
 .de-client[data-scene=title]:not(.de-phone)>.de-nav { display:none; }
+/* every scene but the rewrite's own Options page as live's stage.js frames them: the 4:3 stage fills the window (no 40 px kept
+   for a status strip, which put every window ~20 px off live's), the status line kept for assistive technology only */
+html:has(.de-client:not(.de-phone):not([data-scene=settings])), html:has(.de-client:not(.de-phone):not([data-scene=settings])) body { overflow:hidden; margin:0; }
+.de-client:not(.de-phone):not([data-scene=settings]) { width:min(100vw,calc(100vh*4/3)); margin:calc((100vh - min(100vh,calc(100vw*3/4)))/2) auto 0; }
+.de-client:not(.de-phone):not([data-scene=settings])>.de-stage { min-height:0; max-height:none; height:auto; aspect-ratio:4/3; }
+.de-client:not(.de-phone):not([data-scene=settings])>.de-nav { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 /* where live's sign-in panel stands: CWindowLogin at 256, 256, 464 wide (rt/session.cpp), under the title movie's logo */
 .de-client[data-scene=title] .de-scene>.de-panel { position:absolute; z-index:1; left:25%; top:33.333%; width:45.3125%; margin:0; box-sizing:border-box; }
 .de-client[data-scene=title] .de-scene .de-panel>button { min-height:36px; font:italic bold 16px Arial,sans-serif; letter-spacing:.05em; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); padding:0 24px; }

@@ -107,7 +107,9 @@ describe('actual ClientApp mounted through semantic UI', () => {
   it('buys through the authenticated idempotency token and confirms the returned balance', async () => {
     // the older CShop* windows (the fallback: online now mounts main's shop/index.js, which calls /api/de/shop itself)
     (globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP = true;
-    const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:shop')).toBe(true); await flush();
+    // the store's door opens the shop (live has no Main Menu entry for it)
+    const f = harness(); await f.enter(); await f.app.dispatch({ type: 'openScene', scene: 'shop' }); await flush();
+    expect(f.mounted.htmlUi.press('main-menu')).toBe(false);
     // main's HTML shop (screens/shop.js): the singles window, the product, Confirm, then Yes.
     for (const key of ['shop-category:cards', 'shop-item:10', 'shop-confirm', 'shop-yes']) { expect(f.mounted.htmlUi.press(key)).toBe(true); await flush(); }
     expect(f.api.purchase).toHaveBeenCalledWith({ itemId: 10, count: 1, requestId: 'server-token' }, expect.any(Object));
