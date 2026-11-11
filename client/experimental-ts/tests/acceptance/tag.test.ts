@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, type Page, lobbyShown } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, until, press, sleep, screenshot, record, prepareDuel, duelBot, click, byKey, byText, type Page, lobbyShown } from './harness';
 
 const dialog = `document.querySelector('[data-key="tag-lobby"]')`;
 const tagKey = (key:string) => `document.querySelector('[data-key="tag-${key}"]')`;
@@ -7,13 +7,21 @@ const dialogText = (p:Page) => p.ev(`(${dialog})?.innerText.replace(/\\s+/g,' ')
 /** The seat rows of an open invitation: role → "name|accepted". */
 const seats = (p:Page) => p.ev(`Object.fromEntries([...(${dialog})?.querySelectorAll('[data-key^="tag-seat:"]') ?? []].filter(r=>r.tagName==='DIV').map(r=>[r.dataset.key.slice(9),r.querySelector('strong').textContent+'|'+r.dataset.accepted]))`) as Promise<Record<string,string>>;
 const team = (p:Page,which:'own'|'rival') => p.ev(`[...(document.querySelector('[data-key="tag-team:${which}"]')?.querySelectorAll('strong') ?? [])].map(s=>s.textContent.replace(' (you)',''))`) as Promise<string[]>;
+/** Main's Duel menu (CWindowModelDuel, src/ui/htmlui/lobby.ts): the bar's Duel key; its switches by their names. */
+const duelMenuWin = `document.querySelector('#htmlui-host .win[data-window-class="CWindowModelDuel"]')`;
+const duelSwitch = (label:string) => `[...(${duelMenuWin})?.querySelectorAll('button') ?? []].find(b=>b.getAttribute('aria-label')===${JSON.stringify(label)}&&b.getClientRects().length)`;
+async function openDuelMenu(p:Page) {
+  if (await p.ev(`Boolean(${byKey('duel-cancel')})`)) return;
+  await until(p,`${byKey('menubar-duel')}&&!${byKey('menubar-duel')}.disabled`,30000); await press(p,byKey('menubar-duel'));
+  await until(p,`${byKey('duel-cancel')}&&${duelSwitch('Tag Duel')}`,10000);
+}
+/** The Duel menu's Tag Duel (main's duelsetup.js tagRow, beside Auto Duel and Create Duel): the tag lobby. */
 async function openTag(p:Page) {
   if (await p.ev(`Boolean(${dialog})`)) return;
-  if (!(await p.ev(`document.querySelector('[data-key="lobby-duel-rooms"]')?.open`))) await press(p,`document.querySelector('[data-key="lobby-duel-rooms"] summary')`);
-  await until(p,`${tagKey('')}||document.querySelector('[data-key="lobby-tag"]')`,30000);
-  await press(p,`document.querySelector('[data-key="lobby-tag"]')`);
+  await openDuelMenu(p);
+  await press(p,duelSwitch('Tag Duel'));
   // A full lobby re-render between pointer down and up (other players arriving) loses the click; press again.
-  try { await until(p,dialog,5000); } catch { console.log('Tag Duel press lost; pressing again'); await press(p,`document.querySelector('[data-key="lobby-tag"]')`); await until(p,dialog,10000); }
+  try { await until(p,dialog,5000); } catch { console.log('Tag Duel press lost; pressing again'); await openDuelMenu(p); await press(p,duelSwitch('Tag Duel')); await until(p,dialog,10000); }
 }
 async function choose(p:Page,role:string,name:string) {
   const select = `document.querySelector('[data-key="tag-seat:${role}"]')`;
@@ -28,11 +36,15 @@ async function invite(p:Page,teammate:string,opponent:string,other:string) {
   await until(p,`${tagKey('cancel')}`,30000);
 }
 
-/** MP from the shop header, then back to the lobby. */
+/** MP from the shop band's wallet (main's shop/dom.js wallet: the Wallet group's number), then back to the lobby. */
+const shopWallet = `document.querySelector('[role="group"][aria-label="Wallet"] .v')`;
 async function mp(p:Page):Promise<number> {
-  await click(p,'Shop'); await until(p,`[...document.querySelectorAll('strong')].some(s=>/^[\\d,]+ MP/.test(s.textContent))`,60000);
-  const value = Number(String(await p.ev(`[...document.querySelectorAll('strong')].find(s=>/^[\\d,]+ MP/.test(s.textContent)).textContent`)).split(' ')[0]!.replace(/,/g,''));
-  await click(p,'Return to Lobby'); await until(p,lobbyShown,60000);
+  await click(p,'Shop'); await until(p,`/^[\\d,]+ MP/.test(${shopWallet}?.textContent.trim() ?? '')`,60000);
+  const value = Number(String(await p.ev(`${shopWallet}.textContent.trim()`)).split(' ')[0]!.replace(/,/g,''));
+  // the shop band's Back (main's shop: Leave the shop) back to the lobby
+  const leave = byText('Leave the shop');
+  if (await p.ev(`Boolean(${leave})`)) await press(p,leave); else await click(p,'Return to Lobby');
+  await until(p,lobbyShown,60000);
   return value;
 }
 const relayNotices = (p:Page) => p.ev(`(document.body.innerText.match(/\\[Tag\\] Relay finished/g) ?? []).length`) as Promise<number>;
@@ -153,9 +165,10 @@ describe.skipIf(!enabled)('tag duels between four real players',() => {
       for (const [i,n] of names.entries()) { const p = await openPage(1280,900); pages.push(p); await openClient(p,await signIn(`TestTg${'abcd'[i]}${RUN}`),{ assets:false }); await enterWorld(p,n); }
       const [a,b,c,d] = pages as [Page,Page,Page,Page];
       // tag.party: the Tag Duel window sits in the Duel menu beside Create Duel and Auto Duel.
+      await openDuelMenu(a);
+      const menu = await a.ev(`[...(${duelMenuWin})?.querySelectorAll('button') ?? []].filter(b=>b.getClientRects().length).map(b=>b.getAttribute('aria-label'))`) as string[];
+      expect(menu).toEqual(expect.arrayContaining(['Auto Duel','Create Duel','Tag Duel']));
       await openTag(a);
-      const menu = await a.ev(`[...document.querySelectorAll('[data-key="lobby-duel-rooms"] button')].map(b=>b.textContent)`) as string[];
-      expect(menu).toEqual(expect.arrayContaining(['Create Duel','Find Opponent','Tag Duel']));
       await choose(a,'teammatePid',nC);
       // Client seat validation: a chosen player cannot fill a second seat; the invitation needs all three.
       await until(a,`[...document.querySelector('[data-key="tag-seat:opponentPid"]').options].find(o=>o.textContent===${JSON.stringify(nC)}).disabled`,5000);
