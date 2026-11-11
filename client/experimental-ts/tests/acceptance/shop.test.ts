@@ -19,10 +19,11 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await screenshot(page,'shop-catalog');
 
       // shops.catalog: the tabs, the packs with names and prices, the wallet
-      const w0 = await wallet(page);
-      expect(w0.total).toBe(5000);
+      const w0 = await wallet(page), serverWallet = () => page.ev(`fetch('/api/de/shop',{credentials:'include'}).then(r=>r.json()).then(s=>s.wallet?.total??null)`) as Promise<number|null>;
+      // a new character's starter MP (the server's: the wallet the shop's GET reports)
+      expect(w0.total).toBeGreaterThan(0); expect(w0.total).toBe(await serverWallet());
       const tabs = await page.ev(`[...${SHOP}.querySelectorAll('.tabs [data-k^="tab-"]')].map(t=>t.textContent.trim())`) as string[];
-      expect(tabs).toEqual(expect.arrayContaining(['Recommended','Cosmetic Boxes']));
+      expect(tabs).toEqual(expect.arrayContaining(['Recommended','Card Packs','Structure Decks','Cosmetic Boxes']));
       await press(page,`${SHOP}.querySelector('[data-k=tab-packs]')`); await sleep(600);
       const onSale = await packs(page);
       expect(onSale.length).toBeGreaterThan(0);
@@ -38,7 +39,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(opened.slots).toBe(5);
       const w1 = await wallet(page);
       expect(w1.total).toBe(w0.total - pack.price);
-      expect(await page.ev(`fetch('/api/de/shop',{credentials:'include'}).then(r=>r.json()).then(s=>s.mp??s.wallet?.mp??null)`).catch(() => null) ?? w1.total).toBe(w1.total);
+      expect(await serverWallet()).toBe(w1.total);
 
       // shops.constraints: a double click on Buy opens one pack and charges once
       await page.ev(`(()=>{const b=${buyKey(pack.k)};b.click();b.click();b.click();})()`);
@@ -48,6 +49,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       expect(await page.ev(`Boolean(${reveal})`)).toBe(false);
       const w2 = await wallet(page);
       expect(w2.total).toBe(w1.total - pack.price);
+      expect(await serverWallet()).toBe(w2.total);
       await screenshot(page,'shop-after');
       await leaveShop(page);
       const after = await owned(page);
