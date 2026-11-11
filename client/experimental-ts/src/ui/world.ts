@@ -3,6 +3,7 @@ import type { Viewport } from '../world/camera';
 import type { Point } from '../world/maps';
 import type { WorldScene, SceneFrame, SceneSprite } from '../world/scene';
 import { safeImageUrl } from './helpers';
+import { FRONT_OBJECT_DEPTH, objectDepth } from '../world/depth';
 
 export type RenderScene = Pick<WorldScene, 'mapId' | 'definition' | 'frame' | 'dispose'>;
 export interface WorldRendererOptions {
@@ -51,6 +52,9 @@ export class WorldRenderer {
   constructor(private readonly options: WorldRendererOptions) {
     this.element.setAttribute('aria-label', 'World scenery'); this.element.dataset.mapReady = 'false';
     this.background.dataset.layer = 'background'; this.objects.dataset.layer = 'objects'; this.avatars.dataset.layer = 'avatars'; this.front.dataset.layer = 'front';
+    // One z-sort, as the original's CZSort: objects (keyed by their bottom edge) and avatars (keyed by their feet) share
+    // the view's stacking context (neither layer makes its own); the front objects' layer sits at their fixed key.
+    this.front.style.zIndex = String(FRONT_OBJECT_DEPTH);
     this.staging.style.display = 'none'; this.staging.setAttribute('aria-hidden', 'true');
     this.element.append(this.background, this.objects, this.avatars, this.front, this.status, this.staging);
     this.status.setAttribute('role', 'status'); this.avatars.style.visibility = 'hidden';
@@ -129,7 +133,7 @@ export class WorldRenderer {
     const result: FrameNodes = { background: [], objects: [], front: [], sprites: [], images: [] };
     if (frame.tiles.length + frame.objects.length + frame.frontObjects.length > 768) throw new Error('World sprite count exceeds budget');
     try {
-      const append = (sprites: readonly SceneSprite[], target: HTMLElement[]) => {
+      const append = (sprites: readonly SceneSprite[], target: HTMLElement[], depth = false) => {
         for (const sprite of sprites) {
           const url = safeImageUrl(sprite.url); if (!url) throw new Error('Invalid world image URL');
           const image = node('img', 'de-world-image') as HTMLImageElement; image.alt = ''; image.decoding = 'async'; image.src = url; result.images.push(image);
@@ -138,10 +142,11 @@ export class WorldRenderer {
             element = node('div', 'de-world-tile'); element.style.width = `${sprite.clipWidth / WORLD_VIEW_WIDTH * 100}%`; element.style.height = `${sprite.clipHeight / WORLD_VIEW_HEIGHT * 100}%`;
             image.style.width = `${sprite.width / sprite.clipWidth * 100}%`; image.style.height = `${sprite.height / sprite.clipHeight * 100}%`; element.append(image);
           } else { image.style.width = `${sprite.width / WORLD_VIEW_WIDTH * 100}%`; image.style.height = `${sprite.height / WORLD_VIEW_HEIGHT * 100}%`; }
+          if (depth) { element.style.zIndex = String(objectDepth(sprite)); element.dataset.depth = element.style.zIndex; }
           target.push(element); result.sprites.push({ sprite, element }); this.staging.append(element);
         }
       };
-      append(frame.tiles, result.background); append(frame.objects, result.objects); append(frame.frontObjects, result.front); return result;
+      append(frame.tiles, result.background); append(frame.objects, result.objects, true); append(frame.frontObjects, result.front); return result;
     } catch (error) { this.clearImageSources(result); throw error; }
   }
   private async decodeFrame(images: HTMLImageElement[], signal: AbortSignal): Promise<void> {

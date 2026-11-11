@@ -37,6 +37,14 @@ describe('leased original map renderer', () => {
     expect(f.view.worldToScreen({ x: 1500, y: 1000 })).toEqual({ x: 512, y: 384 });
     expect(f.view.screenToWorld({ x: 512, y: 384 })).toEqual({ x: 1500, y: 1000 });
   });
+  it('z-sorts objects with avatars as the original: each object keyed by its bottom edge * 10, front objects at 30724', async () => {
+    const source = scene(), f = setup({ loadScene: async () => source.result, decodeImage: async () => {} });
+    f.view.show(0, { x: 1500, y: 1000 }); await flush();
+    source.reply(0, undefined, [{ ...sprite('panel'), y: 570, height: 128 }, { ...sprite('back'), y: 473, height: 128 }], [sprite('front')]); await flush();
+    const children = (f.view.element as unknown as TestNode).childNodes;
+    expect(children[1].childNodes.map(n => n.style.zIndex)).toEqual(['6980', '6010']);
+    expect(children[3].style.zIndex).toBe('30724'); expect(children[0].style.zIndex ?? '').toBe(''); expect(children[2].style.zIndex ?? '').toBe('');
+  });
   it('deduplicates movement frames and retains old art until the replacement decodes', async () => {
     const source = scene(), decoding = deferred<void>(); let hold = false;
     const f = setup({ loadScene: async () => source.result, decodeImage: () => hold ? decoding.promise : Promise.resolve() });

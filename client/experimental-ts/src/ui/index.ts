@@ -6,6 +6,7 @@ import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import { WorldRenderer } from './world';
+import { avatarDepth } from '../world/depth';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { giftItemName } from '../npcs/gift-names';
@@ -60,6 +61,7 @@ import { setPictureResolver, disposePictures } from './htmlui/pictures';
 import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
 import { TitleScene } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
+import { loginLocal, loginWindow } from './htmlui/login';
 import { duelDialog, duelDialogCovers, duelSpeedWindow, loadDuelSpeed, nextDuelSpeed } from './htmlui/duel-dialogs';
 import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
 export type * from './contracts';
@@ -298,6 +300,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
       name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
   };
+  // the title's sign-in, signed out: live's CWindowLogin (rt/session.cpp's panel, htmlui/login.ts)
+  const loginUi = loginLocal();
+  const showsLogin = () => !!htmlUi && state.scene === 'title' && !!state.auth && !state.auth.signedIn;
+  const loginSpecs = (): WindowSpec[] => showsLogin() ? [loginWindow({ state, ui: loginUi, ids: htmlIds, send, rerender: () => showHtml(),
+    discord: () => { globalThis.location.href = '/api/auth/sign-in/discord?return=/'; },
+    open: url => { globalThis.open?.(url, '_blank', 'noopener,noreferrer'); } })] : [];
   // Change Title (CWindowModelTitleConfig) over the scene, opened from the Main Menu
   let titleUi: TitleConfigUi | null = null;
   const titleSpecs = (): WindowSpec[] => {
@@ -411,7 +419,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     };
     document.addEventListener('dragover', packDragOver); document.addEventListener('drop', packDropped);
   }
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...loginSpecs(), ...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
@@ -542,6 +550,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         if (base) g.yo2Html.snapshot = () => { const s = base(); return s && { ...s, deckDrag: { state: deckScene.ui.drag ? 1 : 0 } }; };
       }
       showHtml();
+      // signed out, the title's sign-in is the layer's window (live's CWindowLogin): the title's own form goes
+      if (state.scene === 'title') requestRender();
       // a duel prompt the layer now shows leaves the duel screen's own panel
       if (state.scene === 'duel' && htmlDuelPrompt(state.duel?.prompt)) requestRender();
     })
@@ -565,7 +575,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
-      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; }
+      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; node.style.zIndex = String(avatarDepth(avatar.y)); }
       else { node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
     }
   };
@@ -728,6 +738,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const n = sceneRoot('Title'), panel = el('section', 'de-panel de-center de-stack');
     // the engine's title movie under the controls (htmlui/title-scene.ts), over the 2008 backdrop
     if (controller.loadArchiveImage) { titleScene ??= new TitleScene(controller.loadArchiveImage.bind(controller)); n.append(titleScene.element); titleScene.show(!!state.settings.reducedMotion); }
+    // signed out: live's sign-in window over the title (loginSpecs); the title keeps only its Options and the
+    // account panel (registration's long form, password recovery, linking) in a strip at its foot
+    if (showsLogin()) {
+      const foot = el('section', 'de-title-foot');
+      if (state.accountDetail) { const account = el('details', 'de-account-details'); account.dataset.key = `title-account:${state.accountDetail.panel}`; account.open = !!loginUi.foot; account.ontoggle = () => { loginUi.foot = account.open; }; account.append(el('summary', '', 'Registration, password recovery & account options'), renderAccountFeature(state.accountDetail, action => send({ type: 'accountAction', action }))); foot.append(account); }
+      foot.append(button('Options', () => open('settings')));
+      n.append(foot); return;
+    }
     panel.append(title('Duel Evolution'), el('p', '', 'Welcome to Duel Academy.'));
     if (state.auth?.signedIn) {
       panel.append(el('p', '', `Signed in${state.auth.name ? ` as ${state.auth.name}` : ''}.`), button(state.connection === 'online' ? 'Continue' : 'Go Online', () => state.connection === 'online' ? open('characters') : send({ type: 'connect', freeMode: false }), !!state.busy, true), button('Sign Out', () => send({ type: 'signOut' }), !!state.busy));

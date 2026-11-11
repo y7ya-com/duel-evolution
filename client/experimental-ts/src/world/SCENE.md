@@ -26,9 +26,20 @@ The source format and verification limits are recorded below.
 
 Sprite `width`/`height` are the PNG's natural dimensions. Base tiles additionally provide `clipWidth`/`clipHeight`: the logical cell dimensions from the map table. Render the image at natural size inside a cell-sized clipping container; do not stretch the image to the cell. This matters for the real room: its logical cell is 1024 × 768 but the PNG header is 1029 × 768. The scene's world bounds still come from logical tile count × tile stride. Object positions may be negative. Keep clipping at the world viewport as well. CSS scaling belongs to the renderer; camera transforms remain in logical pixels.
 
-Frames preserve source order within each layer and provide the two source object groups separately. No original per-object depth/occlusion calculation is inferred. `objects` are **not** NPCs. The parent owns avatars, pointer mapping, render scheduling, and scene changes. `frame()` is async: retain the displayed frame while awaiting its replacement. When moving quickly, catch `AbortError` from superseded requests; dispose the old scene when switching maps. The loader does not silently discard previously returned scenes because their displayed frame URLs may still be in use.
+Frames preserve source order within each layer and provide the two source object groups separately. The renderer z-sorts them with the avatars as the original does (`src/world/depth.ts`); see "Draw order" below. `objects` are **not** NPCs. The parent owns avatars, pointer mapping, render scheduling, and scene changes. `frame()` is async: retain the displayed frame while awaiting its replacement. When moving quickly, catch `AbortError` from superseded requests; dispose the old scene when switching maps. The loader does not silently discard previously returned scenes because their displayed frame URLs may still be in use.
 
 `WorldScene.definition` provides `{name,baseMap,hitMap,tileWidth,tileHeight,columns,rows,width,height,objects,frontObjects}`. Base/hit prefixes and object paths are normalized beneath `data/Map/` (already-rooted `data/map/` paths also work). `sceneTilePath(definition,column,row,hit?)` accepts zero-based indices and formats one-based filename suffixes. Hit-map paths are metadata only: this module never claims pixel collision/exit/height behavior or reads hit textures during a display frame.
+
+## Draw order
+
+Traced in the exe (2026-11-11). The field is drawn by one CZSort per frame, ascending z (a larger key draws later, in front):
+
+- CFieldMap::loadSection (0x00a50ec0) calls CFieldMap::addObject (0x00a508c0) for each `FrontObjMap` record with pos (X, Y, 30724.0 = 0x46f00800) and "fixed z" on (call at 0x00a5150e), and for each `ObjMap` record with pos (X, Y, Y * 10.0) and "fixed z" off (call at 0x00a517bb).
+- addObject loads the sprite, then with "fixed z" off adds the image height * 10.0 (`[sprite+0x9c]`, OneTexture +0x18: the PNG's height; `fmul [0xbe93bc]` = 10.0) and builds the translation (D3DXMatrixTranslation 0x00b41f8c). An `ObjMap` object's key is therefore its bottom edge * 10.
+- CFieldMap::onMain (0x00a527c0) queues the tiles at the map's own z (arg -1), then each object n with z = `_43` of (its translation x the map's matrix) (D3DXMatrixMultiply 0x00b41539, key `[obj+0x4d94]`).
+- CChibiAvatarElm::onMain (0x009cbed0, at 0x009cbf96) and walkStep (0x009cd4e0) set the avatar's z = y * 10 each frame: players, other players and NPCs alike are keyed by their feet.
+
+So an avatar is in front of an `ObjMap` object whose bottom edge is at or above its feet and behind one whose bottom edge is below them; `FrontObjMap` art covers every avatar (above y 3072.4, which no map reaches). In the rewrite the objects' and avatars' layers make no stacking context: object sprites carry `z-index = (y + height) * 10`, avatar nodes `floor(y * 10)` (ties draw the avatar in front; the exe's std::sort leaves them unordered), the front layer 30724. Real-data checks (`tests/world-depth.test.ts`, merge.dat from `~/.cache/yo2-game` or `YO2_MERGE`): in Store (Map_a02) at (719, 603) the stairs' side panels 0301..0304 (bottoms 698, 683, 655, 628) cover the avatar and 0305 (bottom 601) does not, as live shows.
 
 ## Format evidence
 

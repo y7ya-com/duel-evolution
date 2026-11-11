@@ -23,14 +23,13 @@ export const CLIENT_CSS = `
 .de-stage canvas { display:block; width:100%; height:100%; }
 .de-world-view { position:absolute; overflow:hidden; pointer-events:none; isolation:isolate; z-index:0; }
 .de-world-layer,.de-world-avatars { position:absolute; inset:0; pointer-events:none; }
-.de-world-layer[data-layer=objects] { z-index:1; }
-.de-world-avatars { z-index:2; }
+/* objects and avatars z-sort together (src/world/depth.ts): their layers make no stacking context; the front layer's
+   z-index is set by WorldRenderer (30724, the original's front-object key) */
 .de-world-avatars .de-avatar { pointer-events:auto; }
-.de-world-layer[data-layer=front] { z-index:3; }
 .de-world-image,.de-world-tile { position:absolute; display:block; pointer-events:none; max-width:none; }
 .de-world-tile { overflow:hidden; }
 .de-world-tile>.de-world-image { position:relative; left:0; top:0; }
-.de-world-status { position:absolute; top:12px; left:25%; right:25%; z-index:5; color:white; background:#073e91bb; text-align:center; pointer-events:none; }
+.de-world-status { position:absolute; top:12px; left:25%; right:25%; z-index:2147483000; color:white; background:#073e91bb; text-align:center; pointer-events:none; }
 .de-world-status:empty { display:none; }
 .de-world-status button { pointer-events:auto; }
 .de-stage-layer { position:absolute; inset:0; }
@@ -256,6 +255,8 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .online-feature form { display:flex; gap:7px; flex-wrap:wrap; }
 .de-account-details { max-height:360px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
 .de-account-details>summary { cursor:pointer; font-weight:bold; }
+.de-title-foot { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); width:min(92%,560px); display:flex; flex-direction:column; gap:6px; align-items:center; z-index:2; }
+.de-title-foot>.de-account-details { width:100%; box-sizing:border-box; }
 .account-feature nav { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
 .account-feature form { display:flex; flex-direction:column; gap:8px; }
 .de-audio-details { max-height:300px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
