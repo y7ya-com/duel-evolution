@@ -10,7 +10,9 @@ const hostText = (page:Page) => page.ev(`${host}?.innerText ?? ''`) as Promise<s
 /** A card element of the screen: trunk / main / side / extra, by index or by name. */
 const cardEl = (zone:string,which:number|string) => typeof which === 'number'
   ? `document.querySelector('[data-zone="${zone}"][data-index="${which}"]')`
-  : `[...document.querySelectorAll('[data-zone="${zone}"]')].find(e=>e.getAttribute('aria-label')===${JSON.stringify(which)}&&e.getClientRects().length)`;
+  : `(()=>{const all=[...document.querySelectorAll('[data-zone="${zone}"]')].filter(e=>e.getAttribute('aria-label')===${JSON.stringify(which)}&&e.getClientRects().length);
+    /* the one a pointer reaches (main's trunk rows stand over the card art drawn under them) */
+    return all.find(e=>{const r=e.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return h&&(h===e||e.contains(h));})??all[0];})()`;
 const trunkShown = (page:Page) => page.ev(`[...new Set([...document.querySelectorAll('[data-zone="trunk"]')].filter(e=>e.getClientRects().length).map(e=>e.getAttribute('aria-label')))]`) as Promise<string[]>;
 const labelled = (label:string) => `[...${host}.querySelectorAll('[aria-label],button,input')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(label)}||e.textContent.trim()===${JSON.stringify(label)})&&e.getClientRects().length)`;
 const view = async (page:Page) => (await deckScreen(page))!;
@@ -19,8 +21,14 @@ const settle = (page:Page,cond:string,ms = 10000) => until(page,cond,ms).then(()
 async function drag(page:Page,from:string,to:string) {
   const at = async (sel:string) => page.ev(`(()=>{const b=${sel};if(!b)return null;const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`) as Promise<{ x:number; y:number } | null>;
   const a = await at(from), b = await at(to); expect(a && b,`${from} → ${to}`).toBeTruthy();
+  // the press lands on the card itself (nothing over it)
+  const hit = await page.ev(`(()=>{const f=${from},h=document.elementFromPoint(${a!.x},${a!.y});return f&&h&&(f===h||f.contains(h))?'':(h?h.tagName+'.'+h.className+' < '+(h.parentElement?.className??''):'nothing');})()`) as string;
+  expect(hit,`press on ${from}`).toBe('');
   await page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...a!,button:'left',clickCount:1 });
-  for (let i = 1; i <= 6; i++) await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',x:a!.x + (b!.x - a!.x) * i / 6,y:a!.y + (b!.y - a!.y) * i / 6,button:'left' });
+  // a hand's drag spans frames: the screen draws the held card (and opens its drop zones) between the moves
+  await page.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+  for (let i = 1; i <= 6; i++) { await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',x:a!.x + (b!.x - a!.x) * i / 6,y:a!.y + (b!.y - a!.y) * i / 6,button:'left' }); await sleep(30); }
+  await page.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   await page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...b!,button:'left',clickCount:1 });
   await sleep(500);
 }

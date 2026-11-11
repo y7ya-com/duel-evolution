@@ -38,6 +38,7 @@ const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBa
 // whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
 // lists): clicked on release
 // result.js (pass mode on main) replaces its Next plate on each look too: Return to Lobby is clicked on release
+const DECK_PANELS = /^(CWindowModelDeck|CWindowModelKaban|CCardDetailViewDlg)$/;
 const DUEL_DIALOGS = new Set([...duel.classes, ...result.classes]);
 const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
@@ -170,7 +171,8 @@ export class HtmlUiLayer {
     this.render(snap, new Set(windows.map(w => w.id)), this.api);
     // a modal window (the deck screen's file lists and questions) stands at its depth over the deck's card layer
     // (deck-dom.ts: each window's cards at that window's depth, beside main's layer), as the engine draws it over them
-    for (const w of windows) { const root = this.roots.get(w.id); if (root) { const z = w.modal && w.z ? String(w.z) : ''; if (root.style.zIndex !== z) root.style.zIndex = z; } }
+    // (the deck screen's own panels stay under their cards)
+    for (const w of windows) { const root = this.roots.get(w.id); if (root) { const z = w.modal && w.z && !DECK_PANELS.test(w.cls) ? String(w.z) : ''; if (root.style.zIndex !== z) root.style.zIndex = z; } }
     this.host.hidden = !windows.length;
     this.bubbles();
     this.pageModules();
