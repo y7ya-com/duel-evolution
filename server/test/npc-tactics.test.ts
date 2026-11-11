@@ -264,8 +264,8 @@ describe("NPC decisions from the first day of production duels", () => {
     myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 3, myHand: 2, myHandTributes: 0, myRemoved: 0, myTurn: false, oppEndPhase: false,
     attackAtk: 0, attackLethal: false, attackOnDefense: false, oppChained: false, myNames: [] };
   const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
-  const chain = (codes: number[], opp: { szone?: unknown[] } = {}) => {
-    const sel = select("SELECT_CHAIN", [], [mon(1800)], { turn_player: 1, phase: 4, forced: false,
+  const chain = (codes: number[], opp: { szone?: unknown[] } = {}, more: Record<string, unknown> = {}) => {
+    const sel = select("SELECT_CHAIN", [], [mon(1800)], { turn_player: 1, phase: 4, forced: false, ...more,
       selects: codes.map((code, sequence) => ({ code, controller: 0, location: 8, sequence, position: 10, description: 0 })) });
     (sel.view.players[0] as { szone: unknown[] }).szone = codes.map((code, sequence) => ({ code, position: 10, sequence }));
     if (opp.szone) (sel.view.players[1] as { szone: unknown[] }).szone = opp.szone;
@@ -308,8 +308,8 @@ describe("NPC decisions from the first day of production duels", () => {
     bot.observe({ ev: "msg", type: "CHAINING", code: C.pot, controller: 1, location: 8, sequence: 0 });
     const theirs = { szone: [{ code: C.pot, position: 5, sequence: 0 }] };
     expect(bot.choose(chain([C.mst], theirs))?.index).toBe(null);
-    // a set card of theirs beside it is still a target
-    expect(bot.choose(chain([C.mst], { szone: [...theirs.szone, { code: 0, position: 10, sequence: 1 }] }))?.index).toBe(0);
+    // a set card of theirs beside it is still a target (in their End Phase, the window MST answers a set card in)
+    expect(bot.choose(chain([C.mst], { szone: [...theirs.szone, { code: 0, position: 10, sequence: 1 }] }, { phase: 0x200 }))?.index).toBe(0);
   });
 
   it("does not activate a Field Spell over its own face-up copy", () => {
