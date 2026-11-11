@@ -44,6 +44,8 @@ export const CLIENT_CSS = `
 .de-scroll { overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; }
 .de-note { color:#376384; font-size:12px; }
 .de-error { padding:8px 12px; background:#fff1d4; color:#922b17; border:1px solid #c58d42; }
+/* the reconnecting notice: a small strip in the Legacy windows' frame colours, never over the play area's middle */
+.de-net-notice { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:90; pointer-events:none; padding:4px 14px; font:12px/1.4 sans-serif; color:#f6ead2; background:rgba(28,22,14,.86); border:1px solid #c58d42; border-radius:3px; box-shadow:0 1px 4px rgba(0,0,0,.4); white-space:nowrap; }
 .de-notice { position:absolute; top:8px; left:20%; right:20%; z-index:30; text-align:center; pointer-events:none; }
 .de-nav { display:flex; gap:5px; padding:7px; background:linear-gradient(#d7ffff,#4bb9ed 20%,#247bc9); border:1px solid #104eaa; overflow:auto; }
 .de-nav button[aria-current=page] { background:linear-gradient(#fffbd0,#f2cd51); }

@@ -1079,6 +1079,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         const npc = state.npc; stage.append(renderNpcFeature(npc, command => { if (controller.getState().npc !== npc) { local.message = 'This NPC interaction has changed.'; requestRender(); return; } send(command); }, { busy: state.busy, htmlPackSelect: !!htmlUi, packName: id => state.packNames?.[id], resolveCard: id => state.npcCardViews?.[id], renderCard: card => drawCard(card) }));
       }
       // the message itself is main's error dialog (duelPrompts); the strip stays as the screen reader's live region only
+      if (state.net?.reconnecting || state.connection === 'reconnecting') {
+        const net = state.net, text = net?.what === 'duel' ? 'Connection lost. Returning to the duel' : 'Connection lost. Reconnecting';
+        const notice = el('div', 'de-net-notice', `${text}${net?.attempt ? ` (try ${net.attempt + 1})` : ''}…`); notice.setAttribute('role', 'status'); notice.dataset.key = 'net-reconnecting'; stage.append(notice);
+      }
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
       // the same thing, then the rewrite's own scenes (Find Player, Shop), the way back to a duel or the lobby, and

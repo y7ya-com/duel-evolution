@@ -55,6 +55,9 @@ export interface SessionState {
   pbin?:Uint8Array; npcbin?:Uint8Array;
   players: Player[]; areas: Area[]; npcs: Npc[]; rooms: DuelRoom[]; chat: SessionChat[]; area: number; areaBlock: number;
   duelOffer: DuelOffer | null; challenge: DuelChallenge | null; outgoingChallengeRoom: number | null; spectating: boolean;
+  /** Live's window.yo2Net (ovr/lobbyretry.c, ovr/duelreattach.c): a lost lobby or duel connection being re-made, and
+   *  the failures in a row so far. `what` says which: the lobby (back to the same area or My Room) or the duel. */
+  net?: { reconnecting: boolean; attempt: number; what: 'lobby' | 'duel' | null };
   /** A watched duel's two duelists, from its 0x6006 duel information (player 0 first). */
   watchNames?: [string, string] | null;
   /** The admin's tournament (0x51xx, network/tournament.ts) and the event state (EVENTINFO 0x5000), once the server sent them. */
@@ -73,6 +76,17 @@ export interface SessionOptions extends Omit<GatewayOptions, 'onMessage' | 'onSt
 }
 interface RightsRefresh { account:Channel; slot:number; epoch:number; promise:Promise<void> }
 const EMPTY = () => new Uint8Array(0);
+/** Live's reconnect numbers (client/recomp/ovr/duelreattach.c, lobbyretry.c), the same backoff, limits and windows.
+ *  Duel: re-attach tries 1, 2, 4, 8 s apart (then 8) for up to 40 s (the server keeps the duel 45 s, DUEL_GRACE), at most
+ *  3 cuts in one duel. Lobby: My Room / area tries 1, 2, 4, 8, then 15 s apart, the box after 15 failures in a row
+ *  (about 3 minutes: a deploy refuses connections for up to 2), or on a 4th drop within 2 minutes; an area is tried 3
+ *  times before My Room. */
+export const RECONNECT = { duelWaitsS:[1,2,4,8], duelWindowMs:40_000, duelMaxCuts:3,
+  lobbyWaitsS:[1,2,4,8,15], lobbyMaxFails:15, lobbyMaxDrops:3, lobbyDropWindowMs:120_000, areaTries:3 } as const;
+const TRANSPORT_LOSS = /^(Gateway connection closed|Gateway connection timed out|Gateway resume window expired|Server could not resume the game connection|The server is updating \(4012\)\.)$/;
+/** The server closed that one virtual socket (or it did not come back with a resume): live's per-socket cut. */
+const CHANNEL_CUT = /^(Server closed virtual channel|Virtual channel was not resumed)$/;
+const DUEL_PHASES: readonly SessionPhase[] = ['preparing-duel','rock-paper-scissors','choose-first','duel','sideboarding'];
 /** Result codes the original client words itself: login (server/src/game/hub.ts AUTH_*) and character creation
  * (server/src/game/accounts.ts REG_NAME_*, the 2008 client's own wording). */
 const RESULT_TEXT: Record<string, Record<number, string>> = {
@@ -149,7 +163,7 @@ function decodeRooms(data: Uint8Array): DuelRoom[] {
 
 /** Independent session lifecycle over the existing server, without a guest executable or memory bridge. */
 export class GameSession {
-  readonly gateway: GatewayClient;
+  gateway: GatewayClient;
   readonly state: SessionState = {
     location:'world',lobbyTransition:null,returnArea:null,appearanceWorld:0,
     phase: 'idle', connection: 'idle', characters: [], servers: [], selectedSlot: null, profile: null,
@@ -183,24 +197,186 @@ export class GameSession {
   private listNpcs: Npc[] = [];
   private listRooms: DuelRoom[] = [];
   private readonly blob: Uint8Array;
+  // ---- reconnect (live's ovr/duelreattach.c + ovr/lobbyretry.c)
+  /** The duel's pid, its 0x6202s received since the booked check, its duel port, cuts so far; inDuel: a booked duel. */
+  private duelRe = { pid:0, commands:0, port:0, cuts:0, inDuel:false, on:false, tries:0, deadline:0, epoch:0,
+    timer:null as ReturnType<typeof setTimeout> | null };
+  /** joined: a character reached a lobby once (what a reconnect returns to). */
+  private lobbyRe = { joined:false, on:false, fails:0, drops:[] as number[], areaTries:0, epoch:0,
+    target:null as { port:number; area:number } | null, timer:null as ReturnType<typeof setTimeout> | null };
   constructor(readonly options: SessionOptions) {
     this.blob = options.loginBlob?.slice() ?? new Uint8Array(32);
     if (this.blob.length !== 32) throw new RangeError('Login blob must be 32 bytes');
-    this.gateway = new GatewayClient({ ...options,
-      onMessage: (channel, message) => { this.receive(channel, message); options.onMessage?.(channel, message); },
+    this.gateway = this.makeGateway();
+  }
+  /** A gateway whose callbacks only count while it is this session's (a reconnect replaces it). */
+  private makeGateway(): GatewayClient {
+    const options = this.options;
+    const gateway: GatewayClient = new GatewayClient({ ...options,
+      onMessage: (channel, message) => {
+        if (gateway !== this.gateway) return;
+        if (channel === this.duel && message.id === 0x6202 && this.duelRe.inDuel) this.duelRe.commands++;
+        this.receive(channel, message); options.onMessage?.(channel, message);
+      },
       onStatus: (status, error) => {
+        if (gateway !== this.gateway || this.disposed) return;
+        // a lost transport only (a closed socket, a refused or expired resume, 4012), never a protocol error the client caught
+        if (status === 'error' && TRANSPORT_LOSS.test(error?.message ?? '') && this.startLobbyRetry(error!.message)) return;
         this.state.connection = status;
-        if (status === 'error' && !this.disposed) { this.state.phase = 'error'; this.state.error = error?.message ?? 'Connection failed'; }
+        if (status === 'error') { this.state.phase = 'error'; this.state.error = error?.message ?? 'Connection failed'; }
         this.emit();
       },
       onChannelClose: (channel, error) => {
-        if (this.disposed || channel !== this.lobby && channel !== this.duel) return;
+        if (gateway !== this.gateway || this.disposed || channel !== this.lobby && channel !== this.duel) return;
+        if (channel === this.duel) {
+          this.duel = null; this.stopWatchPolling();
+          // the gateway itself failing is the lobby retry's (onStatus); a duel connection cut on its own re-attaches
+          if (CHANNEL_CUT.test(error.message) && this.startDuelReattach()) { this.emit(); return; }
+          this.duelRe.inDuel = false;
+        }
+        if (channel === this.lobby) {
+          this.lobby = null;
+          if (CHANNEL_CUT.test(error.message) && this.startLobbyRetry(error.message)) return;
+          this.state.phase = 'error';
+        }
         this.state.error = error.message;
-        if (channel === this.lobby) { this.lobby = null; this.state.phase = 'error'; }
-        if (channel === this.duel) { this.duel = null; this.stopWatchPolling(); }
         this.emit();
       },
     });
+    return gateway;
+  }
+  private setNet(reconnecting: boolean, attempt: number, what: 'lobby' | 'duel' | null): void {
+    this.state.net = { reconnecting, attempt, what: reconnecting ? what : null };
+  }
+  /** duelreattach.c rc_duel_cut: a duel connection the server cut mid-duel re-attaches (0x6001 pid + the count of 0x6202s
+   *  received) instead of ending the duel. False = not ours to take (no duel, a spectator, or a 4th cut this duel). */
+  private startDuelReattach(): boolean {
+    const re = this.duelRe;
+    if (!re.inDuel || !re.pid || this.state.spectating || this.state.duelRole !== 'player' || !DUEL_PHASES.includes(this.state.phase)) return false;
+    if (re.on) return true;
+    if (re.cuts >= RECONNECT.duelMaxCuts) return false;
+    re.cuts++; re.on = true; re.tries = 0; re.deadline = Date.now() + RECONNECT.duelWindowMs; const epoch = ++re.epoch;
+    this.setNet(true, 0, 'duel');
+    void this.reattachDuel(epoch);
+    return true;
+  }
+  private async reattachDuel(epoch: number): Promise<void> {
+    const re = this.duelRe;
+    if (this.disposed || epoch !== re.epoch || !re.on) return;
+    if (Date.now() > re.deadline) return this.duelLost('The duel connection was lost.');
+    try {
+      await this.gateway.connect();
+      const channel = await this.gateway.open(re.port);
+      if (this.disposed || epoch !== re.epoch) { channel.close(); return; }
+      this.duel = channel;
+      if (this.options.freeMode) channel.send(0xca10, Uint8Array.of(1));
+      const booked = await channel.request(0x6001, new BinaryWriter().u32(re.pid).u32(re.commands).bytes(), 0x6007);
+      if (this.disposed || epoch !== re.epoch) return;
+      // the 0x6007's booked bit clear: the server no longer has this duel
+      if (!(new BinaryReader(booked.data).i32() & 1)) return this.duelLost('The duel is over: the server no longer has it.');
+      re.on = false; this.setNet(false, 0, null); this.state.error = null; this.emit();
+    } catch {
+      if (this.disposed || epoch !== re.epoch || !re.on) return;
+      if (this.duel && this.duel.closed) this.duel = null;
+      const wait = RECONNECT.duelWaitsS[Math.min(re.tries, RECONNECT.duelWaitsS.length - 1)] * 1000; re.tries++;
+      this.setNet(true, re.tries, 'duel'); this.emit();
+      if (Date.now() > re.deadline) return this.duelLost('The duel connection was lost.');
+      re.timer = setTimeout(() => { re.timer = null; void this.reattachDuel(epoch); }, wait);
+    }
+  }
+  /** Past 40 s, a refused re-attach: live's "disconnected" box, which the duel screen shows as the duel's error. */
+  private duelLost(reason: string): void {
+    const re = this.duelRe; re.on = false; re.inDuel = false; re.epoch++;
+    if (re.timer) clearTimeout(re.timer); re.timer = null;
+    const duel = this.duel; this.duel = null; try { duel?.close(); } catch { /* already gone */ }
+    this.setNet(false, 0, null); this.state.error = reason; this.emit();
+  }
+  /** lobbyretry.c: a lobby connection (or the whole game connection: a gateway lost past its resume, a deploy's 4012)
+   *  lost in an area or My Room reconnects to the same place. False = not ours (never joined, or a 4th drop in 2 min). */
+  private startLobbyRetry(reason: string): boolean {
+    const re = this.lobbyRe;
+    if (this.disposed || !re.joined || this.state.selectedSlot === null || !this.state.profile) return false;
+    if (re.on) return true;
+    const now = Date.now(); re.drops = re.drops.filter(t => now - t <= RECONNECT.lobbyDropWindowMs);
+    if (re.drops.length >= RECONNECT.lobbyMaxDrops) return false;
+    re.drops.push(now); re.on = true; re.fails = 0; re.areaTries = 0; const epoch = ++re.epoch;
+    re.target = this.state.location === 'world' && this.cachedWorld ? { port:this.cachedWorld.port, area:this.state.area } : null;
+    // a duel the whole connection took with it is gone (the server gives it its grace, then the result)
+    if (this.gateway.status === 'error' || this.gateway.status === 'closed') {
+      this.duelRe.epoch++; this.duelRe.on = false; this.duelRe.inDuel = false; if (this.duelRe.timer) clearTimeout(this.duelRe.timer);
+      this.duel = null; this.account = null; this.lobby = null;
+    }
+    if (DUEL_PHASES.includes(this.state.phase) || this.state.phase === 'changing-lobby') {
+      this.state.match = null; this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
+    }
+    this.lobbyMove = null; this.lobbyEpoch++; this.state.lobbyTransition = null;
+    this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null; this.state.spectating = false; this.stopWatchPolling();
+    this.state.matchmaking = { ...this.state.matchmaking, status:'idle', opponent:null };
+    this.state.connection = 'reconnecting'; this.state.phase = 'lobby'; this.state.error = null;
+    this.setNet(true, 0, 'lobby'); this.emit();
+    void reason; void this.rejoinLobby(epoch);
+    return true;
+  }
+  private async rejoinLobby(epoch: number): Promise<void> {
+    const re = this.lobbyRe;
+    const current = () => { if (this.disposed || epoch !== re.epoch) throw new DOMException('Reconnect changed', 'AbortError'); };
+    try {
+      if (this.gateway.status !== 'connected' && this.gateway.status !== 'reconnecting' || !this.account || this.account.closed) {
+        const old = this.gateway; this.gateway = this.makeGateway(); old.dispose();
+        this.account = null; this.lobby = null; this.duel = null;
+        await this.gateway.connect(); current();
+        const accountPort = this.state.servers.find(s => s.kind === 1)?.port;
+        if (accountPort === undefined) throw new Error('Server did not advertise accounts');
+        const account = await this.gateway.open(accountPort - (this.options.portOffset ?? 0)); current();
+        await this.authenticate(account); current(); this.account = account;
+        await this.refreshCharacters(); current();
+        await account.request(0x3100, Uint8Array.of(this.state.selectedSlot!), 0x3103); current();
+        await this.refreshPlayerBits(); current();
+      }
+      const toArea = !!re.target && re.areaTries < RECONNECT.areaTries;
+      if (toArea) re.areaTries++;
+      await this.joinLobby(toArea ? re.target : null, current);
+      re.on = false; re.fails = 0; re.target = null; this.state.connection = 'connected'; this.setNet(false, 0, null); this.state.error = null;
+      this.phase('lobby');
+    } catch (error) {
+      if (this.disposed || epoch !== re.epoch) return;
+      re.fails++;
+      if (re.fails >= RECONNECT.lobbyMaxFails) {
+        re.on = false; this.setNet(false, re.fails, null);
+        this.state.connection = 'error'; this.report(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      const wait = RECONNECT.lobbyWaitsS[Math.min(re.fails - 1, RECONNECT.lobbyWaitsS.length - 1)] * 1000;
+      this.setNet(true, re.fails, 'lobby'); this.state.connection = 'reconnecting'; this.emit();
+      re.timer = setTimeout(() => { re.timer = null; void this.rejoinLobby(epoch); }, wait);
+    }
+  }
+  /** Back into a lobby after a drop: the world lobby's area the player was in (as a door does), or My Room. */
+  private async joinLobby(target: { port:number; area:number } | null, current: () => void): Promise<void> {
+    const slot = this.state.selectedSlot!, room = this.state.servers.find(s => s.kind === 3 && s.roomKind === 12);
+    if (!target && !room) throw new Error('Server did not advertise My Room');
+    const port = target ? target.port : room!.port - (this.options.portOffset ?? 0);
+    try { this.lobby?.close(); } catch { /* gone */ }
+    this.lobby = null;
+    this.pendingPosition = null; this.myRoomPosition = null; this.state.players = []; this.state.areas = []; this.state.npcs = []; this.state.rooms = [];
+    this.listPlayers = []; this.listNpcs = []; this.listRooms = [];
+    this.joiningRoomKind = target ? this.state.servers.find(s => s.port - (this.options.portOffset ?? 0) === port)?.roomKind ?? 14 : 12;
+    const channel = await this.gateway.open(port); current(); this.lobby = channel;
+    await this.authenticate(channel); current();
+    checkResult(await channel.request(0x4100, Uint8Array.of(this.options.language ?? 1, slot), 0x4101), 'Character lobby'); current();
+    await channel.request(0x4200, EMPTY(), 0x4201); current();
+    const area = target ? this.state.areas.find(a => a.area === target.area) : this.state.areas[0];
+    await channel.request(0x4202, Uint8Array.of(target && area ? area.block : 0, target && area ? 1 : 0), 0x4213); current();
+    const character = this.state.characters.find(c => c.slot === slot);
+    if (!character) throw new Error('Select an existing character');
+    if (target) this.state.appearanceWorld = this.state.area >= 4 && this.state.area <= 7 ? 1 : 0;
+    const worlds: (0|1)[] = target ? [this.state.appearanceWorld] : [this.state.appearanceWorld === 0 ? 1 : 0, this.state.appearanceWorld];
+    for (const world of worlds) { await channel.request(0x4170, new BinaryWriter().u32(world).raw(this.lookOf(character, world)).u32(0).bytes(), 0x4171); current(); }
+    await channel.request(0x4214, EMPTY(), 0x4217); current();
+    if (target) { await this.refreshNpcs(); current(); }
+    await this.refreshRooms(); current();
+    this.state.location = target ? 'world' : 'my-room';
+    if (target) { this.cachedWorld = { port, area:this.state.area }; this.state.returnArea = this.state.area; }
   }
   private emit(): void { if (!this.disposed) this.options.onState?.(this.state); }
   private phase(phase: SessionPhase): void { this.state.phase = phase; this.emit(); }
@@ -287,7 +463,7 @@ export class GameSession {
       await this.refreshNpcs(); await this.refreshRooms();
       this.state.location = this.joiningRoomKind === 12 ? 'my-room' : 'world';
       if (this.state.location === 'world') this.cachedWorld = {port,area:this.state.area};
-      this.phase('lobby');
+      this.lobbyRe.joined = true; this.phase('lobby');
     } catch (error) {
       if (this.disposed || selectionEpoch !== this.rightsEpoch) throw new DOMException('Character selection changed','AbortError');
       this.report(error); throw error;
@@ -575,8 +751,10 @@ export class GameSession {
     if (this.options.freeMode) this.duel.send(0xca10, Uint8Array.of(1));
     // A relay partner receives buffered preparation immediately on attach, before 6007.
     const prepared = this.duel.waitFor(0x6005); void prepared.catch(() => {});
+    // duelreattach.c f_006917b0: the booked check starts a duel: its pid, a zero count, no cuts yet
+    Object.assign(this.duelRe, { pid:this.state.profile.pid, commands:0, port, cuts:0, inDuel:true, on:false });
     const booked = await this.duel.request(0x6001, new BinaryWriter().u32(this.state.profile.pid).bytes(), 0x6007);
-    if (new BinaryReader(booked.data).i32() !== 1) throw new Error('Duel reservation refused');
+    if (new BinaryReader(booked.data).i32() !== 1) { this.duelRe.inDuel = false; throw new Error('Duel reservation refused'); }
     this.uploadDeck(deck);
     this.duel.send(0x600b); await prepared;
     this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
@@ -636,6 +814,7 @@ export class GameSession {
   async finishDuel(): Promise<void> {
     if (this.state.match && !this.state.match.complete) throw new Error('Complete the match before returning to the lobby');
     this.stopWatchPolling(); this.state.spectating = false; this.state.relay = null; this.state.duelRole = 'player'; this.state.duelOffer = null; this.state.challenge = null; this.state.outgoingChallengeRoom = null;
+    this.duelRe.inDuel = false; this.duelRe.on = false; this.duelRe.epoch++;   // the client's own bye ends the duel (f_0068cf60)
     const duel = this.duel; this.duel = null; duel?.close();
     this.state.duelFirst = null; this.state.opponentHand = null; this.state.rpsLost = false;
     this.state.matchmaking = { ...this.state.matchmaking,status:'idle',opponent:null };
@@ -792,6 +971,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true; this.lobbyEpoch++; this.lobbyMove = null; this.accountPing = null; this.state.lobbyTransition = null; this.rightsEpoch++; this.rightsRefresh = null; this.rightsInFlight = null; this.rightsNeedsBarrier = true; this.stopWatchPolling();
     if (this.heartbeat) clearInterval(this.heartbeat); this.heartbeat = null;
+    for (const re of [this.duelRe, this.lobbyRe]) { re.on = false; re.epoch++; if (re.timer) clearTimeout(re.timer); re.timer = null; }
     // Goodbye before closing clears the server's 90-second "already in use" lease on intentional exits.
     for (const channel of [this.account, this.lobby, this.duel]) try { channel?.close(); } catch { /* transport already gone */ }
     this.gateway.dispose(); this.account = null; this.lobby = null; this.duel = null;
