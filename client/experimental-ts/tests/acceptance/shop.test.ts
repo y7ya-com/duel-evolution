@@ -171,7 +171,7 @@ describe.skipIf(!enabled)('shop, card-get and cosmetics against the real server'
       await until(a,`!${WD}.querySelector('.wd-equip').disabled`,10000);
       await press(a,`${WD}.querySelector('.wd-equip')`);
       await until(a,`${tile}?.hasAttribute('data-equipped')`,30000);
-      const equipNote = await a.ev(`${WD}.innerText.match(/Equipped\. [^\n]*/)?.[0] ?? ''`) as string;
+      const equipNote = await a.ev(`${WD}.innerText.match(/Equipped\\. [^\\n]*/)?.[0] ?? ''`) as string;
       const look1 = await lookNow(a);
       expect(look1).not.toEqual(look0);
       await press(a,`${WD}.querySelector('.wd-close')`); await until(a,`!${WD}`,10000);
