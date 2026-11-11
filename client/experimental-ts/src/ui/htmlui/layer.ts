@@ -66,12 +66,13 @@ export class HtmlUiLayer {
     this.host.id = 'htmlui-host';
     this.host.dataset.rewrite = '';
     // main's text boxes never take the pointer: on main the engine has it in pass mode, here a label's box (Select
-    // Player's 128-wide level) would cover the button beside it
+    // Player's 128-wide level) would cover the button beside it. A CWindowTaskText is two boxes (controls/basic.js
+    // TEXT: an unclassed control box around the .txt), both let the pointer through
     if (!document.getElementById('htmlui-rewrite-css')) {
       const st = document.createElement('style'); st.id = 'htmlui-rewrite-css';
       // the layer stands over the rewrite's own overlays (its card-get, NPC and appearance panels), as main's stands
       // over everything the engine draws
-      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] .txt { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
+      st.textContent = '#htmlui-host[data-rewrite] { z-index: 45; } #htmlui-host[data-rewrite] :is(.txt, .win div:not([class]):has(> .txt):not(:has(button, input, textarea, [data-key]))) { pointer-events: none; } #htmlui-host[data-rewrite] :is(.shop-btn, .win[data-window-class^="CWindowTaskCardArea"] button, .win[data-window-class="CWindowModelTrade"] button) { pointer-events: auto; } #htmlui-host[data-rewrite] .win[data-window-class="CWindowTaskCardArea"] { pointer-events: auto !important; }';
       document.head.append(st);
     }
     document.body.append(this.host);
