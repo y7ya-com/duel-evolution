@@ -8,6 +8,8 @@ import { browserServerFixture } from './browser-server-fixture';
 import { launch } from '../../web-shell/htmlui/tools/cdp.mjs';
 
 type Browser = Awaited<ReturnType<typeof launch>>;
+/** In the lobby: main's menu bar with its Duel key (the lobby is main's Legacy HTML UI, src/ui/htmlui/lobby.ts). */
+const LOBBY = `!!document.querySelector('[data-key="menubar-duel"]')`;
 async function until(browser:Browser,condition:string,timeout = 20000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -56,7 +58,7 @@ describe('actual headless browser against real game authority',() => {
       await click(browser,'OK',viewport.mobile);
       await until(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].some(b=>b.textContent.includes('Browser Duelist')&&!b.disabled)`);
       await activate(browser,`[...document.querySelectorAll('[data-key^="character-slot:"]')].find(b=>b.textContent.includes('Browser Duelist'))`,viewport.mobile);
-      await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
+      await until(browser,LOBBY,30000);
       // Claim through the actual server handler if this character is offered a starter deck.
       await until(browser,`![...document.querySelectorAll('button')].some(b=>b.textContent==='Create Duel'&&b.disabled)`);
       const starter = await browser.ev(`document.body.innerText.includes('Choose your Starter Deck')`);
@@ -69,7 +71,14 @@ describe('actual headless browser against real game authority',() => {
       await click(browser,'Start Recording',viewport.mobile);
       await until(browser,`document.querySelector('[data-key="options-capture"]')?.textContent.includes('recording ·')`);
       await click(browser,'Back',viewport.mobile);
-      await click(browser,'NPC Duelists',viewport.mobile); await click(browser,fixture.npcName,viewport.mobile);
+      // main's player list: its search's Show all lists the NPCs too; the NPC's row opens its card, whose Send Duel Request starts the talk
+      const row = `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(fixture.npcName)}&&b.getClientRects().length)`;
+      await until(browser,`document.querySelector('[data-key="plist-search"]')`); await activate(browser,`document.querySelector('[data-key="plist-search"]')`,viewport.mobile);
+      const showAll = `[...document.querySelectorAll('#htmlui-host .ds-row')].find(b=>b.textContent.trim()==='Show all')`;
+      await until(browser,showAll); await activate(browser,showAll,viewport.mobile);
+      await until(browser,row); await activate(browser,row,viewport.mobile);
+      const npcDuel = `[...document.querySelectorAll('[data-key^="npc-duel:"]')].find(b=>!b.disabled)`;
+      await until(browser,npcDuel,30000); await activate(browser,npcDuel,viewport.mobile);
       const npcConfirm = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Duel NPC'&&!b.disabled)`;
       const npcContinue = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>b.textContent==='Continue'&&!b.disabled)`;
       // Known NPCBIN context can introduce source opening dialogue before the actual duel confirmation.
@@ -123,7 +132,7 @@ describe('actual headless browser against real game authority',() => {
       const account = fixture.gameServer.game.store.accountOfUser('browser-fixture-user')!;
       const profile = fixture.gameServer.game.store.peek().accounts![account].profiles!['0'];
       expect(profile.last_npc_end).toMatchObject({ npc:51,result:'lose' });
-      await click(browser,'Return to Lobby',viewport.mobile); await until(browser,`document.querySelector('[data-key="lobby-npcs"]')`);
+      await click(browser,'Return to Lobby',viewport.mobile); await until(browser,LOBBY,30000);
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
       await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
       await click(browser,'Stop Recording',viewport.mobile);
