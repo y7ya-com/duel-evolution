@@ -215,7 +215,9 @@ describe('independent client against actual server/World', () => {
     } finally { session.dispose(); setDuelCore(null); }
   },15000);
 
-  it('interoperates with native MD5 room-password bytes in both directions, including all 16 password bytes', async () => {
+  // Main's server (93ea733 / b70a104): open duels, no room passwords. The client still sends native MD5 bytes, but the
+  // server stores a zero digest, never sets the room's pw flag, and lets any challenger (any password) through.
+  it('sends native MD5 room-password bytes, which main\'s password-free server ignores in both directions', async () => {
     const a = setup(undefined,'password-a'), b = setup(a.server,'password-b'), password = Array.from({ length: 16 }, (_, i) => String(i % 10)).join('');
     try {
       for (const [session,name] of [[a.session,'Password A'],[b.session,'Password B']] as const) {
@@ -223,19 +225,17 @@ describe('independent client against actual server/World', () => {
       }
       await drive(a.session.createDuelRoom({ password }));
       let room = a.session.state.rooms.find(r => r.owner === a.session.state.profile!.pid)!;
-      expect(a.server.game.lp.mem.rooms.get(room.id)!.pwd).toEqual(new Uint8Array(createHash('md5').update(password,'latin1').digest()));
-      // Native reqMatch sends MD5(password), never the plaintext or a padded password.
+      expect(a.server.game.lp.mem.rooms.get(room.id)!.pwd).toEqual(new Uint8Array(16));
+      expect(a.server.game.lp.mem.rooms.get(room.id)!.pw).toBe(false);
       b.session.sendLobby(0x4300,new BinaryWriter().u32(room.id).raw(createHash('md5').update(password,'latin1').digest()).bytes());
       await vi.advanceTimersByTimeAsync(100); expect(a.session.state.challenge?.pid).toBe(b.session.state.profile!.pid);
       a.session.replyToChallenge(false); await vi.advanceTimersByTimeAsync(100); await drive(a.session.deleteDuelRoom());
-      // Native reqCreateRoom places the same 16-byte digest at byte 4; a TypeScript challenger must match it.
+      // A native reqCreateRoom with a digest at byte 4 still opens an open room: a wrong password reaches the owner.
       const payload = new BinaryWriter().u8(3).u8(0).u8(0).u8(1).raw(createHash('md5').update(password,'latin1').digest())
         .u8(0).u8(1).u8(1).u8(1).u32(0).bytes();
       await drive(a.session.lobby!.request(0x4288,payload,0x428a)); await drive(a.session.refreshRooms());
       room = a.session.state.rooms.find(r => r.owner === a.session.state.profile!.pid)!;
       b.session.challengeRoom(room.id,'wrong'); await vi.advanceTimersByTimeAsync(100);
-      expect(a.session.state.challenge).toBeNull(); expect(b.session.state.error).toBe('That room no longer exists.(-495)');
-      b.session.challengeRoom(room.id,password); await vi.advanceTimersByTimeAsync(100);
       expect(a.session.state.challenge?.pid).toBe(b.session.state.profile!.pid);
       a.session.replyToChallenge(false); await vi.advanceTimersByTimeAsync(100);
     } finally { a.session.dispose(); b.session.dispose(); }
