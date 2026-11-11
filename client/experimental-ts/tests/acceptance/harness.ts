@@ -198,7 +198,9 @@ export function record(flow:string,observation:{ actions:string; expected:string
   appendFileSync(resolve(EVIDENCE_DIR,'runs.jsonl'),JSON.stringify({ flow,at:new Date().toISOString(),commit:commit(),dirty:dirtyTree(),test,...observation }) + '\n');
 }
 function dirtyTree():boolean { try { return execSync('git status --porcelain -- .',{ cwd:resolve(import.meta.dirname,'../..') }).toString().trim().length > 0; } catch { return true; } }
-export async function screenshot(page:Page,name:string) { mkdirSync('/tmp/acceptance',{ recursive:true }); writeFileSync(`/tmp/acceptance/${name}.png`,await page.shot()); }
+/** ACCEPTANCE_SHOTS: where screenshots go (default /tmp/acceptance). */
+const SHOTS = process.env.ACCEPTANCE_SHOTS ?? '/tmp/acceptance';
+export async function screenshot(page:Page,name:string) { mkdirSync(SHOTS,{ recursive:true }); writeFileSync(`${SHOTS}/${name}.png`,await page.shot()); }
 
 /** One move of a playing bot on the duel screen, through the same controls a player uses. On its own turn it inspects
  * each hand card once for a summon or set, enters the Battle Phase and attacks with each monster once, then ends the

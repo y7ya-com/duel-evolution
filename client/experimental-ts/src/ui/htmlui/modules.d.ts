@@ -38,6 +38,12 @@ declare module '@htmlui/screens/chat.js' {
   const screen: HtmlUiScreen; export default screen;
   export function owned(classes: string[], draw: (c: unknown, el: HTMLElement, api: HtmlUiApi, win: unknown) => unknown, background?: (win: unknown, el: HTMLElement) => void): HtmlUiScreen;
 }
+declare module '@htmlui/screens/deck.js' {
+  const screen: HtmlUiScreen; export default screen;
+  /** One window's drawing list: its items back to front, the holes the engine draws through, the items under them. */
+  export function plan(win: unknown, editor?: boolean): { items: { id: number; z: number; rect: { x: number; y: number; w: number; h: number }; draw(el: HTMLElement): void }[];
+    holes: { z: number; rect: { x: number; y: number; w: number; h: number } }[]; co: number[] };
+}
 declare module '@htmlui/screens/*.js' { const screen: HtmlUiScreen; export default screen; }
 declare module '@htmlui/mock/*.json' {
   const snapshot: { windows: { cls: string; x: number; y: number; w: number; h: number; controls: Record<string, unknown>[] }[] };

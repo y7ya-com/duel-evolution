@@ -30,6 +30,8 @@ export interface ControlHandlers {
   key?: string; label?: string;
   /** Whether the pointer gives it hover / pressed looks (buttons, tabs, icons). */
   hover?: boolean;
+  /** api.wheel: a notch on a list (main's native scrollers wheel the engine's list a line at a time). */
+  wheel?(delta: number): void;
 }
 export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers> }
 

@@ -12,12 +12,16 @@ import lobby from '@htmlui/screens/lobby.js';
 import social from '@htmlui/screens/social.js';
 import dialog from '@htmlui/screens/dialog.js';
 import duelsetup from '@htmlui/screens/duelsetup.js';
+import deck from '@htmlui/screens/deck.js';
 import { applyPointer, hitTest } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
  * draws on main that the rewrite draws with main's modules (the account dialogs: social.js's owned dialogs). */
-const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, dialog, duelsetup];
+const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, dialog, duelsetup];
+// the deck editor runs as main runs it, in pass mode: the mouse goes through its windows to the canvas, the engine's
+// (deck-stage.ts: the rewrite's #canvas under them)
+const PASS = new Set<HtmlUiScreen>([deck]);
 const EXTRA: Record<string, HtmlUiScreen> = {};
 // a window with no module: main's generic controls (bridge.js: syncWindow)
 const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(),
@@ -72,7 +76,7 @@ export class HtmlUiLayer {
       key: () => {},
       char: (code: number) => { if (code === 13) this.handlers.get(this.focus)?.enter?.(); },
       setText: (id: number, value: string) => { this.focus = id; this.handlers.get(id)?.text?.(value); },
-      setValue: () => {}, wheel: () => true, scroll: () => {}, text: () => '',
+      setValue: () => {}, wheel: (id: number, delta: number) => { this.handlers.get(id)?.wheel?.(delta); return true; }, scroll: () => {}, text: () => '',
       art: (path: string) => this.options.art + path,
     };
     // main's Main Menu asks the page's yo2Html for the scene (its Appearance entry) and a Modern UI switch: the
@@ -169,7 +173,7 @@ export class HtmlUiLayer {
   /** main's module, owned, with what the rewrite adds after each update: data-key / aria-label on the elements that
    * stand for the controls that have them (found by where they are: main's screens place one per control). */
   private wrap(mod: HtmlUiScreen): HtmlUiScreen {
-    return { ...mod, mode: 'owned',
+    return { ...mod, mode: PASS.has(mod) ? 'pass' : 'owned',
       mount: (win, root, api) => { this.roots.set((win as HtmlWindow).id, root); return mod.mount ? mod.mount(win, root, api) : new Map(); },
       update: (win, prev, root, api, st) => { mod.update?.(win, prev, root, api, st); this.tag(win as HtmlWindow, root); },
       unmount: (root, st) => { mod.unmount?.(root, st); for (const [id, r] of this.roots) if (r === root) this.roots.delete(id); } };

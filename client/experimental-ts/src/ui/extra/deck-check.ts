@@ -45,28 +45,3 @@ export function deckProblems(deck: DeckView, lookup: (passcode: number) => DeckC
   }
   return out;
 }
-
-/** The deck editor's Deck Check panel: a legal deck or each problem on its own line. */
-export function renderDeckCheck(problems: readonly DeckProblem[]): HTMLElement {
-  const root = document.createElement('section'); root.className = 'de-deck-check'; root.dataset.key = 'deck-check';
-  root.setAttribute('aria-label', 'Deck check'); root.dataset.legal = String(!problems.length);
-  const head = document.createElement('strong'); head.textContent = problems.length ? `Deck check: ${problems.length} problem${problems.length === 1 ? '' : 's'} · this deck cannot be used in a duel` : 'Deck check: legal for duels';
-  root.append(head);
-  if (problems.length) {
-    const list = document.createElement('ul');
-    for (const p of problems.slice(0, 40)) { const li = document.createElement('li'); li.textContent = p.message; li.dataset.rule = p.rule; list.append(li); }
-    if (problems.length > 40) { const li = document.createElement('li'); li.textContent = `…and ${problems.length - 40} more.`; list.append(li); }
-    root.append(list);
-  }
-  return root;
-}
-
-export const DECK_CHECK_CSS = `
-.de-deck-check { padding:4px 10px; border:1px solid #75a8c5; border-left:6px solid #2f9a53; background:#effcff; font-size:13px; max-height:96px; overflow:auto; flex:none; }
-.de-deck-check[data-legal=false] { border-left-color:#c8402f; background:#fff5ef; }
-.de-deck-check ul { margin:2px 0 0; padding-left:18px; }
-/* The collection grid keeps room for cards when the filters are open (they scroll instead). */
-.de-collection { overflow:auto; }
-.de-collection > .de-scroll { min-height:120px; }
-.de-collection > .de-deck-filters[open] { max-height:130px; }
-`;

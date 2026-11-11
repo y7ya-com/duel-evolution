@@ -871,9 +871,9 @@ export class ClientApp implements ClientController {
           if (!this.editor) throw new Error('Choose a deck first.');
           // A saved deck saved under another name is renamed: the new name is written (and made current) first, then the old one removed.
           const from = this.editor.savedName, to = this.editor.deck.name, saved = this.services.decks.state.data?.decks ?? [];
-          if (from !== to && saved.some(d => d.name === to)) throw new Error(`A deck named “${to}” already exists. Choose another name.`);
+          if (from !== to && command.as !== 'overwrite' && saved.some(d => d.name === to)) throw new Error(`A deck named “${to}” already exists. Choose another name.`);
           await this.services.saveEditor(this.editor, this.deckMode, { signal: this.connectionScope.signal });
-          if (from !== to && saved.some(d => d.name === from)) await this.services.deleteDeck(from, { signal: this.connectionScope.signal });
+          if (from !== to && !command.as && saved.some(d => d.name === from)) await this.services.deleteDeck(from, { signal: this.connectionScope.signal });
           await this.services.refreshDecks({ signal: this.connectionScope.signal }); this.syncEditor(); this.emit(); break;
         }
         case 'deleteDeck': {

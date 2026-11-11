@@ -1,7 +1,6 @@
 import type { DuelCardView, DuelView, CardView, ClientCommand, ClientController, ClientView, DeckZone, DuelPromptView, DuelResponse, Scene } from './contracts';
-import { deckCollection, sideboardDifference, defaultDeckFilters, parseDeckImport, MAX_DECK_IMPORT_BYTES } from './deck';
-import type { DeckCardType, DeckFilters, DeckSort } from './deck';
-import { deckPlacementReason, FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
+import { sideboardDifference } from './deck';
+import { FIELD_LAYOUT, fieldCardPosition, filterCollection, sortCollection, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
 import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
@@ -18,8 +17,6 @@ import { renderSocialFeature, renderTradeWindow } from './extra/social';
 import { renderOnlineFeature } from './extra/online';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { renderCardGet, CARD_GET_CSS } from './extra/card-get';
-import { deckProblems, renderDeckCheck, DECK_CHECK_CSS } from './extra/deck-check';
-import { renderCardDetails } from './extra/card-details';
 import { renderWallet, accessoryName, SHOP_DEPARTMENTS, WALLET_CSS } from './extra/wallet';
 import { renderCosmeticsShop, renderAppearanceEditor, appearanceOpen, openAppearance, COSMETICS_CSS } from './extra/cosmetics';
 import { Ids } from './htmlui/snapshot';
@@ -27,6 +24,8 @@ import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
 import { htmlUiLocal, htmlWindows } from './htmlui/windows';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
 import type { HtmlUiLayer } from './htmlui/layer';
+import { DeckScene } from './htmlui/deck-scene';
+import type { DeckStage } from './htmlui/deck-stage';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -77,26 +76,28 @@ interface LocalState {
   /** The duel log's scroll position while the reader is not at the bottom (null: follow new lines). */
   logScroll: number | null;
   tradeSearch: string;
-  message: string; search: string; collectionType: DeckCardType; collectionSort: DeckSort; deckFilters: DeckFilters; collectionPage: number; deckZone: DeckZone; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel'; inspectedIndex: number | null;
+  message: string; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel';
   promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
-  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; deckName: string; shopCategory: string;
+  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; shopCategory: string;
 }
 /** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
  * handlers the DOM's buttons and inputs call. */
-export interface HtmlUiDriver { windows(): WindowSpec[]; press(key: string): boolean; type(key: string, value: string): boolean; enter(key: string): boolean; text(): string }
+export interface HtmlUiDriver { windows(): WindowSpec[]; press(key: string): boolean; type(key: string, value: string): boolean; enter(key: string): boolean; text(): string;
+  /** The deck editor's mouse in game pixels, as main's canvas would take it (deck-scene.ts). */
+  game(type: 'down' | 'move' | 'up', x: number, y: number): void }
 export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUiDriver; }
 
 /** A fully disposable view. Networking, game rules and persistence are injected by the controller. */
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
-  let disposed = false, rendering = false, queued = false, importGeneration = 0, resetDraftsNextRender = false;
+  let disposed = false, rendering = false, queued = false, resetDraftsNextRender = false;
   let state = controller.getState();
   let queueSimilarLevel: boolean | null = null;
   let roomJoin: number | null = null, roomJoinPassword = '';
-  const local: LocalState = { message: '', search: '', collectionType: 'all', collectionSort: 'type', deckFilters: defaultDeckFilters(), collectionPage: 0, deckZone: 'main', inspected: null, inspectedFrom: 'collection', inspectedIndex: null, promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, deckName: '', shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
+  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, shopCategory: 'all', noticeSeen: 0, tradeSearch: '', logScroll: null };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
-  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + DECK_CHECK_CSS + WALLET_CSS + COSMETICS_CSS;
+  const extraCss = el('style'); extraCss.textContent = CARD_GET_CSS + WALLET_CSS + COSMETICS_CSS;
   host.append(css, extraCss, header, stage, nav); root.append(host);
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
@@ -147,11 +148,26 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return { mail: sd.mail.map(m => ({ from: m.fromName, fromPid: m.fromPid, subject: m.subject, body: m.body })),
       send: (toPid, subject, body) => send({ type: 'socialAction', action: { type: 'sendMail', toPid, subject, body } }) };
   };
-  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }) });
+  // the deck editor: main's deck screen (src/ui/htmlui/deck-scene.ts), its engine side on the layer (deck-stage.ts)
+  let deckStage: DeckStage | null = null, deckFile: HTMLInputElement | null = null;
+  const deckScene = new DeckScene({ state: () => state, send: command => send(command), rerender: () => showHtml(), leave: () => open('lobby'),
+    notice: message => { local.message = message; requestRender(); },
+    pickFile: (accept, then) => {
+      deckFile ??= Object.assign(el('input'), { type: 'file' }); deckFile.accept = accept; deckFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck');
+      deckFile.hidden = true; if (!deckFile.isConnected) host.append(deckFile);
+      deckFile.onchange = () => { const file = deckFile?.files?.[0]; if (deckFile) deckFile.value = ''; if (file) then(file); };
+      deckFile.click();
+    } });
+  const buildHtml = () => htmlWindows({ state, ui: htmlUiState, ids: htmlIds, send, rerender: showHtml, menu: menuView, social: socialLists(), mailBox: mailBox(), profileActions: profileActions(), cardActions: cardActions(), openPlayer: pid => send({ type: 'interact', playerId: pid }), deckWindows: () => deckScene.windows() });
   // the engine's scene ids main's page modules read (src/System/yo2SceneManager.h: 7 Select Player, 11 the lobby,
-  // 12 Free Duel's lobby, 14 the shop)
-  const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
-  const showHtml = () => { if (htmlUi && !disposed) htmlUi.show(buildHtml(), ['title', 'characters'].includes(state.scene), engineScene()); };
+  // 12 Free Duel's lobby, 14 the shop, 0x24 the deck editor)
+  const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
+  const showHtml = () => {
+    if (!htmlUi || disposed) return;
+    const specs = buildHtml(), deck = deckScene.stageView();
+    htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
+    deckStage?.show(specs, deck.detail, deck.drag);
+  };
   const htmlHandler = (key: string): ControlHandlers | undefined => { for (const spec of buildHtml()) for (const h of spec.handlers.values()) if (h.key === key) return h; return undefined; };
   const htmlDriver: HtmlUiDriver = {
     windows: buildHtml,
@@ -159,9 +175,26 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     type: (key, value) => { const h = htmlHandler(key); h?.text?.(value); return !!h?.text; },
     enter: key => { const h = htmlHandler(key); h?.enter?.(); return !!h?.enter; },
     text: () => buildHtml().flatMap(s => s.win.controls.flatMap(c => [c.label, c.text, ...(Array.isArray(c.items) ? c.items : [])].filter(v => typeof v === 'string'))).join('\n'),
+    game: (type, x, y) => deckScene.input(type, x, y),
   };
   if (typeof document !== 'undefined' && document.body && typeof ResizeObserver === 'function') {
-    void import('./htmlui/layer').then(m => { if (disposed) return; htmlUi = new m.HtmlUiLayer({ art: new URL('/ui/', location.href).href, stage: () => stage }); showHtml(); })
+    void Promise.all([import('./htmlui/layer'), import('./htmlui/deck-stage')]).then(([m, d]) => {
+      if (disposed) return;
+      const art = new URL('/ui/', location.href).href;
+      htmlUi = new m.HtmlUiLayer({ art, stage: () => stage });
+      deckStage = new d.DeckStage(htmlUi.host, { art, input: (type, x, y) => deckScene.input(type, x, y),
+        ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}),
+        ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
+      // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
+      const g = globalThis as { yo2Html?: Record<string, unknown> };
+      if (g.yo2Html) {
+        g.yo2Html.deckState = () => deckScene.inspect();
+        // main's right-click / double-click moves wait on the game's drag (screens/deck.js quickInstall: deckDrag.state)
+        const base = g.yo2Html.snapshot as (() => object | null) | undefined;
+        if (base) g.yo2Html.snapshot = () => { const s = base(); return s && { ...s, deckDrag: { state: deckScene.ui.drag ? 1 : 0 } }; };
+      }
+      showHtml();
+    })
       .catch((e: unknown) => console.warn('htmlui', e));
   }
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
@@ -475,135 +508,14 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     node.scrollIntoView?.({ block: 'nearest' });
   }
   function confirmAction(message: string): boolean { return typeof window.confirm === 'function' ? window.confirm(message) : false; }
-  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection', index: number | null = null): void { local.inspected = card; local.inspectedFrom = from; local.inspectedIndex = index; requestRender(); }
+  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { local.inspected = card; local.inspectedFrom = from; requestRender(); }
+  // The deck editor is main's deck screen (src/ui/htmlui/deck-scene.ts: its windows on the layer, the card pictures and
+  // the mouse on the layer's engine side); the stage keeps only the scene's name, and a refusal shows in main's dialog
   function renderDeck(): void {
     const editor = state.deckEditor; if (!editor) return emptyPanel('deck', 'Edit Deck', 'Loading your decks and collection.');
-    const n = sceneRoot('Edit Deck'), panel = el('section', 'de-panel de-stack de-fill'); panel.append(title('Edit Deck'));
-    const toolbar = el('div', 'de-row'); const deckSelect = el('select'); deckSelect.setAttribute('aria-label', 'Saved deck'); deckSelect.dataset.key = 'deck-select';
-    const blank = el('option', '', 'Choose a deck'); blank.value = ''; deckSelect.append(blank);
-    for (const deck of editor.decks) { const o = el('option', '', deck.name); o.value = deck.name; deckSelect.append(o); }
-    if (editor.current && !editor.decks.some(d => d.name === editor.current!.name)) { const o = el('option', '', `${editor.current.name} · not saved`); o.value = editor.current.name; deckSelect.append(o); }
-    deckSelect.value = editor.current?.name ?? ''; deckSelect.onchange = () => { if (deckSelect.value) send({ type: 'selectDeck', name: deckSelect.value }); };
-    const name = textField(`deck-name:${editor.current?.name ?? 'new'}`, editor.current?.name ?? local.deckName, 'Deck name'); name.maxLength = 40; name.setAttribute('aria-label', 'Deck name'); name.oninput = () => { local.deckName = name.value; };
-    toolbar.append(deckSelect, name, button('New', () => send({ type: 'newDeck', name: name.value.trim() || 'New Deck' }), !!state.busy), button('Save', () => { if (name.value.trim() && name.value !== editor.current?.name) send({ type: 'renameDeck', name: name.value.trim() }); send({ type: 'saveDeck' }); }, !editor.current || !!state.busy || !!editor.loading, true), button('Delete', () => { if (editor.current && confirmAction(`Delete deck “${editor.current.name}”?`)) send({ type: 'deleteDeck', name: editor.current.name }); }, !editor.current || !!state.busy));
-    panel.append(toolbar);
-    const tools = el('details', 'de-deck-tools'); tools.dataset.key = 'deck-file-tools'; tools.append(el('summary', '', 'Deck files & recipes'));
-    const importFile = el('input'); importFile.type = 'file'; importFile.accept = '.ydc,.ydk,.json,.txt'; importFile.setAttribute('aria-label', 'Import YDC, YDK or JSON deck'); importFile.disabled = !!state.busy;
-    importFile.onchange = () => {
-      const file = importFile.files?.[0], generation = ++importGeneration, player = state.player?.id, currentName = editor.current?.name; importFile.value = '';
-      if (!file) return;
-      const legacy = /\.ydc$/i.test(file.name);
-      if (legacy && file.size !== 250) { local.message = 'A native YDC deck must contain exactly 250 bytes.'; requestRender(); return; }
-      if (file.size > MAX_DECK_IMPORT_BYTES) { local.message = 'Deck file exceeds 64 KiB.'; requestRender(); return; }
-      const hint = [...file.name.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '')].slice(0, 40).join('') || 'Imported Deck';
-      const live = () => { const current = controller.getState(); return !disposed && generation === importGeneration && current.scene === 'deck' && current.player?.id === player && current.deckEditor?.current?.name === currentName ? current.deckEditor : null; };
-      const failed = (error: unknown) => { if (live()) { local.message = error instanceof Error ? error.message : 'Could not read the deck file.'; requestRender(); } };
-      if (legacy) {
-        void file.arrayBuffer().then(buffer => { const current = live(); if (!current) return; if (buffer.byteLength !== 250) throw new Error('A native YDC deck must contain exactly 250 bytes.'); if (!current.dirty || confirmAction('Replace the current unsaved deck with this imported deck?')) send({ type: 'importLegacyDeck', bytes: new Uint8Array(buffer), name: hint }); }).catch(failed);
-      } else {
-        void file.text().then(text => { const current = live(); if (!current) return; const deck = parseDeckImport(text, hint); if (!current.dirty || confirmAction('Replace the current unsaved deck with this imported deck?')) send({ type: 'replaceDeck', deck, source: 'import' }); }).catch(failed);
-      }
-    };
-    const fileActions = el('div', 'de-row', labelled('Import YDC / YDK / JSON', importFile), button('Export YDC', () => send({ type: 'exportDeck', format: 'ydc' }), !editor.current || !!state.busy), button('Export YDK', () => send({ type: 'exportDeck', format: 'ydk' }), !editor.current || !!state.busy), button('Export JSON', () => send({ type: 'exportDeck', format: 'json' }), !editor.current || !!state.busy), button('Clear Deck', () => { if (editor.current && confirmAction('Remove every card from the current deck? Save to persist this change.')) send({ type: 'replaceDeck', deck: { name: editor.current.name, main: [], side: [], extra: [] }, source: 'clear' }); }, !editor.current || !!state.busy));
-    tools.append(fileActions);
-    if (editor.recipes?.length) {
-      const recipes = el('select'); recipes.dataset.key = 'deck-recipe'; recipes.setAttribute('aria-label', 'Deck recipe'); const blank = el('option', '', 'Choose a recipe'); blank.value = ''; recipes.append(blank);
-      for (const recipe of editor.recipes) { const o = el('option', '', recipe.name); o.value = recipe.id; recipes.append(o); }
-      tools.append(el('div', 'de-row', recipes, button('Use Recipe', () => { const recipe = editor.recipes?.find(r => r.id === recipes.value); if (recipe && (!editor.dirty || confirmAction('Replace the current unsaved deck with this recipe?'))) send({ type: 'replaceDeck', deck: { name: editor.current?.name ?? recipe.name, main: [...recipe.main], side: [...recipe.side], extra: [...recipe.extra] }, source: 'recipe' }); }, !!state.busy)));
-    }
-    tools.append(note('Imported decks and recipes may include missing cards. Ownership and legality are checked by the server when you enter a duel.')); panel.append(tools);
-    if (editor.error) panel.append(el('p', 'de-error', editor.error));
-    if (editor.current) { const known = new Map([...(editor.allCards ?? []), ...editor.collection].map(c => [c.passcode, c])), owned = new Map(editor.collection.map(c => [c.passcode, c.owned ?? 0])); panel.append(renderDeckCheck(deckProblems(editor.current, pc => { const c = known.get(pc); return c && { ...c, owned: owned.get(pc) ?? 0 }; }))); }
-    if (local.inspected && ['main', 'side', 'extra'].includes(local.inspectedFrom)) {
-      const ids = editor.current?.[local.inspectedFrom as DeckZone] ?? [], passcode = local.inspected.passcode;
-      if (local.inspectedIndex === null || ids[local.inspectedIndex] !== passcode) { const index = ids.findIndex(id => id === passcode); if (index < 0) { local.inspectedFrom = 'collection'; local.inspectedIndex = null; } else local.inspectedIndex = index; }
-    }
-    const cols = el('div', 'de-deck-columns');
-    const inspector = el('aside', 'de-card-inspector de-stack'); const card = local.inspected;
-    if (!card) inspector.append(note('Select a card to inspect its details.'));
-    const deckColumn = el('section', 'de-scroll');
-    const owned = new Map(editor.collection.map(c => [c.passcode, c.owned ?? 0]));
-    const pool = (editor.allCards?.length ? editor.allCards : editor.collection).map(c => ({ ...c, owned: owned.get(c.passcode) ?? c.owned ?? 0 }));
-    const lookup = new Map(pool.map(c => [c.passcode, c]));
-    if (card) { const shown = (card.passcode !== undefined ? lookup.get(card.passcode) : undefined) ?? card; inspector.append(...renderCardDetails(shown, { drawCard: c => drawCard(c), alternates: pool.filter(c => c.name === shown.name), inspect: c => inspect(c) })); }
-    for (const zone of ['main', 'extra', 'side'] as const) {
-      const ids = editor.current?.[zone] ?? [], zoneNode = el('section', 'de-deck-zone'), heading = el('div', 'de-zone-title', `${zone === 'extra' ? 'Fusion' : zone === 'main' ? 'Main' : 'Side'} Deck`, el('span', '', String(ids.length)));
-      const grid = el('div', 'de-card-grid');
-      for (const [index, passcode] of ids.entries()) {
-        const current = lookup.get(passcode) ?? { id: String(passcode), name: `Card ${passcode}`, passcode };
-        const tile = drawCard(current, state.settings.showCardNames), b = button('', () => inspect(current, zone, index));
-        b.className = tile.className; b.dataset.key = `deck-card:${zone}:${index}`; b.append(...Array.from(tile.childNodes)); b.title = `${current.name} · double-click to remove`; b.ondblclick = () => send({ type: 'deckCard', passcode, from: zone, to: 'collection', index });
-        b.draggable = true; b.ondragstart = e => { e.dataTransfer?.setData('application/x-duel-card', JSON.stringify({ passcode, from: zone, index })); };
-        b.onkeydown = e => { if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); const toIndex = index + (e.key === 'ArrowLeft' ? -1 : 1); if (toIndex >= 0 && toIndex < ids.length) send({ type: 'deckReorder', zone, fromIndex: index, toIndex }); return; } if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); send({ type: 'deckCard', passcode, from: zone, to: 'collection', index }); } };
-        b.ondragover = e => e.preventDefault(); b.ondrop = e => { e.preventDefault(); e.stopPropagation(); try { const drag = JSON.parse(e.dataTransfer?.getData('application/x-duel-card') || 'null') as { from?: unknown; index?: unknown; passcode?: unknown } | null; if (drag?.from === zone && Number.isSafeInteger(drag.index) && ids[Number(drag.index)] === drag.passcode) send({ type: 'deckReorder', zone, fromIndex: Number(drag.index), toIndex: index }); else dropCard(e, zone); } catch { local.message = 'This card could not be reordered.'; requestRender(); } };
-        grid.append(b);
-      }
-      zoneNode.append(heading, grid); zoneNode.ondragover = e => e.preventDefault(); zoneNode.ondrop = e => dropCard(e, zone); deckColumn.append(zoneNode);
-    }
-    const collection = el('section', 'de-collection'); const search = textField('collection-search', local.search, 'Search cards'); search.setAttribute('aria-label', 'Search collection'); search.oninput = () => { local.search = search.value; local.collectionPage = 0; requestRender(); };
-    const zoneSelect = el('select'); zoneSelect.setAttribute('aria-label', 'Add cards to'); zoneSelect.dataset.key = 'deck-destination';
-    for (const z of ['main', 'extra', 'side'] as const) { const o = el('option', '', z === 'extra' ? 'Fusion Deck' : `${z === 'main' ? 'Main' : 'Side'} Deck`); o.value = z; zoneSelect.append(o); }
-    zoneSelect.value = local.deckZone; zoneSelect.onchange = () => { local.deckZone = zoneSelect.value as DeckZone; };
-    const typeFilter = el('select'); typeFilter.dataset.key = 'collection-type'; typeFilter.setAttribute('aria-label', 'Card type filter');
-    for (const [type, label] of [['all', 'All card types'], ['monster', 'Monsters'], ['spell', 'Spells'], ['trap', 'Traps'], ['fusion', 'Fusion'], ['ritual', 'Ritual'], ['normal', 'Normal'], ['effect', 'Effect']] as const) { const o = el('option', '', label); o.value = type; typeFilter.append(o); } typeFilter.value = local.collectionType; typeFilter.onchange = () => { local.collectionType = typeFilter.value as DeckCardType; local.collectionPage = 0; requestRender(); };
-    const sort = el('select'); sort.dataset.key = 'collection-sort'; sort.setAttribute('aria-label', 'Collection order');
-    for (const [value, label] of [['type', 'Type'], ['collection', 'Collection order'], ['name', 'Name'], ['level', 'Level'], ['attack', 'ATK'], ['defense', 'DEF'], ['passcode', 'Passcode']] as const) { const o = el('option', '', label); o.value = value; sort.append(o); } sort.value = local.collectionSort; sort.onchange = () => { local.collectionSort = sort.value as DeckSort; local.collectionPage = 0; requestRender(); };
-    const filters = renderDeckFilters(pool, !!editor.allCards?.length);
-    const cards = deckCollection(pool, { ...local.deckFilters, query: local.search, type: local.collectionType, sort: local.collectionSort }), pageSize = 80, pages = Math.max(1, Math.ceil(cards.length / pageSize)); local.collectionPage = Math.min(local.collectionPage, pages - 1);
-    const count = note(`${cards.length} matching cards · Page ${local.collectionPage + 1}/${pages}`), grid = el('div', 'de-card-grid'), gridScroll = el('div', 'de-scroll de-fill', grid);
-    for (const current of cards.slice(local.collectionPage * pageSize, (local.collectionPage + 1) * pageSize)) {
-      const tile = drawCard(current, state.settings.showCardNames), b = button('', () => inspect(current)); b.className = tile.className; b.dataset.key = `collection-card:${current.id}`; b.append(...Array.from(tile.childNodes), el('span', 'de-card-count', `×${current.owned ?? 0}`));
-      b.title = `${current.name} · double-click to add`;
-      b.ondblclick = () => addCard(current);
-      b.draggable = true; b.ondragstart = e => { e.dataTransfer?.setData('application/x-duel-card', JSON.stringify({ passcode: current.passcode, from: 'collection' })); };
-      grid.append(b);
-    }
-    collection.ondragover = e => e.preventDefault(); collection.ondrop = e => dropCard(e, 'collection');
-    const paging = el('div', 'de-row de-spread', button('Previous', () => { local.collectionPage--; requestRender(); }, local.collectionPage === 0), button('Next', () => { local.collectionPage++; requestRender(); }, local.collectionPage + 1 >= pages));
-    collection.append(search, el('div', 'de-row', typeFilter, sort), filters, zoneSelect, count, gridScroll, paging);
-    if (card && card.passcode !== undefined) {
-      if (['main', 'side', 'extra'].includes(local.inspectedFrom)) {
-        const from = local.inspectedFrom as DeckZone, passcode = card.passcode;
-        collection.append(note(card.name), button('Move earlier', () => { if (local.inspectedIndex !== null && local.inspectedIndex > 0) send({ type: 'deckReorder', zone: from, fromIndex: local.inspectedIndex, toIndex: local.inspectedIndex - 1 }); }, local.inspectedIndex === null || local.inspectedIndex <= 0 || !!state.busy), button('Move later', () => { if (local.inspectedIndex !== null && editor.current && local.inspectedIndex + 1 < editor.current[from].length) send({ type: 'deckReorder', zone: from, fromIndex: local.inspectedIndex, toIndex: local.inspectedIndex + 1 }); }, local.inspectedIndex === null || !editor.current || local.inspectedIndex + 1 >= editor.current[from].length || !!state.busy), button('Remove selected card', () => send({ type: 'deckCard', passcode, from, to: 'collection', ...(local.inspectedIndex === null ? {} : { index: local.inspectedIndex }) }), !editor.current || !!state.busy));
-        if (from !== 'extra') collection.append(button(`Move to ${from === 'main' ? 'Side' : 'Main'} Deck`, () => send({ type: 'deckCard', passcode, from, to: from === 'main' ? 'side' : 'main', ...(local.inspectedIndex === null ? {} : { index: local.inspectedIndex }) }), !editor.current || !!state.busy));
-      } else collection.append(button(`Add ${card.name}`, () => addCard(card), !editor.current || !!state.busy));
-    }
-    if (card) {
-      const details = el('details', 'de-mobile-details'); details.append(el('summary', '', `Card details · ${card.name}`), note([card.type, card.attribute, card.level ? `Lv ${card.level}` : ''].filter(Boolean).join(' · ')), ...(/spell|trap/i.test(card.type ?? '') ? [] : [note(`ATK ${card.attack ?? '?'} / DEF ${card.defense ?? '?'}`)]), el('p', '', card.description ?? 'Card description unavailable.')); collection.append(details);
-    }
-    cols.append(inspector, deckColumn, collection); panel.append(cols, note('Double-click or drag cards to move them. Select a deck card and press Delete to remove it, or Alt + Left/Right to reorder it. Server validation applies when saving and entering a duel.')); n.append(panel);
-    function addCard(c: CardView): void {
-      if (!editor?.current || c.passcode === undefined) return;
-      const reason = deckPlacementReason(c, local.deckZone, editor.current);
-      if (reason) { local.message = reason; requestRender(); return; }
-      send({ type: 'deckCard', passcode: c.passcode, from: 'collection', to: local.deckZone });
-    }
-    function dropCard(e: DragEvent, to: DeckZone | 'collection'): void {
-      e.preventDefault();
-      try {
-        const p = JSON.parse(e.dataTransfer?.getData('application/x-duel-card') || 'null') as { passcode?: unknown; from?: unknown; index?: unknown } | null;
-        if (!p || !Number.isSafeInteger(p.passcode) || !['collection', 'main', 'side', 'extra'].includes(String(p.from))) return;
-        if (p.from === to) return;
-        const c = lookup.get(Number(p.passcode));
-        if (p.from === 'collection' && to !== 'collection' && c && editor?.current) { const reason = deckPlacementReason(c, to, editor.current); if (reason) { local.message = reason; requestRender(); return; } }
-        send({ type: 'deckCard', passcode: Number(p.passcode), from: p.from as DeckZone | 'collection', to, ...(Number.isSafeInteger(p.index) ? { index: Number(p.index) } : {}) });
-      } catch { local.message = 'This card could not be moved.'; requestRender(); }
-    }
-  }
-  function renderDeckFilters(cards: readonly CardView[], hasAllCards: boolean): HTMLElement {
-    const details = el('details', 'de-deck-filters'); details.dataset.key = 'deck-filters'; details.append(el('summary', '', 'Filters'));
-    const update = () => { local.collectionPage = 0; requestRender(); };
-    const owned = el('input'); owned.type = 'checkbox'; owned.checked = local.deckFilters.ownedOnly; owned.disabled = !hasAllCards; owned.onchange = () => { local.deckFilters.ownedOnly = owned.checked; update(); }; details.append(labelled('Owned only', owned));
-    const attrs = [...new Set(cards.map(c => c.attribute).filter(v => v !== undefined).map(String))].sort().slice(0, 64);
-    if (attrs.length) { const row = el('div', 'de-row'); for (const attr of attrs) { const check = el('input'); check.type = 'checkbox'; check.checked = local.deckFilters.attributes.includes(attr); check.dataset.key = `deck-attribute:${attr}`; check.onchange = () => { local.deckFilters.attributes = check.checked ? [...local.deckFilters.attributes, attr] : local.deckFilters.attributes.filter(a => a !== attr); update(); }; row.append(labelled(attr, check)); } details.append(el('strong', '', 'Attributes'), row); }
-    const races = [...new Set(cards.map(c => c.race).filter(v => v !== undefined).map(String))].sort().slice(0, 64);
-    if (races.length) { const select = el('select'); select.dataset.key = 'deck-race'; select.setAttribute('aria-label', 'Monster race'); const all = el('option', '', 'All races'); all.value = ''; select.append(all); for (const race of races) { const o = el('option', '', race); o.value = race; select.append(o); } select.value = local.deckFilters.race; select.onchange = () => { local.deckFilters.race = select.value; update(); }; details.append(select); }
-    for (const [key, label] of [['level', 'Level'], ['attack', 'ATK'], ['defense', 'DEF']] as const) {
-      const row = el('div', 'de-row');
-      for (const index of [0, 1] as const) { const input = textField(`deck-filter:${key}:${index}`, String(local.deckFilters[key][index]), index ? 'Maximum' : 'Minimum'); input.type = 'number'; input.min = key === 'level' ? '0' : '-1'; if (key === 'level') input.max = '12'; input.setAttribute('aria-label', `${label} ${index ? 'maximum' : 'minimum'}`); input.onchange = () => { if (key === 'level') local.deckFilters.level[index] = input.value === '' ? index ? 12 : 0 : Number(input.value); else local.deckFilters[key][index] = input.value; update(); }; row.append(input); } details.append(el('span', '', label), row);
-    }
-    details.append(button('Reset Filters', () => { local.deckFilters = defaultDeckFilters(); local.search = ''; local.collectionType = 'all'; local.collectionSort = 'type'; resetDraftsNextRender = true; update(); }));
-    return details;
+    sceneRoot('Edit Deck');
+    if (editor.error) local.message ||= editor.error;
+    deckScene.notice(state.error || local.message);
   }
   function renderSideboarding(): void {
     const side = state.sideboarding; if (!side) return;
@@ -998,7 +910,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         ...(state.connection === 'online' ? [{ label: 'Return to Title', key: 'title', run: () => { if (confirmAction('Disconnect from the game?')) send({ type: 'disconnect' }); } }] : []),
       ];
       const world = state.scene === 'lobby' && state.lobby;
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player,
+      // the deck editor's bar is its strip alone, as on main (the editor's EXIT leaves it)
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, keys: !!state.player && state.scene !== 'deck',
         message: state.player ? `${state.mode === 'free' ? 'Free Duel · ' : ''}${state.status}` : '',
         ...(world ? { duel: () => openLobbyGroup('lobby-duel-rooms'), move: () => openLobbyGroup('lobby-area') } : {}) };
       nav.replaceChildren(status);
@@ -1039,12 +952,13 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
     if (state.duel?.prompt?.cancelable && state.scene === 'duel') { e.preventDefault(); respondToPrompt(state.duel.prompt.id, { cancel: true }); }
     else if (state.scene === 'lobby' && state.profileDetail?.selectedPid !== null && state.profileDetail?.selectedPid !== undefined) { e.preventDefault(); send({ type: 'profileAction', action: { type: 'close' } }); }
-    else if (local.inspected && (state.scene === 'duel' || state.scene === 'deck')) { e.preventDefault(); local.inspected = null; requestRender(); }
+    else if (state.scene === 'deck' && (deckScene.ui.dialog || deckScene.ui.files)) { e.preventDefault(); deckScene.ui.dialog = null; deckScene.ui.files = null; showHtml(); }
+    else if (local.inspected && state.scene === 'duel') { e.preventDefault(); local.inspected = null; requestRender(); }
     else if (state.scene !== 'duel' && !['title', 'lobby', 'characters'].includes(state.scene)) open(state.player ? 'lobby' : 'title');
   };
   // With nothing focused, keys go to <body>, outside the host: Escape still closes the topmost modal.
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); ++importGeneration; if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { cardKind, cardSearchRank, deckCollection, defaultDeckFilters, parseDeckImport, reorderDeckCards, serializeDeck, MAX_DECK_IMPORT_BYTES } from '../src/ui/deck';
+import { cardKind, cardSearchRank, parseDeckImport, reorderDeckCards, serializeDeck, MAX_DECK_IMPORT_BYTES } from '../src/ui/deck';
+import { categoryOf, copiesLeft, emptyKabanFilter, trunkCards } from '../src/ui/htmlui/deck';
 import type { CardView } from '../src/ui/contracts';
 
 const cards: CardView[] = [
   { id: '1', passcode: 1, name: 'Blue-Eyes White Dragon', kind: 0, type: 'Normal Monster', attribute: 'LIGHT', race: 'Dragon', level: 8, attack: 3000, defense: 2500, owned: 3 },
   { id: '2', passcode: 2, name: 'Mystic Elf', kind: 0, type: 'Normal Monster', attribute: 'LIGHT', race: 'Spellcaster', level: 4, attack: 800, defense: 2000, owned: 1 },
   { id: '3', passcode: 3, name: 'Fusion Dragon', kind: 2, attribute: 'DARK', race: 'Dragon', level: 9, attack: 4000, defense: 3000, extra: true, owned: 0 },
-  { id: '4', passcode: 4, name: 'Monster Reborn', kind: 13, description: 'Target a monster in either Graveyard.', owned: 1 },
-  { id: '5', passcode: 5, name: 'Trap Hole', kind: 14, owned: 1 },
+  { id: '4', passcode: 4, name: 'Monster Reborn', kind: 13, type: 'Spell Card', description: 'Target a monster in either Graveyard.', owned: 1 },
+  { id: '5', passcode: 5, name: 'Trap Hole', kind: 14, type: 'Trap Card', owned: 1 },
 ];
 describe('independent deck editor data operations', () => {
   it('preserves Main/Side/Fusion order and duplicates through YDK and JSON round trips', () => {
@@ -29,23 +30,29 @@ describe('independent deck editor data operations', () => {
     const before = [1, 2, 1, 3]; expect(reorderDeckCards(before, 0, 3)).toEqual([2, 1, 3, 1]); expect(before).toEqual([1, 2, 1, 3]);
     expect(() => reorderDeckCards(before, 4, 0)).toThrow('position');
   });
+  // the trunk (main's deck screen's search panel hands the filter to the editor: htmlui/deck.ts trunkCards)
+  const order = (c: CardView) => c.passcode ?? 0;
   it('uses the original kind categories and applies monster-only stat ranges', () => {
     expect(cardKind(cards[2])).toBe('fusion'); expect(cardKind(cards[3])).toBe('spell');
-    const f = defaultDeckFilters(); f.type = 'monster'; f.level = [5, 12];
-    expect(deckCollection(cards, f).map(c => c.passcode)).toEqual([1]);
-    f.ownedOnly = false; f.attack = ['3000', '']; expect(deckCollection(cards, f).map(c => c.passcode)).toEqual([3, 1]);
-    f.type = 'all'; f.attributes = ['LIGHT']; expect(deckCollection(cards, f).map(c => c.passcode)).toEqual([1]);
-    f.level = [0, 12]; f.attack = ['', '']; f.race = 'Spellcaster'; expect(deckCollection(cards, f).map(c => c.passcode)).toEqual([2]);
+    expect(cards.map(categoryOf)).toEqual([0, 0, 5, 2, 3]);
+    const f = emptyKabanFilter(); f.cat = 0; f.level = [8];
+    expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([1]);
+    f.level = []; f.atk = [3000, null]; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([1]);
+    f.cat = 6; f.atk = [null, null]; f.attr = [0]; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([1, 2]);
+    f.attr = []; f.race = [17]; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([2]);
   });
   it('preserves original fuzzy name priority, initials and description fallback', () => {
     expect(cardSearchRank(cards[0], 'BEWD')).toBe(4.5); expect(cardSearchRank(cards[0], 'blue eyes')).toBe(1);
-    const f = defaultDeckFilters(); f.query = 'monster'; const result = deckCollection(cards, f);
+    const f = emptyKabanFilter(); f.text = 'monster'; const result = trunkCards(cards, f, order);
     expect(result[0].passcode).toBe(4); expect(cardSearchRank(cards[3], 'either graveyard')).toBe(9);
     expect(cardSearchRank({ id: 'a', name: 'Étoile' }, 'etoile')).toBe(0);
   });
-  it('keeps unowned cards out until explicitly requested and makes sorting deterministic', () => {
-    const f = defaultDeckFilters(); expect(deckCollection(cards, f).some(c => c.passcode === 3)).toBe(false);
-    f.ownedOnly = false; f.sort = 'attack'; expect(deckCollection(cards, f)[0].passcode).toBe(3);
-    f.type = 'spell'; expect(deckCollection(cards, f).map(c => c.passcode)).toEqual([4]);
+  it('keeps unowned cards out of the trunk, sorts deterministically and counts the copies left to add', () => {
+    const f = emptyKabanFilter(); expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([1, 2, 4, 5]);
+    f.sort = 'atk-'; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([1, 2, 4, 5]);
+    f.sort = 'def+'; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([4, 5, 2, 1]);
+    f.sort = ''; f.cat = 2; expect(trunkCards(cards, f, order).map(c => c.passcode)).toEqual([4]);
+    const deck = { name: 'D', main: [1, 1, 4], side: [1], extra: [] };
+    expect(copiesLeft(cards[0], deck)).toBe(0); expect(copiesLeft(cards[1], deck)).toBe(1); expect(copiesLeft(cards[3], deck)).toBe(0);
   });
 });

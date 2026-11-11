@@ -3,25 +3,15 @@ import type { CardView, DeckView, DeckZone } from './contracts';
 /** Original storage limits, independently checked again by the authenticated server. */
 export const DECK_LIMITS: Readonly<Record<DeckZone, number>> = { main: 80, side: 15, extra: 30 };
 export const MAX_DECK_IMPORT_BYTES = 64 * 1024;
-export type DeckCardType = 'all' | 'monster' | 'normal' | 'effect' | 'fusion' | 'ritual' | 'spell' | 'trap';
-export type DeckSort = 'type' | 'name' | 'level' | 'attack' | 'defense' | 'passcode' | 'collection';
-export interface DeckFilters {
-  query: string; type: DeckCardType; attributes: string[]; race: string; ownedOnly: boolean;
-  level: [number, number]; attack: [string, string]; defense: [string, string]; sort: DeckSort;
-}
-export const defaultDeckFilters = (): DeckFilters => ({ query: '', type: 'all', attributes: [], race: '', ownedOnly: true, level: [0, 12], attack: ['', ''], defense: ['', ''], sort: 'type' });
-const kinds: Readonly<Record<Exclude<DeckCardType, 'all' | 'monster'>, readonly number[]>> = { normal: [0, 10], effect: [1, 6, 7, 8, 9, 11, 12], fusion: [2, 3], ritual: [4, 5], spell: [13], trap: [14] };
-export function cardKind(card: CardView): Exclude<DeckCardType, 'all' | 'monster'> | 'unknown' {
-  if (card.kind !== undefined) return (Object.entries(kinds).find(([, ids]) => ids.includes(card.kind!))?.[0] as Exclude<DeckCardType, 'all' | 'monster'> | undefined) ?? 'unknown';
+type CardKind = 'normal' | 'effect' | 'fusion' | 'ritual' | 'spell' | 'trap';
+const kinds: Readonly<Record<CardKind, readonly number[]>> = { normal: [0, 10], effect: [1, 6, 7, 8, 9, 11, 12], fusion: [2, 3], ritual: [4, 5], spell: [13], trap: [14] };
+export function cardKind(card: CardView): CardKind | 'unknown' {
+  if (card.kind !== undefined) return (Object.entries(kinds).find(([, ids]) => ids.includes(card.kind!))?.[0] as CardKind | undefined) ?? 'unknown';
   const t = (card.type ?? '').toLowerCase();
   if (t.includes('spell')) return 'spell'; if (t.includes('trap')) return 'trap'; if (t.includes('fusion') || card.extra) return 'fusion';
   if (t.includes('ritual')) return 'ritual'; if (t.includes('normal')) return 'normal'; if (t.includes('monster') || t.includes('effect')) return 'effect';
   return 'unknown';
 }
-export function cardGroup(card: CardView): 'monster' | 'spell' | 'trap' | 'unknown' {
-  const kind = cardKind(card); return kind === 'spell' || kind === 'trap' || kind === 'unknown' ? kind : 'monster';
-}
-const ordinal = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 export const normalizeCardSearch = (s: string): string => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 /** Search ranking mirrors the existing modern deck editor: exact/name matches before description matches. */
 export function cardSearchRank(card: CardView, query: string): number {
@@ -38,33 +28,6 @@ export function cardSearchRank(card: CardView, query: string): number {
     if (i === flat.length && gaps <= flat.length / 2) return 5 + gaps / 100;
   }
   return words.every(w => normalizeCardSearch(card.description ?? '').includes(w)) ? 9 : -1;
-}
-const num = (value: string): number | null => value.trim() === '' ? null : Number(value);
-const byName = (a: CardView, b: CardView) => ordinal(a.name, b.name) || (a.passcode ?? 0) - (b.passcode ?? 0);
-export function compareDeckCards(a: CardView, b: CardView, sort: DeckSort): number {
-  if (sort === 'name') return byName(a, b);
-  if (sort === 'passcode') return (a.passcode ?? 0) - (b.passcode ?? 0);
-  if (sort === 'type') { const order = { monster: 0, spell: 1, trap: 2, unknown: 3 }; return order[cardGroup(a)] - order[cardGroup(b)] || (cardGroup(a) === 'monster' ? (b.level ?? -1) - (a.level ?? -1) || (b.attack ?? -1) - (a.attack ?? -1) : 0) || byName(a, b); }
-  if (sort === 'collection') return 0;
-  return (b[sort] ?? -1) - (a[sort] ?? -1) || (sort === 'level' ? (b.attack ?? -1) - (a.attack ?? -1) : 0) || byName(a, b);
-}
-export function deckCollection(cards: readonly CardView[], filters: DeckFilters): CardView[] {
-  const [alo, ahi, dlo, dhi] = [...filters.attack, ...filters.defense].map(num);
-  if ([alo, ahi, dlo, dhi].some(n => n !== null && !Number.isFinite(n))) return [];
-  const ranged = filters.level[0] > 0 || filters.level[1] < 12 || [alo, ahi, dlo, dhi].some(n => n !== null);
-  const found: { card: CardView; rank: number; index: number }[] = [];
-  cards.forEach((card, index) => {
-    if (filters.ownedOnly && !(card.owned && card.owned > 0)) return;
-    if (filters.type !== 'all' && (filters.type === 'monster' ? cardGroup(card) !== 'monster' : cardKind(card) !== filters.type)) return;
-    if (filters.attributes.length && !filters.attributes.includes(String(card.attribute ?? ''))) return;
-    if (filters.race && String(card.race ?? '') !== filters.race) return;
-    if (ranged && (cardGroup(card) !== 'monster' || card.level === undefined || card.level < filters.level[0] || card.level > filters.level[1]
-      || alo !== null && (card.attack === undefined || card.attack < alo) || ahi !== null && (card.attack === undefined || card.attack > ahi)
-      || dlo !== null && (card.defense === undefined || card.defense < dlo) || dhi !== null && (card.defense === undefined || card.defense > dhi))) return;
-    const rank = cardSearchRank(card, filters.query); if (rank >= 0) found.push({ card, rank, index });
-  });
-  found.sort((a, b) => (filters.query && filters.sort === 'type' ? a.rank - b.rank : 0) || compareDeckCards(a.card, b.card, filters.sort) || a.index - b.index);
-  return found.map(v => v.card);
 }
 export function reorderDeckCards(cards: readonly number[], fromIndex: number, toIndex: number): number[] {
   if (![fromIndex, toIndex].every(n => Number.isSafeInteger(n) && n >= 0 && n < cards.length)) throw new Error('That card position is no longer available.');
