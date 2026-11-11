@@ -43,7 +43,7 @@ export class TitleScene {
     this.element = document.createElement('canvas');
     this.element.width = 1024; this.element.height = 768;
     this.element.className = 'de-title-scene'; this.element.setAttribute('aria-hidden', 'true');
-    Object.assign(this.element.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none' });
+    Object.assign(this.element.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '0' });
     this.ctx = this.element.getContext('2d');
   }
   /** Shown: plays the movie once from its first frame (reduced motion: straight to its last), then holds it. */
@@ -77,7 +77,7 @@ export class TitleScene {
         for (const file of movie.files) this.image(titleImagePath(file));
         this.movie = movie; if (!this.disposed) this.start();
       } finally { lease.release(); }
-    }).catch(() => { this.loading = false; });
+    }).catch(e => { this.loading = false; console.warn('title movie', e); });
   }
   private image(path: string): void {
     if (this.images.has(path)) return;
@@ -85,9 +85,9 @@ export class TitleScene {
     this.load(path, this.abort.signal).then(lease => {
       const img = new Image(); img.decoding = 'async';
       img.onload = () => { this.images.set(path, img); lease.release(); this.draw(); };
-      img.onerror = () => lease.release();
+      img.onerror = () => { lease.release(); console.warn('title image', path); };
       img.src = lease.url;
-    }, () => {});
+    }, e => console.warn('title image', path, e));
   }
   private draw(): void {
     const ctx = this.ctx, movie = this.movie, instance = this.instance; if (!ctx || this.disposed) return;
