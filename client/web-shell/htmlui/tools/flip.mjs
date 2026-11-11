@@ -49,6 +49,13 @@ const SHOP_PACKS = [...SHOP_STEPS, ['rc', 'move 530 395'], ['wait', 3000], ['rc'
     ['wait', 2500]];
 const SHOP_CONFIRM = [...SHOP_PACKS, ['rc', 'move 630 300'], ['wait', 3000], ['rc', 'click 630 300'], ['wait', 1500],
     ['rc', 'move 900 504'], ['wait', 3000], ['rc', 'click 900 504'], ['task', 'CShopConfirmWindow', 20000], ['wait', 2500]];
+// The game's duel records under /overlay (its own files, kept in IndexedDB): duellogs/<title>.log and list.txt, into
+// the page's console ('duel-record', 'duel-record-view')
+const DUELLOGS_JS = `(() => { const out = [], walk = (p) => { for (const n of FS.readdir(p)) { if (n === '.' || n === '..') continue;
+  const q = p + '/' + n, st = FS.stat(q); if (FS.isDir(st.mode)) walk(q); else if (/duellog/i.test(q)) out.push(q + ' ' + st.size
+    + (/list\.txt$/.test(q) ? ' ' + JSON.stringify(FS.readFile(q, { encoding: 'utf8' })) : '')); } };
+  try { walk('/overlay'); } catch (e) { out.push('error ' + e); } console.log('DUELLOGS ' + JSON.stringify(out)); })()`;
+
 export const ROUTES = {
   // signed out (--cookie= empty): ONLINE opens the login scene, where rt/session.cpp turns CWindowLogin into the sign-in panel
   signin: { signedOut: true, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['window', 'CWindowLogin', 30000], ['wait', 2500]], flip: ['CWindowLogin'] },
@@ -349,6 +356,25 @@ export const ROUTES = {
       ['on', 'CWindowResult'], ['wait', 4000], ['shot', 'result-html'], ['js', "yo2Html.toggle('CWindowResult', false)"], ['wait', 3000]],
       flip: ['CWindowResult', 'CWindowResultNpc', 'CWindowResultNext'] };
   },
+  // The NPC duel's own record (server npcWatch.ts): the duel to its result (as 'duel-result', engine-drawn), then what the
+  // client wrote under /overlay (the game's writes, kept in IndexedDB): duellogs/<title>.log and list.txt, in the page
+  // log (`log` -> <outdir>/duellogs.txt). Same server as 'duel-in' (PARITY_SRC with CHALLENGE_DELAY a number, STACK_VARS=DEV:1).
+  get 'duel-record'() {
+    return { ...ROUTES['duel-in'], steps: [...ROUTES['duel-yesno'].steps, ['click', 428, 436], ['scene', 32, 180000], ['wait', 15000],
+      ['shot', 'result'], ['js', DUELLOGS_JS], ['wait', 1000], ['log', 'duellogs']], flip: [] };
+  },
+  // ... and the saved record seen again from My Room's Main Menu, Duel record (entry 7: 140, 604): run with the same
+  // YO2_CHROME_PROFILE as 'duel-record' (the game's files are kept in that profile's IndexedDB) and the same player
+  'duel-record-view': { player: 'Duel Tester', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000],
+    ['wait', 2500], ['leave', 560, 342, 7], ['scene', 10, 90000], ['wait', 3000], ['click', 43, 747], ['wait', 1500], ['shot', 'menu'],
+    ['click', 140, 604], ['window', 'CWindowModelDuellogTop', 30000], ['wait', 2000], ['shot', 'records'],
+    // Latest Duel Logs: the client's own (duellogs/list.txt)
+    ['click', 400, 227], ['wait', 5000], ['shot', 'latest'], ['snap', 'latest'], ['js', DUELLOGS_JS], ['wait', 1000],
+    ['log', 'duellogs'], ['click', 300, 312], ['wait', 5000], ['shot', 'entry'], ['snap', 'entry'],
+    // Play: the replay (rock-paper-scissors from the record, then the duel), seen as it goes
+    ['click', 469, 348], ['wait', 15000], ['shot', 'play-15s'], ['snap', 'play-15s'], ['wait', 30000], ['shot', 'play-45s'],
+    ['wait', 45000], ['shot', 'play-90s'], ['snap', 'play-90s']], flip: [] },
+
   // the social windows' proof (owner: before / after with open, close and typing): from My Room's Main Menu, the window
   // as the engine draws it, then in HTML, then its Close (or OK) pressed: the HTML button closes it in the game.
   // D-Mail: Write Mail too (the mail form, CWindowModelDMailSend, then in HTML)

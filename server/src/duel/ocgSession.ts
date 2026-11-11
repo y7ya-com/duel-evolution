@@ -17,7 +17,8 @@ import { DEFAULT_CFG } from "./translator/consts.ts";
 import { mirror, mirror_state, unmirror_response, is_end } from "./translator/mirror.ts";
 import { timeup_warning } from "./translator/lockstep.ts";
 import { loadNpcProfile, NpcBrain } from "./brain/index.ts";
-import { NpcAi, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
+import { NpcAi, NPC_AI_REV, cardInfo, tierFor, type LoggedCmd } from "./ai/index.ts";
+import { resultOf, type DuelArchiveEntry } from "./duelArchive.ts";
 import { brainDb, cardmap, duelCore, npcDeck, NPC_PROFILES, toCodes, type Deck } from "./data.ts";
 import { PyRandom } from "../util/pyrandom.ts";
 import { DuelLog, type CardText } from "./duelText.ts";
@@ -185,6 +186,11 @@ export class OcgSession {
   private dc: CoreQ | null = null;
   private think: Json | null = null;
   private endReq: [number | null, unknown, number] | null = null;
+  /** The NPC the player challenged (port.ts; npcId is the recipe it plays), for the duel record. */
+  rival: number | null = null;
+  /** The duel archive (duelArchive.ts): the engine's `new` arguments and its commands since, the LP last seen. */
+  private rec: { decks: Deck[]; opts: NonNullable<Parameters<DuelCore["new"]>[2]>; cmds: LoggedCmd[]; t0: number; tier: string } | null = null;
+  private lp: [number, number] | null = null;
   onPublic: ((msgs: Msg[]) => void) | null = null;
   private pub: YO2Duel | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -314,10 +320,14 @@ export class OcgSession {
     const autoChain = !d.cfg.chain_none_prompt;
     const o = USE_BRAIN ? { first: first as 0 | 1, seed, shuffle: true, brain: "python", rule, auto_chain: autoChain, place_order }
       : { first: first as 0 | 1, seed, shuffle: true, rule, auto_chain: autoChain, place_order };
+    const log = dc.record(this.id);
+    const py = this.g.cfg.npcAi === "py";
+    this.rec = { decks, opts: o, cmds: log, t0: now(), tier: !USE_BRAIN ? "engine" : py ? "py" : tierFor(this.npcId, NPC_PROFILES) };
+    const recorded = { ...o, record: this.g.duelArchive !== null };   // the EDOPro replay (engine/yrpx.ts) when there is an archive
     if (USE_BRAIN) {
-      if (this.g.cfg.npcAi === "py") this.brain = new NpcBrain(loadNpcProfile(this.npcId, NPC_PROFILES), 1, seed, brainDb());
+      if (py) this.brain = new NpcBrain(loadNpcProfile(this.npcId, NPC_PROFILES), 1, seed, brainDb());
       else {
-        const log = dc.record(this.id), engine = dc.eng.local!, id = this.id;
+        const engine = dc.eng.local!, id = this.id;
         this.brain = new NpcAi({ npcId: this.npcId, seat: 1, seed, cards: cardInfo(engine.cardDB, brainDb()), tier: tierFor(this.npcId, NPC_PROFILES),
           spy: this.g.cfg.npcAiSpy, link: () => ({ dc: engine, decks, opts: o, log }), peek: () => engine.query(id) });
       }
@@ -326,7 +336,7 @@ export class OcgSession {
     if (sess?.block !== undefined) this.g.hub.sala(sess, "npc duel");
     this.log(`[ocg] duelo ${this.id}: NPC ${this.npcId}, empieza ${first}, regla ${rule}, mazos `
       + `${decks[0].main.length}+${decks[0].extra.length} / ${decks[1].main.length}+${decks[1].extra.length}`);
-    return () => dc.new(this.id, decks, o);
+    return () => dc.new(this.id, decks, recorded);
   }
 
   // ---- end
@@ -336,6 +346,27 @@ export class OcgSession {
     this.ended = true;
     this.over = true;
     this.endReq = [winner, reason, turns];
+    this.record(resultOf(winner), reason, winner, reason === "timeout" ? 3 : 4, turns);
+  }
+
+  /** The duel's archive entry, once per duel begun, to the game's sink (do.ts: duel_archive and its replay file). The
+   *  EDOPro replay gets an end of EDOPro's (winner by protocol player, reason 0 surrender, 3 time, 4 other) unless the
+   *  engine's own WIN is in it. A failure costs the entry, never the duel. */
+  private record(result: DuelArchiveEntry["result"], reason: unknown, winner: number | null, why: number, turns = this.turn): void {
+    const r = this.rec, sink = this.g.duelArchive;
+    this.rec = null;
+    if (!r || !sink) return;
+    try {
+      const s = this.c.sess as Session | undefined;
+      const names: [string, string] = this.names ?? [s?.name || "Player", NPC_PROFILES[String(this.rival ?? this.npcId)]?.nombre as string || "NPC"];
+      const at = Date.now() / 1000;
+      const yrpx = this.dc?.eng.local?.takeReplay(this.id, { names, at, winner, reason: why }) ?? null;
+      const { record: _, ...opts } = r.opts as typeof r.opts & { record?: boolean };
+      sink({ at, kind: "npc", a: { acct: s?.acct ?? this.g.ctxAcct() ?? "?", slot: s?.slot ?? null, name: s?.name || null }, b: null,
+        rival: this.rival, npc: this.npcId, tier: r.tier, aiRev: NPC_AI_REV, game: 1, result, reason: String(reason ?? ""),
+        turns: turns || this.turn, secs: Math.round(now() - r.t0), first: Number(r.opts.first ?? 0), lp: this.lp, decisions: this.npcDecisions,
+        yrpx, commands: { v: 1, decks: r.decks, opts, cmds: r.cmds } });
+    } catch (e) { this.log(`[ocg] duelo ${this.id}: archivo del duelo: ${errStr(e)}`); }
   }
 
   private async flushEnd(): Promise<void> {
@@ -398,6 +429,7 @@ export class OcgSession {
       const last = evs[evs.length - 1];
       if (last.ev !== "error") this.coreErrors = 0;
       if (Number.isInteger(last.turn)) this.turn = last.turn as number;
+      if (Array.isArray(last.lp) && last.lp.length === 2) this.lp = last.lp as [number, number];
       if (this.brain) for (const e of evs) if (e.ev === "msg") this.brain.observe(e);
       if (last.ev === "select" && last.player === 1 && last.type === "SELECT_CHAIN" && !last.selects && !last.forced && !last.retry) {
         this.feed(evs.slice(0, -1));
@@ -475,6 +507,7 @@ export class OcgSession {
     this.stopTimer();
     this.over = true;
     this.ended = true;
+    this.record("lose", "surrender", 1, 0);
     this.dc?.end(this.id).catch(() => { /* py: pass */ });
   }
 
@@ -483,6 +516,7 @@ export class OcgSession {
     if (this.over) return;
     this.stopTimer();
     this.over = true;
+    this.record("abandon", "abandon", 1, 4);
     let dc: CoreQ;
     try { dc = this.core(); } catch (e) { this.log(`[duelo] cerrar el duelo ${this.id} en duelcore: ${errStr(e)}`); return; }
     dc.end(this.id).then(() => this.log(`[duelo] duelo ${this.id} cerrado en duelcore`),
@@ -612,7 +646,7 @@ export class PvpSession {
     const seed = this.g.rng.randrange(1 << 30);
     const rule = PY_DUEL_RULE;
     const o = { first: first as 0 | 1, seed, shuffle: true, bot: [false, false] as [boolean, boolean], rule,
-      auto_chain: !this.views[0]!.cfg.chain_none_prompt, place_order: this.g.cfg.placeOrder };
+      auto_chain: !this.views[0]!.cfg.chain_none_prompt, place_order: this.g.cfg.placeOrder, record: this.g.duelArchive !== null };
     this.log(`[pvp] duelo ${this.id}: empieza ${first}, regla ${rule}, mazos ${codes[0].main.length}+${codes[0].extra.length}`
       + ` / ${codes[1].main.length}+${codes[1].extra.length}`);
     return () => this.core().new(this.id, codes, o);
@@ -746,6 +780,11 @@ export class PvpSession {
   }
 
   /** Cuts the duel in duelcore (surrender / disconnection: PvpMatch sends the end). */
+  /** This duel's EDOPro replay (engine/yrpx.ts), once; names and winner by protocol player, reason as takeReplay's. */
+  takeReplay(names: [string, string], winner: number | null, reason: number): Uint8Array | null {
+    return this.dc?.eng.local?.takeReplay(this.id, { names, at: Date.now() / 1000, winner, reason }) ?? null;
+  }
+
   end(): void {
     if (this.over) return;
     this.over = true;

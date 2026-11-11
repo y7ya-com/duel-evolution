@@ -14,6 +14,8 @@ import { Session } from "../src/game/hub.ts";
 import { createNodeDuelCore } from "../src/duel/engine/node.ts";
 import { NPC_DECKS, setDuelCore } from "../src/duel/data.ts";
 import { AFK, DUEL_GRACE, type PvpMatch } from "../src/duel/pvpMatch.ts";
+import type { DuelArchiveEntry } from "../src/duel/duelArchive.ts";
+import { MSG, readYrpx } from "../src/duel/engine/yrpx.ts";
 
 const GD = join(import.meta.dirname, "..", "gamedata");
 const have = ["engine/scripts.pack", "translator.json", "brain_cards.json", "duel.json"].every((f) => existsSync(join(GD, f)));
@@ -68,6 +70,8 @@ describe.skipIf(!have)("PvP through the duel port", () => {
   const has = (c: Client, mid: number, pred: (d: Uint8Array) => boolean = () => true, from = 0) => c.got.duel.slice(from).some(([m, d]) => m === mid && pred(d));
 
   it("starts, the challenger surrenders, both get their end; no duel-point history", async () => {
+    const archived: DuelArchiveEntry[] = [];
+    srv.game.duelArchive = (e) => archived.push(e);
     const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
     const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
     for (const [c, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
@@ -116,6 +120,17 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     }
     expect(st.accounts.aaaa.profiles["0"].rec.losses).toBe(1);
     expect(st.accounts.bbbb.profiles["0"].rec.wins).toBe(1);
+    // the game is archived once, both players named, with its EDOPro replay: A went first (core player 0), B won by
+    // surrender (EDOPro's MSG_WIN 1, reason 0)
+    srv.game.duelArchive = null;
+    expect(archived.length).toBe(1);
+    const e = archived[0]!;
+    expect([e.kind, e.a.acct, e.b?.acct, e.a.name, e.b?.name, e.result, e.game, e.first]).toEqual(["pvp", "aaaa", "bbbb", "Alfa", "Beta", "lose", 1, 0]);
+    const r = readYrpx(e.yrpx!);
+    expect(r.names).toEqual(["Alfa", "Beta"]);
+    expect(r.packets[0]!.message).toBe(MSG.START);
+    const win = r.packets.at(-1)!;
+    expect([win.message, win.data[0], win.data[1]]).toEqual([MSG.WIN, 1, 0]);
   }, 120_000);
 
   it("a room with «Time Limit» OFF shows no clock, but the player who never answers loses on time", async () => {

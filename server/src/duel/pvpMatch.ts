@@ -21,6 +21,7 @@ import * as DFM from "./duelfin.ts";
 import * as DL from "./duellog.ts";
 import { PvpSession, Sender, cardText, sendDuelLog, type SItem } from "./ocgSession.ts";
 import { DuelLog } from "./duelText.ts";
+import { resultOf } from "./duelArchive.ts";
 import { X } from "./port.ts";
 
 type P = Record<string, any>;
@@ -301,6 +302,8 @@ export class PvpMatch {
   private xpLv: number[] | null = null;
   /** When the duel started (s), for the economy's minimum PvP length. */
   private t0 = 0;
+  /** The game already archived (archive). */
+  private archived: PvpSession | null = null;
   /** Per player: closes mid-duel so far (a grace timer only counts for its own), and a re-attach owing the prompt. */
   private goneGen = [0, 0];
   private resume = [false, false];
@@ -647,6 +650,7 @@ export class PvpMatch {
   gameEnd(winner: number | null, why: string, turns = 0, svr: Record<number, number> = {}, close = false): void {
     if (this.g.restarting) { this.voidForRestart(); return; }
     if (this.done) return;
+    this.archive(winner, why, turns);
     const wv = (k: number) => (winner === null ? null : winner === k ? 0 : 1);
     this.traceDump(why);
     // Engine end events are deliberately suppressed by the public translator. Supply the
@@ -675,6 +679,21 @@ export class PvpMatch {
     this.rated();
     if (over) { this.duellogRecord(mwin, why, turns); return this.closeMatch(); }
     this.betweenBegin(winner);
+  }
+
+  /** The game's archive entry and EDOPro replay (duelArchive.ts), once per game played; a failure costs the entry. */
+  private archive(winner: number | null, why: string, turns: number): void {
+    const ps = this.ps, sink = this.g.duelArchive;
+    if (!ps || !ps.started || !sink || this.archived === ps) return;
+    this.archived = ps;
+    try {
+      const reason = why === DFM.WHY_SURRENDER ? 0 : why === DFM.WHY_TIMEOUT ? 3 : 4;
+      const side = (k: number) => ({ acct: this.sess[k].acct, slot: this.sess[k].slot, name: this.sess[k].name || null });
+      const yrpx = ps.takeReplay([this.sess[0].name || "Player", this.sess[1].name || "Player"], winner, reason);
+      sink({ at: now(), kind: "pvp", a: side(0), b: side(1), rival: null, npc: null, tier: null, aiRev: null, game: this.gameNo,
+        result: resultOf(winner), reason: why, turns: turns || ps.turn, secs: Math.round(now() - this.t0), first: this.firsts.at(-1) ?? 0,
+        lp: ps.lastLp ? [ps.lastLp[0]!, ps.lastLp[1]!] : null, decisions: null, yrpx, commands: null });
+    } catch (e) { this.log(`[pvp] ${this.name}: archivo del duelo: ${errStr(e)}`); }
   }
 
   private betweenBegin(winner: number | null): void {
@@ -910,7 +929,7 @@ export class PvpMatch {
       const players: DL.LogPlayer[] = [0, 1].map((k) => {
         const s = this.sess[k];
         const parts = this.asSess(s, () => [this.g.duelParts(null, 0), this.g.duelParts(null, 1), new Uint8Array(16)]);
-        return { pid: s.pid!, listval: s.pid!, name: s.name || "Duelista", parts, main: this.deck[k].main.length, extra: this.deck[k].extra.length,
+        return { pid: s.pid!, listval: this.xpLevels()[k] ?? 1, name: s.name || "Duelista", parts, main: this.deck[k].main.length, extra: this.deck[k].extra.length,
           country: COUNTRY, hand: hands[k] };
       });
       let games = [first, 0xff, 0xff];
