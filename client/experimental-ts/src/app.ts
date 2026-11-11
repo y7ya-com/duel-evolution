@@ -546,7 +546,9 @@ export class ClientApp implements ClientController {
   /** One duel message through the model, the log, the timeline and the cues (a live duel's or a replay's). */
   private applyDuel(message: WireMessage): void {
     const previousPrompt = this.duelState.prompt?.id;
-    const previous = this.duelState;
+    // A spectator's stream is the server's public view: no side is this client's own (never show a hand face up).
+    const observer = !!this.game?.state.spectating && !this.replay;
+    const previous = observer && !this.duelState.observer ? { ...this.duelState, observer } : this.duelState;
     this.duelState = reduceDuelMessage(previous, message);
     const npcResult = this.npcResult; try { this.npcResult = reduceNpcResultContext(npcResult, this.duelState, message); } catch { /* malformed packet: keep the last context */ }
     const names = this.duelNames();
@@ -714,7 +716,7 @@ export class ClientApp implements ClientController {
   }
   private renderDuelFrame(): void {
     if (!this.settledDuel || this.disposed) return;
-    const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog), relay = this.game?.state.relay;
+    const sample = this.timeline.sample(), timed = applyTimeline(this.settledDuel,sample,this.catalog,!!this.duelState.observer), relay = this.game?.state.relay;
     const parts = this.duelParts(), duel = { ...timed, ...this.duelResultExtras(), cues: this.duelCues.release(this.timeline.acknowledgedThrough),
       players: timed.players.map((p, i) => parts[i] ? { ...p, parts: parts[i] } : p) as unknown as typeof timed.players };
     for (const cue of this.duelAudio.consumeSample(sample)) {

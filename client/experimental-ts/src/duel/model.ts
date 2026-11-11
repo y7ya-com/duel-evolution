@@ -73,6 +73,8 @@ function put(state: DuelState, card: DuelCard, at: Location, faceUp = card.faceU
   }
   Object.assign(card, at, { faceUp, defense: at.zone === 'monster' && defense }); reindex(state, at.player, at.zone);
 }
+/** Player 0 is this client's own side, except in a spectator's stream (the public view has no own player). */
+const own = (state: DuelState, p: number): boolean => p === 0 && !state.observer;
 function impose(state: DuelState, p: number[], rawCode: number): void {
   const at = p[1] === 0 ? location(p[0], p[2], 0) : location(p[0], p[1], p[2]);
   validateLocation(at);
@@ -85,7 +87,7 @@ function impose(state: DuelState, p: number[], rawCode: number): void {
   detach(state, uid, false);
   Object.assign(card, at, { passcode: visiblePasscode(rawCode), hiddenKind: rawCode === 0xffffff01 ? 'monster' :
     rawCode === 0xffffff02 ? 'spell' : rawCode === 0xffffff03 ? 'trap' : null });
-  if (at.zone === 'hand') card.faceUp = at.player === 0 && card.passcode !== null;
+  if (at.zone === 'hand') card.faceUp = own(state, at.player) && card.passcode !== null;
   else if (at.zone === 'grave' || at.zone === 'banish') card.faceUp = card.passcode !== null;
   const pile = state.sides[at.player][at.zone];
   while (pile.length <= at.index) pile.push(null);
@@ -199,8 +201,8 @@ function execute(state: DuelState, record: CommandRecord): void {
   switch (cmd) {
     case 1: {
       const sequence = state.sequence, events = state.events, dropped = state.droppedPresentationEvents,
-        promptSequence = state.promptSequence;
-      Object.assign(state, createDuelState()); state.sequence = sequence; state.events = events;
+        promptSequence = state.promptSequence, observer = state.observer;
+      Object.assign(state, createDuelState()); state.sequence = sequence; state.events = events; if (observer) state.observer = true;
       state.droppedPresentationEvents = dropped; state.promptSequence = promptSequence; state.status = 'playing'; break;
     }
     // Translator sends C_TURN_CHANGE for the player whose turn just ended.
@@ -286,7 +288,7 @@ function execute(state: DuelState, record: CommandRecord): void {
       const at = location(toP, zone, 0);
       if (zone >= 11) at.index = at.zone === 'deck' && ((p[1] >>> 6) & 255) === 0 ? 0 :
         state.sides[toP][at.zone].length - Number(card.player === toP && card.zone === at.zone);
-      put(state, card, at, cmd === 0x41 ? !!(p[2] & 1) : at.zone === 'grave' || at.zone === 'banish' || (at.zone === 'hand' && toP === 0), cmd === 0x41 && !!(p[2] & 256));
+      put(state, card, at, cmd === 0x41 ? !!(p[2] & 1) : at.zone === 'grave' || at.zone === 'banish' || (at.zone === 'hand' && own(state, toP)), cmd === 0x41 && !!(p[2] & 256));
       break;
     }
     case 0x48: {
@@ -312,8 +314,10 @@ function execute(state: DuelState, record: CommandRecord): void {
       const at = location(who, (p[1] >>> 1) & 31, 0);
       put(state, card, at, !!(p[1] & 0x4000), cmd === 0x4f && !!(p[1] & 0x8000)); break;
     }
-    case 0x51: card = state.cards[p[0]]; if (card) card.faceUp = true; break;
-    case 0x52: for (const uid of state.sides[who].hand) if (uid != null) state.cards[uid].faceUp = !!p[0] || who === 0; break;
+    // A hand card the engine confirms (CONFIRM_CARDS) is shown in the moment: the event names it, but the card stays a
+    // back in its hand, because the server never sends a command that hides it again (unlike 0x52's open/close).
+    case 0x51: card = state.cards[p[0]] ?? null; if (card && card.zone !== 'hand') card.faceUp = true; break;
+    case 0x52: for (const uid of state.sides[who].hand) if (uid != null) state.cards[uid].faceUp = !!p[0] || own(state, who); break;
     case 0x54: break; // the server immediately reimposes the exact shuffled deck with type 0x40 records
     case 0x55: {
       const count = p[1];
@@ -322,7 +326,7 @@ function execute(state: DuelState, record: CommandRecord): void {
         const uid = state.sides[who].deck[0];
         if (uid == null || !state.cards[uid]) { missing('Draw references an unknown top card'); break; }
         card = state.cards[uid];
-        put(state, card, { player: who, zone: 'hand', index: state.sides[who].hand.length }, who === 0 && card.passcode !== null, false);
+        put(state, card, { player: who, zone: 'hand', index: state.sides[who].hand.length }, own(state, who) && card.passcode !== null, false);
       }
       break;
     }

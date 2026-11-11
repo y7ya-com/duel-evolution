@@ -56,6 +56,8 @@ export interface DuelState {
   /** A bounded presentation queue, separate from authoritative state. Consumers acknowledge events. */
   events: PresentationEvent[]; droppedPresentationEvents: number;
   unsupported: UnsupportedEvent[]; errors: string[];
+  /** A spectator's stream (npcWatch/pvpMatch public view): neither side is "own", so no hand card is shown face up. */
+  observer?: boolean;
 }
 export type DuelResponse =
   | { type: 'action'; player: Player; zone: number; index: number; command: number }

@@ -15,8 +15,8 @@ function uidFor(state: DuelState, a: LegalAction): number | null {
   const z = Object.entries(ZONE_IDS).find(([, id]) => id === a.zone)?.[0] as Zone | undefined;
   return z ? state.sides[a.player][z][a.index] ?? null : null;
 }
-function identityVisible(card: ReturnType<typeof visibleCards>[number]): boolean {
-  return card.passcode !== null && (card.faceUp || card.player === 0 &&
+function identityVisible(card: ReturnType<typeof visibleCards>[number], observer = false): boolean {
+  return card.passcode !== null && (card.faceUp || card.player === 0 && !observer &&
     ['hand', 'extra', 'monster', 'spell'].includes(card.zone));
 }
 const lpLine = (who: string, what: string, lp?: [number, number]) => `${who} ${what}${lp ? ` (LP ${lp[0]} -> ${lp[1]})` : ''}`;
@@ -62,7 +62,7 @@ export function describeEvent(state: DuelState, catalog: CardCatalog, names: [st
 }
 function actionLabel(state: DuelState, catalog: CardCatalog, a: LegalAction): string {
   const uid = uidFor(state, a), card = uid === null ? null : state.cards[uid];
-  const identity = card && identityVisible(card) ? catalog.card(card.passcode!).name : null;
+  const identity = card && identityVisible(card, state.observer) ? catalog.card(card.passcode!).name : null;
   const side = a.player === 0 ? 'your' : 'opponent’s';
   const zone = a.zone <= 4 ? `monster zone ${a.zone + 1}` : a.zone <= 10 ? `spell/trap zone ${a.zone - 4}`
     : a.zone === 11 ? `hand card ${a.index + 1}` : a.zone === 12 ? 'extra deck' : a.zone === 13 ? 'deck'
@@ -160,10 +160,10 @@ export function projectDuel(state: DuelState, catalog: CardCatalog, names: [stri
     ],
     cards: visibleCards(state).map(c => {
       // Never publish a cached identity when the current card is hidden from this player.
-      const known = identityVisible(c);
+      const known = identityVisible(c, state.observer);
       const meta = known ? catalog.card(c.passcode!) : { id: String(c.uid), name: 'Hidden card' };
       return { ...meta, id: String(c.uid), controller: c.player, zone: zones[c.zone], index: c.index,
-        faceUp: c.faceUp || c.zone === 'hand' && c.player === 0, position: c.defense ? 'defense' : 'attack',
+        faceUp: c.faceUp || c.zone === 'hand' && c.player === 0 && !state.observer, position: c.defense ? 'defense' : 'attack',
         ...(known && c.attack !== null ? { attack: c.attack } : {}), ...(known && c.defence !== null ? { defense: c.defence } : {}),
         ...(c.faceUp && Object.values(c.counters).some(count => count > 0) ? {
           counters: Object.entries(c.counters).filter(([, count]) => count > 0).map(([kind, count]) => ({ kind: Number(kind), count })),
@@ -222,7 +222,7 @@ export function interpretResponse(state: DuelState, id: string, response?: DuelR
 export function interpretAction(state: DuelState, id: string): EngineResponse { return actionResponse(id, state); }
 
 /** Overlay presentation poses on a view without changing rules, response masks, or server state. */
-export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: CardCatalog): DuelView {
+export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: CardCatalog, observer = false): DuelView {
   const current = new Map(view.cards.map(card => [Number(card.id), card]));
   const rotation = (card: CardPlacement) => (card.player === 1 ? 180 : 0) + (card.defense && card.zone === 'monster' ? 90 : 0);
   const position = (card: CardPlacement) => fieldCardPosition({ id: String(card.uid), name: '',
@@ -239,7 +239,7 @@ export function applyTimeline(view: DuelView, sample: TimelineSample, catalog: C
     const existing = current.get(item.uid);
     // A disappearing token may no longer exist in the authoritative board; its last public identity is safe to paint.
     const shown = item.progress < 0.5 ? from : to;
-    const known = shown.passcode !== null && (shown.faceUp || shown.player === 0 && ['hand', 'extra', 'monster', 'spell'].includes(shown.zone));
+    const known = shown.passcode !== null && (shown.faceUp || shown.player === 0 && !observer && ['hand', 'extra', 'monster', 'spell'].includes(shown.zone));
     const meta = known ? existing?.passcode === shown.passcode ? existing : catalog.card(shown.passcode!) : { id: String(item.uid), name: 'Hidden card' };
     return { ...meta, id: String(item.uid), controller: target.player, zone: zones[target.zone], index: target.index,
       faceUp, position: target.defense ? 'defense' as const : 'attack' as const,
