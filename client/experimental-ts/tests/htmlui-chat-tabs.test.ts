@@ -22,3 +22,11 @@ describe('chat tabs follow the server protocol', () => {
     expect(chatCommand(2, '/w "Ann Lee" hey')).toEqual({ type: 'chat', channel: 'whisper', target: 'Ann Lee', text: 'hey' });
   });
 });
+
+describe('Discord lines keep their mark', async () => {
+  const { latin1 } = await import('../src/network/codec');
+  it('a 0x4402 sender name starting with DISCORD_MARK (0xA4, server chat.ts) decodes to the U+00A4 main\'s chat.js draws as the logo', () => {
+    const name = latin1(Uint8Array.of(0xa4, 0x41, 0x6e, 0x6e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+    expect(name.startsWith('¤Ann')).toBe(true);
+  });
+});
