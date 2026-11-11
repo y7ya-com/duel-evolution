@@ -22,11 +22,11 @@ const DECLINE_VALUE = 1, SEND_PAUSE = 0.03;
  *  client keeps the player in Edit Deck); the trunk is the whole collection, decks only point into it. */
 export const TRADE_MIN_CARDS = 40;
 const CANCEL_TEXT = { min: `Trade cancelled: you must keep at least ${TRADE_MIN_CARDS} cards.`, bound: "Trade cancelled: soul-bound cards (your starter deck, or bought with your starting MP) can't be traded.",
-  fresh: `Trade cancelled: a character can give cards after ${PP.TRADE_GIVE_MIN_DUELS} rewarded duels.`,
+  fresh: () => `Trade cancelled: a character can give cards after ${PP.tradeGiveMinDuels()} rewarded duels.`,
   cap: `Trade cancelled: an account can take in at most ${PP.TRADE_IN_DAY_MAX} more cards than it gives a day through trades.` };
 /** The same refusals when the trade had cosmetics (trade-units.ts: a cosmetic counts its rarity's card units). */
 const CANCEL_COS = {
-  fresh: `Trade cancelled: a character can give cards or cosmetics after ${PP.TRADE_GIVE_MIN_DUELS} rewarded duels.`,
+  fresh: () => `Trade cancelled: a character can give cards or cosmetics after ${PP.tradeGiveMinDuels()} rewarded duels.`,
   cap: `Trade cancelled: an account can take in at most ${PP.TRADE_IN_DAY_MAX} more card units than it gives a day through trades (a cosmetic counts 2 to 30 by rarity).`,
   "cos-missing": "Trade cancelled: a cosmetic in the trade is no longer a spare copy. Nothing was traded.",
   // per side: the one whose game has the panel, the one without it
@@ -174,8 +174,8 @@ export class Trades {
           this.g.log(`[AVISO] [intercambio] pid ${s.pid} offers ${n} of ${cid}, ${bound[String(cid)]} of them soul-bound: cancelled`);
           return "bound";
         }
-        if (econ && (give.length || cGive.length) && earned < PP.TRADE_GIVE_MIN_DUELS) {
-          this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) gives ${give.length} cards, ${cGive.length} cosmetic lines after ${earned} rewarded duels (< ${PP.TRADE_GIVE_MIN_DUELS}): cancelled`);
+        if (econ && (give.length || cGive.length) && earned < PP.tradeGiveMinDuels()) {
+          this.g.log(`[AVISO] [intercambio] pid ${s.pid} (${(s.acct ?? "?").slice(0, 8)} ${s.name}) gives ${give.length} cards, ${cGive.length} cosmetic lines after ${earned} rewarded duels (< ${PP.tradeGiveMinDuels()}): cancelled`);
           return "fresh";
         }
         const into = cardUnits(take) + cosmeticUnits(cTake), out = cardUnits(give) + cosmeticUnits(cGive);
@@ -348,7 +348,8 @@ export class Trades {
     if (r === "done" || r === "missing") return null;
     if (r === "cos-client") return CANCEL_COS["cos-client"][t.panel.get(pid) ? 0 : 1];
     if (r === "cos-missing") return CANCEL_COS["cos-missing"];
-    return mixed && (r === "fresh" || r === "cap") ? CANCEL_COS[r] : CANCEL_TEXT[r];
+    const text = mixed && (r === "fresh" || r === "cap") ? CANCEL_COS[r] : CANCEL_TEXT[r];
+    return typeof text === "function" ? text() : text;
   }
   /** A server line in the player's chat (0x4402 from "Duel Evolution"). */
   private say(t: Trade, pid: number, x: string, c: Conn | null = null) {
@@ -437,7 +438,7 @@ export class Trades {
     const spares = spareCopies(this.g, s.acct) ?? {};
     const short = lines.find((l) => (spares[l.id] ?? 0) < l.count);
     if (short) return { error: "insufficient-duplicates", id: short.id, spare: spares[short.id] ?? 0 };
-    if (PP.progression() && lines.length && this.withProfile(s, (p) => PP.earnedDuels(p)) < PP.TRADE_GIVE_MIN_DUELS) return { error: "fresh", min: PP.TRADE_GIVE_MIN_DUELS };
+    if (PP.progression() && lines.length && this.withProfile(s, (p) => PP.earnedDuels(p)) < PP.tradeGiveMinDuels()) return { error: "fresh", min: PP.tradeGiveMinDuels() };
     t.cos.set(me, lines.map((l) => ({ id: l.id, count: l.count })));
     t.rev++;
     const reset = t.asked || [...t.confirm.values()].some((v) => v !== null);

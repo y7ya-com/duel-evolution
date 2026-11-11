@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as PP from "../src/game/persist.ts";
+import { configFrom, TRADE_GIVE_MIN_DUELS_LIVE } from "../src/config.ts";
 import type { TradeEntry } from "../src/game/trade.ts";
 import { analyse, buildReport, isHosting, recordLogin, recordTrade, runTradeReport, summary, type TradeRow } from "../src/db/audit.ts";
 import { harness, be32, cat, cstr, i32, pc, u32, type Client, type Harness } from "./notes-harness.ts";
@@ -56,8 +57,8 @@ interface Side { trunk: Record<string, number>; earned?: number; bound?: Record<
 
 /** A whole trade between A and B (progression on) with these characters; returns the 0x7121 result, A's and B's chat
  *  lines after it, both trunks, the ledger entries and the harness. */
-async function trade(A0: Side, B0: Side, giveA: number[], giveB: number[]) {
-  const h: Harness = harness({ players: {} }, { PROGRESSION: "1" });
+async function trade(A0: Side, B0: Side, giveA: number[], giveB: number[], env: Record<string, string> = {}) {
+  const h: Harness = harness({ players: {} }, { PROGRESSION: "1", ...env });
   const ledger: TradeEntry[] = [];
   h.game.tp!.ledger = (e) => ledger.push(e);
   const [A, B] = [h.client("P0"), h.client("P1")];
@@ -102,6 +103,40 @@ async function trade(A0: Side, B0: Side, giveA: number[], giveB: number[]) {
   return { end: end[0], chatA: chat(A, n), chatB: chat(B, m), a: prof(0), b: prof(1), ledger, h };
 }
 const filler = (k: number) => ({ [pc(9)]: 40, [pc(k)]: 10 });
+
+describe("the dev stack's TRADE_GIVE_MIN_DUELS switch", () => {
+  it("is 20 by default and only DEV=1 outside production lowers it", () => {
+    expect(PP.TRADE_GIVE_MIN_DUELS).toBe(20);
+    expect(TRADE_GIVE_MIN_DUELS_LIVE).toBe(PP.TRADE_GIVE_MIN_DUELS);
+    const at = (env: Record<string, string>) => configFrom(env).tradeGiveMinDuels;
+    expect(at({})).toBe(20);
+    expect(at({ PROGRESSION: "1", DEPLOY_ENV: "production" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "0" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "0", DEV: "true" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "0", DEV: "1", DEPLOY_ENV: "production" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "-3", DEV: "1" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "x", DEV: "1" })).toBe(20);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "0", DEV: "1" })).toBe(0);
+    expect(at({ TRADE_GIVE_MIN_DUELS: "5", DEV: "1", DEPLOY_ENV: "staging" })).toBe(5);
+  });
+  it("no deploy config sets DEV or TRADE_GIVE_MIN_DUELS", () => {
+    for (const f of ["wrangler.jsonc", "scripts/deploy.sh"]) {
+      const cfg = readFileSync(f, "utf8");
+      expect(cfg).not.toMatch(/TRADE_GIVE_MIN_DUELS/);
+      expect(cfg).not.toMatch(/"DEV"\s*:/);
+    }
+  });
+  it("a dev stack at 0 lets a character with no rewarded duels give; in production it is ignored", async () => {
+    const dev = await trade({ trunk: filler(1), earned: 0 }, { trunk: filler(2), earned: 0 }, [pc(1)], [pc(2)], { DEV: "1", TRADE_GIVE_MIN_DUELS: "0" });
+    expect([dev.end, dev.a.trunk[pc(2)], dev.b.trunk[pc(1)]]).toEqual([1, 1, 1]);
+    const prod = await trade({ trunk: filler(1), earned: 19 }, { trunk: filler(2) }, [pc(1)], [pc(2)], { DEV: "1", DEPLOY_ENV: "production", TRADE_GIVE_MIN_DUELS: "0" });
+    expect(prod.end).toBe(0);
+    expect(prod.chatA).toEqual(["Trade cancelled: a character can give cards after 20 rewarded duels."]);
+    // a live Game (no override) sets the rule back for the next Game in this process
+    const again = await trade({ trunk: filler(1), earned: 19 }, { trunk: filler(2) }, [pc(1)], [pc(2)]);
+    expect(again.end).toBe(0);
+  });
+});
 
 describe("the trade's giver gate and intake cap", () => {
   it("a character under 20 rewarded duels can't give cards (the chat says why); one at 20 can", async () => {

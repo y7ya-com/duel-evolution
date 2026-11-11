@@ -293,6 +293,10 @@ export function earnedDuels(p: P): number {
 }
 /** Rewarded duels before a character's cards can leave it in a trade (trade.ts); receiving needs none. */
 export const TRADE_GIVE_MIN_DUELS = 20;
+/** The minimum this server applies: TRADE_GIVE_MIN_DUELS, unless a dev stack lowered it (config.ts tradeGiveMinDuels). */
+let tradeGiveMin = TRADE_GIVE_MIN_DUELS;
+export const setTradeGiveMinDuels = (n: number) => { tradeGiveMin = n; };
+export const tradeGiveMinDuels = () => tradeGiveMin;
 /** Net cards an account may take in through trades in a UTC day (received − given, per trade, summed over its
  *  characters live and archived); balanced swaps never count. */
 export const TRADE_IN_DAY_MAX = 30;
@@ -306,7 +310,7 @@ export function legacyBind(p: P): boolean {
   const n = earnedDuels(p);
   p.earned = { duels: n };
   p.bind_v = LEGACY_BIND_V;
-  if (n >= TRADE_GIVE_MIN_DUELS) return false;
+  if (n >= tradeGiveMin) return false;
   p.bound = Object.fromEntries(Object.entries(p.trunk ?? {}).map(([k, q]) => [k, int0(q)]).filter(([, q]) => (q as number) > 0));
   return true;
 }
