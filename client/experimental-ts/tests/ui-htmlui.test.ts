@@ -32,7 +32,7 @@ describe("main's HTML UI windows built from the rewrite's state", () => {
     const lobby = { name: 'Duel Academy · Area 1', avatars: [], connected: true, channels: ['global'], chat: [{ id: '1', sender: 'A', text: 'hi', channel: 'global' }, { id: '2', sender: 'B', text: 'wts', channel: 'trade' }] };
     const t = context(view({ scene: 'lobby', lobby }));
     const chat = t.windows().find(s => s.win.cls === 'CChatWindow')!.win, logs = chat.controls.filter(c => c.cls === 'CWindowTaskTextlist');
-    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], []]);
+    expect(logs.map(l => l.items)).toEqual([['@0A:hi', '@0B:wts'], ['@0B:wts'], [], ['@0No open duels. Create Duel opens one anyone here may join.']]);
     expect(chat.controls.filter(c => c.cls === 'CWindowTaskTab').map(c => c.label)).toEqual(['All Chat', 'TRADE', 'Team ']);
     t.find('chat-tab:trade')!.click!(); t.find('chat')!.text!('selling'); t.find('chat')!.enter!();
     expect(t.sent.at(-1)).toEqual({ type: 'chat', channel: 'trade', text: 'selling' });

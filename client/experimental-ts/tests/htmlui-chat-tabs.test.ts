@@ -5,7 +5,7 @@ import { CHAT_TABS, chatCommand } from '../src/ui/htmlui/windows';
 // the tab it was typed in (pid 0, that tab's channel)
 describe('chat tabs follow the server protocol', () => {
   it('has no Proximity tab', () => {
-    expect(CHAT_TABS.map(t => t.key)).toEqual(['all', 'trade', 'team']);
+    expect(CHAT_TABS.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels']);
     expect(CHAT_TABS.some(t => /proximity/i.test(t.label))).toBe(false);
   });
   it('a Notice on a channel shows in that channel\'s tab and in All Chat', () => {
