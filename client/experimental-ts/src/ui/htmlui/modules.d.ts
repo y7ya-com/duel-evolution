@@ -78,3 +78,9 @@ declare module '@htmlui/cosmetics/trade-cosmetics.js' {
 declare module '@htmlui/chat-bubbles.js' {
   export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
 }
+declare module '@htmlui/controls/basic.js' {
+  /** A window's generic controls kept in sync with its snapshot (one element per control id in st). */
+  export function syncWindow(root: HTMLElement, win: unknown, st: Map<number, unknown>, api: HtmlUiApi): void;
+  /** Whether a generic renderer draws this control's class. */
+  export function covers(c: { cls: string }): boolean;
+}

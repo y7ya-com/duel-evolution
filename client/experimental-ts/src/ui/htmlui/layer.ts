@@ -3,7 +3,9 @@
 // (windows.ts) and is the engine: it mounts the same modules through bridge.js's makeLayer, implements `api` with
 // ClientApp commands, and gives the pointer's hover / pressed looks to the controls, as each switch's onMain does.
 // Every module runs owned (the DOM takes input): its buttons are real, focusable <button>s and its inputs real
-// <input>s. A module main runs in pass mode draws buttons the engine clicks; their clicks are hit-tested here.
+// <input>s. A module main runs in pass mode draws buttons the engine clicks: here each such button is the target
+// itself (the element the browser hands the event, never a point hit-tested against the controls' rects): its
+// hover / pressed looks follow the pointer entering, pressing and leaving that element, Enter / Space on it click it.
 import { makeLayer } from '@htmlui/bridge.js';
 import { backdrop } from '@htmlui/backdrop.js';
 import select from '@htmlui/screens/select.js';
@@ -17,7 +19,8 @@ import shop from '@htmlui/screens/shop.js';
 import trade from '@htmlui/screens/trade.js';
 import { chatBubblesFrame } from '@htmlui/chat-bubbles.js';
 import { pictures, balloon } from './pictures';
-import { applyPointer, hitTest } from './snapshot';
+import { syncWindow, covers } from '@htmlui/controls/basic.js';
+import { applyPointer } from './snapshot';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
@@ -29,10 +32,28 @@ const PASS = new Set<HtmlUiScreen>([]);
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
 // the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js): clicked on release
 const REBUILT = /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/;
-// a window with no module: main's generic controls (bridge.js: syncWindow)
-const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(),
-  update: (win, _prev, root, api, st) => api.syncWindow!(root, win, st as Map<number, unknown>),
+// a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
+// focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
+// window the rewrite adds before its screen is never a dead box
+const GENERIC: HtmlUiScreen = { classes: [], mode: 'owned', mount: () => new Map(),
+  update: (win, _prev, root, api, st) => { const s = st as Map<number, unknown>; syncWindow(root, win, s, { ...api, owned: true }); fallback(win as HtmlWindow, root, api); },
   unmount: (root, st) => { root.replaceChildren(); (st as Map<number, unknown>).clear(); } };
+const FALLBACK = new WeakMap<HTMLElement, Map<number, HTMLButtonElement>>();
+function fallback(win: HtmlWindow, root: HTMLElement, api: HtmlUiApi): void {
+  const els = FALLBACK.get(root) ?? new Map<number, HTMLButtonElement>(); FALLBACK.set(root, els);
+  const seen = new Set<number>();
+  for (const c of win.controls) {
+    if (c.parent || covers(c) || !/Switch|Button|Tab|Icon/.test(c.cls)) continue;
+    seen.add(c.id);
+    let b = els.get(c.id);
+    if (!b) { b = Object.assign(document.createElement('button'), { type: 'button', className: 'btn htmlui-fallback' }); b.addEventListener('click', () => void api.click(c.id)); els.set(c.id, b); }
+    if (b.parentNode !== root) root.append(b);
+    b.textContent = String(c.label ?? c.name ?? '');
+    b.disabled = c.state === 'disabled' || !c.enabled; b.hidden = !c.shown;
+    Object.assign(b.style, { position: 'absolute', left: c.x + 'px', top: c.y + 'px', width: c.w + 'px', height: c.h + 'px' });
+  }
+  for (const [id, b] of els) if (!seen.has(id)) { b.remove(); els.delete(id); }
+}
 
 /** A shown avatar's name tag in game px (main's read/chat.js chatAvatars): All Chat's speech bubbles stand over it. */
 export interface ChatAvatar { pid: number; name: string; x: number; y: number }
@@ -98,10 +119,13 @@ export class HtmlUiLayer {
     this.tick = setInterval(() => { this.bubbles(); this.pageModules(); }, 1000);
     void makeLayer(this.host, { get, has: () => true }, options.art).then(({ render }) => { if (!this.disposed) { this.render = render; this.draw(); } })
       .catch((e: unknown) => console.warn('htmlui', e));
-    this.host.addEventListener('pointermove', this.onMove, true);
+    this.host.addEventListener('pointerover', this.onOver, true);
+    this.host.addEventListener('pointerout', this.onOut, true);
     this.host.addEventListener('pointerdown', this.onDown, true);
     this.host.addEventListener('pointerup', this.onUp, true);
-    this.host.addEventListener('pointerout', this.onOut, true);
+    this.host.addEventListener('keydown', this.onKey, true);
+    this.host.addEventListener('keyup', this.onKey, true);
+    this.host.addEventListener('focusout', this.onBlur, true);
     this.host.addEventListener('click', this.onClick);
     addEventListener('resize', this.place); addEventListener('scroll', this.place, true);
     if (typeof ResizeObserver === 'function') { this.observer = new ResizeObserver(this.place); const s = options.stage(); if (s) this.observer.observe(s); }
@@ -165,39 +189,62 @@ export class HtmlUiLayer {
     Object.assign(this.box.style, { position: 'fixed', zIndex: '-1', pointerEvents: 'none', visibility: 'hidden', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.width * 0.75 + 'px' });
   };
 
-  private point(e: MouseEvent): [number, number] {
-    const r = this.host.getBoundingClientRect();
-    return [(e.clientX - r.left) / this.scale, (e.clientY - r.top) / this.scale];
+  // The control an event's own element stands for (tag(): the button main's pass-mode screen drew for it), when that
+  // control's looks are the layer's to give (a window main runs in pass mode); never found by the pointer's position
+  private control(t: EventTarget | null): number {
+    for (let el = t instanceof Element ? t : null; el && el !== this.host; el = el.parentElement) {
+      const id = this.elementIds.get(el); if (id !== undefined) return id;
+    }
+    return 0;
   }
-  private onMove = (e: PointerEvent): void => {
-    const [x, y] = this.point(e), id = hitTest(this.specs, x, y, (h, w) => !!h.hover && this.declared.get(w.cls) !== 'owned')?.id ?? 0;
-    if (id !== this.hover) { const was = this.hover; this.hover = id; if (this.pressed && id !== this.pressed) this.pressed = 0; this.handlers.get(was)?.pointer?.(false); this.handlers.get(id)?.pointer?.(true); this.handlers.get(id)?.over?.(); this.draw(); }
+  private looks(id: number): boolean {
+    const win = id ? this.specs.find(s => s.handlers.has(id))?.win : undefined;
+    return !!win && this.declared.get(win.cls) !== 'owned';
+  }
+  private setHover(id: number): void {
+    if (id === this.hover) return;
+    const was = this.hover; this.hover = id;
+    if (this.pressed && id !== this.pressed) this.pressed = 0;
+    this.handlers.get(was)?.pointer?.(false); this.handlers.get(id)?.pointer?.(true); this.handlers.get(id)?.over?.();
+    this.draw();
+  }
+  // the pointer enters a control's element: its hover look (as the engine's onMain, which main's pass screens draw)
+  private onOver = (e: PointerEvent): void => { const id = this.control(e.target); this.setHover(id && this.handlers.get(id)?.hover && this.looks(id) ? id : 0); };
+  // it leaves the element: to another control's, or to none
+  private onOut = (e: PointerEvent): void => {
+    const to = e.relatedTarget as Node | null;
+    if (to && this.host.contains(to)) { const id = this.control(to); this.setHover(id && this.handlers.get(id)?.hover && this.looks(id) ? id : 0); }
+    else if (this.hover || this.pressed) { this.pressed = 0; this.setHover(0); this.draw(); }
   };
-  private onDown = (e: PointerEvent): void => { if (e.button !== 0) return; this.onMove(e); if (this.hover) { this.pressed = this.hover; this.draw(); } };
+  private onDown = (e: PointerEvent): void => {
+    if (e.button !== 0) return;
+    const id = this.control(e.target); if (!id || !this.looks(id) || !this.handlers.get(id)?.hover) return;
+    this.hover = this.pressed = id; this.draw();
+  };
   // main's shop.js and trade.js rebuild their windows on every change (the pressed look too), so the browser's click
-  // never lands on the button pressed: there the engine's rule, a release over the control pressed clicks it
+  // lands on no button (the pressed one was replaced): there a release on the element of the control pressed clicks it
   private onUp = (e: PointerEvent): void => {
     const was = this.pressed; if (!was) return;
     this.pressed = 0;
     const win = this.specs.find(s => s.handlers.has(was))?.win;
-    if (win && REBUILT.test(win.cls) && e.button === 0) {
-      const [x, y] = this.point(e);
-      if (hitTest(this.specs, x, y, h => !!h.click)?.id === was) { this.released = true; setTimeout(() => { this.released = false; }, 0); void this.api.click(was); }
-    }
+    if (win && REBUILT.test(win.cls) && e.button === 0 && this.control(e.target) === was) { this.released = true; setTimeout(() => { this.released = false; }, 0); void this.api.click(was); }
     this.draw();
   };
-  private onOut = (e: PointerEvent): void => { if (!this.host.contains(e.relatedTarget as Node | null) && (this.hover || this.pressed)) { this.hover = this.pressed = 0; this.draw(); } };
-  // A module main runs in pass mode draws buttons the engine would click: the click lands on the control under it
+  // Enter / Space on a focused control's button: its pressed look while held (the browser's own click follows)
+  private onKey = (e: KeyboardEvent): void => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const id = this.control(e.target); if (!id || !this.looks(id)) return;
+    const p = e.type === 'keydown' ? id : 0;
+    if (p !== this.pressed) { this.pressed = p; this.draw(); }
+  };
+  private onBlur = (): void => { if (this.pressed) { this.pressed = 0; this.draw(); } };
+  // A module main runs in pass mode draws buttons the engine would click: the element clicked (or Enter / Space on it)
+  // clicks its control. An owned screen's controls click themselves (their own listeners: controls/basic.js, lobby.js)
   private onClick = (e: MouseEvent): void => {
     if (this.clicked || this.released) return;
-    // the element's control (a keyboard press has no pointer position), else the control under the pointer
-    const el = (e.target as Element | null)?.closest?.('button'), byEl = el ? this.elementIds.get(el) : undefined;
-    const [x, y] = this.point(e), c = byEl !== undefined ? this.specs.flatMap(s => s.win.controls).find(k => k.id === byEl) ?? null : hitTest(this.specs, x, y, h => !!h.click);
-    if (!c || !this.handlers.get(c.id)?.click) return;
-    const win = this.specs.find(s => s.win.controls.includes(c))?.win;
-    // an owned screen clicks its own controls, but its lists' rows are text (chat.js ownList): a row picks its row
-    if (win && this.declared.get(win.cls) === 'owned' && !/Listbox$/.test(c.cls)) return;
-    void this.api.click(c.id);
+    const id = this.control(e.target);
+    if (!id || !this.handlers.get(id)?.click || !this.looks(id)) return;
+    void this.api.click(id);
   };
 
   /** main's module, owned, with what the rewrite adds after each update: data-key / aria-label on the elements that
@@ -228,6 +275,8 @@ export class HtmlUiLayer {
         e.x >= c.x && e.x < c.x + c.w && e.y >= c.y && e.y < c.y + c.h).sort((a, b) => a.area - b.area)[0]?.el;
       if (!at) continue;
       this.elementIds.set(at, c.id);
+      // a pass-mode screen's button (tabIndex -1: the game had the keys) is a real one here: focusable, Enter / Space
+      if (at instanceof HTMLButtonElement && at.tabIndex < 0 && this.declared.get(win.cls) !== 'owned' && h.click) at.tabIndex = 0;
       // a pass-mode screen shows a disabled control's look only: the element says it too (keyboard, tests, a11y)
       if (at instanceof HTMLButtonElement && c.state !== undefined) at.disabled = c.state === 'disabled' || !c.enabled;
       if (h.key && at.dataset.key !== h.key) at.dataset.key = h.key;
@@ -236,6 +285,7 @@ export class HtmlUiLayer {
     }
     // an element keyed before whose control is gone or hidden (main's screens keep the element): its key goes
     for (const el of this.tagged.get(root) ?? []) if (!now.has(el)) { delete el.dataset.key; this.elementIds.delete(el); }
+    if (this.hover && !this.handlers.has(this.hover)) this.hover = 0;
     this.tagged.set(root, now);
   }
 

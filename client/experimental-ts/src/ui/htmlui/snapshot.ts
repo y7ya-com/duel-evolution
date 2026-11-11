@@ -28,7 +28,7 @@ export interface ControlHandlers {
   enter?(): void;
   /** api.setValue: a scroll bar's value (the Move list's wheel). */
   value?(v: number): void;
-  /** The pointer came over it (a pass-mode window's control: the engine's hitTest in its onMain). */
+  /** The pointer came over it (a pass-mode window's control: its element took the pointer, layer.ts onOver). */
   over?(): void;
   /** data-key and aria-label put on the element main's screen draws for it (tests and assistive technology). */
   key?: string; label?: string;
@@ -97,24 +97,6 @@ export function applyPointer(specs: readonly WindowSpec[], hover: number, presse
       if (art) { const look = c.state === 'pressed' ? 'pressed' : c.checked ? 'checked' : c.state === 'hover' ? 'hover' : 'normal'; for (const [k, v] of Object.entries(art)) if (v) v.shown = k === look; }
     }
   }
-}
-
-/** The frontmost control with handlers at a game point: windows front to back (larger z in front, then later in the
- * list), its controls front to back. */
-export function hitTest(specs: readonly WindowSpec[], x: number, y: number, want: (h: ControlHandlers, win: HtmlWindow) => boolean = h => !!h.hover): HtmlControl | null {
-  const wins = specs.map((s, i) => [s, i] as const).sort(([a, i], [b, j]) => b.win.z - a.win.z || j - i);
-  for (const [{ win, handlers }] of wins) {
-    if (!win.shown) continue;
-    const lx = x - win.x, ly = y - win.y;
-    for (let k = win.controls.length - 1; k >= 0; k--) {
-      const c = win.controls[k], h = handlers.get(c.id);
-      if (!h || !want(h, win) || !c.shown || !c.enabled || c.state === 'disabled') continue;
-      const ox = c.parent ? win.controls.find(p => p.id === c.parent)?.x ?? 0 : 0, oy = c.parent ? win.controls.find(p => p.id === c.parent)?.y ?? 0 : 0;
-      if (lx >= ox + c.x && lx < ox + c.x + c.w && ly >= oy + c.y && ly < oy + c.y + c.h) return c;
-    }
-    if (win.modal && lx >= 0 && ly >= 0 && lx < win.w && ly < win.h) return null;   // a modal window takes the point
-  }
-  return null;
 }
 
 /** '1' -> 'Lv01': the level as Select Player shows it (main's capture: 'Lv01'). */
