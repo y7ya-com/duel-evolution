@@ -285,8 +285,9 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           // Stale action: keep the phase button of one turn and press it on the player's next turn.
           if (!staleAction && s.actions.includes('End Turn') && turnOf(s) >= 2 && !s.prompt) {
             const label = s.actions.find(t => t === 'Battle Phase') ?? 'End Turn';
-            await page.ev(`window.__staleAction=[...document.querySelectorAll('.de-phase-bar button')].find(b=>b.textContent===${JSON.stringify(label)})`);
-            staleAction = { page,who,turn:turnOf(s),label };
+            // an enabled one: the screen may have re-rendered busy (an answer on its way) since the snapshot
+            if (await page.ev(`!!(window.__staleAction=[...document.querySelectorAll('.de-phase-bar button')].find(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled))`))
+              staleAction = { page,who,turn:turnOf(s),label };
           } else if (staleAction && staleAction.page === page && !staleActionResult && turnOf(s) >= staleAction.turn + 2 && s.actions.includes('End Turn') && !s.prompt) {
             prompts.probing = true; await page.ev(`window.__staleAction.click()`); await sleep(600);
             const after = await snap(page);
