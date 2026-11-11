@@ -207,6 +207,11 @@ export class HtmlUiLayer {
     }
     return 0;
   }
+  private listAt(t: EventTarget | null, id: number): HTMLElement | null {
+    for (let el = t instanceof Element ? t : null; el && el !== this.host; el = el.parentElement)
+      if (el instanceof HTMLElement && el.getAttribute('role') === 'list' && this.elementIds.get(el) === id) return this.handlers.get(id)?.click ? el : null;
+    return null;
+  }
   private looks(id: number): boolean {
     const win = id ? this.specs.find(s => s.handlers.has(id))?.win : undefined;
     return !!win && this.declared.get(win.cls) !== 'owned';
@@ -253,6 +258,10 @@ export class HtmlUiLayer {
   private onClick = (e: MouseEvent): void => {
     if (this.clicked || this.released) return;
     const id = this.control(e.target);
+    // a row of a native-scroller list (ownList): the engine's list took the click at its game point (the row under
+    // it); main's owned screens leave the scroller's clicks alone, so the list's control is clicked there
+    const list = id ? this.listAt(e.target, id) : null;
+    if (list) { const r = this.host.getBoundingClientRect(); void this.api.click(id, [(e.clientX - r.left) / this.scale, (e.clientY - r.top) / this.scale + list.scrollTop]); return; }
     if (!id || !this.handlers.get(id)?.click || !this.looks(id)) return;
     void this.api.click(id);
   };
@@ -273,19 +282,23 @@ export class HtmlUiLayer {
     // Cancel a row lower): its controls' elements are where the module draws them, not at their places in the window
     const placed = new Map(RELAID.has(win.cls) ? duelsetupPrep(win).controls.map(c => [c.id, c]) : []);
     const rr = root.getBoundingClientRect(), k = this.scale;
-    const els = [...root.querySelectorAll<HTMLElement>('button, input, textarea, [role="log"]')].map(el => {
+    const els = [...root.querySelectorAll<HTMLElement>('button, input, textarea, [role="log"], [role="list"]')].map(el => {
       const r = el.getBoundingClientRect();
       return { el, x: (r.left + r.width / 2 - rr.left) / k, y: (r.top + r.height / 2 - rr.top) / k, area: r.width * r.height };
     }).filter(e => e.area > 0);
     const now = new Set<HTMLElement>();
     for (const c of win.controls) {
       const h = spec.handlers.get(c.id); if (!h || !c.shown) continue;   // a hidden control's element keeps no key
-      const p = placed.get(c.id) ?? c;
+      // a part of a container (Write Mail's text: its Input inside the MultiInput, at 0, 0 of it) is drawn inside it
+      const up = c.parent ? win.controls.find(k => k.id === c.parent && /MultiInput$/.test(k.cls)) : undefined;
+      const p = placed.get(c.id) ?? (up ? { x: up.x + c.x, y: up.y + c.y, w: c.w, h: c.h } : c);
       const input = !!(h.text || h.enter);
       // a tab main's chat.js relabels ('TRADE' -> 'Trade', '(2)' unread) and moves along the bar: found by its label
       const plain = (t: string) => t.replace(/\s*\(\d+\+?\)\s*$/, '').trim().toLowerCase();
       const tab = c.cls === 'CWindowTaskTab' ? els.find(e => e.el.tagName === 'BUTTON' && plain(e.el.textContent ?? '') === plain(String(c.label ?? '')))?.el : undefined;
-      const at = tab ?? els.filter(e => (input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
+      // a list main's chat.js draws as a native scroller (ownList: role="list"), as the Friend / Team / Ignore Lists'
+      const list = c.cls === 'CWindowTaskListbox';
+      const at = tab ?? els.filter(e => (list ? e.el.getAttribute('role') === 'list' : input ? /^(INPUT|TEXTAREA)$/.test(e.el.tagName) : e.el.tagName === 'BUTTON') &&
         e.x >= p.x && e.x < p.x + p.w && e.y >= p.y && e.y < p.y + p.h).sort((a, b) => a.area - b.area)[0]?.el;
       if (!at) continue;
       this.elementIds.set(at, c.id);
