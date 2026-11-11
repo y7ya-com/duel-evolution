@@ -128,7 +128,7 @@ export class DeckDom {
     if (!r) { const el = document.createElement('div'); el.style.position = 'absolute'; this.el.insertBefore?.(el, this.controls) ?? this.el.append(el); r = { el, key: '' }; this.roots.set(win.id, r); }
     r.key = key;
     const root = r.el, ox = win.x, oy = win.y;
-    Object.assign(root.style, { left: ox + 'px', top: oy + 'px', width: win.w + 'px', height: win.h + 'px', zIndex: String(win.z), overflow: 'visible' });
+    Object.assign(root.style, { left: ox + 'px', top: oy + 'px', width: win.w + 'px', height: win.h + 'px', zIndex: String(win.z + (win.cls === 'CWindowModelFileList' ? 1 : 0)), overflow: 'visible' });   // the list's rows over main's text
     root.replaceChildren();
     const items: { z: number; draw(): void }[] = [];
     for (const s of (win.extras ?? []) as Record<string, unknown>[]) {
@@ -153,6 +153,21 @@ export class DeckDom {
       if (row && pc > 0) items.push({ z: Number(c.wz ?? c.z ?? 0) - 0.5, draw: () => {
         const d = this.box(root, 'div', Number(c.wx) - ox, Number(c.wy) - oy, Number(c.w), Number(c.h)); d.className = 'htmlui-deck-row'; d.style.pointerEvents = 'auto'; this.wire(d, 'trunk', index, pc);
       } });
+    }
+    // a row of the Load / Save / Structure Deck list: a press chooses it (main's screen draws the rows as text only; on
+    // main the engine had the pointer)
+    if (win.cls === 'CWindowModelFileList') {
+      const top = Number(win.controls.find(c => c.name === 'FileListlistbox')?.top ?? 0);
+      for (const c of win.controls) {
+        const m = /^FileListrow(\d+)$/.exec(c.name); if (!m || !c.shown) continue;
+        const i = top + Number(m[1]);
+        items.push({ z: 1e9, draw: () => {
+          const b = this.box(root, 'button', Number(c.wx) - ox, Number(c.wy) - oy, Number(c.w), Number(c.h)) as HTMLButtonElement;
+          b.type = 'button'; b.className = 'htmlui-deck-file-row'; b.setAttribute('aria-label', String(c.text ?? '')); b.dataset.fileRow = String(i);
+          Object.assign(b.style, { pointerEvents: 'auto', background: 'transparent', border: '0', padding: '0', margin: '0', cursor: 'pointer' });
+          b.onclick = () => this.scene.fileRow(i);
+        } });
+      }
     }
     for (const c of win.controls) for (const f of ((c.parts as { swfs?: Record<string, unknown>[] } | undefined)?.swfs ?? [])) {
       // the trunk's count box (kabancnt_0: 72 x 21); the order / search keys are under main's search panel

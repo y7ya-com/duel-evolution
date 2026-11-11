@@ -168,7 +168,9 @@ describe.skipIf(!enabled)('deck editor (main\'s HTML deck screen) against the re
       await reload(page,character);
       let v = await view(page);
       expect(v.name).toBe(deckA); expect(zones(v)).toEqual(edited); expect(v.decks).toEqual(expect.arrayContaining([starterName,deckA]));
-      await deckSide(page,'save'); await press(page,byKey('deck-files-new')); await typeName(page,deckB);
+      await deckSide(page,'save');
+      await until(page,byKey('deck-files-new'),10000); await sleep(300);
+      await press(page,byKey('deck-files-new')); await typeName(page,deckB);
       if (await page.ev(dialogUp)) await answer(page);
       await deckSide(page,'save'); await fileRow(page,deckA); await press(page,byKey('deck-files-delete')); await answer(page,'deck-dialog-yes');
       await settle(page,`!(window.__deApp?.getState()?.deckEditor?.decks??[]).some(d=>d.name===${JSON.stringify(deckA)})`,15000);

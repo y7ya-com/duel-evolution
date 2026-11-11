@@ -170,6 +170,8 @@ export class DeckScene {
   /** The deck panel's Main / Fusion tabs. */
   tab(view: 'main' | 'extra'): void { if (this.live() && this.ui.view !== view) { this.ui.view = view; this.o.rerender(); } }
   /** The detail's collapse arrow. */
+  /** A row of the Load / Save / Structure Deck list (the list's index): chosen (its light stripe). */
+  fileRow(i: number): void { if (this.ui.files && i >= 0) { this.ui.files.selected = i; this.o.rerender(); } }
   toggleDetail(): void { if (this.live()) { this.ui.detail = this.ui.detail === 0 ? 2 : 0; this.o.rerender(); } }
   /** The hovered side button (its look, main's backdrop), null: none. */
   hover(button: string | null): void {
