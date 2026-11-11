@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, sleep, screenshot, record, stack, byKey, searchPlayers, listRow, cardButton, type Page } from './harness';
 import { avatar, invitation, requesting, onDuel, finished, menuActions, playerMenu, startBoth, read, settled, mirrored, playBoth, backToLobby } from './pvp-helpers';
 
@@ -16,8 +15,6 @@ async function choose(page:Page,key:string) {
 }
 /** The room owners the player list finds (its search's Search for Match Duels: main's CFindMenu). */
 async function matchRooms(page:Page,owner:string) { await searchPlayers(page,'Search for Match Duels'); await until(page,listRow(owner),30000); }
-/** Everything a page keeps where a password could leak: markup, input values, storage, console. */
-const exposed = (page:Page) => page.ev(`[document.documentElement.outerHTML,...[...document.querySelectorAll('input')].map(i=>i.value),JSON.stringify(localStorage),JSON.stringify(sessionStorage),document.cookie].join('\\n')`) as Promise<string>;
 const sideboard = `document.querySelector('[data-key^="sideboard:"]')`;
 const resultOf = (page:Page) => page.ev(`document.querySelector('.de-duel-end')?.getAttribute('aria-label') ?? ''`) as Promise<string>;
 async function surrenderAt10(a:Page,b:Page,loser:Page) {
@@ -36,44 +33,28 @@ async function surrenderAt10(a:Page,b:Page,loser:Page) {
 }
 
 describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the real stack',() => {
-  it('creates a password Match room with options, refuses a wrong password, never exposes it, plays a match with sideboarding to an overall result',async () => {
+  it('creates an open Match room with options, plays a match with sideboarding to an overall result',async () => {
     try {
-      const names = { a:`Hra ${RUN}`, b:`Hrb ${RUN}`, c:`Hrc ${RUN}` }, password = `Pw${RUN}x`;
+      const names = { a:`Hra ${RUN}`, b:`Hrb ${RUN}`, c:`Hrc ${RUN}` };
       const a = await openPage(), b = await openPage(), c = await openPage();
       await openClient(a,await signIn(`TestHa${RUN}`),{ assets:false }); await openClient(b,await signIn(`TestHb${RUN}`),{ assets:false }); await openClient(c,await signIn(`TestHc${RUN}`),{ assets:false });
       await enterWorld(a,names.a); await enterWorld(b,names.b); await enterWorld(c,names.c);
       await until(b,avatar(names.a),30000);
-      // pvp.host: the bar's Duel key → Create Duel: Match Mode, Surrender ON, Time Limit ON, Watch Off, a password.
+      // pvp.host: the bar's Duel key → Create Duel: Match Mode, Surrender ON, Time Limit ON, Watch Off (open: no password, main b70a104).
       await openCreateDuel(a);
       for (const key of ['room-match','room-surrender-on','room-time-on','room-watch-off']) await choose(a,key);
-      await type(a,byKey('room-password'),password);
       await press(a,byKey('room-ok'));
       await until(a,`!${byKey('room-ok')}`,20000);
       for (const p of [b,c]) await matchRooms(p,names.a);
       await screenshot(b,'pvp-room-listed');
-      // Wrong password: A's card's Send Duel Request asks for it; the server refuses (original wording), the host is not asked.
+      // main b70a104: rooms are open (no password field): A's card's Send Duel Request asks the host directly; A accepts.
       await playerMenu(b,names.a,'Send Duel Request');
-      await until(b,byKey('room-join-password'),10000);
-      await type(b,byKey('room-join-password'),'wrong');
-      await press(b,byKey('room-join-ok'));
-      await until(b,`document.body.innerText.includes('That room no longer exists.')`,20000);
-      const wrong = (await b.ev(`document.body.innerText`) as string).match(/That room no longer exists\.\(-?\d+\)/)?.[0] ?? '';
-      await sleep(1500);
-      expect(await a.ev(`Boolean(${invitation})`)).toBe(false);
-      // Right password: the host is asked and accepts.
-      await playerMenu(b,names.a,'Send Duel Request');
-      await until(b,byKey('room-join-password'),10000);
-      await type(b,byKey('room-join-password'),password);
-      await press(b,byKey('room-join-ok'));
       await until(b,requesting,20000); await until(a,invitation,20000);
       expect(await a.ev(`${invitation}.innerText`)).toContain(names.b);
       await press(a,`document.querySelector('[data-key="duel-accept"]')`);
       await startBoth(a,b);
-      // The password is in no page, storage, console or server log.
-      const leaks:string[] = [];
-      for (const [who,p] of [['A',a],['B',b],['C',c]] as const) { if ((await exposed(p)).includes(password)) leaks.push(`${who} page/storage`); if (p.logs.some(l => l.includes(password))) leaks.push(`${who} console`); }
-      if (readFileSync(stack().log,'utf8').includes(password)) leaks.push('server log');
-      expect(leaks).toEqual([]);
+      // Create Duel offers no password: none is asked of the host or the joiner.
+      expect(await a.ev(`Boolean(document.querySelector('input[type="password"]'))`)).toBe(false);
       // Spectators off: no one is offered Watch Duel for this duel.
       const cActions = await menuActions(c,names.a);
       expect(cActions).not.toContain('Watch Duel');
@@ -86,9 +67,9 @@ describe.skipIf(!enabled)('hosted duel rooms and best-of-three matches on the re
       // Game 1 of the match: B tries to surrender early, then surrenders at turn 10.
       const g1 = await surrenderAt10(a,b,b);
       expect(g1.refusal).toBe('You may surrender starting from the 10th turn.');
-      record('pvp.host',{ actions:'Duel key → Create Duel (Match Mode, Surrender ON, Time Limit ON, Watch Off, password) → OK; B: Search for Match Duels lists A; A\'s card → Send Duel Request with a wrong password, then the right one; A accepts',
-        expected:'Create/join a duel with time, spectator, surrender and password options; never record the password',
-        observed:`room listed for B and C; wrong password refused with "${wrong}" and A not asked; right password asked A, who accepted; clock shown (${ha.clock.filter(Boolean).join(' ')}); C offered no Watch (menu: ${cActions.join(', ')}); surrender refused before turn 10 ("${g1.refusal}") and accepted at turn ${g1.turn}; password absent from all three pages, storage, consoles and the server log` });
+      record('pvp.host',{ actions:'Duel key → Create Duel (Match Mode, Surrender ON, Time Limit ON, Watch Off; open: main b70a104 has no password) → OK; B: Search for Match Duels lists A; A\'s card → Send Duel Request; A accepts',
+        expected:'Create/join a duel with time, spectator and surrender options (rooms open, as main)',
+        observed:`room listed for B and C; the request asked A, who accepted; clock shown (${ha.clock.filter(Boolean).join(' ')}); C offered no Watch (menu: ${cActions.join(', ')}); surrender refused before turn 10 ("${g1.refusal}") and accepted at turn ${g1.turn}` });
       // pvp.match: the round result, score and sideboarding.
       for (const p of [a,b]) await until(p,sideboard,90000);
       const score = { a:await a.ev(`document.body.innerText.match(/Match score: [^\\n]+/)?.[0]`) as string, b:await b.ev(`document.body.innerText.match(/Match score: [^\\n]+/)?.[0]`) as string };
