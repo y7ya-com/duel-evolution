@@ -83,6 +83,9 @@ const EMPTY = () => new Uint8Array(0);
  *  times before My Room. */
 export const RECONNECT = { duelWaitsS:[1,2,4,8], duelWindowMs:40_000, duelMaxCuts:3,
   lobbyWaitsS:[1,2,4,8,15], lobbyMaxFails:15, lobbyMaxDrops:3, lobbyDropWindowMs:120_000, areaTries:3 } as const;
+const TRANSPORT_LOSS = /^(Gateway connection closed|Gateway connection timed out|Gateway resume window expired|Server could not resume the game connection|The server is updating \(4012\)\.)$/;
+/** The server closed that one virtual socket (or it did not come back with a resume): live's per-socket cut. */
+const CHANNEL_CUT = /^(Server closed virtual channel|Virtual channel was not resumed)$/;
 const DUEL_PHASES: readonly SessionPhase[] = ['preparing-duel','rock-paper-scissors','choose-first','duel','sideboarding'];
 /** Result codes the original client words itself: login (server/src/game/hub.ts AUTH_*) and character creation
  * (server/src/game/accounts.ts REG_NAME_*, the 2008 client's own wording). */
@@ -217,7 +220,8 @@ export class GameSession {
       },
       onStatus: (status, error) => {
         if (gateway !== this.gateway || this.disposed) return;
-        if (status === 'error' && this.startLobbyRetry(error?.message ?? 'Connection failed')) return;
+        // a lost transport only (a closed socket, a refused or expired resume, 4012), never a protocol error the client caught
+        if (status === 'error' && TRANSPORT_LOSS.test(error?.message ?? '') && this.startLobbyRetry(error!.message)) return;
         this.state.connection = status;
         if (status === 'error') { this.state.phase = 'error'; this.state.error = error?.message ?? 'Connection failed'; }
         this.emit();
@@ -227,12 +231,12 @@ export class GameSession {
         if (channel === this.duel) {
           this.duel = null; this.stopWatchPolling();
           // the gateway itself failing is the lobby retry's (onStatus); a duel connection cut on its own re-attaches
-          if (gateway.status !== 'error' && gateway.status !== 'closed' && this.startDuelReattach()) { this.emit(); return; }
+          if (CHANNEL_CUT.test(error.message) && this.startDuelReattach()) { this.emit(); return; }
           this.duelRe.inDuel = false;
         }
         if (channel === this.lobby) {
           this.lobby = null;
-          if (gateway.status !== 'error' && gateway.status !== 'closed' && this.startLobbyRetry(error.message)) return;
+          if (CHANNEL_CUT.test(error.message) && this.startLobbyRetry(error.message)) return;
           this.state.phase = 'error';
         }
         this.state.error = error.message;
