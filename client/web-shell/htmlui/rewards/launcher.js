@@ -18,7 +18,10 @@ const svg = k => { const [halo, line, top, bottom] = PAL[k];
     + `<path d="${STAR}" fill="none" stroke="${halo}" stroke-width="6" stroke-linejoin="round"/>`
     + `<path d="${STAR}" fill="url(#rwl-${k})" stroke="${line}" stroke-width="2.4" stroke-linejoin="round"/></svg>`; };
 const CSS = `
-.de-rwl { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0; z-index: 2147480000; pointer-events: none; }
+/* it comes up as a scene's loading veil starts to fade (bridge.js wait), so it fades in with the bar under the veil */
+.de-rwl { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0; z-index: 2147480000; pointer-events: none;
+  animation: rwl-in .3s ease-out; }
+@keyframes rwl-in { from { opacity: 0; } }
 /* its window open: the button stays pressed, over the window's dim (a click there closes it, as the game's own) */
 .de-rwl[data-open] { z-index: 2147483001; }
 .de-rwl > button { position: absolute; width: 80px; height: 32px; margin: 0; padding: 0; border: 0; background: none; pointer-events: auto; cursor: inherit; }

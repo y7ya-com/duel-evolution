@@ -1,7 +1,9 @@
 // loader.js: the loading screen over the game canvas while the client downloads and boots (ship-recomp.sh injects it
 // into yo2rc.html after stage.js). The game's own menu backdrop: abmake_bg_01 at 2x, the abmake_bg_02 checker
 // scrolling down 1 px/frame (two copies, wrapping at 768) and the menu_mark_a01 ring movie (ring.json, from
-// swf2json.py). A progress line under it: the wasm download %, then "Starting...". It fades once the game has drawn
+// swf2json.py), the scroll and the ring as CSS animations (below: the boot's main thread stalls for seconds compiling
+// and starting the game, and a canvas drawn per frame froze with it). Its first frame is the backdrop's blue as a CSS
+// gradient, before any picture has come. A progress line under it: the wasm download %, then "Starting...". It fades once the game has drawn
 // 24 frames (WebGL draw calls in 24 animation frames; clears alone don't count), or after a 90 s fallback, and is then
 // hidden (display: none). After that it comes back only on the runtime's scene events, Module.onYo2Scene(kind, from, to)
 // from the recomp build (yo2-gfx 6d0c5b25): "begin" (doors, duel result, title -> login...) shows the grid with the ring
@@ -9,21 +11,32 @@
 // compositor keeps CSS transform animations running, in Chrome and WebKit alike),
 // "end" hides it (idempotent). Never on static screens: no draw-call guessing. Never takes pointer events, except its
 // Reload button (booting or a scene load for 45 s). prefers-reduced-motion: no scrolling, the ring stands still.
+// The box is on <body>, fixed over the canvas, not in stage.js's #stage: #stage is position: fixed, a stacking context
+// of its own at z 0, so a z-index inside it never rose above the HTML UI's layers on <body> (#htmlui-host 4, the scroll
+// bars 3). Every scene load then showed the next scene's HTML windows, still unskinned (black boxes), over the veil.
 (() => {
     // the runtime copies the game window's caption ("Yu-Gi-Oh! ONLINE 2") into the tab title: keep the page's own
     const title = document.title;
     Object.defineProperty(document, "title", { get: () => title, set() {}, configurable: true });
     const W = 1024, H = 768, NEED = 24, FALLBACK_MS = 90000;
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const game = document.getElementById("canvas");
     const box = document.createElement("div");
     box.id = "loading";
-    box.innerHTML = '<canvas width="1024" height="768"></canvas><div class="spin"></div>' +
+    box.className = "boot";
+    box.innerHTML = '<canvas width="1024" height="768"></canvas><div class="grid"><i></i></div><div class="spin"></div>' +
         '<div class="status">Downloading…</div>';
     const css = document.createElement("style");
     css.textContent = `
-      #loading { position: absolute; z-index: 5; pointer-events: none; transition: opacity .6s ease-out; }
+      #loading { position: fixed; z-index: 5; pointer-events: none; transition: opacity .6s ease-out;
+        background: linear-gradient(90deg, #43abf5, #52aff6 12.5%, #60b4f7 25%, #96cefa 37.5%, #b2dbfb 44%, #c8e5fc 50%,
+          #c3e3fc 56%, #acd8fb 62.5%, #70bbf8 75%, #44a7f5 87.5%, #39a2f5); }
       #loading canvas { display: block; width: 100%; height: 100%; }
+      #loading .grid { display: none; position: absolute; inset: 0; overflow: hidden; }
+      #loading.boot .grid { display: block; }
+      #loading .grid i { position: absolute; left: 0; top: -100%; width: 100%; height: 200%;
+        background: url(loader/abmake_bg_02.png) 0 0 / 100% 50% repeat-y; animation: yo2grid ${H / 30}s linear infinite; }
+      @keyframes yo2grid { to { transform: translateY(50%); } }
+      @media (prefers-reduced-motion: reduce) { #loading .grid i { animation: none; } }
       #loading .status { position: absolute; left: 0; right: 0; top: 82%; text-align: center; color: #fff;
         font: 600 2.1cqh/1.2 system-ui, sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.6); letter-spacing: .02em; }
       #loading { container-type: size; }
@@ -32,19 +45,22 @@
       #loading.scene.gone { transition: opacity .3s ease-out; }
       #loading .spin { display: none; position: absolute; left: 50%; top: 47%; width: 600px; height: 600px;
         transform: translate(-50%, -50%) scale(var(--kx, 1), var(--ky, 1)); }
-      #loading.scene .spin { display: block; }
+      #loading.scene .spin, #loading.boot .spin { display: block; }
       #loading .spin img { position: absolute; left: 0; top: 0; width: 480px; height: 480px; transform-origin: 0 0; }`;
     document.head.append(css);
-    (game.parentElement || document.body).append(box);
-    const ctx = box.firstChild.getContext("2d"), statusEl = box.lastChild, spin = box.children[1];
+    document.body.append(box);
+    const ctx = box.firstChild.getContext("2d"), statusEl = box.lastChild, spin = box.querySelector(".spin");
     const status = (t) => { statusEl.textContent = t; };
 
-    // follow the game canvas (stage.js resizes it with the window and in fullscreen)
+    // follow the game canvas (stage.js resizes it with the window and in fullscreen, and moves it with a phone's
+    // visual viewport)
     function place() {
-        box.style.left = game.offsetLeft + "px"; box.style.top = game.offsetTop + "px";
-        box.style.width = game.offsetWidth + "px"; box.style.height = game.offsetHeight + "px";
-        spin.style.setProperty("--kx", game.offsetWidth / W); spin.style.setProperty("--ky", game.offsetHeight / H);   // the ring's 600 px at game scale
+        const r = game.getBoundingClientRect();
+        box.style.left = r.left + "px"; box.style.top = r.top + "px";
+        box.style.width = r.width + "px"; box.style.height = r.height + "px";
+        spin.style.setProperty("--kx", r.width / W); spin.style.setProperty("--ky", r.height / H);   // the ring's 600 px at game scale
     }
+    place();   // from its first frame (stage.js has sized the canvas already)
 
     // wasm download progress: count the bytes of the .wasm response as the runtime streams it. The first fetch hands
     // the network Response itself to instantiateStreaming and counts a clone(): a Response we build has no URL, and
@@ -111,59 +127,26 @@
         return gl;
     };
 
-    // the backdrop: same player as the old title replica, cut down to what menu_mark_a01 uses
+    // the backdrop: abmake_bg_01 on the box's canvas, over its gradient once it has come (a scene's veil adds the
+    // checker, standing still); the boot's scrolling checker (.grid) and the ring (ringCss) are CSS animations, which the
+    // compositor runs however long the main thread is busy
     const img = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; });
-    let bg1, bg2, ring, list = new Map(), rf = 0, scroll = 0;
+    let bg1, bg2, ring;
     Promise.all([img("loader/abmake_bg_01.png"), img("loader/abmake_bg_02.png"),
                  fetch("loader/ring.json").then((r) => r.json()).catch(() => null)]).then(async ([a, b, m]) => {
         bg1 = a; bg2 = b;
-        if (m) {
-            m.img = {};
-            for (const c of Object.values(m.chars)) if (c.k === "bmp") m.img[c.f] = await img("loader/" + c.f);
+        draw(scene);
+        if (m) {   // its layers' pictures first, so the ring comes up whole
+            for (const c of Object.values(m.chars)) if (c.k === "bmp") await img("loader/" + c.f);
             ring = m;
             ringCss();
-            apply(ring.frames[0]); rf = 1;
         }
     }).catch(() => { ring = null; });   // a broken ring.json: the backdrop without the ring
-    function apply(ops) {
-        for (const o of ops) {
-            if (o.rm) { list.delete(o.d); continue; }
-            const prev = list.get(o.d);
-            const e = o.move && prev ? Object.assign({}, prev) : { m: [1, 0, 0, 1, 0, 0], cx: null };
-            if (o.c !== undefined) e.c = o.c;
-            if (o.m) e.m = o.m;
-            if ("cx" in o) e.cx = o.cx;
-            list.set(o.d, e);
-        }
-    }
-    function drawChar(g, id, alpha) {
-        const ch = ring.chars[id];
-        if (!ch) return;
-        if (ch.k === "shape") {
-            const bmp = ring.chars[ch.bmp], im = bmp && ring.img[bmp.f];
-            if (!im) return;
-            g.save(); g.globalAlpha = alpha; g.transform(...ch.bm); g.drawImage(im, 0, 0); g.restore();
-        } else if (ch.k === "sprite") {
-            for (const o of ch.frames[0] || []) {
-                if (o.c === undefined) continue;
-                g.save(); g.transform(...(o.m || [1, 0, 0, 1, 0, 0])); drawChar(g, o.c, alpha); g.restore();
-            }
-        }
-    }
-    function draw(noRing) {
+    function draw(checker) {
+        if (!bg1) return;   // the gradient until the picture comes
         ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
-        if (bg1) ctx.drawImage(bg1, 0, 0, W, H);
-        if (bg2) { const y = Math.floor(scroll) % H; ctx.drawImage(bg2, 0, y - H, W, H); ctx.drawImage(bg2, 0, y, W, H); }
-        if (ring && !noRing) {
-            // the movie spins the ring around (300, 300), where the game's menu puts it; centre it above the status line
-            ctx.save(); ctx.translate(W / 2 - 300, H * 0.47 - 300); ctx.scale(1 / 20, 1 / 20);
-            for (const d of [...list.keys()].sort((x, y) => x - y)) {
-                const e = list.get(d), a = e.cx ? e.cx[3] : 1;
-                if (a <= 0) continue;
-                ctx.save(); ctx.transform(...e.m); drawChar(ctx, e.c, a); ctx.restore();
-            }
-            ctx.restore();
-        }
+        ctx.drawImage(bg1, 0, 0, W, H);
+        if (checker && bg2) ctx.drawImage(bg2, 0, 0, W, H);
     }
 
     // Boot: hidden after the first reveal. 2026-10-28: a version that came back whenever no draw calls arrived for 600 ms
@@ -171,33 +154,24 @@
     // Still booting, or a scene still loading, after STUCK_MS: offer a reload.
     const STUCK_MS = 45000;
     const t0 = performance.now();
-    let last = 0, shown = true, stuck = null, booted = false, scene = false, stuckTimer = 0, offTimer = 0, dropped = false;
+    let stuck = null, booted = false, scene = false, stuckTimer = 0, offTimer = 0, dropped = false;
     function tick(now) {
         if (dropped) return;   // the download failed: keep the message up
         place();
         if (drew) { drew = false; frames++; }
         if (frames >= NEED || now - t0 > FALLBACK_MS) { window.fetch = realFetch; booted = true; hide(); return; }
         if (!stuck && now - t0 > STUCK_MS) showStuck();
-        if (shown && now - last >= 1000 / 30) {   // the movies run at 30 fps
-            last = now;
-            if (!still) {
-                scroll += 1;
-                if (ring && ring.frames.length > 1) { if (rf >= ring.frames.length) { list = new Map(); rf = 0; } apply(ring.frames[rf++]); }
-            }
-            draw();
-        }
         requestAnimationFrame(tick);
     }
     function hide() {
-        shown = false;
         box.classList.add("gone");
         if (stuck) { stuck.remove(); stuck = null; }
         clearTimeout(stuckTimer);
         clearTimeout(offTimer);
-        offTimer = setTimeout(() => { if (!scene) box.style.display = "none"; }, 700);   // nothing left over the canvas
+        offTimer = setTimeout(() => { if (!scene) { box.style.display = "none"; box.classList.remove("boot"); } }, 700);   // nothing left over the canvas
     }
 
-    // scene loads: the grid (static) + the ring movie as CSS. Each ring layer (a 480 px bitmap, 1/20 twips) becomes an
+    // the ring movie as CSS (the boot's, and a scene load's over the still grid). Each ring layer (a 480 px bitmap, 1/20 twips) becomes an
     // <img> in .spin (600x600 movie px, scaled to the game by place()) with one keyframe per movie frame (30 fps), so the
     // compositor plays it however busy the main thread is. Linear between frames: WebKit runs steps() keyframes on the
     // main thread (the ring froze while the game was busy). The last frame is repeated at 100% so the loop jumps back to
@@ -209,7 +183,7 @@
         ring.frames.forEach((ops, i) => {
             for (const o of ops) {
                 if (o.rm) { at.delete(o.d); continue; }
-                const e = Object.assign({ m: [1, 0, 0, 1, 0, 0], cx: null }, o.move ? at.get(o.d) : null);   // as apply()
+                const e = Object.assign({ m: [1, 0, 0, 1, 0, 0], cx: null }, o.move ? at.get(o.d) : null);   // a move keeps the rest of the layer's pose
                 if (o.c !== undefined) e.c = o.c;
                 if (o.m) e.m = o.m;
                 if ("cx" in o) e.cx = o.cx;
@@ -227,7 +201,7 @@
             // ponytail: the layer's alpha (cx) is set once, in frame 0, so it's a plain style, not keyframed
             im.style.cssText = pose(first) + `;opacity:${first.cx ? first.cx[3] : 1}`;
             spin.append(im);
-            rules += `@keyframes yo2ring${d}{${kf.get(d)}}#loading.scene .spin .r${d}{animation:yo2ring${d} ${n / 30}s linear infinite}`;
+            rules += `@keyframes yo2ring${d}{${kf.get(d)}}#loading .spin .r${d}{animation:yo2ring${d} ${n / 30}s linear infinite}`;
         }
         css.textContent += rules + "@media (prefers-reduced-motion: reduce) { #loading .spin img { animation: none !important; } }";
     }
@@ -252,6 +226,7 @@
             place(); draw(true);
             status("Loading…");
             box.style.display = "";
+            box.classList.remove("boot");   // its veil's grid stands still
             box.classList.add("scene");
             void box.offsetWidth;   // let the fade-in start from opacity 0
             box.classList.remove("gone");
@@ -262,7 +237,7 @@
         }
     };
     addEventListener("resize", () => { if (scene) place(); });
-    window.visualViewport?.addEventListener("resize", () => { if (scene) place(); });   // phones: keyboard, rotation (stage.js)
+    for (const e of ["resize", "scroll"]) window.visualViewport?.addEventListener(e, () => { if (scene) place(); });   // phones: keyboard, rotation (stage.js)
     function showStuck() {
         status("This is taking longer than usual.");
         stuck = document.createElement("button");

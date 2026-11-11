@@ -18,7 +18,10 @@ const svg = k => { const [halo, line, top, bottom] = PAL[k];
     + `<path d="${HANGER}" fill="none" stroke="${line}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>`
     + `<path d="${HANGER}" fill="none" stroke="url(#wdl-${k})" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`; };
 const CSS = `
-.de-wdl { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0; z-index: 2147480000; pointer-events: none; }
+/* it comes up as a scene's loading veil starts to fade (bridge.js wait), so it fades in with the bar under the veil */
+.de-wdl { position: fixed; left: 0; top: 0; width: 1024px; height: 768px; transform-origin: 0 0; z-index: 2147480000; pointer-events: none;
+  animation: wdl-in .3s ease-out; }
+@keyframes wdl-in { from { opacity: 0; } }
 /* its window open: the button stays pressed, over the window's dim (a click there closes it, as the game's own) */
 .de-wdl[data-open] { z-index: 2147483001; }
 .de-wdl > button { position: absolute; left: ${SPOT.x}px; top: ${SPOT.y}px; width: ${SPOT.w}px; height: ${SPOT.h}px; margin: 0; padding: 0;

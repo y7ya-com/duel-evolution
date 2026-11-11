@@ -68,7 +68,7 @@
         rot.id = "rotate";
         rot.innerHTML = '<svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round">' +
             '<rect x="14" y="4" width="20" height="40" rx="3"/><path d="M21 39h6"/></svg><div>Turn your device sideways to play.</div>';
-        stage.append(rot);
+        document.body.append(rot);   // over the loader's box and the HTML UI's layers (on <body>): #stage is a stacking context at z 0
         document.addEventListener("gesturestart", (e) => e.preventDefault());   // Safari pinch
     }
 
