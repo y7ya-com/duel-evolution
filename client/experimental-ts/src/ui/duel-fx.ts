@@ -19,6 +19,10 @@ const PHASE_ART: Record<NonNullable<DuelCue['phase']>, string> = { draw: 'dr', s
 /** Original field-theme kinds (src/duel/theme.ts) in data/y/duel/field/field.txt order; titles are fie_<name>_fe.png. */
 const FIELD_TITLES = ['mori', 'kouya', 'yama', 'sougen', 'umi', 'yami', 'sanctu', 'gaia', 'water', 'burn', 'desert', 'shine', 'dark', 'fusion', 'shine', 'umi', 'kouya', 'dark', 'sanctu', 'desert', 'fusion', 'yami'];
 const MAX_ANIMS = 24, MAX_TINTS = 96, MAX_ART = 256;
+/** The "Now Thinking" movies (blue: the player's, pink: the opponent's) and where their 160×64 frame goes on the
+ * 1024×768 screen: under each LP plate, measured against live's duel screen. */
+const THINKING = { 0: 'data/y/duel/field/duel_thinkicon_a01_c01_j.txt', 1: 'data/y/duel/field/duel_thinkicon_a01_c02_j.txt' } as const;
+const THINKING_AT = { 0: { x: -15, y: 52 }, 1: { x: 1024 - 160 + 15, y: 52 } } as const;
 /** One frame of the original's 60 Hz game loop. */
 const FRAME = 1000 / 60;
 /** CBattleManager state 4 (client/src/duel/SceneBattleManager.cpp): aim 8 frames, flight to frame 16, then the hit; the
@@ -113,6 +117,8 @@ export class DuelFx {
         const bytes = await (await fetch(lease.url)).arrayBuffer();
         let text: string; try { text = new TextDecoder('shift_jis').decode(bytes); } catch { text = new TextDecoder().decode(bytes); }
         const movie = parseSwfText(text);
+        // a file table's '?' is the language letter (duel_thinkicon_n03_c01_?.png): the English art, as live's client is
+        movie.files = movie.files.map(f => f.replace('?', 'e'));
         for (const file of movie.files) this.image(path.replace(/[^/]+$/, '') + file);
         if (!this.disposed) this.movies.set(path, movie);
       } finally { lease.release(); }
@@ -269,12 +275,31 @@ export class DuelFx {
     if (this.disposed || this.frame || !this.ctx) return;
     this.frame = this.requestFrame(() => { this.frame = 0; this.draw(); });
   }
+  /** Whose "Now Thinking" plate shows (data/y/duel/field/duel_thinkicon_a01_c0{1,2}_j.txt, a 30-frame loop at 30 fps):
+   * the side whose decision the duel waits on, under its LP plate (the player's at the top left, the opponent's mirrored
+   * at the top right), or none. */
+  private thinkingSide: 0 | 1 | null = null; private thinkingFrom = 0;
+  set thinking(side: 0 | 1 | null) {
+    if (side === this.thinkingSide) return;
+    this.thinkingSide = side; this.thinkingFrom = this.now();
+    if (side !== null) this.movie(THINKING[side]);
+    this.element.dataset.thinking = side === null ? '' : String(side);
+    this.schedule();
+  }
+  get thinking(): 0 | 1 | null { return this.thinkingSide; }
   private draw(): void {
     const ctx = this.ctx; if (!ctx || this.disposed) return;
     const now = this.now();
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, 1024, 768);
     this.anims = this.anims.filter(a => now - a.start < a.duration);
     let animating = this.anims.length > 0;
+    if (this.thinkingSide !== null) {
+      // the loop runs on the page's clock (the duel speed does not hurry a plate); reduced motion holds its lit frame
+      const side = this.thinkingSide, path = THINKING[side], movie = this.movie(path), loop = movie ? movie.frameCount * 1000 / movie.frameRate : 1000;
+      const t = this.reduced ? loop / 2 : (this.clock() - this.thinkingFrom) % loop;
+      try { this.playMovie(ctx, path, t, THINKING_AT[side].x, THINKING_AT[side].y, 1); } catch { /* a broken asset never stops the duel */ }
+      animating = animating || !this.reduced || !movie;
+    }
     for (const [link, c] of this.chain) {
       if (c.leaving !== null && now - c.leaving > 450) { this.chain.delete(link); continue; }
       animating = this.plaque(ctx, link, c, now) || animating;

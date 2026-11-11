@@ -45,6 +45,16 @@ export function cardKindLine(card: CardView): string {
   return `[${[typeof card.race === 'string' && card.race ? card.race : '', ...kinds, attribute].filter(Boolean).join('/')}]`;
 }
 
+/** Whose decision the duel waits on (the original's "Now Thinking" plate): the player's while it has a question or
+ * commands, else the opponent's on its turn or while the duel waits on it; none at the end or with nothing to wait for. A spectator
+ * sees the side whose clock runs. */
+export function thinkingSide(duel: DuelView): 0 | 1 | null {
+  if (duel.ended || !duel.turn) return null;
+  if (duel.spectating) return duel.timer && !duel.timer.paused ? duel.timer.player : null;
+  if (duel.prompt || duel.actions?.length) return 0;
+  return duel.turnPlayer === 1 || duel.waiting ? 1 : null;
+}
+
 export interface DuelPresentationOptions { random?: () => number; setTimer?: (cb: () => void, ms: number) => unknown; clearTimer?: (id: unknown) => void }
 
 export class DuelPresentation {
@@ -119,6 +129,7 @@ export class DuelPresentation {
     if (reducedMotion !== this.reduced) { this.reduced = reducedMotion; for (const side of [0, 1] as const) this.blink(side); }
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
+    this.fx.thinking = thinkingSide(duel);
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts);
     this.renderInfo(); this.drawStats();
   }
