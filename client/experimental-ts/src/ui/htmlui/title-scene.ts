@@ -65,8 +65,12 @@ export class TitleScene {
       Object.assign(el.style, { position: 'absolute', padding: '0', margin: '0', border: '0', background: 'transparent', color: 'transparent', boxShadow: 'none', textShadow: 'none', clipPath: 'polygon(6.5% 0,100% 0,93.5% 100%,0 100%)', cursor: 'pointer', font: 'bold 16px Arial,sans-serif', pointerEvents: 'none', visibility: 'hidden' });
       const set = (state: number) => { if (this.states.get(b.depth) !== state) { this.states.set(b.depth, state); this.draw(); } };
       el.addEventListener('pointerenter', () => set(2)); el.addEventListener('pointerleave', () => set(1));
-      el.addEventListener('pointerdown', () => set(4)); el.addEventListener('pointerup', () => set(el.matches(':hover') ? 2 : 1));
-      el.addEventListener('focus', () => set(2)); el.addEventListener('blur', () => set(1));
+      // pressed: the down frame until release (a click's focus comes after its pointerdown, and must not undo it)
+      let down = false;
+      el.addEventListener('pointerdown', () => { down = true; set(4); });
+      el.addEventListener('pointerup', () => { down = false; set(el.matches(':hover') ? 2 : 1); });
+      el.addEventListener('pointercancel', () => { down = false; set(1); });
+      el.addEventListener('focus', () => { if (!down) set(2); }); el.addEventListener('blur', () => { down = false; set(1); });
       el.addEventListener('click', () => this.press(b.name));
       this.buttons.set(b.name, el); this.controls.append(el);
     }
