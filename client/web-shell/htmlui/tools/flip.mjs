@@ -64,6 +64,8 @@ export const ROUTES = {
   create: { steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['click', 600, 384], ['wait', 6000]], flip: [] },
   // the starter-deck picker (starter.js; shipped pages only, --ship): a character that never claimed one, into My Room
   starter: { player: 'Starter Tester', deck: 0, steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 20000]], flip: [] },
+  // the lobby: My Room, out of its door into Beginner's Lobby A (the shop routes' walk, up to the hall)
+  lobby: { player: 'Duelist B', steps: [...SHOP_STEPS.slice(0, SHOP_STEPS.findIndex(s => s[0] === 'rwalk')), ['wait', 10000]], flip: [] },
   myroom: { player: 'Duelist B', steps: [['scene', 4, 90000], ['wait', 3000], ['leave', 512, 458, 4], ['scene', 7, 90000], ['wait', 2500], ['leave', 600, 344, 7], ['wait', 15000]], flip: [] },
   // htmlui-tradelobby: the lobby group (screens/lobby.js) and the trade group (screens/trade.js) in the game. TL_ROOM:
   // My Room; TL_LOBBY: then Beginner's Lobby A (the red door held, Lobby, the popup's OK), as the chat route
@@ -528,7 +530,8 @@ kids.push(spawn('node', [path.join(here, 'game.mjs'), String(GAME)], { env: { ..
 await sleep(500);
 
 // --scrollbars (and --bars): native scroll bars shown in the captures (headless hides them otherwise)
-const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(SLOT != null && { port: 9440 + +SLOT }),
+const size = opt('size')?.split('x').map(Number);   // --size=WxH: the window (default 1024 x 768)
+const b = await launch({ dpr, mobile: phone, ...(phone && { width: 844, height: 390 }), ...(size && { width: size[0], height: size[1] }), ...(SLOT != null && { port: 9440 + +SLOT }),
   scrollbars: args.includes('--scrollbars') || args.includes('--bars') });
 if (opt('throttle')) await b.send('Emulation.setCPUThrottlingRate', { rate: +opt('throttle') });   // --throttle=4: a slow machine
 const measureLoads = args.includes('--measure-loads');

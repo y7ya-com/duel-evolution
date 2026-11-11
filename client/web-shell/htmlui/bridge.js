@@ -478,7 +478,10 @@ export async function start(Module, { canvas = document.getElementById('canvas')
     // layer used to hide from a scene's begin until a while after its end and the loader's box: over the veil it had to,
     // but every persistent window then went away and came back, and popped in after the scene had faded in (players:
     // "loads, disappears, loads again", "the bottom bar still flickers"). wait: Modern UI's own rule, unchanged
-    const ld = document.getElementById('loading'), wait = switching || frameNo <= endFrame || (ld && ld.style.display !== 'none');
+    // The veil counts until it starts to fade out (.gone), not until it is taken away 0.7 s later: the menu bar's
+    // Wardrobe and Missions buttons came up a second after the bar itself
+    const ld = document.getElementById('loading'), veil = ld && ld.style.display !== 'none' && !ld.classList.contains('gone');
+    const wait = switching || frameNo <= endFrame || veil;
     // the engine's scroll bars (scrollbars.js): native boxes in their place, the engine's hidden
     const barIds = barsOn ? bars.update(snap, owned, api.setValue) : (bars.clear(), []);
     const t = tables >>> 2, H = H32, ids = [...(curHid ? [snap.cursor.id] : []), ...owned, ...held, ...extraHide, ...modHide, ...mu.hide(snap, wait), ...barIds].slice(0, SLOTS);
