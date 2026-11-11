@@ -61,8 +61,8 @@ describe('actual headless browser against real game authority',() => {
         await until(browser,`${rotate}==='flex'`);
         await browser.send('Emulation.setDeviceMetricsOverride',{ width:viewport.width,height:viewport.height,deviceScaleFactor:1,mobile:true,screenOrientation:{ type:'landscapePrimary',angle:90 } });
         await until(browser,`${rotate}==='none'`);
-        const frame = await browser.ev(`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect();return [Math.round(r.width),Math.round(r.height)]})()`) as number[];
-        expect(Math.abs(frame[0] * 3 - frame[1] * 4)).toBeLessThanOrEqual(4); expect(frame[1]).toBeGreaterThan(300);
+        // the 4:3 frame fills the height of the sideways phone
+        await until(browser,`(()=>{const r=document.querySelector('.de-stage').getBoundingClientRect();return r.height>=${viewport.height - 2}&&Math.abs(r.width*3-r.height*4)<=4})()`,5000);
       }
       await click(browser,'Go Online',viewport.mobile);
       await until(browser,`document.querySelector('[data-key^="character-create:"]')`); await click(browser,'Create Player',viewport.mobile); await until(browser,`document.querySelector('[data-key="character-name"]')`);
