@@ -5,7 +5,7 @@
 //
 // A rule (every field optional):
 //   idleActivate, battleActivate, chainReact, yesNo, specialSummon, doomed: a condition (true / false: always / never)
-//   idlePriority: a number;  keepInHand: true / false
+//   idlePriority, chainPriority: a number;  keepInHand: true / false
 //   summonScore, option: a number expression (option: the index of the card's option to take)
 //   number: { "cover": <number expression>, "keep": <number> }: the smallest value offered at least `cover` that
 //     leaves `keep` LP, else the largest that leaves it (else the first)
@@ -15,7 +15,8 @@
 //     oppHand, myHand, myHandTributes, myRemoved, attackAtk: numbers; myTurn, oppEndPhase, attackLethal, attackOnDefense,
 //     oppChained: true / false), and the helpers realThreat, worthwhileWipe, worthwhileStorm, lastWindow, outgunned
 //     (true / false), oppTopAtk (the opponent's strongest face-up ATK, any position)
-//   inside a "where" / "of" (one monster): atk, def, faceDown, attackPos, and the RuleCtx names as above
+//     and the board facts of cardRules.ts EXT_NUM / EXT_BOOL (myDeck, chainLen, boardEdge, preBattle, oppChainThreat...)
+//   inside a "where" / "of" (one monster): atk, def, level, faceDown, attackPos, fusion, chainHit, and the names above
 //   {"all": [...]} {"any": [...]} {"not": x}
 //   {">=": [a, b]} {">": [a, b]} {"<=": [a, b]} {"<": [a, b]} {"==": [a, b]} {"!=": [a, b]}
 //   {"+": [...]} {"*": [...]} {"-": [a, b]} {"/": [a, b]} (x / 0 = 0) {"max": [...]} {"min": [...]} {"floor": x}
@@ -29,6 +30,7 @@
 // Example: { "premature burial": { "idleActivate": { "all": [{ ">=": ["myGraveMaxAtk", 1700] },
 //   { ">=": ["myGraveMaxAtk", "oppMaxAtk"] }, { "canPay": 800 }] }, "idlePriority": 90 } }
 import type { CardRule, RuleCtx, RuleMon } from "./cardRules.ts";
+import { EXT_BOOL, EXT_NUM } from "./ruleCtxExt.ts";
 
 export type Expr = number | boolean | string | { [op: string]: unknown };
 export type RuleJson = Partial<Record<keyof CardRule, unknown>>;
@@ -42,7 +44,7 @@ type Fn = (c: RuleCtx, m?: RuleMon) => Val;
 const NUM_FIELDS = ["myLp", "oppLp", "myMaxAtk", "oppMaxAtk", "myBackrow", "oppBackrow", "myGraveMaxAtk", "oppGraveMaxAtk",
   "oppHand", "myHand", "myHandTributes", "myRemoved", "attackAtk"] as const;
 const BOOL_FIELDS = ["myTurn", "oppEndPhase", "attackLethal", "attackOnDefense", "oppChained"] as const;
-const MON_NUM = ["atk", "def"] as const, MON_BOOL = ["faceDown", "attackPos"] as const;
+const MON_NUM = ["atk", "def", "level"] as const, MON_BOOL = ["faceDown", "attackPos", "fusion", "chainHit", "blocksLethal"] as const;
 
 // the helpers of cardRules.ts, as names
 const attackers = (m: RuleMon[]): number => m.filter((x) => x.attackPos).length;
@@ -83,8 +85,10 @@ function compile(e: unknown, want: Kind, at: string, scope: Scope, budget: { n: 
   }
   if (typeof e === "string") {
     let kind: Kind, fn: Fn;
-    if (scope.mon && (MON_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? m[e as "atk"] : 0); }
-    else if (scope.mon && (MON_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? m[e as "faceDown"] : false); }
+    if (scope.mon && (MON_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (_c, m) => (m ? m[e as "atk"] ?? 0 : 0); }
+    else if (scope.mon && (MON_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (_c, m) => (m ? m[e as "faceDown"] === true : false); }
+    else if ((EXT_NUM as readonly string[]).includes(e)) { kind = "num"; fn = (c) => c.ext?.[e as (typeof EXT_NUM)[number]] ?? 0; }
+    else if ((EXT_BOOL as readonly string[]).includes(e)) { kind = "bool"; fn = (c) => c.ext?.[e as (typeof EXT_BOOL)[number]] === true; }
     else if ((NUM_FIELDS as readonly string[]).includes(e)) { kind = "num"; fn = (c) => c[e as "myLp"]; }
     else if ((BOOL_FIELDS as readonly string[]).includes(e)) { kind = "bool"; fn = (c) => c[e as "myTurn"]; }
     else if ((BOOL_HELPERS as readonly string[]).includes(e)) { kind = "bool"; const h = HELPERS[e as "realThreat"]; fn = (c) => h(c); }
@@ -187,9 +191,9 @@ export function compileRule(r: unknown, at: string): CardRule {
     } else if ((NUM_RULE_FIELDS as readonly string[]).includes(k)) {
       const f = expr(v, "num", where);
       out[k as (typeof NUM_RULE_FIELDS)[number]] = (c: RuleCtx) => f(c) as number;
-    } else if (k === "idlePriority") {
+    } else if (k === "idlePriority" || k === "chainPriority") {
       if (typeof v !== "number" || !Number.isFinite(v)) throw new RuleError(`${where}: a number`);
-      out.idlePriority = v;
+      out[k] = v;
     } else if (k === "keepInHand") {
       if (typeof v !== "boolean") throw new RuleError(`${where}: true or false`);
       out.keepInHand = v;

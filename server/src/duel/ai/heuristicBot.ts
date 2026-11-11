@@ -19,9 +19,16 @@
 //     stays a uniformly random pick (#removalValue).
 //   - search: the elite tier scores its real decisions with replay-fork rollouts (simSearch.ts).
 //   - blunder: the easy tier sometimes plays a random legal line instead of the heuristic's.
+//   - strength (0-100): how demanding the player is. A weaker player is not random: it wants a bigger body before it
+//     stands one in attack position and a bigger gain before it tributes, so it sets more and commits less.
+//   - style: a personality on top of the tier (attackOnly, myTurnOnly, def, fool, light): see BotStyle.
+// The Battle Phase is planned whole (battlePlan.ts): every attack order and target, compared by survival, lethal,
+// the opponent's next Battle Phase, the board, then the fewest attacks.
+import { planBattle, PLAN_DEFAULTS, valueWithReply, type PlanAttacker, type PlanMon } from "./battlePlan.ts";
 import { type CardRule, type RuleCtx, type RuleMon, tagRule } from "./cardRules.ts";
+import type { RuleCtxExt } from "./ruleCtxExt.ts";
 import { activeRules, rulesOf, type RuleSet } from "./ruleSet.ts";
-import { H_EQUIP, TAGS_NO_BOOST, TYPE_CONTINUOUS, TYPE_EQUIP, TYPE_FIELD, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_TRAP } from "../brain/cards.ts";
+import { H_EQUIP, TAGS_NO_BOOST, TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EFFECT, TYPE_EQUIP, TYPE_FIELD, TYPE_FUSION, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask } from "../brain/cards.ts";
 import { COMBO_PLANS, type ComboPlan } from "./comboPlans.ts";
 import { evaluate, type EvalMon, type Position } from "./evaluate.ts";
 import {
@@ -50,6 +57,12 @@ const CLEARS_BACKROW = /^(judgment dragon|heavy storm|harpie's feather duster|li
 /** A spell / trap that stays on the field once resolved: destroying it while it is still a chain link takes its effect
  *  away. Any other (a normal or quick-play spell, a normal or counter trap) leaves the field as it resolves. */
 const LASTING = TYPE_CONTINUOUS | TYPE_EQUIP | TYPE_FIELD;
+/** A lock of mine already running: a second one adds nothing. */
+const LOCKS = /^(swords of revealing light|swords of concealing light|nightmare's steelcage|messenger of peace|level limit - area b|gravity bind)$/;
+/** Below this #worth a hand card is a spare (fodder for a discard cost). */
+const SPARE = 1600;
+/** Cards that take a monster off the opponent's field. */
+const REMOVAL = tagMask("destroy_monster", "nuke_opp", "nuke_all", "control", "bounce");
 
 /** What the player needs to know about cards: base stats, the cards.cdb name, and a flip-risk prior. */
 export interface CardInfo {
@@ -79,13 +92,34 @@ export interface BotOpts {
   mistakeRate?: number;
   /** Easy tier: probability of a random legal line at a main/battle-phase decision. */
   blunder?: number;
+  /** 0-100 (default 100): lower = more demanding before committing a monster (sets more, tributes less). */
+  strength?: number;
+  style?: BotStyle;
+}
+
+/** A personality, independent of the tier. */
+export interface BotStyle {
+  /** Never sets a monster or puts one in defense position. */
+  attackOnly?: boolean;
+  /** Never answers on the opponent's turn (no chains, no traps). Implies light. */
+  myTurnOnly?: boolean;
+  /** Defensive: demands more before standing a monster in attack, weighs the opponent's reply more. */
+  def?: boolean;
+  /** Takes the first legal option at every choice. */
+  fool?: boolean;
+  /** Thinks less: no reply ply in the battle plan or the rollout score. */
+  light?: boolean;
 }
 
 /** One searchable line: the response, plus the bookkeeping to apply if this line is chosen (what respond() would
  *  have recorded: dedup sets, action counts, pending attacker). */
 interface Candidate { resp: Json; commit?: () => void }
 
-interface OppMon { seq: number; atk: number; def: number; faceDown: boolean; attackPos: boolean; known: boolean; flipRisk: number;
+/** A link of the current chain: what it targets of ours (`${location}:${sequence}`), whether it clears our backrow
+ *  (CLEARS_BACKROW), and whether it negates the link below it. */
+interface ChainLink { code: number; controller: number; location: number; sequence: number; targets: string[]; clears: boolean; negates: boolean }
+
+interface OppMon { seq: number; code: number; level: number; atk: number; def: number; faceDown: boolean; attackPos: boolean; known: boolean; flipRisk: number;
   /** Taken from the other player until the End Phase (Brain Control): it goes back, so it is the first tribute. */
   stolen: boolean }
 /** Live combo-assembly state: how many pieces are in hand/field and whether the payoff can be made now. */
@@ -129,11 +163,9 @@ export class HeuristicBot {
   /** Who activated the chain's last link (null outside a chain). */
   #chainTop: number | null = null;
   /** The chain's links so far (cleared at its end). */
-  #links: { code: number; controller: number; location: number; sequence: number }[] = [];
-  /** Our cards the opponent's links will take: `${location}:${sequence}` of each they target; all our backrow when one
-   *  clears it (CLEARS_BACKROW). */
-  #doomed = new Set<string>();
-  #doomAll = false;
+  #links: ChainLink[] = [];
+  /** ATK of the monster the opponent just summoned (its response window), until a chain starts or the phase moves. */
+  #oppSummonAtk = 0;
   /** The engine's hint for this seat's next card pick (HINT type 3: 518 = equip...). */
   #hint = 0;
   /** The card this seat activated last (what a following target pick belongs to). */
@@ -151,6 +183,11 @@ export class HeuristicBot {
   #search: SearchAccess | undefined;
   #mistakeRate: number;
   #blunder: number;
+  /** 0 (strength 100) .. 1 (strength 0): how much more the player demands before committing. */
+  #picky: number;
+  #style: BotStyle;
+  /** The opponent's zone the planned attack goes for (null = direct), for the target prompt that follows it. */
+  #plannedTarget: number | null | undefined;
 
   constructor(seat: number, cards: CardInfo, opts: BotOpts = {}) {
     this.seat = seat;
@@ -163,25 +200,39 @@ export class HeuristicBot {
     this.#search = opts.search;
     this.#mistakeRate = opts.mistakeRate ?? 0;
     this.#blunder = opts.blunder ?? 0;
+    this.#style = opts.style ?? {};
+    if (this.#style.myTurnOnly) this.#style = { ...this.#style, light: true };
+    this.#picky = Math.min(1, (100 - Math.max(0, Math.min(100, opts.strength ?? 100))) / 100 + (this.#style.def ? 0.5 : 0));
+  }
+
+  /** The battle plan's options for this player. */
+  #planOpts() {
+    return { ...PLAN_DEFAULTS, reply: !this.#style.light, replyWeight: this.#style.def ? 0.8 : PLAN_DEFAULTS.replyWeight };
   }
 
   // ---- engine entry points ----------------------------------------------------------------------------------------
   /** Public duel messages (ev.ev === "msg"): chain boundaries reset the per-window guard. */
   observe(ev: Json): void {
     switch (ev.type) {
-      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; this.#doomed.clear(); this.#doomAll = false; break;
+      case "CHAIN_END": this.#chainedThisWindow.clear(); this.#chainTop = null; this.#links = []; break;
       case "CHAINING": {
+        this.#oppSummonAtk = 0;
         this.#chainTop = Number(ev.controller);
-        this.#links.push({ code: Number(ev.code), controller: Number(ev.controller), location: Number(ev.location), sequence: Number(ev.sequence) });
-        if (this.#chainTop !== this.seat && CLEARS_BACKROW.test(this.#nameOf(Number(ev.code)))) this.#doomAll = true;
+        const code = Number(ev.code);
+        this.#links.push({ code, controller: Number(ev.controller), location: Number(ev.location), sequence: Number(ev.sequence),
+          targets: [], clears: CLEARS_BACKROW.test(this.#nameOf(code)), negates: this.#negates(code) });
         break;
       }
       case "BECOME_TARGET":
         if (this.#chainTop !== null && this.#chainTop !== this.seat) {
-          for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (Number(c.controller) === this.seat) this.#doomed.add(`${Number(c.location)}:${Number(c.sequence)}`);
+          const top = this.#links[this.#links.length - 1];
+          for (const c of (Array.isArray(ev.cards) ? ev.cards : []) as Json[]) if (top && Number(c.controller) === this.seat) top.targets.push(`${Number(c.location)}:${Number(c.sequence)}`);
         }
         break;
-      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; break;
+      case "NEW_PHASE": case "NEW_TURN": this.#attack = null; this.#oppSummonAtk = 0; break;
+      case "SUMMONING": case "SPSUMMONING": case "FLIPSUMMONING":
+        this.#oppSummonAtk = Number(ev.controller) !== this.seat && Number(ev.code) ? Math.max(1, this.#stat(Number(ev.code)).atk) : 0;
+        break;
       case "ATTACK": {
         const a = ev.card as Json | undefined, t = ev.target as Json | null | undefined;
         if (a && Number(a.controller) !== this.seat) this.#attack = { sequence: Number(a.sequence), direct: !t, target: t && Number(t.controller) === this.seat ? Number(t.sequence) : null };
@@ -224,18 +275,19 @@ export class HeuristicBot {
     this.#deadAttackers = new Set(from.#deadAttackers);
     this.#attack = from.#attack;
     this.#chainTop = from.#chainTop;
-    this.#links = [...from.#links];
-    this.#doomed = new Set(from.#doomed);
-    this.#doomAll = from.#doomAll;
+    this.#links = from.#links.map((l) => ({ ...l, targets: [...l.targets] }));
     this.#hint = from.#hint;
     this.#lastActivated = from.#lastActivated;
+    this.#oppSummonAtk = from.#oppSummonAtk;
   }
 
-  /** evaluate() of a duelcore `state` from this seat (masked for it unless spy). */
+  /** The value of a duelcore `state` from this seat (masked for it unless spy): evaluate(), counting what the
+   *  opponent's next Battle Phase would take (a rollout ends with the NPC's own turn: that reply comes next). */
   valueOf(state: Json): number {
     const b = boardFromState(state, this.seat, this.#vision);
     if (b) this.#board = b;
-    return evaluate(this.#boardPosition());
+    const p = this.#boardPosition();
+    return this.#style.light ? evaluate(p) : valueWithReply(p, this.#planOpts().replyWeight);
   }
 
   /** Bookkeeping for a response injected into a rollout instead of chosen by this pilot (the follow-up target choice
@@ -271,11 +323,31 @@ export class HeuristicBot {
       && ((this.#cards.brain.get(l.code)?.type ?? 0) & LASTING) === 0);
   }
 
+  /** A card that negates an activation (a counter trap, Seven Tools...): its link cancels the link below it. */
+  #negates(code: number): boolean {
+    const k = this.#cards.brain.get(code);
+    return !!k && ((k.type & TYPE_COUNTER) !== 0 || (k.has("negate") && !k.has("on_attack")));
+  }
+
+  /** The opponent's links that will still resolve: a link negated by the one above it (itself not negated) is gone. */
+  #liveOppLinks(): ChainLink[] {
+    const out: ChainLink[] = [];
+    let negated = false;
+    for (let i = this.#links.length - 1; i >= 0; i--) {
+      const l = this.#links[i]!, below = this.#links[i - 1];
+      if (!negated && l.controller !== this.seat) out.push(l);
+      // this link (alive) cancels the one below it when they are opposing players'
+      negated = !negated && l.negates && !!below && below.controller !== l.controller;
+    }
+    return out;
+  }
+
   /** A set card of ours the opponent's chain is about to take (and not one whose effect would leave with it). */
   #isDoomed(c: CardRef): boolean {
     if (c.controller !== this.seat || (c.location & LOCATION.SZONE) === 0) return false;
     if (((this.#cards.brain.get(c.code)?.type ?? 0) & LASTING) !== 0) return false;
-    return this.#doomAll || this.#doomed.has(`${c.location}:${c.sequence}`);
+    const key = `${c.location}:${c.sequence}`;
+    return this.#liveOppLinks().some((l) => l.clears || l.targets.includes(key));
   }
 
   /** Bookkeeping for a card this seat activates: what a following target pick belongs to. */
@@ -327,7 +399,7 @@ export class HeuristicBot {
       if (!c) return;
       const faceDown = isFaceDown(c.position);
       out.push({
-        seq, atk: c.attack ?? 0, def: c.defense ?? 0, faceDown,
+        seq, code: c.code, level: c.level ?? (c.code ? this.#stat(c.code).level : 0), atk: c.attack ?? 0, def: c.defense ?? 0, faceDown,
         attackPos: (c.position & POS.ATTACK) !== 0 && !faceDown,
         known: !faceDown || c.code !== 0,
         flipRisk: faceDown ? (c.code ? this.#cards.flipRisk(c.code) : 300) : 0,
@@ -370,11 +442,11 @@ export class HeuristicBot {
   }
 
   /** -Infinity = a rule says HOLD. Positive values are pre-development plays. */
-  #idlePriority(code: number, ctx: RuleCtx): number {
+  #idlePriority(code: number, ctx: RuleCtx, ref?: CardRef): number {
     const name = this.#nameOf(code);
     if (this.#combo?.afterPayoff?.includes(name) && !this.#comboPayoffLive()) return -Infinity;
     const rule = this.#ruleFor(code);
-    if (rule?.idleActivate && !rule.idleActivate(ctx)) return -Infinity;
+    if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, code, ref))) return -Infinity;
     // a Field Spell already face-up on our field: a second copy only replaces it (production: Luminous Spark over Luminous Spark)
     if (((this.#cards.brain.get(code)?.type ?? 0) & TYPE_FIELD) && this.#me()?.szone.some((c) => c && c.code === code && !isFaceDown(c.position))) return -Infinity;
     return rule?.idlePriority ?? 0;
@@ -384,7 +456,11 @@ export class HeuristicBot {
   #ctx(): RuleCtx {
     const me = this.#me(), opp = this.#opp();
     const myMon = this.#monstersOf(me), oppMon = this.#monstersOf(opp);
-    const toRule = (o: OppMon): RuleMon => ({ atk: o.atk, def: o.def, faceDown: o.faceDown, attackPos: o.attackPos });
+    const hit = new Set(this.#liveOppLinks().flatMap((l) => l.targets));
+    const lethal = this.#lethalInfo();
+    const toRule = (o: OppMon, mine: boolean): RuleMon => ({ atk: o.atk, def: o.def, faceDown: o.faceDown, attackPos: o.attackPos, level: o.level,
+      fusion: !!o.code && ((this.#cards.brain.get(o.code)?.type ?? 0) & TYPE_FUSION) !== 0, chainHit: mine && hit.has(`${LOCATION.MZONE}:${o.seq}`),
+      blocksLethal: !mine && lethal.blockers.has(o.seq) });
     const backrow = (p: PlayerBoard | null): number => (p ? p.szone.filter((c, i) => c && !this.#spent(p === me ? this.seat : 1 - this.seat, i)).length : 0);
     const graveMaxAtk = (p: PlayerBoard | null): number => (p ? p.grave.reduce((m, c) => Math.max(m, this.#stat(c).atk), 0) : 0);
     const attacker = this.#attack && this.#turnPlayer !== this.seat ? opp?.mzone[this.#attack.sequence] : null;
@@ -392,7 +468,7 @@ export class HeuristicBot {
     const guard = attackAtk > 0 && this.#attack!.target !== null ? me?.mzone[this.#attack!.target] : null;
     return {
       myLp: me?.lp ?? 8000, oppLp: opp?.lp ?? 8000,
-      myMon: myMon.map(toRule), oppMon: oppMon.map(toRule),
+      myMon: myMon.map((o) => toRule(o, true)), oppMon: oppMon.map((o) => toRule(o, false)),
       myMaxAtk: this.#maxAttackAtk(myMon), oppMaxAtk: this.#maxAttackAtk(oppMon),
       myBackrow: backrow(me), oppBackrow: backrow(opp),
       myGraveMaxAtk: graveMaxAtk(me), oppGraveMaxAtk: graveMaxAtk(opp),
@@ -406,7 +482,115 @@ export class HeuristicBot {
       attackAtk, attackLethal: attackAtk > 0 && attackAtk >= (me?.lp ?? 8000) && (this.#attack!.direct || myMon.length === 0),
       attackOnDefense: !!guard && (guard.position & POS.DEFENSE) !== 0,
       oppChained: this.#chainTop !== null && this.#chainTop !== this.seat,
+      ext: { ...this.#ctxExt(myMon, oppMon, attackAtk, guard ?? null), lethalThrough: lethal.through },
     };
+  }
+
+  /** On my turn before my battle is over: are my attacks lethal on this board (the battle plan, set cards aside), and
+   *  which opponent's monster alone stands in the way (removing it makes them lethal)? */
+  #lethalInfo(): { through: boolean; blockers: Set<number> } {
+    const none = { through: false, blockers: new Set<number>() };
+    const phase = this.#board?.phase ?? 0;
+    if (this.#turnPlayer !== this.seat || !(phase >= PHASE.MAIN1 && phase < PHASE.MAIN2)) return none;
+    const base = this.#battlePosition();
+    const me = this.#me(), opp = this.#opp();
+    const my: PlanMon[] = this.#monstersOf(me).map((m, i) => ({ ...base.myMon[i]!, seq: m.seq }));
+    const theirs: PlanMon[] = this.#monstersOf(opp).map((m, i) => ({ ...base.oppMon[i]!, seq: m.seq }));
+    const attackers: PlanAttacker[] = my.filter((m) => m.attackPos && !m.faceDown).map((m, index) => ({ index, seq: m.seq, atk: m.atk, canDirect: false }));
+    if (attackers.length === 0) return none;
+    const opts = { ...PLAN_DEFAULTS, reply: false, maxNodes: 3000 };
+    const lethalWith = (o: PlanMon[]) => planBattle({ base, my, opp: o, attackers }, opts).outcome.lethal;
+    if (lethalWith(theirs)) return { through: true, blockers: new Set() };
+    const blockers = new Set<number>();
+    if (theirs.length <= 5) for (const t of theirs) if (lethalWith(theirs.filter((x) => x !== t))) blockers.add(t.seq);
+    return { through: false, blockers };
+  }
+
+  /** The board facts beyond the core RuleCtx (ruleCtxExt.ts). */
+  #ctxExt(myMon: OppMon[], oppMon: OppMon[], attackAtk: number, guard: BoardCard | null): RuleCtxExt {
+    const me = this.#me(), opp = this.#opp(), b = this.#board;
+    if (!me || !opp || !b) return {};
+    const type = (code: number): number => this.#cards.brain.get(code)?.type ?? 0;
+    const myTurn = this.#turnPlayer === this.seat, phase = b.phase;
+    const battlePhase = phase > PHASE.MAIN1 && phase < PHASE.MAIN2;
+    const faceUpST = (p: PlayerBoard, who: number) => p.szone.filter((c, i) => c && !isFaceDown(c.position) && !this.#spent(who, i));
+    // the standing on the field (Konami's battle outlook): hands and set cards aside
+    const value = evaluate({ ...this.#boardPosition(), myHand: 0, myBackrow: 0 });
+    const live = this.#liveOppLinks();
+    const top = live[0] && live[0] === this.#links[this.#links.length - 1] ? live[0] : undefined;
+    const keys = new Set(live.flatMap((l) => l.targets));
+    const clears = live.some((l) => l.clears);
+    let threat = 0, hits = 0, hitsBackrow = clears && me.szone.some(Boolean);
+    me.mzone.forEach((c, i) => { if (c && keys.has(`${LOCATION.MZONE}:${i}`)) { threat += c.attack ?? 0; hits++; } });
+    me.szone.forEach((c, i) => { if (c && (clears || keys.has(`${LOCATION.SZONE}:${i}`))) { threat += 1000; hits++; hitsBackrow = true; } });
+    const handMon = me.hand.filter((c) => (type(c) & TYPE_MONSTER) !== 0);
+    const spare = me.hand.filter((c) => this.#spare(c)).length;
+    const isMon = (c: number) => (type(c) & TYPE_MONSTER) !== 0;
+    const maxAtk = (codes: number[]) => codes.filter(isMon).reduce((m, c) => Math.max(m, this.#stat(c).atk), 0);
+    const effectMon = (p: PlayerBoard) => p.mzone.filter((c) => c && c.code && !isFaceDown(c.position) && (type(c.code) & TYPE_EFFECT) !== 0).length;
+    const swinging = myMon.filter((m) => m.attackPos).reduce((n, m) => n + m.atk, 0);
+    const oppAttack = !myTurn && this.#attack ? opp.mzone[this.#attack.sequence] : null;
+    const guardValue = guard ? ((guard.position & POS.DEFENSE) !== 0 ? guard.defense ?? 0 : guard.attack ?? 0) : 0;
+    const incoming = attackAtk <= 0 ? 0 : !guard ? attackAtk : (guard.position & POS.DEFENSE) !== 0 ? 0 : Math.max(0, attackAtk - (guard.attack ?? 0));
+    return {
+      myDeck: me.deckCount, oppDeck: opp.deckCount, chainLen: this.#links.length,
+      boardEdge: Math.round(value), outlook: Math.max(-4, Math.min(4, Math.round(value / 1500))),
+      oppFaceUpBackrow: faceUpST(opp, 1 - this.seat).length,
+      oppFaceUpSpells: faceUpST(opp, 1 - this.seat).filter((c) => (type(c!.code) & TYPE_SPELL) !== 0).length,
+      mySetBackrow: me.szone.filter((c) => c && isFaceDown(c.position)).length,
+      myFreeStZones: me.szone.slice(0, 5).filter((c) => !c).length,
+      oppFreeZones: opp.mzone.slice(0, 5).filter((c) => !c).length,
+      myHandMonsters: handMon.length, myHandSpare: spare, myHandMaxMonAtk: maxAtk(handMon),
+      myGraveMonsters: me.grave.filter(isMon).length, myGraveSpells: me.grave.filter((c) => (type(c) & TYPE_SPELL) !== 0).length,
+      oppGraveMonsters: opp.grave.filter(isMon).length,
+      myBanishedMaxAtk: maxAtk(me.removed), oppRemoved: opp.removed.filter(isMon).length, oppRemovedMaxAtk: maxAtk(opp.removed),
+      myEffectMon: effectMon(me), oppEffectMon: effectMon(opp),
+      oppChainThreat: threat, oppChainHitsMine: hits,
+      oppSummonAtk: this.#oppSummonAtk,
+      incomingDamage: incoming,
+      myBattlerAtk: oppAttack && guard ? guard.attack ?? 0 : 0,
+      oppBattlerValue: oppAttack ? attackAtk : 0,
+      preBattle: myTurn && (phase === PHASE.MAIN1 || battlePhase),
+      afterBattle: myTurn && phase === PHASE.MAIN2,
+      inBattle: battlePhase && (myTurn ? !!this.#declaredAttacker : !!this.#attack),
+      oppStandby: !myTurn && phase === PHASE.STANDBY,
+      discardFodder: spare >= 1,
+      cheapTribute: myMon.some((m) => m.stolen || Math.max(m.atk, m.def) < 1200),
+      myFieldSpell: !!me.szone[5] && !isFaceDown(me.szone[5]!.position),
+      myLockActive: me.szone.some((c) => c && c.code && !isFaceDown(c.position) && LOCKS.test(this.#nameOf(c.code))),
+      oppChainedSpell: !!top && (type(top.code) & TYPE_SPELL) !== 0,
+      oppChainedTrap: !!top && (type(top.code) & TYPE_TRAP) !== 0,
+      oppChainedLingering: !!top && (type(top.code) & LASTING) !== 0,
+      oppChainHitsMyBackrow: hitsBackrow,
+      oppChainUsesGrave: !!top && (this.#cards.brain.get(top.code)?.has("revive") ?? false),
+      oppSummoning: this.#oppSummonAtk > 0,
+      lethalOnEmpty: myTurn && swinging >= opp.lp,
+      attackTargetLoses: !!guard && attackAtk > guardValue,
+    };
+  }
+
+  /** A hand card worth giving up for a cost (not one to keep, not a strong card). */
+  #spare(code: number): boolean {
+    return !!code && !this.#ruleFor(code)?.keepInHand && this.#worth(code, true) < SPARE;
+  }
+
+  /** The rule context about one card: its stats (on my field: its current ones), whether a live opponent link hits it,
+   *  and whether a face-up copy of it is already on the field. */
+  #withSelf(ctx: RuleCtx, code: number, ref?: CardRef | null): RuleCtx {
+    const snap = ref ? this.#snap(ref) : null;
+    const st = this.#stat(code);
+    const onField = !!snap && snap.controller === this.seat && (snap.location & LOCATION.MZONE) !== 0 && !!snap.code;
+    const atk = onField ? snap!.attack ?? st.atk : st.atk, def = onField ? snap!.defense ?? st.def : st.def;
+    const key = ref ? `${ref.location}:${ref.sequence}` : "";
+    const live = this.#liveOppLinks();
+    const threatened = !!ref && ref.controller === this.seat
+      && live.some((l) => l.targets.includes(key) || (l.clears && (ref.location & LOCATION.SZONE) !== 0));
+    const same = (p: PlayerBoard | null) => !!p && [...p.mzone, ...p.szone].some((c) => c && c.code === code && !isFaceDown(c.position)
+      && !(ref && c.controller === ref.controller && c.location === ref.location && c.sequence === ref.sequence));
+    // a card in my hand is not its own discard
+    const spare = (ctx.ext?.myHandSpare ?? 0) - (ref && (ref.location & LOCATION.HAND) !== 0 && this.#spare(code) ? 1 : 0);
+    return { ...ctx, ext: { ...ctx.ext, myHandSpare: spare, discardFodder: spare >= 1, selfAtk: atk, selfDef: def, selfValue: onField ? ((snap!.position & POS.DEFENSE) !== 0 ? def : atk) : 0,
+      selfThreatened: threatened, sameCardActive: same(this.#me()) || same(this.#opp()) } };
   }
 
   // ---- decision entry ---------------------------------------------------------------------------------------------
@@ -487,7 +671,7 @@ export class HeuristicBot {
     const act = () => { this.#idleActions++; };
     const ctx = this.#ctx();
     // Order matters when the budget only fits a few forks: draw/removal setup, the strongest summons, then the rest.
-    const activatable = ev.activatable.map((a, i) => ({ a, i, p: this.#idlePriority(a.code, ctx) }))
+    const activatable = ev.activatable.map((a, i) => ({ a, i, p: this.#idlePriority(a.code, ctx, a) }))
       .filter(({ a, p }) => p > -Infinity && !this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`))
       .sort((a, b) => b.p - a.p);
     const pushActivation = ({ a, i }: { a: Activatable; i: number }) => {
@@ -506,7 +690,7 @@ export class HeuristicBot {
     ev.repositionable.forEach((_, i) => out.push({ resp: respIdle("SELECT_POS_CHANGE", i), commit: act }));
     // One set-monster line (the weakest body as a wall) and one set-backrow line.
     const settable = ev.monsterSet.map((a, i) => ({ a, i }));
-    if (settable.length > 0) {
+    if (settable.length > 0 && !this.#style.attackOnly) {
       let wi = 0;
       settable.forEach(({ a }, i) => { if (this.#stat(a.code).atk < this.#stat(settable[wi]!.a.code).atk) wi = i; });
       out.push({ resp: respIdle("SELECT_MONSTER_SET", settable[wi]!.i), commit: act });
@@ -564,7 +748,7 @@ export class HeuristicBot {
   // ---- the heuristic ----------------------------------------------------------------------------------------------
   respond(ev: Prompt): Json | null {
     // Any prompt that isn't the attack-target follow-up clears the pending attacker.
-    if (ev.kind !== "selectCard") this.#pendingAttacker = null;
+    if (ev.kind !== "selectCard") { this.#pendingAttacker = null; if (ev.kind !== "selectBattleCmd") this.#plannedTarget = undefined; }
     switch (ev.kind) {
       case "selectIdleCmd": return this.#idle(ev);
       case "selectBattleCmd": return this.#battle(ev);
@@ -580,7 +764,7 @@ export class HeuristicBot {
       case "selectCounter": return this.#selectCounter(ev);
       case "announceRace": return { type: "ANNOUNCE_RACE", races: lowestBits(ev.available, ev.count) };
       case "announceAttrib": return { type: "ANNOUNCE_ATTRIB", attributes: lowestBits(ev.available, ev.count) };
-      case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#ctx(), ev.options.map(Number)) ?? 0 };
+      case "announceNumber": return { type: "ANNOUNCE_NUMBER", value: this.#ruleFor(this.#lastActivated)?.number?.(this.#withSelf(this.#ctx(), this.#lastActivated), ev.options.map(Number)) ?? 0 };
       case "sortCard": return respSort();
       case "selectSum": return solveSum(ev);
       case "announceCard": return solveAnnounceCard(ev.opcodes, this.#cards.brain);
@@ -591,7 +775,7 @@ export class HeuristicBot {
   /** A card's options (each its string: code << 20 | n): its rule picks, else the first. */
   #selectOption(ev: P<"selectOption">): Json {
     const code = Math.floor(Number(ev.options[0] ?? 0) / 0x100000);
-    const pick = code > 0 ? this.#ruleFor(code)?.option?.(this.#ctx()) : undefined;
+    const pick = code > 0 ? this.#ruleFor(code)?.option?.(this.#withSelf(this.#ctx(), code)) : undefined;
     return respOption(pick !== undefined && pick >= 0 && pick < ev.options.length ? pick : 0);
   }
 
@@ -623,6 +807,7 @@ export class HeuristicBot {
 
   // ---- main phase -------------------------------------------------------------------------------------------------
   #idle(ev: P<"selectIdleCmd">): Json {
+    if (this.#style.fool) return this.#foolIdle(ev);
     const ctx = this.#ctx();
     const oppMax = ctx.oppMaxAtk;
     const oppHasMon = ctx.oppMon.length > 0;
@@ -649,7 +834,7 @@ export class HeuristicBot {
         const key = `${a.location}:${a.sequence}:${a.description}`;
         if (this.#activatedThisTurn.has(key)) continue;
         const rule = this.#ruleFor(a.code);
-        if (rule?.idleActivate && !rule.idleActivate(ctx)) continue;
+        if (rule?.idleActivate && !rule.idleActivate(this.#withSelf(ctx, a.code, a))) continue;
         this.#activatedThisTurn.add(key);
         this.#idleActions++;
         this.#activated(a.code);
@@ -664,7 +849,7 @@ export class HeuristicBot {
         const a = ev.activatable[i]!;
         if (this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) continue;
         if (combo && combo.plan.enableField && this.#nameOf(a.code) === combo.plan.enableField) continue;
-        const p = this.#idlePriority(a.code, ctx);
+        const p = this.#idlePriority(a.code, ctx, a);
         if (p > priority) { priority = p; best = i; }
       }
       if (best >= 0) {
@@ -714,7 +899,7 @@ export class HeuristicBot {
         const a = ev.activatable[i]!;
         if (this.#activatedThisTurn.has(`${a.location}:${a.sequence}:${a.description}`)) continue;
         if (combo && combo.plan.enableField && this.#nameOf(a.code) === combo.plan.enableField) continue;
-        const p = this.#idlePriority(a.code, ctx);
+        const p = this.#idlePriority(a.code, ctx, a);
         if (p > priority) { priority = p; best = i; }
       }
       if (best >= 0) {
@@ -735,8 +920,8 @@ export class HeuristicBot {
 
     // 4b. An attacker that stands under a bigger one only feeds LP: to defense. After the battle (Main Phase 2: the
     // ones that did not attack), or before it when no monster of ours has a battle to win.
-    if (this.#idleActions < MAX_IDLE_ACTIONS && oppMax > 0) {
-      const wins = (atk: number): boolean => this.#oppMonsters().some((m) => (m.attackPos ? atk > m.atk : m.faceDown && !m.known ? atk > 1500 : atk > m.def));
+    if (this.#idleActions < MAX_IDLE_ACTIONS && oppMax > 0 && !this.#style.attackOnly) {
+      const wins =(atk: number): boolean => this.#oppMonsters().some((m) => (m.attackPos ? atk > m.atk : m.faceDown && !m.known ? atk > 1500 : atk > m.def));
       const after = this.#board?.phase === PHASE.MAIN2 || !ev.canBattlePhase || !this.#monstersOf(this.#me()).some((m) => m.attackPos && wins(m.atk));
       for (let i = 0; after && i < ev.repositionable.length; i++) {
         const r = ev.repositionable[i]!;
@@ -750,6 +935,26 @@ export class HeuristicBot {
     if (ev.canBattlePhase && this.#hasAttacker()) return respIdle("TO_BP");
     if (ev.canEndPhase) return respIdle("TO_EP");
     return respIdle(ev.canBattlePhase ? "TO_BP" : "TO_EP");
+  }
+
+  /** The fool's main phase: the first legal play of each kind (an activation not used yet this turn, a summon, a
+   *  special summon, a set), then battle with anything that can swing, else the end. */
+  #foolIdle(ev: P<"selectIdleCmd">): Json {
+    if (this.#idleActions < MAX_IDLE_ACTIONS) {
+      const a = ev.activatable.findIndex((x) => !this.#activatedThisTurn.has(`${x.location}:${x.sequence}:${x.description}`));
+      if (a >= 0) {
+        const x = ev.activatable[a]!;
+        this.#activatedThisTurn.add(`${x.location}:${x.sequence}:${x.description}`);
+        this.#idleActions++;
+        this.#activated(x.code);
+        return respIdle("SELECT_ACTIVATE", a);
+      }
+      const first: [ "SELECT_SPECIAL_SUMMON" | "SELECT_SUMMON" | "SELECT_SPELL_SET", unknown[] ][] =
+        [["SELECT_SPECIAL_SUMMON", ev.spSummonable], ["SELECT_SUMMON", ev.summonable], ["SELECT_SPELL_SET", ev.spellSet]];
+      for (const [cmd, list] of first) if (list.length > 0) { this.#idleActions++; return respIdle(cmd, 0); }
+    }
+    if (ev.canBattlePhase && this.#hasAttacker()) return respIdle("TO_BP");
+    return respIdle(ev.canEndPhase ? "TO_EP" : "TO_BP");
   }
 
   /** Damage on an open field this turn: what stands in attack, what a position change adds (the first such
@@ -803,7 +1008,7 @@ export class HeuristicBot {
     if (bestTrib) {
       const n = tributes(bestTrib.level), cost = costOf(bestTrib.level), gain = bestTrib.atk - (bestNoTrib?.atk ?? 0);
       const free = material.length >= n && cost <= 600 * n && gain > 0;
-      const upgrade = material.length >= n && bestTrib.atk >= 2200 && cost <= 1600 * n && gain >= 500;
+      const upgrade = material.length >= n && bestTrib.atk >= 2200 && cost <= 1600 * n && gain >= 500 + 500 * this.#picky;
       if (bestTrib.atk > oppMax && (!bestNoTrib || bestNoTrib.atk <= oppMax)) chosen = bestTrib;
       else if (!bestNoTrib || free || upgrade) chosen = bestTrib;
       if (bestTrib.score > bestTrib.atk && (!chosen || bestTrib.score > chosen.score)) chosen = bestTrib;
@@ -813,9 +1018,11 @@ export class HeuristicBot {
     // Face-down instead: a small monster that can't survive the opponent's board, a wall, a body too feeble to
     // stand in attack and a FLIP monster (unless a rule wants it up, or the turn is the lethal push).
     const oppAttacks = ctx.oppMon.some((m) => m.attackPos);
+    // A weaker (pickier) player wants more before it stands a body in attack position.
+    const margin = 400 * this.#picky;
     const setIt = (c: { code: number; atk: number; def: number; level: number; score: number }): boolean => {
-      if (c.level > 4 || c.score > c.atk || this.#allIn) return false;
-      return (oppAttacks && c.atk < oppMax) || (c.def > c.atk && c.atk < 1500) || c.atk < 1000 || !!this.#cards.brain.get(c.code)?.is_flip;
+      if (this.#style.attackOnly || c.level > 4 || c.score > c.atk || this.#allIn) return false;
+      return (oppAttacks && c.atk < oppMax + margin) || (c.def > c.atk && c.atk < 1500 + margin) || c.atk < 1000 + 2 * margin || !!this.#cards.brain.get(c.code)?.is_flip;
     };
     if (setIt(chosen)) {
       // Among the bodies that would be set anyway, the best one face-down: a disruptive FLIP, then the highest DEF.
@@ -902,7 +1109,7 @@ export class HeuristicBot {
       const a = ev.activatable[i]!;
       const key = `b:${a.location}:${a.sequence}:${a.description}`;
       if (this.#activatedThisTurn.has(key)) continue;
-      if (!this.#ruleFor(a.code)?.battleActivate?.(ctx)) continue;
+      if (!this.#ruleFor(a.code)?.battleActivate?.(this.#withSelf(ctx, a.code, a))) continue;
       this.#activatedThisTurn.add(key);
       this.#activated(a.code);
       return respBattle("SELECT_CHAIN", i);
@@ -910,16 +1117,16 @@ export class HeuristicBot {
     const base = this.#battlePosition();
     const me = this.#me();
     this.#noteDeadAttacker();
-    let bestIdx = -1, bestScore = evaluate(base), bestAtk = 0;
-    for (let index = 0; index < ev.attackable.length; index++) {
-      const a = ev.attackable[index]!;
-      if (this.#deadAttackers.has(a.sequence)) continue;
-      const atk = me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
-      // The target comes in a follow-up prompt: score this attacker by its BEST target.
-      const targets: (EvalMon | null)[] = (a.directAttackable || base.oppMon.length === 0) ? [null] : base.oppMon;
-      let bodyBest = -Infinity;
-      for (const t of targets) bodyBest = Math.max(bodyBest, this.#attackScore(base, atk, t));
-      if (bodyBest > bestScore) { bestScore = bodyBest; bestIdx = index; bestAtk = atk; }
+    let bestIdx = -1, bestAtk = 0;
+    this.#plannedTarget = undefined;
+    if (this.#style.fool) {
+      // the first monster that can attack, at whatever the target prompt offers first
+      const i = ev.attackable.findIndex((a) => !this.#deadAttackers.has(a.sequence));
+      if (i >= 0) { bestIdx = i; bestAtk = me?.mzone[ev.attackable[i]!.sequence]?.attack ?? this.#stat(ev.attackable[i]!.code).atk; this.#plannedTarget = undefined; }
+    } else {
+      // The whole Battle Phase planned (battlePlan.ts): its first attack now, the rest re-planned after it resolves.
+      const first = this.#planBattle(ev).attacks[0];
+      if (first) { bestIdx = first.index; bestAtk = first.atk; this.#plannedTarget = first.target; }
     }
     // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
     if (bestIdx < 0 && !ev.canMain2 && !ev.canEndPhase) {
@@ -943,6 +1150,20 @@ export class HeuristicBot {
     this.#attackSeen = true;
   }
 
+  /** This Battle Phase planned from here (battlePlan.ts), over the same board the 1-ply scoring reads. */
+  #planBattle(ev: P<"selectBattleCmd">) {
+    const base = this.#battlePosition();
+    const me = this.#me(), opp = this.#opp();
+    const withSeq = (p: PlayerBoard | null, mons: EvalMon[]): PlanMon[] =>
+      this.#monstersOf(p).map((m, i) => ({ ...mons[i]!, seq: m.seq }));
+    const attackers: PlanAttacker[] = [];
+    ev.attackable.forEach((a, index) => {
+      if (this.#deadAttackers.has(a.sequence)) return;
+      attackers.push({ index, seq: a.sequence, atk: me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk, canDirect: a.directAttackable });
+    });
+    return planBattle({ base, my: withSeq(me, base.myMon), opp: withSeq(opp, base.oppMon), attackers }, this.#planOpts());
+  }
+
   // ---- chains / responses -----------------------------------------------------------------------------------------
   #battleYesNo(description: string, text = ""): Json {
     if (description !== "30" && description !== "31") {
@@ -950,7 +1171,7 @@ export class HeuristicBot {
       // Special Summon from the Deck or hand (Nimble Momonga, Giant Germ: production answered no), no to the rest.
       const code = Math.floor(Number(description) / 0x100000);
       const rule = code > 0 ? this.#ruleFor(code) : undefined;
-      if (rule?.yesNo) return respYesNo(rule.yesNo(this.#ctx()));
+      if (rule?.yesNo) return respYesNo(rule.yesNo(this.#withSelf(this.#ctx(), code)));
       return respYesNo(/^Special Summon\b.*\bfrom your (Deck|hand)\?$/i.test(text));
     }
     const card = this.#declaredAttacker;
@@ -967,10 +1188,12 @@ export class HeuristicBot {
   #chain(ev: P<"selectChain">): Json {
     if (ev.chains.length === 0) return respChain(null);
     if (ev.forced) return respChain(0);
+    // a my-turn-only player never answers on the opponent's turn
+    if (this.#style.myTurnOnly && this.#turnPlayer !== this.seat) return respChain(null);
     // A set card the opponent's chain is taking: used now if it does anything (production: Scapegoat, Raigeki Break,
     // Ring of Destruction and Compulsory Evacuation Device destroyed unused).
     const doomedIdx = ev.chains.findIndex((c) => this.#isDoomed(c) && !this.#chainedThisWindow.has(`${c.code}:${c.description}`)
-      && (this.#ruleFor(c.code)?.doomed?.(this.#ctx()) ?? true));
+      && (this.#ruleFor(c.code)?.doomed?.(this.#withSelf(this.#ctx(), c.code, c)) ?? true));
     if (doomedIdx >= 0) {
       const c = ev.chains[doomedIdx]!;
       this.#chainedThisWindow.add(`${c.code}:${c.description}`);
@@ -984,13 +1207,24 @@ export class HeuristicBot {
     const ctx = this.#ctx();
     const own = this.#turnPlayer === this.seat;
     if (own && !ctx.oppChained) return respChain(null);
-    for (let i = 0; i < ev.chains.length; i++) {
+    // a fool springs the first card it can
+    if (this.#style.fool) {
+      const c = ev.chains[0]!;
+      this.#chainedThisWindow.add(`${c.code}:${c.description}`);
+      this.#activated(c.code);
+      return respChain(0);
+    }
+    // The candidates in priority order (a rule's chainPriority, else a negation of the opponent's link first): the
+    // first whose rule says yes is the answer.
+    const prio = (c: Activatable): number => this.#ruleFor(c.code)?.chainPriority ?? (ctx.oppChained && this.#negates(c.code) ? 50 : 0);
+    const order = ev.chains.map((c, i) => ({ i, p: prio(c) })).sort((a, b) => b.p - a.p).map((x) => x.i);
+    for (const i of order) {
       const c = ev.chains[i]!;
       const key = `${c.code}:${c.description}`;
       if (this.#chainedThisWindow.has(key)) continue;
       if (own && !this.#cards.brain.get(c.code)?.has("negate")) continue;
       const rule = this.#ruleFor(c.code);
-      if (rule?.chainReact && !rule.chainReact(ctx)) continue;
+      if (rule?.chainReact && !rule.chainReact(this.#withSelf(ctx, c.code, c))) continue;
       this.#chainedThisWindow.add(key);
       this.#activated(c.code);
       return respChain(i);
@@ -1001,8 +1235,13 @@ export class HeuristicBot {
   #selectCard(ev: P<"selectCard">): Json {
     // The attack-target follow-up: the best monster this attacker can destroy.
     if (this.#pendingAttacker !== null) {
-      const atk = this.#pendingAttacker;
+      const atk = this.#pendingAttacker, planned = this.#plannedTarget;
       this.#pendingAttacker = null;
+      this.#plannedTarget = undefined;
+      const at = planned === undefined || planned === null ? -1
+        : ev.cards.findIndex((c) => c.controller !== this.seat && (c.location & LOCATION.MZONE) !== 0 && c.sequence === planned);
+      if (at >= 0) return respCards([at]);
+      if (this.#style.fool) return respCards([0]);
       const idx = this.#bestAttackTarget(ev.cards, atk);
       if (idx >= 0) return respCards([idx]);
     }
@@ -1032,11 +1271,29 @@ export class HeuristicBot {
         return respCards(order.slice(0, Math.min(Math.max(ev.min, 1), ev.cards.length)));
       }
     }
-    return respCards(this.#pickTargets(ev.cards, ev.min, ev.max));
+    if (this.#style.fool) return respCards(ev.cards.map((_, i) => i).slice(0, Math.max(ev.min, 0)));
+    return respCards(this.#pickTargets(ev.cards, Math.max(ev.min, this.#optionalPicks(ev.cards, ev.max)), ev.max));
+  }
+
+  /** How many cards an optional pick (min 0) is worth taking: the opponent's cards on the field (removal: as many as
+   *  allowed) or our own Deck / Extra Deck (a search); anything else (a cost, our own field, a graveyard) none. */
+  #optionalPicks(cards: CardRef[], max: number): number {
+    if (cards.length === 0) return 0;
+    const cap = max > 0 ? max : cards.length;
+    const theirs = cards.filter((c) => c.controller !== this.seat);
+    if (theirs.length > 0 && theirs.every((c) => (c.location & (LOCATION.MZONE | LOCATION.SZONE)) !== 0)
+      && cards.every((c) => c.controller !== this.seat || (c.location & (LOCATION.MZONE | LOCATION.SZONE)) === 0)) return Math.min(cap, theirs.length);
+    if (cards.every((c) => c.controller === this.seat && (c.location & (LOCATION.DECK | LOCATION.EXTRA)) !== 0)) return Math.min(cap, cards.length);
+    return 0;
   }
 
   #selectUnselect(ev: P<"selectUnselectCard">): Json {
-    if (ev.min <= 0 || ev.finishable || ev.selectable.length === 0) return respUnselect(null);
+    if (ev.selectable.length === 0) return respUnselect(null);
+    if (ev.min <= 0 || ev.finishable) {
+      // still worth another card (an optional removal or search not filled yet)?
+      const want = this.#style.fool ? 0 : this.#optionalPicks([...ev.selectable, ...ev.unselectable], ev.max);
+      if (ev.unselectable.length >= want) return respUnselect(null);
+    }
     const pick = this.#pickTargets(ev.selectable, 1, 1)[0];
     return respUnselect(pick ?? 0);
   }
@@ -1109,7 +1366,7 @@ export class HeuristicBot {
     if (c.controller !== this.seat && (c.location & LOCATION.HAND) !== 0) return 1000 + this.#rng();
     // Our own hand / deck / Extra Deck: the card for what it is (their position reads face-down: all were 1500, so
     // a discard or a search took the first one listed).
-    if (c.controller === this.seat && c.code && (c.location & (LOCATION.HAND | LOCATION.DECK | LOCATION.EXTRA)) !== 0) return this.#worth(c.code);
+    if (c.controller === this.seat && c.code && (c.location & (LOCATION.HAND | LOCATION.DECK | LOCATION.EXTRA)) !== 0) return this.#worth(c.code, (c.location & LOCATION.HAND) !== 0);
     if ((c.location & LOCATION.SZONE) !== 0 && this.#spent(c.controller, c.sequence)) return -1;
     const live = this.#liveAtk(c);
     if (live !== undefined) return live;
@@ -1126,15 +1383,32 @@ export class HeuristicBot {
 
   /** A card of ours off the field, for a discard (the lowest goes) or a search (the highest comes): a monster by its
    *  ATK, less when it needs tributes; a spell or trap above a plain body, more with a rule that plays it first. */
-  #worth(code: number): number {
+  #worth(code: number, inHand = false): number {
     if (this.#ruleFor(code)?.keepInHand) return 9000;
     const k = this.#cards.brain.get(code);
     if (!k) return this.#stat(code).atk || 1000;
+    let v: number;
     if (k.type & TYPE_MONSTER) {
       const t = k.is_extra ? 0 : k.tributes();
-      return this.#stat(code).atk * (t === 0 ? 1 : t === 1 ? 0.7 : 0.45);
+      v = this.#stat(code).atk * (t === 0 ? 1 : t === 1 ? 0.7 : 0.45);
+    } else v = 1300 + (this.#ruleFor(code)?.idlePriority ?? 0) * 4;
+    return v + this.#want(code, k, inHand);
+  }
+
+  /** What the board wants right now (a wishlist over hand and field): a second copy of a card already in hand is worth
+   *  less (discarded first, not searched again), a small body while a tribute monster waits in the hand with nothing
+   *  to tribute is worth more, and so is removal while the opponent has the bigger monster. */
+  #want(code: number, k: NonNullable<ReturnType<BrainDB["get"]>>, inHand: boolean): number {
+    const me = this.#me();
+    if (!me) return 0;
+    let w = 0;
+    if (me.hand.filter((c) => c === code).length >= (inHand ? 2 : 1)) w -= 400;
+    if ((k.type & TYPE_MONSTER) && !k.is_extra && k.tributes() === 0) {
+      const needs = Math.max(0, ...me.hand.map((c) => this.#cards.brain.get(c)?.tributes() ?? 0));
+      if (needs > me.mzone.filter(Boolean).length) w += 300;
     }
-    return 1300 + (this.#ruleFor(code)?.idlePriority ?? 0) * 4;
+    if (k.any(REMOVAL) && this.#oppMaxAtk() > this.#maxAttackAtk(this.#monstersOf(me))) w += 400;
+    return w;
   }
 
   /** Current ATK of a known face-up monster (board first, base stats as fallback). */
@@ -1167,7 +1441,7 @@ export class HeuristicBot {
     const { atk, def } = this.#stat(code);
     const oppMax = this.#oppMaxAtk();
     // In attack only when it holds there: nothing bigger across, and not a wall by nature.
-    const up = this.#allIn || (atk >= oppMax && !(def > atk && atk < 1500));
+    const up = this.#allIn || this.#style.attackOnly || (atk >= oppMax + 400 * this.#picky && !(def > atk && atk < 1500));
     const order = up
       ? [POS.FACEUP_ATTACK, POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEDOWN_ATTACK]
       : [POS.FACEUP_DEFENSE, POS.FACEDOWN_DEFENSE, POS.FACEUP_ATTACK, POS.FACEDOWN_ATTACK];

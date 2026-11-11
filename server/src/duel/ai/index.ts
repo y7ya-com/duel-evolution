@@ -1,14 +1,16 @@
 // Duel Evolution's NPC AI: the default NPC player of NPC duels (ocgSession.ts), in three tiers.
 //
-//   easy  (NPC level 1-3): the heuristic player (heuristicBot.ts) with blunders: now and then a random legal line in
-//                          the main / battle phase.
-//   hard  (level 4-6):     the heuristic player, no blunders.
+//   easy  (NPC level 1-3): the heuristic player (heuristicBot.ts), weak the way a real beginner is: demanding before it
+//                          commits a monster (strength 40: it sets more, tributes less) and thinking one step less (no
+//                          look at the opponent's next Battle Phase). Not random.
+//   hard  (level 4-6):     the heuristic player at full strength.
 //   elite (level 7-9):     the heuristic player plus replay-fork lookahead (simSearch.ts) on its own main phase, within
 //                          a CPU budget per decision.
 //
 // Honest play by default: the AI sees only what the select's `view` shows (and its own cards). SPY (`spy: true`, off
 // by default, elite only) reads the opponent's hidden cards and widens the lookahead to the opponent's whole turn.
-// The level comes from npc_profiles.json; TIER_BY_NPC overrides it per NPC id.
+// The level comes from npc_profiles.json; TIER_BY_NPC overrides it per NPC id. STYLE_BY_NPC gives an NPC a personality
+// on top of its tier (heuristicBot.ts BotStyle: attackOnly, myTurnOnly, def, fool, light).
 //
 // Interface as the parity brain's: observe(ev) for every duelcore "msg" event, choose(sel) for the NPC's select
 // (not a retry); null = no answer, the host lets the engine decide (`auto`).
@@ -16,25 +18,32 @@ import type { CardDB as EngineCardDB } from "../engine/data.ts";
 import type { Json } from "../engine/core.ts";
 import { tagMask, type CardDB as BrainDB } from "../brain/cards.ts";
 import type { NpcProfilesJson } from "../brain/index.ts";
-import { HeuristicBot, type CardInfo } from "./heuristicBot.ts";
+import { HeuristicBot, type BotStyle, type CardInfo } from "./heuristicBot.ts";
 import { activeRules, type RuleSet } from "./ruleSet.ts";
 import type { ForkLink, SearchAccess } from "./simSearch.ts";
 
-export { HeuristicBot, type CardInfo } from "./heuristicBot.ts";
+export { HeuristicBot, type BotStyle, type CardInfo } from "./heuristicBot.ts";
 export { simStats, type ForkLink, type LoggedCmd } from "./simSearch.ts";
 export { activeRules, buildRules, setActiveRules, type RuleSet } from "./ruleSet.ts";
 
 export type Tier = "easy" | "hard" | "elite";
 
 /** Which AI played, in the duel record (npcDuelLog.ts): one more whenever the AI's play changes. */
-export const NPC_AI_REV = 3;
+export const NPC_AI_REV = 4;
 
 /** Per-NPC tier overrides (NPC id -> tier), for later tuning. */
 export const TIER_BY_NPC: Record<number, Tier> = {};
 
+/** Per-NPC personalities (NPC id -> style), on top of the tier. */
+export const STYLE_BY_NPC: Record<number, BotStyle> = {};
+
 export interface TierConfig {
   /** Probability of a random legal line at a main/battle-phase decision. */
   blunder: number;
+  /** 0-100: how demanding before committing a monster (heuristicBot.ts BotOpts.strength). */
+  strength: number;
+  /** One step less of thinking: no reply ply in the battle plan. */
+  light: boolean;
   search: boolean;
   /** CPU budget per searched decision (ms) and max candidate lines. */
   budgetMs: number;
@@ -42,9 +51,9 @@ export interface TierConfig {
 }
 
 export const TIERS: Record<Tier, TierConfig> = {
-  easy: { blunder: 0.2, search: false, budgetMs: 0, maxCandidates: 0 },
-  hard: { blunder: 0, search: false, budgetMs: 0, maxCandidates: 0 },
-  elite: { blunder: 0, search: true, budgetMs: 150, maxCandidates: 6 },
+  easy: { blunder: 0, strength: 40, light: true, search: false, budgetMs: 0, maxCandidates: 0 },
+  hard: { blunder: 0, strength: 100, light: false, search: false, budgetMs: 0, maxCandidates: 0 },
+  elite: { blunder: 0, strength: 100, light: false, search: true, budgetMs: 150, maxCandidates: 6 },
 };
 
 /** The NPC's tier: TIER_BY_NPC, else its npc_profiles.json level (1-3 easy, 4-6 hard, 7-9 elite; none = 2). */
@@ -101,6 +110,8 @@ export interface NpcAiOptions {
   peek?: () => Json;
   /** The card rules (ruleSet.ts): the set active when the duel starts, kept for the whole duel. */
   rules?: RuleSet;
+  /** A personality over the tier (STYLE_BY_NPC by default). */
+  style?: BotStyle;
 }
 
 export class NpcAi {
@@ -115,17 +126,21 @@ export class NpcAi {
     const rules = this.rules = o.rules ?? activeRules();
     const cfg = TIERS[o.tier];
     const spy = !!o.spy && o.tier === "elite";
+    const style: BotStyle = { ...(cfg.light ? { light: true } : {}), ...(o.style ?? STYLE_BY_NPC[o.npcId] ?? {}) };
     let search: SearchAccess | undefined;
     if (cfg.search && o.link) {
       search = {
         link: o.link,
-        makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, { npcId: own ? o.npcId : undefined, spy, peek, rules }),
+        // the NPC's own seat plays on as the NPC would (its strength and style); the other seat at full strength
+        makePolicy: (seat, own, peek) => new HeuristicBot(seat, o.cards, own
+          ? { npcId: o.npcId, spy, peek, rules, strength: cfg.strength, style }
+          : { spy, peek, rules }),
         budgetMs: cfg.budgetMs,
         maxCandidates: cfg.maxCandidates,
         spy,
       };
     }
-    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules });
+    this.bot = new HeuristicBot(o.seat, o.cards, { npcId: o.npcId, seed: o.seed, spy, peek: spy ? o.peek : undefined, search, blunder: cfg.blunder, rules, strength: cfg.strength, style });
   }
 
   observe(ev: Json): void {

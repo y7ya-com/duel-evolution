@@ -15,13 +15,18 @@
 //
 import { TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EQUIP, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask, type Card } from "../brain/cards.ts";
 import { HELPERS } from "./ruleExpr.ts";
+import type { RuleCtxExt } from "./ruleCtxExt.ts";
 
 // Rules read a RuleCtx (the board the player already computes) and cover the decision points where blind play hurts
 // most: activating a card in the main phase (idleActivate / idlePriority), a battle-phase effect (battleActivate),
 // springing a set card on the opponent's turn (chainReact) and summon ranking (summonScore). Names are cards.cdb's
 // English names, lowercase.
 
-export interface RuleMon { atk: number; def: number; faceDown: boolean; attackPos: boolean }
+export interface RuleMon { atk: number; def: number; faceDown: boolean; attackPos: boolean;
+  /** Its Level (0 unknown), a Fusion Monster, a pending opponent chain link targets it, and (an opponent's monster)
+   *  removing it alone makes my attacks this turn lethal. */
+  level?: number; fusion?: boolean; chainHit?: boolean; blocksLethal?: boolean }
+
 
 export interface RuleCtx {
   myLp: number;
@@ -57,6 +62,8 @@ export interface RuleCtx {
   attackOnDefense: boolean;
   /** The chain's last link is the opponent's (something to negate or answer). */
   oppChained: boolean;
+  /** More board facts (EXT_NUM / EXT_BOOL). */
+  ext?: RuleCtxExt;
 }
 
 export interface CardRule {
@@ -81,6 +88,9 @@ export interface CardRule {
   doomed?: (ctx: RuleCtx) => boolean;
   /** Its own option prompt: the option's index. No rule = the first. */
   option?: (ctx: RuleCtx) => number;
+  /** Among several cards that could answer the same chain window: higher goes first (default: a negation of the
+   *  opponent's link 50, else 0). */
+  chainPriority?: number;
   /** Its own number to declare (a cost to pay, say): the index among the values offered. No rule = the first. */
   number?: (ctx: RuleCtx, values: number[]) => number;
 }
