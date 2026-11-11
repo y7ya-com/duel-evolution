@@ -189,7 +189,8 @@ describe.skipIf(!enabled)('Options: language, display, persistence and accessibi
       await until(page,`document.querySelector('.de-client').dataset.scene==='title'`,30000);
       await reenterWorld(page,`Set ${RUN}`);
       // DUEL OPTIONS (a modal over the lobby) closes with Escape
-      await duelOptions(page); await press(page,byKey('opt-lang'));
+      // (its language name is a label, not a key: the window is up when it is)
+      await duelOptions(page); await until(page,byKey('opt-lang'),10000);
       await key(page,'Escape','Escape',27);
       await until(page,`!${byKey('opt-lang')}&&${lobbyShown}`,30000);
       // Escape closes the player's own profile card.
