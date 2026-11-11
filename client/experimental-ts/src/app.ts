@@ -10,6 +10,8 @@ import { encodeDuelResponse } from './duel/responses';
 import { GameApi, GameplayService, DeckEditor, toShopView, toSocialView, expandStarterDeck } from './services';
 import { AssetManager } from './assets';
 import { loadPackCatalog, packImagePath } from './shop/packs';
+import type { Preloader } from './features/preload';
+import type { SceneLoadEvents } from './ui/htmlui/scene-loading';
 import { readableError } from './shop/errors';
 import type { PackInfo } from './shop/packs';
 import type { ShopCatalog } from './services/api';
@@ -61,6 +63,10 @@ import { createNpcResultContext, npcResultLine, reduceNpcResultContext } from '.
 
 export interface AppOptions {
   gatewayUrl: string;
+  /** Idle prefetch of the next likely scenes and a starting duel's art (features/preload.ts). */
+  preloader?: Preloader;
+  /** Scene loads (the overlay and the dev timing log). */
+  sceneLoads?: SceneLoadEvents;
   portOffset?: number;
   freeMode?: boolean;
   api?: GameApi;
@@ -179,7 +185,7 @@ export class ClientApp implements ClientController {
     if (options.cardTexts) this.catalog.installOriginalTexts(options.cardTexts);
     if (options.assets) {
       this.scenes = new SceneLoader({assets:options.assets}); this.avatars = new AvatarLoader(options.assets);
-      this.loadWorldScene = (mapId,signal)=>this.scenes!.load(mapId,signal);
+      this.loadWorldScene = (mapId,signal)=>{const work=this.scenes!.load(mapId,signal),end=options.sceneLoads?.begin(`map:${mapId}`);if(end)void work.then(end,end);return work;};
       this.loadAvatar = (parts,options)=>this.avatars!.load(parts,options);
     }
     this.resetWorldRuntime();
@@ -279,7 +285,7 @@ export class ClientApp implements ClientController {
     if (this.disposed) return () => {};
     this.listeners.add(listener); return () => this.listeners.delete(listener);
   }
-  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
+  private emit(): void { if (!this.disposed) { this.view = { ...this.view, capture: this.capture.status, ...this.place() }; this.syncAudioScene(); this.options.preloader?.observe(this.view.scene, this.game?.state.area ?? null, this.game?.state.phase ?? null); for (const listener of this.listeners) listener(this.view);this.scheduleNpcEligibility(); } }
   private scheduleNpcEligibility():void {
     const game=this.game,state=this.npc?.state;
     if(!this.eligibilityDue || this.eligibilityQueued || this.view.busy || this.freeMode || !game || game.state.phase!=='lobby' || !game.state.pbin || !game.state.npcbin || !state ||
@@ -336,6 +342,7 @@ export class ClientApp implements ClientController {
       const imagePath = packImagePath(pack.image);
       return { ...item, name: (this.localized && pack.name) || product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
     });
+    this.options.preloader?.warmPaths(view.items.flatMap(item => item.imagePath ? [item.imagePath] : []));
     return view;
   }
   /** Original artwork by archive path, limited to the pack, duel and card-back folders the UI draws from.
@@ -540,7 +547,7 @@ export class ClientApp implements ClientController {
   }
   private loadWorldRuntime(map:WorldMap,position:WorldPosition): void {
     const runtime=this.worldRuntime;if(!runtime)return;const epoch=this.epoch;
-    this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;
+    this.runtimeMap=map.id;const load=runtime.load(map,position,this.connectionScope.signal);this.runtimeLoad=load;const ended=this.options.sceneLoads?.begin(`world:${map.id}`);if(ended)void load.then(ended,ended);
     void load.catch(error=>{if(this.worldRuntime===runtime && epoch===this.epoch)this.failure(error);}).finally(()=>{if(this.runtimeLoad===load)this.runtimeLoad=null;});
   }
   private async enterWorldExit(exit:ExitTrigger): Promise<void> {
