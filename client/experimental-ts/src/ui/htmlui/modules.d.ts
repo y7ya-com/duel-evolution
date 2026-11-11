@@ -59,3 +59,18 @@ declare module '@htmlui/shop/index.js' {
   export function mountCardShop(host: HTMLElement, opts?: { onBack?: () => void; fetch?: typeof fetch; now?: () => number }):
     { el: HTMLElement; show(on: boolean): void; refresh(): void; destroy(): void; state: unknown };
 }
+declare module '@htmlui/cosmetics/wardrobe-launcher.js' {
+  /** bridge.js, every frame: the Wardrobe's button on the overworld's menu bar (the slot after the game's buttons). */
+  export function wardrobeLauncherFrame(snap: unknown, wait?: boolean): void;
+  export function _resetLauncher(): void;
+}
+declare module '@htmlui/rewards/launcher.js' {
+  /** bridge.js, every frame: the Missions button after the Wardrobe's, while rewards are on (/api/de/rewards). */
+  export function missionsLauncherFrame(snap: unknown, wait?: boolean): void;
+  export function _resetMissionsLauncher(): void;
+}
+declare module '@htmlui/cosmetics/trade-cosmetics.js' {
+  /** bridge.js, every frame: the trade's Cosmetics panel over Card Swap's trade window (scene 0x26, CWindowModelTrade). */
+  export function tradeOverlayFrame(snap: unknown, wait?: boolean, opts?: unknown): void;
+  export const CARD_SWAP: number;
+}
