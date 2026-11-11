@@ -6,6 +6,7 @@ import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import { WorldRenderer } from './world';
+import { avatarDepth } from '../world/depth';
 import { AvatarView } from './avatar';
 import { renderNpcFeature } from './npc';
 import { giftItemName } from '../npcs/gift-names';
@@ -573,7 +574,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const lpNodes: Partial<Record<0 | 1, HTMLElement>> = {}, lpBars: Partial<Record<0 | 1, HTMLElement>> = {}, lpPlates: Partial<Record<0 | 1, LpPlate>> = {};
   const positionAvatars = (lobby: NonNullable<ClientView['lobby']>) => {
     for (const avatar of lobby.avatars) { const node = avatarNodes.get(avatar.id); if (!node) continue;
-      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; }
+      if (worldRenderer && lobby.mapId !== undefined) { const point = worldRenderer.worldToScreen(avatar); node.style.left = `${point.x / 1024 * 100}%`; node.style.top = `${point.y / 768 * 100}%`; node.style.zIndex = String(avatarDepth(avatar.y)); }
       else { node.style.left = `${avatar.x / (lobby.width ?? 1024) * 100}%`; node.style.top = `${avatar.y / (lobby.height ?? 768) * 100}%`; }
     }
   };
