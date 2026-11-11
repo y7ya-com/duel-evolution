@@ -17,7 +17,7 @@ async function find(page:Page,name:string) {
     await type(page,input,name);
     await until(page,`${input}?.value===${JSON.stringify(name)}`,5000);
     await press(page,`document.querySelector('[data-key="find-search"]')`);
-    try { await until(page,`document.querySelector('[data-cls="CWindowModelFriendEnum"], .yo2-win')?.closest('body')?.textContent.includes(${JSON.stringify(name)})`,8000); return; } catch { await sleep(500); }
+    try { await until(page,`document.querySelector('.win[data-window-class="CWindowModelFriendEnum"]')?.innerText.includes(${JSON.stringify(`${name} (ID `)})`,8000); return; } catch { await sleep(500); }
   }
   throw new Error(`Could not find ${name}`);
 }
