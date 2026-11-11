@@ -118,7 +118,12 @@ export class WorldNavigator {
     }
     if (!this.moving) this.cancel();
   }
-  /** 0x009d9f70: a path step under 20 px away is passed (momentum kept); the clicked point itself is walked to exactly. */
+  /** 0x009d9f70: a path step under 20 px away is passed (momentum kept); the clicked point itself is walked to exactly.
+   * The exe has this follower for NPCs only: the A* (0x00a04a30, thunk 0x401a78) is called from 0x009d8a20 and
+   * 0x009d9f70 (CNpcChibiAvatar's vtable slot 0x40c87e -> 0x009d9ce0 -> 0x009d9dc0) and from a debug dump of the grid
+   * (0x0063c390); CPlChibiAvatar's vtable has no such slot. The player steers straight at the cursor held down: each
+   * frame FUN_009cd5c0 runs the radial wall solver, caps the step at 3 px (6.0f * 0.5f) and drops one under 1.2 px
+   * (6.0f * 0.2f); FUN_009cd4e0 snaps a target under 6 px away. The rewrite's click walk borrows the NPC's 20 px reach. */
   private passWaypoint(p: Point): boolean {
     while (this.routeIndex < this.route.length - 1) {
       const w = this.route[this.routeIndex];
