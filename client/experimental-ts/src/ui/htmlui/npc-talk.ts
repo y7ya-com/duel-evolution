@@ -99,7 +99,7 @@ const CSS = `.npc-balloon { position: absolute; left: 0; top: 0; width: 446px; h
 .npc-info .name { top: 4px; height: 34px; background: rgba(150,150,150,.35); color: #ec1c1c; text-align: center; line-height: 22px; }
 .npc-info .band { top: 38px; height: 32px; background: rgba(140,140,140,.45); }
 .npc-info .white { top: 70px; height: 32px; background: rgba(255,255,255,.75); }
-.npc-info .bio { top: 104px; bottom: 4px; white-space: pre-wrap; word-break: break-all; line-height: 16px; overflow: hidden; }
+.npc-info .bio { top: 104px; bottom: 4px; white-space: pre-wrap; word-break: break-all; line-height: 15.6px; letter-spacing: .75px; overflow: hidden; }
 .npc-info .l { line-height: 16px; } .npc-info .v { text-align: right; line-height: 16px; }`;
 const css = () => { if (!document.getElementById('npc-talk-css')) { const st = document.createElement('style'); st.id = 'npc-talk-css'; st.textContent = CSS; document.head.append(st); } };
 type BalloonWin = { name?: string; text?: string; next?: number; label?: string; blocked?: boolean };

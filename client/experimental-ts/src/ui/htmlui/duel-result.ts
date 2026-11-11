@@ -93,7 +93,7 @@ export function duelResultWindows(ctx: DuelResultContext): WindowSpec[] {
     const text = (name: string, t: string, ty: number, px = 16, color = WHITE, tx = 16, tw = w - 32, align = 0) =>
       b.add('CWindowTaskShadowText', name, { x: tx, y: ty, w: tw, h: px + 4 }, { text: t, align, fontSize: px, color });
     const result = outcome(duel.ended, side);
-    if (result) titles.push({ key: `title:${side}`, source: { archive: `data/y/result/result_${TITLE_ART[result]}_01_?.png` }, x: x + 15, y: y + 11, w: 214, h: 56, z: side, shown: true, label: result === 'WIN' ? 'WINNER' : result === 'LOSE' ? 'LOSER' : 'DRAW' });
+    if (result) titles.push({ key: `title:${side}`, source: { archive: `data/result/result_${TITLE_ART[result]}_01_?.png` }, x: x + 15, y: y + 11, w: 214, h: 56, z: side, shown: true, label: result === 'WIN' ? 'WINNER' : result === 'LOSE' ? 'LOSER' : 'DRAW' });
     else text('title', duel.ended || '', 30, 24, GOLD, 16, w - 32, 1);
     text('name', npcRecord && side === 1 ? npcRecord.name : p.name, 100, 16, WHITE, 16, w - 32, 0);
     const nums: { id: number; shown: boolean; text: string; wy: number }[] = [];
