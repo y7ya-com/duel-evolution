@@ -49,6 +49,8 @@ export interface BuildContext {
   cardActions?: CardActions; openPlayer?: (pid: number) => void;
   /** The profile's buttons the rewrite adds (one's own: comment, title, appearance). */
   profileActions?: { label: string; key: string; run(): void; disabled?: boolean }[];
+  /** The deck editor's windows (deck-scene.ts), under the menu bar. */
+  deckWindows?: () => WindowSpec[];
 }
 
 const byY = (cs: HtmlControl[], name: string) => cs.filter(c => c.name === name).sort((a, b) => a.y - b.y);
@@ -475,6 +477,7 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient
   const lists = ctx.social ? listWindow(ctx, ctx.social) : null; if (lists) out.push(lists); else if (!ctx.social) ui.lists = null;
+  if (ctx.deckWindows) out.push(...ctx.deckWindows());
   const menu = ctx.menu;
   if (menu) { out.push(menuBar(ctx, menu)); if (ui.menu && menu.keys) out.push(mainMenu(ctx, menu)); else ui.menu = false; }
   const d = ui.dialog;

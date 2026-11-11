@@ -213,7 +213,9 @@ export type ClientCommand =
   | { type: 'replaceDeck'; deck: DeckView; source: 'import' | 'recipe' | 'clear' }
   | { type: 'importLegacyDeck'; bytes: Uint8Array; name: string }
   | { type: 'exportDeck'; format: 'ydc' | 'ydk' | 'json' }
-  | { type: 'saveDeck' }
+  /** as: 'copy' saves under the draft's new name and keeps the deck it came from (Save New); 'overwrite' replaces
+   * another saved deck of that name, keeping the one it came from too. */
+  | { type: 'saveDeck'; as?: 'copy' | 'overwrite' }
   | { type: 'deleteDeck'; name: string }
   | { type: 'buy'; itemId: number; count: number }
   | { type: 'refresh'; scene: Scene }

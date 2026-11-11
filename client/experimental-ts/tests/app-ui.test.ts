@@ -66,11 +66,12 @@ describe('actual ClientApp mounted through semantic UI', () => {
   });
   it('edits Fusion Deck through UI and persists the exact server deck payload', async () => {
     const f = harness(); await f.enter(); f.mounted.htmlUi.press('main-menu'); expect(f.mounted.htmlUi.press('menu:deck')).toBe(true); await flush();
-    const destination = f.root.querySelectorAll('select').find(n => n.dataset.key === 'deck-destination')!;
-    destination.value = 'extra'; destination.onchange?.({});
-    const card = f.root.querySelectorAll('button').find(n => n.dataset.key === 'collection-card:2')!;
-    (card as unknown as { ondblclick(event: unknown): void }).ondblclick({}); await flush();
-    findButton(f.root, 'Save').onclick?.({}); await flush();
+    // main's deck screen (htmlui/deck-scene.ts): the Fusion Card's trunk row (the second) dragged onto the Main grid
+    // goes to the Fusion Deck; then Save (the side menu's second button) and the list's OK over the deck being edited
+    const g = f.mounted.htmlUi.game!;
+    g('down', 800, 88 + 56 + 20); g('move', 600, 300); g('move', 400, 300); g('up', 400, 300); await flush();
+    g('down', 50, 77); g('up', 50, 77); await flush();
+    expect(f.mounted.htmlUi.press('deck-files-ok')).toBe(true); await flush();
     expect(f.api.saveDeck).toHaveBeenCalledWith({ name: 'Starter', main: [1], side: [], extra: [2] }, 'world', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(f.app.getState().deckEditor?.dirty).toBe(false); f.dispose();
   });
