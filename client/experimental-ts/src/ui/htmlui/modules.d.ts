@@ -74,3 +74,7 @@ declare module '@htmlui/cosmetics/trade-cosmetics.js' {
   export function tradeOverlayFrame(snap: unknown, wait?: boolean, opts?: unknown): void;
   export const CARD_SWAP: number;
 }
+
+declare module '@htmlui/chat-bubbles.js' {
+  export function chatBubblesFrame(snap: unknown, wait?: boolean): void;
+}
