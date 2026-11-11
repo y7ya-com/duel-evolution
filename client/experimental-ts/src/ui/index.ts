@@ -29,6 +29,7 @@ import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
 import { duellogUi, duellogWindow, fetchDuellog, type DuellogUi } from './htmlui/duellog';
 import type { TitleConfigUi } from './htmlui/title-config';
+import { bracketWindow, duelHelpStrip, eventKey, informationWindow, joinGunslingWindow, resultWindow, tournamentUi } from './htmlui/tournament';
 import { discordWire } from './htmlui/discord-wire';
 import { lobbyLocal, lobbyList, lobbyWindows, duelKey, moveKey, waitingMessage, LOBBY_TEXT, AREA_TEXT } from './htmlui/lobby';
 import type { CardActions, MailBox, MenuEntry, MenuView, SocialLists } from './htmlui/windows';
@@ -274,6 +275,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const spec = npcPackSelect(state.npc, { ids: htmlIds, ui: npcPack, packName: id => state.packNames?.[id], completion: packCompletion, busy: !!state.busy, rerender: () => showHtml(),
       send: command => { if (npcPackOpen(controller.getState().npc)) send(command); } });
     return spec ? [spec] : []; };
+  // Tournaments (htmlui/tournament.ts): JoinGunsling from the Main Menu, the bracket while joined, the end result once;
+  // the server's event state (EVENTINFO) in the Information window until closed. Over the lobby only (a pairing is a duel).
+  const tourUi = tournamentUi();
+  const tournamentSpecs = (): WindowSpec[] => {
+    if (!state.player || state.scene !== 'lobby' || state.mode === 'free') return [];
+    const t = state.tournament ?? null, out: WindowSpec[] = [], refresh = () => send({ type: 'tournamentRefresh' });
+    const e = state.eventInfo; if (e && tourUi.eventSeen !== eventKey(e)) out.push(informationWindow(htmlIds, e, t, () => { tourUi.eventSeen = eventKey(e); showHtml(); }));
+    if (tourUi.join) out.push(joinGunslingWindow(htmlIds, t, { join: () => { tourUi.join = false; tourUi.joined = tourUi.bracket = true; refresh(); showHtml(); }, cancel: () => { tourUi.join = false; showHtml(); } }));
+    else if (tourUi.bracket && t) out.push(bracketWindow(htmlIds, tourUi, t, { selfPid: state.player.id, refresh, close: () => { tourUi.bracket = false; showHtml(); }, rerender: showHtml }));
+    if (t?.result && tourUi.joined && tourUi.resultSeen !== t.result) { const r = t.result; const spec = resultWindow(htmlIds, t, () => { tourUi.resultSeen = r; showHtml(); }); if (spec) out.push(spec); }
+    return out;
+  };
   // DUEL OPTIONS / Audio (htmlui/options.ts, the original's COptionDlg) over the scene, opened from the Main Menu
   let optionsUi: OptionsUi | null = null;
   const optionsSpecs = (): WindowSpec[] => {
@@ -285,7 +298,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       set: settings => send({ type: 'settings', settings }), more: () => { optionsUi = null; open('settings'); }, close: () => { optionsUi = null; showHtml(); } };
     return [optionsUi.kind === 'audio' ? audioWindow(htmlIds, deps) : optionsWindow(htmlIds, deps)];
   };
-  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...duelSpecs(), ...prepSpecs()];
+  const sceneWindows = (): WindowSpec[] => [...shopSpecs(), ...tradeSpecs(), ...npcPackSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()];
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   let duelSpeed = loadDuelSpeed(), duelHover: { selected: Set<string>; hover?: string | null } = { selected: new Set(), hover: null };
@@ -313,6 +326,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       duelHover.selected = local.selected;
       const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml }, prompt);
       if (spec) out.push(spec);
+    } else if (prompt && htmlUi && !state.preparation) {
+      // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
+      const help = duelHelpStrip(htmlIds, prompt.text); if (help) out.push(help);
     }
     return out;
   };
@@ -1042,6 +1058,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
           // Change Title (CWindowModelTitleConfig): the earned titles, one worn
           ...(state.titles ? [{ label: 'Change Title', key: 'change-title', disabled: blocked || sideboard, run: () => { titleUi = { selected: -1, top: 0 }; showHtml(); } }] : []),
         ] : []),
+        // Tournament (SCENE_TOURNAMENT): JoinGunsling, then the bracket once joined (the server enters on its first request)
+        ...(state.mode !== 'free' && state.connection === 'online' ? [{ label: 'Tournament', key: 'tournament', disabled: blocked || sideboard, run: () => { if (state.scene !== 'lobby') open('lobby'); if (tourUi.joined) { tourUi.bracket = true; send({ type: 'tournamentRefresh' }); } else tourUi.join = true; showHtml(); } }] : []),
         ...(state.mode !== 'free' && state.location ? [
           // Return to your Room (the private My Room lobby) and, inside it, the door back to the world
           state.location === 'my-room'

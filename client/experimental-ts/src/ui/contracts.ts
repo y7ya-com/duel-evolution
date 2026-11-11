@@ -132,6 +132,9 @@ export interface ClientView {
   profileDetail?: ProfileState;
   /** The titles the character has earned (the PBIN snapshot, features/titles.ts): Change Title's list. */
   titles?: import('../features/titles').OwnedTitle[];
+  /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
+  tournament?: import('../network/tournament').TournamentState | null;
+  eventInfo?: import('../network/tournament').EventInfo | null;
   /** Where the character stands: the world's lobbies or their own My Room (the private lobby port). */
   location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };
@@ -186,6 +189,8 @@ export type ClientCommand =
   | { type: 'onlineAction'; action: OnlineAction }
   | { type: 'tagAction'; action: TagLobbyAction }
   | { type: 'disconnect' }
+  /** Tournaments: ask the server for the state, entries and bracket (entering it while its entry is open). */
+  | { type: 'tournamentRefresh' }
   | { type: 'signIn'; username: string; password: string }
   | { type: 'signOut' }
   | { type: 'createCharacter'; slot: number; name: string; /** the first dressing's look (Change Avatar), worn on entering */ appearance?: number[] }

@@ -371,9 +371,10 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined };
-    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world' };
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null };
+    return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
+      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);
@@ -759,8 +760,8 @@ export class ClientApp implements ClientController {
     if (this.disposed) throw new Error('Client is disposed.');
     // Reject rather than queue stale prompt actions behind an unrelated request.
     // The Tag Duel window serializes its own requests (TagLobbyController.busy); picking seats never waits on the lobby.
-    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction'].includes(command.type)) throw new Error('Wait for the current action to finish.');
-    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction'].includes(command.type);
+    if (this.lockToken && !['disconnect', 'move', 'settings', 'inspectCard', 'tagAction', 'tournamentRefresh'].includes(command.type)) throw new Error('Wait for the current action to finish.');
+    const locking = !['move', 'settings', 'inspectCard', 'disconnect', 'tagAction', 'tournamentRefresh'].includes(command.type);
     const token = {};
     if (locking) { this.lockToken = token; this.patch({ busy: true, error: undefined }); }
     const epoch = this.epoch;
@@ -768,6 +769,7 @@ export class ClientApp implements ClientController {
       switch (command.type) {
         case 'connect': await this.connectAfterLoss(command.freeMode); break;
         case 'disconnect': this.disconnect(); break;
+        case 'tournamentRefresh': this.requireGame().requestTournament(); break;
         case 'signIn': {
           // A refused sign-in is a 401 too, but it is a wrong User ID or Password, not an ended session (failure()).
           const auth = await this.services.signIn(command.username, command.password, { signal: this.connectionScope.signal })
