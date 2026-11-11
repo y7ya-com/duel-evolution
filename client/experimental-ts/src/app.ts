@@ -165,6 +165,7 @@ export class ClientApp implements ClientController {
   /** The last board action sent, so a Tribute choice after a summon reads as one (presentation.ts boardInstruction). */
   private lastDuelAction: import('./duel/types').DuelResponse | null = null;
   private collectionRef: ReadonlyMap<number, number> | null = null;
+  private limitsRef: ReadonlyMap<number, number> | null = null;
   private collection: CardView[] = [];
   private catalogCards: CardView[] | null = null;
   private projections = new Map<string, { source: unknown; result: unknown }>();
@@ -338,6 +339,7 @@ export class ClientApp implements ClientController {
       const product = shop.items[i]!;
       if (product.kind === 0 && product.param > 0) { const card = this.catalog.card(product.param), known = card.name !== `Card ${product.param}`; return { ...item, name: (this.localized && card.name) || (known ? card.name : product.name || card.name), card, ...(card.description ? { description: card.description } : {}) }; }
       const pack = product.kind === 1 ? packs?.get(product.param) : undefined;
+      if (product.kind === 1) item = { ...item, packId: product.param };
       if (!pack) return item;
       const imagePath = packImagePath(pack.image);
       return { ...item, name: (this.localized && pack.name) || product.name || pack.name || item.name, ...(pack.description ? { description: pack.description } : {}), ...(imagePath ? { imagePath } : {}) };
@@ -395,10 +397,10 @@ export class ClientApp implements ClientController {
   private assertEpoch(epoch: number): void { if (this.disposed || epoch !== this.epoch) throw new DOMException('Session changed', 'AbortError'); }
   private requireGame(): GameSession { if (!this.game) throw new Error('Go online first.'); return this.game; }
   /** The earned titles (Change Title) and whether the character is in their My Room, from the game session. */
-  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo'> {
-    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null };
+  private place(): Pick<ClientView, 'titles' | 'location' | 'tournament' | 'eventInfo' | 'sanctions'> {
+    const game = this.game?.state; if (!game) return { titles: undefined, location: undefined, tournament: null, eventInfo: null, sanctions: undefined };
     return { titles: this.project('titles', game.pbin, pbin => ownedTitles(pbin)), location: game.location === 'my-room' ? 'my-room' : 'world',
-      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null };
+      tournament: game.tournament ?? null, eventInfo: game.eventInfo ?? null, sanctions: game.sanctions };
   }
   private project<S, T>(key: string, source: S, convert: (source: S) => T): T {
     const cached = this.projections.get(key);
@@ -420,6 +422,11 @@ export class ClientApp implements ClientController {
       // Channel 9 is the server's duel text log (the duel screen keeps its own); 10 tag relay identities.
       const line = fresh.filter(m => m.pid === 0 && m.channel !== 9 && m.channel !== 10 && m.text.trim()).at(-1);
       if (line && this.duelState.status === 'playing' && ['duel', 'sideboarding'].includes(state.phase)) { this.duelNotice = { id: ++this.noticeIds, text: line.text.trim() }; this.duelLog = [...this.duelLog, line.text.trim()].slice(-100); this.syncDuel(); }
+    }
+    if ((state.limits ?? null) !== this.limitsRef) {
+      // the server's forbidden/limited list: the deck's marks, limits and checks follow it (CLimitationList)
+      this.limitsRef = state.limits ?? null; this.catalog.installLimits(this.limitsRef);
+      this.catalogCards = null; this.collectionRef = null; this.projections.clear();
     }
     if (state.collection !== this.collectionRef) {
       this.collectionRef = state.collection;
@@ -850,6 +857,7 @@ export class ClientApp implements ClientController {
             this.stopWorld();
             const state=this.requireGame().state, special=npcOpeningPresent(npc.id);
             this.npc.open({id:npc.id,name:npc.name},0,state.npcbin ? {npcRank:state.npcbin[npc.id*4+3],
+              ...(npc.id*4+2 < state.npcbin.length ? {record:[state.npcbin[npc.id*4]!,state.npcbin[npc.id*4+1]!,state.npcbin[npc.id*4+2]!] as const} : {}),
               ...(special && state.pbin ? {specialPresentDone:!!(state.pbin[special.completionBit>>3] & 1 << (special.completionBit&7))} : {})} : undefined);
           } else this.profile.dispatch({type:'open',pid:command.playerId});
           break;

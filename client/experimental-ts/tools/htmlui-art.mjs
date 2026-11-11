@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 // server forwards GET /ui/<name> to <host>/ui/<name>. No persistence, no query strings, plain file names only.
 const PREFIX = '/ui/';
 // the atlases, glyph metrics and clamp copies; the deck editor's titles' font (fonts/Audiowide-Regular.woff2, SIL OFL)
-const NAME = /^((clamp\/)?[a-z0-9_-]+(\.rgb)?\.(png|json)|fonts\/[A-Za-z0-9_-]+\.woff2)$/;
+const NAME = /^((clamp\/|hd\/)?[a-z0-9_-]+(\.rgb)?\.(png|json)|fonts\/[A-Za-z0-9_-]+\.woff2)$/;
 const TYPES = { png:'image/png', json:'application/json', woff2:'font/woff2' };
 
 /** The ui/ folder beside the game/ folder the remote assets come from (https://host/game/ -> https://host/ui/). */

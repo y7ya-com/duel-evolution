@@ -40,7 +40,7 @@ export interface DeckEditorView { allCards?: CardView[]; recipes?: (DeckView & {
 export interface LobbyAvatar { id: number; name: string; x: number; y: number; self?: boolean; npc?: boolean; image?: string; parts?: Uint8Array; direction?: number; motion?: 'stand' | 'walk'; world?: 0 | 1; /** In a duel others may watch (the server's duelling states). */ duelling?: boolean; }
 export interface ChatLine { id: string; sender: string; text: string; channel: string; }
 export interface LobbyView { mapId?: number; rooms?: { id: number; owner: number; name: string; state: number; password?: boolean; /** 3 single, 4 match. */ style?: number; /** Watch On, and who the owner duels (0: waiting). */ watch?: boolean; opponent?: number }[]; invitation?: { name: string; pid: number }; /** The challenge this player sent and is waiting on. */ outgoing?: { name: string }; areas?: { area: number; block: number; name: string; population?: number; /** The area's room kind (13 Domino City, 14 Duel Academy). */ kind?: number }[]; npcs?: { id: number; name: string }[]; name: string; mapImage?: string; width?: number; height?: number; avatars: LobbyAvatar[]; chat: ChatLine[]; channels: string[]; connected: boolean; }
-export interface ShopItem { id: number; name: string; price: number; category?: string; /** Accessories: the avatar part's ownership bit. */ avatarBit?: number; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
+export interface ShopItem { id: number; name: string; price: number; category?: string; /** Packs and decks: the pack id (the catalogue row's param: what GET /api/de/shop/pack names). */ packId?: number; /** Accessories: the avatar part's ownership bit. */ avatarBit?: number; image?: string; imagePath?: string; description?: string; card?: CardView; owned?: boolean; }
 /** One purchase's opened cards, for the card-get presentation: whether each was new to the collection, its rarity. */
 export interface CardGetView { cards: CardView[]; fresh: boolean[]; rarities: (string | null)[]; }
 export interface ShopView { purchased?: CardView[]; opening?: CardGetView; replayed?: boolean; items: ShopItem[]; mp: number; earnedMp?: number; loading?: boolean; available?: boolean; error?: string; }
@@ -135,6 +135,8 @@ export interface ClientView {
   /** The admin's tournament (network/tournament.ts) and the server's event state (EVENTINFO), online. */
   tournament?: import('../network/tournament').TournamentState | null;
   eventInfo?: import('../network/tournament').EventInfo | null;
+  /** The account's admin sanctions from the login result (0x3004): chat input and trade entry points are greyed out. */
+  sanctions?: { chat: boolean; trade: boolean };
   /** Where the character stands: the world's lobbies or their own My Room (the private lobby port). */
   location?: 'world' | 'my-room';
   matchmaking?: { status: 'idle' | 'searching' | 'matched'; style: 3 | 6; similarLevel: boolean; opponent: { pid: number; name: string } | null; counts: { single: number; match: number; either: number }; matchSupported: false };

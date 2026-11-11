@@ -27,8 +27,15 @@ export class CardCatalog {
   }
   card(passcode: number, owned?: number): CardView {
     const c = this.cards.get(passcode);
-    return { id: String(passcode), passcode, name: c?.name ?? `Card ${passcode}`, ...(c ?? {}), ...(owned === undefined ? {} : { owned }) };
+    const view: CardView = { id: String(passcode), passcode, name: c?.name ?? `Card ${passcode}`, ...(c ?? {}), ...(owned === undefined ? {} : { owned }) };
+    if (this.limits) { const n = this.limits.get(passcode); if (n === undefined) delete (view as { limit?: number }).limit; else (view as { limit?: number }).limit = n; }
+    return view;
   }
+  private limits: ReadonlyMap<number, number> | null = null;
+  /** The server's forbidden/limited list (LIMIT_LIST 0x5600): once sent, it replaces the catalogue's static limits
+   * (a card it does not name is unlimited); null goes back to the catalogue's. */
+  installLimits(limits: ReadonlyMap<number, number> | null): void { this.limits = limits; }
+  limitOf(passcode: number): number | undefined { return this.card(passcode).limit; }
   installDetails(details: CardDetailsCatalog): void {
     const next = new Map(this.cards);
     for (const c of details.entries) {
