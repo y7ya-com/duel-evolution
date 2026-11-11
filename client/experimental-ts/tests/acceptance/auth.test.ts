@@ -37,7 +37,8 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       // auth.session: reload restores the session; Sign Out clears identity and access
       await page.go(page === page ? `${(await page.ev('location.href'))}` : '',`document.body.innerText.includes('Signed in as ${user}')`);
       await click(page,'Sign Out');
-      await until(page,titleSignedOut,30000);
+      // the page drops the identity at once and stays busy until the server's sign-out answers ('Signed out.')
+      await until(page,`${titleSignedOut}&&!window.__deApp?.getState().busy`,30000);
       expect((await page.ev(`fetch('/api/de/session').then(r=>r.json())`) as { signedIn:boolean }).signedIn).toBe(false);
       expect(await page.ev(`fetch('/api/de/decks').then(r=>r.status)`)).toBe(401);
       await page.go(await page.ev('location.href') as string,`document.querySelector('.de-client')`);
