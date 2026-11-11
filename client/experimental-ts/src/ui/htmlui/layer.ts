@@ -26,6 +26,7 @@ import { pictures, balloon } from './pictures';
 import { syncWindow, covers } from '@htmlui/controls/basic.js';
 import { duelWindow } from '@htmlui/controls/skin.js';
 import { applyPointer } from './snapshot';
+import { TouchTaps } from './touch-tap';
 import type { ControlHandlers, HtmlSnapshot, HtmlWindow, WindowSpec } from './snapshot';
 
 /** main's modules by class (bridge.js loadScreens' order: a later group's class wins), plus the windows the engine
@@ -100,6 +101,17 @@ export class HtmlUiLayer {
   private wantBackdrop = false; private scene = 0; private last: HtmlSnapshot | null = null; private tick: ReturnType<typeof setInterval> | null = null;
   private observer: ResizeObserver | null = null;
   private readonly api: HtmlUiApi;
+  // a touch tap clicks the control under the finger once (touch-tap.ts): main's pass screens replace the element on
+  // the hover and the pressed looks a tap gives, so the browser's own release and click can be lost
+  private readonly taps = new TouchTaps({
+    at: (x, y) => typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : null,
+    inside: el => this.host.contains(el),
+    click: (el, x, y) => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, detail: 1, view: window })); },
+    now: () => performance.now(),
+  });
+  private onTapMove = (e: PointerEvent): void => this.taps.pointerMove(e);
+  private onTapCancel = (e: PointerEvent): void => this.taps.pointerCancel(e);
+  private onTapClick = (e: MouseEvent): void => { if (!this.taps.pass(e)) { e.stopImmediatePropagation(); e.preventDefault(); } };
 
   constructor(private options: HtmlUiLayerOptions) {
     this.box = document.createElement('div');
@@ -155,7 +167,11 @@ export class HtmlUiLayer {
     this.host.addEventListener('pointerover', this.onOver, true);
     this.host.addEventListener('pointerout', this.onOut, true);
     this.host.addEventListener('pointerdown', this.onDown, true);
-    this.host.addEventListener('pointerup', this.onUp, true);
+    // the release on the window: a touch pointer's release goes to the element it went down on, which a redraw may
+    // have taken out of the host
+    addEventListener('pointerup', this.onUp, true);
+    addEventListener('pointermove', this.onTapMove, true); addEventListener('pointercancel', this.onTapCancel, true);
+    addEventListener('click', this.onTapClick, true);
     this.host.addEventListener('keydown', this.onKey, true);
     this.host.addEventListener('keyup', this.onKey, true);
     this.host.addEventListener('focusout', this.onBlur, true);
@@ -263,6 +279,7 @@ export class HtmlUiLayer {
     else if (this.hover || this.pressed) { this.pressed = 0; this.setHover(0); this.draw(); }
   };
   private onDown = (e: PointerEvent): void => {
+    this.taps.pointerDown(e);
     if (e.button !== 0) return;
     const id = this.control(e.target); if (!id || !this.looks(id) || !this.handlers.get(id)?.hover) return;
     this.hover = this.pressed = id; this.draw();
@@ -270,6 +287,8 @@ export class HtmlUiLayer {
   // main's shop.js and trade.js rebuild their windows on every change (the pressed look too), so the browser's click
   // lands on no button (the pressed one was replaced): there a release on the element of the control pressed clicks it
   private onUp = (e: PointerEvent): void => {
+    // a touch tap: the layer clicked the control under the finger itself (one click; the browser's own is dropped)
+    if (this.taps.pointerUp(e)) { this.upPending = 0; if (this.pressed) { this.pressed = 0; this.draw(); } return; }
     const was = this.pressed; if (!was) return;
     this.pressed = 0;
     const win = this.specs.find(s => s.handlers.has(was))?.win;
@@ -419,6 +438,8 @@ export class HtmlUiLayer {
     this.observer?.disconnect();
     for (const o of this.watched.values()) o.disconnect(); this.watched.clear();
     removeEventListener('resize', this.place); removeEventListener('scroll', this.place, true);
+    removeEventListener('pointerup', this.onUp, true); removeEventListener('pointermove', this.onTapMove, true);
+    removeEventListener('pointercancel', this.onTapCancel, true); removeEventListener('click', this.onTapClick, true);
     if (this.tick) clearInterval(this.tick);
     this.host.remove(); this.box.remove(); document.getElementById('mu-titlebg')?.remove();
   }
