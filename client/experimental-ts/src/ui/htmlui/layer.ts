@@ -168,6 +168,9 @@ export class HtmlUiLayer {
     const snap: HtmlSnapshot = { v: 1, frame: ++this.frame, scene: this.scene, mouse: null, focus: this.focus, windows, tasks: [], cursor: null, chatAvatars: this.options.chatAvatars?.() ?? [] };
     this.last = snap;
     this.render(snap, new Set(windows.map(w => w.id)), this.api);
+    // a modal window (the deck screen's file lists and questions) stands at its depth over the deck's card layer
+    // (deck-dom.ts: each window's cards at that window's depth, beside main's layer), as the engine draws it over them
+    for (const w of windows) { const root = this.roots.get(w.id); if (root) { const z = w.modal && w.z ? String(w.z) : ''; if (root.style.zIndex !== z) root.style.zIndex = z; } }
     this.host.hidden = !windows.length;
     this.bubbles();
     this.pageModules();
