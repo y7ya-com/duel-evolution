@@ -2,8 +2,8 @@
 // - open duels: polled every 5 s while the chat's Duels tab is shown (or a ?duel= link waits), every 20 s otherwise;
 // - Discord duelists: on entering the world and every 30 s;
 // both only while the player is in the online world (a lobby shown, connected). Join: discord.ts joinDuel, then the
-// rewrite's duelChallenge to the creator; a Discord row: its name / LV / rank (the rewrite has no card for a
-// player who is not in the game).
+// rewrite's duelChallenge to the creator; a Discord row: live's Discord duelist card (windows.ts discordCard, the bust
+// under it: index.ts), one card at a time (another player's card open is closed first).
 import type { ClientCommand, ClientView } from '../contracts';
 import { CHAT_TABS, type HtmlUiLocal } from './windows';
 import { capturePending, deeplinkJoiner, fetchDiscordOnline, fetchDuels, joinDuel, readPending, type DiscordDuelist, type FetchLike } from './discord';
@@ -57,7 +57,11 @@ export function discordWire(deps: DiscordWireDeps) {
     if (joining) return; joining = true;
     void joinDuel(f, id, pidOf, challenge, base).then(r => { joining = false; if (!r.ok) say(r.message); });
   };
-  ui.onDiscordCard = p => say(discordCardText(p));
+  ui.onDiscordCard = p => {
+    const card = deps.state().profileDetail;
+    if (card && card.selectedPid !== null && card.selectedPid !== card.selfPid) deps.send({ type: 'profileAction', action: { type: 'close' } });
+    ui.discordCard = p; deps.rerender();
+  };
 
   return {
     /** each render: start the polls on entering the world, stop them on leaving; the ?duel= auto-join's step */

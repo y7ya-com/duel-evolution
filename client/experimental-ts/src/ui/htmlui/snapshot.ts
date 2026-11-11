@@ -39,7 +39,7 @@ export interface ControlHandlers {
   /** The pointer came over it (true) or left it (false): what the engine does on mouse-over (the shop's description). */
   pointer?(over: boolean): void;
 }
-export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers> }
+export interface WindowSpec { win: HtmlWindow; handlers: Map<number, ControlHandlers>; /** after each draw: what the rewrite adds in the window's own root */ after?: (root: HTMLElement) => void }
 
 /** Stable ids per key (a guest address in the game): the screens key their DOM by id, so a control keeps its element
  * (and an input its focus) from one snapshot to the next. Multiples of 8, as addresses are. */

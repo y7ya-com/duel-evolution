@@ -127,6 +127,8 @@ export interface StarterDeckChoice { id: number; name: string; blurb: string; co
 export interface ClientView {
   npc?: Readonly<NpcState>;
   npcCardViews?: Readonly<Record<number, CardView>>;
+  /** The deck recipes' names by their PBIN bit (deck-recipes.json recipeBit): a gifted recipe's name. */
+  npcGiftRecipes?: Readonly<Record<number, string>>;
   /** Original pack names by pack id, once the pack tables are read. */
   packNames?: Readonly<Record<number, string>>;
   dataStatus?: { loading: boolean; issues: string[] };
