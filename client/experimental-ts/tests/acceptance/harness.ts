@@ -201,7 +201,8 @@ export async function enterWorld(page:Page,name:string) {
 export async function reenterWorld(page:Page,name:string) {
   // after a reload the server may still hold the last session ('already logged in', main's error dialog): its OK
   // (Close), then Go Online again, as a player would
-  for (let attempt = 0; attempt < 8 && !(await page.ev(`Boolean(${characterSlot(name)})`)); attempt++) {
+  // (the server holds the old session up to its 45 s timeout plus a sweep: retry for two minutes)
+  for (const until_ = Date.now() + 120000; Date.now() < until_ && !(await page.ev(`Boolean(${characterSlot(name)})`));) {
     if (await page.ev(`Boolean(${byKey('error-ok')})`)) { await press(page,byKey('error-ok')); await sleep(5000); }
     await click(page,'Go Online',60000);
     await until(page,`${characterSlot(name)}||${byKey('error-ok')}`,60000);
@@ -294,12 +295,12 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     if(hp.length){
       const k=p=>hp.filter(b=>b.dataset.key.startsWith(p)),lab=b=>b.getAttribute('aria-label')??b.textContent??'';
       const no=k('prompt-option:').find(b=>b.textContent.trim()==='No');if(no)return {kind:'key',key:no.dataset.key};
-      const cands=k('prompt-candidate:'),picked=cands.filter(b=>/, picked \d/.test(lab(b)));
+      const cands=k('prompt-candidate:'),picked=cands.filter(b=>/, picked \\d/.test(lab(b)));
       const conf=k('prompt-confirm:')[0]??k('prompt-ok:')[0],cancel=k('prompt-cancel:')[0];
       if(cands.length&&!picked.length)return {kind:'key',key:cands[0].dataset.key};
       const num=document.querySelector('#htmlui-host input[data-key^="prompt-number:"]');
-      if(num&&!num.value){const lo=/\((\d+) to/.exec(num.getAttribute('aria-label')??'')?.[1]??'1';num.value=lo;num.dispatchEvent(new Event('input',{bubbles:true}));return {kind:'wait'};}
-      const opts=k('prompt-option:'),marked=opts.filter(b=>/\(marked\)$/.test(lab(b)));
+      if(num&&!num.value){const lo=/\\((\\d+) to/.exec(num.getAttribute('aria-label')??'')?.[1]??'1';num.value=lo;num.dispatchEvent(new Event('input',{bubbles:true}));return {kind:'wait'};}
+      const opts=k('prompt-option:'),marked=opts.filter(b=>/\\(marked\\)$/.test(lab(b)));
       if(opts.length&&!marked.length&&!conf)return {kind:'key',key:opts[0].dataset.key};
       if(opts.length&&!marked.length&&!picked.length&&!num)return {kind:'key',key:opts[0].dataset.key};
       if(conf)return {kind:'key',key:conf.dataset.key};
