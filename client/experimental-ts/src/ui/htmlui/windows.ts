@@ -1,6 +1,7 @@
 // The windows the rewrite shows through main's Legacy HTML UI screens, built from its ClientView (snapshot.ts). Each
 // builder returns a window snapshot in main's shape plus what its controls do (ClientApp commands). Layouts: main's
 // captured windows (client/web-shell/htmlui/mock/*.json) or numbers measured from main's game (tools/flip.mjs), cited.
+import { discordRows, duelLines, duelRows, type DiscordDuelist, type OpenDuelView } from './discord';
 import type { ClientCommand, ClientView } from '../contracts';
 import { Ids, WindowBuilder, levelText } from './snapshot';
 import type { HtmlControl, WindowSpec } from './snapshot';
@@ -22,7 +23,7 @@ export type HtmlDialog =
   | { kind: 'ok'; text: string; at?: [number, number] }
   | { kind: 'team'; name: string };
 /** The HTML UI's own state between snapshots (what the engine's windows keep themselves). */
-export interface HtmlUiLocal { dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
+export interface HtmlUiLocal { discord?: DiscordDuelist[] | null; onDiscordCard?: (p: DiscordDuelist) => void; duels?: OpenDuelView[] | null; onJoinDuel?: (id: number) => void; dialog: HtmlDialog | null; chatTab: number; chatDraft: string; menu: boolean;
   /** Create Comment's two lines while it is open; the lines still to save once the server confirms the one before. */
   comment: [string, string] | null; commentQueue: { line: 0 | 1; text: string }[];
   /** A line was sent: 'sent' until the profile shows it pending, then 'pending' until it is confirmed. */
@@ -204,6 +205,8 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
   // and the tabs after it stand where the engine moves them (8 px over each other)
   { key: 'trade', label: 'TRADE', x: 81, w: 72, channel: 'trade', shows: c => c === 'trade' },
   { key: 'team', label: 'Team ', x: 145, w: 72, channel: 'team', shows: c => c === 'team' },
+  // main b70a104: the Duels tab lists the open duels (discord.ts), not chat lines; a row Joins
+  { key: 'duels', label: 'Duels', x: 209, w: 72, channel: 'global', shows: () => false },
 ];
 /** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. A name may have spaces:
  * the longest name of a player the client knows wins, or the name in quotes ('/w "Ann Lee" hi'). */
@@ -232,8 +235,13 @@ export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const pairs = CHAT_TABS.map((t, i) => {
     const tc = b.add('CWindowTaskTab', `tab${i}`, { x: t.x, y: 0, w: t.w, h: 24 }, { label: t.label, active: i === tab },
       { key: `chat-tab:${t.key}`, label: t.label.trim(), click: () => { ctx.ui.chatTab = i; ctx.rerender(); } });
-    const items = lines.filter(l => t.shows(l.channel)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
+    const duels = t.key === 'duels';
+    const items = duels ? duelLines(ctx.ui.duels) : lines.filter(l => t.shows(l.channel)).map(l => `@0${l.sender.trim() ? `${l.sender}:${l.text}` : l.text}`);
     const log = b.add('CWindowTaskTextlist', `log${i}`, { x: 8, y: i === tab ? 24 : 99999, w: 760, h: 80 }, { shown: i === tab, items, selected: -1, top: 0, topLine: 0, rows: 5 });
+    if (duels && i === tab) {
+      const rows = duelRows(ctx.ui.duels);
+      b.on(log, { key: 'chat-duels', label: 'Open duels', click: point => { if (!point) return; const r = rows[Math.floor((point[1] - 608 - 24) / 16)]; if (r && !r.mine) ctx.ui.onJoinDuel?.(r.id); } });
+    }
     return { tab: tc.id, log: log.id, visible: true };
   });
   b.win.pairs = pairs;
@@ -413,10 +421,13 @@ export function playerList(ctx: BuildContext, open: (pid: number) => void): Wind
   const others = lobby.avatars.filter(a => !a.self && !a.npc);
   const list = cs.find(c => c.cls === 'CWindowTaskActiveListbox' && !c.parent);
   if (list) {
-    Object.assign(list, { items: others.map(a => `@0@>40/${a.name}`), top: 0, topLine: 0, selected: -1, rows: 6 });
-    const bar = cs.find(c => c.parent === list.id && /Scroll$/.test(c.cls)); if (bar) Object.assign(bar, { value: 0, max: Math.max(0, others.length - 6), page: 6 });
+    // the Discord duelists after them (main 4fe1425: the game's row, "(Discord)"; a row opens their card)
+    const disc = discordRows(ctx.ui.discord ?? [], lobby.avatars), all = others.length + disc.length;
+    Object.assign(list, { items: [...others.map(a => `@0@>40/${a.name}`), ...disc.map(d => d.item)], top: 0, topLine: 0, selected: -1, rows: 6 });
+    const bar = cs.find(c => c.parent === list.id && /Scroll$/.test(c.cls)); if (bar) Object.assign(bar, { value: 0, max: Math.max(0, all - 6), page: 6 });
     const win = b.win;
-    b.on(list, { label: 'Players here', click: point => { if (!point) return; const i = Math.floor((point[1] - win.y - list.y) / 16) + Number(list.top || 0); const a = others[i]; if (a) open(a.id); } });
+    b.on(list, { label: 'Players here', click: point => { if (!point) return; const i = Math.floor((point[1] - win.y - list.y) / 16) + Number(list.top || 0); const a = others[i];
+      if (a) open(a.id); else { const d = disc[i - others.length]; const p = d && ctx.ui.discord?.find(x => x.pid === d.pid); if (p) ctx.ui.onDiscordCard?.(p); } } });
   }
   const search = cs.find(c => c.cls === 'CWindowTaskPictureSwitch'); if (search) Object.assign(search, { state: 'disabled', enabled: false });
   return b.spec();
