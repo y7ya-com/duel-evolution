@@ -483,7 +483,8 @@ export class ClientApp implements ClientController {
     const duelPreparing = ['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(state.phase);
     let scene = this.view.scene;
     if (state.phase === 'characters' && !profile) scene = 'characters';
-    if (state.phase === 'lobby' && ['title', 'characters', 'duel'].includes(scene)) scene = 'lobby';
+    // a Duel Log replay holds the duel screen while the session sits in the lobby (any lobby update kept sending it back)
+    if (state.phase === 'lobby' && ['title', 'characters', 'duel'].includes(scene) && !(scene === 'duel' && this.replay)) scene = 'lobby';
     if ((duelPreparing || state.phase === 'duel' || state.phase === 'sideboarding') && scene !== 'settings') scene = 'duel';
     if (state.match?.stage === 'sideboarding' && !state.match.complete && this.sideboardRound !== state.match.round) {
       this.sideboard = { name:'Match Deck', main:[...state.match.deck.main], side:[...(state.match.deck.side ?? [])], extra:[...state.match.deck.extra] };
