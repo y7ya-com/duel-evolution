@@ -45,9 +45,12 @@ const board = (page:Page) => page.ev(`JSON.stringify({lp:[...document.querySelec
 async function giveUp(page:Page):Promise<number> {
   const done = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`;
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
+  // main's own Surrender question first (the client's YesNo, surrender-yes), then the server's when it asks one
+  const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
   let presses = 0, last = 0;
   for (let i = 0; i < 600 && !(await page.ev(done)); i++) {
-    if (await page.ev(`Boolean(${yes})`)) { await press(page,yes).catch(() => {}); }
+    if (await page.ev(`Boolean(${ask})`)) { await press(page,ask).catch(() => {}); }
+    else if (await page.ev(`Boolean(${yes})`)) { await press(page,yes).catch(() => {}); }
     else if (Date.now() - last > 15000 && await page.ev(`Boolean(${byText('Surrender')})`)) { await press(page,byText('Surrender')).catch(() => {}); presses++; last = Date.now(); }
     await sleep(150);
   }
@@ -263,6 +266,8 @@ describe.skipIf(!enabled)('reconnects, failures and stale replies on the real lo
       const refused = `${await alerts(page)} after ${Math.round((Date.now() - t) / 1000)} s`;
       expect(await connection(page)).not.toBe('online');
       await page.ev(`window.__net.rewrite=null`);
+      // main's error dialog over the title (the refusal): its OK first, as a player would
+      await dismissError(page);
       await enterWorld(page,me);
       // A packet whose digest does not match its bytes.
       await inject(page,`c=>{const p=c.pack(0x5300,new Uint8Array(10),1);p[9]^=0xff;return p;}`);

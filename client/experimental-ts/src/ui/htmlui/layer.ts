@@ -283,7 +283,11 @@ export class HtmlUiLayer {
         const w = spec.win;
         if (x < w.x || y < w.y || x >= w.x + w.w || y >= w.y + w.h) continue;
         const t = w.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
-        if (t) void this.api.click(t.id);
+        if (t) { void this.api.click(t.id); break; }
+        // a list drawn as one text box (CWindowTaskListbox: the Duel Log's history, the titles, the reward packs) takes
+        // the pointer at its game point, as the engine's list did (the row under it)
+        const l = w.controls.find(c => /^CWindowTask(Active)?Listbox$|^CWindowTaskTextlist$/.test(c.cls) && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
+        if (l) void this.api.click(l.id, [x, y]);
         break;
       }
       return;

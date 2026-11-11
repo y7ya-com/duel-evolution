@@ -770,6 +770,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const starterPicker = new StarterPicker({
     host: () => stage,
     claim: async id => {
+      // the lobby's own entry requests (the NPC list, the starter offer) may still be running when the player takes a
+      // deck: the claim waits for them, as main's picker (its own POST) never meets the app's busy lock
+      for (const until = Date.now() + 30000; controller.getState().busy && Date.now() < until;) await new Promise(r => setTimeout(r, 100));
       try { await controller.dispatch({ type: 'claimStarter', id }); return { ok: true }; }
       catch (e) { errorSeen = controller.getState().error ?? errorSeen; return { ok: false, message: e instanceof Error ? e.message : 'That didn\'t work. Try again in a moment.' }; }
     },
@@ -783,7 +786,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (lobby?.invitation) out.push(stockDialog({ ids: htmlIds }, 'duel-invitation', 'yesno', `${lobby.invitation.name} challenges you to a duel. Accept?`,
       [{ from: 'Yes', key: 'duel-accept', aria: 'Accept Duel', click: () => { if (!busy) send({ type: 'replyChallenge', accept: true }); } },
         { from: 'No', key: 'duel-decline', aria: 'Decline', click: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } }]));
-    const message = state.scene === 'deck' ? '' : state.error || local.message;
+    // main's card shop says its own failures in its page ("Couldn't open the shop", Try again): the app's catalogue
+    // refresh behind it failing is no dialog of its own (one would sit under the shop, out of reach)
+    const message = state.scene === 'deck' || useCardShop() && !local.message ? '' : state.error || local.message;
     if (message && message !== errorSeen) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
       [{ from: 'OK', key: 'error-ok', click: () => { errorSeen = message; if (local.message === message) local.message = ''; requestRender(); } }]));
     else if (!message) errorSeen = '';
