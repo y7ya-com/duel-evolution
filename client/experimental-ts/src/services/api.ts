@@ -104,7 +104,8 @@ export class GameApi {
     } }; }, undefined, options);
   }
   sendChat(body: { channel: ChatChannel; text: string; targetPid?: number; requestId?: string }, options?: RequestOptions): Promise<{ ok: ChatMessage }> {
-    return this.http.request('POST', '/api/de/chat', x => ({ ok: message(obj(x).ok) }), body, options);
+    // the Worker answers with the stored message itself (do.ts unwraps chatSend's { ok }); an { ok: message } is read too
+    return this.http.request('POST', '/api/de/chat', x => { const o = obj(x); return { ok: message('ok' in o ? o.ok : o) }; }, body, options);
   }
   dispose(): void { this.http.dispose(); }
 }
