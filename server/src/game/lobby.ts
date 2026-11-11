@@ -1,3 +1,4 @@
+import { boundOf } from "./starter.ts";
 // The lobby (5732) and room ports (5740-5750, 5800-5876): py yo2srv/lobby/lobby.py lobby_reply, the handlers of
 // research/lobby/proposal.py (LP: rooms, PvP challenges, autoduel, watch, chat, friends, mail, teams, packs, trade),
 // mundo/bloques.py (block lists) and mundo/avatar.py.
@@ -10,10 +11,12 @@ import { connBlockKey, roomOfPort } from "./gate.ts";
 import { baseKey, keyPort, PID_BASE, type BlockKey, type Session } from "./hub.ts";
 import { npcEntry, npcListParts } from "./npcs.ts";
 import * as PP from "./persist.ts";
+import { lawfulLook } from "./cosmetics.ts";
 import { ACAD_AREA, DOMINO_AREA, ROOM_KINDS } from "../config.ts";
 import * as FREE from "./freemode.ts";
 import { tagChat } from "../duel/tagRelay.ts";
-import { channelFor, ignores, sendChat } from "./chat.ts";
+import * as RK from "./ranking.ts";
+import { channelFor, ignores, sendChat, CHAT_TAB } from "./chat.ts";
 
 const u32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(at) : 0);
 const i32 = (d: Uint8Array, at = 0) => (d.length >= at + 4 ? new DataView(d.buffer, d.byteOffset, d.byteLength).getInt32(at) : 0);
@@ -32,7 +35,11 @@ const FRIEND_ACCEPT_DELAY = 1.5;
 const NPC_ROOMS = 0;
 const LIMIT_LIST = true, WATCH = true, ROOM_REOPEN = true, RESETAUTOWAIT = true, USB_AUTH_REFUSE = true;
 const TPPRESENT = false, STARTUP_PRESENT = true, AUTODUEL = true, AUTODUEL_MATCH = true;
-const AUTO_STATE = 0x66, R_AUTO = -602, AUTO_DUEL_STATE = 0x69, AUTODUEL_LV_DIFF = 5, AUTODUEL_MATCH_DELAY = 1.0;
+// AUTODUEL_LV_DIFF: the Auto Duel window's own "Level Limit ON" (レベルの近い, room x[2]): a player who asks for it
+// still gets an opponent within 5 LV, on top of the rating window (ranking.ts AUTO_WINDOW_*: the client offers the
+// choice, so it is kept). AUTODUEL_LAST_MAX: the previous-opponent memory (autoTryMatch's back-to-back rule) is
+// bounded, oldest entries first out.
+const AUTO_STATE = 0x66, R_AUTO = -602, AUTO_DUEL_STATE = 0x69, AUTODUEL_LV_DIFF = 5, AUTODUEL_MATCH_DELAY = 1.0, AUTODUEL_LAST_MAX = 2000;
 const OFFER_TIMEOUT = 30;
 // a direct invite: how long its private room waits for the challenger's 0x4300, and how long a challenger waits before
 // challenging the same player again after a decline or no answer
@@ -67,8 +74,13 @@ const TRADE: Record<number, [number, Uint8Array][]> = {
   0x7122: [[0x7122, new Uint8Array(0)]],
 };
 
+/** `since`: when an autoduel room started searching (g.clock seconds: the rating window widens from it); `retry`: a
+ *  widening retry is armed for it (autoRetry). */
 interface Room { id: number; p1: number; p2: number; mstat: number; mstat0?: number; dstyle: number; wmode: number; pw: boolean;
-  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session }
+  pwd?: Uint8Array; x: number[]; conn?: Conn; block?: BlockKey | null; npc?: number; only?: Session; since?: number; retry?: boolean; at?: number }
+/** A created duel anyone may join (openDuels): the Duels chat tab and Discord's #duels list it. */
+export interface OpenDuel { id: number; pid: number; name: string; lv: number; match: boolean; timeLimit: boolean; surrender: boolean;
+  spectators: boolean; at: number; free: boolean }
 /** a direct duel invite (duelInvite): b's room as only a sees it, until the challenge it allows ends */
 interface Invite { room: Room; a: Session; b: Session }
 interface Challenge { room: number; from: Conn; to: Conn; a: Session; b: Session; done: boolean }
@@ -77,11 +89,11 @@ type Mail = { id: number; from: number; from_name: string; to: number; to_name: 
 /** Where py's LP keeps its module state (MEM); mail, friends, black list and team persist in state.lobby. */
 interface Mem { rooms: Map<number, Room>; next_room: number; offer: { room: number; npc: number } | null; mail: Mail[]; next_mail: number;
   friends: number[]; black: number[]; team: any; challenges: Map<number, Challenge>; friend_offers: Map<string, [Session, Conn]>;
-  invites: Map<number, Invite>; inviteCooldown: Map<string, number> }
+  invites: Map<number, Invite>; inviteCooldown: Map<string, number>; autoLast: Map<string, string> }
 
 export class Lobby {
   mem: Mem = { rooms: new Map(), next_room: 1000, offer: null, mail: [], next_mail: 1, friends: [], black: [], team: null,
-    challenges: new Map(), friend_offers: new Map(), invites: new Map(), inviteCooldown: new Map() };
+    challenges: new Map(), friend_offers: new Map(), invites: new Map(), inviteCooldown: new Map(), autoLast: new Map() };
   private loaded = false;
   private mailT = 0;
   readonly handlers: Map<number, (c: Conn, msgId: number, param: number, data: Uint8Array) => boolean>;
@@ -181,8 +193,9 @@ export class Lobby {
     const s = this.sess(c);
     const rid = this.mem.next_room++;
     const r: Room = { id: rid, p1: me, p2: 0, mstat: data.length > 2 ? data[2] : 0, mstat0: data.length > 2 ? data[2] : 0,
-      dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: data.length > 3 ? !!data[3] : false,
-      pwd: pad(data.subarray(4, 20), 16), x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null };
+      dstyle: data.length ? data[0] : 3, wmode: data.length > 1 ? data[1] : 0, pw: false, pwd: new Uint8Array(16),
+      x: data.length >= 24 ? [...data.subarray(21, 24)] : [1, 1, 1], conn: c, block: s?.block ?? null,
+      since: this.g.clock.time(), at: Date.now() };
     const old = [...this.mem.rooms.values()].filter((v) => v.p1 === me && !v.only);
     for (const [k, v] of [...this.mem.rooms]) if (v.p1 === me && !v.only) this.mem.rooms.delete(k);
     this.mem.rooms.set(rid, r);
@@ -195,6 +208,7 @@ export class Lobby {
       if (AUTODUEL_MATCH) this.later(AUTODUEL_MATCH_DELAY, () => this.autoTryMatch(c));
     } else this.roomState(s, ROOM_STATE);
     this.later(CHALLENGE_DELAY, () => this.npcChallenge(c, rid));
+    this.g.duelsChanged?.();
     return true;
   }
 
@@ -238,7 +252,8 @@ export class Lobby {
       c.send(0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }));
       this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
     }
-    for (const ch of chs) if (ch) { ch.done = true; this.post(ch.from, 0x4301, new W().u32(R_GONE).bytes()); }
+    for (const ch of chs) if (ch) this.endChallenge(ch, R_GONE);
+    if (gone.length) this.g.duelsChanged?.();
     return true;
   }
 
@@ -246,7 +261,7 @@ export class Lobby {
     const rid = data.length >= 4 ? u32(data) : 0;
     const room = this.allRooms(this.sess(c)).find((r) => r.id === rid);
     if (room && this.humanRoom(room)) return this.challenge(c, room, data.subarray(4, 20));
-    if (!room || !room.npc) { if (!room) this.log(`[AVISO] [lobby] challenge to room ${rid}: no such room (from ${this.sess(c)?.acct.slice(0, 8) ?? "?"})`); c.send(0x4301, new W().u32(1).bytes()); return true; }
+    if (!room || !room.npc) { if (!room) this.log(`[AVISO] [lobby] challenge to room ${rid}: no such room (from ${this.sess(c)?.acct.slice(0, 8) ?? "?"})`); c.send(0x4301, new W().u32(R_NOROOM).bytes()); return true; }
     c.send(0x4301, new W().u32(0).bytes());
     this.duelNotice(c, room.npc);
     return true;
@@ -292,7 +307,10 @@ export class Lobby {
     const fail = (code: number, why: string) => {
       const o = room.conn, st = o ? (o.closed ? "closed" : o.stale() ? "stale" : (o.ext.lpClosed ? "lp-closed" : "open")) : "none";
       this.log(`[AVISO] [lobby] challenge to room ${room.id} refused: ${why} (${code}); room p1 ${room.p1} p2 ${room.p2} mstat ${room.mstat}, owner conn ${st}, from ${this.sess(c)?.acct.slice(0, 8) ?? "?"}`);
-      c.send(0x4301, new W().u32(code).bytes()); return true;
+      c.send(0x4301, new W().u32(code).bytes());
+      const a = this.sess(c), inv = a?.pid != null ? this.mem.invites.get(a.pid) : undefined;
+      if (inv?.room === room && !this.mem.challenges.has(room.id)) this.dropInvite(inv);
+      return true;
     };
     const a = this.sess(c), owner = room.conn!;
     const b = this.sess(owner);
@@ -304,6 +322,13 @@ export class Lobby {
     if (pvp && (pvp.byPid(b.pid!) || pvp.byPid(a.pid))) return fail(R_INDUEL, "already in a duel");
     if (this.isAuto(room)) return fail(R_AUTO, "the owner looks for an autoduel");
     if (room.pw && !sameBytes(pad(pw, 16), room.pwd ?? new Uint8Array(16))) return fail(R_NOROOM, "password");
+    // One offer per player, in either direction. A second 0x4300 must not replace a live wait or
+    // put another offer behind an existing popup. In particular, crossed challenges cannot both win.
+    const pending = this.challengeFrom(c);
+    if (pending?.room === room.id) return true; // duplicate packet: retain the original deadline
+    if (pending || this.challengeTo(c) || this.challengeFrom(owner) || this.challengeTo(owner)) return fail(R_FULL, "player busy with a challenge");
+    if (a.block !== b.block || a.block === null) return fail(R_GONE, "player left the block");
+    if (room.only && (this.busyHere(a) || this.busyHere(b))) return fail(R_FULL, "invite player became busy");
     const off = this.mem.offer;
     if (room.p2 || this.mem.challenges.has(room.id) || (off && off.room === room.id)) return fail(R_FULL, "room busy");
     const ch: Challenge = { room: room.id, from: c, to: owner, a, b, done: false };
@@ -353,7 +378,7 @@ export class Lobby {
     const mine = this.mem.invites.get(a.pid);
     if (mine && this.mem.challenges.has(mine.room.id)) return this.refuse("pending");
     if (mine) this.dropInvite(mine);   // an unused one (its card never pressed): replaced
-    if (this.busyHere(a) || this.challengeFrom(aConn)) return this.refuse("you-busy");
+    if (this.busyHere(a) || this.challengeFrom(aConn) || this.challengeTo(aConn)) return this.refuse("you-busy");
     const busy = this.busyHere(b);
     if (busy) return this.refuse(busy);
     if (this.challengeTo(bConn) || [...this.mem.invites.values()].some((v) => v.b === b)) return this.refuse("answering");
@@ -367,16 +392,62 @@ export class Lobby {
     const inv: Invite = { room: r, a, b };
     this.mem.invites.set(a.pid, inv);
     this.post(aConn, 0x3113, this.roomEntry(r));
-    this.post(aConn, 0x3112, this.g.hub.stateMsgAs(b, ROOM_STATE));
+    this.post(aConn, 0x3112, this.g.hub.stateMsgAs(b, ROOM_STATE, a));
     this.log(`[lobby] duel invite: ${a.acct} -> ${b.acct} (private room ${r.id})`);
     this.later(INVITE_TTL, () => { if (this.mem.invites.get(a.pid!) === inv && !this.mem.challenges.has(r.id)) this.dropInvite(inv); });
     return [200, { ok: true, room: r.id }];
   }
-  /** s went busy (a state, a trade, left its block, gone): every direct invite to or from it that no challenge uses
-   *  yet goes now (one a challenge uses ends with that challenge) */
+  // ---- open duels (the Duels chat tab, Discord's #duels): a created room, not an autoduel search, not a private
+  // invite, no opponent yet, its owner still connected. Anyone joins one the game's own way: the owner's card's
+  // "Send Duel Request" (htmlui duels.js), so the owner still gets Accept / Decline.
+  openDuels(): OpenDuel[] {
+    const out: OpenDuel[] = [];
+    for (const r of this.mem.rooms.values()) {
+      if (r.only || r.npc || r.p2 || this.isAuto(r) || !r.conn || !this.alive(r.conn)) continue;
+      const o = this.sess(r.conn);
+      if (!o || o.pid === null || o.pid !== r.p1 || this.g.pvp?.byPid(o.pid)) continue;
+      out.push({ id: r.id, pid: o.pid, name: o.name || "Duelist", lv: this.autoCard(o)[0], match: r.dstyle === 4, timeLimit: !!r.x[1],
+        surrender: !!r.x[0], spectators: !!r.wmode, at: r.at ?? Date.now(), free: FREE.isFree(o) });
+    }
+    return out.sort((a, b) => a.at - b.at);
+  }
+  /** Whether `userId`'s player can join open duel `id` from where they are now: {ok, pid, name} or a reason to show. */
+  duelJoinCheck(userId: string, id: number): [number, Record<string, unknown>] {
+    const say = (error: string, message: string): [number, Record<string, unknown>] => [409, { error, message }];
+    const acct = this.g.store.accountOfUser(userId);
+    const a = acct ? this.g.hub.sessions.get(acct) : undefined;
+    if (!a || a.pid === null || !a.lobby || a.lobby.closed) return say("not-in-game", "Enter the game world first.");
+    const d = this.openDuels().find((o) => o.id === id), r = this.mem.rooms.get(id);
+    if (!d || !r?.conn) return say("gone", "That duel is no longer open.");
+    if (d.pid === a.pid) return say("self", "That is your own duel.");
+    const b = this.sess(r.conn)!;
+    if (FREE.isFree(a) !== d.free) return say("elsewhere", d.free ? "That duel is in Free Mode." : "That duel is in the online world, not Free Mode.");
+    if (a.block === null) return say("my-room", "Leave My Room to join a duel.");
+    if (a.block !== b.block) return say("elsewhere", "That duelist is in another lobby.");
+    if (this.ignores(b.pid!, a.pid)) return say("refused", "That player is not accepting duel requests.");
+    if ([...this.mem.rooms.values()].some((v) => !v.only && v.p1 === a.pid)) return say("own-room", "Close your own duel first.");
+    if (this.busyHere(a) || this.challengeFrom(a.lobby) || this.challengeTo(a.lobby)) return say("you-busy", "Finish what you are doing first.");
+    return [200, { ok: true, id, pid: d.pid, name: d.name }];
+  }
+
+  /** Called before leaving a block and when becoming busy. Pending offers must end too: a
+   *  popup hidden by another activity cannot be allowed to accept an obsolete request later. */
   inviteBusy(s: Session) {
+    for (const ch of [...this.mem.challenges.values()])
+      if (ch.a === s || ch.b === s) this.endChallenge(ch, R_GONE);
     for (const inv of [...this.mem.invites.values()])
-      if ((inv.a === s || inv.b === s) && !this.mem.challenges.has(inv.room.id)) this.dropInvite(inv);
+      if (inv.a === s || inv.b === s) this.dropInvite(inv);
+  }
+
+  private endChallenge(ch: Challenge, result: number, cool = false) {
+    if (ch.done) return;
+    ch.done = true;
+    if (this.mem.challenges.get(ch.room) === ch) this.mem.challenges.delete(ch.room);
+    // Resolve before removing the synthetic room the engine's request refers to.
+    this.post(ch.from, 0x4301, new W().u32(result).bytes());
+    this.post(ch.to, result === R_NOANSWER ? 0x4308 : 0x4305, new Uint8Array(0));
+    this.inviteEnded(ch, cool);
+    this.log(`[lobby] PvP challenge ended: room ${ch.room}, result ${result}`);
   }
   /** the invite's room gone for its challenger: the room's removal and the target as it really is */
   private dropInvite(inv: Invite) {
@@ -385,7 +456,7 @@ export class Lobby {
     const aConn = inv.a.lobby;
     if (!aConn || aConn.closed) return;
     this.post(aConn, 0x3113, this.roomEntry({ ...inv.room, p1: 0, p2: 0 }));
-    if (inv.b.lobby && !inv.b.lobby.closed && this.g.hub.others(inv.a).includes(inv.b)) this.post(aConn, 0x3112, this.g.hub.stateMsg(inv.b, false));
+    if (inv.b.lobby && !inv.b.lobby.closed && this.g.hub.others(inv.a).includes(inv.b)) this.post(aConn, 0x3112, this.g.hub.stateMsg(inv.b, false, inv.a));
   }
   /** a challenge ended: an invite's room dropped; declined or unanswered, a cooldown before the same challenge */
   private inviteEnded(ch: Challenge, cool: boolean) {
@@ -396,23 +467,23 @@ export class Lobby {
   }
 
   private challengeTimeout(ch: Challenge) {
-    if (ch.done) return;
-    ch.done = true;
-    this.mem.challenges.delete(ch.room);
-    this.inviteEnded(ch, true);
-    this.post(ch.to, 0x4308, new Uint8Array(0));
-    this.post(ch.from, 0x4301, new W().u32(R_NOANSWER).bytes());
+    this.endChallenge(ch, R_NOANSWER, true);
   }
 
   private challengeReply(c: Conn, ch: Challenge, ok: number): boolean {
     if (ch.done) return true;
+    if (ok && (!this.alive(ch.from) || !this.alive(ch.to) || ch.a.block === null || ch.a.block !== ch.b.block ||
+      this.g.pvp?.byPid(ch.a.pid!) || this.g.pvp?.byPid(ch.b.pid!))) {
+      this.endChallenge(ch, R_GONE);
+      return true;
+    }
     ch.done = true;
     this.mem.challenges.delete(ch.room);
     const r = this.mem.rooms.get(ch.room);
     const aConn = ch.from;
     const invite = !!r?.only;
-    this.inviteEnded(ch, !ok);
-    if (!ok) { this.post(aConn, 0x4301, new W().u32(R_REJECTED).bytes()); return true; }
+    if (!ok) { this.post(aConn, 0x4301, new W().u32(R_REJECTED).bytes()); this.inviteEnded(ch, true); return true; }
+    this.inviteEnded(ch, false);
     if (!r || !this.alive(aConn)) {
       c.send(0x4305);
       if (!r) this.post(aConn, 0x4301, new W().u32(R_GONE).bytes());
@@ -421,10 +492,13 @@ export class Lobby {
     const { a, b } = ch;
     const pvp = this.g.pvp;
     if (!pvp) { this.post(aConn, 0x4301, new W().u32(R_NOROOM).bytes()); return true; }
-    pvp.reserve(a, b);
+    // a challenge accepted: an opponent chosen, so unranked (ranking.ts isRankedOrigin). `invite` is the server's own
+    // mark (duelInvite's private room, Room.only); an autoduel room can't be challenged at all (challenge(): R_AUTO)
+    pvp.reserve(a, b, invite ? "invite" : "room");
     this.roomState(a, DUEL_STATE, b.name, b);
     this.roomState(b, DUEL_STATE, a.name, a);
     r.p2 = a.pid!; r.mstat = 1;
+    this.g.duelsChanged?.();
     this.post(aConn, 0x4301, new W().u32(0).bytes());
     if (!invite) {   // an invite's room was never anyone else's to see
       c.send(0x3113, this.roomEntry(r));
@@ -447,6 +521,11 @@ export class Lobby {
     return st === 3 ? st : null;
   }
 
+  /** The autoduel matchmaking (ranked: ranking.ts isRankedOrigin). The other searching rooms of the block that fit
+   *  (a human, alive, not in a match or a challenge, a compatible duel style, not the same account, the Level Limit if
+   *  either asked for it), then ranking.ts autoPick: by rating (matchRating), closest first, within the widening window
+   *  (autoWindow), not the pair that just played when anyone else fits. Nobody yet: autoRetry tries again when the
+   *  window next widens. Free mode: everyone counts as RATING_START (no rating there), so the oldest search first. */
   autoTryMatch(c: Conn): boolean | null {
     if (!(AUTODUEL && AUTODUEL_MATCH)) return null;
     const pvp = this.g.pvp, s = this.sess(c);
@@ -455,22 +534,55 @@ export class Lobby {
     if (!mine) return null;
     const cands = [...this.mem.rooms.values()].sort((a, b) => a.id - b.id).filter((r) => r !== mine && this.isAuto(r) && !r.p2 &&
       r.block === mine.block && this.humanRoom(r) && this.alive(r.conn!) && this.sess(r.conn) !== s && !this.mem.challenges.has(r.id) && this.autoStyle(mine, r) !== null);
-    let pick: [Room, Session] | null = null;
+    const at = this.g.clock.time(), me = this.autoSeeker(s, mine, at);
+    const fits: (RK.AutoSeeker & { r: Room; o: Session })[] = [];
     for (const r of cands) {
       const o = this.sess(r.conn)!;
-      if (pvp.byPid(o.pid!)) continue;
+      if (o.acct === s.acct || pvp.byPid(o.pid!)) continue;
+      if (!FREE.isFree(s) && RK.sameNetwork(s.ipbs, o.ipbs)) continue;   // the ranked queue never pairs one network with itself (its result would be unrated)
       if ((mine.x[2] || r.x[2]) && Math.abs(this.autoCard(s)[0] - this.autoCard(o)[0]) > AUTODUEL_LV_DIFF) continue;
-      pick = [r, o]; break;
+      fits.push({ ...this.autoSeeker(o, r, at), r, o });
     }
-    if (!pick) return null;
-    const [r, o] = pick;
+    const pick = RK.autoPick(me, fits);
+    if (!pick) { this.autoRetry(c, mine, me.waited); return null; }
+    const { r, o } = pick;
     if (mine.p2 || r.p2 || this.mem.rooms.get(mine.id) !== mine || this.mem.rooms.get(r.id) !== r) return null;
     mine.p2 = o.pid!; r.p2 = s.pid;
+    this.autoLastSet(s.acct, o.acct);
+    this.log(`[lobby] autoduel (${FREE.isFree(s) ? "free mode, unranked" : "ranked"}): ${s.acct} ${Math.round(me.rating)} vs ${o.acct} ${Math.round(pick.rating)}: gap ${Math.round(Math.abs(me.rating - pick.rating))},`
+      + ` window ±${Math.max(RK.autoWindow(me.waited), RK.autoWindow(pick.waited))} (searched ${Math.round(me.waited)} s / ${Math.round(pick.waited)} s)`
+      + (me.last === o.acct || pick.last === s.acct ? ", again: nobody else fits" : ""));
     return this.autoPair(r.conn!, o, r, c, s, mine);
+  }
+  /** s searching in room r, as autoPick sees it: its rating (the active character's p.rank: ranking.ts matchRating;
+   *  RATING_START in free mode, which has no rating), the seconds searched, its previous autoduel opponent. */
+  private autoSeeker(s: Session, r: Room, at: number): RK.AutoSeeker {
+    let rating = RK.RATING_START;
+    if (!FREE.isFree(s)) {
+      try { rating = this.g.withCtx(s, () => { const st = this.g.loadState(); return RK.matchRating(RK.rankOf(PP.profile(st, PP.activeSlot(st), false))); }); }
+      catch (e) { this.log(`[lobby] autoduel rating of ${s.acct}: ${e}`); }
+    }
+    return { key: s.acct, rating, waited: Math.max(0, at - (r.since ?? at)), last: this.mem.autoLast.get(s.acct) ?? null };
+  }
+  /** No opponent yet: one more try when the window next widens (until it is at its widest; after that a new searcher,
+   *  or one back from a duel, tries itself). One armed retry per room. */
+  private autoRetry(c: Conn, mine: Room, waited: number) {
+    if (mine.retry || RK.autoWindow(waited) >= RK.AUTO_WINDOW_MAX) return;
+    mine.retry = true;
+    const next = RK.AUTO_WINDOW_STEP_S * (Math.floor(waited / RK.AUTO_WINDOW_STEP_S) + 1);
+    this.later(next - waited + 0.05, () => {
+      mine.retry = false;
+      if (this.mem.rooms.get(mine.id) === mine && this.isAuto(mine) && !mine.p2) this.autoTryMatch(c);
+    });
+  }
+  /** The two accounts' previous autoduel opponent is each other (autoPick's back-to-back rule). */
+  private autoLastSet(a: string, b: string) {
+    for (const [k, v] of [[a, b], [b, a]]) { this.mem.autoLast.delete(k); this.mem.autoLast.set(k, v); }
+    for (const k of this.mem.autoLast.keys()) { if (this.mem.autoLast.size <= AUTODUEL_LAST_MAX) break; this.mem.autoLast.delete(k); }
   }
 
   private autoPair(ca: Conn, a: Session, ra: Room, cb: Conn, b: Session, rb: Room): boolean {
-    this.g.pvp!.reserve(a, b);
+    this.g.pvp!.reserve(a, b, "autoduel");   // the only ranked origin (ranking.ts isRankedOrigin): nobody chose the opponent
     this.roomState(a, AUTO_DUEL_STATE, b.name, b);
     this.roomState(b, AUTO_DUEL_STATE, a.name, a);
     for (const [r, cc, me] of [[ra, ca, a], [rb, cb, b]] as [Room, Conn, Session][]) {
@@ -522,7 +634,7 @@ export class Lobby {
     if (this.g.pvp?.byPid(me)) { this.postPvp(c, "room reopen skipped: still in a match"); return; }
     const rs = [...this.mem.rooms.values()].filter((r) => r.p1 === me && r.p2);
     const npc = rs.filter((r) => r.p2 >= FAKE_BASE);
-    for (const r of rs) { r.p2 = 0; r.mstat = r.mstat0 ?? 0; }
+    for (const r of rs) { r.p2 = 0; r.mstat = r.mstat0 ?? 0; r.since = this.g.clock.time(); }
     if (rs.length) this.postPvp(c, `room reopen: ${rs.map((r) => r.id).join(",")} free again`);
     for (const r of rs) { c.send(0x3113, this.roomEntry(r)); this.blockPost(r.block ?? null, 0x3113, this.roomEntry(r), s); }
     if (rs.length) {
@@ -557,13 +669,14 @@ export class Lobby {
     const z = text.indexOf(0);
     text = text.subarray(0, z < 0 ? text.length : z).subarray(0, MAX_DATA - 27);
     if (tagChat(this.g, this.sess(c), c, text)) return true;
-    const s = this.sess(c), channel = channelFor(kind);
-    if (s && this.g.admin.flagsOf(s.acct) & SANCTION_CHAT) this.log(`[AVISO] [admin] ${s.acct.slice(0, 6)}…: chat sanctioned, not sent`);
-    // One server-wide public channel, including My Room (chat.ts): legacy proximity sends (kind 1) become Global. A line
-    // the stream refuses (sanctioned, an NPC or offline whisper target) still comes back to its sender, as before.
-    const sent = s && channel ? sendChat(this.g, s, channel, cstr(text).slice(0, 128), target) : null;
-    if (!sent || "error" in sent) c.send(0x4402, cat(new W().u8(0).u8(kind).u32(this.pid()).u32(2).bytes(), S(this.me(), 16), text, Uint8Array.of(0)));
+    const channel = channelFor(kind), s = this.sess(c);
+    if (!channel || !s) return true;
+    // One server-wide public channel, including My Room. Legacy proximity sends become Global.
+    const sent = sendChat(this.g, s, channel, cstr(text).slice(0, 128), target);
     const n = kind === 3 ? this.npcByPid(target) : null;
+    // A line the server refuses (Team with no team, a whisper to someone offline, a muted account) says why in the tab
+    // it was typed in, rather than vanishing; an NPC's whisper has its own answer below.
+    if ("error" in sent && !n) c.send(0x4402, cat(new W().u8(0).u8(CHAT_TAB[channel]).u32(0).u32(2).bytes(), S("Notice", 16), new W().s(sent.error, sent.error.length).bytes(), Uint8Array.of(0)));
     if (n) c.send(0x4402, cat(new W().u8(0).u8(3).u32(FAKE_BASE + n[0]).u32(0).bytes(), S(n[1], 16), new W().s("Nos vemos en la sala de duelo.", 30).bytes(), Uint8Array.of(0)));
     return true;
   }
@@ -819,7 +932,9 @@ export class Lobby {
     const trunk = p.trunk ?? {};
     const seen = new Set<number>(), flags: number[] = [];
     for (const cid of cards) { flags.push((trunk[String(cid)] ?? 0) === 0 && !seen.has(cid) ? 1 : 0); seen.add(cid); }
+    if (PP.progression()) boundOf(p);
     PP.trunkAdd(this.g, p, cards, 1, "lobby pack");
+    if (PP.progression()) PP.bindClaimedPrize(p, cards);
     this.g.saveState(st);
     return flags;
   }
@@ -918,14 +1033,11 @@ export class Lobby {
     const off = this.mem.offer;
     if (off && (goneIds.has(off.room) || !this.mem.rooms.has(off.room))) this.mem.offer = null;
     const mine = [...this.mem.challenges].filter(([k, ch]) => goneIds.has(k) || ch.from === c || ch.to === c).map(([, ch]) => ch);
-    for (const ch of mine) { this.mem.challenges.delete(ch.room); ch.done = true; }
+    for (const ch of mine) this.endChallenge(ch, R_GONE);
     if (gone.length) this.roomState(this.sess(c), 0);
     for (const r of gone) this.blockPost(r.block ?? null, 0x3113, this.roomEntry({ ...r, p1: 0, p2: 0 }), this.sess(c));
-    for (const ch of mine) {
-      if (ch.from === c) this.post(ch.to, 0x4305, new Uint8Array(0));
-      else this.post(ch.from, 0x4301, new W().u32(R_GONE).bytes());
-    }
     if (this.g.lobbyRoom.c === c) this.g.lobbyRoom.c = null;
+    if (gone.length) this.g.duelsChanged?.();
     return true;
   }
 
@@ -1023,9 +1135,16 @@ function avatarInfo(g: Game, pid: number): Uint8Array {
   return new W().u32(0).u32(pid).s(myName(g), 16).u16(400).u16(300).u8(0).bytes();
 }
 
-function avatarOk(g: Game, parts: Uint8Array): boolean {
-  try { const st = g.loadState(); const p = PP.profile(st, PP.activeSlot(st), false); return !p || PP.avatarOwned(p, parts); }
-  catch { return true; }
+/** 0x4170's look against this character: ownership, then the dorm uniforms' rank rule (cosmetics.ts lawfulLook; no world
+ *  rule: one look for both worlds). */
+function avatarCheck(g: Game, world: number, parts: Uint8Array): { owned: boolean; changed: boolean; parts: Uint8Array } {
+  try {
+    const st = g.loadState(), p = PP.profile(st, PP.activeSlot(st), false);
+    if (!p) return { owned: true, changed: false, parts };
+    // the outfit in it is the player's pick (a Domino starter one is kept: persist.ts outfitPicked), on a copy: h_avatar records it
+    const q = { ...p }; PP.outfitPicked(q, parts);
+    return lawfulLook(q, world, parts);
+  } catch { return { owned: true, changed: false, parts }; }
 }
 
 function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
@@ -1038,11 +1157,22 @@ function myroomSelfAvatar(g: Game, c: Conn, data: Uint8Array) {
 export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data: Uint8Array): void {
   if (msgId === 0x3001 || msgId === 0x3003) return g.gameReply(c, msgId, param, data);
   if (FREE.refuse(g, c, msgId, data)) return;
-  if (msgId === 0x4170 && data.length >= 20 && c.sess && !avatarOk(g, data.subarray(4, 20))) {   // before anyone sees it
-    // answered like a stored look (an error might cut the client's room entry): nothing is kept or shown to others
-    g.log(`[avatar] 0x4170 with items this character doesn't own: not kept`);
-    c.send(0x4171, new W().u32(0).bytes());
-    return;
+  let corrected: Uint8Array | null = null;
+  if (msgId === 0x4170 && data.length >= 20 && c.sess) {   // before anyone sees it
+    const look = avatarCheck(g, u32(data) & 0xff, data.subarray(4, 20));
+    if (!look.owned) {
+      // answered like a stored look (an error might cut the client's room entry): nothing is kept or shown to others
+      g.log(`[avatar] 0x4170 with items this character doesn't own: not kept`);
+      c.send(0x4171, new W().u32(0).bytes());
+      return;
+    }
+    if (look.changed) {
+      // a dorm uniform of a school never reached (the rank rule; there is no world rule): Slifer Red is kept and shown
+      // instead, and the player's client told so below
+      g.log(`[avatar] 0x4170 with a uniform the rank rule forbids: kept with Slifer Red`);
+      data = cat(data.subarray(0, 4), look.parts, data.subarray(20));
+      corrected = look.parts;
+    }
   }
   try {
     if (msgId === 0x4100 && c.sess) {
@@ -1052,6 +1182,7 @@ export function lobbyReply(g: Game, c: Conn, msgId: number, param: number, data:
     }
     g.hub.onLobbyMsg(c, msgId, data);
   } catch (e) { g.log(`[hub] 0x${msgId.toString(16)}: ${e}`); }
+  if (corrected) for (const world of [0, 1]) c.send(0x4181, cat(new W().u32(myPid(g)).u32(world).bytes(), corrected));   // its own look, as kept
   if (g.lp.handle(c, msgId, param, data)) return;
   if (msgId === 0x4170 && data.length >= 4) g.avState.world = u32(data);
   if (g.ph && g.phLobby.has(msgId)) {

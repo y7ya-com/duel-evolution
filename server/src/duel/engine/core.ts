@@ -50,7 +50,7 @@ export interface DuelCoreOptions {
 // which CardScripts' chain.lua asks for around Duel.RegisterEffect; unknown flags answer nil. Loaded after
 // constant.lua/utility.lua.
 // ---------------------------------------------------------------------------
-const COMPAT_CHAININFO_LUA = `
+export const COMPAT_CHAININFO_LUA = `
 do
   local viejo=Duel.GetChainInfo
   local sin_soporte={[31]=true,[32]=true,[33]=true}

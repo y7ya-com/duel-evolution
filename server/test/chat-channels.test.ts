@@ -55,6 +55,17 @@ describe("shared server chat", () => {
     expect(read(h,"user-c").messages.map(m=>m.text)).toEqual(["blocked"]);
   });
 
+  it("a refused line says why in its own tab: Team with no team, a whisper to someone offline", async () => {
+    const {a,b}=await setup(), nb=b.room!.mark();
+    let n=a.room!.mark(); a.room!.send(0x4400,message(5,"anyone?"));
+    let w=(await a.room!.wait(0x4402,n))!;
+    expect([w[1], cstr(w.subarray(10,26)), cstr(w.subarray(26))]).toEqual([5,"Notice","You are not in a team. Form one or accept an invite: Main Menu > Team List."]);
+    n=a.room!.mark(); a.room!.send(0x4400,message(3,"psst",987654));
+    w=(await a.room!.wait(0x4402,n))!;
+    expect([w[1], cstr(w.subarray(26))]).toEqual([3,"That player is not online."]);
+    expect(b.room!.all(0x4402,nb)).toEqual([]);
+  });
+
   it("team messages are private and cannot be requested by an account outside the team", async () => {
     const {h,a,b,c}=await setup();
     a.room!.send(0x4550,str("Team",16)); await a.room!.wait(0x4566);

@@ -10,17 +10,24 @@
 # (yo2rc-ios-<hash>.js loads yo2rc-ios-<hash>.wasm), those are checked live, and only then the page (yo2rc.html,
 # index.html) that names them. A tab that loads mid-ship gets one whole build, old or new. Earlier hashed files stay in
 # R2, so open tabs keep working. Needs `wrangler login` on the site's Cloudflare account.
-# DRY=1: prepare infra/out/<prefix>/ and list the uploads, upload nothing. SITE: where <prefix> is live (checked after
+# Only origin/main ships (infra/ship-guard.sh): HEAD must be origin/main and contain what is live; live/client is moved
+# to it after. DRY=1: prepare infra/out/<prefix>/ and list the uploads, upload nothing (any branch). SITE: where <prefix> is live (checked after
 # the hashed uploads; default https://original.ygoevolution.com for recomp-de, none for other prefixes).
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd); BUILD=0
 [ "${1:-}" = --build ] && { BUILD=1; shift; }
 X=${1:-recomp-de}; X=${X%/}; C=$R/client; B=$C/recomp/build-web; O=$R/infra/out/$X
+SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
+# only origin/main ships, and only when it already has what is live (infra/ship-guard.sh; DRY=1 builds any branch)
+. $R/infra/ship-guard.sh; ship_guard client
 [ $BUILD = 1 ] && (cd $C/recomp && python3 -I ../tools/buildslot.py make -j2 web web-async web-ios)
 # JSPI (Chrome), ASYNCIFY (Safari/Firefox, `make web-async`) and the 1 GB ASYNCIFY build (`make web-ios`: iPhone/iPad,
 # whose Safari refuses a 2 GB shared memory, and any browser that can't reserve the JSPI build's 2 GB): yo2rc.html picks
 for f in yo2rc.html yo2rc.js yo2rc.wasm yo2rc-async.js yo2rc-async.wasm yo2rc-ios.js yo2rc-ios.wasm; do
   [ -s $B/$f ] || { echo "no $B/$f (build it, or pass --build)"; exit 1; }
+done
+for js in yo2rc.js yo2rc-async.js yo2rc-ios.js; do
+  grep -q yo2EraCards "$B/$js" || { echo "$B/$js predates 2008 card text support: rebuild with --build"; exit 1; }
 done
 rm -rf $O; mkdir -p $O; cp $B/yo2rc.html $O/
 # the HTML UI's Svelte screens (htmlui/gen/, gitignored): built here, shipped with the rest of htmlui/ below
@@ -51,7 +58,18 @@ js = js.replace(q, f'"./{names["ui"]}"'.encode()); names['duelspeed'] = f'duelsp
 # Its kill switch is the unhashed htmlui.json beside the page (?HTML_UI= overrides it), never shipped from here.
 hu = os.path.join(shell, 'htmlui')
 mods = sorted(os.path.relpath(os.path.join(d, f), hu) for d, _, fs in os.walk(hu) for f in fs
-              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read', 'gen'))
+              if f.endswith('.js') and os.path.relpath(d, hu).split(os.sep)[0] in ('.', 'controls', 'screens', 'read', 'gen', 'cosmetics', 'crafting', 'shop', 'rewards')
+              or os.path.relpath(os.path.join(d, f), hu) == os.path.join('svelte', 'modern', 'deck', 'pictures.js'))   # card art, shop/art.js's
+# every static relative import of a shipped module must be shipped too: one missing file (a folder left out of the list
+# above) fails bridge.js's static import graph and the whole HTML UI with it (2026-11-04: cosmetics/ left out)
+import re as _re
+_ship = set(mods)
+for m in mods:
+    for spec in _re.findall(rb'''(?:^|[;\n])\s*(?:import|export)\s[^'"]*?from\s*['"](\.{1,2}/[^'"]+)['"]|^\s*import\s*['"](\.{1,2}/[^'"]+)['"]''', rd(os.path.join(hu, m)), _re.M):
+        spec = (spec[0] or spec[1]).decode()
+        t = os.path.normpath(os.path.join(os.path.dirname(m), spec))
+        if t == os.path.join('..', 'ui.js'): continue   # h-<hash>/ui.js, shipped beside htmlui/
+        if t not in _ship: sys.exit(f'ship: htmlui/{m} imports {spec} ({t}), which is not shipped')
 hk = h(rd(f'{shell}/../html-ui/ui.js'), *(m.encode() + rd(os.path.join(hu, m)) for m in mods))
 put(f'h-{hk}/ui.js', rd(f'{shell}/../html-ui/ui.js'))
 for m in mods: put(f'h-{hk}/htmlui/{m}', rd(os.path.join(hu, m)))
@@ -72,8 +90,32 @@ assert n == 1
 s = s.replace('</title>', '</title>\n<meta name="yo2-build" content="%s">' % os.environ['BUILDID'], 1)
 open(p, 'w').write(s)
 PY
-echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(stat -f %Sm $B/yo2rc.wasm 2>/dev/null || stat -c %y $B/yo2rc.wasm)" > $O/BUILD.txt
+echo "$(git -C $R rev-parse --short HEAD) $(git -C $R branch --show-current) dirty: $(git -C $R status --short -uno | tr '\n' ' ') built $(date -u -r $B/yo2rc.wasm '+%Y-%m-%d %H:%M:%S UTC')" > $O/BUILD.txt
 cat $O/BUILD.txt
+# Original printed text and faces for the legacy effect catalog. Build them from the owner's game, never an API.
+# Hash the complete set so older open tabs keep their own release's assets.
+ERA_TMP=$(mktemp -d)
+"${YO2_ASSET_PYTHON:-python3}" "$C/tools/era2008_assets.py" \
+  --merge "${YO2_MERGE:-${YO2_GAME:-$HOME/.cache/yo2-game}/merge.dat}" --gamedata "$R/server/gamedata" --out "$ERA_TMP"
+python3 - "$ERA_TMP" "$O" <<'PYERA'
+import hashlib, json, os, shutil, sys
+src, out = sys.argv[1:]
+files = sorted(os.path.relpath(os.path.join(d, f), src) for d, _, fs in os.walk(src) for f in fs)
+h = hashlib.sha256()
+for f in files:
+    h.update(f.encode()); h.update(open(os.path.join(src, f), 'rb').read())
+folder = 'c-' + h.hexdigest()[:16]
+shutil.copytree(src, os.path.join(out, folder))
+with open(os.path.join(out, 'HASHED'), 'a') as f:
+    for name in files: f.write(folder + '/' + name + '\n')
+# This configuration is part of the page loaded before lazyfs's preRun hook.
+cards = json.load(open(os.path.join(src, 'cards.json')))
+config = json.dumps({'base': folder + '/', 'cards': cards}, ensure_ascii=True, separators=(',', ':')).replace('<', r'\u003c')
+p = os.path.join(out, 'yo2rc.html')
+s = open(p).read().replace('<script id="pick">', '<script>Module.yo2EraCards=' + config + ';</script>\n<script id="pick">')
+open(p, 'w').write(s)
+PYERA
+rm -rf "$ERA_TMP"
 cp $C/web-shell/index.html $O/
 # for search engines: Cloudflare's managed robots.txt (its content signals) goes out ahead of ours, which adds the sitemap
 cp $C/web-shell/robots.txt $C/web-shell/sitemap.txt $O/
@@ -84,19 +126,44 @@ UI=$(cd $C/html-ui/assets && find . -type f ! -name '.*' | sed 's#^\./##' | sort
 [ -n "$UI" ] && [ -s $C/html-ui/assets/glyphs-dejavu16.json ] || { echo "no html-ui/assets (run infra/fetch-private.sh)"; exit 1; }
 for f in $UI; do mkdir -p $(dirname $O/ui/$f); cp $C/html-ui/assets/$f $O/ui/$f; done
 # ponytail: old hashed files are never deleted (~120 MB a ship); prune by hand when R2 storage matters
-up() {
-  for f in "$@"; do
-    [ -n "${DRY:-}" ] && { echo "would upload $X/$f ($(wc -c < $O/$f | tr -d ' ') bytes)"; continue; }
-    (cd $R/server && npx wrangler r2 object put "ygo-original/$X/$f" --file $O/$f --remote 2>&1) | grep -q "Upload complete" || { echo "upload $f failed"; exit 1; }
-    echo "uploaded $X/$f"
-  done
-}
-# each wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9 is
-# ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). Up before the page, checked live below like the rest.
-for f in $(grep '\.wasm$' $O/HASHED); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
-up $(grep '\.wasm$' $O/HASHED | sed 's/$/.br/') $(grep '\.wasm$' $O/HASHED) $(grep '\.js$' $O/HASHED) $(for f in $UI; do echo ui/$f; done)
-SITE=${SITE-$([ $X = recomp-de ] && echo https://original.ygoevolution.com)}
 md5() { python3 -c 'import hashlib, sys; print(hashlib.md5(sys.stdin.buffer.read()).hexdigest())'; }
+# Only what changed goes up. A release used to send every file one by one (~610 of them: ~17 min for a few changed
+# ones): each upload is its own wrangler process, ~1.5 s of start-up for milliseconds of transfer.
+# changed: the arguments $SITE doesn't already serve with this content (R2's ETag is the MD5 of a single-part upload;
+# a multipart one's never matches, so that file just goes up again), 16 HEADs at a time, under a User-Agent of our own
+# (the edge answers Python-urllib's with 403, which read as changed: everything went up); FORCE=1: all of them
+changed() {
+  if [ -z "$SITE" ] || [ -n "${FORCE:-}" ]; then printf '%s\n' "$@"; return; fi
+  python3 - "$SITE" "$O" "$@" <<'PY'
+import hashlib, sys, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+site, o, files = sys.argv[1], sys.argv[2], sys.argv[3:]
+def same(f):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(f'{site}/{f}', method='HEAD', headers={'User-Agent': 'ship-client'}), timeout=20) as r:
+            tag = (r.headers.get('ETag') or '').strip('"')
+    except Exception:
+        return False
+    return tag == hashlib.md5(open(f'{o}/{f}', 'rb').read()).hexdigest()
+with ThreadPoolExecutor(16) as ex:
+    for f, s in zip(files, ex.map(same, files)):
+        if not s: print(f)
+PY
+}
+# up: the arguments to R2, 8 wrangler processes at a time; any failure stops the release before the page
+export R X O
+up() {
+  [ $# = 0 ] && return 0
+  if [ -n "${DRY:-}" ]; then for f in "$@"; do echo "would upload $X/$f ($(wc -c < $O/$f | tr -d ' ') bytes)"; done; return; fi
+  printf '%s\n' "$@" | xargs -P 8 -I{} sh -c '(cd "$R/server" && npx wrangler r2 object put "ygo-original/$X/$1" --file "$O/$1" --remote 2>&1) | grep -q "Upload complete" && echo "uploaded $X/$1" || { echo "upload $1 failed"; exit 255; }' _ {} \
+    || { echo "uploads failed: page not swapped"; exit 1; }
+}
+NEW=$(changed $(cat $O/HASHED) $(for f in $UI; do echo ui/$f; done))
+echo "$(printf '%s\n' $NEW | grep -c .) of $(( $(grep -c . $O/HASHED) + $(echo "$UI" | grep -c .) )) files changed"
+# each new wasm's pre-compressed sidecar (server/src/worker.ts sends <name>.wasm.br as is to a br client): brotli -q 9
+# is ~30% under the edge's own brotli (yo2rc: 6.3 -> 4.5 MB). An unchanged wasm's .br is live already (checked below).
+for f in $(printf '%s\n' $NEW | grep '\.wasm$'); do [ -n "${DRY:-}" ] || nice brotli -q 9 -f -o $O/$f.br $O/$f; done
+up $(printf '%s\n' $NEW | grep '\.wasm$' | sed 's/$/.br/') $NEW
 if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   for f in $(cat $O/HASHED); do
     [ "$(curl -sf "$SITE/$f" | md5)" = "$(md5 < $O/$f)" ] || { echo "live $SITE/$f does not match: page not swapped"; exit 1; }
@@ -106,4 +173,5 @@ if [ -z "${DRY:-}" ] && [ -n "$SITE" ]; then
   echo "hashed files live and checked"
 fi
 # the page last: yo2rc.html names the hashed files; index.html is what lets new browsers (phones) in
-up BUILD.txt robots.txt sitemap.txt yo2rc.html index.html
+up $(changed BUILD.txt robots.txt sitemap.txt yo2rc.html index.html)
+if [ $X = recomp-de ]; then ship_guard_done client; fi

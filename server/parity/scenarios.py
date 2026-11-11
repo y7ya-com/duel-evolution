@@ -108,3 +108,46 @@ def run_afk(offset, host="127.0.0.1", minutes=float(__import__("os").environ.get
                      link.wait(reply, start=n, timeout=10) is not None)
     fc.check(res, "AFK: numbering", not A.errors, "; ".join(A.errors[:3]))
     return res
+
+
+def run_duelrequests(offset, host="127.0.0.1"):
+    """Two real wire clients: decline, ignored offer, cancellation, duplicate, and target disconnect.
+
+    Uses the same 0x4300/02/03 path as a direct invite's synthetic room. Run on TS:
+    parity/run.py ts duelrequests. Direct HTTP invite/state races are also covered
+    by server/test/duel-request-lifecycle.test.ts (no parity with the old server).
+    """
+    A = fc.FakeClient("A", fc.owner_key_from_log(), host, offset)
+    B = fc.FakeClient("B", bytes([0xA5] * 16 + list(range(16))), host, offset)
+    res = []
+    try:
+        for X, name in ((A, None), (B, "Request B")):
+            X.gate()
+            X.account(0, create_name=name)
+            X.enter_room()
+        ok, rid = fc.pvp_open_room(B, A)
+        assert ok and rid, "B opens room"
+        for action, code in (("decline", -618), ("timeout", -616), ("cancel", 0), ("duplicate", -616), ("disconnect", -600)):
+            off, early, na, nb = fc.pvp_challenge(A, B, rid)
+            assert off is not None, f"{action}: offer reached B"
+            if action == "decline":
+                B.room.send(0x4303, struct.pack(">i", 0))
+            elif action == "cancel":
+                A.room.send(0x4304)
+            elif action == "duplicate":
+                A.room.send(0x4300, struct.pack(">I", rid) + bytes(16))
+            elif action == "disconnect":
+                B.room.close()
+            mid = 0x4309 if action == "cancel" else 0x4301
+            reply = A.room.wait(mid, start=na, timeout=40)
+            assert reply is not None and struct.unpack(">i", reply[:4])[0] == code, f"{action}: definite outcome {reply!r}"
+            time.sleep(1)
+            answers = [m for m in A.room.msgs[na:] if m[0] == mid]
+            assert len(answers) == 1, f"{action}: multiple outcomes"
+            res.append(("duelrequests:" + action, True))
+            print(f"OK duelrequests: {action}, result {code}, one outcome", flush=True)
+        assert not (A.errors + B.errors), "packet numbering"
+    finally:
+        for X in (A, B):
+            X.room.close()
+    return res

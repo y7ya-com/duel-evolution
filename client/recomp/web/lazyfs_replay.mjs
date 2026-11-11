@@ -67,7 +67,7 @@ const FS = { mkdirTree() {}, mkdir() {}, mount() {}, syncfs: (a, cb) => cb(),
 const PATH = { dirname: (p) => p.slice(0, p.lastIndexOf("/")), basename: (p) => p.slice(p.lastIndexOf("/") + 1) };
 let deps = 0;
 const Module = {}, ENV = {};
-const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, console: { log() {} }, URL, URLSearchParams,
+const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, AbortController, DOMException, atob, Blob, DecompressionStream, matchMedia: () => ({ matches: false }), console: { log() {} }, URL, URLSearchParams,
     location: { search: mode === "off" ? "?prefetch=0" : "", href: "http://t/" },
     localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
     performance: { now: () => Date.now() }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout,

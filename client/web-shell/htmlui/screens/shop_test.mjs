@@ -6,7 +6,7 @@ import { registerHooks } from 'node:module';
 // web-shell/ui.js is client/html-ui/ui.js (serve.mjs and the ship map it there)
 registerHooks({ resolve: (spec, ctx, next) => spec.endsWith('/ui.js')
   ? { ...next(new URL('../../../html-ui/ui.js', import.meta.url).href, ctx), format: 'module' } : next(spec, ctx) });
-const { default: shop, texName, recipe, mine, passthrough, swfStates, plan } = await import('./shop.js');
+const { default: shop, texName, recipe, mine, passthrough, swfStates, plan, exitPoint, boxesPoint, farewell, SHOP_SCENE } = await import('./shop.js');
 const mock = n => JSON.parse(readFileSync(new URL(`../mock/${n}.json`, import.meta.url), 'utf8'));
 
 // texture names: no folder, no extension, the language letter as English
@@ -74,4 +74,21 @@ assert.deepEqual(conf.lines, ['Pack 4@>320/x1@>360/200MP']);
 const npc = mock('shop-npc').windows.find(w => w.cls === 'CShopNpcProfile');
 assert.ok(npc.shown && npc.controls.some(c => c.cls === 'CWindowTaskFrameThin' && c.style === 2));
 assert.deepEqual(shop.hide(npc), []);
+// the full-screen shop's native clicks: Back on the menu's Exit swf (795, 540.5: its art's middle), the Cosmetic
+// Boxes tab on the Avatar Parts banner's picture (the switch at 319, 407; the picture 376 x 112 at 24, 29)
+assert.deepEqual(exitPoint(menu), [906, 566]);
+assert.deepEqual(boxesPoint(menu), [319 + 24 + 188, 407 + 29 + 56]);
+assert.deepEqual(exitPoint({}), [906, 565]);   // no swf read: the native place
+// Back's farewell: after the Exit, Sadie's balloon is clicked (its middle) until the scene changes; the menu up again
+// (the Exit not taken) or the scene already left ends it at once
+{
+  const balloon = { cls: 'CWindowModelBalloon', shown: true, x: 290, y: 95, w: 450, h: 140 };
+  const scenes = [SHOP_SCENE, SHOP_SCENE, 12], clicks = [];
+  const left = await farewell({ snap: () => ({ scene: scenes.shift() ?? 12, windows: [balloon] }), click: async p => { clicks.push(p); },
+    wait: async () => {}, menuUp: () => false });
+  assert.deepEqual([left, clicks], [true, [[515, 165], [515, 165]]]);
+  assert.equal(await farewell({ snap: () => ({ scene: SHOP_SCENE, windows: [] }), click: async () => assert.fail('no click'), wait: async () => {}, menuUp: () => true }), false);
+  assert.equal(await farewell({ snap: () => ({ scene: 12, windows: [balloon] }), click: async () => assert.fail('no click'), wait: async () => {} }), true);
+  assert.equal(await farewell({ snap: () => null }), true);   // no bridge (tests): nothing to wait for
+}
 console.log('screens/shop_test: ok');

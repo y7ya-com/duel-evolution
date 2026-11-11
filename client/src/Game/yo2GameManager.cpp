@@ -41,7 +41,8 @@ CFukiDictionary* CGameMng::fukiDictionary() const { return dynamic_cast<CFukiDic
 bool CGameMng::modeIsLobby() const { return unk9c_ >= 0 && unk9c_ < 2; }
 
 // @yo2 0x00a58cc0 avatarValidate: bytes 1-9 must name parts of their own PBIN slot (accessories may be 32, none),
-// bytes 0 and 13-15 must be below 8
+// bytes 0 and 13-15 must be below 8. As the exe has it; the live client (recomp/ovr/worldparts.c) draws any disk and
+// any outfit in both worlds (the server enforces where an outfit may be worn).
 void avatarValidate(CAvatarData* data, int world, bool checkSeries) {
     bool ok = true;
     int32_t base = 0;

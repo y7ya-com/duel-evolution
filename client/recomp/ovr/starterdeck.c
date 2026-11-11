@@ -32,6 +32,7 @@ EM_JS_DEPS(rc_starter, "$stringToUTF8,$lengthBytesUTF8");
 uint32_t rc_halloc(uint32_t n, int zero);
 int rc_card_index(uint32_t passcode);   // rt/cardwire.cpp
 void o_006bfa80(CPU *c);
+void o_0068eca0(CPU *c);
 
 #define ACCOUNT_PTR 0x12711acu      // -> +0xc68 the account; its trunk at +0x18ed
 #define TRUNK_OFF 0x18ed
@@ -91,12 +92,8 @@ static void deck_to_editor(CPU *c, int show) {
     call(c, dw, 0x0094ee60, 0, 0, 0);   // rebuild
 }
 
-// 0x006bfa80 0x7127 TRADETRUNKEND (fastcall, the lobby): the trunk replaced, then the open trunk list follows it
-void f_006bfa80(CPU *c) {
-    uint32_t t = trunk_addr();
-    static uint8_t old[TRUNK_N];
-    if (t) memcpy(old, G(t), TRUNK_N);
-    o_006bfa80(c);
+// Update an already-open editor from the difference between complete trunk snapshots.
+static void editor_trunk_changed(CPU *c, uint32_t t, const uint8_t *old) {
     if (!t || !deck_scene()) return;
     uint32_t kl = RD32m(KABAN_LIST), changed = 0;
     for (uint32_t i = 0; i < TRUNK_N; i++) {
@@ -106,6 +103,31 @@ void f_006bfa80(CPU *c) {
     call(c, kl, 0x00971270, 0, 0, 0);   // applyCategory: newly owned cards into the shown list
     kaban_total(c);
     rc_log("starterdeck: open Edit Deck took %u trunk changes", changed);
+}
+
+// 0x006bfa80 0x7127 TRADETRUNKEND (fastcall, the lobby): the stock handler syncs the card case too.
+void f_006bfa80(CPU *c) {
+    uint32_t t = trunk_addr();
+    uint8_t old[TRUNK_N];
+    if (t) memcpy(old, G(t), TRUNK_N);
+    o_006bfa80(c);
+    if (t) editor_trunk_changed(c, t, old);
+}
+
+// HTTP purchases push 0x3101/02/03 on the account connection, without the native shop's 0x5212 handler.
+// 0x3103 only updates CMyUser::trunk in the exe. Sync kaban.bin/the card-case cache as the trade path does,
+// otherwise the next Edit Deck still has the pre-purchase inventory. Character loading does its own first sync.
+void f_0068eca0(CPU *c) {
+    uint32_t self = c->ecx, input = RD32m(self + 0xf0), t = self + TRUNK_OFF;
+    uint32_t packet = input ? RD32m(input + 0xc) : 0; // Yg socket -> current YgPacket
+    if (!packet || RD32m(packet) != 0x3103) { o_0068eca0(c); return; }
+    uint8_t old[TRUNK_N];
+    memcpy(old, G(t), TRUNK_N);
+    o_0068eca0(c);
+    uint32_t dm = RD32m(DECK_MGR);
+    if (!RD32m(PLAYER_DATA) || !RD32m(CARD_CASE) || !dm || !RD32m(dm + DM_DIR + 8) || !memcmp(old, G(t), TRUNK_N)) return;
+    call(c, self + 0x121c, 0x00ad7d80, 0, 0, 0); // cardDbSyncTrunk
+    editor_trunk_changed(c, t, old);
 }
 
 // ---------------------------------------------------------------- the starter deck

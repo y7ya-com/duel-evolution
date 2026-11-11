@@ -2,10 +2,13 @@
 // the Worker then hands the WorldDO the user id in USER_HEADER (always overwritten, so a client can't supply it).
 // The 2008 0x3003 login blob is never identity: it only says which game account, and that account must be the
 // peer's own (canUseAccount).
-import { verifySession } from "./auth.ts";
+import { ipBucketTag, verifySession } from "./auth.ts";
 import type { AuthEnv } from "./env.ts";
 
 export const USER_HEADER = "x-de-user";
+/** The game WebSocket's keyed IP-bucket tag (auth.ts ipBucketTag) and its DE user's creation time (ms), set only here:
+ *  graduation (ranking.ts) needs opponents on another network with an account old enough. */
+export const IPB_HEADER = "x-de-ipb", CREATED_HEADER = "x-de-user-created";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -23,12 +26,14 @@ export function originAllowed(request: Request, env: AuthEnv): boolean {
  */
 export async function gateUpgrade(request: Request, env: AuthEnv): Promise<Response | Request> {
   const fwd = new Request(request);
-  fwd.headers.delete(USER_HEADER);
+  for (const h of [USER_HEADER, IPB_HEADER, CREATED_HEADER]) fwd.headers.delete(h);
   if (env.DEV === "1" && !request.headers.has("Origin") && LOCAL_HOSTS.has(new URL(request.url).hostname)) return fwd;
   if (!originAllowed(request, env)) return new Response("forbidden", { status: 403 });
   const v = await verifySession(request, env);
   if (!v) return new Response("sign in first", { status: 401 });
   fwd.headers.set(USER_HEADER, v.userId);
+  fwd.headers.set(IPB_HEADER, await ipBucketTag(request.headers.get("cf-connecting-ip") ?? "none", env.BETTER_AUTH_SECRET));
+  if (v.createdAt !== null) fwd.headers.set(CREATED_HEADER, String(v.createdAt));
   return fwd;
 }
 

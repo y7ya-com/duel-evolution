@@ -42,7 +42,13 @@ function cardDb({ u8, u32, i32 }) {
       cache.set(id, c);
       return c;
     },
-    desc: id => (id > 0 && id < out.count() ? text(DESC, id) : ''),
+    desc(id) {
+      // The same original text used to verify the legacy scripts; preserve the player's selected language.
+      // g_systemConfig (System/yo2SystemConfig.h) -> language_ at +0x24: Japanese, English, German, French, Italian, Spanish, Korean.
+      const legacy = globalThis.Module?.yo2EraCards?.cards?.[id], config = u32(0x0127188c);
+      const lang = 'JEGFISK'[config ? u32(config + 0x24) : 1] || 'E';
+      return legacy?.text?.[lang] ?? (id > 0 && id < out.count() ? text(DESC, id) : '');
+    },
     // the game's dialogue text n (DuelText.cpp textById: DLG_Indx 0x012a11c0, 4 bytes each, into DLG_Text 0x012a1180):
     // an attribute's name is n = attr + 0x212, a race's race + 500
     dlg: n => { const p = data(0x012a1180), ix = data(0x012a11c0); return p && ix && n >= 0 && n < size(0x012a11c0) >>> 2 ? wz(p + u32(ix + 4 * n)) : ''; },

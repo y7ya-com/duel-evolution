@@ -71,7 +71,7 @@ describe.skipIf(!have)("free mode", () => {
     for (const [a, n] of [["aaaa", "Alfa"], ["bbbb", "Beta"]]) st.accounts[a].profiles = { "0": { ...PP.blankProfile(n), prog: 1 } };
     srv.game.store.saveRaw(st);
     const legal = { main: NPC_DECKS["51"].main.filter((x) => x !== SNATCH_STEAL), extra: NPC_DECKS["51"].extra };   // owns none of it
-    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const m = srv.game.pvp!.reserve(A.s, B.s, "autoduel") as unknown as PvpMatch;
     for (const [c, d] of [[A, legal], [B, NPC_DECKS["51"]]] as [Client, { main: number[]; extra: number[] }][]) {
       await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
       await send(c, 0x6600, new W().u32(d.main.length).u32(0).u32(d.extra.length).bytes());

@@ -250,3 +250,19 @@ copied: the build leaves them as relative imports.
 - Lay out in game pixels at 1x; the flip test (tools/flip.mjs) diffs your window against the engine's at 1x and 2x.
 - One file per screen group, owned by one session. A control you need that isn't in controls/ goes in your screen
   file; htmlui-bridge promotes it.
+
+## Runtime draw tables
+
+`onYo2Frame(tables, heap, slots, classes)` runs at Present. `tables` starts with the layout word `slots` (255),
+then `nhide, hide[slots], npass, pass[slots], nq, q[32][4], text[1024]` (u32 except UTF-16 text). The runtime
+ignores the tables if the layout word changes. Without `slots`, the legacy runtime has 63 entries and no header.
+The optional fourth argument points to an appended `count, vtables[slots]` (u32); never write it without that
+argument. Old bridges leave it empty (the runtime clears it before each callback); new bridges on old runtimes
+retain address-only behavior. Input offsets and the layout word are unchanged.
+
+Primary vtables (vtables.js offset 0) of enabled screen owners suppress instances before the bridge discovers their
+addresses. At each element, an address pass wins over an address hide, then a class hide; the nearest listed ancestor
+(including the element) decides. Thus a bust avatar or notice icon below a hidden window still passes. Class entries
+are published even when their windows do not exist or the DOM is hidden during scene loading. Only a ready layer or
+its bounded 3 s load hold may publish them; failure, timeout, disabling an owner, or a frame exception releases them.
+The empty runtime path remains one active-count load and compare.

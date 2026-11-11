@@ -69,7 +69,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
   it("starts, the challenger surrenders, both get their end; no duel-point history", async () => {
     const A = client("Alfa", "aaaa", 1), B = client("Beta", "bbbb", 2);
-    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
     for (const [c, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
       const d = NPC_DECKS[String(nid)];
       await send(c, 0x6001, new W().u32(c.s.pid!).bytes());
@@ -120,7 +120,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
   it("a room with «Time Limit» OFF shows no clock, but the player who never answers loses on time", async () => {
     const A = client("Alfa2", "aaaa", 1), B = client("Beta2", "bbbb", 2);
-    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
     m.roomTime = 0;
     AFK.s = 2;
     try {
@@ -156,7 +156,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
 
   it("spectators get the public view: neither player's hand", async () => {
     const A = client("Alfa3", "aaaa", 1), B = client("Beta3", "bbbb", 2);
-    const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+    const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
     const BLUE_EYES = 89631139, deck = Array(40).fill(BLUE_EYES);   // nothing can be summoned: every card stays hidden
     const deck32 = (ids: number[]) => { const w = new W().u32(ids.length); for (const x of ids) w.u32(x); return w.bytes(); };
     for (const c of [A, B]) {
@@ -204,7 +204,7 @@ describe.skipIf(!have)("PvP through the duel port", () => {
     /** A and B in a duel, at A's first decision */
     async function duelOn(tag: string) {
       const A = client("Alfa" + tag, "aaaa", 1), B = client("Beta" + tag, "bbbb", 2);
-      const m = srv.game.pvp!.reserve(A.s, B.s) as unknown as PvpMatch;
+      const m = srv.game.pvp!.reserve(A.s, B.s, "room") as unknown as PvpMatch;
       for (const [c, nid] of [[A, 51], [B, 54]] as [Client, number][]) {
         const d = NPC_DECKS[String(nid)];
         await send(c, 0x6001, new W().u32(c.s.pid!).bytes());

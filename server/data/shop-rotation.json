@@ -1,0 +1,488 @@
+{
+  "comment": "Core UR/SR picks follow docs/card-rarities.md groups and scripts/card-rarity-picks.json; local ydc.json decks supply context. Highlights greedily maximize new core-card coverage over boosters 1\u201348 (real sets win ties, then lowest id), up to highlightLimit. Fillers pair each rotating booster at least once per loop, with real sets assigned to relevant meta themes. Highlights may also be permanent Classics or overlapping fillers. forceOff wins; permanent shelves cannot be withdrawn; Secret Pack keys bypass rotation. File edits apply on deployment/reload; overrides are evaluated every request.",
+  "epoch": "2026-11-05T00:00:00.000Z",
+  "updateDays": 14,
+  "fillerDays": 28,
+  "leavingDays": 3,
+  "highlightLimit": 3,
+  "classics": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+  ],
+  "beginnerPacks": [
+    1001,
+    1002,
+    1003
+  ],
+  "pool": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48
+  ],
+  "forceOn": [],
+  "forceOff": [],
+  "themes": [
+    {
+      "theme": "2008 Meta Showcase",
+      "blurb": "Gladiator Beasts, Dark Armed Dragon and Lightsworn lead the shop; build the available engines with control support.",
+      "core": [
+        41470137,
+        48156348,
+        27346636,
+        78868776,
+        25924653,
+        35224440,
+        92373006,
+        5975022,
+        65192027,
+        14536035,
+        1475311,
+        28985331,
+        40921744,
+        92719314,
+        27174286,
+        9411399,
+        57774843,
+        95503687,
+        691925,
+        22624373,
+        21502796,
+        58996430,
+        94381039,
+        37742478
+      ],
+      "highlightCount": 3,
+      "highlighted": [
+        48,
+        47,
+        46
+      ],
+      "filler": [
+        23,
+        44
+      ]
+    },
+    {
+      "theme": "Lightsworn",
+      "blurb": "Mill toward Lumina revival and Judgment Dragon finishers.",
+      "core": [
+        57774843,
+        95503687,
+        691925,
+        22624373,
+        21502796,
+        58996430,
+        94381039,
+        37742478
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        48
+      ],
+      "filler": [
+        32,
+        48
+      ]
+    },
+    {
+      "theme": "Gadget Stun",
+      "blurb": "Gadget advantage backs a dense removal and disruption suite.",
+      "core": [
+        41172955,
+        86445415,
+        13839120,
+        97169186,
+        66788016,
+        93016201,
+        94853057,
+        56120475
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        40,
+        4
+      ],
+      "filler": [
+        27,
+        42
+      ]
+    },
+    {
+      "theme": "Dark Armed Return",
+      "blurb": "DARK setup and draw power support Dark Armed Dragon; Synchros are outside this pool.",
+      "core": [
+        65192027,
+        14536035,
+        1475311,
+        28985331,
+        40921744,
+        92719314,
+        27174286,
+        9411399
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        47
+      ],
+      "filler": [
+        22,
+        47
+      ]
+    },
+    {
+      "theme": "Monarch Control",
+      "blurb": "Tribute recurring resources into the Monarch removal toolbox.",
+      "core": [
+        12538374,
+        51945556,
+        4929256,
+        26205777,
+        73125233,
+        87910978,
+        68005187
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        33,
+        34
+      ],
+      "filler": [
+        31,
+        39
+      ]
+    },
+    {
+      "theme": "Gladiator Beasts",
+      "blurb": "Tag into a toolbox and contact-fuse for decisive board swings.",
+      "core": [
+        41470137,
+        48156348,
+        27346636,
+        78868776,
+        25924653,
+        35224440,
+        92373006,
+        5975022
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        46,
+        47
+      ],
+      "filler": [
+        24,
+        46
+      ]
+    },
+    {
+      "theme": "Goat Control",
+      "blurb": "Scapegoat and Metamorphosis open the Thousand-Eyes toolbox.",
+      "core": [
+        73915051,
+        46411259,
+        63519819,
+        34853266,
+        31560081,
+        8131171,
+        14087893,
+        71044499
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        5,
+        13
+      ],
+      "filler": [
+        28,
+        34
+      ]
+    },
+    {
+      "theme": "Diamond Dude Turbo",
+      "blurb": "Destiny draw engines meet explosive spell and Return payoffs.",
+      "core": [
+        13093792,
+        9411399,
+        45809008,
+        40044918,
+        58577036,
+        43040603,
+        23557835,
+        31423101
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        40,
+        24
+      ],
+      "filler": [
+        21,
+        41
+      ]
+    },
+    {
+      "theme": "Cyber Dragon",
+      "blurb": "Machine pressure and fusion payoffs define the next wave.",
+      "core": [
+        70095154,
+        74157028,
+        1546123,
+        64599569,
+        3659803,
+        77565204,
+        23171610,
+        3370104
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        37,
+        41
+      ],
+      "filler": [
+        37,
+        25
+      ]
+    },
+    {
+      "theme": "Perfect Circle",
+      "blurb": "Destiny revival engines feed powerful tribute-control threats.",
+      "core": [
+        56570271,
+        9411399,
+        80744121,
+        45809008,
+        47297616,
+        81439173,
+        73125233
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        41,
+        44
+      ],
+      "filler": [
+        16,
+        43
+      ]
+    },
+    {
+      "theme": "Chaos Control",
+      "blurb": "LIGHT and DARK resources lead to the original Chaos finishers.",
+      "core": [
+        72989439,
+        82301904,
+        9596126,
+        71413901,
+        7572887,
+        95956346,
+        83011277
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        29,
+        16
+      ],
+      "filler": [
+        29,
+        33
+      ]
+    },
+    {
+      "theme": "Zombie Revival",
+      "blurb": "Recurring Zombies turn graveyard setup into sustained pressure.",
+      "core": [
+        17259470,
+        63665875,
+        70595331,
+        92826944,
+        2204140,
+        77044671,
+        57281778,
+        57953380
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        23,
+        45
+      ],
+      "filler": [
+        20,
+        45
+      ]
+    },
+    {
+      "theme": "Warrior Toolbox",
+      "blurb": "Search the right Warrior and trade efficiently through control boards.",
+      "core": [
+        32807846,
+        7572887,
+        70074904,
+        74131780,
+        39507162,
+        76922029,
+        4041838
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        21,
+        33
+      ],
+      "filler": [
+        19,
+        35
+      ]
+    },
+    {
+      "theme": "OCG Cat Toolbox",
+      "blurb": "The available Cat and Monk engine, without the absent Synchro roster.",
+      "core": [
+        14878871,
+        423585,
+        92373006,
+        41470137,
+        60682203,
+        24508238
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        35,
+        43
+      ],
+      "filler": [
+        18,
+        44
+      ]
+    },
+    {
+      "theme": "Chaos Return",
+      "blurb": "Build banished resources for explosive Return turns.",
+      "core": [
+        9596126,
+        27174286,
+        23557835,
+        7572887,
+        70074904,
+        70095154,
+        88240808
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        37,
+        20
+      ],
+      "filler": [
+        30,
+        36
+      ]
+    },
+    {
+      "theme": "HERO Fusion",
+      "blurb": "Search HERO tools and turn graveyard resources into fusion pressure.",
+      "core": [
+        40044918,
+        37195861,
+        86188410,
+        69884162,
+        213326,
+        45906428,
+        80908502
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        37,
+        38
+      ],
+      "filler": [
+        38,
+        40
+      ]
+    },
+    {
+      "theme": "Hand Control",
+      "blurb": "Strip resources with the early hand-control power suite.",
+      "core": [
+        44763025,
+        17375316,
+        42829885,
+        76922029,
+        3078576,
+        23205979,
+        64697231
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        15,
+        23
+      ],
+      "filler": [
+        17,
+        15
+      ]
+    },
+    {
+      "theme": "Early Beatdown",
+      "blurb": "Efficient attackers, tribute bosses and early removal.",
+      "core": [
+        70781052,
+        7359741,
+        77585513,
+        69140098,
+        78658564,
+        12580477,
+        44095762
+      ],
+      "highlightCount": 2,
+      "highlighted": [
+        1,
+        7
+      ],
+      "filler": [
+        26,
+        43
+      ]
+    }
+  ]
+}

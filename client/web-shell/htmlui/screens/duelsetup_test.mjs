@@ -1,7 +1,8 @@
 // screens/duelsetup.js's pure parts under node: the switch looks from their sprites, the Move frame's size, the search
 // menu's row points, and prep (what a redraw depends on)
 import assert from 'node:assert/strict';
-import { tone, glow, moveFrame, rowPoint, prep } from './duelsetup.js';
+import { tone, glow, moveFrame, rowPoint, prep, relayout } from './duelsetup.js';
+import { readFileSync } from 'node:fs';
 
 const T = 'data/common/window/duel_btn_02_c01.png';
 const s = (src, o = {}) => ({ tex: T, src, col: [1, 1, 1, 1], a: 1, shown: true, ...o });
@@ -36,4 +37,50 @@ const fm = prep({ cls: 'CFindMenu', x: 230, y: 300, w: 256, h: 128, controls: [{
   { id: 6, cls: 'CWindowTaskBackStripe', parent: 5, alpha: 0.7 }] });
 assert.equal(fm.controls[0].cls, 'CWindowTaskFindRows');
 assert.ok(Math.abs(fm.controls[0].rowAlpha - 0.49) < 1e-9);
+// relayout: the duel windows' own controls on a grid, relabelled (the live snapshots in mock/); the engine ids stay
+const mock = n => JSON.parse(readFileSync(new URL(`../mock/duelsetup-${n}.json`, import.meta.url))).windows[0];
+const shown = w => w.controls.filter(c => !c.parent && c.shown !== false);
+const at = (w, id) => w.controls.find(c => c.id === id);
+const texts = w => shown(w).filter(c => /ShadowText$/.test(c.cls) && c.text).map(c => c.text);
+// Duel menu: the two switches side by side under their new captions, each count under its switch, "Duel (n.)" gone
+const live = mock('menu');
+for (const c of live.controls) if (c.cls === 'CWindowTaskShadowText' && c.x === 0 && c.y === 36) c.text = '12';
+for (const c of live.controls) if (c.cls === 'CWindowTaskShadowText' && c.x === 0 && c.y === 60) c.text = '3';
+const m = relayout(live);
+assert.deepEqual([at(m, 482719752), at(m, 482875400)].map(s => [s.x, s.y, s.w, s.label]),
+  [[22, 53, 224, 'Auto Duel (Ranked)'], [246, 53, 224, 'Create Duel (Unranked)']]);
+assert.deepEqual(texts(m).sort(), ['Auto Duel (Ranked)', 'Create Duel (Unranked)', 'Duel Menu', 'Open rooms: 3', 'Players searching: 12',
+  'Ranked duels change your rating. Created duels don\'t.'].sort());
+// a caption's shadow moves with it (the same offset), and keeps its words in step
+const cap = at(m, 482870280), sh = at(m, 482872328);
+assert.deepEqual([sh.x - cap.x, sh.y - cap.y, sh.text, sh.w], [1, 1, 'Auto Duel (Ranked)', 224]);
+assert.equal(at(m, 482707464).shown, false);   // "Duel (n.)"'s shadow
+assert.equal(at(m, 167814408).x, 176);         // Cancel stays
+// Auto Duel: Single | Match | Both on one row, Level limit On | Off under it; OK / Cancel, the window size, stay
+const f = relayout(mock('find'));
+assert.equal(at(f, 307430536).text, 'Auto Duel (Ranked)');
+assert.deepEqual([307436296, 307576200, 307732104, 307870344, 308026888].map(id => [at(f, id).x, at(f, id).y]),
+  [[21, 64], [171, 64], [321, 64], [21, 128], [246, 128]]);
+assert.deepEqual([at(f, 307870344).checked, at(f, 307436296).checked], [true, true]);
+assert.ok(texts(f).includes('Match (best of 3)') && texts(f).includes('On (similar level)') && texts(f).includes('Level limit'));
+assert.deepEqual([f.w, f.h, at(f, 176334440).x, at(f, 208600936).x], [492, 216, 50, 299]);
+// Create Duel: four labelled rows evenly down the well (20 px apart), no password (its field and label not drawn), the
+// help under the rows saying where open duels are listed
+const w = relayout(mock('wait'));
+assert.equal(at(w, 180042184).text, 'Create Duel (Unranked)');
+assert.deepEqual([178967240, 471074824, 471213064, 472029192, 472167432, 473633928, 473773960, 475242120].map(id => [at(w, id).x, at(w, id).y]),
+  [[150, 53], [310, 53], [150, 105], [310, 105], [150, 157], [310, 157], [150, 209], [310, 209]]);
+assert.equal(at(w, 172549320).shown, false);   // the password field
+assert.equal(at(w, 475382024).shown, false);   // the game's own "Password"
+assert.ok(['Duel mode', 'Time limit', 'Spectators', 'Surrender', 'Not allowed'].every(t => texts(w).includes(t)));
+assert.ok(!texts(w).some(t => /password/i.test(t)), 'no password label');
+const help = texts(w).find(t => /Duels tab/.test(t)), helpCtl = shown(w).find(c => c.text === help);
+assert.equal(help.split('\n')[0], "Open duels show in the chat's Duels tab.");
+assert.doesNotMatch(help, /Discord/, 'no Discord mention (owner)');
+assert.match(help, /don't change your rating/);
+// no hole: the help starts 21 px under the last row (209 + 32) and ends (two lines) 23 px above the well's end (317)
+assert.deepEqual([helpCtl.y - (209 + 32), 317 - (helpCtl.y + 16 * help.split('\n').length)], [21, 23]);
+// prep relays them out; other windows pass through
+assert.equal(prep(mock('find')).controls.find(c => c.id === 307732104).x, 321);
+{ const c = mock('config'); assert.equal(relayout(c), c); }
 console.log('duelsetup ok');

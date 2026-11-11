@@ -20,18 +20,19 @@ const gpuFlags = () => process.env.YO2_GPU_FLAGS != null ? process.env.YO2_GPU_F
   : process.platform === 'darwin' ? ['--use-angle=metal'] : ['--use-angle=vulkan', '--enable-features=Vulkan', '--ignore-gpu-blocklist'];
 
 // scrollbars: show the native scroll bars (headless hides them by default: a capture of a native scroller shows none)
-export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false } = {}) {
+// args: more Chrome flags (warm.mjs: no background throttling for its second player's window); profile: the profile
+// directory (warm.mjs: on disk, not the RAM-backed /tmp)
+export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width = 1024, height = 768, mobile = false, scrollbars = false, args = [], profile: dir } = {}) {
   const free = process.platform === 'darwin'   // Linux: MemAvailable (page cache counts as free, as memory_pressure's)
     ? +(/free percentage: (\d+)%/.exec(execSync('memory_pressure').toString())?.[1] ?? 100)
     : Math.round(+/MemAvailable:\s+(\d+)/.exec(readFileSync('/proc/meminfo', 'utf8'))[1] * 1024 / totalmem() * 100);
   const min = +(process.env.CDP_MIN_FREE || 25);   // CDP_MIN_FREE=15: a big machine where 25 % is still gigabytes
   if (free < min) throw new Error(`only ${free}% memory free`);
-  // this port's Chrome from a run that died without cleaning up (ports are per slot or per pid): never another port's
-  try { execSync(`pkill -9 -f -- '--remote-debugging-port=${port} '`); } catch {}
-  const profile = '/tmp/htmlui-chrome-' + process.pid;
+  // Refuse an occupied port; only this launch's child PID may be stopped.
+  try { await fetch(`http://127.0.0.1:${port}/json/version`); throw new Error(`CDP port ${port} is already in use`); } catch (e) { if (e.message.includes('already in use')) throw e; }
+  const profile = dir || process.env.HOME + '/.cache/de-scratch/shopdirect/chrome-' + process.pid;
   const ch = spawn('nice', ['-n', '10', chromePath(), '--headless=new', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), 'about:blank'], { stdio: 'ignore' });
-  // the trailing space in the pkill pattern above needs an argument after the port: --user-data-dir follows it
+    `--user-data-dir=${profile}`, ...(scrollbars ? [] : ['--hide-scrollbars']), '--no-first-run', ...gpuFlags(), ...args, 'about:blank'], { stdio: 'ignore' });
   const kill = () => { ch.kill('SIGKILL'); try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} };
   process.on('exit', kill);
   // a SIGTERM / SIGINT (a stopped run, buildslot, Ctrl-C) ends the process without 'exit' handlers: make it an exit
@@ -63,7 +64,7 @@ export async function launch({ port = 9480 + (process.pid % 100), dpr = 1, width
   if (mobile) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   const go = async (url, ready = 'window.__ready') => {
     await send('Page.navigate', { url });
-    for (let i = 0; i < 100; i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
+    for (let i = 0; i < +(process.env.CDP_READY_POLLS || 100); i++) { await sleep(100); if (await ev(`!!(${ready})`).catch(() => false)) return; }
     throw new Error('not ready: ' + url + '\n' + logs.join('\n'));
   };
   const shot = async (clip) => {

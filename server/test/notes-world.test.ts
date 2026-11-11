@@ -87,35 +87,67 @@ describe("NPC list (mundo/npc.py, research/mundo, research/npcreglas)", () => {
 });
 
 describe("avatar (mundo/avatar.py, research/avatar)", () => {
-  it("restores saved world outfits on lobby selection and clears stale character looks", async () => {
+  it("one look for both worlds: two different saved looks become one at lobby selection (a, or b when last in the Academy); stale looks cleared", async () => {
     const h = harness(), A = h.client("A");
-    await A.account(0, "Alice"); await A.enterRoom();
+    await A.account(0, "Alice");
+    { const st = h.state(); (Object.values(st.accounts)[0] as any).profiles["0"].rec.lv = 5; h.game.store.saveRaw(st); }
+    await A.enterRoom();
     const session = h.game.hub.byPid(A.pid!)!;
     const domino = Uint8Array.from([1, 2, 32, 48, 64, 96, 112, 144, 176, 32, 0, 0, 0, 0, 0, 0]);
     const academy = domino.slice(); academy[6] = 128; academy[8] = 184;
-    const state = h.state();
-    const p = (Object.values(state.accounts)[0] as any).profiles["0"];
-    p.avatar = { a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex") };
-    h.game.store.saveRaw(state);
+    const save = (avatar: object) => {
+      const state = h.state();
+      (Object.values(state.accounts)[0] as any).profiles["0"].avatar = avatar;
+      h.game.store.saveRaw(state);
+    };
+    save({ a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex") });
     session.partsW.set(0, new Uint8Array(16));
     h.game.hub.select(session.lobby!, 0, 5, "Alice");
-    expect(session.partsW.get(0)).toEqual(domino);
+    // no record of the last world, and Domino's (a) still in its starter clothes: the Academy's (b) is kept
+    expect(session.partsW.get(0)).toEqual(academy);
     expect(session.partsW.get(1)).toEqual(academy);
     h.game.withCtx(session, () => {
-      expect(h.game.duelParts(null, 0)).toEqual(domino);
+      expect(h.game.duelParts(null, 0)).toEqual(academy);
       expect(h.game.duelParts(null, 1)).toEqual(academy);
     });
+    const dressed = domino.slice(); dressed[6] = 0x76;                // a Domino look in other clothes: Domino's (a) is kept
+    save({ a: Buffer.from(dressed).toString("hex"), b: Buffer.from(academy).toString("hex") });
+    h.game.hub.select(session.lobby!, 0, 5, "Alice");
+    expect(session.partsW.get(1)).toEqual(dressed);
+    save({ a: Buffer.from(domino).toString("hex"), b: Buffer.from(academy).toString("hex"), w: 1 });
+    h.game.hub.select(session.lobby!, 0, 5, "Alice");
+    expect(session.partsW.get(0)).toEqual(academy);                // last in the Academy: its look (b) is kept
+    expect(session.partsW.get(1)).toEqual(academy);
     h.game.hub.select(session.lobby!, 1, 5, "Other");
     expect(session.partsW.get(0)?.[0]).toBe(0);
     expect(session.partsW.get(1)?.[6]).toBe(128);
     expect(session.partsW.get(0)).not.toEqual(domino);
   });
 
-  it("a missing world outfit keeps the face and uses the correct default uniform", () => {
+  it("a look saved for one world only is the look in both (its face and its outfit)", () => {
     const p = PP.blankProfile("Alice");
     p.avatar = { b: "0102203040608090b820000000000000" };
-    expect([...PP.avatarParts(p, 0)].slice(0, 9)).toEqual([1, 2, 32, 48, 64, 96, 112, 144, 176]);
-    expect(PP.avatarParts(p, 1)[6]).toBe(128);
+    expect([...PP.avatarParts(p, 0)].slice(0, 9)).toEqual([1, 2, 32, 48, 64, 96, 128, 144, 184]);
+    expect(PP.avatarParts(p, 1)).toEqual(PP.avatarParts(p, 0));
+    expect(p.avatar.a).toBe(p.avatar.b);
+  });
+
+  it("unifyLook: differing looks keep b when last in the Academy (w = 1) or a is in Domino's starter clothes, else a; one present is copied to the other", () => {
+    const A = "0102203040607090b020000000000000", B = "0102203040608090b820000000000000";
+    const p: any = { avatar: { a: A, b: B, w: 1 } };
+    expect(PP.unifyLook(p)).toBe(true);
+    expect([p.avatar.a, p.avatar.b]).toEqual([B, B]);
+    const q: any = { avatar: { a: A, b: B } };
+    expect(PP.unifyLook(q)).toBe(true);
+    expect([q.avatar.a, q.avatar.b]).toEqual([B, B]);                 // A wears Domino's starter 0x70
+    const D = "0102203040607690b020000000000000", d: any = { avatar: { a: D, b: B } };
+    expect(PP.unifyLook(d)).toBe(true);
+    expect([d.avatar.a, d.avatar.b]).toEqual([D, D]);
+    const r: any = { avatar: { b: B } };
+    expect(PP.unifyLook(r)).toBe(true);
+    expect([r.avatar.a, r.avatar.b]).toEqual([B, B]);
+    expect(PP.unifyLook(r)).toBe(false);                             // already one look: nothing to do
+    expect(PP.unifyLook({ avatar: {} } as any)).toBe(false);
   });
 
   it("P0-4: 0x5320 for another connected player -> 0x5340 with his name and last position", async () => {
@@ -139,7 +171,7 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     const my = A.link(5732);
     my.send(0x3003, A.key); await my.wait(0x3004);
     let n = my.mark(); my.send(0x4100, [5, 0]); const pid = u32((await my.wait(0x4101, n))!, 4);
-    const parts = Uint8Array.from([0, 1, 0x20, 0x30, 0x40, 0x60, 0x70, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0]);
+    const parts = Uint8Array.from([0, 1, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb0, 0x20, 0, 0, 0, 0, 0, 0]);
     n = my.mark(); my.send(0x4170, cat(be32(0), parts, new Uint8Array(4)));
     const d = (await my.wait(0x4181, n))!;
     expect([u32(d), u32(d, 4), [...d.subarray(8)]]).toEqual([pid, 0, [...parts]]);
@@ -147,7 +179,7 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     expect(p.avatar.a).toBe(Buffer.from(parts).toString("hex"));   // 0x4170 world 0 -> avatar «a»
   });
 
-  it("0x4170 in a room: the others get 0x4181 with the new parts (FUN_006b9930)", async () => {
+  it("0x4170 in a room: the others get 0x4181 with the new parts for both worlds (FUN_006b9930; one look)", async () => {
     const h = harness();
     const A = h.client("A"), B = h.client("B");
     await A.account(0, "Alice"); await B.account(0, "Bob");
@@ -155,8 +187,10 @@ describe("avatar (mundo/avatar.py, research/avatar)", () => {
     const parts = Uint8Array.from([0, 2, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0]);
     const n = A.room!.mark();
     B.room!.send(0x4170, cat(be32(1), parts, new Uint8Array(4)));
-    const d = (await A.room!.wait(0x4181, n, (x) => u32(x) === B.pid))!;
-    expect([u32(d, 4), [...d.subarray(8)]]).toEqual([1, [...parts]]);
+    await A.room!.wait(0x4181, n, (x) => u32(x) === B.pid && u32(x, 4) === 1);
+    await h.tick(100);
+    const got = A.room!.all(0x4181, n).filter((x) => u32(x) === B.pid).map((x) => [u32(x, 4), [...x.subarray(8)]]);
+    expect(got).toEqual([[0, [...parts]], [1, [...parts]]]);
   });
 });
 

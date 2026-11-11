@@ -5,7 +5,7 @@
 // COOKIE is added to every forwarded request: the session cookie is __Secure-, which a browser won't keep over http.
 // SHIP=<infra/out/<prefix>> (a DRY=1 ship-client.sh): the page as shipped instead (index.html at /, its own scripts and
 // the bridge it injects; loader/ from web-shell/loader). HTMLUI=on: /htmlui.json turns CWindowPlayerSelect on (the
-// R2 file the owner's approval adds), HTMLUI=<file>.json serves that file; otherwise it is absent, as it ships.
+// R2 file the owner's approval adds), HTMLUI=<file> or HTMLUI_JSON=<file>: that file (live's); otherwise it is absent.
 //   -> http://127.0.0.1:8942/  (production's query: same-origin http/gateway, server 127.0.0.1, offset 1000)
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -45,7 +45,11 @@ const srv = createServer((req, res) => {
   if (p.includes('..')) { res.writeHead(403, ISO); return res.end(); }
   if (/^\/(api|yo2|app)\/|^\/__warm/.test(p)) return forward(req, res);
   if (p === '/htmlui.json') {
-    if (HTMLUI !== 'on' && !HTMLUI?.endsWith('.json')) { res.writeHead(404, ISO); return res.end(); }
+    // HTMLUI=<file> / HTMLUI_JSON=<file>: that htmlui.json as is (live's: curl https://original.ygoevolution.com/htmlui.json), the page
+    // then runs with the site's switches (its classes on, Modern UI parked)
+    if (process.env.HTMLUI_JSON) { res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' }); return res.end(readFileSync(process.env.HTMLUI_JSON)); }
+    if (HTMLUI && HTMLUI !== 'on') { res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' }); return res.end(readFileSync(HTMLUI)); }
+    if (HTMLUI !== 'on') { res.writeHead(404, ISO); return res.end(); }
     res.writeHead(200, { ...ISO, 'Content-Type': 'application/json' });
     // HTMLUI=<file>.json: that file (live's R2 htmlui.json, say)
     return res.end(HTMLUI === 'on' ? JSON.stringify({ on: ['CWindowPlayerSelect'] }) : readFileSync(HTMLUI));
@@ -71,6 +75,8 @@ const srv = createServer((req, res) => {
   let st;
   try { st = statSync(f); } catch { res.writeHead(404, ISO); return res.end(); }
   const type = MIME[f.split('.').pop()] || 'application/octet-stream';
+  // Like the live range endpoint: stable across visits, changes when the file changes.
+  const fileHeaders = { ...ISO, ETag: `"${st.size}-${Math.trunc(st.mtimeMs)}"` };
   if (p === '/game/files.txt') {   // + the card table, served below
     const extra = `${statSync(CARDS).size}\tmerge/data/card_passcode.bin\n`;
     res.writeHead(200, { ...ISO, 'Content-Type': 'text/plain' });
@@ -83,10 +89,10 @@ const srv = createServer((req, res) => {
   const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
   if (m) {
     const a = +m[1], b = m[2] ? Math.min(+m[2], st.size - 1) : st.size - 1;
-    res.writeHead(206, { ...ISO, 'Content-Type': type, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1, 'Accept-Ranges': 'bytes' });
+    res.writeHead(206, { ...fileHeaders, 'Content-Type': type, 'Content-Range': `bytes ${a}-${b}/${st.size}`, 'Content-Length': b - a + 1, 'Accept-Ranges': 'bytes' });
     return createReadStream(f, { start: a, end: b }).pipe(res);
   }
-  res.writeHead(200, { ...ISO, 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes' });
+  res.writeHead(200, { ...fileHeaders, 'Content-Type': type, 'Content-Length': st.size, 'Accept-Ranges': 'bytes' });
   if (req.method === 'HEAD') return res.end();
   createReadStream(f).pipe(res);
 });

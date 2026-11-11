@@ -33,3 +33,25 @@ writes the client's card tables (`merge/data/bin#/CARD_*.bin`, shipped with the 
 `cardart.py pack` and `table`, then `scripts/passcode_gamedata.py`, which on every run recomputes `wire`/`wireHash` from
 `cards.json` and puts the new cards in `valid_cards`, `duel.json` and the shop (its `NEW_PACKS`, the rest as single
 cards). The client's `card_passcode.bin` and the server's `wireHash` must match: ship them together.
+
+### 2008 effects and printed text
+
+`src/duel/engine/era2008.json` is the shared catalog for legacy effects and client text. The engine keeps the
+existing 16 `scripts.pack` overrides and restores the remaining listed cards through `era2008.ts`: reviewed
+ProjectIgnis pre-errata counterparts or checked edits to modern scripts. `GetID()` still binds to the original
+passcode. Missing scripts or changed patch inputs fail at engine startup instead of quietly loading a modern effect.
+The catalog intentionally uses the September 2008 rules, rather than indiscriminately selecting the earliest printing
+(e.g. Ultimate Offering's older, unrestricted version predates this format).
+
+`client/tools/era2008_assets.py` reads that catalog and the owner's original `merge.dat`. It emits the original
+printed card faces, thumbnails, and localized descriptions, including alternate art. The client mounts those loose
+files over the modern full-card images; the modern deck editor reads the same original effect descriptions.
+Generated output stays private. Add a catalog entry, implement its script selection/patch, and add an engine behavior
+test when restoring another card. The generator refuses missing original faces or descriptions.
+
+The normal `infra/ship-client.sh` includes these assets under a content hash and injects their configuration before
+the runtime starts. Rebuild **all three** runtimes after changing `lazyfs.js`; shipping refuses older runtime builds.
+Set `YO2_MERGE` (or `YO2_GAME`) to the owner's original game, and `YO2_ASSET_PYTHON` to a Python with the cardart tools'
+Pillow/numpy dependencies if the default `python3` does not have them. Ship client and server from the same main
+commit using the standard release scripts; the legacy rules are bundled with the Worker, so no single-file R2
+engine upload is needed. Existing open tabs need to reload for the matching printed text.

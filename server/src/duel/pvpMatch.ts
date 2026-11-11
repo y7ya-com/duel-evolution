@@ -1,3 +1,4 @@
+import { boundOf } from "../game/starter.ts";
 // py pvp_match.py (PVP): Matches (reservations {pidA, pidB} left by an accepted challenge, and the routing of duel
 // connections: the one whose 0x6001 has a reserved pid belongs to its PvpMatch) and PvpMatch (the synchronized start of
 // both clients, the duel through ocgSession.PvpSession, the end with each one's lobby, surrender / disconnection /
@@ -10,6 +11,8 @@ import { type Session } from "../game/hub.ts";
 import { entryKind } from "../game/gate.ts";
 import * as PP from "../game/persist.ts";
 import { freeRecord, isFree } from "../game/freemode.ts";
+import * as RK from "../game/ranking.ts";
+import { pushRankBits, wearNewUniform } from "../game/cosmetics.ts";
 import { DEFAULT_CFG } from "./translator/consts.ts";
 import { cardmap, type Deck } from "./data.ts";
 import { duelsvrinfomsg, timeup_warning } from "./lockstep.ts";
@@ -182,15 +185,17 @@ export class Matches {
   constructor(readonly g: Game, readonly pause: number, readonly test: boolean) {}
   log(s: string) { this.g.log(s); }
 
-  reserve(sa: Session, sb: Session): PvpMatch {
+  /** A match between sa and sb. `origin`: how it was made, said by the server code that made the pairing (lobby.ts,
+   *  tournaments.ts), never by a client; only a ranked one (ranking.ts isRankedOrigin: Autoduel) is rated. */
+  reserve(sa: Session, sb: Session, origin: RK.MatchOrigin): PvpMatch {
     for (const s of [sa, sb]) { const old = this.pids.get(s.pid!); if (old) old.cancel("nueva reserva"); }
-    const m = new PvpMatch(this, sa, sb);
+    const m = new PvpMatch(this, sa, sb, origin);
     this.pids.set(sa.pid!, m); this.pids.set(sb.pid!, m);
     m.roomTime = this.room(sa, sb, (r) => (r.x?.length >= 2 ? (r.x[1] ? 1 : 0) : undefined));
     m.matchStyle = this.room(sa, sb, (r) => r.dstyle);
     m.roomSurrender = this.room(sa, sb, (r) => (r.x?.length >= 1 ? (r.x[0] ? 1 : 0) : undefined));
     m.roomWatch = this.room(sa, sb, (r) => (r.wmode === 0 || r.dstyle === 6 ? 0 : 1));
-    this.log(`[pvp] reserva ${m.name}: ${sa.acct} contra ${sb.acct}` + (m.roomTime === 0 ? " (sala con «Límite de Tiempo» OFF)" : "")
+    this.log(`[pvp] reserva ${m.name}: ${sa.acct} contra ${sb.acct} (${origin}, ${m.ranked ? "ranked" : "unranked"})` + (m.roomTime === 0 ? " (sala con «Límite de Tiempo» OFF)" : "")
       + (m.roomSurrender === 0 ? " (sala con «Rendirse» OFF)" : "") + (m.matchStyle === MATCH_STYLE ? (m.bo3() ? " (MATCH al mejor de 3)" : " (sala de match)") : ""));
     return m;
   }
@@ -308,8 +313,13 @@ export class PvpMatch {
   private recAt = [0, 0];
   private chain: Promise<void> = Promise.resolve();
 
-  constructor(readonly hub: Matches, sa: Session, sb: Session) {
+  /** Ranked (rated): an Autoduel match only (ranking.ts isRankedOrigin), never in free mode (game/freemode.ts). */
+  readonly ranked: boolean;
+
+  constructor(readonly hub: Matches, sa: Session, sb: Session, readonly origin: RK.MatchOrigin) {
+    if (!RK.MATCH_ORIGINS.includes(origin)) throw new Error(`PvP match origin ${String(origin)}`);
     PvpMatch.n++;
+    this.ranked = RK.isRankedOrigin(origin) && !isFree(sa) && !isFree(sb);
     this.g = hub.g;
     this.name = `pvp-${PvpMatch.n}`;
     this.sess = [sa, sb];
@@ -650,7 +660,9 @@ export class PvpMatch {
     this.watchPump();
     this.xpLevels();
     if (!this.bo3()) {
+      this.rate(winner, why, turns);
       for (const k of [0, 1]) this.finish(k, wv(k), why, turns, { svr: svr[k] ?? null });
+      this.rated();
       this.duellogRecord(winner, why, turns);
       return this.closeMatch();
     }
@@ -660,10 +672,12 @@ export class PvpMatch {
     this.log(`[pvp] ${this.name}: partida ${this.games.length} del match: ${winner === null ? "empate" : `gana ${winner}`} (${why})`
       + (over ? ` -> match acabado: ${mwin === null ? "empate" : `gana ${mwin}`}` : " -> sigue"));
     const fin = close ? DFM.FINISH_CLOSE : null;
+    if (over) this.rate(mwin, why, turns);
     for (const k of [0, 1]) {
       const mres = !over ? null : mwin === null ? "draw" : mwin === k ? "win" : "lose";
       this.finish(k, wv(k), why, turns, { svr: svr[k] ?? null, fin, score: this.score(k), last: over, mres });
     }
+    this.rated();
     if (over) { this.duellogRecord(mwin, why, turns); return this.closeMatch(); }
     this.betweenBegin(winner);
   }
@@ -701,8 +715,10 @@ export class PvpMatch {
     if (!late.length) return;
     if (late.length === 1) {
       const loser = late[0];
+      this.rate(1 - loser, DFM.WHY_TIMEOUT, 0);
       this.finish(loser, 1, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(loser) });
       this.finish(1 - loser, 0, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(1 - loser) });
+      this.rated();
     } else for (const k of [0, 1]) this.finish(k, null, DFM.WHY_TIMEOUT, 0, { played: false, svr: SVR_TIMEUP, score: this.score(k) });
     this.closeMatch();
   }
@@ -740,8 +756,10 @@ export class PvpMatch {
     const o = 1 - i;
     this.between = this.needStart = false;
     this.log(`[pvp] ${this.name}: el jugador ${i} ${motivo} entre partidas del match: gana el match ${o}`);
+    this.rate(o, DFM.WHY_DISCONNECT, 0);
     this.finish(i, 1, DFM.WHY_DISCONNECT, 0, { played: false, ends: false, send: false });
     this.finish(o, 0, DFM.WHY_DISCONNECT, 0, { svr: SVR_DISCONNECT, score: this.score(o), played: false, ends: false });
+    this.rated();
     this.duellogRecord(o, DFM.WHY_DISCONNECT);
     this.closeMatch();
   }
@@ -934,6 +952,56 @@ export class PvpMatch {
 
   private svrinfo(code: number): Uint8Array { return duelsvrinfomsg(code, 1); }
 
+  // ---- ranked rating (game/ranking.ts): one rated result per finished ranked (Autoduel) match
+  private ratings: [RK.Rank | null, RK.Rank | null] | null = null;
+  /** The match's qualifying win for graduation (ranking.ts gradQualifies): the winner's side and the loser's account. */
+  private gradWin: { k: number; opp: string; nets: readonly string[] } | null = null;
+  /** The accounts finish() put a just-reached school's uniform on (cosmetics.ts wearNewUniform): rated() shows it. */
+  private dressed = new Set<string>();
+  /** Both new ratings from both records BEFORE the result (finish() writes each into its profile). `winner` is the
+   *  match's (null = draw). Ranked = Autoduel only (this.ranked, ranking.ts isRankedOrigin): a room, a direct invite
+   *  or a tournament game is unranked and leaves p.rank, the uniforms and graduation's qualifying wins alone (its MP,
+   *  XP, record, stats and card are finish()'s, as for any match). Unrated too: free mode, a server restart (gameEnd
+   *  voids it first). Either world: a ranked match is rated wherever it was made. */
+  private rate(winner: number | null, why: string, turns: number): void {
+    this.ratings = null;
+    this.gradWin = null;
+    if (this.g.restarting || this.sess.some((s) => isFree(s))) return;
+    if (!this.ranked) {
+      this.log(`[rank] ${this.name}: ${winner === null ? "draw" : `winner ${winner}`} (${why}): unranked (${this.origin}): rating, uniforms and graduation untouched`);
+      return;
+    }
+    try {
+      const pre = this.sess.map((s) => this.asSess(s, () => { const st = this.g.loadState(); return RK.rankOf(PP.profile(st, PP.activeSlot(st))); })) as [RK.Rank, RK.Rank];
+      const forfeit = why === DFM.WHY_SURRENDER || why === DFM.WHY_TIMEOUT || why === DFM.WHY_DISCONNECT;
+      const secs = this.t0 ? now() - this.t0 : 0, short = turns < PP.ECON.PVP_MIN_TURNS && secs < PP.ECON.PVP_MIN_S;
+      const o: RK.Outcome = { winner: winner === 0 || winner === 1 ? winner : null, forfeit, short }, at = Math.floor(this.g.clock.time() * 1000);
+      const net = RK.sameNetwork(this.sess[0].ipbs, this.sess[1].ipbs);   // one connection on both sides: nobody is rated
+      this.ratings = net ? [null, null] : RK.rateMatch(pre[0], pre[1], [this.sess[0].acct, this.sess[1].acct], o, at);
+      const line = (k: number) => { const r = this.ratings![k]; return r ? `${Math.round(pre[k].rating)}->${Math.round(r.rating)} ${RK.rankInfo(r).label}` : "unrated"; };
+      // graduation's qualifying win: the sessions' network tags and account ages (hub.ts Session), the records before
+      const side = (k: 0 | 1): RK.GradSide => ({ acct: this.sess[k].acct, ipbs: this.sess[k].ipbs, created: this.sess[k].userCreated, rank: pre[k] });
+      const sides: [RK.GradSide, RK.GradSide] = [side(0), side(1)];
+      const nogo = RK.gradQualifies(o, this.ratings, sides, at, this.origin);
+      if (nogo === null && o.winner !== null) this.gradWin = { k: o.winner, opp: this.sess[1 - o.winner].acct, nets: [...this.sess[1 - o.winner].ipbs] };
+      this.log(`[rank] ${this.name}: ${winner === null ? "draw" : `winner ${winner}`} (${why}${short ? ", short" : ""}): ranked (${this.origin}): 0 ${line(0)}, 1 ${line(1)}`
+        + `; graduation: ${nogo ?? "qualifying win"}` + (net ? "; same network: unrated" : ""));
+    } catch (e) { this.ratings = null; this.log(`[EXC] ${this.name}: rating: ${errStr(e)}`); }
+  }
+  /** After finish() wrote the result: both duelists get their PBIN bits again (cosmetics.ts pushRankBits), for a school
+   *  just reached and for graduation (the match's XP or qualifying win can complete it: ranking.ts gradUpdate). Nothing is
+   *  taken back and no look reset: unlocks are for good; a school's uniform put on in finish() is shown. Not in free mode
+   *  (no rating, no XP) or a restart. */
+  private rated(): void {
+    const dressed = this.dressed;
+    this.ratings = null;
+    this.gradWin = null;
+    this.dressed = new Set();
+    if (this.g.restarting || this.sess.some((s) => isFree(s))) return;
+    try { pushRankBits(this.g, this.sess.map((s) => s.acct), dressed); }
+    catch (e) { this.log(`[EXC] ${this.name}: rank bits: ${errStr(e)}`); }
+  }
+
   /** [LV of player 0, of 1] before the duel (read once). */
   private xpLevels(): number[] {
     if (this.xpLv) return this.xpLv;
@@ -961,9 +1029,18 @@ export class PvpMatch {
       if (isFree(s)) {   // free mode: its own record only; no MP, LV, stats, titles or card (game/freemode.ts)
         if (played && last) freeRecord(p, res === DFM.RESULT_WIN ? true : res === DFM.RESULT_LOSE ? false : null);
       } else {
+        if (PP.progression()) boundOf(p);
+        p.prize_unbound = false;
         if (played) {
           xp = this.xp(p, k, res, last, mres, turns);
           pvpRecord(this.g, p, res, turns);
+        }
+        const rank = this.ratings?.[k];
+        if (rank) { const was = RK.rankView(p).bestSchool; p.rank = rank; if (wearNewUniform(p, was)) this.dressed.add(s.acct); }
+        if (this.gradWin?.k === k) {
+          const what = RK.gradWin(p, this.gradWin.opp, this.gradWin.nets), gp = RK.gradProgress(p);
+          this.log(`[grad] ${this.name}: ${s.acct.slice(0, 6)}…: qualifying win ${what}, `
+            + `${gp.opponents}/${gp.opponentsRequired} opponents, LV ${gp.level}/${gp.levelRequired}${RK.isGraduated(p) ? ", graduated" : ""}`);
         }
         if (last) [packs, card] = this.card(p, why, lob !== null, this.bo3());
       }
@@ -971,8 +1048,9 @@ export class PvpMatch {
       return PP.playerDataUpdate(p);
     });
     this.log(`[pvp] ${this.name}: fin para ${k} (${s.acct}): ${wv === 0 ? "gana" : wv === 1 ? "pierde" : "empate"} (${why})`
-      + (last ? "" : " (partida del match)")
-      + (xp ? `; puntuación ${(xp as P).delta >= 0 ? "+" : ""}${(xp as P).delta} -> ${(xp as P).score}, LV ${(xp as P).lv_old} -> ${(xp as P).lv}` : "") + (card ? `; ${card}` : ""));
+      + (last ? "" : " (partida del match)") + `; ${this.ranked ? "ranked" : "unranked"} (${this.origin})`
+      + (xp ? `; puntuación ${(xp as P).delta >= 0 ? "+" : ""}${(xp as P).delta} -> ${(xp as P).score}, LV ${(xp as P).lv_old} -> ${(xp as P).lv}`
+        + ((xp as P).why ? ` (sin XP: ${(xp as P).why})` : "") : "") + (card ? `; ${card}` : ""));
     if (!on) return;
     if (lob) lob.post(DFM.M_PDU, pdu);
     if (svr && PVP_SVRINFO) this.put(k, [[0x649b, this.svrinfo(svr)], { sleep: SVRINFO_WAIT }]);
@@ -999,7 +1077,8 @@ export class PvpMatch {
       // the economy's minimum length counts the turns the duel reached: a surrender or disconnect ends with turns 0
       PP.mpReward(this.g, p, name, Math.max(turns, this.ps?.turn ?? 0), { opp: this.sess[1 - k]?.acct ?? null, secs: this.t0 ? now() - this.t0 : 0 });
       const lv = this.xpLevels();
-      return PP.pvpXp(p, lv[1 - k], name, this.bo3(), mres, last, lv[k]);
+      return PP.pvpXp(p, lv[1 - k], name, this.bo3(), mres, last, lv[k],
+        { me: this.sess[k]?.acct ?? null, opp: this.sess[1 - k]?.acct ?? null, turns, secs: this.t0 ? now() - this.t0 : 0, now: this.g.clock.time() * 1000 });
     } catch (e) { this.log(`[EXC] ${this.name}: puntuación: ${errStr(e)}`); return null; }
   }
 

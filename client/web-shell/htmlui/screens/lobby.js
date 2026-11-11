@@ -8,12 +8,18 @@
 // Arial (textBox, spaced as the game), white captions outlined as skin.js's.
 // Pass mode: the game takes the input; hover and pressed come from the snapshot.
 import { textBox, shownLines, textWidth, spacing } from '../controls/basic.js';
-import { menuButton, titleBar, panel, duelButton } from '../controls/skin.js';
+import { menuButton, titleBar, panel } from '../controls/skin.js';
 import { inviteDuel, cardName, nativeDuel } from '../invite.js';
-import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas } from './lobby_icons.js';
+import { rankByPid, peekRank, pidKey, rankTag, rankFit, labelWidth, cardHeader, PID_BASE } from '../rank.js';
+import { KIND, PLATE, STRIP, plateBackground, glyph, traceAtlas, barReserve, onBarReserve } from './lobby_icons.js';
 import * as ui from '../../ui.js';
 import { pieceCss } from './trade.js';
 
+// The strip's art has the field from x 391; when the page's own buttons push the field right (fieldLeft), the strip shows
+// there: rows 7..24 then continue as rows 4..6 do past x 390 (the art's nearest band, within a few levels at x 386)
+const after = (stops, x) => stops.split(', ').filter(t => parseFloat(t.split(' ')[1]) > x);
+const BANDS = STRIP.map(([y, h, stops]) => y !== 7 ? [y, h, stops]
+  : [y, h, [...stops.split(', ').filter(t => parseFloat(t.split(' ')[1]) <= 390.5), ...after(STRIP.find(b => b[0] === 4)[2], 390.5)].join(', ')]);
 const CSS = `
 .lb-place { position: absolute; box-sizing: border-box; height: 52px; border: 1px solid; border-radius: 6px;
   border-color: #cbb598 #894009 #893b06 #a57f4e; background: #f2e14f;
@@ -23,11 +29,15 @@ const CSS = `
     linear-gradient(to right, #0985ff 0, #7deffc 219px, #7deffc 100%); }
 .lb-shadow { color: #fff; text-shadow: 1px 0 #4a4a4a, -1px 0 #4a4a4a, 0 1px #4a4a4a, 0 -1px #4a4a4a; }   /* skin.js's outline */
 .lb-bar { position: absolute; left: 0; top: 0; width: 1024px; height: 32px;
-  background: ${STRIP.map(([y, h, stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${h}px no-repeat`).join(',\n    ')};
-  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat;
+  /* each row's band runs on to the bottom, under the rows after it (listed first: on top). 1-px bands edge to edge
+     left a seam at every row boundary at a fractional scale (the canvas showed through: dark lines, players'
+     screenshot); the field's hole sits under its border */
+  background: ${BANDS.toReversed().map(([y, , stops]) => `linear-gradient(to right, ${stops}) 0 ${y}px / 1024px ${32 - y}px no-repeat`).join(',\n    ')};
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) 392px 8px / 624px 16px no-repeat;
   -webkit-mask-composite: xor; mask-composite: exclude; }
 .lb-field { position: absolute; left: 391px; top: 7px; width: 626px; height: 18px; box-sizing: border-box;
   border: 1px solid #fff; background: rgba(255, 255, 255, .698); }
+.lb-field[data-engine] { background: none; }   /* the engine's field under it: only the left edge is new */
 .lb-icon { position: absolute; width: 80px; height: 32px; margin: 0; padding: 0; border: 0; background: none; }
 .lb-icon > i { position: absolute; left: 8px; top: 4px; width: 72px; height: 24px; box-sizing: border-box; border: 1px solid;
   clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px), 0 3px); }
@@ -153,14 +163,16 @@ function icons() {
 }
 // The pictograms redrawn at 4x (menuicon_hd.png: the atlas's layout, 960 x 768, the plates left out: they are the CSS
 // above; Gemini image from the atlas's own cells, keyed and aligned to them: never in git, beside the atlas in the art
-// folder): sharp at any scale, so they replace the traced ones once loaded; until then (or without it) the traced ones
-let hd = null, hdLoading = false;
+// folder): sharp at any scale, so they replace the traced ones once loaded; until then (or without it) the traced ones.
+// The bridge waits for it (preload, below) before the first bar: the icons came up traced and changed under the player
+let hd = null, hdLoading = null;
 function hdSheet() {
   if (hd || hdLoading || typeof Image === 'undefined') return hd;
-  hdLoading = true;
   const url = ui.SHEET.window.url.replace(/[^/]*$/, '') + 'menuicon_hd.png', img = new Image();
-  img.onload = () => { hd = url; for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b); };
-  img.onerror = () => console.warn('htmlui lobby: no HD menu icons');
+  hdLoading = new Promise(done => {
+    img.onload = () => { hd = url; for (const st of bars) for (const b of st.icons?.values() || []) paintIcon(b); done(); };
+    img.onerror = () => { console.warn('htmlui lobby: no HD menu icons'); done(); };
+  });
   img.src = url;
   return null;
 }
@@ -193,9 +205,14 @@ export function noticeHole(win) {
   const x0 = Math.max(0, Math.floor(Math.min(...rs.map(r => r.x)) - 16)), x1 = Math.min(1024, Math.ceil(Math.max(...rs.map(r => r.x + r.w)) + 8));
   return x1 > x0 ? { x: x0, w: x1 - x0 } : null;
 }
-const BAR_MASK = 'linear-gradient(#000 0 0), linear-gradient(#000 0 0) 391px 7px / 626px 18px no-repeat';
+// The message field's left edge: x 391 (the art's), or 8 px (a plate's gap) after the page's own buttons when they reach
+// past it (lobby_icons.js reserveBar: the Wardrobe and Missions slots); the right edge stays at 1017
+export const fieldLeft = (win, reserve = barReserve()) => Math.min(1016 - 64, Math.max(391, reserve ? reserve - (win?.x || 0) + 8 : 0));
+const barMask = x => `linear-gradient(#000 0 0), linear-gradient(#000 0 0) ${x + 1}px 8px / ${1015 - x}px 16px no-repeat`;   // the hole sits under the field's border (1 px in)
+onBarReserve(() => { for (const st of bars) if (st.win && st.root) menuBar(st.win, st.root, st); });
 function menuBar(win, root, st) {
   bars.add(st);
+  st.root = root;
   const hole = noticeHole(win), strip = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
   kept.set(win.id, new Set([...win.controls.filter(c => /^CNoticeIcon/.test(c.cls)).map(c => c.id),
     ...(hole ? (strip?.parts?.sprites || []).map(s => s.id) : [])]));
@@ -208,16 +225,21 @@ function menuBar(win, root, st) {
     root.append(st.bar, st.field, st.clip);   // not in the masked strip
     st.icons = new Map();
   }
-  const holeKey = hole ? `${hole.x},${hole.w}` : '';
+  const left = fieldLeft(win), holeKey = (hole ? `${hole.x},${hole.w}` : '') + '@' + left;
   if (st.hole !== holeKey) {
     st.hole = holeKey;
     // one more layer xor'ed out of the strip: the hole (never over the field: the notices sit at x 232..)
-    const m = hole ? `${BAR_MASK}, linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 6px), transparent) ${hole.x}px 0 / ${hole.w}px 32px no-repeat` : '';
+    const m = barMask(left) + (hole ? `, linear-gradient(to right, transparent, #000 6px, #000 calc(100% - 6px), transparent) ${hole.x}px 0 / ${hole.w}px 32px no-repeat` : '');
     st.bar.style.webkitMask = st.bar.style.mask = m;
     // (the shorthands reset the composite: set it again)
-    st.bar.style.webkitMaskComposite = hole ? 'xor' : '';
-    st.bar.style.maskComposite = hole ? 'exclude' : '';
-    st.field.style.display = hole ? 'none' : '';
+    st.bar.style.webkitMaskComposite = 'xor';
+    st.bar.style.maskComposite = 'exclude';
+    // the engine's own field shows through the cut while it draws its strip (doubled, the white would be too bright):
+    // the DOM field is then only its frame (its left edge where the engine's has none)
+    st.field.toggleAttribute('data-engine', !!hole);
+    Object.assign(st.field.style, { left: left + 'px', width: 1017 - left + 'px' });
+    Object.assign(st.clip.style, { left: left + 1 + 'px', width: 1016 - left - 1 + 'px' });
+    st.text = null;
   }
   const seen = new Set();
   for (const c of win.controls) {
@@ -243,17 +265,39 @@ function menuBar(win, root, st) {
   const bar = win.controls.find(c => c.cls === 'CWindowTaskMenubar' && top(c));
   const own = win.controls.find(c => c.cls === 'CWindowTaskText' && top(c));
   const m = bar?.shown ? bar.message || '' : '', o = own?.shown ? own.text || '' : '';
-  const key = JSON.stringify([m, bar?.scroll || 0, o, own?.x, own?.y]);
+  const key = JSON.stringify([m, bar?.scroll || 0, o, own?.x, own?.y]), dx = 391 - left;   // the engine's places are from x 392
   if (st.text !== key) {
     st.text = key;
     st.clip.replaceChildren();
     if (m) {
       const w = textW(m), sc = bar.scroll || 0;
-      textBox(st.clip, m, { x: sc });
-      if (w > 624) textBox(st.clip, m, { x: w + sc + 704 - 392 });
+      textBox(st.clip, m, { x: sc + dx });
+      if (w > 624) textBox(st.clip, m, { x: w + sc + 704 - 392 + dx });
     }
-    if (o) textBox(st.clip, o, { x: own.x - 392, y: own.y - 8 });
+    if (o) textBox(st.clip, o, { x: own.x - 392 + dx, y: own.y - 8 });
   }
+}
+
+// The card's ranked standing (../rank.js, GET /api/de/rank?pid=: read/lobby.js reads the card's pid_), in the school's
+// colour, under "LV01  Name" on the header's second line: centred there as the header is (showInfo: align 1 in 320 px),
+// or after the team's name when the player has one (then the short form if that is what fits). An NPC's card (a pid
+// under PID_BASE) and an unknown player show nothing.
+function cardRank(win, root, st) {
+  const pid = win.pid, head = cardHeader(win);
+  if (!(pid >= PID_BASE) || !head) { st.rank?.remove(); st.rank = null; st.rankKey = null; return; }
+  const r = peekRank(pidKey(pid));
+  if (r === undefined) { rankByPid(pid).then(() => { if (st.win?.pid === pid) cardRank(st.win, root, st); }); return; }
+  const key = JSON.stringify([pid, r, head, win.w]);
+  if (st.rankKey === key) return;
+  st.rankKey = key;
+  st.rank?.remove(); st.rank = null;
+  if (!r) return;
+  const px = 16, y = head.y + 16 + head.lineGap;
+  if (!head.team) { st.rank = rankTag(root, r, { x: head.x, y, w: head.w, align: head.align, px, text: rankFit(r, head.w, px) }); return; }
+  // the team's line as the engine lays it out (centred, or from the left), the rank after it to the box's right end
+  const tw = labelWidth(head.team, px), start = head.align === 1 ? head.x + (head.w - tw) / 2 : head.align === 2 ? head.x + head.w - tw : head.x;
+  const after = start + tw + 6, s = rankFit(r, head.x + head.w - after - labelWidth('· ', px), px);
+  if (s) st.rank = rankTag(root, r, { x: after, y, px, text: '· ' + s });
 }
 
 // A player's / an NPC's card (CPlayerListMenu, CNpcListMenu: src/Lobby/yo2PlayerListMenu.cpp, yo2NpcListMenu.cpp;
@@ -273,8 +317,9 @@ function menuBar(win, root, st) {
 //    buttons (TextSwitch, 288 x 24 at x 24: the generic renderer's CSS plate and black caption, api.syncWindow).
 //  - the nation flag (CNationFlag "Duel国旗", a CTask child, not a control) and any other picture under the card: the
 //    window's extras, which the engine keeps drawing (passthrough).
-// The page adds one 2008 button on a tab above the player card's top right, Duel (../invite.js), when the game offers
-// no duel request of its own, and a refusal's reason in a box under the tab for a few seconds.
+// The page adds one button, Duel (../invite.js), when the game offers no duel request of its own: a row of the card's
+// own under its last button, drawn as the others are (duelRow), and a refusal's reason over the card's top right for a
+// few seconds; and under the player's "LV01  Name" the player's rank (cardRank).
 const kept = new Map();   // window id -> the ids the engine keeps drawing (with their subtrees)
 // window_base_01_c0<style>: [outer top, left, right, bottom], [middle top, left, right, bottom], body
 const THIN = {
@@ -359,7 +404,8 @@ function frameSheet(tex, onReady) {
 // THIN's [top, left, right, bottom] as CSS's border-color order (top right bottom left)
 const trbl = ([t, l, r, b]) => `${t} ${r} ${b} ${l}`;
 function card(win, root, st) {
-  const art = cardArt(win), key = JSON.stringify(art);
+  const duel = win.cls === 'CPlayerListMenu' && duelOffered(win), art = duel ? growArt(cardArt(win), win.h - 8, DUEL_ROW) : cardArt(win);
+  const key = JSON.stringify(art);
   kept.set(win.id, new Set([...(win.extras || []).map(e => e.id), ...art.helps.map(h => h.engine).filter(Boolean)]));
   if (st.key !== key) {
     st.key = key;
@@ -404,24 +450,53 @@ function card(win, root, st) {
   st.btns ||= root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-card' }));
   st.btnMap ||= new Map();
   st.api.syncWindow(st.btns, { ...win, controls: win.controls.filter(c => top(c) && /TextSwitch$/.test(c.cls)) }, st.btnMap);
-  if (win.cls === 'CPlayerListMenu') duelTab(win, root, st);
+  if (win.cls === 'CPlayerListMenu') { duelRow(win, root, st, duel); cardRank(win, root, st); }
 }
-function duelTab(win, root, st) {
-  const show = win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
-  if (!show) { if (st.btn) { st.btn.remove(); st.btn = null; } return; }
+// the page's Duel: a row of its own under the card's last button, as showInfo would add one (y += 36), so the
+// engine's buttons stay where the engine hit-tests them; the frame's bottom and the buttons' back plane move down a row
+const DUEL_ROW = 36;
+const duelOffered = win => win.controls.some(c => c.shown && /TextSwitch$/.test(c.cls)) && !nativeDuel(win);
+// art with everything from y `at` down moved dy lower, and what spans `at` (the frame, its side edges, the back plane)
+// dy taller
+export function growArt(art, at, dy) {
+  const grow = r => r.y >= at ? { ...r, y: r.y + dy } : r.y + r.h >= at ? { ...r, h: r.h + dy } : r;
+  const f = art.frame && { ...grow(art.frame), pieces: art.frame.pieces.map(grow) };
+  return { ...art, frame: f, planes: art.planes.map(grow), helps: art.helps.map(grow) };
+}
+function duelRow(win, root, st, show) {
+  if (!show) { st.btn?.remove(); st.btn = null; st.strip?.remove(); st.strip = null; return; }
+  // the sibling buttons' place and size (showInfo: 288 x 24 at x 24, 36 apart), the last one's row + 36
+  const sib = win.controls.filter(c => c.shown && top(c) && /TextSwitch$/.test(c.cls));
+  const last = sib.reduce((a, c) => (c.y > a.y ? c : a), sib[0]), at = { x: last.x, y: last.y + DUEL_ROW, w: last.w, h: last.h };
+  if (st.btn && st.btnAt !== JSON.stringify(at)) { st.btn.remove(); st.btn = null; st.strip?.remove(); st.strip = null; }
   if (st.btn) return;
+  st.btnAt = JSON.stringify(at);
+  // the added row is the page's alone (the engine's card ends above it, often on the chat's tabs): a press there stays
+  // on the card, as one on the engine's card does
+  st.strip = root.appendChild(Object.assign(document.createElement('div'), { className: 'lb-plane' }));
+  Object.assign(st.strip.style, { left: '0px', top: win.h + 'px', width: win.w + 'px', height: DUEL_ROW + 'px', pointerEvents: 'auto' });
+  // its caption the game's own Duel button's (hidden here: the player has no duel open), "Send Duel Request"
+  const label = win.controls.find(c => /TextSwitch$/.test(c.cls) && /Duel\s*Request/i.test(c.label || ''))?.label || 'Duel';
   const name = cardName(win.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && /^\s*LV\s*\d/i.test(c.text || ''))?.text);
-  st.btn = duelButton(root, { x: win.w - 128, y: -30, w: 120, h: 26, label: 'Duel' });
-  st.btn.style.pointerEvents = 'auto';
-  st.btn.onclick = async () => {
+  // the generic TextSwitch (its plate, its black caption) as the siblings draw, with its own hover / pressed looks
+  // (the engine has no button there to report them)
+  const b = st.btn = st.api.renderControl({ id: 'de-duel', cls: 'CWindowTaskTextSwitch', ...at, label, align: 1, shown: true, state: 'normal', alpha: 1 }, root);
+  b.style.pointerEvents = 'auto';
+  let over = false, down = false;
+  const look = () => { b.dataset.look = b.disabled ? 0 : down && over ? 2 : over ? 1 : 0; };
+  b.addEventListener('pointerenter', () => { over = true; look(); });
+  b.addEventListener('pointerleave', () => { over = false; look(); });
+  b.addEventListener('pointerdown', () => { down = true; look(); });
+  b.addEventListener('pointerup', () => { down = false; look(); });
+  b.onclick = async () => {
     if (st.busy) return;
     st.busy = true;
-    st.btn.disabled = true;
+    b.disabled = true;
     try {
       const r = await inviteDuel(st.api, name);
       if (!r.ok) {
         st.msg?.remove();
-        st.msg = textBox(root, r.message, { x: win.w - 268, y: -58, w: 260, align: 2, white: true, color: [1, 1, 1, 1] });
+        st.msg = textBox(root, r.message, { x: win.w - 268, y: -24, w: 260, align: 2, white: true, color: [1, 1, 1, 1] });
         st.msg.classList.add('lb-shadow');
         setTimeout(() => { st.msg?.remove(); st.msg = null; }, 4000);
       }
@@ -433,8 +508,9 @@ const DRAW = { CMainMenu: mainMenu, CWindowModelPlace: place, CWindowModelMenu: 
 export default {
   classes: Object.keys(DRAW),
   mode: 'pass',
-  clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, the Duel tab over the card
+  clip: false,   // the banner's window is 0 x 0, the bar's 384 wide under a 1024-wide strip, a refusal's reason over the card
   parts: true,   // the cards' planes: their sprites' drawn colours
+  preload: () => (hdSheet(), hdLoading || Promise.resolve()),
   mount: (win) => { inject(); return { id: win?.id }; },
   occlusionBox: win => win.cls === 'CMainMenu' ? menuBox(win) : null,
   // what the engine keeps drawing: the cards' extras (flag, pictures), the bar's notice icons, with their subtrees

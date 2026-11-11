@@ -543,6 +543,12 @@ Module.preRun.push(() => {
     L.entry = (name) => fileBytes(name);
     L.cardArt = async (id) => {
         await loadCardNames();
+        const legacy = Module.yo2EraCards?.cards?.[id];
+        if (legacy) {
+            const r = await fetch(Module.yo2EraCards.base + legacy.face);
+            if (!r.ok) throw new Error(`2008 card face ${id}: ${r.status}`);
+            return new Uint8Array(await r.arrayBuffer());
+        }
         const e = artEntry((cardNames || [])[id] || "");
         return e[1] ? entryBytes(e[0], e[1]) : null;
     };
@@ -589,7 +595,12 @@ Module.preRun.push(() => {
     // A player with nothing learned yet starts from this: a native run (login -> My Room -> lobby -> NPC duel -> result
     // -> lobby, RC_IOTRACE + RC_SCENE_LOG) over the same merge.dat (by size). Sets are chunk numbers; BOOT's is what the
     // exe reads before its first scene. Learned sets replace these scene by scene.
-    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,16,17,13,9,413,76,75,74,408,409,416,391,392,394,396,395,390,393,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397],"23":[416,398],"24":[396,544,579,76,398,157,397],"9":[60,66,68,69,70,72,73]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10,9],"9":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
+    // Browser traces on JSPI, ASYNCIFY and the 1 GB build agree on BOOT: the native set fetched seven unused
+    // chunks (390..396, 7 MiB) under the title hold; keep exactly the observed boot reads instead.
+    // The browser room switch loads its shared avatar/map resources in scene 25, between the two destination
+    // scene events. Include the measured title -> room -> lobby set (50 Mbit/40 ms); the old native set [396,397]
+    // missed 33/34/5 and charged their 1.07 s of XHRs to the loading scene. Learned visits still replace it.
+    const DEFAULT_SCENES = { size: 691359533, ...{"sets":{"44":[0,1,2,3,4,547,546,16,17,13,9,413,76,75,74,408,409,416,412,544,45,64,23],"4":[509,510,549,548,547,546,416],"6":[510,412,413],"7":[510,57,41,58,52,53,45,46,50],"10":[417,506,507,508,23,413,553,554,552,7,16,15,8,9,12,4,13],"12":[413,417,428,434,23,416,412,15,12,13,429,430,431,432,433,36],"30":[648,645,644,646,57,41,58,52,53,37,42,647],"28":[396,544,635,579,636,562,614,643,638,413,412,576,615,76,510,572,580,581,582,143,99,187,137,93,640,585,584,639,161,520,518,327,538,588,352,353,540,583,171,172,513,121,122,95,523,644],"29":[644],"32":[544,412,413],"25":[396,397,544,417,416,76,23,33,34,7,16,15,8,5,12,4,13,431,428,432,433,434,17,36,14,6,9],"23":[416,398],"24":[396,544,579,76,398,157,397],"9":[60,66,68,69,70,72,73]},"next":{"44":[1],"1":[4],"4":[6],"6":[7],"7":[10,9],"9":[10],"10":[25,12],"25":[10,23,12],"12":[30],"30":[28],"28":[29],"29":[32],"32":[25],"23":[24,25],"24":[23]}} };
     let learned = { etag: "", sets: {}, next: {} }, sceneReads = prefetchOn ? new Set() : null, sceneTo = BOOT;   // boot reads
     function loadScenes() {
         try { const l = JSON.parse(localStorage.getItem(SCENES) || "{}"); if (l.etag === files.get(archive).etag) learned = l; } catch {}
@@ -607,20 +618,25 @@ Module.preRun.push(() => {
         learned.etag = files.get(archive).etag;
     }
     function saveScenes() { try { localStorage.setItem(SCENES, JSON.stringify(learned)); } catch {} }
-    function prefetchAfter(scene) {   // the scenes that followed `scene` before, and theirs: their reads, pinned
+    function prefetchAfter(scene) {   // both steps precede the broad HOT folders (priority 2): title -> login -> select
+        // used to put select behind ~40 MB of thumbnails/menu pictures, missing 52/53/46/50 on the cold route.
+        // One background request still yields the entire link to a synchronous miss.
         const first = learned.next[scene] || [], second = first.flatMap((t) => learned.next[t] || []);
         const keep = new Set();
-        for (const [list, pri] of [[first, 1], [second, 3]])
+        for (const [list, pri] of [[first, 0], [second, 1]])
             for (const t of list) for (const i of learned.sets[t] || []) if (!keep.has(i)) keep.add(i), want(archive, i, pri, "scene");
         for (const [k, p] of pinned) if (p.tag === "scene" && !keep.has(+k.slice(k.lastIndexOf("#") + 1))) release(k, p);
         while (lru.size > LRU_MAX) lru.delete(lru.keys().next().value);
     }
-    function finishScene() {   // what the stay in a scene read (its switch, then cards and effects as they come) is its set
-        if (!sceneReads) return;
-        if (sceneReads.size) learned.sets[sceneTo] = [...sceneReads];   // the latest visit's reads
-        sceneReads = null;
+    function saveSceneReads() {   // switch and stay; also used at pagehide without ending a bfcached scene
+        if (!sceneReads || !sceneReads.size) return;
+        // Scene 25 is shared by every room load: a brief return to My Room must not erase the lobby's reads.
+        // Latest first, previous tail, capped like every set; ordinary scenes still learn only the latest visit.
+        if (sceneReads.size) learned.sets[sceneTo] = [...new Set([...sceneReads,
+            ...(sceneTo === 25 ? learned.sets[sceneTo] || [] : [])])].slice(0, SCENE_MAX);
         saveScenes();
     }
+    function finishScene() { saveSceneReads(); sceneReads = null; }
     // The duel's generic pictures (data/y/duel minus the 48 MB of per-duel field backgrounds, and data/y2/duel's effects: ~19 MB): pinned from the
     // lobby on, so a first duel's attack, chain and summon effects do not stall; released back in My Room or the title.
     // phase_name: the phase banners (merge.dat 638-640; a field PvP freeze of 3.2 s on chunk 639 without it)
@@ -786,7 +802,7 @@ Module.preRun.push(() => {
             FS.mkdirTree(parent);
             const url = base + rel.split("/").map(encodeURIComponent).join("/");
             files.set(url, { size, etag: "", ver: "" });
-            if (size >= 4 * CHUNK) lazy.push(url);   // ETag (request version, store key) for the files read in chunks
+            if (size > 0) lazy.push(url);   // small files too: otherwise fonts/system.bin never persist on warm visits
             if (/(^|\/)merge\.dat$/i.test(rel)) archive = url;
             if (/^merge\.log$/i.test(rel)) mergeLog = url;   // 1.5 KB, the patcher reads it every start
             if (/(^|\/)merge\/data\/card\.dat$/i.test(rel)) cardArc = url;
@@ -820,7 +836,32 @@ Module.preRun.push(() => {
         try { localStorage.setItem(PINS, JSON.stringify(out)); } catch {}
     }
     L.savePins = savePins;
+    // rt.c load_image skips code and discardable sections. Fetch just the chunks covering the other PE sections
+    // through the boot workers, instead of three serial XHRs (exe 7..9, 1.06 s on the 50 Mbit/40 ms cold route).
+    // Read the table, not hard-coded offsets: a different exe or an unavailable header falls back to normal reads.
+    async function imageChunks(url) {
+        if (!url || files.get(url).size < 4096) return [];
+        try {
+            const f = files.get(url), end = Math.min(4096, f.size) - 1;
+            const r = await fetch(url + f.ver, { headers: { Range: `bytes=0-${end}` } });
+            if (r.status !== 206) return [];
+            const b = new Uint8Array(await r.arrayBuffer()), d = new DataView(b.buffer, b.byteOffset, b.byteLength);
+            if (b.length !== end + 1 || d.getUint16(0, true) !== 0x5a4d) return [];
+            const pe = d.getUint32(0x3c, true);
+            if (d.getUint32(pe, true) !== 0x4550) return [];
+            const n = d.getUint16(pe + 6, true), start = pe + 24 + d.getUint16(pe + 20, true), chunks = new Set();
+            if (start + n * 40 > b.length) return [];
+            for (let at = start; at < start + n * 40; at += 40) {
+                if (d.getUint32(at + 36, true) & 0x02000020) continue;
+                const raw = d.getUint32(at + 20, true), size = Math.min(d.getUint32(at + 8, true), d.getUint32(at + 16, true));
+                if (raw + size > f.size) return [];
+                for (let i = Math.floor(raw / CHUNK); size && i * CHUNK < raw + size; i++) chunks.add(i);
+            }
+            return [...chunks];
+        } catch { return []; }
+    }
     async function boot() {
+        const exe = [...files.keys()].find((u) => /\/yo2\.exe$/i.test(u));
         const side = archive ? dirSidecar() : null;   // with the HEADs (it needs only the manifest's size)
         await Promise.all(lazy.map(async (url) => {
             // never from the HTTP cache (a stale ETag would version every request wrongly); "?v=" so the reply carries
@@ -831,6 +872,7 @@ Module.preRun.push(() => {
             f.ver = etag ? "?v=" + encodeURIComponent(etag.replace(/\W/g, "")) : "";
             if (/max-age=[1-9]|immutable/.test(r.headers.get("Cache-Control") || "")) cacheable = true;
         }));
+        const image = imageChunks(exe);   // HEAD has supplied the version for the section table
         let saved = {};
         try { saved = JSON.parse(localStorage.getItem(PINS) || "{}"); } catch {}
         const loads = [];
@@ -859,6 +901,7 @@ Module.preRun.push(() => {
         const hold = (url, i, tag) => { const k = keyOf(url, i); if (url && !held.has(k) && !memChunk(url, i)) held.add(k), jobs.push([url, i, tag]); };
         const worker = async () => { for (let j; (j = jobs.shift());) await fetchSure(j[0], j[1], j[2]); };
         hold(mergeLog, 0, "boot");
+        for (const i of await image) hold(exe, i, "boot");
         if (side && (dirBuf = await side)) {   // the directory's whole chunks, from the sidecar
             for (let i = 0; (i + 1) * CHUNK <= dirBuf.length; i++) remember(archive, i, dirBuf.subarray(i * CHUNK, (i + 1) * CHUNK), "toc");
             stats.dirSidecar = dirBuf.length;
@@ -886,13 +929,15 @@ Module.preRun.push(() => {
         setTimeout(() => unpin((t) => t === "boot"), 120000);   // a policy re-pins what it still wants
         setInterval(savePins, 30000);
         addEventListener("pagehide", savePins);
-        addEventListener("pagehide", () => { if (sceneReads && sceneReads.size) { learned.sets[sceneTo] = [...sceneReads]; saveScenes(); } });
+        addEventListener("pagehide", saveSceneReads);
     }
 
     mount("/game", q.get("game") || "game/");
     // The 2x card art (merge/data/card.dat, mini.dat) has its own manifest: the exe opens those archives before
     // merge.dat, so only a build that can show 2x art (ovr/decode.c) may mount them; a tab of an older one never sees them
     try { mount("/game", q.get("cards") || "cards/"); } catch (e) { console.log("yo2rc: no 2x card art:", e.message); }
+    // Loose original card faces win over modern card.dat art.
+    if (Module.yo2EraCards) mount("/game", Module.yo2EraCards.base);
     if (q.get("fonts")) mount("/fonts", q.get("fonts"));
     if (prefetchOn) {
         addRunDependency("lazy");

@@ -33,16 +33,40 @@ async function slowClick([x, y]) {
 }
 
 // -> { ok: true } or { ok: false, message }
-export async function inviteDuel(api, name) {
+let pendingInvite = null;
+export function inviteDuel(api, name) {
+  // Both UI layers can expose Duel during the same frame. Share the in-flight
+  // action: two reopen/click sequences must never drive the same engine task.
+  if (pendingInvite) return pendingInvite;
+  pendingInvite = sendInvite(api, name).finally(() => { pendingInvite = null; });
+  return pendingInvite;
+}
+async function sendInvite(api, name) {
   const fail = message => ({ ok: false, message });
   if (!name) return fail('Who to challenge?');
   let r, j = {};
+  const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    r = await fetch((globalThis.ENV?.YO2_DE_HTTP || '') + '/api/de/duel/challenge', { method: 'POST', credentials: 'same-origin',
+    r = await fetch((globalThis.ENV?.YO2_DE_HTTP || '') + '/api/de/duel/challenge', { method: 'POST', credentials: 'same-origin', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     j = await r.json().catch(() => ({}));
   } catch { return fail('The duel request could not be sent. Try again.'); }
+  finally { clearTimeout(timeout); }
   if (!r.ok) return fail(j.message || 'The duel request could not be sent.');
+  return pressDuelRequest(api, name);
+}
+
+// The game's own "Send Duel Request" on the player's card: the card reopened from the player list until the game shows
+// the button (the player has a duel room open to us: an invite's, or an open duel's from the chat's Duels tab), then
+// pressed. Input only: the clicks a hand makes, nothing drawn. -> { ok: true } or { ok: false, message, absent }
+// (absent: the player isn't in the player list yet). Shares the invite's in-flight action.
+export function requestOnCard(api, name) {
+  if (pendingInvite) return pendingInvite;
+  pendingInvite = pressDuelRequest(api, name).finally(() => { pendingInvite = null; });
+  return pendingInvite;
+}
+async function pressDuelRequest(api, name) {
+  const fail = (message, more) => ({ ok: false, message, ...more });
   // reopen the card from the player list (an open card doesn't take the new room): the row in view (the list
   // scrolled to it first), one held click on it
   const reopen = async () => {
@@ -62,7 +86,7 @@ export async function inviteDuel(api, name) {
   let b = null;
   for (let k = 0; k < 8 && !b; k++) {
     await sleep(900);
-    if (!await reopen()) return fail('That player is not in your player list.');
+    if (!await reopen()) return fail('That player is not in your player list.', { absent: true });
     b = await waitFor(s => nativeDuel(card(s)), 700);
   }
   if (!b) return fail('The duel request could not be sent. Try again.');

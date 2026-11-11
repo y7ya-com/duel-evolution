@@ -7,11 +7,14 @@
 //    skipped. Nothing else changes (disp_, hit tests, the factory's message routing), so the game runs exactly as
 //    before and input still reaches its controls. An element under a pass entry (nearer than the hidden window) is
 //    drawn anyway: engine content inside an HTML window (the waist-up avatar, card art, Flash).
-// 2. Module.onYo2Frame?.(tables, HEAPU8, SLOTS) at every Present, on the game's thread, after the frame is shown: the
+// 2. Module.onYo2Frame?.(tables, HEAPU8, SLOTS, classes) at every Present, on the game's thread, after the frame is shown: the
 //    bridge reads the tree and updates the DOM there. tables: the address of HtmlUiTables below, which the bridge
 //    writes. Its first word is SLOTS, set here before the call: a bridge that writes another layout (an older one,
-//    63 slots, no third argument) overwrites it, and the tables are then ignored (the engine draws everything). The
-//    tables become a hash set once per frame, so a lookup costs the same with 1 entry or 255.
+//    63 slots, no third argument) overwrites it, and the tables are then ignored (the engine draws everything).
+//    classes is the address of an optional appended { count, vtables[SLOTS] } (primary, offset 0 vtables only).
+//    It is cleared before every callback: an old bridge retains address-only behavior; a new bridge only writes it
+//    when the fourth argument exists. No existing field moves. Class ownership applies before a window is discovered.
+//    The tables become a hash set once per frame, so a lookup costs the same with 1 entry or 255.
 // 3. Owned-mode input the bridge queued (keys, characters, a control's text) is played into the game first, on the
 //    same thread: a Win32 message through CWindowTaskFactory::dispatch (0x5e2700: keys and WM_CHAR go to the focused
 //    control, as the game's own WndProc sends them), a control's setText (vtable slot 17, +0x44: a wide string), or a
@@ -22,7 +25,7 @@
 //    the vtable the bridge read (a bar freed since is skipped).
 //    Mouse input is not queued: the bridge sends real canvas events at the control, as a player's mouse would.
 //
-// With an empty hide table (native builds, ?HTML_UI=0) onMain costs one load and a compare.
+// With empty address and class hide tables (native builds, ?HTML_UI=0) onMain costs one load and a compare.
 #include <string.h>
 #include "rt.h"
 #include "win.h"
@@ -34,8 +37,8 @@
 void o_0060f9e0(CPU *restrict c);
 void o_005932f0(CPU *restrict c);
 
-enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 1024 };
-enum { Q_DISPATCH = 1, Q_SETTEXT = 2, Q_SETVALUE = 3 };
+enum { SLOTS = 255, DEPTH = 32, QUEUE = 32, TEXT = 1024, HASH = 2048 };
+enum { Q_DISPATCH = 1, Q_SETTEXT = 2, Q_SETVALUE = 3, Q_SHOPLOOK = 4 };
 struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the address onYo2Frame gets)
     uint32_t slots;                // SLOTS, set before every call: the layout's check (see 2. above)
     uint32_t nhide, hide[SLOTS];   // windows the DOM draws (CWindowTaskModel addresses)
@@ -44,13 +47,15 @@ struct HtmlUiTables {          // written by bridge.js (Module.HEAPU32 at the ad
     struct { uint32_t kind, a, b, c; } q[QUEUE];   // DISPATCH: msg, wParam, lParam; SETTEXT: control, text offset, length;
                                                     // SETVALUE: scroll bar, value, its vtable
     uint16_t text[TEXT];           // the SETTEXT strings (UTF-16)
+    struct { uint32_t n, vt[SLOTS]; } classes;   // optional extension, advertised by the fourth callback argument
 };
 static struct HtmlUiTables tab;
+static uint32_t active;   // address or class hides: keep the empty onMain path one load and compare
 
-// the tables as one hash set (open addressing, HASH > 2 * SLOTS): address -> 1 hide | 2 pass
+// the tables as one hash set (open addressing, HASH > 2 * 3 * SLOTS): address -> 1 hide | 2 pass | 4 class
 static uint32_t hkey[HASH];
 static uint8_t hkind[HASH];
-static uint32_t slot_of(uint32_t a) { return ((a >> 2) * 2654435761u) >> (32 - 10); }   // HASH = 1 << 10
+static uint32_t slot_of(uint32_t a) { return ((a >> 2) * 2654435761u) >> (32 - 11); }   // HASH = 1 << 11
 static void put(uint32_t a, uint8_t k) {
     if (!a) return;
     uint32_t i = slot_of(a);
@@ -69,6 +74,9 @@ static void build(void) {
     uint32_t nh = tab.nhide < SLOTS ? tab.nhide : SLOTS, np = tab.npass < SLOTS ? tab.npass : SLOTS;
     for (uint32_t i = 0; i < nh; i++) put(tab.hide[i], 1);
     for (uint32_t i = 0; i < np; i++) put(tab.pass[i], 2);
+    uint32_t nc = tab.classes.n < SLOTS ? tab.classes.n : SLOTS;
+    for (uint32_t i = 0; i < nc; i++) put(tab.classes.vt[i], 4);
+    active = nh | nc;
 }
 
 // the nearest listed ancestor (the element included) decides, a pass over a hide; CTask::parent_ is +0x08
@@ -77,6 +85,7 @@ static int suppressed(const uint8_t *m, uint32_t el) {
         uint8_t k = kind(el);
         if (k & 2) return 0;
         if (k & 1) return 1;
+        if (tab.classes.n && (kind(RD32(el)) & 4)) return 1;
     }
     return 0;
 }
@@ -86,7 +95,7 @@ static int suppressed(const uint8_t *m, uint32_t el) {
 static void onMainHidden(CPU *restrict c, void (*orig)(CPU *restrict)) {
     RC_LOCALS;
     uint32_t el = c->ecx;
-    if (!tab.nhide || !suppressed(m, el)) { orig(c); return; }
+    if (!active || !suppressed(m, el)) { orig(c); return; }
     uint8_t h = RD8(el + 0xc6);
     WR8(el + 0xc6, 1);
     orig(c);
@@ -116,6 +125,19 @@ static void play(CPU *c) {
             t.ecx = ctl;
             rc_call(&t, RD32(RD32(ctl) + 0x44), 1, &buf);
             rc_hfree(buf);
+        } else if (tab.q[i].kind == Q_SHOPLOOK && tab.q[i].c == 16 && tab.q[i].b + 16 <= TEXT) {
+            // The avatar category shows its own cached sample bust in the original shop portrait position.
+            // CShopAvatarWindow owns the visible CWaistUpAvatar in its CTaskPtr at +0xb0 (task +0xb4).
+            uint32_t manager = RD32(0x1271790), shop = tab.q[i].a;
+            if (!manager || RD32(manager + 0x7c) != 14 || !shop || RD32(shop) != 0xbf44ec) continue;
+            uint32_t avatar = RD32(shop + 0xb4);
+            if (!avatar || RD32(avatar) != 0xbf0cf8) continue;
+            uint32_t buf = rc_halloc(20, 1);
+            WR32(buf, 0xbe9d78); // CAvatarData: vtable, then its sixteen part bytes
+            for (uint32_t k = 0; k < 16; k++) WR8(buf + 4 + k, tab.text[tab.q[i].b + k]);
+            t.ecx = avatar;
+            rc_call(&t, 0x9e6e30, 1, &buf); // the same rebuild used by the native shop's try-on
+            rc_hfree(buf);
         } else if (tab.q[i].kind == Q_SETVALUE && tab.q[i].a && tab.q[i].c && RD32(tab.q[i].a) == tab.q[i].c) {
             uint32_t ctl = tab.q[i].a, v = tab.q[i].b, msg[8] = {0x200};   // WindowMsg {WM_MOUSEMOVE}
             t.ecx = ctl;
@@ -134,8 +156,9 @@ void rc_htmlui_frame(CPU *c) {
 #ifdef __EMSCRIPTEN__
     if (emscripten_is_main_runtime_thread()) {
         tab.slots = SLOTS;
-        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0, HEAPU8, $1); }, &tab, SLOTS);   // HEAPU8: not on Module in every build
-        if (tab.slots != SLOTS) tab.nhide = tab.npass = tab.nq = 0;   // another layout: ignored
+        tab.classes.n = 0;
+        EM_ASM({ if (Module.onYo2Frame) Module.onYo2Frame($0, HEAPU8, $1, $2); }, &tab, SLOTS, &tab.classes);   // HEAPU8: not on Module in every build
+        if (tab.slots != SLOTS) tab.nhide = tab.npass = tab.nq = tab.classes.n = 0;   // another layout: ignored
         build();
     }
 #endif

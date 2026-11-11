@@ -2,6 +2,7 @@
 // by scripts/engine_gamedata.mjs into gamedata/engine/ and handed in by the host (node.ts reads the files; a Worker
 // gets them from its bundle / R2). Ports of YOLaucher-web apps/server/src/duel/{data,strings}.ts (CardDB.describe,
 // SystemStrings) and duelcore.mts's script lookup (scripts_2008 first, then the CardScripts index).
+import { ERA_2008, patch2008 } from "./era2008.ts";
 import { inflateRawSync } from "node:zlib";
 import type { OcgCardData } from "ocgcore-wasm";
 
@@ -154,6 +155,7 @@ export class ScriptPack {
     this.base = index.base;
     this.y2008 = index.y2008;
     this.data = pack.subarray(12 + n);
+    for (const code of Object.keys(ERA_2008)) this.read2008(`c${code}.lua`);
   }
 
   private load(e: [number, number] | undefined): string | null {
@@ -175,15 +177,28 @@ export class ScriptPack {
     return this.get("base", name);
   }
 
-  /** duelcore's scriptReader: the 2008 script if there is one, then CardScripts. */
+  /** The reviewed 2008 catalog, then other packed 2008 scripts, then CardScripts. */
   read2008(name: string): string | null {
     const file = name.split(/[\\/]/).pop()!;
-    if (/^c\d+\.lua$/.test(file) && Object.hasOwn(this.y2008, file)) return this.get("y2008", file);
+    const match = /^c(\d+)\.lua$/.exec(file);
+    if (match) {
+      const rule = ERA_2008[match[1]];
+      if (rule) {
+        const key = `era2008:${file}`;
+        if (this.cache.has(key)) return this.cache.get(key)!;
+        const src = rule.packed ? this.get("y2008", file) : this.read(`c${rule.source ?? match[1]}.lua`);
+        if (src === null) throw new Error(`2008 ${rule.name}: required legacy script missing`);
+        const result = rule.patch ? patch2008(Number(match[1]), src) : src;
+        this.cache.set(key, result);
+        return result;
+      }
+      if (Object.hasOwn(this.y2008, file)) return this.get("y2008", file);
+    }
     return this.read(name);
   }
 
   /** Passcodes with a 2008 script, sorted (duelcore's `ready.scripts_2008`). */
   get scripts2008(): number[] {
-    return Object.keys(this.y2008).map((f) => Number(f.slice(1, -4))).sort((a, b) => a - b);
+    return [...new Set([...Object.keys(ERA_2008).map(Number), ...Object.keys(this.y2008).map((f) => Number(f.slice(1, -4)))])].sort((a, b) => a - b);
   }
 }

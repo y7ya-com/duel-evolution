@@ -1,3 +1,4 @@
+import { rewardLogin } from "./rewards.ts";
 // Sessions per account and presence in a block (py pvp_hub.py). See that file's docstring for the message formats.
 import { createHash } from "node:crypto";
 import type { Conn } from "../net/conn.ts";
@@ -6,9 +7,9 @@ import { accountId, legacyId } from "../util/cifrado.ts";
 import type { Game } from "./game.ts";
 import { canUseAccount } from "../auth/binding.ts";
 import { modeAgrees } from "./freemode.ts";
-import { avatarParts, profile } from "./persist.ts";
+import { avatarParts, profile, setLook } from "./persist.ts";
 import { entryKind } from "./gate.ts";
-import { syncCosmeticOwnership } from "./cosmetics.ts";
+import { lawfulLook, syncCosmeticOwnership } from "./cosmetics.ts";
 
 export const PID_BASE = 1000;
 export const SESSION_RELEASE_S = 120;    // py YO2_SESION_LIBERAR_S
@@ -69,13 +70,30 @@ export class Session {
   npcPose = false;
   /** Free-form fields other modules hang on the session (py sets attributes freely). */
   ext: Record<string, unknown> = {};
+  /** Keyed IP-bucket tags (auth.ts ipBucketTag) of every connection this session had, newest last (at most
+   *  SESSION_IPBS_MAX), and the DE user's creation time (ms): graduation's "another network, an account old enough"
+   *  (ranking.ts gradQualifies). In memory only, never persisted; empty / null on the DEV parity bridge. */
+  ipbs: string[] = [];
+  userCreated: number | null = null;
   constructor(readonly acct: string, readonly idx: number, readonly owner: boolean) {}
+  /** A connection's network facts (hub.login, world.ts resume). */
+  noteNet(c: { ipb: string | null; userCreated: number | null }): void {
+    if (c.userCreated !== null) this.userCreated = c.userCreated;
+    if (!c.ipb) return;
+    this.ipbs = [...this.ipbs.filter((x) => x !== c.ipb), c.ipb].slice(-SESSION_IPBS_MAX);
+  }
 }
+/** IP-bucket tags a session keeps (a phone moving between networks; enough for one evening). */
+export const SESSION_IPBS_MAX = 8;
 
 const pad = (b: Uint8Array | null | undefined, n: number) => { const o = new Uint8Array(n); o.set((b ?? new Uint8Array(0)).subarray(0, n)); return o; };
 const name16 = (t: string) => new W().s([...String(t ?? "")].map((ch) => (ch.charCodeAt(0) > 255 ? "?" : ch)).join("").slice(0, 15), 16).bytes();
 const cat = (...a: Uint8Array[]) => { const o = new Uint8Array(a.reduce((n, x) => n + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
 const u16at = (b: Uint8Array, i: number) => (b[i] << 8) | b[i + 1];
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+/** Between a redraw's leave and join (Hub.redraw), ms: the two must reach the client in different scene updates
+ *  (0x00a02ad0). Live 2026-11-04: 0 ms never redraws; 200-250 ms works at 15 fps, but not always at 1-4 fps. */
+const REDRAW_GAP_MS = 500;
 
 export class Hub {
   sessions = new Map<string, Session>();
@@ -128,7 +146,7 @@ export class Hub {
         }
       }
     }
-    if (s) { s.conns.set(c.port, c); s.gone = null; }
+    if (s) { s.conns.set(c.port, c); s.gone = null; s.noteNet(c); }
     if (!s) {
       if (busy) this.log(`[cuentas] 0x3003 of ${acct.slice(0, 6)}… (port ${c.port}): account in use (port ${busy.port}): 0x3004 ${AUTH_IN_USE}`);
       this.reject(c, code ?? AUTH_SERVER_FULL, acct);
@@ -223,11 +241,16 @@ export class Hub {
     // Restore both looks on reconnect/character selection; never retain the previous character's cache.
     this.g.withCtx(s, () => {
       const st = this.g.loadState(), p = profile(st, s.slot!, false) ?? {};
-      const before = JSON.stringify(p.pbin);
+      const rewardChanged = rewardLogin(this.g, p);
+      const before = JSON.stringify([p.pbin, p.avatar]);
       syncCosmeticOwnership(this.g, s, p);
-      if (before !== JSON.stringify(p.pbin)) this.g.saveState(st);
       s.partsW.clear();
-      for (const world of [0, 1]) s.partsW.set(world, avatarParts(p, world));
+      // one look for both worlds (owner, 2026-11-05; persist.ts unifyLook migrates two different saved looks); a part
+      // the rank rule forbids comes back with the slot's default (rank unlocks are for good: this never takes one back)
+      const look = lawfulLook(p, 1, avatarParts(p, 1));
+      if (look.changed && typeof p.avatar?.a === "string") setLook(p, look.parts);
+      for (const world of [0, 1]) s.partsW.set(world, look.changed ? look.parts : avatarParts(p, world));
+      if (rewardChanged || before !== JSON.stringify([p.pbin, p.avatar])) this.g.saveState(st);
       s.parts = s.partsW.get(s.world ?? 1)!;
     });
     return s;
@@ -289,8 +312,12 @@ export class Hub {
 
   list5Body(_o: Session): Uint8Array { return new Uint8Array(36); }
 
-  joinMsg(o: Session): Uint8Array {
-    return cat(new W().u32(o.pid!).u8(1).u8(this.ablockOf(o)).bytes(), this.list1Entry(o), this.list2Body(o), this.list5Body(o));
+  /** o's 0x3112 join. The client files its LIST2 parts under ITS OWN world (FUN_006b8eb0, as LIST2 itself), so with a
+   *  `viewer` the parts are o's look for the viewer's world: a viewer in the other world's area of the block (one
+   *  block lists both worlds' areas) would otherwise file o's other-world look as this world's. */
+  joinMsg(o: Session, viewer?: Session | null): Uint8Array {
+    const world = viewer ? this.areaWorld(viewer) ?? undefined : undefined;
+    return cat(new W().u32(o.pid!).u8(1).u8(this.ablockOf(o)).bytes(), this.list1Entry(o), this.list2Body(o, world), this.list5Body(o));
   }
 
   // ---- areas = blocks (AREA_BLOCKS)
@@ -368,8 +395,7 @@ export class Hub {
     }
     const rest = this.others(s);
     if (fresh || moved) {
-      const msg = this.joinMsg(s);
-      for (const o of rest) this.post(o, 0x3112, msg);
+      for (const o of rest) this.post(o, 0x3112, this.joinMsg(s, o));
       this.log(`[hub] ${s.acct} ${fresh ? "enters" : "changes area in"} block ${key}: ${rest.length} more`);
     }
     return [s, ...rest];
@@ -406,22 +432,20 @@ export class Hub {
     s.stateExtra = s.state >= 0x67 && s.state <= 0x6a
       ? cat(name16(rivalName), new W().u8(b & 0xff).u16(u[0] & 0xffff).u16(u[1] & 0xffff).u16(u[2] & 0xffff).bytes())
       : new Uint8Array(0);
-    const rest = this.others(s);
-    const msg = this.stateMsg(s);
-    for (const o of rest) this.post(o, 0x3112, msg);
+    for (const o of this.others(s)) this.post(o, 0x3112, this.stateMsg(s, true, o));
   }
 
   /** s's 0x3112 as one viewer sees it with another state; s.state itself stays as it is (synchronous: nothing sees the
    *  swap). lobby.ts duelInvite: the target as a room owner, to its challenger alone */
-  stateMsgAs(s: Session, state: number): Uint8Array {
+  stateMsgAs(s: Session, state: number, viewer?: Session | null): Uint8Array {
     const st = s.state, ex = s.stateExtra;
     s.state = state & 0xff; s.stateExtra = new Uint8Array(0);
-    try { return this.stateMsg(s); } finally { s.state = st; s.stateExtra = ex; }
+    try { return this.stateMsg(s, true, viewer); } finally { s.state = st; s.stateExtra = ex; }
   }
 
-  stateMsg(s: Session, known = true): Uint8Array {
+  stateMsg(s: Session, known = true, viewer?: Session | null): Uint8Array {
     if (known && s.state >= 0x67 && s.state <= 0x6a) return cat(new W().u32(s.pid!).u8(s.state).u8(this.ablockOf(s)).bytes(), s.stateExtra);
-    return this.joinMsg(s);
+    return this.joinMsg(s, viewer);
   }
 
   viewOf(o: Session): string { return `${(o.state || 0) & 0xff}|${this.ablockOf(o)}|${Buffer.from(o.stateExtra).toString("hex")}`; }
@@ -431,8 +455,8 @@ export class Hub {
     const now = new Map(this.others(s).map((o) => [o.pid!, [o, this.viewOf(o)] as const]));
     for (const [pid, [o, v]] of now) {
       const old = view.get(pid);
-      if (old === undefined) out.push([0x3112, this.stateMsg(o, false)]);
-      else if (old !== v) out.push([0x3112, this.stateMsg(o)]);
+      if (old === undefined) out.push([0x3112, this.stateMsg(o, false, s)]);
+      else if (old !== v) out.push([0x3112, this.stateMsg(o, true, s)]);
     }
     for (const pid of view.keys()) if (!now.has(pid)) out.push([0x3112, new W().u32(pid).u8(0).u8(0).bytes()]);
     return out;
@@ -445,9 +469,14 @@ export class Hub {
     if (msgId === 0x0003) { if (s.lobby === c) this.leave(s, "0x0003"); return; }
     if (msgId === 0x4170 && data.length >= 20) {
       s.world = new DataView(data.buffer, data.byteOffset).getUint32(0) & 0xff;
+      const was = s.partsW.get(s.world);
       s.parts = data.slice(4, 20);
-      s.partsW.set(s.world, s.parts);
-      if (inblock) for (const o of this.others(s)) this.post(o, 0x4181, cat(new W().u32(s.pid!).u32(s.world).bytes(), s.parts));
+      // one look for both worlds (owner, 2026-11-05): both copies, and the others' clients get both worlds' copy
+      s.partsW.set(0, s.parts); s.partsW.set(1, s.parts);
+      if (inblock) {
+        for (const o of this.others(s)) for (const w of [0, 1]) this.post(o, 0x4181, cat(new W().u32(s.pid!).u32(w).bytes(), s.parts));
+        if (was && !sameBytes(was, s.parts)) this.redraw(s);
+      }
     } else if (msgId === 0x4172 && data.length >= 33) {
       const i = data[0] & 1;
       s.comments[i] = data.slice(1, 33);
@@ -467,6 +496,28 @@ export class Hub {
       s.npcPose = false;
       this.setState(s, 0);
     }
+  }
+
+  /** A changed look, drawn again on the screens that show it. The 2008 client never redraws a chibi it already has:
+   *  its lobby's player sync (0x00a02ad0, every scene update) keeps the chibi of every pid still in its player list
+   *  and creates one, from the list's parts, only for a pid that has none; a 0x4181 only updates the list. So everyone
+   *  whose area is in that world gets s leaving (0x3112 op 0) and, REDRAW_GAP_MS later, joining again (op 1: the
+   *  newest parts, the same position and state). The join must come after a sync that ran without s, or the old
+   *  chibi stays. One redraw at a time per player: a change while one is pending sends no second leave, and the
+   *  pending join carries the newest look, so rapid changes end on the last one. */
+  redraw(s: Session) {
+    const world = this.areaWorld(s) ?? s.world;
+    if (world !== s.world) return;   // the look of the world it is not in: no one draws it now
+    if (s.ext.redrawPending) return;
+    const gone = new W().u32(s.pid!).u8(0).u8(0).bytes(), block = s.block;
+    for (const o of this.others(s)) if ((this.areaWorld(o) ?? o.world) === world) this.post(o, 0x3112, gone);
+    s.ext.redrawPending = true;
+    setTimeout(() => this.g.world.run(() => {
+      s.ext.redrawPending = false;
+      if (s.block === null || s.block !== block || s.pid === null) return;   // gone, or a block change sent its own join
+      const w = this.areaWorld(s) ?? s.world;
+      for (const o of this.others(s)) if ((this.areaWorld(o) ?? o.world) === w) this.post(o, 0x3112, this.joinMsg(s, o));
+    }), REDRAW_GAP_MS);
   }
 
   listChunks(c: Conn, req: number): Uint8Array[] {

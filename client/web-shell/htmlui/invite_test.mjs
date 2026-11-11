@@ -30,7 +30,9 @@ assert.equal(events.length + clicks.length, 0);
 replies = [[200, { ok: true, room: 1000 }]];
 snap = { windows: [list(['@2Lv 1@>40/Duelist F'])] };
 setTimeout(() => { snap = { windows: [list(['@2Lv 1@>40/Duelist F']), win('CPlayerListMenu', [{ id: 77, cls: 'CWindowTaskTextSwitch', shown: true, label: 'Send Duel Request' }])] }; }, 1200);
-assert.deepEqual(await inviteDuel(api, 'Duelist F'), { ok: true });
+const first = inviteDuel(api, 'Duelist F');
+assert.equal(inviteDuel(api, 'Duelist F'), first); // shared action, one POST and click
+assert.deepEqual(await first, { ok: true });
 assert.deepEqual(events.slice(0, 3), [['mousemove', 48, 640], ['mousedown', 48, 640], ['mouseup', 48, 640]]);
 assert.deepEqual(clicks, [77]);
 
@@ -38,4 +40,15 @@ assert.deepEqual(clicks, [77]);
 replies = [[200, { ok: true, room: 1001 }]];
 snap = { windows: [list(['@2Lv 1@>40/Someone Else'])] };
 assert.equal((await inviteDuel(api, 'Duelist F')).ok, false);
+// A stalled HTTP request also ends; shorten only its 10-second deadline.
+const originalFetch = globalThis.fetch, originalTimeout = globalThis.setTimeout;
+try {
+  globalThis.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 10000 ? 1 : ms, ...args);
+  globalThis.fetch = (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+  });
+  assert.equal((await inviteDuel(api, 'Duelist F')).ok, false);
+} finally {
+  globalThis.fetch = originalFetch; globalThis.setTimeout = originalTimeout;
+}
 console.log('invite_test: ok');

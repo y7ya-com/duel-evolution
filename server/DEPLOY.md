@@ -10,6 +10,13 @@ Only production is deployed: `wrangler.jsonc` `env.production`, live at `origina
 The top level of wrangler.jsonc is for local `wrangler dev` only. The former staging Worker `duel-evolution-next` and its
 D1 `duel-evolution` are idle with no route; they were kept, not deleted.
 
+## Only main ships
+
+Both `infra/ship-client.sh` and `scripts/deploy.sh` run `infra/ship-guard.sh` first. It refuses unless HEAD is
+`origin/main`, tracked files are unchanged, and `main` contains what is live: the `live/client` / `live/server` tag (each
+ship moves its tag to the shipped commit) and, for the client, the live page's `yo2-build`. No hand-uploaded files, no
+bare `wrangler deploy`. To roll back, revert on main and ship.
+
 ## The web client
 
 `infra/ship-client.sh [--build] [prefix]` from the public repo: builds (or takes) `client/recomp/build-web/`, adds the

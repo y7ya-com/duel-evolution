@@ -74,7 +74,7 @@ function makeEnv(store, ls, opts = {}) {
         const h = { get: (k) => headers.get(k.toLowerCase()) || null };
         if (o.method === "HEAD") return { status: 200, headers: h };
         if (!files[p]) return { status: 404, headers: h, arrayBuffer: async () => new ArrayBuffer(0) };
-        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
+        if (!o.headers || !o.headers.Range) { const b = files[p]; return { status: 200, ok: true, headers: h, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.length) }; }
         netFetch++, (flying++, (maxFlying = Math.max(maxFlying, flying)));
         await sleep(1).finally(() => flying--);
         if (o.signal && o.signal.aborted) { aborted++; throw (abortReason = o.signal.reason); }
@@ -94,7 +94,7 @@ function makeEnv(store, ls, opts = {}) {
     };
     const PATH = { dirname: (p) => p.slice(0, p.lastIndexOf("/")), basename: (p) => p.slice(p.lastIndexOf("/") + 1) };
     let deps = 0;
-    const Module = {}, ENV = {};
+    const Module = { ...(opts.era ? { yo2EraCards: opts.era } : {}) }, ENV = {};
     const ctx = { Module, ENV, FS, PATH, XMLHttpRequest, fetch, caches, Response, DOMException, console: { log() {} },
         location: { search: opts.search || "", href: "http://t/", hostname: opts.host || "localhost", host: opts.host || "t", protocol: "https:" }, localStorage: { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, v) },
         performance: { now: opts.now || (() => Date.now()) }, setTimeout: (f, ms) => { const t = setTimeout(f, ms); t.unref(); return t; }, clearTimeout, setInterval: () => 0, addEventListener() {}, URL, URLSearchParams,
@@ -606,5 +606,56 @@ console.log("prefetch=0: ok");
         delete files["fonts/a.ttf"];
         assert.equal(Object.keys(files).length, files0);
     }
+}
+// The shared room loading scene retains both destinations, rather than replacing the set on every short visit.
+{
+    const r = makeEnv(new Map(), new Map()); await r.ready();
+    r.Module.onYo2Scene("begin", 10, 25); r.read("/game/merge.dat", 10 * MB, 1);
+    r.Module.onYo2Scene("begin", 25, 10);
+    r.Module.onYo2Scene("begin", 12, 25); r.read("/game/merge.dat", 20 * MB, 1);
+    r.Module.onYo2Scene("begin", 25, 12);
+    const set = r.Module.yo2Lazy.learned().sets[25];
+    assert.ok(set.includes(10) && set.includes(20) && set.length <= 48);
+}
+// PE data sections join the bounded boot hold; executable code and discardable relocations never do.
+{
+    const old = files["game/yo2.exe"], exe = Buffer.alloc(6 * MB);
+    exe.writeUInt16LE(0x5a4d, 0); exe.writeUInt32LE(0x80, 0x3c); exe.writeUInt32LE(0x4550, 0x80);
+    exe.writeUInt16LE(3, 0x86); exe.writeUInt16LE(224, 0x94);
+    [[MB, 0x20], [4 * MB, 0x40], [5 * MB, 0x02000040]].forEach(([raw, flags], i) => {
+        const at = 0x80 + 24 + 224 + 40 * i;
+        exe.writeUInt32LE(4096, at + 8); exe.writeUInt32LE(4096, at + 16);
+        exe.writeUInt32LE(raw, at + 20); exe.writeUInt32LE(flags, at + 36);
+    });
+    files["game/yo2.exe"] = exe;
+    files["fonts/test.ttf"] = Buffer.alloc(4096, 42);
+    try {
+        const store = new Map(), ls = new Map(), r = makeEnv(store, ls, { search: "?fonts=fonts/" });
+        await r.ready();
+        const L = r.Module.yo2Lazy, keys = [...L.pinned.keys()].filter(k => k.includes("yo2.exe#"));
+        assert.deepEqual(keys, ["game/yo2.exe#4"], "only the required data section chunk");
+        const before = syncXhr;
+        assert.deepEqual(Buffer.from(r.read("/game/yo2.exe", 4 * MB, 4096)), exe.subarray(4 * MB, 4 * MB + 4096));
+        assert.equal(syncXhr, before, "exe data has no boot XHR");
+        r.read("/fonts/test.ttf", 0, 4096); await settle(L); L.savePins();
+        const warm = makeEnv(store, ls, { search: "?fonts=fonts/" }); await warm.ready();
+        const n = syncXhr;
+        assert.equal(warm.read("/fonts/test.ttf", 0, 1)[0], 42);
+        assert.equal(syncXhr, n, "small fonts restored from persistent storage");
+        exe.writeUInt32LE(0xffffffff, 0x3c);
+        await makeEnv(new Map(), new Map()).ready();   // malformed PE: normal lazy reads remain available
+        console.log("PE boot and small-file persistence: ok");
+    } finally { files["game/yo2.exe"] = old; delete files["fonts/test.ttf"]; }
+}
+// Legacy faces override both native loose-file reads and the modern editor's async art reads.
+{
+    const path = "c-test/merge/data/card/83555666.png", old = Buffer.from("original 2008 Ring of Destruction face");
+    files[path] = old;
+    const r = makeEnv(new Map(), new Map(), { search: "?prefetch=0", era: { base: "c-test/", cards: { 1: { face: "merge/data/card/83555666.png" } } } });
+    await r.ready();
+    assert.deepEqual(Buffer.from(r.read("/game/merge/data/card/83555666.png", 0, old.length)), old);
+    assert.deepEqual(Buffer.from(await r.Module.yo2Lazy.cardArt(1)), old);
+    delete files[path];
+    console.log("2008 printed card text: ok");
 }
 console.log("lazyfs_test ok");

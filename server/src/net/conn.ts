@@ -27,6 +27,10 @@ export class Conn {
   rxT: number | null = null;
   /** The DE user bound to this connection's WebSocket (null only on the DEV parity bridge). */
   userId: string | null = null;
+  /** The WebSocket's keyed IP-bucket tag and its DE user's creation time (ms), from the Worker (auth/binding.ts
+   *  IPB_HEADER, CREATED_HEADER); null on the DEV parity bridge. hub.ts login copies them onto the Session. */
+  ipb: string | null = null;
+  userCreated: number | null = null;
   /** Set by 0x0003 (bye). */
   bye = false;
   private seqN = 0;

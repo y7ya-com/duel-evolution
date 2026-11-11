@@ -8,12 +8,14 @@
 // Built per request because it closes over the request's env.
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { APIError, createAuthEndpoint, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import { username } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "../db/auth-schema.ts";
 import type { AuthEnv } from "./env.ts";
 import { NAME_MAX, NAME_MIN, nameProblem } from "./names.ts";
+import { takeDuelLink } from "./discord-link.ts";
 
 export type Role = "admin" | "moderator";
 
@@ -87,11 +89,35 @@ export function makeAuth(env: AuthEnv, opts: AuthOptions = {}) {
     plugins: [
       username({ minUsernameLength: NAME_MIN, maxUsernameLength: NAME_MAX, usernameValidator: (n) => nameProblem(n) === null }),
       guard(env),
+      duelLink(env),
     ],
   });
 }
 
 export type Auth = ReturnType<typeof makeAuth>;
+
+/**
+ * GET /api/auth/de/duel-link?t=<token>: a #duels Accept's private link (discord/interactions.ts). The one-time token
+ * (auth/discord-link.ts) signs its player in, as a magic link does, and opens the game with ?duel=<room id>; the game
+ * sends the duel request once the player is in the world (htmlui duels.js). A used or expired link opens the game
+ * without signing anyone in.
+ */
+function duelLink(env: AuthEnv): BetterAuthPlugin {
+  return {
+    id: "de-duel-link",
+    endpoints: {
+      deDuelLink: createAuthEndpoint("/de/duel-link", { method: "GET" }, async (ctx) => {
+        const t = ctx.request ? new URL(ctx.request.url).searchParams.get("t") : null;
+        const link = await takeDuelLink(env.DB, t);
+        const user = link && await ctx.context.internalAdapter.findUserById(link.userId);
+        if (!link || !user) throw ctx.redirect("/?online=1");
+        const session = await ctx.context.internalAdapter.createSession(user.id);
+        await setSessionCookie(ctx, { session, user });
+        throw ctx.redirect(`/?online=1&duel=${link.duel}`);
+      }),
+    },
+  };
+}
 
 /**
  * - sign-up (server-side only) takes {username, password}; the server picks the email and name;
@@ -157,6 +183,14 @@ export function ipBucket(ip: string): string {
   return all.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 
+/** A keyed hash of a request's ipBucket (HMAC-SHA-256 under `key`, 16 hex), for the game session (hub.ts Session.ipbs):
+ *  never the IP itself, never stored, and not reversible by hashing the IPv4 space without the key. */
+export async function ipBucketTag(ip: string, key: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`de-ipb|${key}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const d = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(ipBucket(ip))));
+  return [...d.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function sha256hex(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -168,12 +202,15 @@ export async function rolesOf(db: D1Database, userId: string): Promise<Role[]> {
   return results.map((r) => r.role);
 }
 
-export interface Verified { userId: string; roles: Role[]; /** the sign-in name as shown (username plugin), else the display name */ name: string }
+export interface Verified { userId: string; roles: Role[]; /** the sign-in name as shown (username plugin), else the display name */ name: string;
+  /** user.createdAt (ms): when the DE account was made (graduation's opponent age, ranking.ts GRAD_OPP_MIN_AGE_MS) */ createdAt: number | null }
 
 /** The signed-in DE user behind this request's session cookie, or null. */
 export async function verifySession(request: Request, env: AuthEnv): Promise<Verified | null> {
   const s = await makeAuth(env).api.getSession({ headers: request.headers }).catch(() => null);
   if (!s) return null;
   const u = s.user as { displayUsername?: string | null; username?: string | null; name: string };
-  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id), name: u.displayUsername || u.username || u.name };
+  const made = new Date(s.user.createdAt as unknown as string | number | Date).getTime();
+  return { userId: s.user.id, roles: await rolesOf(env.DB, s.user.id), name: u.displayUsername || u.username || u.name,
+    createdAt: Number.isFinite(made) ? made : null };
 }

@@ -4,8 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import type { AuthEnv } from "../src/auth/env.ts";
 import { authApp } from "../src/auth/routes.ts";
-import { canUseAccount, gateUpgrade, USER_HEADER } from "../src/auth/binding.ts";
-import { makeAuth, SIGNIN_LOCK_AFTER, verifySession } from "../src/auth/auth.ts";
+import { canUseAccount, CREATED_HEADER, gateUpgrade, IPB_HEADER, USER_HEADER } from "../src/auth/binding.ts";
+import { ipBucketTag, makeAuth, SIGNIN_LOCK_AFTER, verifySession } from "../src/auth/auth.ts";
 import { nameProblem } from "../src/auth/names.ts";
 
 const ORIGIN = "https://de.test";
@@ -433,6 +433,22 @@ describe("game WebSocket upgrade", () => {
     const fwd = await gateUpgrade(ws({ cookie: u.cookie, forged: "someone-else" }), env);
     expect(fwd).toBeInstanceOf(Request);
     expect((fwd as Request).headers.get(USER_HEADER)).toBe(u.id);
+  });
+
+  it("forwards a keyed tag of the IP bucket (never the IP) and the user's creation time; a client's own are dropped", async () => {
+    const u = await user("WsNet");
+    const req = (ip: string, forge = false) => { const r = ws({ cookie: u.cookie }); r.headers.set("cf-connecting-ip", ip);
+      if (forge) { r.headers.set(IPB_HEADER, "forged"); r.headers.set(CREATED_HEADER, "1"); } return r; };
+    const tag = async (ip: string, forge = false) => ((await gateUpgrade(req(ip, forge), env)) as Request).headers;
+    const h = await tag("203.0.113.7", true);
+    expect(h.get(IPB_HEADER)).toMatch(/^[0-9a-f]{16}$/);
+    expect(h.get(IPB_HEADER)).not.toContain("203");
+    const made = Number(h.get(CREATED_HEADER));
+    expect(Math.abs(made - Date.now())).toBeLessThan(3600e3);
+    expect((await tag("203.0.113.7")).get(IPB_HEADER)).toBe(h.get(IPB_HEADER));
+    expect((await tag("203.0.113.8")).get(IPB_HEADER)).not.toBe(h.get(IPB_HEADER));
+    expect((await tag("2001:db8:1:2:aaaa::1")).get(IPB_HEADER)).toBe((await tag("2001:db8:1:2:bbbb::9")).get(IPB_HEADER));   // one /64
+    expect(await ipBucketTag("203.0.113.7", "another key")).not.toBe(h.get(IPB_HEADER));
   });
 
   it("parity bypass only for DEV, localhost, no Origin", async () => {

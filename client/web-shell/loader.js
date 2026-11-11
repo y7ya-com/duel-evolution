@@ -28,7 +28,7 @@
         font: 600 2.1cqh/1.2 system-ui, sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.6); letter-spacing: .02em; }
       #loading { container-type: size; }
       #loading.gone { opacity: 0; }
-      #loading.scene { transition: opacity .15s ease-out; }
+      #loading.scene { transition: opacity .15s ease-out .35s; }
       #loading.scene.gone { transition: opacity .3s ease-out; }
       #loading .spin { display: none; position: absolute; left: 50%; top: 47%; width: 600px; height: 600px;
         transform: translate(-50%, -50%) scale(var(--kx, 1), var(--ky, 1)); }
@@ -243,6 +243,9 @@
         if (switching) { inScene = to; update.hide(); } else update.check();
         if (!booted) return;   // the boot screen is still up
         if (kind === "begin") {
+            // the box fades in only after the game's own fade to black (CSceneMng's FADE_WAIT: 10 frames, 0.33 s, the
+            // transition-delay above): from "begin" it came up over that fade, and the game's darkening menu mark showed
+            // through it under the box's ring at another angle (owner: "weird black stuff" loading the room)
             if (scene) return;
             scene = true;
             clearTimeout(offTimer);

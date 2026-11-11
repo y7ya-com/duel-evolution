@@ -56,3 +56,14 @@
 00763470  # the duel field's plane set (fieldplane.c: an index past the plane loader's array becomes plane 0; crash #19)
 007d8840  # the plane loader's SecretLoad by index (fieldplane.c: the same bound)
 007d8e70  # the plane loader's plane by index (fieldplane.c: the same bound)
+00a58cc0  # avatarValidate (worldparts.c: the series test for clothes and disks; RC_WORLDPARTS=0)
+00ad5ab0  # CPbinDictionary::collect (worldparts.c: the appearance editor's list by the same rule; RC_WORLDPARTS=0)
+00afac40  # CShopAvatarWindow vf10, the avatar shop list (worldparts.c: clothes and disks by the same rule; RC_WORLDPARTS=0)
+008ae060  # CWindowDialogAvatarSwitch::refresh (worldparts.c: no LV gate on the rank uniforms when the server's bits are rank-authored; RC_WORLDPARTS=0)
+009fb8c0  # CAreaMap::receive: intercept the shop door before fade/push
+009cd5c0  # CChibiAvatarElm::moveStep: overlay movement lock and door latch
+0068eca0  # account trunk-complete: sync card case and open editor after HTTP purchases
+
+006b69f0  # CNetLobby_OfferRoom::onMain: bounded duel request wait (duelrequest.c)
+006b9930  # UPDATE_PLAYERAVATAR: keep our active character in sync after wardrobe equips
+00a02ad0  # CAreaMap player sync: reload our chibi when its appearance changes

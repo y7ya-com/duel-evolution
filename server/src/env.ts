@@ -1,4 +1,6 @@
-export interface Env {
+import type { DiscordEnv } from "./discord/rest.ts";
+
+export interface Env extends DiscordEnv {
   WORLD: DurableObjectNamespace;
   DB?: D1Database;
   /** The site's R2 bucket: the recomp client under recomp/, the duel engine data under duel-evolution/engine/. */
@@ -22,4 +24,7 @@ export interface Env {
   DEPLOY_TOKEN?: string;
   /** wrangler.jsonc version_metadata: the deployed version (GET /__version). */
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
+  /** The daily trade report's Discord webhook (wrangler secret; db/audit.ts). Unset: the report is only kept in R2. */
+  REPORT_WEBHOOK?: string;
+  PUBLIC_ORIGIN?: string;
 }

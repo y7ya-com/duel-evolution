@@ -4,6 +4,7 @@ import { W } from "../net/proto.ts";
 import { PyRandom } from "../util/pyrandom.ts";
 import LD from "../../gamedata/lobby.json";
 import type { Game } from "./game.ts";
+import { avatarRowWorlds } from "./cosmetics-catalog.ts";
 
 export type Npc = [id: number, name: string, spot: number, parts: Uint8Array];
 
@@ -107,9 +108,9 @@ function validateParts(p0: Uint8Array, world = DOMINO, checkWorld = true): boole
     else if (i >= 1 && i <= 9) {
       if (i === 9 && v === 0) v = 0x20;
       const rec = AV_PBIN[String(v + (sex === FEMALE ? 0x100 : 0))];
-      const slot = rec ? rec[3] : 0, rworld = rec ? rec[5] : 0;
+      const slot = rec ? rec[3] : 0;
       if (slot !== i && !((i === 2 || i === 9) && v === 0x20)) return false;
-      if (checkWorld && rworld !== 1 && rworld !== (world === DOMINO ? 2 : 3)) return false;
+      if (checkWorld && !(rec ? avatarRowWorlds(rec) : []).includes(world === DOMINO ? 0 : 1)) return false;
     }
   }
   return true;

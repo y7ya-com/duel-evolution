@@ -19,6 +19,9 @@
 //  - CShopPricePlate, CShopMileagePlate, CShopConfirmWindow: src/shop/yo2ShopPlates.cpp, yo2ShopConfirm.cpp
 //  - CShopNpcProfile: a factory window (CWindowTaskModel: a FrameThin "CWindowTaskFrameThin m_frame" and texts,
 //    0x00ae4b40), drawn control by control
+// The Avatar Parts category (CShopAvatarWindow) is the Cosmetic Boxes shop (cosmetics/boxes.js): the server sells no
+// wearables, so its list is empty; the boxes draw inside its frame, its Confirm pill becomes Open Box, and while it is
+// open the MP plate (CShopMileagePlate) shows the wallet in the shop's digits: total, earned (what boxes take).
 // Pass mode: the game takes the mouse (hover / pressed come from the snapshot: the picture switches' own state, the
 // swf buttons' from the game's mouse over them). The confirm window's list is a native scroller (the owner's
 // Scrolling rule), its scroll bar's value set through api.setValue.
@@ -27,6 +30,10 @@ import { scrollList } from '../controls/scroll.js';
 import { runs, clip, spriteRect } from './deck.js';
 import * as skin from '../controls/shop-skin.js';
 import { measure } from '../../ui.js';
+import { mountBoxes, drawWallet, drawCategoryLabel, PILLS } from '../cosmetics/boxes.js';
+import { packHotspots, dropPackHotspots } from './pack-contents.js';
+import { mountCardShop } from '../shop/index.js';
+import { coverWhen, coverOn, shopOn, nativeClick, SHOP_SCENE } from '../shop/cover.js';
 
 // ---------------------------------------------------------------- what is whose
 // the texture's file name, no folder, no extension, the language letter as English (the art this module knows)
@@ -337,7 +344,7 @@ function npcProfile(win, root) {
   }
 }
 
-export default {
+const base = {
   classes: ['CShopCategoryWindow', 'CShopCardWindow', 'CShopPackWindow', 'CShopAvatarWindow', 'CShopPricePlate',
     'CShopMileagePlate', 'CShopConfirmWindow', 'CShopNpcProfile'],
   mode: 'pass',
@@ -386,5 +393,167 @@ export default {
     lend();
     for (const K of live.values()) if (sig(K) !== K.drawn) draw(K);
     reclip();
+  },
+};
+
+// ---------------------------------------------------------------- the full-screen card shop (shop/index.js)
+// Over the category menu (CShopCategoryWindow) the HTML card shop takes the whole screen; while a native category is
+// open (the menu hidden: the Avatar Parts category, where the Cosmetic Boxes draw) it steps aside. Its Back is the
+// menu's own Exit button, clicked for the player where the engine draws it, so leaving goes exactly as it does natively.
+// Its Cosmetic Boxes tab is HTML too (shop/boxes.js): the native Avatar Parts box shop below is only the fallback.
+// Off: ?HTML_SHOP=0 or htmlui.json "cardShop": false (the menu as before, its Avatar Parts the box shop below).
+export const CATEGORY = 'CShopCategoryWindow';
+/** The menu's Exit button's middle (the swf at 795, 540: its 223 x 50 art), game px. */
+export function exitPoint(win) {
+  const f = (win?.parts?.swfs || []).filter(x => x.shown !== false).sort((a, b) => b.wy - a.wy)[0];
+  return f ? [Math.round(f.wx + 111), Math.round(f.wy + 25)] : [906, 565];
+}
+/** The Avatar Parts banner's middle (its picture: 376 x 112 at 24, 29 of the switch), game px. */
+export function boxesPoint(win) {
+  const c = (win?.controls || []).find(k => k.name === 'アバターアイテムボタン');
+  const x = c ? (c.wx || c.x) : 319, y = c ? (c.wy || c.y) : 407, p = skin.CAT_PICTURE;
+  return [Math.round(x + p.x + p.w / 2), Math.round(y + p.y + p.h / 2)];
+}
+// nativeClick: shop/cover.js (the cover clicks Sadie's greeting through with it too)
+export { nativeClick };
+// Sadie's farewell: after the menu's Exit the game shows her "Thank you! Please come by again." balloon
+// (CWindowModelBalloon, still in the shop scene) and waits for a click before the map comes back. With the HTML shop
+// gone the player saw only that, or (the click never reaching her) stayed in the shop: Back clicks it for them, until
+// the scene changes (12 s at most). The menu up again (the Exit not taken) ends it too. -> Promise<bool> (left)
+export { SHOP_SCENE };
+export async function farewell({ snap = () => globalThis.yo2Html?.snapshot?.(), click = nativeClick, wait = ms => new Promise(ok => setTimeout(ok, ms)),
+  menuUp = () => !!shownMenu(), ms = 12000 } = {}) {
+  for (let t0 = Date.now(); Date.now() - t0 < ms;) {
+    const s = snap();
+    if (!s || s.scene !== SHOP_SCENE) return true;
+    if (menuUp()) return false;
+    const b = (s.windows || []).find(w => w.cls === 'CWindowModelBalloon' && w.shown);
+    if (b) await click([Math.round(b.x + b.w / 2), Math.round(b.y + b.h / 2)], { hover: 200, hold: 120 });
+    await wait(600);
+  }
+  return false;
+}
+// every live category menu task by id: after a category is opened and left, the game can keep an older one (locked:
+// not shown) beside the new one (live: Back read the old one's shown and never clicked); the shown one drives
+const card = { ctl: null, wins: new Map(), busy: false, leaving: false };
+const shownMenu = () => [...card.wins.values()].find(w => w.shown) || null;
+function cardShop(win, root) {
+  card.wins.set(win.id, win);
+  if (!card.ctl) {
+    const host = root.closest('#htmlui-host') || root;
+    // one native click at a time (a second Back while the first is still hovering would press the menu twice); the menu
+    // doesn't always take the first (live: one Back in several stayed), so it is clicked again while the menu is still up
+    // 2.5 s later, twice at most: the menu hidden (a category opened) or gone (the shop left) ends it
+    const click = async point => {
+      if (card.busy) return;
+      card.busy = true;
+      try {
+        for (let i = 0; i < 3; i++) {
+          const menu = shownMenu();
+          if (!card.ctl || !menu) break;
+          await nativeClick(point(menu));
+          await new Promise(ok => setTimeout(ok, 2500));
+        }
+      } finally { card.busy = false; }
+    };
+    // Back: the shop stays up (leaving) while the menu's Exit and Sadie's farewell balloon are clicked behind it, so the
+    // native shop is never seen; the scene load that follows is covered (shop/cover.js)
+    const back = async () => {
+      if (card.leaving) return;
+      card.leaving = coverOn();   // held up behind the cover (not without it: ?SHOP_COVER=0)
+      try { await click(exitPoint); await farewell(); } finally {
+        if (card.ctl) { card.leaving = false; if (card.wins.size) card.ctl.show(!!shownMenu()); else dropCardShop(); }
+      }
+    };
+    card.ctl = mountCardShop(host, { onBack: back });
+    // the cover (shop/cover.js) comes down when the shop is shown with its data; the scene being left drops the shop
+    coverWhen(() => !!card.ctl && !card.ctl.el.hidden && !!(card.ctl.state.view || card.ctl.state.error),
+      () => { card.wins.clear(); dropCardShop(); });
+  }
+  card.ctl.show(card.leaving || !!shownMenu());
+}
+function dropCardShop(id) {
+  card.wins.delete(id);
+  if (card.wins.size) { card.ctl?.show(card.leaving || !!shownMenu()); return; }
+  if (card.leaving && id != null) { card.ctl?.show(true); return; }   // Back, mid-farewell: the shop stays until the scene load
+  card.ctl?.destroy();
+  Object.assign(card, { ctl: null, busy: false, leaving: false });
+}
+
+// ---------------------------------------------------------------- the Cosmetic Boxes (cosmetics/boxes.js) in Avatar Parts
+export const AVATAR = 'CShopAvatarWindow', PLATE = 'CShopMileagePlate';
+// the live box shop and the MP plate (either may mount first): { ctl, shown, view } and { win, root, api, st }
+const boxes = { ctl: null, shown: false, view: 'showcase', plate: null };
+const active = () => !!boxes.ctl && boxes.shown;
+// a control's screen point inside a pill (its texts: the ShadowText at x, y; its text child at wx, wy)
+const inPill = (c, r) => { const x = c.wx || c.x, y = c.wy || c.y; return x >= r.x && x < r.x + r.w && y >= r.y - 4 && y < r.y + r.h; };
+/** What the shop draws of a window while the boxes are open: not the Confirm label (Open Box is drawn over its pill),
+ *  not Back's on the contents sheet (Back to box), none of the MP plate's texts (the wallet replaces them). */
+export function strip(win, on = active(), view = boxes.view) {
+  if (!on) return win;
+  if (win.cls === AVATAR) return { ...win, controls: win.controls.filter(c => !inPill(c, PILLS.confirm) && !(view === 'contents' && inPill(c, PILLS.back))) };
+  if (win.cls === PLATE) return { ...win, controls: [] };
+  return win;
+}
+// a window drawn again now (its key forgotten: the strip or the wallet changed, not the snapshot)
+function redraw(P) { if (P) { P.st.key = ''; update(P.win, null, P.root, P.api, P.st); } }
+function update(win, prev, root, api, st) {
+  if (win.cls === AVATAR) {
+    st.win = win;
+    if (!win.shown) { st.boxes?.resetPreview(); st.restorePreview?.(); }
+    if (!!win.shown !== boxes.shown) { boxes.shown = !!win.shown; queueMicrotask(() => redraw(boxes.plate)); }
+  }
+  if (win.cls === PLATE) Object.assign(boxes.plate ||= {}, { win, root, api, st });
+  base.update(strip(win), prev, root, api, st);
+  if (win.cls === PLATE) { if (active()) drawWallet(root, boxes.ctl.wallet); else root.querySelector(':scope > .bx-wallet')?.remove(); }
+  if (win.cls === 'CShopPackWindow') packHotspots(root, win);   // a pack's art opens what's in it (pack-contents.js)
+  if (win.cls === CATEGORY) {   // the Avatar Parts banner opens the boxes now: say so
+    const c = win.controls.find(k => k.shown && k.name === 'アバターアイテムボタン');
+    drawCategoryLabel(root, c && { x: (c.wx || c.x) - win.x, y: (c.wy || c.y) - win.y });
+    st.menuId = win.id;
+    if (shopOn()) cardShop(win, root);
+  }
+}
+
+export default {
+  ...base,
+  mount(win, root, api) {
+    const st = base.mount(win, root, api);
+    if (win.cls === AVATAR) {
+      st.win = win;
+      boxes.shown = !!win.shown;
+      let previewing = false, current = null;
+      st.restorePreview = () => {
+        if (previewing && current && (st.api || api).previewShopLook?.(current, st.win.id)) previewing = false;
+      };
+      boxes.ctl = st.boxes = mountBoxes(root, {
+        onPreview: (look, parts) => {
+          if (Array.isArray(parts) && parts.length === 16) {
+            current = [...parts];
+            if (!current[6]) current[6] = 0x80;
+            if (!current[8]) current[8] = 0xb8;
+          }
+          if (look) previewing = !!(st.api || api).previewShopLook?.(look.parts, st.win.id);
+          else st.restorePreview();
+        },
+        onWallet: () => redraw(boxes.plate),
+        onView: v => { boxes.view = v; redraw({ win: st.win, root, api: st.api || api, st }); },
+      });
+    }
+    if (win.cls === PLATE) boxes.plate = { win, root, api, st };
+    return st;
+  },
+  update(win, prev, root, api, st) { st.api = api; update(win, prev, root, api, st); },
+  unmount(root, st) {
+    if (root.getAttribute('aria-label') === 'CShopPackWindow') dropPackHotspots();
+    if (st.menuId) dropCardShop(st.menuId);
+    st.restorePreview?.();
+    base.unmount(root, st);
+    if (st.boxes) {
+      st.boxes.destroy();
+      if (boxes.ctl === st.boxes) Object.assign(boxes, { ctl: null, shown: false, view: 'showcase' });
+      redraw(boxes.plate);
+    }
+    if (boxes.plate?.st === st) boxes.plate = null;
   },
 };

@@ -354,7 +354,8 @@ void CWindowDialogAvatarSwitch::onControlEvent(CWindowTaskControll* sender) {
 // @yo2 0x008ae060 CWindowDialogAvatarSwitch::refresh: the item page of the chosen category. Every item and both
 // arrows hidden, then the category's choices shown with their texts and the avatar's current one lit. PBIN lists
 // are 14 to a page; the glasses list starts with "none", and in the GX world the dorm uniforms wait for the level
-// (Ra Yellow at 10, Obelisk Blue at 20).
+// (Ra Yellow at 10, Obelisk Blue at 20). As the exe has it; the live client (recomp/ovr/worldparts.c) lifts the
+// level gate when the server's PBIN bits are rank-authored (the uniforms then follow the PvP rating).
 // @yo2 0x008b2f50 vector<PbinInfo>::_Tidy (inlined copy in this file)
 // @yo2 0x008b2fc0 vector<PbinInfo>::insert(it, n, x) (inlined copy in this file: here "none" goes in before collect)
 // @yo2 0x008b33b0 destroy<PbinInfo*> (inlined copy in this file; empty for PODs)

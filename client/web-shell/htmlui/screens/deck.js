@@ -11,6 +11,7 @@
 import * as ui from '../../ui.js';
 import { textBox, textWidth, FONT, fontCss, spacing } from '../controls/basic.js';
 import { scrollList } from '../controls/scroll.js';
+import { mountBar, mountStrip, refresh as craftRefresh, trunkPool, onView, rarityOfId } from '../crafting/editor.js';
 
 // AtConverter's styles as CApp sets them (src/System/yo2TagConverter.cpp applyWindowTagStyles); untagged = @0
 export const TAG_RGB = { 0: 0x000000, 1: 0xff0000, 2: 0x2222ff, 3: 0x009f00, 4: 0x6f6f00, 5: 0xff00ff, 6: 0x00ffff,
@@ -231,6 +232,9 @@ export const vectorArt = s => {
   if (n === 'font_k_star.png') return { kind: 'level', i: u / 14 + 1 };
   if (n === 'scroll_01_c00.png') return { kind: 'scroll', u, v, w, h };
   if (n === 'icon_syuzoku_01.png') return { kind: 'pixel', n, u, v };
+  // the limit marks (icon_seigen_01, a 16 x 16 cell per limit: DeckWindow.cpp limitIconRect, the trunk rows' Forbi
+  // icon): the shipped art is cell 0 only, so 1 and 2 drew nothing (owner: "how many can I put in")
+  if (n === 'icon_seigen_01.png' && u / 16 < 4) return { kind: 'limit', i: u / 16 };
   return null;
 };
 function drawVector(el, a, x, y, w, h, alpha) {
@@ -245,6 +249,7 @@ function drawVector(el, a, x, y, w, h, alpha) {
     return box;
   }
   if (a.kind === 'scroll') return scrollPart(box, a, w, h);
+  if (a.kind === 'limit') return limitMark(box, a.i);
   if (a.kind === 'pixel') {   // the 21 monster-type pictures stay pixel art (owner): the cell, nearest-neighbour, crisp
     Object.assign(box.style, { backgroundImage: `url(${base()}${a.n})`, backgroundPosition: `${-a.u}px ${-a.v}px`,
       backgroundRepeat: 'no-repeat', imageRendering: 'pixelated' });
@@ -271,6 +276,17 @@ function drawVector(el, a, x, y, w, h, alpha) {
       <path d="M12.6 10.6 17.4 15.4M17.4 10.6 12.6 15.4" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>`;
   }
   box.innerHTML = `<svg xmlns="${SVGNS}" viewBox="0 0 ${a.kind === 'star' ? 19 : 16} 16" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">${body}</svg>`;
+  return box;
+}
+// a limit mark, as the game draws them: 0 forbidden (a red "no" sign), else the copies allowed (a red disc, white ring,
+// white digit)
+function limitMark(box, i) {
+  const body = i === 0
+    ? `<circle cx="8" cy="8" r="7.6" fill="#000"/><circle cx="8" cy="8" r="6.8" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="#d80000"/>
+      <circle cx="8" cy="8" r="3.4" fill="none" stroke="#fff" stroke-width="1.4"/><path d="M5.6 10.4 10.4 5.6" stroke="#fff" stroke-width="1.4"/>`
+    : `<circle cx="8" cy="8" r="7.6" fill="#000"/><circle cx="8" cy="8" r="6.8" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="#d80000"/>
+      <text x="8" y="11.6" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#fff" font-family="${FONT.replace(/"/g, "'")}">${i}</text>`;
+  box.innerHTML = `<svg xmlns="${SVGNS}" viewBox="0 0 16 16" width="100%" height="100%" aria-hidden="true">${body}</svg>`;
   return box;
 }
 // scroll_01_c00's cells as CSS (#92979a lines on white, the track #d4e2e4): the arrow buttons (columns 0 / 16 / 32:
@@ -441,10 +457,14 @@ const RACES = ['Dragon', 'Zombie', 'Fiend', 'Pyro', 'Sea Serpent', 'Rock', 'Mach
 const ICONS = ['Counter', 'Field', 'Equip', 'Continuous', 'Quick-Play', 'Ritual', 'Normal'];
 const LIMITS = [['Forbidden', 0], ['Limited', 1], ['Semi-limited', 2], ['Unlimited', 3]];
 const SORTS = [['Default', ''], ['Name', 'name'], ['ATK, high to low', 'atk-'], ['ATK, low to high', 'atk+'], ['DEF, high to low', 'def-'], ['DEF, low to high', 'def+']];
-export const emptyFilter = () => ({ cat: 6, text: '', attr: [], race: [], icon: [], level: [], limit: [], atk: [null, null], def: [null, null], sort: '' });
+// show (the Filters popup's Show row): 'owned' (the engine's own list) | 'all' (every collectible card, the ones not
+// owned at x000) | 'missing' (none owned) | 'craftable' (can be crafted now); rarity: [] or some of 'N' 'R' 'SR' 'UR'
+// (its Rarity row). Both through crafting/editor.js trunkPool: the engine widens the list (ovr/decksearch.c f.pool)
+export const emptyFilter = () => ({ cat: 6, text: '', attr: [], race: [], icon: [], level: [], limit: [], atk: [null, null], def: [null, null], sort: '',
+  show: 'owned', rarity: [] });
 // how many criteria beyond the category and the text (the Filters button's badge)
 export const filterCount = f => f.attr.length + f.race.length + f.icon.length + f.level.length + f.limit.length +
-  (f.atk[0] != null || f.atk[1] != null) + (f.def[0] != null || f.def[1] != null) + !!f.sort;
+  (f.atk[0] != null || f.atk[1] != null) + (f.def[0] != null || f.def[1] != null) + !!f.sort + (f.show !== 'owned') + (f.rarity.length > 0);
 // The look is the deck editor's own (sampled from the engine's frame): silver chips with the card-colour stripe the
 // trunk's rows carry, the side menu's blue bevel for buttons, and a popup built like the Deck / Trunk panels: the
 // silver bevel frame (#dadfe8 .. #b6bbc5 in, #8d919f .. #bcc0cb out), the trunk's lavender header bar (#c6c7d6, #8e8fad
@@ -464,6 +484,13 @@ const SEARCH_CSS = `
   border-radius: 2px; background: linear-gradient(#f6f7f9, #d3d6dc); box-shadow: inset 4px 0 0 var(--c);
   font: ${fontCss(12, 18)}; color: #222; white-space: nowrap; }
 .dk-chip:hover { background: linear-gradient(#fff, #e4e7ec); }
+/* the Filters popup's Rarity row: toggle chips like the type chips, the stripe the rarity's (the trunk marks') colour */
+.dk-pop .dk-rar { height: 22px; display: flex; align-items: center; justify-content: center; padding: 0 0 0 4px; line-height: 1; font-weight: bold; }
+.dk-rar[data-r=N] { --c: #9aa6ad; } .dk-rar[data-r=R] { --c: #1ba2d6; } .dk-rar[data-r=SR] { --c: #6a2fd0; } .dk-rar[data-r=UR] { --c: #e8a10c; }
+/* Filters' active count: a badge on its corner (Show, Rarity and the rest of the popup) */
+.dk-badge { position: absolute; right: -3px; top: -6px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; display: flex;
+  align-items: center; justify-content: center; border-radius: 8px; background: linear-gradient(#ffff8a, #fdff45 50%, #ffc400); color: #3a1b00;
+  box-shadow: 0 0 0 1px #8a5a00; font: bold 10px/1 ${FONT}; text-shadow: none; letter-spacing: 0; pointer-events: none; }
 .dk-chip[aria-pressed=true] { background: #fff; border-color: #2b3a5c; color: #000; font-weight: bold;
   box-shadow: inset 4px 0 0 var(--c), 0 0 0 1px #2b3a5c; }
 .dk-btn { position: absolute; box-sizing: border-box; height: 24px; margin: 0; padding: 0; border: 0; border-radius: 3px;
@@ -484,15 +511,20 @@ const SEARCH_CSS = `
 .dk-count { position: absolute; color: #fff; white-space: nowrap; font: ${fontCss(13, 20)}; text-shadow: 0 0 2px #000, 0 0 1px #000; }
 `;
 let searchCssDone = false;
+/** The editor's control look (dk-btn, dk-chip, dk-pop, dk-head, dk-strip, dk-field...), once: crafting/ wears it too. */
+export function deckCss() {
+  if (searchCssDone || typeof document === 'undefined') return;
+  searchCssDone = true;
+  const st = document.createElement('style');
+  st.textContent = SEARCH_CSS;
+  document.head.append(st);
+}
+/** An outlined title in the editor's lettering (the "Card Search" art's: Audiowide, white, outline, glow) at x, y. */
+export const titleArt = (el, text, outline, x, y, w, h, alpha = 1) => drawTextArt(el, [text, outline, 0, 0, w, h, 1, 1], x, y, alpha);
 // the trunk's search panel in the Kaban window's root (x, y: the window's corner), kept between frames (its input
 // keeps focus and caret); f: the filter, apply(f) hands it to the game
 export function searchPanel(root, apply) {
-  if (!searchCssDone) {
-    searchCssDone = true;
-    const st = document.createElement('style');
-    st.textContent = SEARCH_CSS;
-    document.head.append(st);
-  }
+  deckCss();
   const f = emptyFilter(), el = document.createElement('div');
   el.className = 'dk-search';
   root.append(el);
@@ -527,6 +559,8 @@ export function searchPanel(root, apply) {
   Object.assign(input.style, { left: '8px', top: '31px', width: '192px' });
   input.oninput = () => { f.text = input.value; changed(); };
   el.append(input);
+  // Show and Rarity (crafting) live in the Filters popup, when the runtime can widen the list (Module.yo2KabanPool)
+  const widen = !!globalThis.Module?.yo2KabanPool;
   const clear = btn(el, 'dk-x', '×', 180, 34, false, () => { input.value = f.text = ''; changed(true); input.focus(); });
   clear.setAttribute('aria-label', 'Clear the search');
   const filters = btn(el, 'dk-btn', 'Filters', 204, 30, false, () => { popup ? close() : open(); }, 80);
@@ -538,8 +572,11 @@ export function searchPanel(root, apply) {
   Object.assign(count.style, { left: '104px', top: '4px' });   // beside the "Trunk" title
   function render() {
     clear.hidden = !f.text;
+    // the active filters: a badge on the button's corner
     const n = filterCount(f);
-    filters.textContent = n ? `Filters (${n})` : 'Filters';
+    filters.textContent = 'Filters';
+    if (n) { const bd = document.createElement('span'); bd.className = 'dk-badge'; bd.textContent = n; filters.append(bd); }
+    filters.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
     chips.replaceChildren();
     for (const [name, v, c] of CATS) {
       const b = btn(chips, 'dk-chip', name, 0, 0, f.cat === v, () => { f.cat = v; changed(true); });
@@ -591,11 +628,11 @@ export function searchPanel(root, apply) {
       sel.className = 'dk-field dk-sel';
       sel.setAttribute('aria-label', title);
       Object.assign(sel.style, { left: '96px', top: top + 'px', width: '172px' });
-      for (const [n, v] of [[key === 'sort' ? 'Default' : 'Any', ''], ...opts]) sel.append(new Option(n, v));
+      for (const [n, v] of key === 'show' ? opts : [[key === 'sort' ? 'Default' : 'Any', ''], ...opts]) sel.append(new Option(n, v));
       const cur = Array.isArray(f[key]) ? f[key][0] : f[key];
       sel.value = cur == null ? '' : String(cur);
       sel.onchange = () => {
-        const v = sel.value === '' ? null : key === 'sort' ? sel.value : +sel.value;
+        const v = sel.value === '' ? null : key === 'sort' || key === 'show' ? sel.value : +sel.value;
         if (Array.isArray(f[key])) f[key] = v == null ? [] : [v]; else f[key] = v ?? '';
         changed(true);
       };
@@ -620,6 +657,24 @@ export function searchPanel(root, apply) {
       d.textContent = '–';
       popup.append(d);
     };
+    // Show and Rarity first (what the list holds), then the card's own fields
+    if (widen) {
+      select('Show', 'show', [['Owned cards', 'owned'], ['All cards', 'all'], ['Missing', 'missing'], ['Craftable now', 'craftable']]);
+      const top = row('Rarity'), rr = document.createElement('div');
+      rr.setAttribute('role', 'group');
+      rr.setAttribute('aria-label', 'Rarity');
+      Object.assign(rr.style, { position: 'absolute', left: '96px', top: top + 'px', width: '172px', height: '22px', display: 'flex', gap: '4px' });
+      for (const [r, name] of [['N', 'Normal'], ['R', 'Rare'], ['SR', 'Super Rare'], ['UR', 'Ultra Rare']]) {
+        const b = btn(rr, 'dk-chip dk-rar', r, 0, 0, f.rarity.includes(r), () => {
+          f.rarity = f.rarity.includes(r) ? f.rarity.filter(x => x !== r) : [...f.rarity, r];
+          changed(true);
+        });
+        Object.assign(b.style, { position: 'static', flex: '1 1 0' });
+        b.dataset.r = r;
+        b.title = name;
+      }
+      popup.append(rr);
+    }
     select('Attribute', 'attr', ATTRS.map((n, i) => [n, i]));
     select('Type', 'race', RACES.map((n, i) => [n, i]));
     select('Spell / Trap', 'icon', ICONS.map((n, i) => [n, i]));
@@ -635,7 +690,12 @@ export function searchPanel(root, apply) {
   }
   render();
   // the hits (the engine's own count box beside them is the deck's size)
-  return { el, setCount: n => { count.textContent = n == null ? '' : `${n} shown`; } };
+  return { el, setCount: n => {
+      count.textContent = n == null ? '' : `${n.toLocaleString('en-US')} shown`;
+      count.title = n == null ? '' : `${n.toLocaleString('en-US')} cards shown`;
+    },
+    // the filter again as it is (the crafting view or the trunk changed under a widened list)
+    widened: () => f.show !== 'owned' || f.rarity.length > 0, reapply: () => apply(structuredClone(f)) };
 }
 
 // tagged text as real DOM text (the owner's rule): one text box per colour run, at the pen; @1 is AtConverter's bold
@@ -728,6 +788,11 @@ export function trunkScroller(root, api) {
   st.sync = ctl => {
     st.ctl = ctl;
     if (ctl.hits !== st.n) { st.n = ctl.hits; list.set(Array.from({ length: ctl.hits }), () => document.createElement('div')); }
+    // a re-filter put the list back at its top: back to where the player was
+    // (armedAt: when the re-filter went out; the game applies it at its next frame)
+    if (st.restore != null && st.armedAt && performance.now() - st.armedAt > 300 && ctl.top === 0 && ctl.hits) {
+      st.target = Math.min(st.restore, ctl.hits - 1); st.restore = null; st.armedAt = 0; st.pend = null; toward(st.target); return;
+    }
     if (st.target === null) { if (Math.round(list.el.scrollTop / ROW_H) !== ctl.top) list.top(ctl.top); }
     else if (ctl.top === st.target) st.target = st.pend = null;
     else if (st.wait-- <= 0) { st.pend = null; toward(st.target); }
@@ -770,14 +835,24 @@ function quickInstall() {
   const canvas = document.getElementById('canvas');
   if (quickOn || !canvas) return;
   quickOn = true;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const snap = () => globalThis.yo2Html?.snapshot?.();
+  // the game's own frames (the snapshot's counter), not wall-clock sleeps: a step costs one game frame, and the press
+  // and release end as soon as the game's drag (deckDrag) shows it picked the card up / dropped it. ms: a cap, so a
+  // refused move (no copies left, a full deck) never hangs the queue
+  const until = (ok, ms = 400) => new Promise(r => {
+    const t = performance.now(), f = snap()?.frame;
+    const tick = () => (ok(f) || performance.now() - t > ms ? r() : requestAnimationFrame(tick));
+    requestAnimationFrame(tick);
+  });
+  const nextFrame = () => until(f0 => snap()?.frame !== f0);
+  const dragging = () => snap()?.deckDrag?.state > 0;
   const game = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) * 1024 / r.width, (e.clientY - r.top) * 1024 / r.width]; };
   const client = ([x, y]) => { const r = canvas.getBoundingClientRect(), k = r.width / 1024; return [r.left + x * k, r.top + y * k]; };
   const fire = (type, p) => { const [x, y] = client(p); canvas.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true,
     clientX: x, clientY: y, button: 0, buttons: type === 'mousedown' ? 1 : 0 })); };
-  // the game reads the mouse once a frame: each step held ~3 frames
-  const press = async p => { fire('mousemove', p); await sleep(50); fire('mousedown', p); await sleep(50); };
-  const release = async p => { fire('mousemove', p); await sleep(50); fire('mouseup', p); await sleep(50); };
+  // the game reads the mouse once a frame: the pointer is there a frame before the button changes
+  const press = async p => { fire('mousemove', p); await nextFrame(); fire('mousedown', p); await until(dragging, 200); };
+  const release = async p => { fire('mousemove', p); await nextFrame(); fire('mouseup', p); await until(() => !dragging(), 200); };
   const act = e => {
     if (!live.size || !inEditor()) return;
     const at = game(e), wins = [...live.values()].map(L => L.win), m = quickMove(wins, ...at);
@@ -785,7 +860,10 @@ function quickInstall() {
     e.preventDefault?.();
     quickBusy = quickBusy.then(async () => {
       const deck = wins.find(w => w.cls === 'CWindowModelDeck'), view = deck?.controls.find(c => c.cls === 'CWindowTaskDeck')?.view;
-      if (m.fusion && view !== 'extra') { await press(FUSION_TAB); await release(FUSION_TAB); await sleep(100); }
+      if (m.fusion && view !== 'extra') {   // the Fusion tab first: a plain click, then the deck shows Extra
+        fire('mousemove', FUSION_TAB); await nextFrame(); fire('mousedown', FUSION_TAB); await nextFrame(); fire('mouseup', FUSION_TAB);
+        await until(() => [...live.values()].some(L => L.win.controls.some(c => c.cls === 'CWindowTaskDeck' && c.view === 'extra')), 300);
+      }
       await press(m.press);
       await release(m.drop);
       fire('mousemove', at);   // the pointer back where the player has it
@@ -808,6 +886,47 @@ function quickInstall() {
 // scroller, click-to-add with the editor's drop zones, the scene backdrop) belong to the editor only. Elsewhere the
 // windows are drawn as the engine has them (owner, live: the search header was over the trade partner's panel)
 export const EDITOR_SCENE = 0x24;
+// the crafting row in the card detail: on its blue header bar (CWindowTaskIconbar, left of the collapse arrow), in every
+// mode (the bar alone too), whenever the panel shows a card
+export function craftStripRect(win) {
+  const bar = win.controls.find(c => c.cls === 'CWindowTaskIconbar' && c.shown && c.x < 9999);
+  if (!bar || !(win.card > 0)) return null;
+  return { x: bar.wx - win.x, y: bar.wy - win.y, card: win.card };
+}
+function craftStrip(win, strip) {
+  const r = craftStripRect(win);
+  if (!r) { strip.hide(); return; }
+  strip.show(r.card, r.x, r.y);
+  craftRefresh();   // the cached view, or a fresh one once it's old
+}
+// the trunk rows' rarity marks (Master Duel's corner badge): a tiny N / R / SR / UR tag on each row's card picture,
+// from the crafting view (the server's rarity catalog). One layer over the rows, under the search panel and its popup.
+export function markRect(pic) { const r = spriteRect(pic); return { x: r.x + r.w - 15, y: r.y - 2 }; }
+function rarityMarks(st, win) {
+  if (!st.marks) {
+    st.marks = document.createElement('div');
+    st.marks.className = 'cr';
+    st.marks.setAttribute('aria-hidden', 'true');
+    st.inner.after(st.marks);
+  }
+  const rows = [];
+  for (const c of win.controls) {
+    if (c.cls !== 'CWindowTaskKabanListBtn' || !c.shown || !(c.card > 0)) continue;
+    const pic = c.parts?.sprites?.find(q => q.shown && isArt(q)), r = pic && rarityOfId(c.card);
+    if (r) rows.push([r, markRect(pic)]);
+  }
+  const key = JSON.stringify([win.x, win.y, rows]);
+  if (key === st.marksKey) return;
+  st.marksKey = key;
+  st.marks.replaceChildren(...rows.map(([r, p]) => {
+    const m = document.createElement('div');
+    m.className = 'cr-mark';
+    m.dataset.r = r;
+    m.textContent = r;
+    Object.assign(m.style, { left: p.x - win.x + 'px', top: p.y - win.y + 'px' });
+    return m;
+  }));
+}
 const inEditor = snap => (snap || globalThis.yo2Html?.snapshot?.())?.scene === EDITOR_SCENE;
 // every live deck window: { win, root, plan }, so a hole from one (a dragged card) clips the others
 const live = new Map(), scene = { el: null, key: '' };   // scene: the backdrop's last drawing
@@ -855,24 +974,59 @@ export default {
     const st = { inner, search: null, list: 0, editor: inEditor() };
     if (win.cls === 'CWindowModelKaban' && st.editor) {
       st.scroll = trunkScroller(root, api);   // under the search panel (its Filters popup opens over the list)
-      st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, f));
+      st.search = searchPanel(root, f => globalThis.Module?.yo2KabanFilter?.(st.list, { ...f, pool: trunkPool(f) }));
+      // a widened list follows the crafting view (a craft, a dismantle: what's owned / craftable changed)
+      // (once the trunk has settled: the server's inventory arrives in several chunks, and the engine rebuilds its
+      // owned-only list after each, so a re-filter sent between two of them is lost)
+      st.refilter = () => {
+        if (!st.search.widened()) return;
+        if (st.scroll.ctl) st.scroll.restore ??= st.scroll.ctl.top;
+        clearTimeout(st.refilterT);
+        st.refilterT = setTimeout(() => { st.scroll.armedAt = performance.now(); st.search.reapply(); }, 700);
+      };
+      let seen = null;
+      st.unView = onView(v => {
+        if (st.win) rarityMarks(st, st.win);
+        if (v && v !== seen) { seen = v; st.refilter(); }
+      });
     }
+    // crafting (the editor's only): the Shards wallet and the sheets' buttons in the Deck header, the shown card's
+    // Craft / Dismantle under the card detail's text
+    if (win.cls === 'CWindowModelDeck' && st.editor) st.bar = mountBar(root);
+    if (win.cls === 'CCardDetailViewDlg' && st.editor) st.strip = mountStrip(root);
     return st;
   },
   update(win, prev, root, api, st) {
     root.setAttribute('aria-label', win.cls);
+    // the trunk's controls come in a new order every frame (same set): by id, so an unchanged trunk keeps its key and
+    // isn't rebuilt each frame (it was: ~5000 nodes a second while the player only moved the mouse)
+    win = { ...win, controls: [...win.controls].sort((a, b) => a.id - b.id) };
     // the scene's mouse (the side buttons' hover, drawn by backdrop()) changes every frame the pointer moves: a window
     // is rebuilt only when anything else in it changed
     const key = JSON.stringify(win, (k, v) => k === 'mouse' ? undefined : v);
     if (key === st.key && live.has(win.id)) return;
     st.key = key;
+    st.win = win;
+    // the Deck header's bar: from past the "Deck" title to the bar's right end, centred in its 27 px
+    st.bar?.place(72, 2, Math.max(0, win.w - 80));
+    if (st.strip) craftStrip(win, st.strip);
     live.set(win.id, { win, root: st.inner, plan: plan(win, st.editor), api });
     // the card detail draws nothing past its own drawn rect (its text can't run over the bottom bar or off the screen)
     const r = win.cls === 'CCardDetailViewDlg' && (win.drawn || win), at = (x, y) => `${x - win.x}px ${y - win.y}px`;
     st.inner.style.clipPath = r ? `polygon(${at(r.x, r.y)}, ${at(r.x + r.w, r.y)}, ${at(r.x + r.w, r.y + r.h)}, ${at(r.x, r.y + r.h)})` : '';
     const list = st.search && win.controls.find(c => c.cls === 'CWindowTaskKabanList');
-    if (list) { st.list = list.id; st.search.setCount(list.hits); st.scroll.sync(list); }
+    if (list) {
+      st.list = list.id; st.search.setCount(list.hits); st.scroll.sync(list);
+      // the trunk changed (a pack, a trade, a craft's pushed inventory): the crafting view again, once it settles
+      // and the engine rebuilt its list (fillFromDecks / applyCategory: owned only, no search): the filter back on, where the player was
+      if (st.pool !== undefined && st.pool !== list.pool) {
+        clearTimeout(st.poolT); st.poolT = setTimeout(() => craftRefresh(true), 800);
+        st.refilter();
+      }
+      st.pool = list.pool;
+    }
     draw(win.id, api);
+    if (st.search) rarityMarks(st, win);
   },
   // the scene (the Deck window's `scene`): the engine's background, title strip and side buttons are hidden, the
   // backdrop layer under every window root draws them; redrawn when they or the hovered button change, clipped around
@@ -897,6 +1051,7 @@ export default {
     }
   },
   unmount(root, st) {
+    st.bar?.destroy(); st.strip?.destroy(); st.unView?.(); clearTimeout(st.poolT); clearTimeout(st.refilterT);
     for (const [id, L] of live) if (L.root === st.inner) live.delete(id);
     reclip();
   },

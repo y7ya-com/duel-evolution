@@ -60,7 +60,7 @@ describe("authoritative duel deadlines", () => {
     const srv = buildServer(configFrom({ PVP_TEST: "1" }), { accounts: {} }, () => {});
     const a = new Session("a", 1, false), b = new Session("b", 2, false);
     a.pid = 1; b.pid = 2;
-    const m = srv.game.pvp!.reserve(a, b) as any;
+    const m = srv.game.pvp!.reserve(a, b, "room") as any;
     m.roomTime = 0;
     m.tx = [{ put() {} }, { put() {} }];
     m.matchStyle = 4;

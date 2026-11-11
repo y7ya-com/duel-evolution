@@ -10,7 +10,7 @@ import type { Npc } from "./npcs.ts";
 import type { Lobby } from "./lobby.ts";
 
 /** What the lobby needs from the PvP matches (py pvp_match.Matches); ported with the PvP module. */
-export interface PvpLike { prepareRestart?(): void; byPid(pid: number): unknown; reserve(a: Session, b: Session): void; watchRequest(peer: string, pid: number, who?: Session | null): unknown; live(): number }
+export interface PvpLike { prepareRestart?(): void; byPid(pid: number): unknown; reserve(a: Session, b: Session, origin: import("./ranking.ts").MatchOrigin): void; watchRequest(peer: string, pid: number, who?: Session | null): unknown; live(): number }
 export interface NpcWatchLike { watchRequest(peer: string, pid: number): unknown; forget(peer: string): void }
 import { Clock } from "../util/clock.ts";
 import AUTO from "../data/auto_replies.json";
@@ -60,6 +60,10 @@ export class Game {
   pvpHookMatch: ((m: unknown, onFinish: (w: number | "draw") => void, onClose: (present: number[]) => void) => void) | null = null;
   pvpByPid: (pid: number) => boolean = (pid) => !!this.pvp?.byPid(pid);
   lpOnClose: ((c: Conn) => void) | null = null;
+  /** The open duels may have changed (lobby.ts openDuels): Discord's #duels catches up (discord/bridge.ts). */
+  duelsChanged: (() => void) | null = null;
+  /** The Discord bridge (discord/bridge.ts), when the bot is configured: All Chat relay and #duels. */
+  discord: import("../discord/bridge.ts").DiscordBridge | null = null;
   blockPlayer!: (pid: number, name?: string | null, sess?: Session | null) => Uint8Array;
   gameReply!: (c: Conn, msgId: number, param: number, data: Uint8Array) => void;
   onConnClosed!: (c: Conn, why?: string) => void;

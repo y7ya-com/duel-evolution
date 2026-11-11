@@ -196,6 +196,28 @@ balance is pinned at 0x7fffffff after both handlers, so no gate trips whatever t
 DUELPASS entry (the only way into the DUELPASS windows, the only places the balance is shown) is hidden;
 `ovr/audiomenu.c`'s showEntry override does it, and arrange() closes the gap. `RC_DP=1` restores both.
 
+## One look, any part in either world
+
+`ovr/worldparts.c`: there is no Domino vs Academy split. A character has one look, drawn the same everywhere, and may
+wear anything it owns in either world. The server enforces ownership and the one rank rule, the dorm uniforms of a
+school not yet reached (`server/src/game/ranking.ts`, `cosmetics.ts` lawfulLook), so the client drops every series
+(world) test the exe makes on avatar parts:
+- avatarValidate (0x00a58cc0: the check that reset the whole avatar, run by the chibi renderer, player select and the
+  appearance editor) always runs with checkSeries false, on every slot. The exe's sex, slot and colour checks, and
+  their reset, stay.
+- CPbinDictionary::collect (0x00ad5ab0: the appearance editor's part lists) lists every owned part of the slot,
+  whatever its series.
+- The avatar shop's list (CShopAvatarWindow vf10, 0x00afac40) sees every row as series 1, wearable in both worlds.
+- The editor's LV gate on the dorm uniforms (CWindowDialogAvatarSwitch::refresh, 0x008ae060: Ra Yellow at 10,
+  Obelisk Blue at 20) is lifted when the server's 0x3114 bits carry 1022 (rank-authored, no item): the active
+  character's LV reads 255 for that call, and the server's rank bits decide. Without bit 1022 (an older server, a new
+  character's starter bits) the LV gate stays. Bit 1023 (graduated) may still be sent and changes nothing.
+
+Test: `make worldparts_test CC=gcc && build/worldparts_test [rows]`. Part 6 checks that the drawing check never resets
+another player's look: every combination of hair, accessory, outfit, disk and glasses rows of their slot, both sexes
+and both worlds, with the body features and colours cycling alongside, is drawn exactly as sent (382,800 looks with
+the real rows file). `RC_WORLDPARTS=0` restores the original.
+
 ## Overrides (stage 3)
 
 Recompiled functions are weak symbols. A strong `f_XXXXXXXX` (an ABI shim reading the guest stack, calling the
@@ -239,3 +261,20 @@ and log any byte that differs.
 Sanitizers: `make SAN=1` builds `build-san/yo2rc` with the runtime, overrides and platform code under ASan+UBSan (run it
 with `ASAN_OPTIONS=handle_segv=0:handle_sigbus=0:allow_user_segv_handler=1:detect_leaks=0`: guest faults are ours; under
 ASan, Homebrew's sdl2-compat finds SDL3 only through the libSDL3.dylib link the build puts beside the binary).
+
+## HTML shop directly on the map
+
+`ovr/shopdirect.c` intercepts `CAreaMap::receive` (0x009fb8c0), `CTmAvatarOnExit` (tag 0x1d), when the current scene
+is AREA_MAP (12) and the map's door entry points at shop destination 11. It consumes that request before the original
+handler's fade (0x009fbb36) and `push(SCENE_SHOP)` (0x009fbb5e). No shop task or shopkeeper is created.
+The bridge enables `Module.yo2ShopOverlay` unless `?HTML_SHOP=0` or `cardShop:false`, and implements
+`Module.onYo2ShopOpen()`. `yo2ShopOverlayOpen` locks the player's moveStep; the HTML layer holds keyboard/pointer
+input. Back destroys the layer. The entering walk is stopped. The door stays latched until moveStep reports a non-exit colour at least 48 pixels
+from the entry point; leaving the map
+clears that latch. Scene changes and gateway loss call the bridge's close path (`Module.onYo2ShopClose`).
+The HTTP shop and HTML waist-up cosmetics renderer operate without native shop tasks. The native path (including
+its existing HTML window replacements) remains available with `HTML_SHOP=0`.
+HTTP account trunk completion (0x0068eca0, packet 0x3103) also syncs the card-case cache through the native
+`cardDbSyncTrunk`, and reuses starterdeck.c's open-editor delta handling. This keeps the next Deck Editor and an
+already-open editor current after a purchase without any native shop handler.
+Tests: `make shopdirect_test shopinventory_test htmlui_shoplook_test CC=gcc`, then run the three `build/*_test` binaries. The original receive body is included in `web/async-only.txt` for the native fallback.

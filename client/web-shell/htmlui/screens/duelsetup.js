@@ -56,12 +56,99 @@ export function moveFrame(win) {
 // row under the mouse): the game point at row i's centre, for api.click
 export const rowPoint = (win, list, i) => [win.x + list.x + Math.floor(list.w / 2), win.y + list.y + 16 * i + 8];
 
+// --- The lobby's three duel windows relaid out in their own skin (the owner: "the legacy UI but with better layout"):
+// the engine's switches, captions, buttons and window size, moved onto an even grid and relabelled; ShadowTexts of our
+// own (negative ids) add the row labels, the counts and one help line. Every switch and button is still the engine's
+// (api.click aims at the control where the game has it, so where it's drawn here doesn't matter). Found by place, not
+// text: a switch's caption is the ShadowText 8 below it; the green ShadowTexts are the menu's rows and counts and Create
+// Duel's "Password" (hidden, as its field). Ranked is the Auto Duel queue only (server ranking.ts isRankedOrigin).
+//   Duel menu (CWindowModelDuel, 492 x 216): Auto Duel | Create Duel, each count under its switch (the counts: right-
+//     aligned, top to bottom Auto Duel = players searching, Create Duel = open rooms; the third, "Duel (n.)", has no
+//     meaning the server's room list gives it, so it isn't shown)
+//   Auto Duel (CWindowModelDuelFind, 492 x 216): rows Single / Match, Both, Level Limit ON / OFF
+//   Create Duel (CWindowModelDuelWait, 492 x 360): rows Single / Match, Time Limit, Watch, Surrender (ON / OFF); its
+//     password field not drawn (open duels: listed in the chat's Duels tab)
+const LAYOUT = { CWindowModelDuel: 'menu', CWindowModelDuelFind: 'find', CWindowModelDuelWait: 'wait' };
+const GREEN = [0.2, 1, 0.2, 1];
+const isGreen = c => c.color && c.color[0] < 0.5 && c.color[1] > 0.9;
+// a label as the game's: green over a black copy 2 px down-right (the menu's rows), white over one 1 px off (captions)
+const label = (id, text, x, y, w, align = 0, color = GREEN) =>
+  ({ id: -id, cls: 'CWindowTaskShadowText', parent: 0, x, y, w, h: 16, z: 4, shown: true, text, align, fontSize: 16, color,
+    sh: color === GREEN ? 2 : 1 });
+const HELP = { menu: 'Ranked duels change your rating. Created duels don\'t.', wait: 'Open duels show in the chat\'s Duels tab.\nCreated duels don\'t change your rating.' };
+const TITLE_TEXT = { find: 'Auto Duel (Ranked)', wait: 'Create Duel (Unranked)' };
+
+export function relayout(win) {
+  const kind = LAYOUT[win.cls];
+  if (!kind) return win;
+  const tops = win.controls.filter(c => top(c) && c.shown !== false), texts = tops.filter(c => fam(c) === 'ShadowText');
+  const sw = tops.filter(c => fam(c) === 'PictureSwitch');
+  const rows = [...new Set(sw.map(s => s.y))].sort((a, b) => a - b).map(y => sw.filter(s => s.y === y).sort((a, b) => a.x - b.x));
+  const to = new Map(), add = [];
+  // a switch and its caption to (x, y), w wide, the caption's words
+  const place = (s, x, y, w, words) => {
+    if (!s) return;
+    to.set(s.id, { x, y, w, label: words });
+    const cap = texts.find(t => t.x === s.x && t.y === s.y + 8);
+    if (cap) to.set(cap.id, { x, y: y + 8, w, text: words });
+  };
+  const title = texts.find(t => t.x === 0 && t.y === 4);
+  if (title && TITLE_TEXT[kind]) to.set(title.id, { text: TITLE_TEXT[kind] });
+  const green = texts.filter(isGreen);
+  for (const t of green) to.set(t.id, { shown: false });
+  const W = 466, L = 13;   // the well (FrameDuel: 13 .. w - 14)
+  if (kind === 'menu') {
+    const counts = green.filter(t => t.align === 2).sort((a, b) => a.y - b.y).map(t => parseInt(t.text, 10));
+    const n = i => Number.isFinite(counts[i]) ? counts[i] : 0;
+    place(rows[0]?.[0], 22, 53, 224, 'Auto Duel (Ranked)');
+    place(rows[0]?.[1], 246, 53, 224, 'Create Duel (Unranked)');
+    add.push(label(1, `Players searching: ${n(0)}`, 22, 97, 224, 1), label(2, `Open rooms: ${n(1)}`, 246, 97, 224, 1),
+      label(3, HELP.menu, L, 137, W, 1, [1, 1, 1, 1]));
+  } else if (kind === 'find') {
+    add.push(label(1, 'Duel mode', 38, 44, 200), label(2, 'Level limit', 38, 108, 200));
+    place(rows[0]?.[0], 21, 64, 150, 'Single');
+    place(rows[0]?.[1], 171, 64, 150, 'Match (best of 3)');
+    place(rows[1]?.[0], 321, 64, 150, 'Both');
+    place(rows[2]?.[0], 21, 128, 225, 'On (similar level)');
+    place(rows[2]?.[1], 246, 128, 225, 'Off');
+  } else {
+    // a label column, then the two choices, evenly down the well (33 .. 317: 20 px between rows), the help under
+    // them. No password (open duels replace it: anyone joins from the chat's Duels tab or Discord): its field isn't
+    // drawn (the game's stays empty), so the room is open
+    const ROWS = [['Duel mode', 'Single', 'Match (best of 3)'], ['Time limit', 'On', 'Off'], ['Spectators', 'Allowed', 'Not allowed'],
+      ['Surrender', 'Allowed', 'Not allowed']];
+    ROWS.forEach(([name, a, b], i) => {
+      const y = 53 + 52 * i;
+      add.push(label(1 + i, name, 30, y + 8, 116));
+      place(rows[i]?.[0], 150, y, 160, a);
+      place(rows[i]?.[1], 310, y, 160, b);
+    });
+    const input = tops.find(c => fam(c) === 'InputDuel');
+    if (input) to.set(input.id, { shown: false });
+    add.push(label(6, HELP.wait, L, 262, W, 1, [1, 1, 1, 1]));
+  }
+  const byId = new Map(win.controls.map(c => [c.id, c]));
+  const controls = win.controls.map(c => {
+    if (to.has(c.id)) return { ...c, ...to.get(c.id) };
+    // a part follows its parent (a caption's shadow: the same offset, width and words)
+    const up = byId.get(c.parent), m = up && to.get(up.id);
+    if (!m) return c;
+    const k = { ...c, x: c.x + (m.x ?? up.x) - up.x, y: c.y + (m.y ?? up.y) - up.y };
+    if (m.w != null && c.w === up.w) k.w = m.w;
+    if (m.text != null && c.text === up.text) k.text = m.text;
+    if (m.shown === false) k.shown = false;
+    return k;
+  });
+  return { ...win, controls: [...controls, ...add] };
+}
+
 // What a control is drawn from, so that hover / press (the DOM's in owned mode) and the engine's own bookkeeping (world
 // positions, the focus) don't redraw it: buttons keep only 'disabled' of the game's state; a switch its look (glow); the
 // frames the window's size (FrameDuel reads 0 x 0, DuelConfigFrame its 80 x 24 piece, FrameMove its layout's);
 // CFindMenu's list becomes rows of buttons (a class owned() doesn't take as a native list)
 export function prep(win) {
   if (win.cls === plist.CLS) return plist.prepList(win);
+  win = relayout(win);
   const frame = /Move$/.test(win.cls) ? moveFrame(win) : null;
   const out = { ...win, controls: win.controls.map(c => {
     const f = fam(c), { wx, wy, wz, focused, ...k } = c;
@@ -310,6 +397,7 @@ const DRAW = {
     const t = basic.textBox(el, basic.shownLines(c), { x: c.x, y: c.y, w: c.w, align: c.align, px: c.fontSize || 16, gap: c.lineGap,
       color: c.color, white: true });
     t.classList.add('ds-txt');
+    if (c.sh) return void (t.style.textShadow = `${c.sh}px ${c.sh}px 0 #000`);   // relayout's own labels
     const sh = shadowOf(win, c);
     if (sh) t.style.textShadow = `${sh.x - c.x}px ${sh.y - c.y}px 0 ${basic.textColor(sh.color, true)}`;
   },
@@ -431,7 +519,7 @@ export default {
   },
   unmount(root, st) {
     mounted.delete(st.id);
-    if (st.pl) plist.stars.clear();
+    if (st.pl) { plist.stars.clear(); plist.stopRows(st); }
     base.unmount?.(root, st);
   },
 };

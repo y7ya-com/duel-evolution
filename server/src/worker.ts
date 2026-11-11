@@ -8,9 +8,11 @@ import mergeTxt from "../static/yo2/merge.txt";
 import type { Env } from "./env.ts";
 import type { AuthEnv } from "./auth/env.ts";
 import { ipBucket, verifySession } from "./auth/auth.ts";
-import { gateUpgrade, originAllowed, safeGameQuery } from "./auth/binding.ts";
+import { gateUpgrade, originAllowed, safeGameQuery, USER_HEADER } from "./auth/binding.ts";
+import { buildReport, recordLogin, runTradeReport } from "./db/audit.ts";
 import { authApp, isAuthPath } from "./auth/routes.ts";
 import { cardRarityCatalog } from "./game/card-rarity.ts";
+import { handleInteraction } from "./discord/interactions.ts";
 
 export { WorldDO } from "./do.ts";
 
@@ -46,6 +48,9 @@ routes.get("/__version", (c) => c.json({ v: c.env.CF_VERSION_METADATA?.id ?? "de
 // (index.html: gateway = <host>/net); /boxedwine-network stays for builds and links that name it
 routes.on("GET", ["/boxedwine-network", "/net"], async (c) => {
   const fwd = await gateUpgrade(c.req.raw, c.env as unknown as AuthEnv);
+  // the sign-in IP history (db/audit.ts): who connected from where, once per user, IP and day
+  const user = fwd instanceof Request ? fwd.headers.get(USER_HEADER) : null;
+  if (user && c.env.DB) c.executionCtx.waitUntil(recordLogin(c.env.DB, user, c.req.raw).catch((e) => console.error(`[login_ip] ${e}`)));
   // the query too: ?sid=&resume=1, the client's tunnel resume (world.ts)
   return fwd instanceof Response ? fwd : toWorld(c.env, c.req.raw, "/boxedwine-network" + new URL(c.req.url).search, fwd);
 });
@@ -184,10 +189,35 @@ routes.post("/api/de/duel/challenge", async (c) => {
   return toWorld(c.env, c.req.raw, "/__de/duel/challenge", fwd);
 });
 
+// the chat's Duels tab: GET the open duels of the player's world; POST /join {id} checks the player may join one from where
+// they are (Lobby.openDuels, Lobby.duelJoinCheck; htmlui duels.js then sends the game's own duel request)
+const duels = async (c: Context<E>) => {
+  if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, new URL(c.req.url).pathname.replace("/api/de/", "/__de/"), fwd);
+};
+routes.get("/api/de/duels", duels);
+// the Players window's "(Discord)" rows: duelists online on Discord, not in the game (discord/bridge.ts discordOnline)
+routes.get("/api/de/discord-online", async (c) => {
+  const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+  if (!v) return c.json({ error: "signed out" }, 401);
+  const fwd = new Request(c.req.raw);
+  fwd.headers.set("x-de-user", v.userId);
+  return toWorld(c.env, c.req.raw, "/__de/discord-online", fwd);
+});
+routes.post("/api/de/duels/join", duels);
+
+// the Discord bot's interactions (discord/interactions.ts): /verify, /reset, #duels' Accept; Discord's signature, no session
+routes.post("/api/discord/interactions", (c) => handleInteraction(c.req.raw, c.env as unknown as Parameters<typeof handleInteraction>[1]));
+
 // Shared card classifications contain no account data and are independent of random box rarities.
 routes.get("/api/de/card-rarities", (c) => c.json(cardRarityCatalog(), 200, { "Cache-Control": "public, max-age=1800" }));
 
-// Game shop, wardrobe and chat are authenticated here; mutations additionally require our Origin.
+// Game shop, wardrobe, chat, rank lookups (game/rank-api.ts) and the trade panel's cosmetic lines (game/trade-cosmetics.ts)
+// are authenticated here; mutations additionally require our Origin.
 const gameFeature = async (c: Context<E>) => {
   if (c.req.method !== "GET" && !originAllowed(c.req.raw, c.env as unknown as AuthEnv)) return c.json({ error: "forbidden" }, 403);
   const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
@@ -196,7 +226,7 @@ const gameFeature = async (c: Context<E>) => {
   const url = new URL(c.req.url);
   return toWorld(c.env, c.req.raw, "/__de/" + url.pathname.slice("/api/de/".length) + url.search, fwd);
 };
-for (const feature of ["cosmetics", "shop", "chat"]) {
+for (const feature of ["cosmetics", "shop", "chat", "rank", "trade", "craft", "rewards"]) {
   routes.on(["GET", "POST"], `/api/de/${feature}`, gameFeature);
   routes.on(["GET", "POST"], `/api/de/${feature}/*`, gameFeature);
 }
@@ -366,7 +396,33 @@ routes.all("*", (c) => c.text("method not allowed", 405));
 // The game is served on the apex and on original. (kept so players find it where they're used to): each request sees
 // its own host as PUBLIC_ORIGIN, so sign-in, the Discord callback and the WebSocket Origin check work on both. www -> apex.
 const GAME_HOSTS = new Set(["ygoevolution.com", "original.ygoevolution.com"]);
+// The daily trade report (db/audit.ts; wrangler.jsonc triggers): GET /__trade-report (admin) shows the latest, ?day=
+// one kept in R2, ?run=1 builds one now without keeping or posting it.
+routes.get("/__trade-report", async (c) => {
+  if (c.env.DEV !== "1") {
+    const v = await verifySession(c.req.raw, c.env as unknown as AuthEnv);
+    if (!v) return c.text("sign in first", 401);
+    if (!v.roles.includes("admin")) return c.text("forbidden", 403);
+  }
+  if (c.req.query("run") === "1") return c.env.DB ? c.json(await buildReport(c.env.DB)) : c.text("no database", 503);
+  const bucket = c.env.BUCKET;
+  if (!bucket) return c.text("not found", 404);
+  let key = `private/reports/trades/${c.req.query("day") ?? ""}.json`;
+  if (!c.req.query("day")) {
+    const keys: string[] = [];
+    let cursor: string | undefined;
+    do { const r = await bucket.list({ prefix: "private/reports/trades/", cursor }); keys.push(...r.objects.map((o) => o.key)); cursor = r.truncated ? r.cursor : undefined; } while (cursor);
+    if (!keys.length) return c.text("no report yet", 404);
+    key = keys.sort().at(-1)!;
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(c.req.query("day")!)) return c.text("bad day", 400);
+  const o = await bucket.get(key);
+  return o ? new Response(o.body, { headers: { "content-type": "application/json", "cache-control": "no-store" } }) : c.body(null, 404);
+});
+
 export default {
+  async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runTradeReport(env).then(() => undefined, (e) => console.error(`[trade report] ${e}`)));
+  },
   async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(req.url);
     if (url.hostname === "www.ygoevolution.com") return Response.redirect(`https://ygoevolution.com${url.pathname}${url.search}`, 301);

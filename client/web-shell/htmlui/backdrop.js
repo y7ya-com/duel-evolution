@@ -33,6 +33,9 @@ export function backdrop(canvas) {
       const r = canvas.getBoundingClientRect(), k = r.width / 1024;
       const css = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
       if (el.style.cssText !== css) { el.style.cssText = css; stage.style.transform = `scale(${k})`; }
+      // the engine's screen fader darkens its frame, and this stands in for part of that frame (read.js snapshot.fader)
+      const f = snap?.fader ? (snap.fader.k[0] + snap.fader.k[1] + snap.fader.k[2]) / 3 : 1, dim = f < 0.998 ? `brightness(${f.toFixed(3)})` : '';
+      if (stage.style.filter !== dim) stage.style.filter = dim;
     },
   };
 }

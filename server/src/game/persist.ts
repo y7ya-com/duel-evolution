@@ -1,3 +1,4 @@
+import { rewardDuel, rewardEvent } from "./rewards.ts";
 // Per-character persistence (py research/persistencia/proposal.py): the player record, trunk, PBIN/NPCBIN, the prize
 // queue, NPC chains, titles, duel results and XP, plus make_handlers (PH). Formats: that file's docstring.
 // Env knobs are fixed at py's defaults as the server runs them (arranque sets YO2_TRUNK_START=all3).
@@ -11,6 +12,7 @@ import type { Game } from "./game.ts";
 import type { State } from "./store.ts";
 import { freeTrunk, isFree } from "./freemode.ts";
 import { expandCosmeticBits } from "./cosmetics-catalog.ts";
+import { gradUpdate, PBIN_GRADUATED, PBIN_RANKED, RANK_UNIFORM_BY_BIT, rankView, uniformAllowed, type RankSchool } from "./ranking.ts";
 
 export type P = Record<string, any>; // a profile, py shape
 
@@ -121,7 +123,7 @@ export function blankProfile(name = ""): P {
   Object.assign(rec, { lv: START_LV, mp: START_MP });
   const sv = startValues();
   if ("mp" in sv) rec.mp = sv.mp;
-  return { name, rec, trunk: {}, pbin: defaultPbinBits(), npcbin: {}, avatar: {}, decks: {}, claims: [], pending: [], country: "" };
+  return { name, rec, trunk: {}, pbin: defaultPbinBits(), npcbin: {}, avatar: { a: "0000203040608090b820000000000000", b: "0000203040608090b820000000000000" }, decks: {}, claims: [], pending: [], country: "" };
 }
 
 export function countryFromLang(p: P | null, lang: number): boolean {
@@ -142,6 +144,7 @@ export function profile(st: State, slot: number | string, create = true): P | nu
     const w = st.wallet;
     if (w && Object.keys(w).length && s === "0") { p.rec.mp = int(w.mp ?? START_MP); }
     seedTrunk(p);
+    if (PROGRESSION) { p.earned = { duels: 0 }; p.bind_v = LEGACY_BIND_V; }
     // delete-and-remake isn't an MP mint: past the account's first FREE_STARTS characters (live + archived; the archive
     // keeps the last 10, so the count never drops back) a new one starts with no MP. It keeps its starter claim: a
     // character must always be able to get cards (owner, 2026-10-29: else it is stuck in Edit Deck)
@@ -154,7 +157,9 @@ export function profile(st: State, slot: number | string, create = true): P | nu
   if (p !== null) {
     p.rec ??= {};
     progressionReset(p);
+    legacyBind(p);
     if (Array.isArray(p.pbin)) p.pbin = expandCosmeticBits(p.pbin);
+    unifyLook(p);   // one look for both worlds (2026-11-05): a character saved with two keeps one
   }
   return p;
 }
@@ -253,7 +258,7 @@ export function spendMp(p: P, amount: number): { bound: number; earned: number }
 // (econAccount), so its 4 characters, and one deleted and remade, share one pair cap, first win and soft cap.
 function econToday(g: Game | null, p: P): P {
   const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
-  if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0 };
+  if (p.econ?.day !== day) p.econ = { day, duels: 0, wins: 0, pairs: {}, earned: 0, spent: 0, packs: 0, tin: 0 };
   return p.econ;
 }
 /** Today's counters of the whole account: this character's `e` plus every other one, live or archived (a deleted
@@ -274,11 +279,57 @@ function econAccount(g: Game | null, e: P): { duels: number; wins: number; pairs
   }
   return t;
 }
+
+// ---- what a character has earned by playing (the owner, 2026-11-04: alts traded away the packs their free 5000 MP
+// bought before soul-bound MP existed, 261 cards onto one main in four days). p.earned.duels counts the duels that paid
+// MP (mpReward > 0: not a short PvP, not past the pair cap); the trade gate and the legacy bind read it.
+/** Rewarded duels this character has played. A character from before the ledger is estimated once from its record:
+ *  its PvP games and its NPC wins, losses and draws (generous: duels from before progression count too). */
+export function earnedDuels(p: P): number {
+  if (p.earned && typeof p.earned === "object") return int0(p.earned.duels);
+  let n = int0(p.pvp?.n);
+  for (const e of Object.values(p.npcbin ?? {}) as number[][]) n += int0(e?.[NPCBIN_WIN]) + int0(e?.[NPCBIN_LOSE]) + int0(e?.[NPCBIN_DRAW]);
+  return n;
+}
+/** Rewarded duels before a character's cards can leave it in a trade (trade.ts); receiving needs none. */
+export const TRADE_GIVE_MIN_DUELS = 20;
+/** Net cards an account may take in through trades in a UTC day (received − given, per trade, summed over its
+ *  characters live and archived); balanced swaps never count. */
+export const TRADE_IN_DAY_MAX = 30;
+/** 1: the one-off bind of 2026-11-04. Cards bought with the starting grant before soul-bound MP (2026-11-02) were
+ *  tradeable: nothing recorded which MP paid for them. A character that had played fewer than TRADE_GIVE_MIN_DUELS
+ *  rewarded duels then has its whole trunk soul-bound (its earned share is a few packs at most); one past that keeps
+ *  its cards. New characters are born past it (profile). */
+const LEGACY_BIND_V = 1;
+export function legacyBind(p: P): boolean {
+  if (!PROGRESSION || int0(p.bind_v) >= LEGACY_BIND_V) return false;
+  const n = earnedDuels(p);
+  p.earned = { duels: n };
+  p.bind_v = LEGACY_BIND_V;
+  if (n >= TRADE_GIVE_MIN_DUELS) return false;
+  p.bound = Object.fromEntries(Object.entries(p.trunk ?? {}).map(([k, q]) => [k, int0(q)]).filter(([, q]) => (q as number) > 0));
+  return true;
+}
+/** Net cards the account behind `st` took in through trades today (TRADE_IN_DAY_MAX). */
+export function tradeInToday(g: Game | null, st: State): number {
+  const day = new Date((g?.clock.time() ?? Date.now() / 1000) * 1000).toISOString().slice(0, 10);
+  let n = 0;
+  for (const q of [...Object.values(st.profiles ?? {}), ...(st.profiles_borrados ?? []).map((a: P) => a?.perfil)] as P[])
+    if (q?.econ?.day === day) n += int0(q.econ.tin);
+  return n;
+}
+/** A done trade's net intake on this character's day (negative nets count as 0: giving away earns no allowance). */
+export function tradeInAdd(g: Game | null, p: P, net: number): void {
+  if (!PROGRESSION || net <= 0) return;
+  const e = econToday(g, p);
+  e.tin = int0(e.tin) + net;
+}
 const econLog = (g: Game | null, e: P, what: string) => g?.log(`[economia] ${(g.ctxAcct() ?? "?").slice(0, 6)}: ${what}; `
   + `${e.day}: ${e.duels} duels, ${e.wins} wins, +${e.earned} MP, -${e.spent} MP, ${e.packs} packs`);
 
 /** MP for a finished duel, after the guards; pvp = null for an NPC duel. Returns what was paid. */
 export function mpReward(g: Game | null, p: P, result: string, turns: number, pvp: { opp: string | null; secs: number } | null = null): number {
+  p.prize_unbound = false;
   if (!PROGRESSION || (g && isFree(g.ctx))) return 0;
   const e = econToday(g, p), win = result === "win", E = ECON, acc = econAccount(g, e);
   let mp: number = pvp ? (win ? E.PVP_WIN : E.PVP_LOSS) : (win ? E.NPC_WIN : E.NPC_LOSS), why = "";
@@ -288,19 +339,27 @@ export function mpReward(g: Game | null, p: P, result: string, turns: number, pv
     mpBalances(p); // clamp the existing promotional subset BEFORE adding earned currency
     if (pvp?.opp) e.pairs[pvp.opp] = (e.pairs[pvp.opp] ?? 0) + 1;
     if (win && !acc.wins) mp += E.FIRST_WIN;
+    p.prize_unbound = acc.duels < E.SOFT_CAP;
     if (acc.duels >= E.SOFT_CAP) { mp = Math.floor(mp * E.SOFT_RATE); why = " soft cap"; }
     e.duels++; if (win) e.wins++;
     e.earned += mp;
     recInc((p.rec ??= {}), "mp", mp);
+    (p.earned = { duels: earnedDuels(p) }).duels++;
   }
+  rewardDuel(g, p, result, mp, !!pvp, p.prize_unbound === true);
   econLog(g, e, `+${mp} MP (${pvp ? "pvp" : "npc"} ${result}, ${turns} turns${pvp ? `, ${Math.round(pvp.secs)} s` : ""}${why})`);
   return mp;
+}
+/** Mission/login income shares the UTC economy ledger without consuming duel eligibility. */
+export function recordRewardIncome(g: Game | null, p: P, amount: number): void {
+  const e = econToday(g, p); e.earned += amount;
 }
 /** A shop purchase, for the [economia] log and the day's counters. */
 export function mpSpent(g: Game | null, p: P, mp: number, packs: number): void {
   if (!PROGRESSION) return;
   const e = econToday(g, p);
   e.spent += mp; e.packs += packs;
+  rewardEvent(g, p, "pack", packs);
   econLog(g, e, `-${mp} MP (${packs} packs)`);
 }
 
@@ -379,10 +438,13 @@ export function bindCards(p: P, cards: unknown[]): void {
   clampBound(p);
 }
 export function clampBound(p: P): void {
-  if (!p.bound) return;
-  for (const [k, n] of Object.entries(p.bound as Record<string, number>)) {
+  for (const [k, n] of Object.entries((p.bound ?? {}) as Record<string, number>)) {
     const m = Math.min(int(n), int(p.trunk?.[k] ?? 0));
     if (m > 0) p.bound[k] = m; else delete p.bound[k];
+  }
+  for (const [k, n] of Object.entries((p.crafted ?? {}) as Record<string, number>)) {
+    const m = Math.max(0, Math.min(int(n), int(p.trunk?.[k] ?? 0) - int(p.bound?.[k] ?? 0)));
+    if (m) p.crafted[k] = m; else delete p.crafted[k];
   }
 }
 
@@ -405,25 +467,74 @@ export const pbinType = (bit: number) => PBIN_TYPES[String(int(bit))] ?? 0;
 export const defaultPbinBits = () => (GD.default_pbin_bits as number[]).slice();
 export const NPC_PRIZE_BITS = GD.npc_prize_bits as Record<string, Record<string, number>>;
 
-export function pbinBytes(p: P): Uint8Array {
+/** The 0x3114 bytes. With `rank` (the character's rankView), as the live client gets them: the rank uniforms of a
+ *  school never reached are cleared (the stored bits stay), PBIN_RANKED is set (the recompiled editor then lists
+ *  uniforms by these bits instead of by LV) and PBIN_GRADUATED for a graduated student (any owned outfit in the
+ *  Academy). */
+export function pbinBytes(p: P, rank?: { bestSchool: RankSchool; graduated: boolean }): Uint8Array {
   const arr = new Uint8Array(PBIN_SIZE);
   for (const b of p.pbin ?? []) if (b >= 0 && b < PBIN_SIZE * 8) arr[b >> 3] |= 1 << (b & 7);
+  if (rank) {
+    for (const b of RANK_UNIFORM_BY_BIT.keys()) if (!uniformAllowed(b, rank.bestSchool)) arr[b >> 3] &= ~(1 << (b & 7));
+    for (const b of [PBIN_RANKED, PBIN_GRADUATED]) arr[b >> 3] &= ~(1 << (b & 7));
+    arr[PBIN_RANKED >> 3] |= 1 << (PBIN_RANKED & 7);
+    if (rank.graduated) arr[PBIN_GRADUATED >> 3] |= 1 << (PBIN_GRADUATED & 7);
+  }
   return arr;
 }
 export const pbinTest = (p: P, bit: number) => (p.pbin ?? []).includes(int(bit));
 
 const AV_PBIN = LD.avatar_pbin as unknown as Record<string, [number, number, number, number, number, number]>;
-/** Protocol world 0 = Domino (a), 1 = Academy (b). Never borrow the other world's uniform. */
-export function avatarParts(p: P, world: number): Uint8Array {
-  const saved = p.avatar?.[world === 1 ? "b" : "a"];
-  if (typeof saved === "string" && /^[0-9a-f]{32}$/i.test(saved)) return new Uint8Array(Buffer.from(saved, "hex"));
-  const parts = new Uint8Array(Buffer.from("0000203040607090b020000000000000", "hex"));
-  const other = p.avatar?.[world === 1 ? "a" : "b"];
-  if (typeof other === "string" && /^[0-9a-f]{32}$/i.test(other)) {
-    const looks = Buffer.from(other, "hex");
-    for (let i = 0; i < 16; i++) if (i !== 6 && i !== 8) parts[i] = looks[i];
+const LOOK_HEX = /^[0-9a-f]{32}$/i;
+/** The Domino starter clothes (the default outfit rows of the Domino series: 0x70-0x73, a girl's 0x70), what the 2008
+ *  client gave a new character in Domino. The default outfit is Slifer Red (owner, 2026-11-06: players were
+ *  wearing these once past LV 5): a character wears one only after picking it (p.avatar.pick, outfitPicked). */
+const DOMINO_STARTER = new Set(Object.entries(AV_PBIN).filter(([, r]) => r[1] && r[3] === 6 && r[5] === 2).map(([bit]) => Number(bit)));
+const dominoStarter = (parts: Uint8Array) => DOMINO_STARTER.has((parts[0] === 1 ? 256 : 0) + parts[6]);
+/** A look the player put on (the appearance editor, the cosmetics page): records whether its outfit is a Domino
+ *  starter one, which normalizeLook then keeps. Call it before normalizeLook. */
+export function outfitPicked(p: P, parts: Uint8Array): void {
+  p.avatar = { ...(p.avatar ?? {}) };
+  if (dominoStarter(parts)) p.avatar.pick = 1; else delete p.avatar.pick;
+}
+/** One look per character (owner, 2026-11-05: no Domino / Academy split): p.avatar.a and .b, the protocol's world 0
+ *  and 1 copies, are kept the same. A character saved with two different looks keeps the one of the world it was
+ *  last in (p.avatar.w, recorded from then on), else Domino's (a). -> whether it changed p. */
+export function unifyLook(p: P): boolean {
+  const v = p?.avatar;
+  if (!v || typeof v !== "object") return false;
+  const a = typeof v.a === "string" && LOOK_HEX.test(v.a) ? v.a.toLowerCase() : null, b = typeof v.b === "string" && LOOK_HEX.test(v.b) ? v.b.toLowerCase() : null;
+  // with no world recorded, a Domino look still in its starter clothes was never picked: the Academy's is kept
+  const keep = a && b ? (v.w === 1 || (v.w !== 0 && dominoStarter(Buffer.from(a, "hex"))) ? b : a) : a || b;
+  if (!keep || (v.a === keep && v.b === keep)) return false;
+  v.a = keep; v.b = keep;
+  return true;
+}
+/** The character's one look, written for both worlds; `world`: the world it was put on in (the last world). */
+export function setLook(p: P, parts: Uint8Array, world?: number): void {
+  const hex = Buffer.from(parts).toString("hex");
+  p.avatar = { ...(p.avatar ?? {}), a: hex, b: hex, ...(world === 0 || world === 1 ? { w: world } : {}) };
+}
+/** Repair legacy/native placeholder slots using the same body defaults as CAvatarData. */
+export function normalizeLook(p: P, input: Uint8Array): Uint8Array {
+  const parts = input.slice(), defaults = Uint8Array.from([0, 0, 32, 48, 64, 96, 128, 144, 184, 32, 0, 0, 0, 0, 0, 0]);
+  const base = parts[0] === 1 ? 256 : 0;
+  for (let slot = 1; slot <= 9; slot++) {
+    if ([2, 9].includes(slot) && parts[slot] === 32) continue;
+    const row = AV_PBIN[String(base + parts[slot])];
+    if (!row || row[3] !== slot || row[2] !== (parts[0] === 1 ? 2 : 1)) parts[slot] = defaults[slot];
   }
-  if (world === 1) { parts[6] = 0x80; parts[8] = 0xb8; }
+  if (Number(p.rec?.lv ?? 1) < 5 || (dominoStarter(parts) && !p.avatar?.pick)) parts[6] = 0x80;
+  return parts;
+}
+/** One saved look in both worlds. Missing or native placeholder slots start in Slifer Red. */
+export function avatarParts(p: P, world: number): Uint8Array {
+  unifyLook(p);
+  const saved = p.avatar?.[world === 1 ? "b" : "a"];
+  const input = typeof saved === "string" && LOOK_HEX.test(saved)
+    ? new Uint8Array(Buffer.from(saved, "hex")) : new Uint8Array(Buffer.from("0000203040608090b820000000000000", "hex"));
+  const parts = normalizeLook(p, input);
+  setLook(p, parts);
   return parts;
 }
 
@@ -507,7 +618,7 @@ export function playerDataUpdate(p: P, npc?: number | null): Uint8Array {
 export function playerEntry(slot: string, p: P, tpRank: number | null = null): Uint8Array {
   const v: P = { ...(p.rec ?? {}) };
   v.title = fixTitleValue(v.title ?? 0);
-  Object.assign(v, { slot: int(slot), name: p.name ?? "", avatar_a: p.avatar?.a ?? "", avatar_b: p.avatar?.b ?? "" });
+  Object.assign(v, { slot: int(slot), name: p.name ?? "", avatar_a: Buffer.from(avatarParts(p, 0)).toString("hex"), avatar_b: Buffer.from(avatarParts(p, 1)).toString("hex") });
   if (tpRank !== null) v.tp_rank = int(tpRank);
   return encode(PLAYERLIST_ENTRY_SPEC, v);
 }
@@ -837,6 +948,7 @@ export function pvpCardEntry(g: Game, match = false, packs: number[] | null = nu
 }
 export function pvpCardOffer(g: Game, p: P, match = false, packs: number[] | null = null): P | null {
   const e = pvpCardEntry(g, match, packs);
+  if (e) e.bound = !p.prize_unbound;
   if (e) { const due: P[] = (p[PVP_CARD_KEY] ??= []); due.push(e); due.splice(0, Math.max(0, due.length - PVP_CARD_DUE_MAX)); }
   return e;
 }
@@ -845,6 +957,7 @@ export function pvpCardTake(p: P | null, pack: number): number {
   for (let i = due.length - 1; i >= 0; i--) {
     const e = due[i] && typeof due[i] === "object" ? due[i] : {};
     if ((e.packs ?? []).map(int).includes(int(pack))) {
+      p!.prize_bind_pending = e.bound !== false;
       due.splice(i, 1);
       if (!due.length) delete p![PVP_CARD_KEY];
       try { return Math.max(1, Math.min(5, int(e.n ?? 1))); } catch { return 1; }
@@ -856,6 +969,7 @@ export function pvpCardGrant(g: Game, p: P, e: P, draw: (pack: number, n: number
   const pack = g.rng.choice(e.packs as number[]);
   const cards = draw(pack, e.n).slice(0, e.n).map(int);
   trunkAdd(g, p, cards, 1, "pvp");
+  if (e.bound ?? !p.prize_unbound) bindCards(p, cards);
   return [pack, cards];
 }
 
@@ -903,9 +1017,38 @@ export function xpNewLevel(oldLv: number, oldScore: number, newScore: number, du
   return byNew;
 }
 
-export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matchResult: string | null = null, last = true, myLv: number | null = null): P | null {
+/** The XP guard (owner, 2026-11-04: "wins but not abusable win trading"), the MP rule (mpReward) applied to LV, per
+ *  PvP game. `me`/`opp`: the two game accounts; `turns`/`secs`: the game's length; `now`: ms.
+ *  - the same account on both sides: no XP either way ("self");
+ *  - past ECON.PAIR_DAY_MAX full-XP games this UTC day against the same account: no XP either way ("pair cap"). The
+ *    count is the character's (p.xp_pairs, D1 state_extras): LV is a character's;
+ *  - a short game (under ECON.PVP_MIN_TURNS turns AND ECON.PVP_MIN_S seconds: an instant surrender, a disconnect, a
+ *    time-out at once): nothing for the winner or a draw ("short"). The loser keeps its normal penalty (0 to -16, never
+ *    a gain), as the rating rates a short forfeit's leaver: quitting at once still costs, and costs only the quitter.
+ *    A short game doesn't count toward the pair cap. */
+export type XpGuard = { me: string | null; opp: string | null; turns: number; secs: number; now: number };
+const xpDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+function xpPairs(p: P, day: string): Record<string, number> {
+  if (p.xp_pairs?.day !== day || !p.xp_pairs?.n || typeof p.xp_pairs.n !== "object") p.xp_pairs = { day, n: {} };
+  return p.xp_pairs.n;
+}
+/** Why this game gives `result`'s side no XP ("self", "pair cap", "short"), or null for the normal delta. */
+export function xpBlocked(p: P, guard: XpGuard, result: string): string | null {
+  if (guard.me !== null && guard.me === guard.opp) return "self";
+  if (guard.opp && int0(xpPairs(p, xpDay(guard.now))[guard.opp]) >= ECON.PAIR_DAY_MAX) return "pair cap";
+  if (guard.turns < ECON.PVP_MIN_TURNS && guard.secs < ECON.PVP_MIN_S) return result === "lose" ? null : "short";
+  return null;
+}
+
+export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matchResult: string | null = null, last = true, myLv: number | null = null,
+  guard: XpGuard | null = null): P | null {
   if (!XP_ON) return null;
   const r = (p.rec ??= {});
+  const why = guard ? xpBlocked(p, guard, result) : null;
+  if (why) { const lv = int((r.lv ?? 1) || 1); return { delta: 0, score: int(r.score ?? 0), lv_old: lv, lv, why }; }
+  if (guard?.opp && !(guard.turns < ECON.PVP_MIN_TURNS && guard.secs < ECON.PVP_MIN_S)) {
+    const n = xpPairs(p, xpDay(guard.now)); n[guard.opp] = int0(n[guard.opp]) + 1;
+  }
   const pv = (p.pvp ??= {});
   const nBefore = "n" in pv ? int(pv.n) : int(r.duels ?? 0);
   pv.n = nBefore + 1;
@@ -915,6 +1058,7 @@ export function pvpXp(p: P, oppLv: number, result: string, inMatch = false, matc
   const sNew = Math.max(0, Math.min(sOld + delta, 0xffffffff));
   r.score = sNew;
   r.lv = Math.max(1, Math.min(255, xpNewLevel(lvOld, sOld, sNew, pv.n)));
+  gradUpdate(p);   // ranking.ts: LV GRADUATION_LEVEL and enough qualifying opponents; for good, though LV can fall back
   return { delta, score: sNew, lv_old: lvOld, lv: r.lv };
 }
 
@@ -932,6 +1076,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
   else if (result === "lose") { recInc(r, "duels_lost"); if (NPC_IN_RECORD) recInc(r, "losses"); }
   else { result = "draw"; recInc(r, "duels_drawn"); }
   if (NPC_MP_REWARD[result]) recInc(r, "mp", NPC_MP_REWARD[result]);
+  p.prize_unbound = false;
   // Instant surrender must not be a faster MP source than playing a duel.
   if (!(surrender === "me" && int(turns || 0) < ECON.NPC_MIN_TURNS)) mpReward(g, p, result, int(turns || 0));
   let present = 0, pkg: P | null = null;
@@ -945,6 +1090,7 @@ export function npcDuelResult(g: Game, p: P, npc0: number, result: string, turns
     const [bits, cards] = result === "win" && !NR_CTX.on?.friendship ? npcRewards(p, npc, oldB3, e[3]) : [[], []];
     if (bits.length || cards.length) {
       pkg = pendingAdd(g, p, bits, cards, VIA_NPC, `NPC ${npc} b3 ${oldB3}->${e[3]}`);
+      if (!p.prize_unbound) bindCards(p, cards);
       present = pkg ? 1 : 0;
     }
   }
@@ -997,7 +1143,7 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       pendingClear(p);
       starterRecipeFix(g, p);
       g.saveState(st);
-      c.send(0x3114, pbinBytes(p));
+      c.send(0x3114, pbinBytes(p, rankView(p)));
       c.send(0x4234, npcbinBytes(p));
     },
     h_pselect(c: Conn, data: Uint8Array) {
@@ -1044,7 +1190,9 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
       if (data.length >= 20) {
         const st = g.loadState(); const p = profile(st, activeSlot(st))!;
         const style = new DataView(data.buffer, data.byteOffset).getUint32(0);
-        (p.avatar ??= {})[style === 0 ? "a" : "b"] = Buffer.from(data.subarray(4, 20)).toString("hex");
+        outfitPicked(p, data.slice(4, 20));
+        const parts = normalizeLook(p, data.slice(4, 20));
+        setLook(p, parts, style === 0 ? 0 : 1);   // one look for both worlds
         g.saveState(st);
       }
       c.send(0x4171, new W().u32(0).bytes());
@@ -1076,4 +1224,22 @@ export function makeHandlers(g: Game, opts: { shopPurchase?: (kind: number, id: 
     my_name: () => myName(g.loadState()),
   };
   return h;
+}
+
+/** selectpack removes the due entry before lobby persists the cards. Preserve its original reward eligibility. */
+export function bindClaimedPrize(p: P, cards: number[]): void {
+  let bound = p.prize_bind_pending;
+  delete p.prize_bind_pending;
+  if (bound === undefined) {
+    const due: number[] = p.npc_card_due ?? [];
+    const entries: P[] = p.npc_prize_binding ?? [];
+    // selectpack removes the FIRST occurrence of its chosen pack, including when duplicate packs are queued.
+    const missing = entries.findIndex((_, i) => {
+      const after = entries.filter((_, j) => j !== i);
+      return after.length === due.length && after.every((e, j) => e.pack === due[j]);
+    });
+    if (missing >= 0) bound = entries.splice(missing, 1)[0].bound;
+    else bound = true; // old due cards lack verifiable paid-duel provenance
+  }
+  if (bound) bindCards(p, cards);
 }
