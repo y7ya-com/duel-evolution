@@ -122,6 +122,7 @@ export class ClientApp implements ClientController {
   /** Notice ids only grow (also across the games of a match), so a dismissed notice never hides a later one. */
   private noticeIds = 0;
   private nextOpponent: string | null = null;
+  private duelChallengeRequest: Promise<{ room: number }> | null = null;
   private duelNotice: { id: number; text: string } | null = null;
   private sideboard: DeckView | null = null;
   private sideboardRound: number | null = null;
@@ -822,11 +823,16 @@ export class ClientApp implements ClientController {
         case 'duelChallenge': {
           this.nextOpponent = this.game?.state.players.find(p => p.pid === command.playerId)?.name ?? null;
           if (!this.services.decks.state.data) await this.refresh('deck');
-          const result = await this.services.api.http.request('POST', '/api/de/duel/challenge', value => {
+          // concurrent Duel presses share one request (main cea1f39); a refusal (409: "That player is not accepting
+          // duel requests." and the rest of lobby.ts SAY) rejects it, so it ends in failure()'s message, never a wait
+          if (this.duelChallengeRequest) { await this.duelChallengeRequest; break; }
+          const request = this.services.api.http.request('POST', '/api/de/duel/challenge', value => {
             if (!value || typeof value !== 'object' || !('room' in value) || !Number.isSafeInteger(value.room)) throw new Error('Invalid duel invitation response.');
             return { room: Number(value.room) };
           }, { pid: command.playerId }, { signal: this.connectionScope.signal });
-          this.requireGame().challengeRoom(result.room); break;
+          this.duelChallengeRequest = request;
+          try { this.requireGame().challengeRoom((await request).room); } finally { if (this.duelChallengeRequest === request) this.duelChallengeRequest = null; }
+          break;
         }
         case 'createDuelRoom': if (!this.services.decks.state.data) await this.refresh('deck'); await this.requireGame().createDuelRoom(command.options); break;
         case 'deleteDuelRoom': await this.requireGame().deleteDuelRoom(); break;

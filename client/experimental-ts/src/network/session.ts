@@ -93,6 +93,8 @@ const LOBBY_ERROR_TEXT: Record<number, [string, boolean]> = {
   [-602]: ['This Player is looking for Auto Duels.', true], [-600]: ['The opponent has left the lobby.', false],
   [-495]: ['That room no longer exists.', true], [-492]: ['The Lobby is full!', true],
 };
+/** How long a sent duel request waits for its answer before it is given up (main's engine: 45 s). */
+export const CHALLENGE_WAIT_MS = 45_000;
 export function lobbyErrorText(code: number): string { const [text, withCode] = LOBBY_ERROR_TEXT[code] ?? ['An error occurred.', true]; return withCode ? `${text}(${code})` : text; }
 const checkResult = (message: WireMessage, label: string): void => {
   const result = new BinaryReader(message.data).i32();
@@ -494,7 +496,18 @@ export class GameSession {
     if (!Number.isInteger(roomId) || roomId <= 0 || roomId > 0xffffffff || password.length > 16 || password.includes('\0') || [...password].some(c => c.charCodeAt(0) > 255)) throw new Error('Invalid room challenge');
     const lobby = this.requireLobby(); this.roomStyle = this.state.rooms.find(room => room.id === roomId)?.style ?? 3; this.state.outgoingChallengeRoom = roomId; this.state.error = null;
     lobby.send(0x4300,new BinaryWriter().u32(roomId).raw(md5(new BinaryWriter().s(password,password.length).bytes())).bytes()); this.emit();
+    // The server answers every request (lobby.ts endChallenge); should that answer never come, the wait still ends
+    // (main cea1f39: 45 s, one cancel, no resend), so a request never hangs.
+    if (this.challengeTimer) clearTimeout(this.challengeTimer);
+    this.challengeTimer = setTimeout(() => {
+      this.challengeTimer = null;
+      if (this.state.outgoingChallengeRoom !== roomId) return;
+      this.state.outgoingChallengeRoom = null; this.state.error = lobbyErrorText(-616);
+      try { lobby.send(0x4304,EMPTY()); } catch { /* the lobby is gone: nothing to cancel */ }
+      this.emit();
+    }, CHALLENGE_WAIT_MS);
   }
+  private challengeTimer: ReturnType<typeof setTimeout> | null = null;
   replyToChallenge(accept: boolean): void {
     if (!this.state.challenge) throw new Error('No duel challenge is waiting');
     this.requireLobby().send(0x4303,new BinaryWriter().u32(accept ? 1 : 0).bytes());
