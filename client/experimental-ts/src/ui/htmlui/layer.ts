@@ -284,9 +284,11 @@ export class HtmlUiLayer {
         if (x < w.x || y < w.y || x >= w.x + w.w || y >= w.y + w.h) continue;
         const t = w.controls.find(c => c.cls === 'CWindowTaskText' && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
         if (t) { void this.api.click(t.id); break; }
-        // a list drawn as one text box (CWindowTaskListbox: the Duel Log's history, the titles, the reward packs) takes
-        // the pointer at its game point, as the engine's list did (the row under it)
-        const l = w.controls.find(c => /^CWindowTask(Active)?Listbox$|^CWindowTaskTextlist$/.test(c.cls) && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
+        // a list drawn as one text box (CWindowTaskListbox: the Duel Log's history, the titles) takes the pointer at its
+        // game point, as the engine's list did (the row under it). Not a list main draws as rows of its own buttons
+        // (CWindowTaskActiveListbox: the player list): its rows click themselves
+        const own = e.target instanceof Element && e.target.closest('button, [role="list"]');
+        const l = own ? undefined : w.controls.find(c => c.cls === 'CWindowTaskListbox' && c.shown && spec.handlers.get(c.id)?.click && x >= w.x + c.x && x < w.x + c.x + c.w && y >= w.y + c.y && y < w.y + c.y + c.h);
         if (l) void this.api.click(l.id, [x, y]);
         break;
       }
