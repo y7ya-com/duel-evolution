@@ -289,6 +289,23 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
       const target=all.find(b=>b.dataset.key?.startsWith('prompt-option:'));if(target)return {kind:'key',key:target.dataset.key};
       const confirm=opts.find(b=>b.dataset.key?.startsWith('prompt-confirm:'));if(confirm)return {kind:'key',key:confirm.dataset.key};
     }
+    // main's duel dialogs (htmlui/duel-dialogs.ts over duel.js: yes / no, options, card lists, numbers, announcements)
+    const hp=[...document.querySelectorAll('#htmlui-host button[data-key^="prompt-"]')].filter(b=>ok(b)&&b.dataset.state!=='disabled'&&b.getAttribute('aria-disabled')!=='true');
+    if(hp.length){
+      const k=p=>hp.filter(b=>b.dataset.key.startsWith(p)),lab=b=>b.getAttribute('aria-label')??b.textContent??'';
+      const no=k('prompt-option:').find(b=>b.textContent.trim()==='No');if(no)return {kind:'key',key:no.dataset.key};
+      const cands=k('prompt-candidate:'),picked=cands.filter(b=>/, picked \d/.test(lab(b)));
+      const conf=k('prompt-confirm:')[0]??k('prompt-ok:')[0],cancel=k('prompt-cancel:')[0];
+      if(cands.length&&!picked.length)return {kind:'key',key:cands[0].dataset.key};
+      const num=document.querySelector('#htmlui-host input[data-key^="prompt-number:"]');
+      if(num&&!num.value){const lo=/\((\d+) to/.exec(num.getAttribute('aria-label')??'')?.[1]??'1';num.value=lo;num.dispatchEvent(new Event('input',{bubbles:true}));return {kind:'wait'};}
+      const opts=k('prompt-option:'),marked=opts.filter(b=>/\(marked\)$/.test(lab(b)));
+      if(opts.length&&!marked.length&&!conf)return {kind:'key',key:opts[0].dataset.key};
+      if(opts.length&&!marked.length&&!picked.length&&!num)return {kind:'key',key:opts[0].dataset.key};
+      if(conf)return {kind:'key',key:conf.dataset.key};
+      const dec=k('prompt-declare:')[0];if(dec)return {kind:'key',key:dec.dataset.key};
+      if(cancel)return {kind:'key',key:cancel.dataset.key};
+    }
     const zone=[...document.querySelectorAll('.de-zone-target,.de-card-target')].find(ok);if(zone)return {kind:'key',key:zone.dataset.key};
     const ins=document.querySelector('.de-duel-inspector');
     if(ins){
@@ -313,6 +330,7 @@ export async function duelBot(page:Page,options:{ attack?:boolean; summon?:boole
     return null;})()`) as { kind:string; key?:string; text?:string; scope?:string; sel?:string } | null;
   if (!next) return 'idle';
   if (next.kind === 'finished') return 'finished';
+  if (next.kind === 'wait') return 'acted';
   const selector = next.kind === 'key' ? `[...document.querySelectorAll('button')].find(b=>b.dataset.key===${JSON.stringify(next.key)})`
     : next.kind === 'press' ? `document.querySelector(${JSON.stringify(next.sel)})`
     : `[...document.querySelectorAll('${next.scope ?? ''} button')].find(b=>b.textContent===${JSON.stringify(next.text)}&&!b.disabled)`;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames, claimNpcReward } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
 /** Duel mechanics through two real browsers: each player's screen is the oracle for the other's (mirrored), and the
@@ -12,10 +12,12 @@ const SNAP = `(()=>{
   const ok=b=>!b.disabled&&b.getClientRects().length;
   const nodes=[...document.querySelectorAll('.de-field-card')];
   const cards=nodes.map(b=>({key:b.dataset.key,side:b.dataset.side,zone:b.dataset.zone,index:Number(b.dataset.index),position:b.dataset.position??null,back:b.classList.contains('de-card-back'),label:b.getAttribute('aria-label')??'',count:b.querySelector('.de-card-count')?.textContent??null,imgs:[...b.querySelectorAll('img')].map(i=>i.getAttribute('src')??'')}));
-  const prompt=document.querySelector('.de-duel-prompt[role=dialog]');
+  // the prompt the server issued: the rewrite's own panel, else main's duel dialogs (window.__deApp's prompt state)
+  const panel=document.querySelector('.de-duel-prompt[role=dialog]'),ap=window.__deApp?.getState?.().duel?.prompt;
+  const prompt=panel?{id:panel.dataset.prompt??'',kind:panel.dataset.kind??'',text:panel.getAttribute('aria-label')??''}:ap?{id:String(ap.id),kind:ap.kind,text:ap.text??''}:null;
   const ins=document.querySelector('.de-duel-inspector');
   return {cards,players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',
-    log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt:prompt?{id:prompt.dataset.prompt??'',kind:prompt.dataset.kind??'',text:prompt.getAttribute('aria-label')??''}:null,
+    log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt,
     actions:[...document.querySelectorAll('.de-duel-actions button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
     inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:window.__duelEnd()??null,
     waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:document.body.innerText.includes('Resolving duel animations'),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
@@ -260,14 +262,17 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         // Stale prompt: capture an answer button of the current prompt; after the next prompt arrives, press it.
         for (const [page,s,who] of [[a,sa,'A'],[b,sb,'B']] as const) {
           if (!stale && s.prompt && turnOf(s) >= 2) {
-            const key = await page.ev(`(()=>{const p=document.querySelector('.de-duel-prompt[role=dialog]');const b=[...p.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')||b.dataset.key?.startsWith('prompt-candidate:'));if(!b)return null;window.__stale=b;return b.dataset.key})()`) as string | null;
+            const key = await page.ev(`(()=>{const p=document.querySelector('.de-duel-prompt[role=dialog]')??document.querySelector('#htmlui-host');if(!p)return null;const b=[...p.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')||b.dataset.key?.startsWith('prompt-candidate:'));if(!b)return null;window.__stale=b;return b.dataset.key})()`) as string | null;
             if (key) stale = { page,who,prompt:s.prompt.id,key,captured:s.prompt.text };
           } else if (stale && stale.page === page && !staleResult && s.prompt && s.prompt.id !== stale.prompt) {
             const before = await snap(page);
             prompts.probing = true; await page.ev(`window.__stale.click()`); await sleep(400);
             const after = await snap(page);
             staleResult = `${who}: old "${stale.captured}" answer pressed under new "${before.prompt!.text}": ${after.errors.join(' ') || 'no message'}; prompt ${after.prompt?.id === before.prompt!.id ? 'still active' : 'changed'}`;
-            expect(after.errors.join(' ')).toContain('expired');
+            // the rewrite's panel says the choice expired; main's dialogs drop the old window's key with it (the press
+            // reaches no handler): either way the new prompt stays and nothing is answered
+            if (await page.ev(`Boolean(document.querySelector('.de-duel-prompt[role=dialog]'))`)) expect(after.errors.join(' ')).toContain('expired');
+            else expect(after.errors.filter(e => !/expired/.test(e))).toEqual([]);
             expect(after.prompt?.id).toBe(before.prompt!.id);
           }
           // Stale action: keep the phase button of one turn and press it on the player's next turn.
@@ -378,11 +383,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           await sleep(120);
         }
         if (!(await snap(page)).ended) { await surrender(page).catch(() => {}); results.push(`${npc}: surrendered after timeout`); }
-        await click(page,'Return to Lobby').catch(() => {});
-        for (let i = 0; i < 20 && await page.ev(`Boolean(document.querySelector('[aria-label="NPC interaction"]'))`); i++) {
-          const next = `[...document.querySelectorAll('[aria-label="NPC interaction"] button')].find(b=>(b.dataset.key?.includes('npcSelectPack')||['Continue','Receive Gift','Close NPC'].includes(b.textContent))&&!b.disabled)`;
-          if (await page.ev(`Boolean(${next})`)) await press(page,next); await sleep(600);
-        }
+        // the reward talk and main's pack picker (a modal over the lobby until its OK), as a player takes them
+        await claimNpcReward(page);
         if (prompts.kinds().size >= 5 || duels >= 3) break;
       }
       const kinds = prompts.kinds();
