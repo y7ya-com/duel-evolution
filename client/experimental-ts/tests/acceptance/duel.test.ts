@@ -296,7 +296,8 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
             expect(after.bar).toBe(s.bar);
           }
           // duel.log: scroll the log while a prompt waits; the prompt stays and is then answered normally.
-          const box = !logProbe && s.prompt ? await page.ev(`(()=>{const l=document.querySelector('.de-duel-log');if(l.hidden)document.querySelector('[data-key="duel-log-toggle"]')?.click();const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number } : null;
+          // (not while a modal box is up: main's dialog shield takes the pointer over the whole screen, as live's does)
+          const box = !logProbe && s.prompt ? await page.ev(`(()=>{const shield=[...document.querySelectorAll('#htmlui-host .dlg-shield')].find(e=>e.getClientRects().length);if(shield){console.log('duel.log probe: modal up: '+shield.closest('.win')?.innerText);return null}const l=document.querySelector('.de-duel-log');if(l.hidden)document.querySelector('[data-key="duel-log-toggle"]')?.click();const r=l.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,top:l.scrollTop,max:l.scrollHeight-l.clientHeight}})()`) as { x:number; y:number; top:number; max:number } : null;
           if (box && s.prompt && box.max > 20) {
             await page.send('Input.dispatchMouseEvent',{ type:'mouseWheel',x:box.x,y:box.y,deltaX:0,deltaY:-400 }); await sleep(400);
             const scrolled = await page.ev(`document.querySelector('.de-duel-log').scrollTop`) as number;
