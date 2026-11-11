@@ -78,7 +78,7 @@ export class WorldRenderer {
     try { loading = this.options.loadScene(mapId, request.signal); } catch (error) { loading = Promise.reject(error); }
     void loading.then(scene => {
       if (this.closed || request.signal.aborted || generation !== this.generation) { scene.dispose(); return; }
-      this.scene = scene; this.camera = new WorldCamera(scene.definition); this.camera.follow(this.followPoint);
+      this.scene = scene; this.camera = new WorldCamera(scene.definition); this.camera.follow(this.followPoint, true);
       this.options.onViewport?.(); this.ensureFrame();
     }).catch(error => { if (!this.closed && !request.signal.aborted && generation === this.generation && (error as Error)?.name !== 'AbortError') { this.failedLoad = true; this.message('Map artwork could not be loaded.', true); } })
       .finally(() => { if (this.loadAbort === request) this.loadAbort = null; });

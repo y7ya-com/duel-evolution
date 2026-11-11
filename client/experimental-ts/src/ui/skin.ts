@@ -123,6 +123,8 @@ export const SKIN_CSS = `
 
 /* Title and character select. */
 .de-client[data-scene=title] .de-stage { background:radial-gradient(ellipse at 50% 30%,#bff4ff 0%,#4fb6ee 40%,#0f5fb0 100%); }
+/* where live's sign-in panel stands: CWindowLogin at 256, 256, 464 wide (rt/session.cpp), under the title movie's logo */
+.de-client[data-scene=title] .de-scene>.de-panel { position:absolute; z-index:1; left:25%; top:33.333%; width:45.3125%; margin:0; box-sizing:border-box; }
 .de-client[data-scene=title] .de-scene .de-panel>button { min-height:36px; font:italic bold 16px Arial,sans-serif; letter-spacing:.05em; clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%); padding:0 24px; }
 .de-client[data-scene=title] .de-scene .de-panel>button.gold { min-height:44px; font-size:20px; color:#fff; text-shadow:1px 0 #a35a00,-1px 0 #a35a00,0 1px #a35a00,0 -1px #a35a00,0 2px 2px #7a4400; }
 .de-client[data-scene=title] .de-scene .de-panel>.de-panel-title:first-child { font:italic 900 22px/30px "Arial Black",Arial,sans-serif; letter-spacing:.04em; min-height:34px; }
