@@ -29,6 +29,7 @@ import { DeckScene } from './htmlui/deck-scene';
 import type { DeckStage } from './htmlui/deck-stage';
 import { shopLocal, shopWindows } from './htmlui/shop';
 import { cardShopHost } from './htmlui/card-shop';
+import { pageModules } from './htmlui/page-modules';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
@@ -180,6 +181,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // online, the shop is main's new card shop (htmlui/card-shop.ts: shop/index.js mountCardShop, which calls the server's
   // /api/de/shop itself); offline (the local catalogue) keeps main's older CShop* windows below
   const cardShop = cardShopHost(globalThis.document, () => open('lobby'), e => { local.message = e instanceof Error ? e.message : 'The card shop could not be loaded.'; requestRender(); });
+  // main's Wardrobe and Missions buttons on the menu bar and the trade's Cosmetics panel (htmlui/page-modules.ts), online
+  const pageMods = pageModules({ online: () => !!state.online && state.connection === 'online' && state.mode !== 'free',
+    overworld: () => state.scene === 'lobby' && !!state.player && !appearanceOpen(),
+    trade: () => !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene) });
   const useCardShop = () => state.scene === 'shop' && !!state.online && state.connection === 'online' && !(globalThis as { YO2_LEGACY_SHOP?: boolean }).YO2_LEGACY_SHOP;
   const pictureArt = new PictureArt({ ...(controller.loadArchiveImage ? { loadArchiveImage: controller.loadArchiveImage.bind(controller) } : {}), ...(controller.loadCardImage ? { loadCardImage: controller.loadCardImage.bind(controller) } : {}) });
   setPictureResolver(pictureArt.resolve);
@@ -241,7 +246,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     void Promise.all([import('./htmlui/layer'), import('./htmlui/deck-stage')]).then(([m, d]) => {
       if (disposed) return;
       const art = new URL('/ui/', location.href).href;
-      htmlUi = new m.HtmlUiLayer({ art, stage: () => stage });
+      htmlUi = new m.HtmlUiLayer({ art, stage: () => stage, frame: snap => pageMods.frame(snap) });
       deckStage = new d.DeckStage(htmlUi.host, { art, input: (type, x, y) => deckScene.input(type, x, y),
         ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}),
         ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
@@ -952,5 +957,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const bodyKeys = (e: KeyboardEvent): void => { if (e.target === document.body || e.target === document.documentElement) host.onkeydown?.(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; cardShop.dispose(); deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; cardShop.dispose(); pageMods.dispose(); deckStage?.dispose(); deckStage = null; htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } for (const view of previewAvatars.values()) view.dispose(); host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); duelScene.dispose(); observer?.disconnect(); for (const view of avatarViews.values()) view.dispose(); avatarViews.clear(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

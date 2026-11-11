@@ -34,7 +34,9 @@ const GENERIC: HtmlUiScreen = { classes: [], mode: 'pass', mount: () => new Map(
   update: (win, _prev, root, api, st) => api.syncWindow!(root, win, st as Map<number, unknown>),
   unmount: (root, st) => { root.replaceChildren(); (st as Map<number, unknown>).clear(); } };
 
-export interface HtmlUiLayerOptions { art: string; stage: () => HTMLElement | null }
+export interface HtmlUiLayerOptions { art: string; stage: () => HTMLElement | null;
+  /** Each draw and each second, with the last snapshot: main's page-level modules (page-modules.ts), as bridge.js's frame. */
+  frame?: (snap: HtmlSnapshot | null) => void }
 
 export class HtmlUiLayer {
   readonly host: HTMLElement;
@@ -133,6 +135,7 @@ export class HtmlUiLayer {
     if (this.disposed) return;
     // a screen may draw later than its update (lobby.js: the bar's keys once its atlas has loaded): tag again
     for (const spec of this.specs) { const root = this.roots.get(spec.win.id); if (root) this.tag(spec.win, root); }
+    try { this.options.frame?.(this.last); } catch (e) { console.warn('htmlui: page modules', e); }
   }
 
   // main's backdrop.js under the stage: it places itself over a "canvas", here an invisible box kept over the stage
