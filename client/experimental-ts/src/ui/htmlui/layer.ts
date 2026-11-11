@@ -34,8 +34,11 @@ const MODULES: HtmlUiScreen[] = [select, lobby, chat, social, deck, shop, trade,
 const PASS = new Set<HtmlUiScreen>([avatar]);   // Change Avatar: its plates are drawn, the clicks hit-tested here
 // what the engine draws on main around main's screens (the shop's and the trade's pictures, the clerk's balloon)
 const EXTRA: Record<string, HtmlUiScreen> = { CEnginePictures: pictures, CShopBalloon: balloon };
-// the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js): clicked on release
-const REBUILT = /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/;
+// the windows whose module rebuilds its buttons on every change (screens/shop.js, trade.js; duel.js redraws a control
+// whose snapshot changes, so its hover and pressed looks replace the button under the pointer: janken, Yes / No, the
+// lists): clicked on release
+const DUEL_DIALOGS = new Set(duel.classes);
+const REBUILT = { test: (cls: string) => /^(CShop|CWindowModelTrade$|CWindowTaskCardArea$)/.test(cls) || DUEL_DIALOGS.has(cls) };
 // a window with no module: main's generic controls (controls/basic.js syncWindow, owned: its buttons are real,
 // focusable and click their control), and a plain visible button for a clickable control no renderer draws, so a
 // window the rewrite adds before its screen is never a dead box

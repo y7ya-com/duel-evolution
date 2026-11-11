@@ -88,6 +88,9 @@ export async function press(page:Page,selector:string):Promise<void> {
     const cover = await page.ev(`(()=>{const b=${selector};if(!b)return 'gone';if(b.disabled)return 'disabled';const r=b.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);const d=e=>e.tagName.toLowerCase()+(e.id?'#'+e.id:'')+(e.className&&typeof e.className==='string'?'.'+e.className.trim().replaceAll(' ','.'):'')+(e.dataset&&e.dataset.key?'[data-key='+e.dataset.key+']':'');const path=[];for(let e=h;e&&path.length<4;e=e.parentElement)path.push(d(e));return 'covered by '+(h?path.join(' < ')+' '+JSON.stringify(h.textContent.slice(0,40)):'nothing (off screen)');})()`).catch(() => '?');
     throw new Error(`Control is ${cover}: ${selector}\n${String(await page.ev('document.body.innerText').catch(() => '')).slice(0,1500)}`);
   }
+  // the pointer arrives before it presses, as a mouse does (the hover look main's pass screens redraw lands first)
+  await page.send('Input.dispatchMouseEvent',{ type:'mouseMoved',...point });
+  await page.ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const down = page.send('Input.dispatchMouseEvent',{ type:'mousePressed',...point,button:'left',clickCount:1 });
   const up = page.send('Input.dispatchMouseEvent',{ type:'mouseReleased',...point,button:'left',clickCount:1 });
   await down; await up;
@@ -376,8 +379,12 @@ export async function surrender(page:Page) {
   }
   if (await page.ev(`Boolean(${byText('Return to Lobby')})`)) return;
   await click(page,'Surrender',60000);
+  // the client's own question first (main's YesNo, surrender-yes), then the server's when it asks one
+  const ask = `[...document.querySelectorAll('button')].find(b=>b.dataset.key==='surrender-yes'&&!b.disabled)`;
   const yes = `[...document.querySelectorAll('button')].find(b=>b.dataset.key?.startsWith('prompt-option:')&&b.textContent==='Yes'&&!b.disabled)`;
-  await until(page,`${yes}||[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
+  const ended = `[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`;
+  await until(page,`${ask}||${yes}||${ended}`,60000);
+  if (await page.ev(`Boolean(${ask})`)) { await press(page,ask); await until(page,`${yes}||${ended}`,60000); }
   if (await page.ev(`Boolean(${yes})`)) await press(page,yes);
   await until(page,`[...document.querySelectorAll('button')].some(b=>b.textContent==='Return to Lobby')`,60000);
 }
