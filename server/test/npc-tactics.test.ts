@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HeuristicBot, chooseTargets, type CardInfo } from "../src/duel/ai/heuristicBot.ts";
-import { STAPLE_RULES, type RuleCtx } from "../src/duel/ai/cardRules.ts";
+import { STAPLE_RULES, tagRule, type RuleCtx } from "../src/duel/ai/cardRules.ts";
 import { brainDb } from "../src/duel/data.ts";
 import { deckNpc } from "../src/duel/npcRules.ts";
 import { nrCompWins } from "../src/game/npcs.ts";
@@ -55,7 +55,7 @@ describe("NPC battle replays", () => {
 describe("NPC resource preservation", () => {
   const ctx: RuleCtx = { myLp: 8000, oppLp: 8000, myMon: [], oppMon: [], myMaxAtk: 0, oppMaxAtk: 0,
     myBackrow: 0, oppBackrow: 0, myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 0, myHand: 0, myHandTributes: 0, myRemoved: 0,
-    myTurn: false, oppEndPhase: false, attackAtk: 0, attackLethal: false, oppChained: false };
+    myTurn: false, oppEndPhase: false, attackAtk: 0, attackLethal: false, oppChained: false, myNames: [] };
   it("holds Heavy Storm when it would destroy more friendly cards", () => {
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 4, oppBackrow: 2 })).toBe(false);
     expect(STAPLE_RULES["heavy storm"]!.idleActivate!({ ...ctx, myBackrow: 0, oppBackrow: 2 })).toBe(true);
@@ -228,4 +228,27 @@ it("repeatedly challenging a map NPC advances all recipes and retains completion
   const name = PP.FAMOUS_BASE[84]!;
   expect(PP.pbinTest(p, PP.TITLE_BITS[name][0])).toBe(true);
   expect(PP.PRESENT_CLOTHES[name].filter((b) => b !== null).some((bit) => PP.pbinTest(p, bit!))).toBe(false);
+});
+
+// The first duel archived in production (2026-11-11, Yami Yugi NPC 51 vs ChicodaBurra): three NPC decisions that lost it.
+describe("NPC decisions from the first production duel", () => {
+  const ctx: RuleCtx = { myLp: 8000, oppLp: 8000, myMon: [], oppMon: [], myMaxAtk: 0, oppMaxAtk: 0, myBackrow: 0, oppBackrow: 0,
+    myGraveMaxAtk: 0, oppGraveMaxAtk: 0, oppHand: 2, myHand: 4, myHandTributes: 1, myRemoved: 0, myTurn: true, oppEndPhase: false,
+    attackAtk: 0, attackLethal: false, oppChained: false, myNames: [] };
+  const atk = (a: number) => ({ atk: a, def: 0, faceDown: false, attackPos: true });
+  // turn 3's Snatch Steal into face-down backrow (answered by Dust Tornado) stays: holding it for a bigger target
+  // measured worse in the lab (2026-11-11, 1,152 duels: 44.2% -> 43.7%); the tempo matters more than the risk
+  it("turn 7: no Premature Burial of a 2500 into a 2800; yes when it holds the field", () => {
+    const t7 = { ...ctx, myLp: 2500, oppMon: [atk(1700), atk(2800), atk(1700)], oppMaxAtk: 2800, myGraveMaxAtk: 2500 };
+    const burial = STAPLE_RULES["premature burial"]!.idleActivate!, reborn = STAPLE_RULES["monster reborn"]!.idleActivate!;
+    expect([burial(t7), reborn(t7)]).toEqual([false, false]);
+    expect([burial({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 }), reborn({ ...t7, oppMon: [atk(1700)], oppMaxAtk: 1700 })]).toEqual([true, true]);
+  });
+  it("turn 1: Spiral Spear Strike waits for Gaia; a continuous spell tagged draw doesn't lead like Pot of Greed", () => {
+    const spear = STAPLE_RULES["spiral spear strike"]!.idleActivate!;
+    expect(spear(ctx)).toBe(false);
+    expect(spear({ ...ctx, myNames: ["gaia the fierce knight"] })).toBe(true);
+    const code = [...brainDb().cards.values()].find((c) => (c.type & 0x20002) === 0x20002 && c.has("draw"))!;   // a continuous draw spell
+    expect(tagRule(code)?.idlePriority ?? 0).toBe(0);
+  });
 });

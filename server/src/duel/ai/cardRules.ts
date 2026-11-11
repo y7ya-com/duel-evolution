@@ -13,7 +13,7 @@
 //   - NPC_RULES[npcId]: one NPC's game plan, keyed by this game's NPC ids (npc_profiles.json).
 //     NPC rules override staples by card name.
 //
-import { TYPE_COUNTER, TYPE_EQUIP, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask, type Card } from "../brain/cards.ts";
+import { TYPE_CONTINUOUS, TYPE_COUNTER, TYPE_EQUIP, TYPE_MONSTER, TYPE_QUICKPLAY, TYPE_SPELL, TYPE_TRAP, tagMask, type Card } from "../brain/cards.ts";
 
 // Rules read a RuleCtx (the board the player already computes) and cover the decision points where blind play hurts
 // most: activating a card in the main phase (idleActivate / idlePriority), a battle-phase effect (battleActivate),
@@ -38,6 +38,8 @@ export interface RuleCtx {
   oppGraveMaxAtk: number;
   /** Cards in the opponent's hand. */
   oppHand: number;
+  /** cards.cdb names (lowercase) of my face-up monsters. */
+  myNames: string[];
   /** Cards in my hand, and how many of them are monsters that need a tribute. */
   myHand: number;
   myHandTributes: number;
@@ -126,8 +128,12 @@ export const STAPLE_RULES: Record<string, CardRule> = {
   "brain control": { idleActivate: (c) => canPay(c, 800) && (c.oppMaxAtk >= 1500 || (c.oppMon.some((m) => !m.faceDown) && c.myHandTributes > 0)), idlePriority: 108 },
   "creature swap": { idleActivate: (c) => hasMon(c.myMon) && c.oppMaxAtk >= 1500 && c.myMon.some((m) => Math.max(m.atk, m.def) <= 1000), idlePriority: 100 },
   "soul exchange": { idleActivate: (c) => c.myHandTributes > 0 && hasMon(c.oppMon), idlePriority: 112 },
-  "premature burial": { idleActivate: (c) => c.myGraveMaxAtk >= 1700 && canPay(c, 800), idlePriority: 90 },
-  "monster reborn": { idleActivate: (c) => Math.max(c.myGraveMaxAtk, c.oppGraveMaxAtk) >= 1700, idlePriority: 95 },
+  // A revived monster has to hold the field: not into a bigger attacker (production 2026-11-11: Summoned Skull revived
+  // for 800 LP at 2500 into a 2800 Despair, then stolen with Brain Control and turned on the NPC).
+  "premature burial": { idleActivate: (c) => c.myGraveMaxAtk >= 1700 && c.myGraveMaxAtk >= c.oppMaxAtk && canPay(c, 800), idlePriority: 90 },
+  "monster reborn": { idleActivate: (c) => { const best = Math.max(c.myGraveMaxAtk, c.oppGraveMaxAtk); return best >= 1700 && best >= c.oppMaxAtk; }, idlePriority: 95 },
+  // Pierces and draws only while Gaia The Fierce Knight attacks: nothing without him on the field.
+  "spiral spear strike": { idleActivate: (c) => c.myNames.some((n) => n.startsWith("gaia the fierce knight") || n.startsWith("gaia the dragon champion")) },
   // Revived in Attack Position: not into a bigger attacker, and on the opponent's turn only as a blocker that holds.
   "call of the haunted": {
     idleActivate: (c) => c.myGraveMaxAtk >= 1500 && c.myGraveMaxAtk >= c.oppMaxAtk,
@@ -250,7 +256,8 @@ export function tagRule(c: Card | undefined): CardRule | undefined {
     // Set quick-plays answer like traps; in the main phase a battle trick (no tag, a boost, a weaken) is held.
     const quick = (c.type & TYPE_QUICKPLAY) !== 0;
     const chainReact = quick ? trapReact(c) : undefined;
-    if (c.has("draw")) return { idleActivate: () => true, idlePriority: 130, chainReact };
+    // a continuous spell tagged draw draws on a condition (Spiral Spear Strike, Card Trader): not a draw spell to lead with
+    if (c.has("draw") && !(c.type & TYPE_CONTINUOUS)) return { idleActivate: () => true, idlePriority: 130, chainReact };
     if (c.has("search") && !c.has("ritual")) return { idleActivate: () => true, idlePriority: 120, chainReact };
     if (c.has("nuke_all")) return { idleActivate: worthwhileWipe, idlePriority: 115, chainReact };
     if (c.has("nuke_opp")) return { idleActivate: (x) => hasMon(x.oppMon), idlePriority: 115, chainReact };

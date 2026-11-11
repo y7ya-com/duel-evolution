@@ -352,6 +352,7 @@ export class HeuristicBot {
       myBackrow: backrow(me), oppBackrow: backrow(opp),
       myGraveMaxAtk: graveMaxAtk(me), oppGraveMaxAtk: graveMaxAtk(opp),
       oppHand: opp?.hand.length ?? 0,
+      myNames: me ? me.mzone.flatMap((c) => (c && c.code && !isFaceDown(c.position) ? [this.#nameOf(c.code)] : [])) : [],
       myHand: me?.hand.length ?? 0,
       myHandTributes: me ? me.hand.filter((c) => { const k = this.#cards.brain.get(c); return !!k && k.tributes() > 0; }).length : 0,
       myRemoved: me ? me.removed.filter((c) => ((this.#cards.brain.get(c)?.type ?? 0) & TYPE_MONSTER) !== 0).length : 0,
@@ -866,9 +867,20 @@ export class HeuristicBot {
       for (const t of targets) bodyBest = Math.max(bodyBest, this.#attackScore(base, atk, t));
       if (bodyBest > bestScore) { bestScore = bodyBest; bestIdx = index; bestAtk = atk; }
     }
+    // no way out of the battle (the opponent's card makes every monster attack): the least bad attack, not a refused End
+    if (bestIdx < 0 && !ev.canMain2 && !ev.canEndPhase) {
+      let worst = -Infinity;
+      ev.attackable.forEach((a, index) => {
+        if (this.#deadAttackers.has(a.sequence)) return;
+        const atk = me?.mzone[a.sequence]?.attack ?? this.#stat(a.code).atk;
+        const targets: (EvalMon | null)[] = (a.directAttackable || base.oppMon.length === 0) ? [null] : base.oppMon;
+        for (const t of targets) { const v = this.#attackScore(base, atk, t); if (v > worst) { worst = v; bestIdx = index; bestAtk = atk; } }
+      });
+    }
     if (bestIdx >= 0) { this.#declaredAttacker = ev.attackable[bestIdx]!; this.#attackSeen = false; this.#pendingAttacker = bestAtk; return respBattle("SELECT_BATTLE", bestIdx); }
     if (ev.canMain2) return respBattle("TO_M2");
-    return respBattle("TO_EP");
+    if (ev.canEndPhase || !ev.activatable.length) return respBattle("TO_EP");
+    return respBattle("SELECT_CHAIN", 0);
   }
 
   /** Back at the battle command with the last declared attack never declared by the engine: that monster is out. */
