@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildAudioPack, matchAudioPart, readAudioPack, unzip, zip } from '../src/features/audio-pack';
 import { AUDIO_SLOTS, BrowserAudioManager } from '../src/features/audio';
-import { audioWindow, AUDIO_PAGE, type AudioUi, type AudioWindowDeps } from '../src/ui/htmlui/options';
-import { Ids, type WindowSpec } from '../src/ui/htmlui/snapshot';
+import { audioPackShim, audioShim } from '../src/ui/htmlui/audio-page';
+import type { AudioAction } from '../src/features/audio';
 
 const slot = (id: string) => AUDIO_SLOTS.findIndex(s => s.id === id);
 const file = (name: string, body = name) => new File([body], name, { type: 'audio/mpeg' });
@@ -92,41 +92,41 @@ describe('audio manager packs', () => {
   });
 });
 
-describe('Audio window (Legacy look)', () => {
-  const controls = (spec: WindowSpec) => spec.win.controls;
-  const click = (spec: WindowSpec, key: string) => { const c = spec.win.controls.find(x => spec.handlers.get(x.id)?.key === key); expect(c, key).toBeDefined(); spec.handlers.get(c!.id)!.click?.(); return c!; };
-  const deps = (over: Partial<AudioWindowDeps> = {}): AudioWindowDeps => {
-    const m = new BrowserAudioManager({ storage: false }); m.setSlotFiles(0, [file('a.mp3')]); const a = m.getState(); m.dispose();
-    return { settings: { music: 1, sound: 1, reducedMotion: false, showCardNames: true } as AudioWindowDeps['settings'], audio: { music: a.music, sound: a.sound, activated: false, slots: a.slots },
-      ui: { page: 0 }, set: vi.fn(), audioAction: vi.fn(), more: vi.fn(), close: vi.fn(), rerender: vi.fn(), pickPack: vi.fn(), pickSlotFiles: vi.fn(), ...over };
+describe("main's Audio page over the rewrite's manager (htmlui/audio-page.ts)", () => {
+  // the controller's audioAction: the manager's own dispatch (the app adds its view and saved settings)
+  const setup = () => {
+    const m = new BrowserAudioManager({ storage: false }), sent: AudioAction[] = [];
+    const d = { audio: m, dispatch: (a: AudioAction) => { sent.push(a); return m.dispatch(a); } };
+    const A = audioShim(d); return { m, sent, A, P: audioPackShim(d, A) };
   };
-  it('pages the 46 slots and drives each slot\'s files, shuffle, repeat, volume and play', () => {
-    const d = deps(), spec = audioWindow(new Ids(), d);
-    expect(spec.win.h).toBeLessThanOrEqual(768);
-    expect(controls(spec).filter(c => /^au-play-/.test(c.name))).toHaveLength(AUDIO_PAGE);
-    click(spec, 'au-files-0'); expect(d.pickSlotFiles).toHaveBeenCalledWith(0);
-    click(spec, 'au-shuffle-0'); expect(d.audioAction).toHaveBeenLastCalledWith({ type: 'set-slot-mode', slot: 0, shuffle: true });
-    click(spec, 'au-loop-0'); expect(d.audioAction).toHaveBeenLastCalledWith({ type: 'set-slot-mode', slot: 0, loop: false });
-    click(spec, 'au-vol-down-0'); expect(d.audioAction).toHaveBeenLastCalledWith({ type: 'set-slot-mode', slot: 0, volume: 0.9 });
-    click(spec, 'au-clear-0'); expect(d.audioAction).toHaveBeenLastCalledWith({ type: 'set-slot-files', slot: 0, files: [] });
-    click(spec, 'au-pack-save'); expect(d.audioAction).toHaveBeenLastCalledWith({ type: 'export-pack' });
-    click(spec, 'au-pack-open'); expect(d.pickPack).toHaveBeenCalled();
-    click(spec, 'au-page-next'); expect(d.ui.page).toBe(1); expect(d.rerender).toHaveBeenCalled();
-    d.ui.page = 99; const last = audioWindow(new Ids(), d);
-    expect(last.win.controls.find(c => c.name === 'au-page')!.label).toBe('Page 5 / 5');
-    expect(last.win.controls.filter(c => /^au-play-/.test(c.name)).map(c => c.name)).toEqual(['au-play-40', 'au-play-41', 'au-play-42', 'au-play-43', 'au-play-44', 'au-play-45']);
-    expect(JSON.stringify(spec.win).toLowerCase()).not.toContain('music');
+  it('lists the slots with their files and sets one, a group or everything as web/audio.js does', async () => {
+    const { m, sent, A } = setup();
+    expect(A.listSlots()).toHaveLength(46);
+    await A.set('title', { files: [file('t.mp3')], volume: 0.5 });
+    expect(A.listSlots()[slot('title')]).toMatchObject({ id: 'title', volume: 0.5, files: [expect.objectContaining({ name: 't.mp3' })] });
+    // a change without files keeps the slot's files (live's {...conf(s), ...change})
+    await A.set(slot('title'), { shuffle: true });
+    expect(m.getSlotFiles(slot('title')).map(f => f.name)).toEqual(['t.mp3']);
+    expect(m.getState().slots[slot('title')]).toMatchObject({ shuffle: true, volume: 0.5 });
+    const r = await A.setMany([[slot('login'), { files: [file('l.mp3')] }], [slot('my_room'), { files: [file('r.mp3')] }]]);
+    expect(r.failed).toEqual([]);
+    expect(m.getState().slots.filter(s => s.files.length).map(s => s.id)).toEqual(['title', 'login', 'my_room']);
+    await A.setMany(A.listSlots().map(s => [s.slot, { files: [] }] as const));
+    expect(m.getState().slots.some(s => s.files.length)).toBe(false);
+    expect(A.master()).toBe(1); await A.master(0.4); expect(A.master()).toBe(0.4);
+    expect(sent.at(-1)).toEqual({ type: 'set-volumes', music: 0.4 });
+    m.dispose();
   });
-  it('reviews a pack before anything changes, then uses it over the setup or alone', async () => {
-    const plan = await readAudioPack(await zip([{ path: 'audiopack.json', data: JSON.stringify({ name: 'Night', author: 'Kai', slots: { title: 't.mp3', duel: 'd/' } }) }, { path: 't.mp3', data: 't' }, { path: 'd/1.mp3', data: 'd' }, { path: 'stray.mp3', data: 's' }]));
-    const ui: AudioUi = { page: 0, review: plan }, d = deps({ ui }), spec = audioWindow(new Ids(), d);
-    const text = controls(spec).map(c => c.text ?? c.label).join('\n');
-    expect(spec.win.controls.find(c => c.name === 'title')!.text).toBe('Audio Pack');
-    expect(text).toContain('Name: Night'); expect(text).toContain('By: Kai'); expect(text).toContain('This pack sets 11 parts');
-    expect(text).toContain('Title (1)'); expect(text).toMatch(/1 file in the pack match/);
-    expect(d.audioAction).not.toHaveBeenCalled();
-    click(spec, 'au-pack-replace');
-    expect(d.audioAction).toHaveBeenCalledWith({ type: 'apply-pack', slots: plan.slots, replace: true }); expect(ui.review).toBeNull();
-    ui.review = plan; click(audioWindow(new Ids(), d), 'au-pack-cancel'); expect(ui.review).toBeNull();
+  it('reads a pack and uses it alone, its master volume too', async () => {
+    const { m, A, P } = setup();
+    await A.set('janken', { files: [file('j.mp3')] });
+    const plan = await P.read(await zip([{ path: 'audiopack.json', data: JSON.stringify({ name: 'Night', master: 0.7, slots: { title: 't.mp3' } }) }, { path: 't.mp3', data: 't' }]));
+    expect(plan.name).toBe('Night');
+    await P.apply(plan, { replace: true });
+    expect(m.getState().slots.filter(s => s.files.length).map(s => s.id)).toEqual(['title']);
+    expect(A.master()).toBe(0.7);
+    expect(P.isPackItem('a.zip')).toBe(true); expect(P.isPackItem('x.txt')).toBe(false);
+    expect((await readAudioPack(await P.build({ name: 'Back' }))).slots[slot('title')]?.files).toHaveLength(1);
+    m.dispose();
   });
 });
