@@ -49,6 +49,7 @@ import { cardSwapMenu } from './htmlui/card-swap-menu';
 import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { CardGetScene, isCardGet } from './htmlui/card-get';
+import { npcChibiSet } from '../avatars/npc';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -709,6 +710,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
+  // a famous NPC (Yami Yugi, Alexis Rhodes...) stands in its own picture in the janken, the duel and the result, as live
+  const duelNpcSets = (): void => { const id = state.npc?.stage === 'duel' || state.npc?.stage === 'after-duel' ? state.npc.npc?.id : undefined; duelScene.npcSets = [null, id === undefined ? null : npcChibiSet(id)]; };
   duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
   let effectsLayer: HTMLElement | null = null;
@@ -855,7 +858,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const handCounts: [number, number] = [0, 0]; for (const card of duel.cards) if (card.zone === 'hand') handCounts[card.controller]++;
     for (const card of duel.cards) { const node = fieldNodes.get(card.id); if (node) placeFieldCard(node, card, handCounts[card.controller]); }
     for (const i of [0, 1] as const) { if (lpNodes[i]) lpNodes[i]!.textContent = duel.players[i].lp.toLocaleString(); if (lpBars[i]) lpBars[i]!.style.width = lpWidth(duel.players[i].lp); lpPlates[i]?.setLp(duel.players[i].lp); }
-    presentEffects(duel); duelScene.update(duel, state.settings.reducedMotion);
+    presentEffects(duel); duelNpcSets(); duelScene.update(duel, state.settings.reducedMotion);
   };
   const pruneArt = () => {
     for (const [code, entry] of art) if (!entry.used) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; art.delete(code); }
@@ -1075,7 +1078,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     // before the field: rock-paper-scissors and who goes first, live's own scene (no field, plates, bar or chat)
     const jv = jankenView();
     if (jv) {
-      const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
+      duelNpcSets(); const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
       stage.append(jankenScene(jv, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
         controller.loadArchiveImage ? loadArchiveArt : null, portraits));
       if (state.relay) stage.append(relayRoster());
@@ -1215,7 +1218,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
       cards.append(zone);
     }
-    board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
+    board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelNpcSets(); duelScene.mount(board, duel, state.settings.reducedMotion);
     // Surrender (live: the player's deck's command) with no deck card left: the empty deck zone takes the click
     const ownDeckAt = fieldCardPosition({ id: DECK_ZONE, name: '', controller: 0, zone: 'deck', index: 0, faceUp: false }, 0);
     const deckZoneOn = !ownDeckTop && (canSurrender || !!duel.spectating || commands.has(DECK_ZONE));

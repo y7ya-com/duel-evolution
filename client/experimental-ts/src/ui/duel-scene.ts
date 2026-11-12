@@ -88,6 +88,9 @@ export class DuelPresentation {
   private shown: string | null = null;
   private hovered: string | null = null;
   private infoKey = '';
+  /** A famous NPC's art set per side (avatars/npc.ts npcChibiSet: Alexis Rhodes a03), its own picture in place of a
+   * look composed from parts; set by the app for an NPC duel. */
+  npcSets: [string | null, string | null] = [null, null];
 
   constructor(private readonly load: ArchiveLoader | null, options: DuelPresentationOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -197,12 +200,19 @@ export class DuelPresentation {
     return [this.style, ...this.portraits];
   }
   private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
-    const box = this.portraits[side], key = parts ? `${Array.from(parts).join('.')}:${expression}` : '';
+    const box = this.portraits[side], set = this.npcSets[side];
+    const key = set ? `npc:${set}:${expression}` : parts ? `${Array.from(parts).join('.')}:${expression}` : '';
     if (key === this.portraitKeys[side]) return;
     this.portraitKeys[side] = key;
     const face = this.faces[side]; if (face.timer !== null) this.clearTimer(face.timer); face.timer = null;
-    if (!parts || !this.composer) { this.dropFrames(side); box.hidden = true; return; }
-    void this.composer.composeFrames(parts, side === 0 ? 1 : 0, this.abort.signal, expression).then(async composed => {
+    if (!set && (!parts || !this.composer) || set && !this.load) { this.dropFrames(side); box.hidden = true; return; }
+    // a famous NPC's own picture: where its talk shows it, on the whole screen (its art reaches past the portrait's
+    // box), facing the way the talk shows it (unmirrored)
+    const at = PORTRAIT_PLACE[side];
+    Object.assign(box.style, set ? { left: '0', top: '0', width: '100%', height: '100%', transform: '' }
+      : { left: `${at.x / 1024 * 100}%`, top: `${at.y / 768 * 100}%`, width: '', height: '', transform: side === 0 ? 'scaleX(-1)' : '' });
+    const frames = set ? npcPortraitFrames(this.load!, set, expression, this.abort.signal) : this.composer!.composeFrames(parts!, side === 0 ? 1 : 0, this.abort.signal, expression);
+    void frames.then(async composed => {
       if (this.portraitKeys[side] !== key || !composed[1]) return;
       // each frame a picture of its own, decoded before it can show, so a blink never waits on one
       const frames: Partial<Record<EyeFrame, HTMLImageElement>> = {};
@@ -285,4 +295,37 @@ export class DuelPresentation {
     } else row.append(this.icon('icon_zokusei.png', /^Trap/.test(card.type ?? '') ? 8 : 7));
     return row;
   }
+}
+
+/** The csv's frames of a famous NPC's picture (data/avatar/npc/<set>.csv: its id, its place x and y on the talk's
+ * screen, the number (from 1) of its one changing tile, the 3 x 3 tiles, then that tile's frames 2..7): frames 1..3 the
+ * eyes open, half shut and shut, 4..6 the same for the beaten face (gritted teeth, a sweat drop). Each eye frame as a
+ * 1024 x 768 canvas, the screen: the picture at full size with its top left at 478, 32, where live's talk shows Alexis
+ * Rhodes' (her face where the duel's opponent portrait has its own). Not each NPC's own talk place (the csv's x, y:
+ * Yami Yugi's 184, 0 would stand him over the field's middle and the player's portrait); live's duel with a famous NPC
+ * is not captured yet. */
+export const NPC_DUEL_AT = { x: 478, y: 32 } as const;
+export async function npcPortraitFrames(load: ArchiveLoader, set: string, expression: Expression, signal: AbortSignal): Promise<Partial<Record<EyeFrame, HTMLCanvasElement>>> {
+  if (!/^[ad]\d\d$/.test(set)) throw new Error('Unknown NPC picture.');
+  const lease = await load(`data/avatar/npc/${set}.csv`, signal);
+  let csv: string; try { csv = await (await fetch(lease.url, { signal })).text(); } finally { lease.release(); }
+  const lines = csv.split(/\r?\n/).map(l => l.trim()), tiles = lines.slice(4, 13), extra = lines.slice(13, 19);
+  const changing = (Number(lines[3]) || 0) - 1;
+  const image = async (name: string | undefined): Promise<HTMLImageElement | null> => {
+    if (!name || name === '****' || !/^[\w.-]+\.png$/.test(name)) return null;
+    const l = await load(`data/avatar/npc/${name}`, signal).catch(() => null); if (!l) return null;
+    try { const img = new Image(); img.src = l.url; await img.decode(); return img; } catch { return null; } finally { l.release(); }
+  };
+  const base = await Promise.all(tiles.map(image));
+  const frameNames = [tiles[changing], ...extra], first = expression === 'lose' ? 3 : 0;
+  const out: Partial<Record<EyeFrame, HTMLCanvasElement>> = {};
+  for (const f of [1, 2, 3] as const) {
+    const swap = changing >= 0 ? await image(frameNames[first + f - 1]) : null;
+    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 768;
+    const ctx = canvas.getContext('2d'); if (!ctx) continue;
+    ctx.translate(NPC_DUEL_AT.x, NPC_DUEL_AT.y);
+    base.forEach((img, i) => { const use = i === changing && swap ? swap : img; if (use) ctx.drawImage(use, 256 * (i % 3), 256 * Math.floor(i / 3)); });
+    out[f] = canvas;
+  }
+  return out;
 }
