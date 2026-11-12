@@ -395,6 +395,8 @@ export class ClientApp implements ClientController {
     const lease = await this.options.assets.readScene(path, signal ?? this.scope.signal);
     try { return lease.value.bytes.slice(); } finally { lease.release(); }
   }
+  /** merge.dat's URL, for main's page modules (lazy-shim.ts `files`); absent without configured assets. */
+  get gameArchiveUrl(): string | undefined { return this.options.assets?.archiveUrl; }
   /** A card's big art by its YO2 id (lazy-shim.ts cardArt: the card shop's faces, the crafting editor), the 2x art as live's lazyfs reads it. */
   async readCardArt(id: number, signal?: AbortSignal): Promise<Uint8Array | null> {
     if (!this.options.assets) throw new Error('Original artwork is not configured.');

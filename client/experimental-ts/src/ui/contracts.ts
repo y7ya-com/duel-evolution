@@ -277,6 +277,8 @@ export interface ClientController {
   loadArchiveImage?(path: string, signal: AbortSignal): Promise<{ url: string; release(): void }>;
   /** One original file's bytes for main's page modules (htmlui/lazy-shim.ts). */
   readGameFile?(path: string, signal?: AbortSignal): Promise<Uint8Array>;
+  /** merge.dat's URL, which main's page modules look for in lazyfs's file list (htmlui/lazy-shim.ts). */
+  readonly gameArchiveUrl?: string | undefined;
   /** A card's big art by YO2 id for main's page modules (lazyfs.js cardArt: card.dat's 2x art, merge.dat's as fallback). */
   readCardArt?(id: number, signal?: AbortSignal): Promise<Uint8Array | null>;
   /** The original's own UI strings (data/common/yo2text_?) by text id; absent without the original data. */
