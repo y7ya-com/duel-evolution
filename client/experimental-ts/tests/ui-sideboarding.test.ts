@@ -17,26 +17,33 @@ function fixture() {
   return { root, commands, original, update, mounted, get state() { return state; }, dispose: () => mounted.dispose() };
 }
 describe('MATCH sideboarding and relay UI', () => {
-  it('offers an atomic swap even when both saved sections are full', async () => {
-    const f = fixture(); const full = { name: 'Match Deck', main: Array<number>(80).fill(1), side: Array<number>(15).fill(3), extra: [4] }; f.update({ sideboarding: { ...f.state.sideboarding!, deck: structuredClone(full), original: full } }); await Promise.resolve();
-    const main = f.root.querySelectorAll('button').find(b => b.dataset.key === 'sideboard:2:main:0')!, side = f.root.querySelectorAll('button').find(b => b.dataset.key === 'sideboard:2:side:0')!;
-    main.onclick?.({}); await Promise.resolve(); side.onclick?.({}); await Promise.resolve(); findButton(f.root, 'Swap Selected Cards').onclick?.({});
-    expect(f.commands).toEqual([{ type: 'sideboardSwap', mainIndex: 0, sideIndex: 0 }]);
-    expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Return to Lobby')).toBe(false);
-    expect(f.root.textContent).toContain('Fusion Deck · 1/1');
+  // live's Card Swap (htmlui/side-swap.ts): the deck screen's windows, a card moved main <-> side, EXIT takes the deck on
+  const windows = (f: ReturnType<typeof fixture>) => f.mounted.htmlUi.windows().map(w => w.win.cls);
+  it('shows live\'s Card Swap windows: the menu, the card detail, the Deck window cut to the chat, the clock', async () => {
+    const f = fixture(); await Promise.resolve();
+    expect(windows(f)).toEqual(expect.arrayContaining(['CCardSwapMenu', 'CCardDetailViewDlg', 'CWindowModelDeck', 'CJankenTimer']));
+    expect(windows(f)).not.toContain('CWindowModelKaban');
+    const deck = f.mounted.htmlUi.windows().find(w => w.win.cls === 'CWindowModelDeck')!.win;
+    // the side band at y 480, the side cards from 520 (the editor's at 584 / 624)
+    expect(deck.controls.filter(c => c.cls === 'CWindowTaskDeckCard' && c.zone === 'side').map(c => c.wy)).toEqual([520]);
+    expect(f.root.querySelectorAll('button').some(b => ['Submit Sideboard', 'Main → Side', 'Swap Selected Cards'].includes(b.textContent ?? ''))).toBe(false);
   });
-  it('refuses section-size and card-pool changes without asserting server readiness', async () => {
+  it('EXIT takes the deck on only with the original counts; a refusal is the deck screen\'s OK dialog', async () => {
     const f = fixture(); f.update({ sideboarding: { ...f.state.sideboarding!, deck: { ...f.original, main: [1], side: [3, 2] } } }); await Promise.resolve();
-    expect(findButton(f.root, 'Submit Sideboard').disabled).toBe(true);
+    expect(f.mounted.htmlUi.press('swap-exit')).toBe(true); await Promise.resolve();
+    expect(f.commands).toEqual([]); expect(f.mounted.htmlUi.text()).toContain('Restore the original Main, Side and Fusion counts');
     expect(sideboardDifference({ ...f.original, main: [1, 99] }, f.original)).toContain('original');
     expect(sideboardDifference({ ...f.original, extra: [99] }, f.original)).toContain('Fusion');
-    expect(sideboardDifference({ ...f.original, main: [3, 2], side: [1] }, f.original)).toBeNull();
-    f.update({ sideboarding: { ...f.state.sideboarding!, deck: { ...f.original, main: [3, 2], side: [1] } } }); await Promise.resolve(); findButton(f.root, 'Submit Sideboard').onclick?.({});
-    expect(f.commands).toEqual([{ type: 'submitSideboard' }]); expect(f.root.textContent).not.toContain('Deck Submitted');
+    f.update({ sideboarding: { ...f.state.sideboarding!, deck: { ...f.original, main: [3, 2], side: [1] } } }); await Promise.resolve();
+    expect(f.mounted.htmlUi.press('swap-notice-ok')).toBe(true); expect(f.mounted.htmlUi.press('swap-exit')).toBe(true);
+    expect(f.commands).toEqual([{ type: 'submitSideboard' }]);
+    f.update({ sideboarding: { ...f.state.sideboarding!, ready: true } }); await Promise.resolve();
+    expect(f.mounted.htmlUi.text()).toContain('Waiting for your opponent');
   });
-  it('counts down an epoch-ms server deadline and releases the timer on disposal', async () => {
+  it('counts the side deck clock down on its plate and releases the timer on disposal', async () => {
     vi.useFakeTimers(); vi.setSystemTime(1_000_000); const f = fixture(); f.update({ sideboarding: { ...f.state.sideboarding!, deadline: Date.now() + 5000 } }); await Promise.resolve();
-    expect(f.root.textContent).toContain('0:05'); vi.advanceTimersByTime(1000); await Promise.resolve(); expect(f.root.textContent).toContain('0:04'); f.dispose(); expect(vi.getTimerCount()).toBe(0);
+    const clock = () => f.mounted.htmlUi.windows().find(w => w.win.cls === 'CJankenTimer')!.win.time;
+    expect(clock()).toBe('00:05'); vi.advanceTimersByTime(1000); await Promise.resolve(); expect(clock()).toBe('00:04'); f.dispose(); expect(vi.getTimerCount()).toBe(0);
   });
   it('shows relay pilot roles, blocks stale partner actions and never offers partner RPS', async () => {
     const f = fixture(); f.update({ sideboarding: undefined, match: undefined, relay: { active: [1, 0], self: 0, canAct: false, players: [{ pid: 1, name: 'Captain' }, { pid: 2, name: 'Partner' }, { pid: 3, name: 'Opponent' }, { pid: 4, name: 'Their Partner' }] }, preparation: { phase: 'rock-paper-scissors', role: 'partner' }, duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: { id: 'old', kind: 'yes-no', text: 'Old choice', options: [{ id: 'yes', label: 'Yes' }] }, actions: [{ id: 'attack', label: 'Attack' }], turn: 1, turnPlayer: 0, phase: 'Main', log: [] } }); await Promise.resolve();

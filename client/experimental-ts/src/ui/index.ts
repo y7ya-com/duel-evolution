@@ -45,6 +45,7 @@ import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft } from './htmlui/trade';
 import { cardSwapMenu } from './htmlui/card-swap-menu';
 import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
+import { SideSwap, isSideSwap, SIDE_SWAP_ZONES } from './htmlui/side-swap';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -143,7 +144,7 @@ interface LocalState {
   tradeSearch: string;
   message: string; inspected: CardView | null; inspectedFrom: DeckZone | 'collection' | 'duel';
   promptInspection: CardView | null; promptId: string | null; selected: Set<string>;
-  sideboardRound: number | null; sideboardMain: number | null; sideboardSide: number | null; roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; 
+  roomOptions: { style?: 3 | 4; allowSurrender?: boolean; timeLimit?: boolean; allowWatch?: boolean }; roomPassword: string; username: string; characterName: string; characterSlot: number; 
 }
 /** main's HTML UI windows as the rewrite builds them (src/ui/htmlui), driven by data-key without a DOM: the same
  * handlers the DOM's buttons and inputs call. */
@@ -156,7 +157,7 @@ export interface MountedClient { dispose(): void; render(): void; htmlUi: HtmlUi
 export function mountClient(root: HTMLElement, controller: ClientController): MountedClient {
   let disposed = false, rendering = false, queued = false, resetDraftsNextRender = false;
   let state = controller.getState();
-  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
+  const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
   const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
@@ -315,6 +316,23 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const tradeTrunk = new TradeTrunk({ card: passcode => socialOptions().card(passcode), dispatch: action => send({ type: 'socialAction', action }), rerender: () => showHtml(),
     editable: () => { const t = controller.getState().socialDetail?.trade; return !!t && t.phase === 'open' && !t.view.ready && !t.view.otherReady && !t.pendingMove && t.ownOffer.length < 10; } });
   let tradeDom: DeckDom | null = null;
+  // Card Swap between a match's games (htmlui/side-swap.ts) and its own card layer
+  let swapNotice = '';
+  const sideSwap = new SideSwap({
+    card: pc => { const pool = state.deckEditor?.allCards ?? state.deckEditor?.collection ?? []; return pool.find(c => c.passcode === pc) ?? controller.cardView?.(pc) ?? { id: String(pc), passcode: pc, name: `Card ${pc}` }; },
+    move: (passcode, from, index) => send({ type: 'sideboardMove', passcode, from, to: from === 'main' ? 'side' : 'main', index }),
+    submit: () => send({ type: 'submitSideboard' }), rerender: () => showHtml(),
+    notice: text => { swapNotice = text; showHtml(); },
+  });
+  let swapDom: DeckDom | null = null;
+  const swapSpecs = (): WindowSpec[] => {
+    const side = state.scene === 'duel' ? state.sideboarding ?? null : null, out = sideSwap.windows(htmlIds, side);
+    if (!side) { swapNotice = ''; return out; }
+    const say = swapNotice || side.error || '';
+    if (say) out.push(stockDialog({ ids: htmlIds }, 'swap-notice', 'ok', say, [{ from: 'OK', key: 'swap-notice-ok', click: () => { swapNotice = ''; showHtml(); } }]));
+    else if (side.ready) { const wait = stockDialog({ ids: htmlIds }, 'swap-wait', 'ok', 'Waiting for your opponent…', []); for (const c of wait.win.controls) if (c.cls === 'CWindowTaskTextSwitch') c.shown = false; out.push(wait); }
+    return out;
+  };
   const tradeSpecs = (): WindowSpec[] => {
     const sd = state.socialDetail; if (!sd || sd.trade.phase === 'idle' || ['title', 'characters'].includes(state.scene)) return [];
     const reason = tradeReason();
@@ -447,7 +465,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...swapSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
@@ -564,14 +582,17 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const showHtml = () => {
     askGameTexts(); syncStartScene(); discord.tick();
     if (disposed) return;
-    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) });
+    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) });
     const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
     if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
-    if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); syncPortrait(); return; }
+    const swapping = state.scene === 'duel' && !!state.sideboarding;
+    if (!swapDom && swapping && typeof globalThis.document !== 'undefined') swapDom = new DeckDom(htmlUi?.host ?? host, sideSwap, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isSideSwap, zones: SIDE_SWAP_ZONES, sideButtons: [] });
+    if (!htmlUi) { const specs = deckDom || tradeDom || swapDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView()); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
     deckDom?.show(specs, deck.detail, deck.drag);
     tradeDom?.show(specs, tradeTrunk.detailView(), null);
+    swapDom?.show(specs, sideSwap.detailView(), sideSwap.dragView());
     syncPortrait();
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
@@ -610,8 +631,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       gameCursor?.dispose();
       gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
-      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) });
+      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) && !isSideSwap(w) });
       if (tradeDom) { tradeDom.dispose(); tradeDom = null; }
+      if (swapDom) { swapDom.dispose(); swapDom = null; }
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
       const g = globalThis as { yo2Html?: Record<string, unknown> };
       if (g.yo2Html) {
@@ -967,33 +989,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (editor.error) local.message ||= editor.error;
     deckScene.notice(state.error || local.message);
   }
+  // Card Swap between a match's games (htmlui/side-swap.ts): its windows on the layer, the deck screen's ground here
   function renderSideboarding(): void {
-    const side = state.sideboarding; if (!side) return;
-    if (local.sideboardRound !== side.round) { local.sideboardRound = side.round; local.sideboardMain = null; local.sideboardSide = null; }
-    const n = sceneRoot('Match Sideboarding'), panel = el('section', 'de-panel de-stack de-fill', title(`Match · Sideboard for Game ${side.round}`));
-    panel.append(el('p', '', `Match score: ${side.scores[0]} wins · ${side.scores[1]} losses · ${side.scores[2]} draws`));
-    if (side.deadline) { const seconds = Math.max(0, Math.ceil((side.deadline - Date.now()) / 1000)); panel.append(note(`Sideboarding clock: ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`)); }
-    if (side.error) panel.append(el('p', 'de-error', side.error));
-    const sideboardIssue = sideboardDifference(side.deck, side.original), exact = sideboardIssue === null;
-    const pool = state.deckEditor?.allCards ?? state.deckEditor?.collection ?? [], lookup = new Map(pool.map(c => [c.passcode, c]));
-    const columns = el('div', 'de-sideboard-columns de-fill');
-    for (const zone of ['main', 'side', 'extra'] as const) {
-      const section = el('section', 'de-deck-zone de-scroll'), grid = el('div', 'de-card-grid'); section.append(el('h3', 'de-zone-title', `${zone === 'extra' ? 'Fusion' : zone === 'main' ? 'Main' : 'Side'} Deck · ${side.deck[zone].length}/${side.original[zone].length}`));
-      for (const [index, passcode] of side.deck[zone].entries()) {
-        const card = lookup.get(passcode) ?? { id: String(passcode), passcode, name: `Card ${passcode}` }, tile = drawCard(card, state.settings.showCardNames);
-        const selected = zone === 'main' ? local.sideboardMain === index : zone === 'side' && local.sideboardSide === index;
-        const b = button('', () => { local.inspected = card; if (zone === 'main') local.sideboardMain = index; else if (zone === 'side') local.sideboardSide = index; requestRender(); }, side.ready || !!state.busy);
-        b.className = tile.className; b.dataset.key = `sideboard:${side.round}:${zone}:${index}`; b.setAttribute('aria-label', `${card.name}, ${zone} deck`); b.setAttribute('aria-pressed', String(selected)); b.append(...Array.from(tile.childNodes)); grid.append(b);
-      }
-      section.append(grid); columns.append(section);
-    }
-    panel.append(columns);
-    const move = (from: 'main' | 'side') => { const index = from === 'main' ? local.sideboardMain : local.sideboardSide; if (index === null || side.deck[from][index] === undefined) return; send({ type: 'sideboardMove', passcode: side.deck[from][index], from, to: from === 'main' ? 'side' : 'main', index }); local.sideboardMain = null; local.sideboardSide = null; };
-    panel.append(el('div', 'de-row', button('Main → Side', () => move('main'), local.sideboardMain === null || side.ready || !!state.busy), button('Side → Main', () => move('side'), local.sideboardSide === null || side.ready || !!state.busy), button('Swap Selected Cards', () => { if (local.sideboardMain !== null && local.sideboardSide !== null) { send({ type: 'sideboardSwap', mainIndex: local.sideboardMain, sideIndex: local.sideboardSide }); local.sideboardMain = null; local.sideboardSide = null; } }, local.sideboardMain === null || local.sideboardSide === null || side.ready || !!state.busy, true)));
-    panel.append(note('Only Main and Side cards may be exchanged. The original card pool and each section size must be restored before submitting. Fusion cards stay in the Fusion Deck.'));
-    if (sideboardIssue) panel.append(el('p', 'de-error', sideboardIssue));
-    if (local.inspected) panel.append(el('p', '', `${local.inspected.name}: ${local.inspected.description ?? 'Card description unavailable.'}`));
-    panel.append(button(side.ready ? 'Deck Submitted · Waiting for Opponent' : 'Submit Sideboard', () => send({ type: 'submitSideboard' }), !exact || side.ready || !!state.busy, true)); n.append(panel);
+    const ground = sceneRoot('Card Swap'); deckBackdrop(ground);
   }
   function renderShop(): void {
     if (useCardShop()) sceneRoot('Card Shop').append(cardShop.node());
@@ -1381,5 +1379,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; swapDom?.dispose(); swapDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

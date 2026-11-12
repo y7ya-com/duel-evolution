@@ -40,17 +40,18 @@ function textArt(el: HTMLElement, text: string, outline: string, box: [number, n
 }
 
 /** The column's window (over the trade's ground, beside the card detail): the strip, the buttons, EXIT's look on hover. */
-export function cardSwapMenu(ids: Ids, o: { exit(): void; disabled?: boolean }): WindowSpec {
+export function cardSwapMenu(ids: Ids, o: { exit(): void; disabled?: boolean; key?: string }): WindowSpec {
+  const key = o.key ?? 'trade-exit';
   const b = new WindowBuilder(ids, 'cardswap-menu', 'CCardSwapMenu', { x: 0, y: 0, w: 248, h: 175 }, { z: 51102 });
   const spec = b.spec();
   spec.after = root => {
-    if (root.querySelector('[data-key="trade-exit"]')) { (root.querySelector('[data-key="trade-exit"]') as HTMLButtonElement).disabled = !!o.disabled; return; }
+    { const done = root.querySelector<HTMLButtonElement>(`[data-key="${key}"]`); if (done) { done.disabled = !!o.disabled; return; } }
     const box = document.createElement('div'); Object.assign(box.style, { position: 'absolute', left: '0', top: '0', width: '248px', height: '175px' });
     bevel(box, STRIP, 0, 0); textArt(box, 'CARD SWAP', '#1059ff', [6, 9, 201, 32], 0, 0, 1);
     SIDE_TEXT.forEach(([name, label, x0, x1], i) => {
       const y = 40 + 27 * i;
       if (name !== 'ExitBtn') { bevel(box, SIDE_OFF, 0, y); textArt(box, label, '#1c2c3c', [x0, 5, x1, 23], 0, y, 2, '#7d8890'); return; }
-      const btn = document.createElement('button'); btn.type = 'button'; btn.dataset.key = 'trade-exit'; btn.setAttribute('aria-label', 'Exit'); btn.disabled = !!o.disabled;
+      const btn = document.createElement('button'); btn.type = 'button'; btn.dataset.key = key; btn.setAttribute('aria-label', 'Exit'); btn.disabled = !!o.disabled;
       Object.assign(btn.style, { position: 'absolute', left: '0', top: y + 'px', width: '176px', height: '27px', padding: '0', margin: '0', border: '0', background: 'none', cursor: 'pointer' });
       const draw = (hover: boolean) => { btn.replaceChildren(); bevel(btn, hover ? SIDE_HOVER : SIDE, 0, 0); const svg = textArt(btn, label, hover ? '#ff9d10' : '#1059ff', [x0, 5, x1, 23], 0, 0, 2, hover ? '#fdff45' : '#fff'); svg.style.pointerEvents = 'none'; };
       draw(false);
@@ -62,6 +63,6 @@ export function cardSwapMenu(ids: Ids, o: { exit(): void; disabled?: boolean }):
   };
   // the driver and assistive tools find EXIT by its key
   const c = b.add('CCardSwapExit', 'exit', { x: 0, y: 148, w: 176, h: 27 }, { shown: true });
-  b.on(c, { key: 'trade-exit', label: 'Exit', click: () => { if (!o.disabled) o.exit(); } });
+  b.on(c, { key, label: 'Exit', click: () => { if (!o.disabled) o.exit(); } });
   return spec;
 }

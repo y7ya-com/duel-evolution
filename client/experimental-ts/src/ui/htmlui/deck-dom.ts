@@ -33,6 +33,10 @@ export interface DeckDomOptions {
   archive?(path: string, signal: AbortSignal): Promise<ArtLease>;
   /** The deck windows this layer draws (default: all): the deck editor's and the trade's trunk each have their own. */
   owns?(win: HtmlWindow): boolean;
+  /** Its drop zones (default: the editor's; a zone left out takes no drop). */
+  zones?: Partial<Record<'main' | 'side' | 'extra' | 'trunk', readonly [number, number, number, number]>>;
+  /** The side menu's buttons it gives the mouse (default: all five). */
+  sideButtons?: readonly string[];
 }
 /** What the detail's power strip shows a monster (its race, attribute and level icons, holes in main's module). */
 export interface PowerIcons { race: number; attr: number; level: number }
@@ -116,8 +120,10 @@ export class DeckDom {
     this.zonesKey = key;
     this.zones.replaceChildren(); this.controls.replaceChildren();
     if (!on) return;
+    const zones = this.options.zones ?? ZONES;
     for (const z of (ui.view === 'extra' ? ['extra', 'trunk'] : ['main', 'side', 'trunk']) as (keyof typeof ZONES)[]) {
-      const [x, y, w, h] = ZONES[z], d = this.box(this.zones, 'div', x, y, w, h);
+      const at = zones[z]; if (!at) continue;
+      const [x, y, w, h] = at, d = this.box(this.zones, 'div', x, y, w, h);
       d.className = 'htmlui-deck-zone'; d.style.pointerEvents = ui.drag ? 'auto' : 'none'; d.style.zIndex = '1';
       d.dataset.dropZone = z; this.wire(d, z, -1, 0);
     }
@@ -128,7 +134,7 @@ export class DeckDom {
       b.onclick = run; extra?.(b);
     };
     const labels: Record<string, string> = { LoadBtn: 'Load Deck', SaveBtn: 'Save Deck', RecipeBtn: 'Structure Deck', ClearBtn: 'Clear Deck', ExitBtn: 'Exit' };
-    SIDE_BUTTONS.forEach((name, i) => button(labels[name] ?? name, 0, 40 + 27 * i, 176, 27, () => this.scene.sideButton(name), b => {
+    SIDE_BUTTONS.forEach((name, i) => (this.options.sideButtons ?? SIDE_BUTTONS).includes(name) && button(labels[name] ?? name, 0, 40 + 27 * i, 176, 27, () => this.scene.sideButton(name), b => {
       b.addEventListener('mouseenter', () => this.scene.hover(name)); b.addEventListener('mouseleave', () => this.scene.hover(null));
     }));
     button('Main Deck', 256, 56, 194, 28, () => this.scene.tab('main'));

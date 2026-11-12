@@ -261,12 +261,23 @@ export const CHAT_TABS: readonly { key: string; label: string; x: number; w: num
  * partner. It is the CHAT_TABS index after the last, so the lobby's tab indexes never move. */
 export const TRADE_PARTNER_TAB = { key: 'partner', label: 'Trade Partner', x: 145, w: 126, channel: 'whisper' } as const;
 type ChatTab = { key: string; label: string; x: number; w: number; channel: string; shows: (channel: string, sender?: string) => boolean; target?: string };
-/** The chat's tabs: the lobby's, and in a trade the partner's tab at live's place. */
-export function chatTabsFor(partner: string | null): readonly ChatTab[] {
-  if (!partner) return CHAT_TABS;
-  const shift = TRADE_PARTNER_TAB.w - 8, name = partner.trim();
-  return [...CHAT_TABS.map(t => t.x > 81 ? { ...t, x: t.x + shift } : t),
-    { ...TRADE_PARTNER_TAB, target: name, shows: (c: string, sender?: string) => c === 'whisper' && sender?.trim() === name }];
+/** A duel between players (and its Card Swap) adds "Duel (n.)" there (live: the engine's duel chat window, 『デュエル中』;
+ * an NPC duel's chat has none): the two duelists' own lines, what is typed there going out on the public channel (the
+ * server has no duel channel). */
+export const DUEL_CHAT_TAB = { key: 'duel', label: 'Duel (n.)', x: 145, w: 88, channel: 'global' } as const;
+/** The chat's tabs: the lobby's; in a trade the partner's tab, in a duel between players its duel tab, at live's place. */
+export function chatTabsFor(partner: string | null, duelists: readonly string[] | null = null): readonly ChatTab[] {
+  if (partner) {
+    const shift = TRADE_PARTNER_TAB.w - 8, name = partner.trim();
+    return [...CHAT_TABS.map(t => t.x > 81 ? { ...t, x: t.x + shift } : t),
+      { ...TRADE_PARTNER_TAB, target: name, shows: (c: string, sender?: string) => c === 'whisper' && sender?.trim() === name }];
+  }
+  if (duelists) {
+    const shift = DUEL_CHAT_TAB.w - 8, names = new Set(duelists.map(n => n.trim()).filter(Boolean));
+    return [...CHAT_TABS.map(t => t.x > 81 ? { ...t, x: t.x + shift } : t),
+      { ...DUEL_CHAT_TAB, shows: (c: string, sender?: string) => (c === 'global' || c === 'whisper') && names.has((sender ?? '').trim()) }];
+  }
+  return CHAT_TABS;
 }
 /** '/w name text' (or /whisper, /t) whispers from any tab; the rest goes to the tab's channel. A name may have spaces:
  * the longest name of a player the client knows wins, or the name in quotes ('/w "Ann Lee" hi'). */
@@ -304,10 +315,11 @@ export function stackChatTabs(controls: HtmlControl[]): void {
 export function chatWindow(ctx: BuildContext): WindowSpec | null {
   const lobby = ctx.state.lobby; if (!lobby) return null;
   const b = new WindowBuilder(ctx.ids, 'chat', 'CChatWindow', { x: 248, y: 608, w: 776, h: 128 }, { z: 51303, mode: 1, online: true, world: true, pairs: [] as unknown[] });
-  // live's duel chat has the lobby's tabs (All Chat / Trade / Team / Duels), no duel tab of its own; a trade adds its
-  // partner's tab
+  // an NPC duel's chat has the lobby's tabs (All Chat / Trade / Team / Duels); a duel between players adds its duel tab,
+  // a trade its partner's tab (live)
   const trade = ctx.state.socialDetail?.trade, partner = trade && ['open', 'closing', 'finished'].includes(trade.phase) ? trade.partner?.name ?? null : null;
-  const tabs = chatTabsFor(partner);
+  const duel = ctx.state.scene === 'duel' ? ctx.state.duel : null, npcDuel = !!ctx.state.npc && ctx.state.npc.stage === 'duel';
+  const tabs = chatTabsFor(partner, duel && !npcDuel && !ctx.state.replay ? duel.players.map(p => p.name) : null);
   const tab = ctx.ui.chatTab >= 0 && ctx.ui.chatTab < tabs.length ? ctx.ui.chatTab : 0;
   b.add('CWindowTaskIconbar', 'bar', { x: 0, y: 0, w: 776, h: 24 }, { active: true });
   b.add('CWindowTaskThinChop', 'frame', { x: 0, y: 24, w: 776, h: 104 });
@@ -822,8 +834,8 @@ export function htmlWindows(ctx: BuildContext): WindowSpec[] {
   if (state.scene === 'shop' && state.connection === 'online' && ctx.scene?.length) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
   // the duel keeps the chat (live: the engine's chat under the hand, 248, 608), the Duels tab and whispers with it
   // (not over the side deck screen between a match's games: its panel fills the stage down to Submit Sideboard)
-  // (live: no chat window during rock-paper-scissors, nor behind the result board)
-  if (state.scene === 'duel' && state.connection === 'online' && !state.sideboarding && !state.preparation && !(state.duel?.ended && !state.replay)) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
+  // (live: no chat window during rock-paper-scissors, nor behind the result board; Card Swap keeps it)
+  if (state.scene === 'duel' && state.connection === 'online' && !state.preparation && !(state.duel?.ended && !state.replay && !state.sideboarding)) { const chat = chatWindow(ctx); if (chat) out.push(chat); }
   const mail = ctx.mailBox ? mailWindow(ctx, ctx.mailBox) : null; if (mail) out.push(mail); else if (!ctx.mailBox) ui.mail = null;
   const compose = ctx.mailBox ? composeWindow(ctx, ctx.mailBox.send) : null; if (compose) out.push(compose); else if (!ctx.mailBox) ui.compose = null;
   // the Friend List over Write Mail when it picks the recipient
