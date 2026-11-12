@@ -38,7 +38,7 @@ import { DeckDom } from './htmlui/deck-dom';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp, VEIL_EVENT } from './htmlui/scene-loading';
-import { npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
+import { npcClosable, npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
@@ -364,7 +364,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (state.scene !== 'lobby' || sceneVeilUp()) return [];
     return npcItemGetWindows(state.npc, { ids: htmlIds, ui: npcItems, rerender: () => showHtml(), cardName: id => state.npcCardViews?.[id]?.name,
       itemName: bit => giftItemName(bit, { recipeName: b => state.npcGiftRecipes?.[b], cosmetics: state.online?.cosmetics ?? null }),
-      close: () => { const npc = controller.getState().npc; if (npc?.stage === 'done') send({ type: 'npcClose' }); } });
+      close: () => { if (!npcClosable(controller.getState().npc)) return false; send({ type: 'npcClose' }); return true; } });
   };
   // the NPC's windows wait for the scene-loading veil (the lobby reloading after the duel): they come as it lifts
   const onVeil = (): void => { if (!disposed && state.npc?.npc) showHtml(); };

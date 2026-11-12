@@ -54,7 +54,7 @@ describe('NPC gifts by name (CWindowModelItemGet)', () => {
     const names = { cardName: (id: number) => id === 7 ? 'Blast Juggler' : undefined, itemName: (b: number) => giftItemName(b) };
     expect(npcItemMessages(npc, names).map(m => m.text)).toEqual(['You got Blast Juggler!', 'You got GUNSLINGER!', 'You got an item!']);
     const ui = npcItemGetUi(); let closed = 0;
-    const deps = { ids: new Ids(), ui, ...names, close: () => { closed++; }, rerender: () => {} };
+    const deps = { ids: new Ids(), ui, ...names, close: () => { closed++; return true; }, rerender: () => {} };
     for (let i = 0; i < 3; i++) {
       const [spec] = npcItemGetWindows(npc, deps);
       expect(spec!.win.cls).toBe('CWindowModelDialogOk'); expect(spec!.win.z).toBe(51620);
@@ -63,8 +63,17 @@ describe('NPC gifts by name (CWindowModelItemGet)', () => {
     expect(npcItemGetWindows(npc, deps)).toEqual([]); await Promise.resolve(); expect(closed).toBe(1);
     npcItemGetWindows(npc, deps); await Promise.resolve(); expect(closed).toBe(1);   // once
   });
+  it('ends the talk only when the controller lets it: an eligibility check still running defers it, the next change ends it', async () => {
+    const npc = { ...state([]), eligibility: { status: 'pending', refreshing: false, bits: [], cards: [] } } as NpcState;
+    let allowed = false, closed = 0;
+    const deps = { ids: new Ids(), ui: npcItemGetUi(), cardName: () => undefined, itemName: () => null, close: () => { if (!allowed) return false; closed++; return true; }, rerender: () => {} };
+    npcItemGetWindows(npc, deps); await Promise.resolve(); expect(closed).toBe(0);
+    const done = { ...npc, eligibility: { status: 'confirmed', refreshing: false, bits: [], cards: [] } } as NpcState;
+    allowed = true; npcItemGetWindows(done, deps); await Promise.resolve(); expect(closed).toBe(1);
+    npcItemGetWindows(done, deps); await Promise.resolve(); expect(closed).toBe(1);
+  });
   it('waits while a pack is still to pick or a claim is with the server; a refused claim says so first', () => {
-    const deps = { ids: new Ids(), ui: npcItemGetUi(), cardName: () => undefined, itemName: () => null, close: () => {}, rerender: () => {} };
+    const deps = { ids: new Ids(), ui: npcItemGetUi(), cardName: () => undefined, itemName: () => null, close: () => false, rerender: () => {} };
     expect(npcItemGetWindows({ ...state([]), packs: [3], packStatus: 'idle' } as NpcState, deps)).toEqual([]);
     expect(npcItemGetWindows({ ...state([]), giftStatus: 'pending', stage: 'claiming' } as NpcState, deps)).toEqual([]);
     const [err] = npcItemGetWindows({ ...state([]), packs: [3], packStatus: 'failed', error: 'Server refused NPC pack (2)' } as NpcState, deps);
