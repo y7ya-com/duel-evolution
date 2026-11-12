@@ -40,6 +40,7 @@ function harness() {
     chooseFirst: vi.fn(async (first: boolean) => { session.duelFirst = first ? 0 : 1; emit(); }),
     startNpcDuel: vi.fn(async () => { game.duel = {}; session.phase = 'rock-paper-scissors'; emit(); }),
     finishDuel: vi.fn(async () => { session.phase = 'lobby'; session.spectating = false; emit(); }),
+    leaveCalledOffDuel: vi.fn(async () => { session.phase = 'lobby'; session.duelCalledOff = null; emit(); }), cancelChallenge: vi.fn(async () => {}),
   };
   const catalog = new CardCatalog(); catalog.install([{ passcode: 1, name: 'Test Card', type: 'Monster', extra: false, limit: 3 }, { passcode: 2, name: 'Fusion Card', description: 'Fusion effect', type: 'Fusion', extra: true, limit: 3 }]);
   const app = new ClientApp({ gatewayUrl: 'ws://game.test/net', api: api as unknown as GameApi, catalog,
@@ -122,8 +123,33 @@ describe('actual ClientApp mounted through semantic UI', () => {
     const f = harness(); await f.enter(); await f.startNpc();
     findButton(f.root, 'Rock').onclick?.({}); await flush(); expect(f.game.chooseHand).toHaveBeenCalledWith(0);
     findButton(f.root, 'Go First').onclick?.({}); await flush(); expect(f.game.chooseFirst).toHaveBeenCalledWith(true);
-    findButton(f.root, 'Start Duel').onclick?.({}); await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1);
+    // live starts the duel itself once who goes first is known (no Start Duel step: the server's 90 s attach window)
+    await flush(); expect(f.game.beginDuel).toHaveBeenCalledTimes(1); expect(f.root.textContent).not.toContain('Start Duel');
     expect(f.app.getState().preparation).toBeUndefined(); f.dispose();
+  });
+  it('hides the opponent\'s last hand while the hands are asked again after a draw', async () => {
+    const f = harness(); await f.enter(); await f.startNpc();
+    f.session.opponentHand = 0; f.emit(); await flush();
+    expect(f.app.getState().preparation?.opponentHand).toBeNull(); expect(f.mounted.htmlUi.text() + f.root.textContent).not.toContain('Opponent chose');
+    f.dispose();
+  });
+  it('shows live\'s box for a duel called off before it began and goes back to the lobby on its OK', async () => {
+    const f = harness(); await f.enter(); await f.startNpc();
+    f.session.duelCalledOff = { aboutOpponent: true }; f.emit(); await flush();
+    expect(f.app.getState().preparation).toBeUndefined(); expect(f.mounted.htmlUi.text()).toContain('has disconnected.');
+    expect(f.mounted.htmlUi.press('duel-calledoff-ok')).toBe(true); await flush();
+    expect(f.game.leaveCalledOffDuel).toHaveBeenCalledTimes(1); expect(f.app.getState().scene).toBe('lobby'); f.dispose();
+  });
+  it('shows live\'s duel request boxes: Requesting Duel, the challenger\'s level and title, and the refusal', async () => {
+    const f = harness(); await f.enter();
+    f.session.outgoingChallengeRoom = 9; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Requesting Duel'); expect(f.mounted.htmlUi.press('duel-request-cancel')).toBe(true);
+    f.session.outgoingChallengeRoom = null; f.session.challengeRefusals = 1; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Duel Request was refused.'); expect(f.mounted.htmlUi.press('duel-refused-ok')).toBe(true); await flush();
+    expect(f.mounted.htmlUi.text()).not.toContain('Duel Request was refused.');
+    f.session.challenge = { pid: 88, name: 'Bob', level: 3, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();
+    expect(f.mounted.htmlUi.text()).toContain('Lv3 Bob'); expect(f.mounted.htmlUi.text()).toContain('You have aDuel Request!');
+    f.dispose();
   });
   it('renders and accepts an actual session invitation through the app', async () => {
     const f = harness(); await f.enter(); f.session.challenge = { pid: 88, name: 'Bob', level: 1, title: 0, parts: new Uint8Array(16) }; f.emit(); await flush();

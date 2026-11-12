@@ -7,8 +7,9 @@ async function challenge(from:Page,to:Page,name:string) {
   await until(from,requesting,20000);
   await until(to,invitation,20000);
 }
-// the game's message box (CWindowModelDialogError) is answered with its OK, as a player closes it
-async function dismiss(page:Page) { const ok = `document.querySelector('[data-key="error-ok"]')`; if (await page.ev(`Boolean(${ok})`)) { await press(page,ok); await until(page,`!${ok}`,10000); } }
+// the game's message box (CWindowModelDialogError, or the request's own "Duel Request was refused.") is answered with its
+// OK, as a player closes it
+async function dismiss(page:Page) { for (const key of ['error-ok','duel-refused-ok']) { const ok = `document.querySelector('[data-key="${key}"]')`; if (await page.ev(`Boolean(${ok})`)) { await press(page,ok); await until(page,`!${ok}`,10000); } } }
 const reply = (page:Page,label:'Accept Duel'|'Decline') => press(page,`document.querySelector('[data-key="${label==='Accept Duel'?'duel-accept':'duel-decline'}"]')`);
 
 describe.skipIf(!enabled)('player-versus-player duels and spectators on the real stack',() => {
@@ -25,15 +26,15 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       const asked = (await b.ev(`${invitation}.innerText`) as string).replace(/\s+/g,' ');
       expect(asked).toContain(names.a);
       const waiting = (await a.ev(`${requesting}.innerText`) as string).replace(/\s+/g,' ');
-      expect(waiting).toContain(names.b);
+      expect(waiting).toContain('Requesting Duel');   // live's box (the other duelist's portrait beside it, not their name)
       await screenshot(a,'pvp-invite-waiting'); await screenshot(b,'pvp-invite-asked');
       await press(a,`document.querySelector('[data-key="duel-request-cancel"]')`);
       await until(a,`!${requesting}`,20000); await until(b,`!${invitation}`,20000);
-      // Decline: the challenger reads the original "Refused." and neither side keeps a dialog.
+      // Decline: the challenger reads live's "Duel Request was refused." and neither side keeps a dialog.
       await challenge(a,b,names.b);
       await reply(b,'Decline');
       await until(b,`!${invitation}`,20000); await until(a,`!${requesting}`,20000);
-      await until(a,`document.body.innerText.includes('Refused.')`,20000); await dismiss(a);
+      await until(a,`document.body.innerText.includes('Duel Request was refused.')`,20000); await dismiss(a);
       // Right after a refusal the same challenge waits its cooldown; the server's message is shown.
       await playerMenu(a,names.b,'Send Duel Request');
       await until(a,`document.body.innerText.includes('Wait a moment before challenging that player again.')`,20000); await dismiss(a);
@@ -48,7 +49,7 @@ describe.skipIf(!enabled)('player-versus-player duels and spectators on the real
       expect(expiredAfter).toBeGreaterThanOrEqual(25);
       record('pvp.invite',{ actions:'Challenge from the player menu (avatar → Duel): cancel while asked; decline; immediate re-challenge; unanswered challenge',
         expected:'Challenge, accept, decline, cancel and expire invitations without stale state',
-        observed:`B was asked "${asked.slice(0,80)}", A saw "${waiting.slice(0,80)}"; Cancel closed both dialogs; Decline closed both and A read "Refused."; the re-challenge was refused with the cooldown message and opened no dialog; the unanswered challenge closed on both screens after ${expiredAfter} s with "There is no response from your opponent."` });
+        observed:`B was asked "${asked.slice(0,80)}", A saw "${waiting.slice(0,80)}"; Cancel closed both dialogs; Decline closed both and A read "Duel Request was refused."; the re-challenge was refused with the cooldown message and opened no dialog; the unanswered challenge closed on both screens after ${expiredAfter} s with "There is no response from your opponent."` });
 
       // Accept (after the cooldown): A challenges B, B accepts, both prepare.
       for (let i = 0; i < 20; i++) {

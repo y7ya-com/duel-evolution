@@ -19,7 +19,7 @@ import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { changeAvatarAction, freeChoices } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
 import type { ControlHandlers, WindowSpec } from './htmlui/snapshot';
-import { htmlUiLocal, htmlWindows, stockDialog, DELETE_TEXT } from './htmlui/windows';
+import { htmlUiLocal, htmlWindows, stockDialog, duelRequestDialog, DELETE_TEXT, DUEL_REQUEST_TEXT } from './htmlui/windows';
 import { UiText, localizeSpecs } from '../features/ui-text';
 import { titleConfigWindow } from './htmlui/title-config';
 import { StarterPicker } from './htmlui/starter';
@@ -172,6 +172,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   // main's Legacy HTML UI screens (src/ui/htmlui): Select Player, the chat ... drawn by main's own modules from
   // snapshots the rewrite builds; browser only (the layer needs a real document)
   const htmlUiState = htmlUiLocal(), htmlIds = new Ids(), lobbyUi = lobbyLocal();
+  /** The last duel request refusal ("Duel Request was refused.") the player closed with OK. */
+  let refusedSeen = 0;
   let startScene: StartScene | null = null, portraitScene: StartScene | null = null;
   let titleScene: TitleScene | null = null;
   let htmlUi: HtmlUiLayer | null = null;
@@ -477,7 +479,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const askGameTexts = () => {
     const language = state.settings.language ?? 'E'; if (gameTextsFor === language || !controller.gameText) return;
     gameTextsFor = language;
-    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS], new AbortController().signal)
+    void controller.gameText([...Object.values(DELETE_TEXT), ...Object.values(DUEL_REQUEST_TEXT), ...Object.values(LOBBY_TEXT), ...Object.values(AREA_TEXT), ...Object.values(WORLD_TEXT), ...DUEL_OPTIONS_TEXTS], new AbortController().signal)
       .then(m => { if (gameTextsFor !== language) return; gameTexts.clear(); for (const [k, v] of m) gameTexts.set(k, v); showHtml(); }, () => { if (gameTextsFor === language) gameTextsFor = null; });
     // every label main's screens show, in the chosen language: the English table names each label's id (features/ui-text.ts)
     if (language === 'E') { uiText.install([], null, 'E'); return; }
@@ -516,7 +518,10 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function syncPortrait(): void {
     const d = htmlUiState.dialog, dc = htmlUiState.discordCard;
     const avatar = d?.kind === 'avatar' && state.scene !== 'characters' ? d : null;
-    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : null;
+    // a duel request's other duelist (live keeps their bust at the right while its box is up: asked, asking, refused)
+    const lobby = state.scene === 'lobby' ? state.lobby : undefined, refused = lobby?.refused && lobby.refused.id > refusedSeen ? lobby.refused : undefined;
+    const request = lobby?.invitation?.parts ?? lobby?.outgoing?.parts ?? refused?.parts ?? null;
+    const look = avatar ? avatar.look : dc && state.scene === 'lobby' ? dc.parts : request;
     if (!look || look.length !== 16 || !controller.loadArchiveImage) { portraitScene?.show({ logo: false, portrait: null, reducedMotion: true }); portraitScene?.element.remove(); return; }
     portraitScene ??= new StartScene(controller.loadArchiveImage.bind(controller));
     portraitScene.show({ logo: false, portrait: Uint8Array.from(look), reducedMotion: state.settings.reducedMotion, at: avatar ? PORTRAIT_AT : BUST_AT });
@@ -863,11 +868,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   });
   function duelPrompts(): WindowSpec[] {
     const out: WindowSpec[] = [], lobby = state.scene === 'lobby' ? state.lobby : undefined, busy = !!state.busy;
-    if (lobby?.outgoing) out.push(stockDialog({ ids: htmlIds }, 'duel-request', 'ok', `Request sent to ${lobby.outgoing.name}: waiting for an answer…`,
-      [{ from: 'OK', label: 'Cancel', key: 'duel-request-cancel', click: () => { if (!busy) send({ type: 'cancelChallenge' }); } }]));
-    if (lobby?.invitation) out.push(stockDialog({ ids: htmlIds }, 'duel-invitation', 'yesno', `${lobby.invitation.name} challenges you to a duel. Accept?`,
-      [{ from: 'Yes', key: 'duel-accept', aria: 'Accept Duel', click: () => { if (!busy) send({ type: 'replyChallenge', accept: true }); } },
-        { from: 'No', key: 'duel-decline', aria: 'Decline', click: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } }]));
+    // live's request boxes (htmlui/windows.ts duelRequestDialog), the other duelist's portrait beside them (syncPortrait)
+    const ctx = { ids: htmlIds, text: (id: number) => gameTexts.get(id) };
+    if (lobby?.outgoing) { if (lobby.refused) refusedSeen = Math.max(refusedSeen, lobby.refused.id);   // an older refusal is not this request's
+      out.push(duelRequestDialog(ctx, { kind: 'requesting', cancel: () => { if (!busy) send({ type: 'cancelChallenge' }); } })); }
+    else if (lobby?.refused && lobby.refused.id > refusedSeen) out.push(duelRequestDialog(ctx, { kind: 'refused', ok: () => { refusedSeen = Math.max(refusedSeen, lobby.refused!.id); showHtml(); } }));
+    if (lobby?.invitation) { const inv = lobby.invitation; out.push(duelRequestDialog(ctx, { kind: 'received', name: inv.name, ...(inv.level !== undefined ? { level: inv.level } : {}), ...(inv.title !== undefined ? { title: titleName(inv.title) } : {}),
+      yes: () => { if (!busy) send({ type: 'replyChallenge', accept: true }); }, no: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } })); }
+    // a duel the server called off before it began (the other duelist gone): live's box over the janken scene; OK leaves
+    const off = state.scene === 'duel' ? state.duelCalledOff : undefined;
+    if (off) out.push(duelRequestDialog(ctx, { kind: 'calledOff', text: off.text, ok: () => { if (!busy) send({ type: 'leaveDuel' }); } }));
     // main's card shop says its own failures in its page ("Couldn't open the shop", Try again): the app's catalogue
     // refresh behind it failing is no dialog of its own (one would sit under the shop, out of reach)
     const message = state.scene === 'deck' || useCardShop() && !local.message ? '' : state.error || local.message;

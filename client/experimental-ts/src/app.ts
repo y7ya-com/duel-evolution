@@ -539,14 +539,19 @@ export class ClientApp implements ClientController {
         areas: this.project('areas', state.areas, areas => areas.map(a => ({ ...a, name: `Area ${a.area}` }))),
         npcs: this.freeMode ? [] : this.project('npcs', state.npcs, npcs => npcs.map(n => ({ id: n.id, name: n.name }))),
         rooms: this.project('rooms', state.rooms, rooms => rooms.map(r => ({ id: r.id, owner: r.owner, name: state.players.find(p => p.pid === r.owner)?.name ?? `Room ${r.id}`, state: r.state, style: r.style, password: r.password, watch: r.mode !== 0, opponent: r.opponent }))),
-        invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid } : undefined),
-        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? { name: this.nextOpponent ?? state.players.find(p => state.rooms.some(r => r.id === room && r.owner === p.pid))?.name ?? 'your opponent' } : undefined),
+        invitation: this.project('invitation', state.challenge, challenge => challenge ? { name: challenge.name, pid: challenge.pid, level: challenge.level, title: challenge.title, parts: Array.from(challenge.parts) } : undefined),
+        outgoing: this.project('outgoing', state.outgoingChallengeRoom, room => room ? this.outgoingView(state, room) : undefined),
+        ...(this.requestRefused(state) ? { refused: this.requestRefused(state)! } : {}),
         // All areas of a world share one server block; only players in this area (its area block) are on this map.
         avatars: state.players.filter(p => p.pid === profile.pid || p.areaBlock === state.areaBlock).map(p => ({ id:p.pid,name:p.name,level:p.level,country:p.country,x:p.pid === profile.pid && spawn ? spawn.x : p.x ?? 0,y:p.pid === profile.pid && spawn ? spawn.y : p.y ?? 0,self:p.pid === profile.pid,parts:p.parts,direction:p.direction,world:([4,5,6,7].includes(state.area)?1:0) as 0|1,duelling:p.state !== undefined && p.state >= 0x67 && p.state <= 0x6a,motion:p.pid === profile.pid && this.world.walking ? 'walk' as const : 'stand' as const }) as LobbyAvatar).concat(this.mapNpcAvatars(state,worldMap)),
         chat: this.project('chat', state.chat, chat => chat.map((m, i) => ({ id: String(i), sender: m.name, text: m.text, channel: channelName(m.channel) }))),
         channels: ['global', 'trade', 'whisper', 'team'],
       } : null,
-      preparation: duelPreparing ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase, opponentHand: state.opponentHand } : undefined,
+      // the opponent's hand only once this player's own is in (after a draw the hands are asked again: the last round's
+      // hand is not shown then); live never prints it, its janken scene turns the cards over once both have chosen
+      preparation: duelPreparing && !state.duelCalledOff ? { role:state.duelRole, phase: state.duelFirst !== null ? 'ready' : state.phase === 'rock-paper-scissors' && state.rpsLost ? 'waiting-for-first' : state.phase,
+        opponentHand: state.phase === 'rock-paper-scissors' && !state.rpsLost ? null : state.opponentHand } : undefined,
+      duelCalledOff: this.calledOffView(state),
       relay: this.project('relay',state.relay,relay => relay ? { active:[...relay.active] as [0|1,0|1], self:relay.self, players:relay.players.map(p => ({pid:p.pid,name:p.name})),canAct:relay.canAct } : undefined),
       matchmaking:this.project('matchmaking',state.matchmaking,matchmaking=>({...matchmaking,opponent:matchmaking.opponent ? {pid:matchmaking.opponent.pid,name:matchmaking.opponent.name,level:matchmaking.opponent.level} : null})),
       match: state.match ? { round:state.match.round, scores:[...state.match.scores], complete:state.match.complete } : undefined,
@@ -566,7 +571,30 @@ export class ClientApp implements ClientController {
       if (this.settledDuel) this.settledDuel = { ...this.settledDuel, spectating: state.spectating || !!this.replay };
     }
     this.syncEditor();
+    this.autoBeginDuel(state);
     if (this.settledDuel) this.renderDuelFrame(); else this.emit();
+  }
+  /** Live starts the duel as soon as who goes first is known (its client sends 0x61fe itself; no Start Duel step). The
+   *  server gives a reservation 90 s to start (pvpMatch ATTACH_TIMEOUT) and calls it off after that, so the rewrite does
+   *  not wait for a press either. */
+  private autoBeginDuel(state: SessionState): void {
+    if (state.duelFirst === null || state.duelCalledOff || state.spectating || state.duelRole !== 'player' || this.replay) return;
+    if (!['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(state.phase)) return;
+    const game = this.game;
+    queueMicrotask(() => {
+      const now = game?.state; if (this.disposed || !game || this.game !== game || !now) return;
+      if (now.duelFirst === null || now.duelCalledOff || now.spectating || now.duelRole !== 'player' || !['preparing-duel', 'rock-paper-scissors', 'choose-first'].includes(now.phase)) return;
+      try { game.beginDuel(); } catch (e) { this.failure(e); }
+    });
+  }
+  /** The called-off duel's box (live's CWindowModelDialogOk over the janken scene): the other duelist gone (0x11a7
+   *  "%s has disconnected."), this player's deck refused, or the duel connection lost for good. */
+  private calledOffSeen: object | null = null; private calledOffId = 0;
+  private calledOffView(state: SessionState): ClientView['duelCalledOff'] {
+    const off = state.duelCalledOff; if (!off) { this.calledOffSeen = null; return undefined; }
+    if (off !== this.calledOffSeen) { this.calledOffSeen = off; this.calledOffId++; }
+    const text = off.reason ?? (off.aboutOpponent ? `${this.duelNames()[1]} has disconnected.` : 'The server rejected this deck or duel action');
+    return { id: this.calledOffId, text };
   }
   private sendGameplay(command: GameplayCommand): void {
     const game = this.requireGame();
@@ -594,7 +622,8 @@ export class ClientApp implements ClientController {
     this.duelLog = [...this.duelLog, ...this.duelState.events.filter(e => e.sequence > previous.sequence).map(e => describeEvent(this.duelState, this.catalog, names, e, this.options.duelTexts)).filter((line): line is string => line !== null)].slice(-100);
     for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'notice') this.duelNotice = { id: ++this.noticeIds, text: describeNotice(event.params[0] ?? 0, this.options.duelTexts) };
     for(const event of this.duelState.events) if(event.sequence>previous.sequence && event.type==='engine:14') this.fieldPasscode=event.params[0];
-    for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
+    // (a duel called off before it began says so in its own box: duelCalledOff)
+    if (!this.game?.state.duelCalledOff) for (const event of this.duelState.events) if (event.sequence > previous.sequence && event.type === 'server-notice') { const text = serverInfoText(event.params[0] ?? 0, event.player === 1, names[1]); if (text) { this.duelNotice = { id: ++this.noticeIds, text }; this.duelLog = [...this.duelLog, text].slice(-100); } }
     this.timeline.enqueue(previous, this.duelState); this.duelCues.collect(previous, this.duelState);
     if (this.duelState.sequence > previous.sequence) this.duelAudio.enqueue(previous,this.duelState);
     if (!this.replay && this.duelState.result && [1,2,3].includes(this.duelState.result.result)) this.npc.afterDuel(this.duelState.result.result as 1|2|3);
@@ -789,6 +818,21 @@ export class ClientApp implements ClientController {
     if (relay) return [relay.players[relay.active[0]]?.name ?? 'Your team', relay.players[2 + relay.active[1]]?.name ?? 'Opponents'];
     const opponent = this.duelIsPvp ? this.pvpOpponent ?? this.roomOpponentName() : this.npc.state.npc?.name;
     return [this.view.player?.name ?? 'You', opponent ?? 'Opponent'];
+  }
+  /** The duel request this player is waiting on: the room's owner (an invite's private room is the target's), by name
+   *  and look; kept for the refusal's box after the request ends. */
+  private lastOutgoing: { name: string; pid?: number; parts?: number[] } | null = null;
+  private outgoingView(state: SessionState, room: number): { name: string; pid?: number; parts?: number[] } {
+    const owner = state.rooms.find(r => r.id === room)?.owner, player = state.players.find(p => p.pid === owner) ?? state.players.find(p => p.name === this.nextOpponent);
+    const view = { name: this.nextOpponent ?? player?.name ?? 'your opponent', ...(player ? { pid: player.pid } : {}), ...(player?.parts?.length === 16 ? { parts: Array.from(player.parts) } : {}) };
+    this.lastOutgoing = view; return view;
+  }
+  /** Live's "Duel Request was refused." box: one per refusal (the session counts them), the refuser's look. */
+  private refusalView: { id: number; parts?: number[] } | null = null;
+  private requestRefused(state: SessionState): { id: number; parts?: number[] } | null {
+    const id = state.challengeRefusals ?? 0; if (!id) return null;
+    if (this.refusalView?.id !== id) this.refusalView = { id, ...(this.lastOutgoing?.parts ? { parts: this.lastOutgoing.parts } : {}) };
+    return this.refusalView;
   }
   private roomOpponentName(): string | null {
     const state = this.game?.state, self = this.view.player?.id; if (!state || self === undefined) return null;
@@ -1075,7 +1119,10 @@ export class ClientApp implements ClientController {
         case 'cancelChallenge': await this.requireGame().cancelChallenge(); break;
         case 'replyChallenge': if (command.accept && !this.services.decks.state.data) await this.refresh('deck'); this.requireGame().replyToChallenge(command.accept); break;
         case 'spectate': this.stopWorld();this.resetDuel(); this.syncDuel(); await this.requireGame().watchDuel(command.pid); this.syncDuel(); break;
-        case 'leaveDuel': if (this.replay) { this.controlReplay('exit'); break; } if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
+        case 'leaveDuel': if (this.replay) { this.controlReplay('exit'); break; }
+          // a duel the server called off before it began: live's OK on its box goes back to the lobby
+          if (this.game?.state.duelCalledOff) { this.eligibilityDue=true; this.resetDuel(); await this.game.leaveCalledOffDuel(); this.patch({ scene: 'lobby', duel: null }); break; }
+          if (!this.requireGame().state.spectating && this.duelState.status !== 'finished') throw new Error('Finish or surrender this duel first.');this.eligibilityDue=true;this.resetDuel(); await this.requireGame().finishDuel(); this.patch({ scene: 'lobby', duel: null }); break;
         case 'chooseHand': await this.requireGame().chooseHand(command.hand); break;
         case 'chooseFirst': await this.requireGame().chooseFirst(command.first); break;
         case 'beginDuel': this.requireGame().beginDuel(); break;
