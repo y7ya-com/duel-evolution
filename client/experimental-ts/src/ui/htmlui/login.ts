@@ -16,8 +16,6 @@ import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 
 export type LoginMode = 'signin' | 'signup' | 'verify' | 'reset';
 export interface LoginLocal { mode: LoginMode; username: string; pending?: string;
-  /** The title's account panel (its foot) opened by the player. */
-  foot?: boolean;
   /** Opened by the title's ONLINE (live: the sign-in window shows only after it). */
   open?: boolean }
 export const loginLocal = (): LoginLocal => ({ mode: 'signin', username: '' });

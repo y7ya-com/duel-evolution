@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { writeFile, mkdtemp, readdir, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { parseTrace, compareReplay } from '../src/parity/replay';
-import { duelReplayAdapter } from '../src/parity/duel-adapter';
+import { writeFile } from 'node:fs/promises';
 import { browserServerFixture } from './browser-server-fixture';
 import { launch } from '../../web-shell/htmlui/tools/cdp.mjs';
 
@@ -87,10 +83,6 @@ describe('actual headless browser against real game authority',() => {
         await until(browser,`!document.getElementById('starter')`);
       }
       await writeFile(`/tmp/duel-evolution-ts-${viewport.name}-lobby.png`,await browser.shot());
-      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'More Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
-      await click(browser,'Start Recording',viewport.mobile);
-      await until(browser,`document.querySelector('[data-key="options-capture"]')?.textContent.includes('recording ·')`);
-      await click(browser,'Back',viewport.mobile);
       // main's player list: its search's Show all lists the NPCs too; the NPC's row opens its card, whose Send Duel Request starts the talk
       const row = `[...document.querySelectorAll('#htmlui-host .pl-row')].find(b=>b.getAttribute('aria-label')===${JSON.stringify(fixture.npcName)}&&b.getClientRects().length)`;
       await until(browser,`document.querySelector('[data-key="plist-search"]')`); await activate(browser,`document.querySelector('[data-key="plist-search"]')`,viewport.mobile);
@@ -161,24 +153,6 @@ describe('actual headless browser against real game authority',() => {
       expect([51,52,53]).toContain(profile.last_npc_end.npc);
       await click(browser,'Return to Lobby',viewport.mobile); await until(browser,LOBBY,30000);
       expect(await browser.ev('document.body.innerText')).toContain('Browser Duelist');
-      await click(browser,'DUEL OPTIONS',viewport.mobile); await click(browser,'More Options',viewport.mobile); await click(browser,'Gameplay recording',viewport.mobile);
-      await click(browser,'Stop Recording',viewport.mobile);
-      await until(browser,`/stopped *· *[1-9][0-9]* records/.test(document.querySelector('[data-key="options-capture"]')?.textContent ?? '')`);
-      const downloadDir = await mkdtemp(join(tmpdir(),`duel-ts-capture-${viewport.name}-`));
-      const behavior = await browser.send('Browser.setDownloadBehavior',{ behavior:'allow',downloadPath:downloadDir });
-      expect(behavior.error).toBeUndefined(); await click(browser,'Download Recording',viewport.mobile);
-      let filename:string|undefined;
-      for (let attempt = 0; attempt < 100 && !filename; attempt++) {
-        filename = (await readdir(downloadDir)).find(name => name.endsWith('.json'));
-        if (!filename) await new Promise(r => setTimeout(r,50));
-      }
-      expect(filename,'Explicit browser recording download').toBeDefined();
-      const trace = parseTrace(await readFile(join(downloadDir,filename!),'utf8'));
-      expect(trace.records.filter(r=>r.stream==='duel'&&!r.redacted).length).toBeGreaterThan(100);
-      expect(trace.records.filter(r=>r.direction==='out'||r.stream!=='duel').every(r=>r.hex==='')).toBe(true);
-      const comparison = compareReplay(trace,duelReplayAdapter);
-      expect(comparison.deterministic).toBe(true); expect(comparison.first.unsupported).toBe(0);
-      expect(Object.values(comparison.first.states).some(state=>state.status==='finished'&&state.result?.result===2)).toBe(true);
 
       expect(browser.logs.filter((line:string) => line.startsWith('exception:'))).toEqual([]);
       expect(fixture.logs.some(line => /bad MD5|no card-wire hello|Wire sequence/.test(line))).toBe(false);

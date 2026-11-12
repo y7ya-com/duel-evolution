@@ -37,10 +37,8 @@ describe.skipIf(!enabled)('accounts and characters against the real Worker, auth
       record('auth.login',{ actions:'Real sign-in form against better-auth', expected:'Account bound; no credential in DOM, storage or console', observed:`Signed in as ${user}; /api/de/session signedIn=true; password absent from DOM/storage/logs`, accounts:'1 test user' });
       // auth.session: reload restores the session; Sign Out clears identity and access
       await page.go(page === page ? `${(await page.ev('location.href'))}` : '',signedIn(user));
-      // Sign Out: the rewrite's options page, Account (no way in on live's screens: the dev app opens it; live signs out by closing the page)
-      await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'settings' })`);
-      await until(page,byKey('options-account'),20000); await page.ev(`${byKey('options-account')}.open=true`);
-      await click(page,'Sign Out');
+      // Sign Out: live's screens have no way to it (live signs out by closing the page): the dev app's signOut command
+      await page.ev(`void window.__deApp.dispatch({ type:'signOut' })`);
       // the page drops the identity at once and stays busy until the server's sign-out answers ('Signed out.')
       await until(page,`${titleSignedOut}&&!window.__deApp?.getState().busy`,30000);
       expect((await page.ev(`fetch('/api/de/session').then(r=>r.json())`) as { signedIn:boolean }).signedIn).toBe(false);

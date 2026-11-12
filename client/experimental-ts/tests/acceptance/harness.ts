@@ -172,11 +172,6 @@ export async function click(page:Page,text:string,timeout = 30000) {
     await until(page,`${byText(text)}||${titleButton(alias)}`,timeout);
     if (!await page.ev(`Boolean(${byText(text)})`)) { await press(page,titleButton(alias)); return; }
   }
-  // the rewrite's own options page (game data, recording, local files) has no way in on live's screens (the title's
-  // OPTIONS is COptionDlg, the Main Menu's DUEL OPTIONS the duel settings): tests open it through the dev app
-  if (text === 'Options' && !await page.ev(`Boolean(${byText('Options')})`)) {
-    await page.ev(`window.__deApp.dispatch({ type:'openScene', scene:'settings' })`); await until(page,byKey('options-language'),timeout); return;
-  }
   // the Shop is no Main Menu entry (as live: the store's door on the map, which the rewrite's world does not have yet;
   // free mode's own Shop button stays): tests open the shop scene through the dev app
   if (text === 'Shop' && !await page.ev(`Boolean(${byText('Shop')})`)) {

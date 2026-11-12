@@ -233,7 +233,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-prompt-options { display:flex; gap:6px; flex-wrap:wrap; }
 .de-prompt-candidates { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; overflow:auto; }
 .de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
-.de-language-flags button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); box-shadow:0 0 0 3px #f4ce46,0 0 0 4px #a36a18; font-weight:700; }
 .de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
 .de-social-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; flex:1; }
 .de-shop-cosmetics { flex:none; max-height:40%; overflow:auto; background:#effcff; border:1px solid #75a8c5; padding:7px; }
@@ -259,17 +258,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .social-feature form { display:flex; flex-wrap:wrap; align-items:end; gap:7px; padding:7px 0; }
 .social-feature form label { flex-direction:column; align-items:start; }
 .online-feature form { display:flex; gap:7px; flex-wrap:wrap; }
-.de-account-details { max-height:360px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
-.de-account-details>summary { cursor:pointer; font-weight:bold; }
-.de-title-foot { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); width:min(92%,560px); display:flex; flex-direction:column; gap:6px; align-items:center; z-index:2; }
-.de-title-foot>.de-account-details { width:100%; box-sizing:border-box; }
-.account-feature nav { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; }
-.account-feature form { display:flex; flex-direction:column; gap:8px; }
-.de-audio-details { max-height:300px; overflow:auto; background:#effcff; padding:7px; border:1px solid #75a8c5; }
-.de-audio-details>summary { font-weight:bold; cursor:pointer; }
-.de-audio-details fieldset { border:1px solid #75a8c5; margin:6px 0; }
-.de-audio-details input[type=file] { width:100%; font-size:11px; }
-.de-settings-row { display:flex; flex-direction:column; gap:5px; padding:6px 0; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }
