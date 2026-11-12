@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, listRow, type Page } from './harness';
+import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, type, text, sleep, stageShot, record, earnCards, ownedCopies, openDeckEditor, exitDeckEditor, byKey, listRow, lobbyShown, type Page } from './harness';
 
 /** Card Swap is main's trade windows (src/ui/htmlui/trade.ts: CWindowModelTrade, its card areas, main's dialogs) and
  * the deck screen's trunk (CWindowModelKaban, htmlui/trade-trunk.ts: its rows .htmlui-deck-row, a press offers). */
@@ -54,7 +54,8 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       const earnTwice = async (p:Page) => { const first = await earnCards(p); const second = await earnCards(p); expect(first.length).toBeGreaterThan(0); return second; };
       const rewardA = await earnTwice(a), rewardB = await earnTwice(b);
       expect(rewardA.length).toBeGreaterThan(0); expect(rewardB.length).toBeGreaterThan(0);
-      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
+      // (the reward's last OK leaves both in the NPC's area: the Main Menu has no Return to Lobby there, as live)
+      await until(a,lobbyShown,60000); await until(b,lobbyShown,60000);
       // trade.invite: decline first.
       await invite(a,b,names.b);
       await shot(b,'invite');
@@ -100,10 +101,12 @@ describe.skipIf(!enabled)('card trades between two real players',() => {
       expect(after).toEqual({ aGive:start.aGive - 1, aTake:start.aTake + 1, bGive:start.bGive + 1, bTake:start.bTake - 1 });
       record('trade.commit',{ actions:`Ready, Complete trade and confirm on both sides; read both collections`, expected:'Only eligible owned cards exchanged atomically; both inventories refresh', observed:`A ${give} ${start.aGive}→${after.aGive}, ${take} ${start.aTake}→${after.aTake}; B ${give} ${start.bGive}→${after.bGive}, ${take} ${start.bTake}→${after.bTake}` });
       // trade.failure: a cancelled trade changes nothing.
-      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
+      // (a closed trade leaves both in the lobby: the Main Menu has no Return to Lobby there, as live)
+      await until(a,lobbyShown,60000); await until(b,lobbyShown,60000);
       const beforeCancel = { a:await ownedCopies(a,take), b:await ownedCopies(b,give) };
       const collectionA = (await openDeckEditor(a)).collection; await exitDeckEditor(a);
-      await click(a,'Return to Lobby'); await click(b,'Return to Lobby');
+      // (a closed trade leaves both in the lobby: the Main Menu has no Return to Lobby there, as live)
+      await until(a,lobbyShown,60000); await until(b,lobbyShown,60000);
       await invite(a,b,names.b); await press(b,byKey('trade-accept'));
       for (const p of [a,b]) await until(p,trunkShown,30000);
       // A soul-bound starter card: the server sends its copies in the trade's limit table (trade.ts limitPairs) and the
