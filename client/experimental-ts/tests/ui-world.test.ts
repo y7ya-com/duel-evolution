@@ -6,7 +6,7 @@ import type { PoseStrip } from '../src/ui/world-avatars';
 import type { SceneFrame, SceneSprite } from '../src/world/scene';
 import type { Viewport } from '../src/world/camera';
 import type { LobbyAvatar } from '../src/ui/contracts';
-import type { AvatarResource } from '../src/avatars';
+import type { AvatarLoadOptions, AvatarResource } from '../src/avatars';
 import { TestDocument, TestNode } from './ui-dom-fixture';
 
 const disposals: (() => void)[] = [];
@@ -167,5 +167,46 @@ describe('the PixiJS world renderer', () => {
     f.view.setAvatars([actor(1, 600, 384, { self: true })]); f.host.run(1000 / 60, 5); expect(style.left).toBe('50%');
     f.host.run(); expect(style.left).toBe(`${600 / 1024 * 100}%`); expect(button.className).toContain('has-original');
     expect(f.view.chatAnchors()).toEqual([{ id: 1, x: 600, y: 384 - 144 }]);
+  });
+  it('draws a famous NPC with its own art (its cn_ set), blinks it on the idle counter, and places its level stars', async () => {
+    const source = scene(), now = { t: 0 }, made: string[] = [], loads: AvatarLoadOptions[] = [];
+    const bake = (key: string): PoseStrip => { made.push(key); return { key, fps: 30, frames: Array.from({ length: key.includes('/blink/') ? 12 : 1 }, () => new Texture({ source: new TextureSource({ width: 128, height: 160 }) })), release: () => {} }; };
+    const loadAvatar = vi.fn(async (_parts: Uint8Array, options: AvatarLoadOptions) => { loads.push(options); return { dispose: vi.fn() } as unknown as AvatarResource; });
+    const star = (w: number): WorldTexture => ({ texture: new Texture({ source: new TextureSource({ width: w, height: w }) }), release: vi.fn() });
+    const f = setup({ loadScene: async () => source.result, loadAvatar, bake, random: () => 0, loadStarArt: async () => ({ big: star(16), small: star(8) }) }, now);
+    f.view.show(0, { x: 512, y: 384 }); await flush(); source.reply(0); await flush();
+    const alexis = actor(-66, 600, 400, { name: 'Alexis Rhodes', npc: true, parts: new Uint8Array(16), npcArt: 'a03', stars: { big: 1, small: 2 }, direction: 2 });
+    f.view.setAvatars([actor(1, 512, 384, { self: true }), alexis]); await flush(); f.view.setAvatars([actor(1, 512, 384, { self: true }), alexis]); await flush();
+    expect(made).toContain('npc/a03/stand/2'); expect(made).toContain('npc/a03/blink/2');
+    expect(loads.filter(o => o.npc)).toEqual([expect.objectContaining({ npc: { set: 'a03' }, direction: 2 }), expect.objectContaining({ npc: { set: 'a03', blink: true }, direction: 2 })]);
+    const npc = f.view.actors.get(-66)!, shown = () => f.view.inspect().avatars.find(a => a.id === -66)!;
+    expect(shown()).toMatchObject({ drawn: true, look: 'npc/a03/stand/2', blink: 'npc/a03/blink/2', blinking: false, stars: '1/2' });
+    // the stars: one 16 px then two 8 px, the row at (-25, -114) from the feet
+    expect(npc.stars.visible).toBe(true); expect(npc.stars.position.x).toBe(-25); expect(npc.stars.position.y).toBe(-114);
+    expect(npc.stars.children.map(c => [c.x, c.y, (c as Sprite).texture.width])).toEqual([[0, 0, 16], [16, 0, 8], [24, 0, 8]]);
+    // the first blink after rand() % 30 + 60 frames (2 s here), 12 frames at 30 fps, then standing again
+    const stand = npc.strip!.frames[0];
+    now.t = 1990; f.host.run(); expect(npc.body.texture).toBe(stand); expect(shown().blinking).toBe(false);
+    now.t = 2001; f.host.run(); expect(shown().blinking).toBe(true); expect(npc.body.texture).toBe(npc.blink!.frames[0]);
+    now.t = 2001 + 200; f.host.run(); expect(npc.body.texture).toBe(npc.blink!.frames[6]);
+    now.t = 2001 + 401; f.host.run(); expect(shown().blinking).toBe(false); expect(npc.body.texture).toBe(stand);
+    now.t = 2001 + 401 + 1990; f.host.run(); expect(shown().blinking).toBe(false);   // next one after rand() % 60 + 60 frames
+    now.t = 2001 + 401 + 2010; f.host.run(); expect(shown().blinking).toBe(true);
+  });
+  it('a missing NPC art file never leaves the NPC unseen: the default look stands in, with a warning', async () => {
+    const source = scene(), b = bakes(), warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const loadAvatar = vi.fn(async (_parts: Uint8Array, options: AvatarLoadOptions) => { if (options.npc) throw new Error('Asset not found: data/avatar/chibi/cn_a03_bo_n03_01.png'); return { dispose: vi.fn() } as unknown as AvatarResource; });
+    const f = setup({ loadScene: async () => source.result, loadAvatar, bake: b.bake });
+    f.view.show(0, { x: 512, y: 384 }); await flush(); source.reply(0); await flush();
+    const alexis = actor(-66, 600, 400, { name: 'Alexis Rhodes', npc: true, parts: new Uint8Array(16), npcArt: 'a03', direction: 2, world: 1 });
+    f.view.setAvatars([alexis]); await flush(); await flush();
+    const shown = f.view.inspect().avatars[0]!;
+    expect(shown.drawn).toBe(true); expect(shown.look).toBe(`1/stand/2/${[0, 0, 0x20, 0x30, 0x40, 0x60, 0x80, 0x90, 0xb8, 0x20, 0, 0, 0, 0, 0, 0].join(',')}`);
+    expect(f.view.actors.get(-66)!.placeholder.visible).toBe(false);
+    expect(warn.mock.calls.map(c => String(c[0]))).toEqual(expect.arrayContaining(['avatar art', 'npc art: drawing']));
+    // a player whose art fails keeps the placeholder (no default look stands in for a person's own)
+    loadAvatar.mockImplementation(async () => { throw new Error('missing'); }); f.view.setAvatars([alexis, actor(5, 640, 400, { parts: new Uint8Array(16) })]); await flush();
+    expect(f.view.inspect().avatars.find(a => a.id === 5)!.drawn).toBe(false);
+    warn.mockRestore();
   });
 });

@@ -50,6 +50,7 @@ import { pageModules } from './htmlui/page-modules';
 import { sceneVeilUp } from './htmlui/scene-loading';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
+import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
 import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
@@ -574,6 +575,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       const renderer = new m.WorldRenderer({ loadScene: (id, signal) => controller.loadWorldScene!(id, signal),
         ...(controller.loadAvatar ? { loadAvatar: (parts: Uint8Array, options: import('../avatars').AvatarLoadOptions) => controller.loadAvatar!(parts, options) } : {}),
         loadFlagAtlas: async signal => m.pictureTexture(await pictureArt.resolve({ archive: FLAG_ATLAS }, signal), signal),
+        loadStarArt: async signal => {
+          const [big, small] = await Promise.allSettled([NPC_STAR_BIG, NPC_STAR_SMALL].map(async path => m.pictureTexture(await pictureArt.resolve({ archive: path }, signal), signal)));
+          if (big!.status === 'fulfilled' && small!.status === 'fulfilled') return { big: big!.value, small: small!.value };
+          for (const r of [big!, small!]) if (r.status === 'fulfilled') r.value.release();
+          throw (big!.status === 'rejected' ? big!.reason : (small as PromiseRejectedResult).reason) as Error;
+        },
         reducedMotion: () => !!controller.getState().settings.reducedMotion });
       worldRenderer = renderer;
       (globalThis as { __deWorld?: () => unknown }).__deWorld = () => renderer.inspect();

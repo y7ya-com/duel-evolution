@@ -6,9 +6,11 @@ import type { WorldScene, SceneFrame, SceneSprite } from '../world/scene';
 import { avatarDepth, FRONT_OBJECT_DEPTH, objectDepth } from '../world/depth';
 import { ActorMotion, AVATAR_FOOT_Y, drawnAvatars, stripFrame } from '../world/actors';
 import type { AvatarLoadOptions, AvatarResource } from '../avatars';
+import { defaultAvatar } from '../avatars/appearance';
+import { npcBlinkDelay } from '../avatars/npc';
 import type { LobbyAvatar } from './contracts';
 import { safeImageUrl } from './helpers';
-import { AvatarActor, PoseCache, poseKey, type PoseStrip } from './world-avatars';
+import { AvatarActor, npcPoseKey, PoseCache, poseKey, type PoseRequest, type PoseStrip } from './world-avatars';
 import { flagCell as flagCellOf } from './nation-flag';
 
 export type RenderScene = Pick<WorldScene, 'mapId' | 'definition' | 'frame' | 'dispose'>;
@@ -25,6 +27,10 @@ export interface WorldRendererOptions {
   loadAvatar?(parts: Uint8Array, options: AvatarLoadOptions): Promise<AvatarResource>;
   /** The nation flags' small atlas (nation-flag.ts FLAG_ATLAS). */
   loadFlagAtlas?(signal: AbortSignal): Promise<WorldTexture>;
+  /** The NPCs' level stars: data/Avatar/npc/npc_star16_01.png and npc_star08_01.png (avatars/npc.ts). */
+  loadStarArt?(signal: AbortSignal): Promise<{ big: WorldTexture; small: WorldTexture }>;
+  /** The blink timer's rand() (tests). */
+  random?(): number;
   /** The PixiJS application on a canvas in `parent` (default: a WebGL Application at 60 fps); null draws nothing. */
   createHost?(parent: HTMLElement): Promise<WorldHost | null>;
   reducedMotion?(): boolean;
@@ -34,6 +40,9 @@ export interface WorldRendererOptions {
 }
 interface FrameSprites { frame: SceneFrame; sprites: Sprite[]; paths: Set<string>; count: number }
 interface TextureEntry { tex: WorldTexture; url: string }
+/** One way to draw an avatar: its pose strip's key and what loads it. */
+interface Look { key: string; parts: Uint8Array; request: PoseRequest; walking: boolean; npcArt?: string }
+const NO_PARTS = new Uint8Array(16);
 const viewportKey = (v: Viewport) => `${v.x}/${v.y}/${v.width}/${v.height}`;
 function contains(outer: Viewport, inner: Viewport): boolean { return inner.x >= outer.x + 16 && inner.y >= outer.y + 16 && inner.x + inner.width <= outer.x + outer.width - 16 && inner.y + inner.height <= outer.y + outer.height - 16; }
 function requestedViewport(v: Viewport): Viewport {
@@ -113,6 +122,9 @@ export class WorldRenderer {
   private flagAtlas: WorldTexture | null = null;
   private flagLoading: AbortController | null = null;
   private readonly flagTextures = new Map<string, Texture>();
+  private starArt: { big: WorldTexture; small: WorldTexture } | null = null;
+  private starLoading: AbortController | null = null;
+  private readonly random: () => number;
   private hitClock = 0;
   private paused = false;
   private drawn = new Set<number>();
@@ -126,6 +138,7 @@ export class WorldRenderer {
   private frameCount = 0;
   constructor(private readonly options: WorldRendererOptions) {
     this.now = options.now ?? (() => performance.now());
+    this.random = options.random ?? Math.random;
     this.poses = options.loadAvatar ? new PoseCache((p, o) => options.loadAvatar!(p, o), options.bake) : null;
     this.element.setAttribute('aria-label', 'World scenery'); this.element.dataset.mapReady = 'false';
     this.avatars.dataset.layer = 'avatars';
@@ -261,7 +274,7 @@ export class WorldRenderer {
       seen.add(a.id); this.lastAvatars.set(a.id, a);
       let actor = this.actors.get(a.id), motion = this.motions.get(a.id);
       if (!actor) { actor = new AvatarActor(a.id, a.name, !!a.self); this.actors.set(a.id, actor); this.sorted.addChild(actor.root); this.sortDirty = true; }
-      actor.setName(a.name); this.applyFlag(actor, a.country);
+      actor.setName(a.name); this.applyFlag(actor, a.country); this.applyStars(actor, a);
       if (!motion) { motion = new ActorMotion(a, a.direction ?? 0); this.motions.set(a.id, motion); }
       else motion.retarget(a, a.direction, !!a.self);
       if (a.self) { motion.direction = a.direction ?? motion.direction; motion.walking = a.motion === 'walk'; }
@@ -277,17 +290,72 @@ export class WorldRenderer {
   private place(actor: AvatarActor, motion: ActorMotion): void {
     if (actor.root.x !== motion.x || actor.root.y !== motion.y) { actor.root.position.set(motion.x, motion.y); const z = avatarDepth(motion.y); if (actor.root.zIndex !== z) { actor.root.zIndex = z; this.sortDirty = true; } }
   }
+  /** The ways to draw this avatar, the first whose art has not failed: a famous NPC's own art (CNpcChibiAvatar) or the
+   * parts' chibi, and for an NPC the default look after that, so a missing file never leaves an NPC unseen. All
+   * failed: the last (its art stays as it was). */
+  private lookFor(actor: AvatarActor, a: LobbyAvatar, walking: boolean, direction: number): Look | null {
+    const world = a.world ?? 0, motion = walking ? 'walk' as const : 'stand' as const, looks: Look[] = [];
+    if (a.npcArt) looks.push({ key: npcPoseKey(a.npcArt, 'stand', direction), parts: NO_PARTS, request: { npc: { set: a.npcArt }, direction }, walking: false, npcArt: a.npcArt });
+    else if (a.parts?.length === 16) looks.push({ key: poseKey(actor.partsKey(a.parts), world, motion, direction), parts: a.parts, request: { world, motion, direction }, walking });
+    if (a.npc) { const parts = defaultAvatar(0, world); looks.push({ key: poseKey(parts.join(','), world, motion, direction), parts, request: { world, motion, direction }, walking }); }
+    if (!looks.length) return null;
+    const look = looks.find(l => !this.poses!.failed(l.key)) ?? looks[looks.length - 1]!;
+    if (look !== looks[0] && !actor.fellBack) { actor.fellBack = true; console.warn('npc art: drawing', a.name, 'in the default look; its own art failed:', looks[0]!.key); }
+    return look;
+  }
   private pose(actor: AvatarActor, a: LobbyAvatar, art: boolean, t: number): void {
     const motion = this.motions.get(actor.id)!;
-    if (!art || !this.poses || a.parts?.length !== 16) { if (actor.strip) { this.poses?.release(actor.strip); actor.strip = null; } actor.body.visible = false; actor.placeholder.visible = true; actor.drawn = false; actor.wanted = ''; return; }
-    const walking = motion.walking, key = poseKey(actor.partsKey(a.parts), a.world ?? 0, walking ? 'walk' : 'stand', motion.direction);
-    actor.poseWalking = walking; actor.poseDirection = motion.direction;
+    const look = art && this.poses ? this.lookFor(actor, a, motion.walking, motion.direction) : null;
+    if (!look || !this.poses) { if (actor.strip) { this.poses?.release(actor.strip); actor.strip = null; } this.dropBlink(actor); actor.body.visible = false; actor.placeholder.visible = true; actor.drawn = false; actor.wanted = ''; return; }
+    const key = look.key;
+    actor.poseWalking = motion.walking; actor.poseDirection = motion.direction;
     if (actor.wanted === key) return;
     actor.wanted = key;
-    const strip = this.poses.acquire(key, a.parts, a.world ?? 0, walking ? 'walk' : 'stand', motion.direction, () => { if (!this.closed && actor.wanted === key && this.actors.get(actor.id) === actor) { actor.wanted = ''; const last = this.lastAvatars.get(actor.id); if (last) this.pose(actor, last, true, this.now()); } });
+    const strip = this.poses.acquire(key, look.parts, look.request, () => { if (!this.closed && actor.wanted === key && this.actors.get(actor.id) === actor) { actor.wanted = ''; const last = this.lastAvatars.get(actor.id); if (last) this.pose(actor, last, true, this.now()); } });
     if (!strip) return;   // the old pose stays on screen until the new one is in
     if (actor.strip) this.poses.release(actor.strip);
     actor.show(strip, t);
+    if (look.npcArt) this.wantBlink(actor, look.npcArt, motion.direction); else this.dropBlink(actor);
+  }
+  /** A famous NPC's blink strip (cn_t, this facing), taken once it is in; its first blink after the idle counter. */
+  private wantBlink(actor: AvatarActor, set: string, direction: number): void {
+    const key = npcPoseKey(set, 'blink', direction);
+    if (actor.blink?.key === key || actor.blinkWanted === key || !this.poses) return;
+    this.dropBlink(actor); actor.blinkWanted = key;
+    const take = (): void => {
+      if (this.closed || actor.blinkWanted !== key || this.actors.get(actor.id) !== actor || !this.poses) return;
+      const strip = this.poses.acquire(key, NO_PARTS, { npc: { set, blink: true }, direction }, take);
+      if (!strip) return;
+      actor.blink = strip; actor.blinkWanted = ''; actor.blinkAt = null; actor.nextBlink = this.now() + npcBlinkDelay(this.random, true);
+    };
+    take();
+  }
+  private dropBlink(actor: AvatarActor): void {
+    if (actor.blink) { this.poses?.release(actor.blink); actor.blink = null; }
+    actor.blinkWanted = ''; actor.blinkAt = null;
+  }
+  /** The blink's frame now, or null while standing (CChibiAvatarElm's idle counter: the blink plays once, then the
+   * counter restarts at rand() % 60 + 60 frames). */
+  private blinkTexture(actor: AvatarActor, t: number): Texture | null {
+    const blink = actor.blink; if (!blink) return null;
+    if (actor.blinkAt === null) { if (t < actor.nextBlink) return null; actor.blinkAt = t; }
+    const frame = Math.floor((t - actor.blinkAt) * blink.fps / 1000);
+    if (frame >= 0 && frame < blink.frames.length) return blink.frames[frame]!;
+    actor.blinkAt = null; actor.nextBlink = t + npcBlinkDelay(this.random); return null;
+  }
+  private applyStars(actor: AvatarActor, a: LobbyAvatar): void {
+    const stars = a.stars && (a.stars.big || a.stars.small) ? a.stars : undefined;
+    if (!stars || !this.options.loadStarArt) { actor.setStars(undefined, null, null); return; }
+    if (!this.starArt) { this.loadStars(); return; }
+    actor.setStars(stars, this.starArt.big.texture, this.starArt.small.texture);
+  }
+  private loadStars(): void {
+    if (this.starLoading || this.starArt || !this.options.loadStarArt) return;
+    const abort = new AbortController(); this.starLoading = abort;
+    void this.options.loadStarArt(abort.signal).then(art => {
+      if (abort.signal.aborted || this.closed) { art.big.release(); art.small.release(); return; }
+      this.starArt = art; for (const [id, actor] of this.actors) { const last = this.lastAvatars.get(id); if (last) this.applyStars(actor, last); }
+    }, (e: unknown) => console.warn('npc stars:', e)).finally(() => { if (this.starLoading === abort) this.starLoading = null; });
   }
   private applyFlag(actor: AvatarActor, country: string | undefined): void {
     const cell = country ? flagCellOf(country) : null;
@@ -307,6 +375,7 @@ export class WorldRenderer {
   }
   private dropActor(id: number, actor: AvatarActor): void {
     if (actor.strip) this.poses?.release(actor.strip);
+    this.dropBlink(actor);
     actor.destroy(); this.actors.delete(id); this.motions.delete(id); this.lastAvatars.delete(id);
   }
   /** One frame: the others step toward their server positions, walk cycles advance, the camera follows, the scene
@@ -319,10 +388,11 @@ export class WorldRenderer {
       const motion = this.motions.get(id)!, last = this.lastAvatars.get(id);
       if (last && !last.self && motion.step(dtMs, last.direction)) this.repose(actor, last, t);
       this.place(actor, motion);
-      const strip = actor.strip;
-      if (strip && strip.frames.length > 1) {
-        const frame = reduced ? 0 : stripFrame(t - actor.started, strip.fps, strip.frames.length);
-        if (frame !== actor.frame) { actor.frame = frame; actor.body.texture = strip.frames[frame]; }
+      const strip = actor.strip, blink = strip && !reduced ? this.blinkTexture(actor, t) : null;
+      if (blink) { if (actor.body.texture !== blink) actor.body.texture = blink; }
+      else if (strip) {
+        const frame = reduced || strip.frames.length < 2 ? 0 : stripFrame(t - actor.started, strip.fps, strip.frames.length);
+        if (frame !== actor.frame || actor.body.texture !== strip.frames[frame]) { actor.frame = frame; actor.body.texture = strip.frames[frame]!; }
       }
     }
     if (this.sortDirty) { this.sorted.sortChildren(); this.sortDirty = false; }
@@ -332,7 +402,7 @@ export class WorldRenderer {
   private repose(actor: AvatarActor, a: LobbyAvatar, t: number): void {
     if (!actor.drawn && !actor.wanted) return;
     const motion = this.motions.get(actor.id)!;
-    if (a.parts?.length === 16 && (motion.walking !== actor.poseWalking || motion.direction !== actor.poseDirection)) this.pose(actor, a, true, t);
+    if ((a.parts?.length === 16 || a.npcArt) && (motion.walking !== actor.poseWalking || motion.direction !== actor.poseDirection)) this.pose(actor, a, true, t);
   }
   /** The DOM hit targets: left / top in map space (percent of the view), written only when that avatar moved; the
    * camera is one transform on their layer, so a pan does not rewrite every avatar's target. */
@@ -365,7 +435,7 @@ export class WorldRenderer {
       mapId: this.requestedMap, ready: this.ready, viewport: v, sprites: this.displayed?.count ?? 0, textures: this.textures.size, poses: this.poses?.size ?? 0, renderer: this.host ? 'pixi' : 'none',
       frames: { count: this.frameCount, fps: mean ? 1000 / mean : 0, p95: n ? times[Math.min(n - 1, Math.floor(n * 0.95))] : 0, worst: n ? times[n - 1] : 0 },
       // look: the pose strip on screen (world/motion/direction/parts), the old one until a new look's strip is in
-      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.name.text, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn, look: a.drawn ? a.strip?.key ?? '' : '' }; }),
+      avatars: [...this.actors.values()].map(a => { const m = this.motions.get(a.id)!; return { id: a.id, name: a.name.text, x: m.x, y: m.y, direction: m.direction, walking: m.walking, frame: a.frame, z: a.root.zIndex, drawn: a.drawn, look: a.drawn ? a.strip?.key ?? '' : '', stars: a.starsKey, blink: a.blink?.key ?? '', blinking: a.blinkAt !== null }; }),
     };
   }
   private fit(): void {
@@ -396,6 +466,7 @@ export class WorldRenderer {
   dispose(): void {
     if (this.closed) return; this.hide(); this.closed = true;
     this.flagLoading?.abort(); for (const t of this.flagTextures.values()) t.destroy(false); this.flagTextures.clear(); this.flagAtlas?.release(); this.flagAtlas = null;
+    this.starLoading?.abort(); if (this.starArt) { this.starArt.big.release(); this.starArt.small.release(); this.starArt = null; }
     this.host?.destroy(); this.host = null; this.root.destroy({ children: true });
     this.element.replaceChildren(); this.element.remove();
   }

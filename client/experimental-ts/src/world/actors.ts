@@ -54,9 +54,9 @@ export function stripFrame(elapsedMs: number, fps: number, frames: number): numb
 }
 
 /** Which avatars get original art: those near the view (self first, then the nearest), at most MAX_DRAWN_AVATARS. */
-export function drawnAvatars<T extends { id: number; x: number; y: number; self?: boolean; parts?: Uint8Array }>(avatars: readonly T[], view: { x: number; y: number; width: number; height: number } | null): Set<number> {
+export function drawnAvatars<T extends { id: number; x: number; y: number; self?: boolean; parts?: Uint8Array; npcArt?: string }>(avatars: readonly T[], view: { x: number; y: number; width: number; height: number } | null): Set<number> {
   const self = avatars.find(a => a.self), origin = self ?? { x: 512, y: 384 };
-  return new Set(avatars.filter(a => a.parts?.length === 16 && (!view || a.x >= view.x - 128 && a.x <= view.x + view.width + 128 && a.y >= view.y - 160 && a.y <= view.y + view.height + 160))
+  return new Set(avatars.filter(a => (a.parts?.length === 16 || !!a.npcArt) && (!view || a.x >= view.x - 128 && a.x <= view.x + view.width + 128 && a.y >= view.y - 160 && a.y <= view.y + view.height + 160))
     .sort((a, b) => Number(!!b.self) - Number(!!a.self) || Math.hypot(a.x - origin.x, a.y - origin.y) - Math.hypot(b.x - origin.x, b.y - origin.y) || a.id - b.id)
     .slice(0, MAX_DRAWN_AVATARS).map(a => a.id));
 }
