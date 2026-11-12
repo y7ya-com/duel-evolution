@@ -22,7 +22,7 @@ const CSS = `
 /* the card box where live's duel screen has it: the bottom left beside the chat, over the bar (6 lines of the engine's
    16 px Arial: name, kind, 3 of text, the stats) */
 .de-duel-board>.de-duel-info { top:${614 / 768 * 100}%; height:${120 / 768 * 100}%; left:${4 / 1024 * 100}%; width:${248 / 1024 * 100}%; font:15px/16px Arial,'Segoe UI',sans-serif; letter-spacing:.03em; }
-.de-duel-board>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
+:is(.de-duel-board,.de-janken-scene)>.de-duel-portrait { position:absolute; inset:auto; width:${768 * PORTRAIT_SCALE / 1024 * 100}%; height:${768 * PORTRAIT_SCALE / 768 * 100}%; pointer-events:none; z-index:0; }
 .de-duel-portrait>img { position:absolute; inset:0; width:100%; height:100%; display:block; }
 .de-duel-fx { position:absolute; inset:0; pointer-events:none; z-index:7; }
 .de-duel-fx>.de-duel-fx-layer { position:absolute; inset:0; }
@@ -118,11 +118,13 @@ export class DuelPresentation {
     if (this.load) {
       const bg = board.querySelector('.de-duel-bg');
       if (bg) bg.after(...this.portraits); else board.prepend(...this.portraits);
-      board.append(this.statsLayer, this.fx.element, this.info);
+      board.append(this.statsLayer, this.fx.element);
     }
+    // the card information box (its text is the card's; its icons wait for the art)
+    board.append(this.info);
     board.addEventListener('pointerover', e => {
       const id = (e.target as Element | null)?.closest?.('[data-key^="field-card:"]')?.getAttribute('data-key')?.slice('field-card:'.length);
-      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.renderInfo(); }
+      if (id && id !== this.hovered) { this.hovered = id; this.shown = id; this.pinned = null; this.renderInfo(); }
     });
     this.update(duel, reducedMotion);
   }
@@ -138,13 +140,14 @@ export class DuelPresentation {
     }
     this.duel = duel;
     if (reducedMotion !== this.reduced) { this.reduced = reducedMotion; for (const side of [0, 1] as const) this.blink(side); }
+    this.renderInfo();
     if (!this.load) return;
     this.fx.update(duel, reducedMotion);
     this.fx.thinking = thinkingSide(duel);
     // the loser's face at the duel's end (live: the result screen's sweating, gritted-teeth portrait)
     const loser = duel.ended === 'Victory' ? 1 : duel.ended === 'Defeat' ? 0 : -1;
     for (const side of [0, 1] as const) this.portrait(side, duel.players[side].parts, side === loser ? 'lose' : 'normal');
-    this.renderInfo(); this.drawStats();
+    this.drawStats();
   }
   private lastCue: number | null = null;
   dispose(): void {
@@ -183,6 +186,13 @@ export class DuelPresentation {
     const face = this.faces[side];
     for (const img of Object.values(face.frames)) { if (img.src?.startsWith('blob:')) URL.revokeObjectURL(img.src); img.remove(); }
     face.frames = {};
+  }
+  /** The two portraits for the rock-paper-scissors scene (janken-scene.ts), with the duelists' looks. */
+  jankenPortraits(players: readonly { parts?: Uint8Array | undefined }[] | null): HTMLElement[] {
+    if (!this.load || !players) return [];
+    for (const side of [0, 1] as const) this.portrait(side, players[side]?.parts);
+    // with the scene's CSS (the portraits' place and size), which the duel board carries otherwise
+    return [this.style, ...this.portraits];
   }
   private portrait(side: 0 | 1, parts: Uint8Array | undefined, expression: Expression = 'normal'): void {
     const box = this.portraits[side], key = parts ? `${Array.from(parts).join('.')}:${expression}` : '';
@@ -228,9 +238,18 @@ export class DuelPresentation {
     next(0);
   }
 
+  /** Show a card in the box (live's card information box: a card the player asked about, a card a list or a question
+   * refers to); one not on the field stays until the pointer picks another card. */
+  showCard(card: CardView | null): void {
+    if (!card) return;
+    if (this.duel?.cards.some(c => c.id === card.id)) { this.shown = card.id; this.pinned = null; } else this.pinned = card;
+    this.renderInfo();
+  }
+  private pinned: CardView | null = null;
   private renderInfo(): void {
-    const card = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
-    const visible = card && (card.faceUp || card.controller === 0 && card.passcode !== undefined) && card.name && card.name !== 'Hidden card' ? card : undefined;
+    const onField = this.shown ? this.duel?.cards.find(c => c.id === this.shown) : undefined;
+    const card: CardView | undefined = this.pinned ?? (onField && (onField.faceUp || onField.controller === 0 && onField.passcode !== undefined) ? onField : undefined);
+    const visible = card && card.name && card.name !== 'Hidden card' ? card : undefined;
     const key = visible ? `${visible.id}:${visible.passcode}:${visible.attack}:${visible.defense}` : '';
     if (key === this.infoKey) return;
     this.infoKey = key;
@@ -250,7 +269,7 @@ export class DuelPresentation {
     this.load?.(`data/y/duel/card/${sheet}`, this.abort.signal).then(lease => { img.src = lease.url; img.onload = img.onerror = () => lease.release(); }, () => box.remove());
     return box;
   }
-  private stats(card: DuelCardView): HTMLElement {
+  private stats(card: CardView): HTMLElement {
     const row = document.createElement('div'); row.className = 'de-duel-info-stats';
     if (isMonster(card)) {
       const race = RACES.indexOf(String(card.race ?? '')), attribute = ATTRIBUTES.indexOf(String(card.attribute ?? '').toLowerCase());

@@ -14,7 +14,7 @@ function fixture() {
   const mounted = mountClient(root as unknown as HTMLElement, { getState: () => state, subscribe: fn => { listeners.add(fn); return () => { listeners.delete(fn); }; }, dispatch: command => { commands.push(command); } });
   cleanups.push(() => mounted.dispose());
   const update = (patch: Partial<ClientView>) => { state = { ...state, ...patch }; for (const listener of listeners) listener(state); };
-  return { root, commands, original, update, get state() { return state; }, dispose: () => mounted.dispose() };
+  return { root, commands, original, update, mounted, get state() { return state; }, dispose: () => mounted.dispose() };
 }
 describe('MATCH sideboarding and relay UI', () => {
   it('offers an atomic swap even when both saved sections are full', async () => {
@@ -40,11 +40,16 @@ describe('MATCH sideboarding and relay UI', () => {
   });
   it('shows relay pilot roles, blocks stale partner actions and never offers partner RPS', async () => {
     const f = fixture(); f.update({ sideboarding: undefined, match: undefined, relay: { active: [1, 0], self: 0, canAct: false, players: [{ pid: 1, name: 'Captain' }, { pid: 2, name: 'Partner' }, { pid: 3, name: 'Opponent' }, { pid: 4, name: 'Their Partner' }] }, preparation: { phase: 'rock-paper-scissors', role: 'partner' }, duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: { id: 'old', kind: 'yes-no', text: 'Old choice', options: [{ id: 'yes', label: 'Yes' }] }, actions: [{ id: 'attack', label: 'Attack' }], turn: 1, turnPlayer: 0, phase: 'Main', log: [] } }); await Promise.resolve();
-    expect(f.root.textContent).toContain('Partner playing'); expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Rock')).toBe(false); findButton(f.root, 'Yes').onclick?.({}); expect(f.commands).toEqual([]); expect(f.root.textContent).toContain('captain is preparing');
+    expect(f.root.textContent).toContain('Partner playing'); expect(f.root.querySelectorAll('button').some(b => b.textContent === 'Rock')).toBe(false); expect(f.root.textContent).toContain('captain is preparing');
+    // the question (main's duel dialog) on the partner's screen sends nothing
+    f.update({ preparation: undefined }); await Promise.resolve();
+    expect(f.mounted.htmlUi.press('prompt-option:old:yes')).toBe(true); expect(f.commands).toEqual([]);
   });
   it('allows readonly pile inspection without selecting or revealing a hidden card', async () => {
     const f = fixture(); f.update({ sideboarding: undefined, match: undefined, duel: { players: [{ name: 'A', lp: 8000 }, { name: 'B', lp: 8000 }], cards: [], prompt: { id: 'inspect', kind: 'cards', text: 'Graveyard', options: [], readOnly: true, min: 0, max: 0, candidates: [{ id: '0', label: 'Visible', disabled: true, card: { id: '1', name: 'Visible', description: 'Visible effect' } }, { id: '1', label: 'Hidden card', disabled: true }] }, turn: 1, turnPlayer: 0, phase: 'Main', log: [] } }); await Promise.resolve();
-    const preview = f.root.querySelectorAll('button').find(b => b.dataset.key === 'prompt-candidate:inspect:0')!; expect(preview.disabled).toBe(false); preview.onclick?.({}); await Promise.resolve(); expect(f.root.textContent).toContain('Visible effect'); expect(f.commands).toEqual([]);
-    const hidden = f.root.querySelectorAll('button').find(b => b.dataset.key === 'prompt-candidate:inspect:1')!; expect(hidden.disabled).toBe(true); findButton(f.root, 'Close Card List').onclick?.({}); expect(f.commands).toEqual([{ type: 'duelRespond', promptId: 'inspect', response: { cardIds: [] } }]);
+    // main's card list dialog: a readable row shows its card in the duel's card information box, a hidden one is off
+    const row = (key: string) => f.mounted.htmlUi.windows().flatMap(w => w.win.controls.filter(c => w.handlers.get(c.id)?.key === key))[0];
+    expect(row('prompt-candidate:inspect:0')?.enabled).toBe(true); expect(f.mounted.htmlUi.press('prompt-candidate:inspect:0')).toBe(true); expect(f.root.textContent).toContain('Visible effect'); expect(f.commands).toEqual([]);
+    expect(row('prompt-candidate:inspect:1')?.enabled).toBe(false); expect(f.mounted.htmlUi.press('prompt-confirm:inspect')).toBe(true); expect(f.commands).toEqual([{ type: 'duelRespond', promptId: 'inspect', response: { cardIds: [] } }]);
   });
 });

@@ -1,6 +1,6 @@
 /** Two- and three-player helpers for the PvP and spectator acceptance tests (see ACCEPTANCE.md). */
 import { expect } from 'vitest';
-import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, type Page, cardOpen, cardButton, closeCard, lobbyShown, resultShown, leaveResult } from './harness';
+import { until, press, pressAvatar, click, byText, byKey, sleep, duelBot, pointerAway, type Page, cardOpen, cardButton, closeCard, lobbyShown, resultShown, leaveResult } from './harness';
 
 export const avatar = (name:string) => `[...document.querySelectorAll('[data-key^="avatar:"]')].find(a=>a.querySelector('.de-avatar-name')?.textContent===${JSON.stringify(name)})`;
 /** The duel invitation and the request's waiting dialog: main's stock dialogs (dialog.js YesNo / Ok), their windows. */
@@ -54,8 +54,8 @@ export const read = (page:Page) => page.ev(`(()=>{
     hand:cards.filter(l=>/, your hand/.test(l)&&!l.startsWith('Face-down')).map(l=>l.split(', your hand')[0]),handBacks:cards.filter(l=>l==='Face-down card, your hand').length,
     opponentHand:cards.filter(l=>/opponent hand/.test(l)).map(l=>l.startsWith('Face-down')?'back':l.split(',')[0]),
     clock:[...document.querySelectorAll('.de-duelist')].map(d=>[...d.querySelectorAll('.de-duel-clock')].map(n=>n.textContent).find(t=>t.startsWith('Time'))??''),
-    ended:window.__duelEnd()??'',prompt:!!document.querySelector('.de-duel-prompt[role=dialog]'),
-    controls:[...document.querySelectorAll('.de-duel-actions button,.de-phase-bar button,.de-duel-prompt button')].filter(b=>!b.disabled).map(b=>b.textContent)};})()`) as Promise<DuelReading>;
+    ended:window.__duelEnd()??'',prompt:!!document.querySelector('#htmlui-host [data-key^="prompt-"]'),
+    controls:[...document.querySelectorAll('.de-phase-bar button,#htmlui-host [data-key^="prompt-"]')].filter(b=>!b.disabled&&b.getClientRects().length).map(b=>b.textContent.trim()||b.getAttribute('aria-label'))};})()`) as Promise<DuelReading>;
 /** A's own side is B's opponent side and vice versa. */
 export function mirrored(x:DuelReading,y:DuelReading):string[] {
   const issues:string[] = [];
@@ -93,9 +93,10 @@ export async function selectOnField(page:Page):Promise<boolean> {
   for (const key of keys) {
     await page.ev(`[...document.querySelectorAll('.de-field-card')].find(b=>b.dataset.key===${JSON.stringify(key)})?.click()`);
     await sleep(150);
-    const action = await page.ev(`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>/^Select/.test(b.textContent)&&!b.disabled)?.textContent ?? null`) as string | null;
-    if (action) { await press(page,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent===${JSON.stringify(action)})`); return true; }
-    await page.ev(`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')?.click()`);
+    // the card's command menu (live's CUSummonDialogSp): its Select / Inspect row
+    const action = await page.ev(`[...document.querySelectorAll('[data-key^="duel-cmd:"]')].find(b=>/^(Select|Inspect)/.test(b.getAttribute('aria-label')??'')&&b.getAttribute('aria-disabled')!=='true')?.dataset.key ?? null`) as string | null;
+    if (action) { await press(page,byKey(action)); return true; }
+    await pointerAway(page);
   }
   return false;
 }
@@ -103,7 +104,7 @@ export async function selectOnField(page:Page):Promise<boolean> {
 export async function stepBoth(a:Page,b:Page,idle:number[],options:{ attack?:boolean; summon?:boolean } = {}) {
   const [x,y] = await Promise.all([duelBot(a,options),duelBot(b,options)]);
   for (const [i,p] of [a,b].entries()) {
-    const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('.de-duel-prompt')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('.de-duel-actions button,.de-duel-cmd-row')].some(b=>/^Inspect:/.test(b.getAttribute('aria-label')??b.textContent))`);
+    const stuck = [x,y][i] === 'idle' && await p.ev(`!document.querySelector('#htmlui-host [data-key^="prompt-"]')&&![...document.querySelectorAll('button')].some(b=>b.textContent==='End Turn')&&[...document.querySelectorAll('[data-key^="duel-cmd:"]')].some(b=>/^Inspect:/.test(b.getAttribute('aria-label')??''))`);
     idle[i] = stuck ? idle[i]! + 1 : 0;
     if (idle[i]! > 8) { idle[i] = 0; await selectOnField(p); }
   }

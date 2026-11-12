@@ -32,13 +32,13 @@ export interface DuelDialogContext {
 }
 
 const LH = 16, ROW = 20;
-/** Whether main's duel dialogs show this prompt (else the duel screen's own panel does). */
+/** Whether main's duel dialogs show this prompt. A board choice (a zone, a card on the field: 'place') is made on the
+ * field itself under the help strip, as live (CULockOnDialog / CHelpDialog): no dialog. An option question that lists
+ * the cards it is about is the question's dialog (CUYesNoDialog / CUSelectDialog); its card shows in the duel screen's
+ * card information box. */
 export function duelDialogCovers(p: DuelPromptView): boolean {
-  if (p.kind === 'cards') return !!p.candidates?.length;
-  if (p.kind === 'announce') return !p.candidates?.length;
-  // an option prompt that lists the cards it is about keeps the duel screen's panel (its cards are for reading)
-  if (p.candidates?.length || p.declarable?.length) return false;
   if (p.kind === 'place') return false;
+  if (p.kind === 'cards' || p.kind === 'announce') return true;
   if (p.kind === 'number' && !p.options.length) return true;
   return p.options.length > 0 || p.kind === 'acknowledge';
 }
@@ -138,6 +138,18 @@ function announceDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec {
   plates(b, w, h - 32, [{ id: 'announce', label: 'Announce', on: !ctx.busy && !!draft.trim(), key: `prompt-confirm:${p.id}`, click: () => declare(draft) }], 120);
   return b.spec();
 }
+/** The duel's information box (the engine's 0x1b dialog of kind 0, a server's notice: CUOkDialog on
+ * CWindowModelDialogOk, main's duel.js look as live's CUYesNoDialog, mock/duel-yesno.json): the bottom-thick frame 336 x
+ * 144 at (344, 312), its band 32, the text field (8, 8, 320 x 96), OK (80 x 24) centred on the band. Like every OK
+ * dialog of the engine (CUDialogBaseOk) it stays until OK. */
+export function duelOkDialog(ids: Ids, key: string, text: string, ok: () => void): WindowSpec {
+  const w = 336, h = 144, b = new WindowBuilder(ids, `duel-ok:${key}`, 'CUOkDialog', { x: 344, y: 312, w, h }, { modal: true, z: 51303 });
+  b.add('CWindowTaskFrameBottomThick', 'frame', { x: 0, y: 0, w, h }, { style: 1, band: 32, alpha: 0.7 });
+  b.add('CWindowTaskTextField', 'text', { x: 8, y: 8, w: 320, h: 96 }, { text, align: 1, color: [0, 0, 0, 1] });
+  const c = b.add('CWindowTaskTextSwitch', 'ok', { x: 128, y: 112, w: 80, h: 24 }, { label: 'OK', align: 1, state: 'normal', enabled: true });
+  b.on(c, { key: 'duel-notice-ok', label: 'OK', click: ok });
+  return b.spec();
+}
 // the question broken into the lines its box shows (dialog-text.ts: main's duel.js draws a CWindowTaskText unwrapped),
 // at most 4; the Yes / No's field wraps by itself (duel.js TextField), its lines counted the same
 const lines = (text: string, per = 46) => dialogLines(text, Math.round(per * 320 / 34)).n;
@@ -146,7 +158,8 @@ const z = 51180;
 
 export function duelDialog(ctx: DuelDialogContext, p: DuelPromptView): WindowSpec | null {
   if (!duelDialogCovers(p)) return null;
-  if (p.kind === 'cards') return cardListDialog(ctx, p);
+  // a declaration from a list of cards (the server's own candidates) is a pick from that list
+  if (p.kind === 'cards' || p.kind === 'announce' && p.candidates?.length) return cardListDialog(ctx, p);
   if (p.kind === 'announce') return announceDialog(ctx, p);
   if (p.kind === 'number' && !p.options.length) return numberDialog(ctx, p);
   const opts = p.options, cancel = p.cancelable ? [{ id: '\0cancel', label: 'Cancel' }] : [];

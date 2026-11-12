@@ -6,8 +6,7 @@
 // (24 px), the cards at half size (100 x 145) from (262, 52) / (262, 340), Ready to Trade. (444, 576, 130 wide) and
 // Cancel (588, 576, 80 wide), the lamps (data/deck/trade_icon101: the partner thinking, 202: this side ready, 102: the
 // partner ready). The request, the final confirmation and the result are main's stock dialogs (dialog.js). The trunk
-// stays the rewrite's picker (extra/social.ts renderTradeTrunk), beside these windows, until the deck editor's trunk
-// (screens/deck.js CWindowModelKaban) is ported. Pure: no DOM here.
+// is the deck screen's CWindowModelKaban beside these windows (trade-trunk.ts). Pure: no DOM here.
 import type { SocialAction, SocialTrade } from '../../features/social';
 import { WindowBuilder } from './snapshot';
 import type { Ids, WindowSpec } from './snapshot';
@@ -17,8 +16,8 @@ import dialogYesNo from './templates/dialog-yesno.json';
 import dialogOk from './templates/dialog-ok.json';
 
 /** The trade's own state between snapshots: the final Yes sent (the server's answer is the trade's end). */
-export interface TradeLocal { confirmed: boolean; cancelAsk: boolean }
-export const tradeLocal = (): TradeLocal => ({ confirmed: false, cancelAsk: false });
+export interface TradeLocal { confirmed: boolean }
+export const tradeLocal = (): TradeLocal => ({ confirmed: false });
 export interface TradeDeps {
   trade: SocialTrade; ui: TradeLocal; ids: Ids;
   dispatch(action: SocialAction): void;
@@ -76,7 +75,7 @@ export function tradeWindows(d: TradeDeps): WindowSpec[] {
     const spec = messageDialog({ ids: d.ids }, 'trade-closing', dialogOk, 'Closing the trade…', {});
     for (const c of spec.win.controls) if (c.cls === 'CWindowTaskTextSwitch') { c.state = 'disabled'; c.enabled = false; }
     out.push(spec);
-  } else if (t.phase === 'finished') {
+  } else if (t.phase === 'finished' && !partnerLeft(d)) {
     const exchanged = t.ownOffer.length > 0 || t.view.otherOffer.length > 0;
     const text = t.view.success ? 'Trade complete. Your collection has been updated.' : !exchanged && /declined/.test(d.status) ? d.status : t.reason ?? d.reason ?? 'The trade ended without an exchange.';
     dialog('trade-result', text, { OK: ['trade-close', () => d.dispatch({ type: 'cancelTrade' })] }, false);
@@ -84,14 +83,12 @@ export function tradeWindows(d: TradeDeps): WindowSpec[] {
     `Exchange your ${t.ownOffer.length} card(s) for ${partner}'s ${t.view.otherOffer.length}?\nThis cannot be undone.`, {
       Yes: ['trade-complete', () => { ui.confirmed = true; d.dispatch({ type: 'confirmTrade', accept: true }); d.rerender(); }],
       No: ['trade-back', () => d.dispatch({ type: 'confirmTrade', accept: false })] });
-  else if (t.phase === 'open' && ui.cancelAsk) dialog('trade-cancel-ask', 'Close this trade?\nOffers on both sides are abandoned.', {
-    Yes: ['trade-cancel-yes', () => { ui.cancelAsk = false; d.dispatch({ type: 'cancelTrade' }); d.rerender(); }],
-    No: ['trade-cancel-no', () => { ui.cancelAsk = false; d.rerender(); }] });
   return out;
 }
 
 function scene(d: TradeDeps, partner: string): WindowSpec[] {
-  const { trade: t, ui, ids } = d, ready = t.view.ready, w = ready || t.phase !== 'open' ? 776 : 488;
+  // 776 to the screen's edge once the trunk has closed (this side ready, the trade over); the partner gone, the trunk stays
+  const { trade: t, ui, ids } = d, ready = t.view.ready, w = ready || t.phase !== 'open' && !partnerLeft(d) ? 776 : 488;
   const editable = t.phase === 'open' && !ready && !t.view.otherReady && !t.pendingMove;
   const pics: Picture[] = [];
   // the model: every frame piece, the lamps, the partner's name, the cards (CWindowTaskTrade's parts and children)
@@ -133,11 +130,36 @@ function scene(d: TradeDeps, partner: string): WindowSpec[] {
         b.add('CWindowTaskTextSwitch', name, { x: x - 248, y: 256, w: wd, h: 24 }, { name, label, state: enabled ? 'normal' : 'disabled', checked: false, align: 1, color: [0, 0, 0, 1], wx: x, wy: 576, wz: 51104 },
           { key, click: () => { if (enabled) run(); } });
       if (!ready) sw('TradereadySwitch', 444, 130, 'Ready to Trade.', 'trade-ready', () => d.dispatch({ type: 'readyTrade' }), !t.pendingMove);
-      // main shows Cancel once ready (the trunk's EXIT leaves before); here always: the deck editor's menu isn't ported
-      sw('TradecancelSwitch', 588, 80, 'Cancel', 'trade-cancel', () => { ui.cancelAsk = true; d.rerender(); }, true);
     }
     return b.spec();
   };
   const pictures = new WindowBuilder(ids, 'trade-pictures', 'CEnginePictures', { x: 0, y: 0, w: 1024, h: 768 }, { z: 51102, pics });
-  return [pictures.spec(), model.spec(), area(false), area(true)];
+  const out = [pictures.spec(), model.spec(), area(false), area(true)];
+  // the partner gone (live: the scene stays, the line in the strip between the two areas until EXIT)
+  if (partnerLeft(d)) out.push(stripLine(ids, 'Your trade partner left the trade. Nothing was traded.'));
+  return out;
+}
+
+/** The trade ended without an exchange because the partner left it (no refusal from the server, no decline): live keeps
+ * the scene and says so in the strip between the areas. */
+export function partnerLeft(d: Pick<TradeDeps, 'trade' | 'status' | 'reason'>): boolean {
+  const t = d.trade;
+  return t.phase === 'finished' && t.view.success === false && !t.reason && !d.reason && !/declined/.test(d.status) && tradeScene(t);
+}
+/** A line on the strip between the partner's area and this side's (256, 291, 472 x 23: live's grey plate, the text centred). */
+function stripLine(ids: Ids, text: string): WindowSpec {
+  const b = new WindowBuilder(ids, 'trade-strip', 'CTradeStrip', { x: 256, y: 291, w: 472, h: 23 }, { z: 51210 });
+  (b.win as Record<string, unknown>).text = text;
+  const spec = b.spec();
+  spec.after = root => {
+    let plate = root.querySelector<HTMLElement>('.trade-strip-plate');
+    if (!plate) {
+      plate = document.createElement('div'); plate.className = 'trade-strip-plate'; plate.setAttribute('role', 'status');
+      Object.assign(plate.style, { position: 'absolute', left: '0', top: '0', width: '472px', height: '23px', boxSizing: 'border-box', borderRadius: '11px', border: '1px solid #8d97a6',
+        background: 'linear-gradient(#f4f6f8, #d3d8de 55%, #bcc3cc)', boxShadow: 'inset 0 1px #fff', font: '14px/21px Arial, sans-serif', color: '#000', textAlign: 'center', whiteSpace: 'nowrap' });
+      root.append(plate);
+    }
+    if (plate.textContent !== text) plate.textContent = text;
+  };
+  return spec;
 }

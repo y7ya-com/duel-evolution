@@ -42,31 +42,29 @@ describe('card-name declarations', () => {
     const f = fixture();
     const many = Array.from({ length: ANNOUNCE_SHOWN + 5 }, (_, i) => ({ id: String(1000 + i), label: `Card ${i}` }));
     f.update({ scene: 'duel', duel: duel({ prompt: { id: '5', kind: 'announce', text: 'Declare 1 card name.', options: [], declarable: [...list, ...many] } }) }); await Promise.resolve();
-    expect(byKey(f.root, 'prompt-declare:5:')).toHaveLength(ANNOUNCE_SHOWN);
-    expect(f.root.textContent).toContain(`${list.length + many.length} cards: showing the first ${ANNOUNCE_SHOWN}.`);
-    const input = byKey(f.root, 'prompt-announcement:5')[0]!;
-    input.value = 'snatch'; input.oninput?.({});
-    expect(byKey(f.root, 'prompt-declare:5:').map(b => b.textContent)).toEqual(['Snatch Steal']);
-    expect(f.root.textContent).toContain('1 card.');
-    byKey(f.root, 'prompt-declare:5:45986603')[0]!.onclick?.({});
+    // main's dialog.js CWindowModelInput1 (htmlui/duel-dialogs.ts): the search, the matches as rows (ten to a page)
+    const rows = () => f.mounted.htmlUi.windows().flatMap(w => [...w.handlers.entries()].filter(([, h]) => h.key?.startsWith('prompt-declare:5:')).map(([id]) => w.win.controls.find(c => c.id === id)!));
+    expect(rows()).toHaveLength(10);
+    expect(f.mounted.htmlUi.text()).toContain(`${list.length + many.length} cards: showing the first ${ANNOUNCE_SHOWN}.`);
+    expect(f.mounted.htmlUi.type('prompt-announcement:5', 'snatch')).toBe(true);
+    expect(rows().map(c => c.label)).toEqual(['Snatch Steal']);
+    expect(f.mounted.htmlUi.text()).toContain('1 card.');
+    expect(f.mounted.htmlUi.press('prompt-declare:5:45986603')).toBe(true);
     expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: '5', response: { text: '45986603' } });
     // Typing a whole name and Announce still declares it by name.
-    byKey(f.root, 'prompt-announcement:5')[0]!.parentNode!.parentNode!.onsubmit?.({ preventDefault() {} });
+    expect(f.mounted.htmlUi.press('prompt-confirm:5')).toBe(true);
     expect(f.commands.at(-1)).toEqual({ type: 'duelRespond', promptId: '5', response: { text: 'snatch' } });
     f.mounted.dispose();
   });
 });
 
 describe('board selection instructions', () => {
-  it('shows the instruction over the board without blocking it', async () => {
+  it('says what to choose in the duel bar\'s help line only, as live (no banner over the field)', async () => {
     const f = fixture();
     f.update({ scene: 'duel', duel: duel({ instruction: 'Select a target card from the Field.', actionsFor: '3',
       actions: [{ id: 'action:1:5:0:11', label: 'Select: opponent’s spell/trap zone 1', place: { controller: 1, zone: 'spell', index: 0 } }] }) }); await Promise.resolve();
-    const line = byClass(f.root, 'de-duel-instruction');
-    expect(line.map(n => n.textContent)).toEqual(['Select a target card from the Field.']);
-    expect(line[0]!.getAttribute('role')).toBe('status');
-    f.update({ duel: duel({}) }); await Promise.resolve();
     expect(byClass(f.root, 'de-duel-instruction')).toEqual([]);
+    expect(byClass(f.root, 'de-duel-help').map(n => n.getAttribute('aria-label'))).toEqual(['Select a target card from the Field.']);
     f.mounted.dispose();
   });
 });

@@ -1,7 +1,7 @@
 # Social integration API
 
 Import `SocialController`, `SocialState`, `SocialAction` from `features/social` and
-`renderSocialFeature` from `ui/extra/social` (extensionless browser imports).
+the trade's windows from `ui/htmlui/trade.ts` and its trunk from `ui/htmlui/trade-trunk.ts` (extensionless browser imports).
 
 Construct `new SocialController({ send: command => session.send(command), onChange: state => render(state) })`.
 Read `.state` for the initial render; construction sends nothing. Feed lobby messages

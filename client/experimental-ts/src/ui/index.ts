@@ -3,7 +3,6 @@ import { duelOptions } from './contracts';
 import { sideboardDifference } from './deck';
 import { FIELD_LAYOUT, fieldCardPosition, gamePoint, safeImageUrl, validatePromptResponse } from './helpers';
 import { DuelPresentation } from './duel-scene';
-import { AnnouncePanel, ANNOUNCE_CSS } from './duel-announce';
 import { cardBadges, BADGE_CSS } from './duel-counters';
 import { lpPlate, LP_PLATE_CSS, type LpPlate } from './duel-plate';
 import type { WorldRenderer } from './world';
@@ -14,7 +13,6 @@ import { CLIENT_CSS } from './styles';
 import { SKIN_CSS } from './skin';
 import { duelConfigWindow, titleOptionsWindow, DUEL_OPTIONS_TEXTS, type OptionsDeps, type OptionsUi } from './htmlui/options';
 import { closeAudioPage, openAudioPage } from './htmlui/audio-page';
-import { renderTradeTrunk } from './extra/social';
 import { renderTagLobby, TAG_CSS } from './extra/tag';
 import { changeAvatarAction, freeChoices } from './htmlui/avatar';
 import { Ids } from './htmlui/snapshot';
@@ -37,14 +35,16 @@ import { DeckScene } from './htmlui/deck-scene';
 import { DeckDom } from './htmlui/deck-dom';
 import { cardShopHost } from './htmlui/card-shop';
 import { pageModules } from './htmlui/page-modules';
-import { sceneVeilUp, VEIL_EVENT } from './htmlui/scene-loading';
+import { sceneVeilUp, VEIL_EVENT, SCENE_LOADING_ATTR } from './htmlui/scene-loading';
 import { npcClosable, npcItemGetUi, npcItemGetWindows } from './htmlui/npc-itemget';
 import { installLazyShim } from './htmlui/lazy-shim';
 import { FLAG_ATLAS, flagCell } from './nation-flag';
 import { NPC_STAR_BIG, NPC_STAR_SMALL } from '../avatars/npc';
 import { barReserve, onBarReserve } from '@htmlui/screens/lobby_icons.js';
 import { titleName } from '../features/titles';
-import { tradeLocal, tradeWindows, tradeScene, trunkOpen } from './htmlui/trade';
+import { tradeLocal, tradeWindows, tradeScene, trunkOpen, partnerLeft } from './htmlui/trade';
+import { cardSwapMenu } from './htmlui/card-swap-menu';
+import { TradeTrunk, isTradeTrunk } from './htmlui/trade-trunk';
 import { deckBackdrop } from '@htmlui/screens/deck.js';
 import { PictureArt } from './htmlui/art';
 import { setPictureResolver, disposePictures } from './htmlui/pictures';
@@ -52,9 +52,12 @@ import { StartScene, PORTRAIT_AT } from './htmlui/start-scene';
 import { TitleScene, type TitleButton } from './htmlui/title-scene';
 import { BUST_AT } from './htmlui/windows';
 import { loginLocal, loginWindow } from './htmlui/login';
-import { duelDialog, duelDialogCovers, loadDuelSpeed } from './htmlui/duel-dialogs';
+import { duelDialog, duelDialogCovers, duelOkDialog, loadDuelSpeed } from './htmlui/duel-dialogs';
+import { NetNote } from './htmlui/net-note';
+import { duelCmdWindow, duelCmdRect, menuCommand, SURRENDER_COMMAND, type DuelCmdRow, type DuelCmdUi } from './htmlui/duel-cmd';
 import { DuelSpeedButton } from './htmlui/duel-speed';
-import { duelResultWindows, preparationDialog, type PrepChoice } from './htmlui/duel-result';
+import { duelResultWindows } from './htmlui/duel-result';
+import { jankenScene, JANKEN_CSS, type JankenView } from './janken-scene';
 export type * from './contracts';
 
 type Child = Node | string | null | undefined;
@@ -155,7 +158,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   let state = controller.getState();
   const local: LocalState = { message: '', inspected: null, inspectedFrom: 'collection', promptInspection: null, promptId: null, selected: new Set(), sideboardRound: null, sideboardMain: null, sideboardSide: null, roomOptions: {}, roomPassword: '', username: '', characterName: '', characterSlot: 0, noticeSeen: 0, tradeSearch: '', logScroll: null, duelCmd: null, helpText: '', helpFrom: 0 };
   const host = el('section', 'de-client'); host.setAttribute('aria-label', 'Duel Evolution');
-  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + ANNOUNCE_CSS + BADGE_CSS + LP_PLATE_CSS;
+  const css = el('style'); css.textContent = CLIENT_CSS + TAG_CSS + SKIN_CSS + BADGE_CSS + LP_PLATE_CSS + JANKEN_CSS;
   const header = el('header', 'de-top'), stage = el('main', 'de-stage'), nav = el('nav', 'de-nav'); nav.setAttribute('aria-label', 'Game menu');
   host.append(css, header, stage, nav); root.append(host);
   // phones and tablets: live's stage.js (the frame fitted to the visible viewport, the rotate prompt, first-tap fullscreen)
@@ -308,11 +311,22 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   };
   // the trade (src/ui/htmlui/trade.ts): main's trade windows and dialogs over any scene but the title and Select Player
   const tradeUi = tradeLocal();
+  // the trade's trunk: the deck screen's CWindowModelKaban (htmlui/trade-trunk.ts), its rows through their own card layer
+  const tradeTrunk = new TradeTrunk({ card: passcode => socialOptions().card(passcode), dispatch: action => send({ type: 'socialAction', action }), rerender: () => showHtml(),
+    editable: () => { const t = controller.getState().socialDetail?.trade; return !!t && t.phase === 'open' && !t.view.ready && !t.view.otherReady && !t.pendingMove && t.ownOffer.length < 10; } });
+  let tradeDom: DeckDom | null = null;
   const tradeSpecs = (): WindowSpec[] => {
     const sd = state.socialDetail; if (!sd || sd.trade.phase === 'idle' || ['title', 'characters'].includes(state.scene)) return [];
     const reason = tradeReason();
-    return tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
+    const out = tradeWindows({ trade: sd.trade, ui: tradeUi, ids: htmlIds, dispatch: action => send({ type: 'socialAction', action }), rerender: showHtml,
       name: passcode => socialOptions().card?.(passcode).name ?? `Card ${passcode}`, status: sd.status, ...(reason ? { reason } : {}) });
+    // Card Swap's columns: the menu (CARD SWAP, EXIT) and the card detail at the left, the trunk at the right (open while
+    // this side may offer, and after the partner left, as live), over the trade's scene windows, under its dialogs
+    const scene = tradeScene(sd.trade), left = partnerLeft({ trade: sd.trade, status: sd.status, ...(reason ? { reason } : {}) });
+    const trunk = tradeTrunk.window(htmlIds, sd.trade, scene && (trunkOpen(sd.trade) || left));
+    const columns = scene ? [cardSwapMenu(htmlIds, { exit: () => send({ type: 'socialAction', action: { type: 'cancelTrade' } }), disabled: !!state.busy }), tradeTrunk.detail(htmlIds), ...trunk ? [trunk] : []] : [];
+    out.splice(out.findIndex(w => w.win.cls === 'CWindowTaskCardArea') + 1 || out.length, 0, ...columns);
+    return out;
   };
   // the title's sign-in, signed out: live's CWindowLogin (rt/session.cpp's panel, htmlui/login.ts)
   const loginUi = loginLocal();
@@ -433,24 +447,60 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     return out;
   };
   let languageErrorSeen = '';
-  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs(), ...prepSpecs()]; };
+  const sceneWindows = (): WindowSpec[] => { duelSpeedButton.show(state.scene === 'duel' && (!!state.duel || !!state.preparation)); return [...loginSpecs(), ...tradeSpecs(), ...npcTalkSpecs(), ...npcPackSpecs(), ...npcItemSpecs(), ...titleSpecs(), ...optionsSpecs(), ...duellogSpecs(), ...tournamentSpecs(), ...duelSpecs()]; };
   // The duel's question dialogs (main's screens/duel.js: htmlui/duel-dialogs.ts) and the duel speed button (main's
   // duelspeed.js) while the layer is up; card lists, free number entry and declarations stay the duel screen's panel.
   // live's duel speed button (main's duelspeed.js) is the page's, in its top right corner beside the game, not a window
   const duelSpeedButton = new DuelSpeedButton({ stage: () => stage, changed: speed => { duelScene.fx.speed = speed; } });
   let duelHover: { selected: Set<string>; hover?: string | null; draft?: string; page?: number } = { selected: new Set(), hover: null };
-  const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!htmlUi && !!prompt && duelDialogCovers(prompt) && !state.preparation;
-  // Janken, who goes first, Start Duel: main's duel.js dialog look (htmlui/duel-result.ts preparationDialog)
-  const prepChoice = (): PrepChoice | null => {
-    const prep = state.preparation; if (!prep || state.sideboarding) return null;
-    const phase = prep.phase.toLowerCase(), seen = prep.opponentHand !== undefined && prep.opponentHand !== null ? ` Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand!] ?? 'an unknown hand'}.` : '';
-    if (prep.role === 'partner' || prep.role === 'spectator') return { text: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…', buttons: [] };
-    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) return { text: `Choose your hand.${seen}`, buttons: (['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => ({ id: label.toLowerCase(), label, act: () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }) })) };
-    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { text: `You won! Choose who goes first.${seen}`, buttons: [{ id: 'first', label: 'Go First', act: () => send({ type: 'chooseFirst', first: true }) }, { id: 'second', label: 'Go Second', act: () => send({ type: 'chooseFirst', first: false }) }] };
-    if (/ready|begin|confirm|invitation/.test(phase)) return { text: `Duel Preparation${seen}`, buttons: [{ id: 'start', label: 'Start Duel', act: () => send({ type: 'beginDuel' }) }] };
-    return { text: `Waiting for the other duelist…${seen}`, buttons: [] };
+  const htmlDuelPrompt = (prompt: DuelPromptView | null | undefined): boolean => !!prompt && duelDialogCovers(prompt) && !state.preparation;
+  // Rock-paper-scissors and who goes first: live's own scene (janken-scene.ts) in place of the field; the step after
+  // the hands goes straight on into the duel (live has no Start Duel)
+  let jankenMine: number | null = null, jankenBegun: unknown = null;
+  const jankenView = (): JankenView | null => {
+    // (each duel's hands anew: the last duel's pick is forgotten once its preparation is over)
+    const prep = state.preparation; if (!prep || state.sideboarding) { jankenMine = null; return null; }
+    const phase = prep.phase.toLowerCase(), theirs = prep.opponentHand ?? null, busy = !!state.busy;
+    if (prep.role === 'partner' || prep.role === 'spectator') return { phase: 'wait', mine: null, theirs, busy, thinking: false, message: prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…' };
+    if (/ready|begin|confirm|invitation/.test(phase)) {
+      if (jankenBegun !== prep) { jankenBegun = prep; queueMicrotask(() => { if (!disposed && controller.getState().preparation === prep) send({ type: 'beginDuel' }); }); }
+      return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: false };
+    }
+    if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
+      // a tie: the hands again
+      if (jankenMine !== null && theirs !== null) jankenMine = null;
+      return { phase: 'hand', mine: jankenMine, theirs: jankenMine === null ? null : theirs, busy, thinking: true };
+    }
+    if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) return { phase: 'first', mine: jankenMine, theirs, busy, thinking: false };
+    return { phase: 'wait', mine: jankenMine, theirs, busy, thinking: /first/.test(phase) };
   };
-  const prepSpecs = (): WindowSpec[] => { const c = prepChoice(); return c ? [preparationDialog(htmlIds, !!state.busy, c)] : []; };
+  // A card's open command menu (live's CUSummonDialogSp, htmlui/duel-cmd.ts): what renderDuel gathered for it; the row
+  // under the pointer is the menu's own. As live (CUSummonDialogSp::onMain) it closes when the pointer leaves the card
+  // and the menu, goes below the field (y 600), or a click lands elsewhere; Escape closes it too.
+  let duelCmdView: { at: { x: number; top: number; hand: boolean }; rows: DuelCmdRow[]; name: string; owner: string } | null = null;
+  const duelCmdUi: DuelCmdUi = { hover: 0 };
+  const openCmd = (id: string | null) => { local.duelCmd = id; duelCmdUi.hover = 0; requestRender(); };
+  const closeCmd = () => { if (local.duelCmd === null) return; local.duelCmd = null; duelCmdView = null; requestRender(); };
+  const cmdKeepsOpen = (e: PointerEvent | MouseEvent): boolean => {
+    const view = duelCmdView, box = stage.getBoundingClientRect(); if (!view || !box.width) return false;
+    const k = box.width / 1024, x = (e.clientX - box.left) / k, y = (e.clientY - box.top) / k;
+    if (y > 600 && !view.at.hand) return false;
+    const menu = duelCmdRect(view.at, view.rows.length), card = fieldNodes.get(view.owner)?.getBoundingClientRect() ?? host.querySelector('[data-key="field-deck:0"]')?.getBoundingClientRect();
+    const c = card && card.width ? { x: (card.left - box.left) / k, y: (card.top - box.top) / k, w: card.width / k, h: card.height / k } : { x: menu.x, y: menu.y + menu.h, w: menu.w, h: 0 };
+    // the card and the menu with the gap between them (a hand card's menu ends above its top edge)
+    const left = Math.min(menu.x, c.x), right = Math.max(menu.x + menu.w, c.x + c.w), top = menu.y, bottom = Math.max(menu.y + menu.h, c.y + c.h);
+    return x >= left && x < right && y >= top && y < bottom;
+  };
+  const cmdPointer = (e: PointerEvent) => { if (local.duelCmd !== null && duelCmdView && e.pointerType !== 'touch' && !cmdKeepsOpen(e)) closeCmd(); };
+  const cmdPress = (e: PointerEvent) => {
+    if (local.duelCmd === null || !duelCmdView) return;
+    const t = e.target as Element | null;
+    if (t?.closest?.('.win[data-window-class="CUSummonDialogSp"]') || t?.closest?.(`[data-key="field-card:${duelCmdView.owner}"]`) || duelCmdView.owner === 'deck:0' && t?.closest?.('[data-key="field-deck:0"]')) return;
+    closeCmd();
+  };
+  globalThis.addEventListener?.('pointermove', cmdPointer, true); globalThis.addEventListener?.('pointerdown', cmdPress, true);
+  let referenceShown: string | null = null;
+  const netNote = new NetNote();
   const duelSpecs = (): WindowSpec[] => {
     const duel = state.duel; if (state.scene !== 'duel' || !duel) return [];
     const out: WindowSpec[] = [];
@@ -459,17 +509,26 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const npcRec = state.npc?.npc && state.npc.record && state.npc.result && !['idle', 'duel'].includes(state.npc.stage) ? { name: state.npc.npc.name, record: state.npc.record } : undefined;
     if (duel.ended && !state.sideboarding && !state.replay) out.push(...duelResultWindows({ ids: htmlIds, duel, match: state.match, npc: npcRec, ...(!state.match || state.match.complete ? { next: () => open('lobby') } : {}) }));
     if (state.replay) out.push(replayWindow(htmlIds, state.replay, action => send({ type: 'replayControl', action })));
+    if (duelCmdView && local.duelCmd === duelCmdView.owner) out.push(duelCmdWindow({ ids: htmlIds, ...duelCmdView, ui: duelCmdUi, rerender: showHtml }));
+    // the duel's information box (a refused surrender, a lost opponent, time up): live's CUOkDialog, until OK; it stands
+    // over the question the server re-sends after it
+    if (!duel.notice) local.noticeSeen = 0;
+    const notice = duel.notice;
+    if (notice && notice.id > local.noticeSeen) out.push(duelOkDialog(htmlIds, String(notice.id), notice.text, () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); showHtml(); }));
     const prompt = duel.prompt;
     if (prompt && htmlDuelPrompt(prompt)) {
       if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; duelHover = { selected: local.selected, hover: null }; }
       duelHover.selected = local.selected;
       const spec = duelDialog({ ids: htmlIds, busy: !!state.busy, local: duelHover, respond: response => respondToPrompt(prompt.id, response), rerender: showHtml,
-        inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) { inspect(card, 'duel'); requestRender(); } } }, prompt);
+        inspect: id => { const card = prompt.candidates?.find(c => c.id === id)?.card; if (card) inspect(card, 'duel'); } }, prompt);
       if (spec) out.push(spec);
-    } else if (prompt && htmlUi && !state.preparation) {
-      // the help strip (CWindowModelHelp) over the field while the duel screen's own panel asks (cards, places, declarations)
+    } else if (prompt && !state.preparation) {
+      // a choice on the field (a zone, a card): the help strip (CWindowModelHelp) says what to choose, the field's zones
+      // and cards take it, the right button cancels (when the server allows)
       const help = duelHelpStrip(htmlIds, prompt.text); if (help) out.push(help);
     }
+    // the card a question is about shows in the card information box, as it opens
+    if (prompt && prompt.id !== referenceShown) { referenceShown = prompt.id; const card = prompt.kind !== 'cards' && prompt.kind !== 'announce' ? prompt.candidates?.find(c => c.card)?.card : undefined; if (card) duelScene.showCard(card); }
     return out;
   };
   // the original's UI strings main's dialogs say (yo2text_?: Delete's prompts), read once the original data is there
@@ -500,14 +559,19 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const engineScene = () => ({ characters: 7, lobby: state.mode === 'free' ? 12 : 11, shop: 14, deck: 0x24 } as Partial<Record<Scene, number>>)[state.scene] ?? 0;
   // the chat's Duels tab, the Players window's Discord rows, the ?duel= auto-join (htmlui/discord-wire.ts)
   const discord = discordWire({ ui: htmlUiState, state: () => state, send: command => send(command), rerender: () => showHtml(), search: globalThis.location?.search ?? '' });
+  // the card pictures and archive art of the deck windows' card layers (deck-dom.ts)
+  const cardArt = () => ({ ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
   const showHtml = () => {
     askGameTexts(); syncStartScene(); discord.tick();
     if (disposed) return;
-    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
-    if (!htmlUi) { if (deckDom) { const d = deckScene.stageView(); deckDom.show(buildHtml(), d.detail, d.drag); } syncPortrait(); return; }
+    if (!deckDom && state.scene === 'deck' && typeof globalThis.document !== 'undefined') deckDom = new DeckDom(host, deckScene, { art: '/ui/', ...cardArt(), owns: w => !isTradeTrunk(w) });
+    const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade);
+    if (!tradeDom && trading && typeof globalThis.document !== 'undefined') tradeDom = new DeckDom(htmlUi?.host ?? host, tradeTrunk, { art: htmlUi ? new URL('/ui/', location.href).href : '/ui/', ...cardArt(), owns: isTradeTrunk });
+    if (!htmlUi) { const specs = deckDom || tradeDom ? buildHtml() : []; if (deckDom) { const d = deckScene.stageView(); deckDom.show(specs, d.detail, d.drag); } tradeDom?.show(specs, tradeTrunk.detailView(), null); syncPortrait(); return; }
     const specs = buildHtml(), deck = deckScene.stageView();
     htmlUi.show(specs, ['title', 'characters'].includes(state.scene), engineScene());
     deckDom?.show(specs, deck.detail, deck.drag);
+    tradeDom?.show(specs, tradeTrunk.detailView(), null);
     syncPortrait();
   };
   /** The waist-up portraits the game draws under its windows outside Select Player (src/ui/htmlui/start-scene.ts's
@@ -546,11 +610,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       gameCursor?.dispose();
       gameCursor = new GameCursor({ art, stage: () => stage, busy: () => !!controller.getState().busy });
       if (deckDom) deckDom.dispose();
-      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...(controller.loadCardImage ? { card: (pc: number, signal: AbortSignal) => controller.loadCardImage!(pc, signal) } : {}), ...(controller.loadArchiveImage ? { archive: (path: string, signal: AbortSignal) => controller.loadArchiveImage!(path, signal) } : {}) });
+      deckDom = new DeckDom(htmlUi.host, deckScene, { art, ...cardArt(), owns: w => !isTradeTrunk(w) });
+      if (tradeDom) { tradeDom.dispose(); tradeDom = null; }
       // what the editor holds, for tests and assistive tools (main's yo2Html.snapshot() has the windows only)
       const g = globalThis as { yo2Html?: Record<string, unknown> };
       if (g.yo2Html) {
         g.yo2Html.deckState = () => deckScene.inspect();
+        // the trade trunk's whole list (its window shows eleven rows), and a row scrolled into view
+        g.yo2Html.tradeTrunk = () => tradeTrunk.list();
+        g.yo2Html.tradeTrunkReveal = (row: number) => tradeTrunk.reveal(row);
         // main's right-click / double-click moves wait on the game's drag (screens/deck.js quickInstall: deckDrag.state)
         const base = g.yo2Html.snapshot as (() => object | null) | undefined;
         if (base) g.yo2Html.snapshot = () => { const s = base(); return s && { ...s, deckDrag: { state: deckScene.ui.drag ? 1 : 0 } }; };
@@ -565,7 +633,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   }
   interface ArtEntry { code: string; load: (signal: AbortSignal) => Promise<{ url: string; release(): void }>; abort: AbortController; images: Set<HTMLImageElement>; used: boolean; pending: boolean; failed: boolean; lease: { url: string; release(): void } | null; }
   const fieldNodes = new Map<string, HTMLElement>();
-  const announce = new AnnouncePanel();
   const duelScene = new DuelPresentation(controller.loadArchiveImage?.bind(controller) ?? null);
   duelScene.fx.speed = loadDuelSpeed();
   const avatarNodes = new Map<number, HTMLElement>();
@@ -733,10 +800,21 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const sceneRoot = (heading: string): HTMLElement => {
     const n = el('section', 'de-scene'); n.setAttribute('aria-label', heading); stage.append(n); return n;
   };
-  const emptyPanel = (scene: Scene, heading: string, message: string) => {
-    const n = sceneRoot(heading), panel = el('section', 'de-panel de-center de-stack', title(heading), el('p', '', state.unavailable?.[scene] || message));
-    if (!state.unavailable?.[scene]) panel.append(button('Refresh', () => send({ type: 'refresh', scene }), !!state.busy));
-    panel.append(button('Back', () => open(state.player ? 'lobby' : 'title'))); n.append(panel);
+  // A scene whose data has not come yet (the deck editor's decks, the duel's first state, the lobby's world, the shop's
+  // catalogue): live's loader veil stays over it until it has (htmlui/scene-loading.ts SCENE_LOADING_ATTR), as over a
+  // scene the runtime is loading. A load that failed is main's error dialog (duelPrompts); its OK leaves the scene.
+  const loadingScene = (scene: Scene, heading: string) => {
+    const n = sceneRoot(heading), failed = !state.busy && (state.error || local.message);
+    if (!failed) { n.setAttribute(SCENE_LOADING_ATTR, 'true'); n.setAttribute('aria-busy', 'true'); return; }
+    if (failed === errorSeen && scene !== 'lobby') queueMicrotask(() => { if (!disposed && controller.getState().scene === scene) open(state.player ? 'lobby' : 'title'); });
+  };
+  // a scene this mode lacks (Free Duel's shop door): the reason in main's error dialog, its OK back to the lobby
+  let unavailableShown: Scene | null = null;
+  const unavailableScene = (scene: Scene, heading: string) => {
+    sceneRoot(heading);
+    const reason = state.unavailable?.[scene] ?? 'This feature is unavailable.';
+    if (unavailableShown !== scene) { unavailableShown = scene; local.message = reason; return; }
+    if (errorSeen === reason) queueMicrotask(() => { if (!disposed && controller.getState().scene === scene) { unavailableShown = null; open(state.player ? 'lobby' : 'title'); } });
   };
   // the title's movie buttons (htmlui/title-scene.ts), as live: ONLINE signs in (the sign-in window, signed out) and
   // goes online, OPTIONS opens its OPTIONS window (COptionDlg), DECK EDITOR and FREE DUEL start free mode (ovr/freemode.c)
@@ -811,7 +889,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     void ch; startScene.show({ logo: true, portrait: null, reducedMotion: false });
   }
   function renderLobby(): void {
-    if (!state.lobby) return emptyPanel('lobby', 'Lobby', 'Waiting for the online world.');
+    if (!state.lobby) return loadingScene('lobby', 'Lobby');
     const lobby = state.lobby;
     // the world's press target (a click walks there, a held button walks on: phone.ts holdToWalk), under the PixiJS world
     const map = el('div', 'de-lobby-map'); map.setAttribute('role', 'application'); map.setAttribute('aria-label', 'Lobby map'); map.tabIndex = 0; map.dataset.key = 'lobby-map';
@@ -870,7 +948,8 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
         { from: 'No', key: 'duel-decline', aria: 'Decline', click: () => { if (!busy) send({ type: 'replyChallenge', accept: false }); } }]));
     // main's card shop says its own failures in its page ("Couldn't open the shop", Try again): the app's catalogue
     // refresh behind it failing is no dialog of its own (one would sit under the shop, out of reach)
-    const message = state.scene === 'deck' || useCardShop() && !local.message ? '' : state.error || local.message;
+    // (the deck screen says its refusals in its own OK dialog: not before it is drawn, a failed load of its decks is this one)
+    const message = state.scene === 'deck' && state.deckEditor || useCardShop() && !local.message ? '' : state.error || local.message;
     // the sign-in window says its own refusals on its status line (live session.cpp status): no dialog over its button
     const onLogin = showsLogin() && (message === state.error || message === state.accountDetail?.error);
     if (message && message !== errorSeen && !onLogin) out.push(stockDialog({ ids: htmlIds }, 'error', 'error', message,
@@ -878,11 +957,12 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (!message) errorSeen = '';
     return out;
   }
-  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { local.inspected = card; local.inspectedFrom = from; requestRender(); }
+  // a duel card's details are live's card information box (the duel screen's bottom-left box, duel-scene.ts)
+  function inspect(card: CardView, from: DeckZone | 'collection' | 'duel' = 'collection'): void { if (from === 'duel') { duelScene.showCard(card); return; } local.inspected = card; local.inspectedFrom = from; requestRender(); }
   // The deck editor is main's deck screen (src/ui/htmlui/deck-scene.ts: its windows on the layer, the card pictures and
   // the mouse on the layer's engine side); the stage keeps only the scene's name, and a refusal shows in main's dialog
   function renderDeck(): void {
-    const editor = state.deckEditor; if (!editor) return emptyPanel('deck', 'Edit Deck', 'Loading your decks and collection.');
+    const editor = state.deckEditor; if (!editor) return loadingScene('deck', 'Edit Deck');
     sceneRoot('Edit Deck');
     if (editor.error) local.message ||= editor.error;
     deckScene.notice(state.error || local.message);
@@ -918,8 +998,18 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   function renderShop(): void {
     if (useCardShop()) sceneRoot('Card Shop').append(cardShop.node());
   }
+  function relayRoster(): HTMLElement { const relay = state.relay!; const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = relay.players[2 * team + slot], active = relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } return roster; }
   function renderDuel(): void {
-    const duel = state.duel; if (!duel) return emptyPanel('duel', 'Duel', 'Waiting for duel state.');
+    // before the field: rock-paper-scissors and who goes first, live's own scene (no field, plates, bar or chat)
+    const jv = jankenView();
+    if (jv) {
+      const portraits = duelScene.jankenPortraits(state.duel?.players ?? null);
+      stage.append(jankenScene(jv, { hand: hand => { jankenMine = hand; send({ type: 'chooseHand', hand }); }, first: first => send({ type: 'chooseFirst', first }) },
+        controller.loadArchiveImage ? loadArchiveArt : null, portraits));
+      if (state.relay) stage.append(relayRoster());
+      return;
+    }
+    const duel = state.duel; if (!duel) { loadingScene('duel', 'Duel'); return; }
     // The field keeps the original 4:3 geometry on every screen; on a tall phone the log, actions and prompts sit below it.
     const board = el('div', 'de-duel-board'); stage.append(board);
     // under the original field art (while it loads, or without it): the zone outlines of the original sheet
@@ -974,9 +1064,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       bar.append(cell);
     });
     board.append(bar);
-    // A choice made on the board itself (a target, a Tribute, a zone) says what to choose, without covering the board.
-    if (duel.instruction) { const line = el('div', 'de-duel-instruction', duel.instruction); line.setAttribute('role', 'status'); board.append(line); }
-    if (state.relay) { const roster = el('aside', 'de-relay-roster'); roster.setAttribute('aria-label', 'Tag relay teams'); for (const team of [0, 1] as const) { const group = el('section', 'de-relay-team'); for (const slot of [0, 1] as const) { const member = state.relay.players[2 * team + slot], active = state.relay.active[team] === slot; const row = el('div', 'de-relay-member', el('strong', '', member?.name ?? 'Waiting for player'), note(active ? state.relay.self === 255 ? 'Team pilot' : team ? 'Opponent playing' : state.relay.self === slot ? 'You are playing' : 'Partner playing' : 'Tag partner')); row.dataset.active = String(active); group.append(row); } roster.append(group); } stage.append(roster); }
+    // A choice made on the board itself (a target, a Tribute, a zone) says what to choose in the duel bar's help line
+    // only, as live (no banner over the field)
+    if (state.relay) stage.append(relayRoster());
     const cards = el('div', 'de-field-cards');
     const visibleCardIds = new Set<string>();
     // Only the topmost card of a pile is drawn; counts remain visible without allocating one DOM tree per deck card.
@@ -989,14 +1079,28 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     for (const c of duel.cards) if (pileTop.get(`${c.controller}/${c.zone}`) === c.index && pileOf.has(c.id)) topOf.set(`${c.controller}/${c.zone}`, c.id);
     // The command list (CWindowModelListDuelCmd) of each card: its own actions, a pile's on its top card
     const commands = new Map<string, DuelOption[]>();
+    // (a selection of a card under a pile's top: on that pile's list too, as no card of its own is there to click; an
+    // action of no card and no zone: on the player's deck)
+    const ownDeckTop = topOf.get('0/deck'), canSurrender = !duel.spectating && !duel.ended, DECK_ZONE = 'deck:0';
     for (const a of duel.actions ?? []) {
-      if (!a.cardId || a.label.startsWith('Select:')) continue;
-      const pile = pileOf.get(a.cardId), at = pile ? topOf.get(pile) ?? a.cardId : a.cardId;
+      if (a.place || a.id === 'cancel' || a.id.startsWith('phase:')) continue;
+      const pile = a.cardId ? pileOf.get(a.cardId) : undefined;
+      if (a.cardId && a.label.startsWith('Select:') && (!pile || topOf.get(pile) === a.cardId)) continue;
+      const at = !a.cardId ? ownDeckTop ?? DECK_ZONE : pile ? topOf.get(pile) ?? a.cardId : a.cardId;
       commands.set(at, [...commands.get(at) ?? [], a]);
     }
-    const ownDeckTop = topOf.get('0/deck'), canSurrender = !duel.spectating && !duel.ended;
+    // A choice on the field the server asks for (a 'place' prompt: a zone, a card on either side, a card to discard or
+    // tribute) is made on the zone or the card itself, as live; a card under a pile's top on that pile's list
+    const fieldPrompt = duel.prompt?.kind === 'place' ? duel.prompt : null, promptChoices = new Set<string>();
+    for (const o of fieldPrompt?.options ?? []) {
+      if (o.place && !o.cardId) continue;
+      const pile = o.cardId ? pileOf.get(o.cardId) : undefined;
+      if (o.cardId && (!pile || topOf.get(pile) === o.cardId)) continue;
+      const at = !o.cardId ? ownDeckTop ?? DECK_ZONE : topOf.get(pile!) ?? o.cardId;
+      commands.set(at, [...commands.get(at) ?? [], o]); promptChoices.add(o.id);
+    }
+    const choose = (id: string) => { if (fieldPrompt) respondToPrompt(fieldPrompt.id, { optionId: id }); };
     const surrenderNow = () => { local.duelCmd = null; confirmAction('Surrender this duel?', () => send({ type: 'surrender' }), 'surrender'); };
-    const listed = new Set([...commands.values()].flat().map(a => a.id));
     for (const c of duel.cards) {
       if (['deck', 'graveyard', 'banished', 'extra'].includes(c.zone) && c.index !== pileTop.get(`${c.controller}/${c.zone}`)) continue;
       visibleCardIds.add(c.id);
@@ -1006,14 +1110,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // A board selection (an attack target, a card to choose on either side) is made on the card itself, as in the original.
       const cardActions = (duel.actions ?? []).filter(a => a.cardId === c.id), selection = cardActions.length === 1 && !cardActions[0]!.disabled && cardActions[0]!.label.startsWith('Select:') ? cardActions[0]! : null;
       // live: a click (or a right click) on a card opens its command list; a card with none shows its details
-      const listOn = (commands.get(c.id)?.length ?? 0) > 0 || canSurrender && c.id === ownDeckTop;
-      // the hand's faces carry no names (live): the name is the card's label, tooltip and details
-      const p = fieldCardPosition(c, handCount), tile = drawCard(c, c.zone !== 'hand' && state.settings.showCardNames, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { local.duelCmd = local.duelCmd === c.id ? null : c.id; requestRender(); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
-      b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) { local.duelCmd = c.id; requestRender(); } };
+      const listOn = (commands.get(c.id)?.length ?? 0) > 0 || (canSurrender || !!duel.spectating) && c.id === ownDeckTop || !!duel.spectating && c.zone === 'deck';
+      // no name bands on the field (live draws the card pictures alone): the name is the card's label, tooltip and details
+      const p = fieldCardPosition(c, handCount), tile = drawCard(c, false, c.faceUp), b = button('', () => { const target = duel.prompt?.options.find(o => o.cardId === c.id && !o.disabled); if (target && duel.prompt) respondToPrompt(duel.prompt.id, { optionId: target.id }); else if (selection) { if (!state.busy) sendAction(duel, selection.id); } else if (listOn) { openCmd(local.duelCmd === c.id ? null : c.id); } else if (c.faceUp || ownSet) { inspect(c, 'duel'); if (c.faceUp) send({ type: 'inspectCard', cardId: c.id }); } });
+      b.oncontextmenu = event => { event.preventDefault(); if (listOn && !selection) openCmd(c.id); };
       if (c.faceUp || ownSet) b.title = c.name;
       if (listOn) b.setAttribute('aria-haspopup', 'menu');
       b.dataset.key = `field-card:${c.id}`; b.dataset.side = c.controller ? 'opponent' : 'your'; b.dataset.zone = c.zone; b.dataset.index = String(c.index); if (c.zone === 'monster') b.dataset.position = c.position ?? 'attack';
-      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${selection ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (selection) b.title = selection.label;
+      const choice = fieldPrompt?.options.find(o => o.cardId === c.id && !o.disabled), target = selection ?? choice;
+      b.className = `de-card de-field-card${c.faceUp ? '' : ' de-card-back'}${p.rotate ? ' defense' : ''}${target ? ' de-card-target' : ''}`; b.append(...Array.from(tile.childNodes)); if (target) b.title = target.label;
       placeFieldCard(b, c, handCount); fieldNodes.set(c.id, b);
       const counters = c.faceUp ? (c.counters ?? []).filter(counter => counter.count > 0) : [], turnCounter = c.faceUp ? c.turnCounter ?? 0 : 0;
       const counterText = counters.map(counter => `${counter.kind === 0 ? 'Spell counters' : `Counter ${counter.kind}`}: ${counter.count}`).join(', ');
@@ -1028,42 +1133,42 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (pileTop.has(`${c.controller}/${c.zone}`)) b.append(el('span', 'de-card-count', String(duel.cards.filter(x => x.controller === c.controller && x.zone === c.zone).length)));
       cards.append(b);
     }
-    // Zone selections (where to summon or set): the empty zones themselves are the controls, as in the original.
-    for (const action of (duel.actions ?? []).filter(a => a.place && !a.cardId)) {
+    // Zone selections (where to summon or set, a zone the server asks for): the empty zones themselves are the controls, as in the original.
+    for (const action of [...(duel.actions ?? []), ...fieldPrompt?.options ?? []].filter(a => a.place && !a.cardId)) {
       const p = fieldCardPosition({ id: action.id, name: '', controller: action.place!.controller, zone: action.place!.zone, index: action.place!.index, faceUp: false }, 0);
-      const zone = button('', () => sendAction(duel, action.id), !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
+      const zone = button('', () => { if (fieldPrompt?.options.includes(action)) choose(action.id); else sendAction(duel, action.id); }, !!action.disabled || !!state.busy); zone.className = 'de-zone-target'; zone.dataset.key = `zone:${action.id}`; zone.setAttribute('aria-label', action.label); zone.title = action.label;
       zone.style.left = `${p.x / 1024 * 100}%`; zone.style.top = `${p.y / 768 * 100}%`; zone.style.width = `${76 / 1024 * 100}%`; zone.style.height = `${104 / 768 * 100}%`;
       cards.append(zone);
     }
     board.append(cards); effectsLayer = el('div', 'de-duel-effects'); effectsLayer.setAttribute('aria-hidden', 'true'); board.append(effectsLayer); presentEffects(duel); duelScene.mount(board, duel, state.settings.reducedMotion);
-    // The open command list (CUSummonDialogSp on CWindowModelListDuelCmd, main's duel.js look): the card's commands, one
-    // striped row each, over the card; Surrender on the player's own deck (as live)
-    const cmdCard = local.duelCmd ? duel.cards.find(c => c.id === local.duelCmd && visibleCardIds.has(c.id)) : undefined;
-    const cmdRows = cmdCard ? commands.get(cmdCard.id) ?? [] : [], cmdSurrender = !!cmdCard && canSurrender && cmdCard.id === ownDeckTop;
-    if (!cmdCard || !cmdRows.length && !cmdSurrender) local.duelCmd = null;
-    else {
-      const at = fieldCardPosition(cmdCard, handCounts[cmdCard.controller]), readable = cmdCard.faceUp || isOwnSetCard(cmdCard);
-      const list = el('div', 'de-duel-cmd'); list.setAttribute('role', 'menu'); list.setAttribute('aria-label', `${readable ? cmdCard.name : 'Card'}: commands`);
-      list.style.left = `${Math.max(4, Math.min(1024 - 164, at.x - 80)) / 1024 * 100}%`;
-      list.style.bottom = `${Math.min(700, 768 - (at.y - at.height / 2) + 4) / 768 * 100}%`;
-      const row = (word: string, label: string, key: string, run: () => void, disabled = false) => {
-        const r = button(word, run, disabled); r.className = 'de-duel-cmd-row'; r.dataset.key = key; r.setAttribute('role', 'menuitem'); r.setAttribute('aria-label', label); list.append(r);
-      };
-      for (const a of cmdRows) row(a.label.replace(/:.*$/, ''), a.label, `duel-cmd:${a.id}`, () => { local.duelCmd = null; sendAction(duel, a.id); }, !!a.disabled || !!state.busy);
-      if (cmdSurrender) row('Surrender', 'Surrender', 'duel-surrender', surrenderNow, !!state.busy || state.relay?.canAct === false);
-      if (readable) row('Card Details', `Details: ${cmdCard.name}`, 'duel-cmd:details', () => { local.duelCmd = null; inspect(cmdCard, 'duel'); if (cmdCard.faceUp) send({ type: 'inspectCard', cardId: cmdCard.id }); });
-      const close = button('×', () => { local.duelCmd = null; requestRender(); }); close.className = 'de-duel-cmd-close'; close.dataset.key = 'duel-cmd-close'; close.setAttribute('aria-label', 'Close');
-      list.append(close); list.onkeydown = event => { if (event.key === 'Escape') { local.duelCmd = null; requestRender(); } };
-      board.append(list);
+    // Surrender (live: the player's deck's command) with no deck card left: the empty deck zone takes the click
+    const ownDeckAt = fieldCardPosition({ id: DECK_ZONE, name: '', controller: 0, zone: 'deck', index: 0, faceUp: false }, 0);
+    const deckZoneOn = !ownDeckTop && (canSurrender || !!duel.spectating || commands.has(DECK_ZONE));
+    if (deckZoneOn) {
+      const zone = button('', () => openCmd(local.duelCmd === DECK_ZONE ? null : DECK_ZONE)); zone.className = 'de-deck-zone'; zone.dataset.key = 'field-deck:0'; zone.dataset.side = 'your'; zone.dataset.zone = 'deck';
+      zone.setAttribute('aria-label', 'Your deck (empty)'); zone.setAttribute('aria-haspopup', 'menu'); zone.oncontextmenu = event => { event.preventDefault(); openCmd(DECK_ZONE); };
+      zone.style.left = `${ownDeckAt.x / 1024 * 100}%`; zone.style.top = `${ownDeckAt.y / 768 * 100}%`; zone.style.width = `${ownDeckAt.width / 1024 * 100}%`; zone.style.height = `${ownDeckAt.height / 768 * 100}%`;
+      cards.append(zone);
     }
-    // what live has no card for: a Cancel of a board selection (live: the right button), commands of a card not on the
-    // screen, Leave Duel for a spectator, Surrender with no deck left
-    const actions = el('div', 'de-duel-actions');
-    for (const a of (duel.actions ?? []).filter(a => !a.place && !a.id.startsWith('phase:') && !listed.has(a.id) && (!a.cardId || !visibleCardIds.has(a.cardId)))) actions.append(button(a.label, () => sendAction(duel, a.id), !!a.disabled || !!state.busy, true));
-    if (duel.spectating) actions.append(button('Leave Duel', () => send({ type: 'leaveDuel' }), !!state.busy));
-    else if (canSurrender && !ownDeckTop) actions.append(button('Surrender', surrenderNow, !!state.busy || state.relay?.canAct === false));
-    else if (duel.ended && (!state.match || state.match.complete) && !htmlUi) actions.append(button('Return to Lobby', () => open('lobby'), false, true));
+    // The open command list: main's duel.js CUSummonDialogSp (htmlui/duel-cmd.ts) over the card, built in duelSpecs from
+    // what is gathered here: the card's commands in menu order, Surrender on the player's own deck (as live). A spectator
+    // leaves the duel through a deck's list (its Surrender command), as nothing there is theirs to play
+    const cmdCard = local.duelCmd && local.duelCmd !== DECK_ZONE ? duel.cards.find(x => x.id === local.duelCmd && visibleCardIds.has(x.id)) : undefined;
+    const cmdAt = cmdCard ? { card: cmdCard, at: fieldCardPosition(cmdCard, handCounts[cmdCard.controller]) } : local.duelCmd === DECK_ZONE && deckZoneOn ? { card: null, at: ownDeckAt } : null;
+    const cmdRows = cmdAt ? commands.get(cmdAt.card?.id ?? DECK_ZONE) ?? [] : [];
+    const onDeck = !!cmdAt && (cmdAt.card ? cmdAt.card.id === ownDeckTop || !!duel.spectating && cmdAt.card.zone === 'deck' : true);
+    // the deck's Surrender is one row (the server's own Surrender command, when its mask has one, is the same row)
+    const rows: DuelCmdRow[] = cmdRows.filter(a => !(onDeck && canSurrender && menuCommand(a.id) === SURRENDER_COMMAND)).map(a => ({ cmd: menuCommand(a.id), text: a.label.replace(/:.*$/, ''), key: `duel-cmd:${a.id}`, label: a.label, disabled: !!a.disabled || !!state.busy, pick: () => { closeCmd(); if (promptChoices.has(a.id)) choose(a.id); else sendAction(duel, a.id); } }));
+    if (onDeck && canSurrender) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-surrender', label: 'Surrender', disabled: !!state.busy || state.relay?.canAct === false, pick: surrenderNow });
+    if (onDeck && duel.spectating) rows.push({ cmd: SURRENDER_COMMAND, key: 'duel-leave', label: 'Leave Duel', disabled: !!state.busy, pick: () => { closeCmd(); send({ type: 'leaveDuel' }); } });
+    if (!cmdAt || !rows.length) { local.duelCmd = null; duelCmdView = null; }
+    else {
+      const readable = !!cmdAt.card && (cmdAt.card.faceUp || isOwnSetCard(cmdAt.card));
+      duelCmdView = { at: { x: cmdAt.at.x, top: cmdAt.at.y - cmdAt.at.height / 2, hand: cmdAt.card?.zone === 'hand' }, rows, name: `${readable ? cmdAt.card!.name : cmdAt.card ? 'Card' : 'Deck'}: commands`, owner: cmdAt.card?.id ?? DECK_ZONE };
+    }
     if ((duel.actions ?? []).some(a => a.id === 'cancel')) board.oncontextmenu = event => { if ((event.target as HTMLElement).closest('.de-field-card')) return; event.preventDefault(); sendAction(duel, 'cancel'); };
+    // a field choice the server lets the player back out of (or finish: a discard, tributes): the right button, as live
+    else if (fieldPrompt?.cancelable) board.oncontextmenu = event => { event.preventDefault(); respondToPrompt(fieldPrompt.id, { cancel: true }); };
     // live's bottom bar (the engine's duel menu strip): the wrench (the bar's config key, menuicon row 4) at its left,
     // which opens DUEL OPTIONS (CWindowModelDuelConfig, htmlui/options.ts) over the duel as live's does, and the help
     // line, which runs across its box from the right as live's does. Live shows no duel log on the duel screen (main's
@@ -1078,30 +1183,16 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     const run = el('span', 'de-duel-help-run', helpText), help = el('div', 'de-duel-help', run); help.setAttribute('aria-label', helpText);
     if (local.helpText !== helpText) { local.helpText = helpText; local.helpFrom = performance.now(); }
     run.style.animationDelay = `${-(performance.now() - local.helpFrom) / 1000}s`;
-    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help, actions));
+    board.append(el('div', 'de-duel-bar', wrench, duelScene.fx.ringElement, help));
     const log = el('div', 'de-duel-log de-sr'); log.setAttribute('role', 'log'); log.setAttribute('aria-label', 'Duel log');
     for (const line of duel.log.slice(-80)) log.append(el('div', '', line)); board.append(log);
-    if (!duel.notice) local.noticeSeen = 0;
-    if (duel.notice && duel.notice.id > local.noticeSeen) {
-      // The original shows these as a message box closed with OK; it never blocks the re-sent prompt underneath.
-      const notice = duel.notice, close = () => { local.noticeSeen = Math.max(local.noticeSeen, notice.id); requestRender(); };
-      const box = el('section', 'de-panel de-duel-notice', el('p', '', notice.text), button('OK', close, false, true)); box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-label', notice.text);
-      stage.append(box); setTimeout(() => { if (local.noticeSeen < notice.id && !disposed) close(); }, 6000);
-    }
-    if (duel.prompt && !htmlDuelPrompt(duel.prompt)) renderPrompt(duel.prompt);
-    // A stale inspection (the card moved or its action is gone) is dropped and the result or waiting banner shown instead.
-    const inspected = local.inspected && local.inspectedFrom === 'duel' ? duel.cards.find(c => c.id === local.inspected?.id && (c.faceUp || isOwnSetCard(c) || (duel.actions ?? []).some(a => a.cardId === c.id))) : undefined;
-    if (local.inspected && local.inspectedFrom === 'duel' && !inspected) local.inspected = null;
-    if (inspected) {
-      const readable = inspected.faceUp || isOwnSetCard(inspected);
-      const panel = el('aside', 'de-panel de-duel-inspector de-stack', title(readable ? inspected.name : 'Face-down card'), drawCard(inspected, readable, readable), ...(readable ? [...(inspected.faceUp ? [] : [note('Set face-down. Your opponent sees a card back.')]), note(`ATK ${inspected.attack ?? '?'} / DEF ${inspected.defense ?? '?'}`), el('p', '', inspected.description ?? 'Card description unavailable.')] : []), button('Close', () => { local.inspected = null; requestRender(); }));
-      panel.setAttribute('aria-label', 'Card details'); stage.append(panel);
-    }
     // A spectator is neither side: the result names the winner instead of Victory/Defeat.
     const endedText = duel.ended && (duel.spectating && (duel.ended === 'Victory' || duel.ended === 'Defeat') ? `${duel.players[duel.ended === 'Victory' ? 0 : 1].name} wins` : duel.ended);
     if (endedText && htmlUi) {
       // main's result screen (duel-result.ts: CWindowResult) shows it; the result is still announced (assistive technology)
       const status = el('div', 'de-duel-end de-sr', endedText); status.setAttribute('role', 'status'); status.setAttribute('aria-label', endedText); stage.append(status);
+      // live dims the whole field, its plates and bar behind the result board
+      if (!state.sideboarding && !state.replay) { const dim = el('div', 'de-result-dim'); dim.setAttribute('aria-hidden', 'true'); board.append(dim); }
     } else if (duel.ended && !htmlUi) {
       // data/y/duel_end: the result word (m01) over its glow (m02).
       const ended = endedText as string;
@@ -1113,8 +1204,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       }
       stage.append(banner);
     }
-    else if (duel.waiting && !inspected) stage.append(el('div', 'de-panel de-duel-prompt', el('p', '', duel.waiting)));
-    if (duel.issue && (duel.prompt || duel.ended)) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
+    if (duel.issue) { const issue = el('div', 'de-error de-notice de-duel-issue', duel.issue); issue.setAttribute('role', 'alert'); stage.append(issue); }
   }
   /** Server actions are bound to the prompt they were rendered for (a press can land after a newer prompt arrived). */
   function sendAction(duel: DuelView, actionId: string): void { send({ type: 'duelAction', actionId, ...(duel.actionsFor ? { promptId: duel.actionsFor } : {}) }); }
@@ -1124,74 +1214,6 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (currentState.busy) return;
     const error = validatePromptResponse(current, response); if (error) { local.message = error; requestRender(); return; }
     send({ type: 'duelRespond', promptId, response });
-  }
-  function renderPrompt(prompt: DuelPromptView): void {
-    if (local.promptId !== prompt.id) { local.promptId = prompt.id; local.selected.clear(); local.promptInspection = null; }
-    for (const id of local.selected) if (!(prompt.kind === 'attributes' ? prompt.options.some(o => o.id === id && !o.disabled) : prompt.candidates?.some(c => c.id === id && !c.disabled))) local.selected.delete(id);
-    const panel = el('section', 'de-panel de-duel-prompt'); if (prompt.kind === 'place' || prompt.options.some(o => o.cardId)) panel.className += ' de-target-prompt'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', prompt.text); panel.dataset.kind = prompt.kind; panel.dataset.prompt = prompt.id; panel.append(title(prompt.text));
-    const respond = (response: DuelResponse) => respondToPrompt(prompt.id, response);
-    if (prompt.kind === 'attributes') {
-      const options = el('div', 'de-prompt-options');
-      for (const option of prompt.options) {
-        const input = el('input'); input.type = 'checkbox'; input.checked = local.selected.has(option.id); input.disabled = !!option.disabled || !!state.busy; input.dataset.key = `prompt-attribute:${prompt.id}:${option.id}`;
-        input.onchange = () => { if (input.checked) { if (local.selected.size < (prompt.max ?? 1)) local.selected.add(option.id); } else local.selected.delete(option.id); requestRender(); };
-        options.append(labelled(option.label, input));
-      }
-      const confirm = button('Confirm Attributes', () => respond({ optionIds: [...local.selected] }), local.selected.size < (prompt.min ?? 1) || local.selected.size > (prompt.max ?? 1) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      panel.append(note(prompt.min === prompt.max ? `Choose ${prompt.min ?? 1} attribute${prompt.min === 1 ? '' : 's'}.` : `Choose ${prompt.min ?? 1}–${prompt.max ?? 1} attributes.`), options, confirm);
-    } else if (prompt.options.length) {
-      const options = el('div', 'de-prompt-options');
-      for (const option of prompt.options) { const b = button(option.label, () => respond({ optionId: option.id }), !!option.disabled || !!state.busy, true); b.dataset.key = `prompt-option:${prompt.id}:${option.id}`; options.append(b); }
-      panel.append(options);
-    }
-    if (prompt.kind === 'cards' || prompt.candidates?.length) {
-      // Option prompts (yes/no, effect choice) may list the cards they refer to: those are for reading only.
-      const reference = !prompt.readOnly && !['cards', 'announce'].includes(prompt.kind), inspectOnly = prompt.readOnly || reference;
-      const choices = el('div', 'de-prompt-candidates');
-      for (const candidate of prompt.candidates ?? []) {
-        const selected = local.selected.has(candidate.id), b = button('', () => { if (inspectOnly) { local.promptInspection = candidate.card ?? null; requestRender(); return; } if (selected) local.selected.delete(candidate.id); else if (local.selected.size < (prompt.max ?? prompt.candidates?.length ?? 0)) local.selected.add(candidate.id); requestRender(); }, (inspectOnly ? !candidate.card : !!candidate.disabled) || !!state.busy);
-        b.dataset.key = `prompt-${reference ? 'reference' : 'candidate'}:${prompt.id}:${candidate.id}`; if (!inspectOnly) b.setAttribute('aria-pressed', String(selected)); if (candidate.card) b.append(drawCard(candidate.card)); b.append(el('span', '', candidate.label)); choices.append(b);
-      }
-      const confirm = button(prompt.readOnly ? 'Close Card List' : 'Confirm Selection', () => respond({ cardIds: [...local.selected] }), local.selected.size < (prompt.min ?? 0) || !!state.busy, true); confirm.dataset.key = `prompt-confirm:${prompt.id}`;
-      if (reference) panel.append(choices);
-      else { if (prompt.readOnly) panel.append(note('Select a visible card to read its details.')); else panel.append(note(`Choose ${prompt.min ?? 0}–${prompt.max ?? prompt.candidates?.length ?? 0}. Selected: ${local.selected.size}`)); panel.append(choices, confirm); }
-      if (inspectOnly && local.promptInspection) panel.append(el('aside', 'de-prompt-inspector', drawCard(local.promptInspection), el('h3', '', local.promptInspection.name), el('p', '', local.promptInspection.description ?? 'Card description unavailable.')));
-    }
-    // The server lists every number it accepts as a choice (scaled labels such as LP); free entry is for a bare range.
-    if (prompt.kind === 'number' && !prompt.options.length) {
-      const form = el('form', 'de-row'), input = textField(`prompt-number:${prompt.id}`, String(prompt.numberMin ?? 0)); input.type = 'number'; input.min = String(prompt.numberMin ?? 0); input.max = String(prompt.numberMax ?? 0x7fffffff); input.setAttribute('aria-label', prompt.text);
-      const b = el('button', 'gold', 'Confirm'); b.type = 'submit'; b.disabled = !!state.busy; form.append(input, b); form.onsubmit = e => { e.preventDefault(); respond({ number: Number(input.value) }); }; panel.append(form);
-    }
-    if (prompt.kind === 'announce' && !prompt.candidates?.length) panel.append(announce.render(prompt, { busy: !!state.busy, declare: text => respond({ text }) }));
-    if (prompt.cancelable) panel.append(button(['place', 'choice', 'cards'].includes(prompt.kind) ? 'Finish / cancel' : 'Cancel', () => respond({ cancel: true }), !!state.busy));
-    if (!prompt.options.length && !prompt.candidates?.length && !['number', 'announce', 'cards'].includes(prompt.kind)) panel.append(note('Waiting for supported choices from the server.'));
-    stage.append(panel);
-  }
-  function renderPreparation(): void {
-    const prep = state.preparation; if (!prep) return;
-    const archiveImage = controller.loadArchiveImage ? (path: string) => { const image = el('img'); image.alt = ''; image.draggable = false; image.style.visibility = 'hidden'; image.onload = () => { image.style.visibility = ''; }; loadArchiveArt(path, image); return image; } : null;
-    const panel = el('section', 'de-panel de-duel-prompt de-stack', title('Duel Preparation'));
-    const phase = prep.phase.toLowerCase();
-    if (prep.role === 'partner' || prep.role === 'spectator') panel.append(el('p', '', prep.role === 'partner' ? 'Your captain is preparing the duel…' : 'Waiting for duel preparation…'));
-    else if (/rps|hand|rock|scissors/.test(phase) && !/wait|result/.test(phase)) {
-      // data/y/janken: jan_card_01..03 are rock, scissors and paper.
-      panel.append(el('p', '', 'Choose your hand.'), el('div', 'de-row de-janken', ...(['Rock', 'Scissors', 'Paper'] as const).map((label, hand) => {
-        const b = button(label, () => send({ type: 'chooseHand', hand: hand as 0 | 1 | 2 }), !!state.busy, true);
-        if (archiveImage) { b.className = 'de-janken-card'; b.replaceChildren(archiveImage(`data/y/janken/jan_card_0${hand + 1}.png`), el('span', '', label)); }
-        return b;
-      })));
-    } else if (/first|order|turn/.test(phase) && !/wait|result/.test(phase)) {
-      const order = (label: string, first: boolean) => {
-        const b = button(label, () => send({ type: 'chooseFirst', first }), !!state.busy, first);
-        // jan_dai_01_e: four 64px plates, "first" on rows 0-1 and "second" on rows 2-3.
-        if (archiveImage) { b.className = 'de-janken-order'; const plate = el('span', 'de-janken-plate'), image = archiveImage('data/y/janken/jan_dai_01_e.png'); image.style.top = first ? '0' : '-200%'; plate.append(image); b.replaceChildren(plate, el('span', 'de-sr', label)); }
-        return b;
-      };
-      panel.append(el('p', '', 'You won! Choose who goes first.'), el('div', 'de-row de-janken', order('Go First', true), order('Go Second', false)));
-    } else if (/ready|begin|confirm|invitation/.test(phase)) panel.append(button('Start Duel', () => send({ type: 'beginDuel' }), !!state.busy, true));
-    else panel.append(el('p', '', 'Waiting for the other duelist…'));
-    if (prep.opponentHand !== undefined && prep.opponentHand !== null) panel.append(note(`Opponent chose ${['Rock', 'Scissors', 'Paper'][prep.opponentHand] ?? 'an unknown hand'}.`));
-    stage.append(panel);
   }
   function tradeReason(): string | undefined { return [...(state.lobby?.chat ?? [])].reverse().find(line => /^Trade cancelled:/.test(line.text))?.text; }
   function socialOptions() {
@@ -1207,6 +1229,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (disposed || rendering) return; rendering = true;
     try {
       state = controller.getState();
+      if (!state.preparation) jankenMine = null;   // each duel's rock-paper-scissors anew
       // the starter deck chooser: main's (web-shell/starter.js), from the lobby or Edit Deck like main's My Room / lobby / deck
       starterPicker.sync(state.mode !== 'free' && state.player ? state.player.id : null, state.starter?.claimable && (state.scene === 'lobby' || state.scene === 'deck') ? state.starter.decks : undefined);
       if (state.scene !== 'lobby') { Object.assign(lobbyUi, { open: null, searching: false, npc: null, join: null, cancel: false }); worldRenderer?.hide(); }
@@ -1238,18 +1261,15 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       if (state.scene !== 'title') titleScene?.hide();
       if (state.auth?.signedIn || state.scene !== 'title') loginUi.open = false;
       if (freeTarget && state.mode === 'free' && state.connection === 'online' && state.player && !state.busy && state.scene !== 'deck' && state.scene !== 'characters') { freeTarget = null; queueMicrotask(() => open('deck')); }
-      if (!available(state.scene)) emptyPanel(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1), 'This feature is unavailable.');
+      if (!available(state.scene)) unavailableScene(state.scene, state.scene === 'deck' ? 'Edit Deck' : state.scene[0].toUpperCase() + state.scene.slice(1));
       else switch (state.scene) { case 'title': renderTitle(); break; case 'characters': renderCharacters(); break; case 'lobby': renderLobby(); break; case 'deck': renderDeck(); break; case 'shop': renderShop(); break; case 'duel': if (state.sideboarding) renderSideboarding(); else renderDuel(); break; }
-      if (state.preparation && !state.sideboarding && !htmlUi) renderPreparation();
-      // the trade scene's ground and the rewrite's trunk under main's trade windows (htmlui/trade.ts)
-      if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene))
-        stage.append(renderTradeTrunk(state.socialDetail.trade, action => send({ type: 'socialAction', action }), { ...socialOptions(), search: local.tradeSearch, onSearch: value => { local.tradeSearch = value; requestRender(); }, backdrop: el => { deckBackdrop(el); }, open: trunkOpen(state.socialDetail.trade) }));
-      if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
-      // the message itself is main's error dialog (duelPrompts); the strip stays as the screen reader's live region only
-      if (state.net?.reconnecting || state.connection === 'reconnecting') {
-        const net = state.net, text = net?.what === 'duel' ? 'Connection lost. Returning to the duel' : 'Connection lost. Reconnecting';
-        const notice = el('div', 'de-net-notice', `${text}${net?.attempt ? ` (try ${net.attempt + 1})` : ''}…`); notice.setAttribute('role', 'status'); notice.dataset.key = 'net-reconnecting'; stage.append(notice);
+      // the trade scene's ground under main's trade windows (htmlui/trade.ts) and its trunk (htmlui/trade-trunk.ts)
+      if (state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene)) {
+        const ground = el('section', 'de-trade-scene'); ground.setAttribute('aria-label', 'Card Swap'); deckBackdrop(ground); stage.append(ground);
       }
+      if (state.tagLobby?.open && state.scene === 'lobby') stage.append(renderTagLobby(state.tagLobby, action => send({ type: 'tagAction', action })));
+      // a lost connection: live's note at the page's bottom right while the game reconnects (loader.js), no veil
+      netNote.set(!!state.net?.reconnecting || state.connection === 'reconnecting', state.net?.what === 'duel' || state.scene === 'duel');
       const message = state.error || local.message; if (message) { const notice = el('div', 'de-error de-notice de-sr-only', message); notice.setAttribute('role', 'alert'); stage.append(notice); }
       // main's menu bar and Main Menu (src/ui/htmlui: CWindowModelMenu, CMainMenu): main's entries where the rewrite has
       // the same thing, then the way back to a duel or the lobby, and
@@ -1298,7 +1318,9 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
       // Select Player's bar is its strip alone too, also in the moment between picking a character (its profile in) and the lobby
       // main's message field starts past the Wardrobe / Missions slots (lobby.js fieldLeft): the message moves with it
       const reserve = barReserve(), fieldShift = reserve ? Math.max(0, Math.min(1016 - 64, reserve + 8) - 391) : 0;
-      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene),
+      // (Card Swap's bar is its strip alone, as live: EXIT leaves the trade)
+      const trading = !!state.socialDetail && tradeScene(state.socialDetail.trade) && !['title', 'characters'].includes(state.scene);
+      menuView = state.scene === 'title' || state.scene === 'duel' ? null : { entries, fieldShift, keys: !!state.player && !['deck', 'shop', 'characters'].includes(state.scene) && !trading,
         // live's bar message is blank but for a pending request's wait (no "Online in Duel Academy.")
         message: state.player ? (world && waitingMessage({ state, text: id => gameTexts.get(id) })) || '' : '',
         ...(world ? { duel: () => { duelKey(state, lobbyUi); showHtml(); }, move: () => { moveKey(lobbyUi); showHtml(); }, duelOpen: () => ['duel', 'find', 'wait'].includes(lobbyUi.open ?? ''), moveOpen: () => lobbyUi.open === 'move' } : {}) };
@@ -1344,6 +1366,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     if (e.key !== 'Escape') return;
     if (browserDisplay.state.active) return;
     if (htmlUiState.menu) { e.preventDefault(); htmlUiState.menu = false; showHtml(); return; }
+    if (state.scene === 'duel' && local.duelCmd !== null) { e.preventDefault(); closeCmd(); return; }
     if (npcEscape(e)) return;
     // DUEL OPTIONS / Audio (a modal over the scene): its language error first, then the window
     if (optionsUi) { e.preventDefault(); const refused = state.languageStatus?.error; if (refused && refused !== languageErrorSeen) languageErrorSeen = refused; else optionsUi = null; showHtml(); return; }
@@ -1358,5 +1381,5 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
     else if (e.target instanceof Node && htmlUi?.host?.contains(e.target)) npcEscape(e); };
   globalThis.document?.addEventListener?.('keydown', bodyKeys);
   const unsubscribe = controller.subscribe(next => { if (!disposed && !queued && canSkipRender(state, next)) { state = next; return; } if (!disposed && !queued && canPresentLobby(state, next)) { state = next; presentLobby(next.lobby!); return; } if (!disposed && !queued && canPresent(state, next)) { state = next; present(next.duel!); } else requestRender(); }); render();
-  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
+  return { render, htmlUi: htmlDriver, dispose() { if (disposed) return; disposed = true; netNote.dispose(); globalThis.removeEventListener?.('pointermove', cmdPointer, true); globalThis.removeEventListener?.('pointerdown', cmdPress, true); duelSpeedButton.dispose(); starterPicker.close(); discord.dispose(); cardShop.dispose(); pageMods.dispose(); offReserve(); deckDom?.dispose(); deckDom = null; tradeDom?.dispose(); tradeDom = null; deckScene.dispose(); htmlUi?.dispose(); htmlUi = null; pictureArt.dispose(); setPictureResolver(null); disposePictures(); startScene?.dispose(); startScene = null; titleScene?.dispose(); titleScene = null; portraitScene?.dispose(); portraitScene = null; globalThis.removeEventListener?.('yo2-tag-lobby-open', onTagDuel); globalThis.removeEventListener?.(VEIL_EVENT, onVeil); globalThis.document?.removeEventListener?.('keydown', bodyKeys); if (duelClock !== null) { clearInterval(duelClock); duelClock = null; } host.removeEventListener?.('pointerdown', holdPointer, true); globalThis.removeEventListener?.('pointerup', releasePointer, true); globalThis.removeEventListener?.('pointercancel', releasePointer, true); if (pointerTimer) clearTimeout(pointerTimer); if (sideboardClock !== null) { clearInterval(sideboardClock); sideboardClock = null; } unsubscribe(); browserDisplay.dispose(); worldWalk?.dispose(); worldWalk = null; phone?.dispose(); duelScene.dispose(); observer?.disconnect(); worldRenderer?.dispose(); header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); for (const entry of art.values()) { entry.abort.abort(); for (const image of entry.images) image.removeAttribute('src'); entry.images.clear(); entry.lease?.release(); entry.lease = null; } art.clear(); fieldNodes.clear(); avatarNodes.clear(); effectsLayer = null; drafts.clear(); expanded.clear(); delete lpNodes[0]; delete lpNodes[1]; delete lpBars[0]; delete lpBars[1]; closeAudioPage(); packSheet?.close(); packSheet = null; gameCursor?.dispose(); gameCursor = null; host.onkeydown = null; header.replaceChildren(); stage.replaceChildren(); nav.replaceChildren(); host.replaceChildren(); host.remove(); local.selected.clear(); local.inspected = null; local.promptInspection = null; } };
 }

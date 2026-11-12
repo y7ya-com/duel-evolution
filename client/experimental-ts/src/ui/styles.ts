@@ -46,7 +46,6 @@ export const CLIENT_CSS = `
 .de-note { color:#376384; font-size:12px; }
 .de-error { padding:8px 12px; background:#fff1d4; color:#922b17; border:1px solid #c58d42; }
 /* the reconnecting notice: a small strip in the Legacy windows' frame colours, never over the play area's middle */
-.de-net-notice { position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:90; pointer-events:none; padding:4px 14px; font:12px/1.4 sans-serif; color:#f6ead2; background:rgba(28,22,14,.86); border:1px solid #c58d42; border-radius:3px; box-shadow:0 1px 4px rgba(0,0,0,.4); white-space:nowrap; }
 .de-notice { position:absolute; top:8px; left:20%; right:20%; z-index:30; text-align:center; pointer-events:none; }
 .de-nav { display:flex; gap:5px; padding:7px; background:linear-gradient(#d7ffff,#4bb9ed 20%,#247bc9); border:1px solid #104eaa; overflow:auto; }
 .de-nav button[aria-current=page] { background:linear-gradient(#fffbd0,#f2cd51); }
@@ -95,15 +94,6 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-lp-fill { display:block; height:100%; background:linear-gradient(#b8ff9a,#2fc843); transition:width .4s; }
 .de-lp-value { color:#fff79a; font-size:17px; min-width:52px; text-align:right; text-shadow:0 1px #0008; }
 .de-duel-clock { font-size:11px; color:#e6f8ff; }
-.de-janken { justify-content:center; gap:14px; }
-.de-client button.de-janken-card { display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px; background:none; border:0; box-shadow:none; font-weight:bold; color:#13406e; }
-.de-janken-card img { width:clamp(64px,10vw,110px); aspect-ratio:200/290; transition:transform .15s; filter:drop-shadow(0 3px 5px #0006); }
-.de-janken-card:hover img,.de-janken-card:focus-visible img { transform:translateY(-6px) scale(1.04); }
-.de-client button.de-janken-order { padding:0; background:none; border:0; box-shadow:none; }
-.de-janken-plate { display:block; position:relative; overflow:hidden; width:clamp(150px,22vw,264px); aspect-ratio:352/64; }
-.de-janken-plate img { position:absolute; left:0; width:100%; height:400%; max-width:none; }
-.de-janken-order:hover .de-janken-plate img,.de-janken-order:focus-visible .de-janken-plate img { margin-top:calc(clamp(150px,22vw,264px) * -64 / 352); }
-.de-duel-notice { position:absolute; left:50%; top:22%; transform:translateX(-50%); width:min(90%,420px); z-index:11; display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; font-weight:bold; }
 .de-duel-end { position:absolute; left:50%; top:48%; width:min(70%,560px); aspect-ratio:352/128; transform:translateX(-50%); z-index:9; display:grid; place-items:center; pointer-events:none; }
 .de-duel-end>* { grid-area:1/1; }
 .de-duel-end img { width:100%; height:100%; }
@@ -112,21 +102,12 @@ button.de-card { padding:2px; min-height:0; color:#fff; background:linear-gradie
 .de-duel-end.has-art .de-duel-end-text { visibility:hidden; }
 @keyframes de-end-glow { from { opacity:.35; transform:scale(.98); } to { opacity:1; transform:scale(1.03); } }
 .de-trade-scene { position:absolute; inset:0; z-index:20; overflow:hidden; }
-.de-trade-trunk-panel { position:absolute; left:${736 / 10.24}%; top:0; width:${288 / 10.24}%; height:${608 / 7.68}%; display:flex; flex-direction:column; box-sizing:border-box; padding:4px 6px; gap:4px;
-  background:linear-gradient(#cfd6e6,#a9b4cc); border:1px solid #f4f8ff; box-shadow:inset 0 0 0 1px #6f7fa3; font:13px/1.2 Arial,sans-serif; color:#0d1d33; }
-.de-trade-trunk-panel header { display:flex; justify-content:space-between; align-items:center; }
-.de-trade-trunk-panel h3 { margin:0; font:italic 900 22px/1 Arial Black,Arial,sans-serif; color:#ffe14a; -webkit-text-stroke:1px #6b3c00; letter-spacing:.02em; }
-.de-trade-count { padding:1px 8px; border-radius:6px; background:linear-gradient(#5a5f6b,#2c2f36); color:#fff; font-weight:bold; }
-.de-trade-trunk-panel input[type=search] { width:100%; box-sizing:border-box; }
-.de-trade-trunk { flex:1; min-height:0; overflow:auto; display:flex; flex-direction:column; gap:1px; background:#9aa6bf; }
-.de-trade-card { display:grid; grid-template-columns:38px 1fr auto; align-items:center; gap:6px; min-height:56px; padding:2px 4px; background:#e6fbf0; border-left:6px solid #35d36a; }
-.de-trade-card:nth-child(even) { background:#d8f4e6; }
-.de-trade-thumb { width:38px; height:52px; display:block; }
-.de-trade-thumb>.de-card { width:100%; height:100%; }
-.de-trade-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; }
-.de-trade-card button { min-height:22px; padding:1px 4px; font-size:11px; }
 .de-client button.de-zone-target { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:#fff59a55; border:2px solid #ffe14a; border-radius:3px; box-shadow:0 0 12px #ffe14a, inset 0 0 10px #fff7b0; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 .de-client button.de-zone-target:hover { background:#fff59a99; }
+/* the player's deck zone once its last card is gone: it still takes the click (its command list: Surrender), nothing drawn */
+/* behind the duel's result board live dims the field, its plates and its bar */
+.de-duel-board>.de-result-dim { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); pointer-events:none; }
+.de-client button.de-deck-zone { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; min-height:0; padding:0; background:none; border:0; box-shadow:none; cursor:pointer; }
 button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zone-pulse 1s ease-in-out infinite alternate; z-index:3; }
 @keyframes de-zone-pulse { from { box-shadow:0 0 6px #ffe14a; } to { box-shadow:0 0 18px #fff38a; } }
 .de-duel-board { position:absolute; left:0; top:0; width:100%; aspect-ratio:4/3; overflow:hidden; }
@@ -157,10 +138,6 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 .de-field-card[data-effect=chain] { outline:3px solid #ffeb69; box-shadow:0 0 16px #ffe87b; }
 .de-field-card[data-effect=attack] { outline:3px solid #ff9d6b; box-shadow:0 0 14px #ff854b; }
 .de-field-card.defense { transform:translate(-50%,-50%) rotate(90deg); }
-.de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
-.de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
-.de-duel-actions { display:flex; gap:4px; flex-wrap:nowrap; }
-.de-duel-actions button { padding:1px 8px; font-size:11px; }
 .de-duel-bar { position:absolute; left:0; right:0; bottom:0; height:4.1667%; display:flex; align-items:center; gap:6px; z-index:8; background:linear-gradient(#cdefff,#5fb6e8 55%,#2f86c4); border-top:1px solid #e8fbff; }
 .de-duel-wrench { width:7.8125%; height:100%; padding:0; display:grid; place-items:center; background:linear-gradient(#ffe48a,#f6a313); border:1px solid #b06a00; border-radius:0 6px 0 0; cursor:pointer; }
 .de-duel-wrench.has-art { position:absolute; left:${4 / 1024 * 100}%; top:0; width:${80 / 1024 * 100}%; height:100%; background:none; border:0; border-radius:0; overflow:hidden; display:block; }
@@ -171,39 +148,18 @@ button.de-field-card.de-card-target { outline:3px solid #ffe14a; animation:de-zo
 html:has(.yo2r-board) .de-duel-info { display:none; }
 .de-duel-help { position:absolute; left:${388 / 1024 * 100}%; right:${8 / 1024 * 100}%; top:0; bottom:0; overflow:hidden; white-space:nowrap; font:15px Arial,sans-serif; letter-spacing:.04em; color:#0b1f3a; display:flex; align-items:center; }
 /* the ring keeps its own 64 px box: .de-stage canvas (every stage canvas at 100%) stretched it 1024 wide across the bar */
-/* the bar's own keys (a spectator's Leave Duel, Surrender with no deck left) between the ring and the help line, clear of
-   the wrench, which now stands at the bar's left edge as live's */
-.de-duel-bar>.de-duel-actions { position:absolute; left:${300 / 1024 * 100}%; top:0; bottom:0; align-items:center; z-index:1; }
 .de-duel-bar>.de-duel-ring { position:absolute; left:${232 / 1024 * 100}%; top:${-16 / 32 * 100}%; width:${64 / 1024 * 100}%; height:200%; pointer-events:none; }
 .de-duel-help-run { display:inline-block; padding-left:100%; animation:de-help-run 16s linear infinite; }
 @keyframes de-help-run { from { transform:translateX(0); } to { transform:translateX(-100%); } }
 @media (prefers-reduced-motion: reduce) { .de-duel-help-run { padding-left:8px; animation:none; } }
-.de-duel-cmd { position:absolute; width:15.625%; z-index:14; padding:6px; background:#f2d64a99; border:1px solid #c9a21acc; border-radius:2px; box-shadow:inset 1px 1px 0 #fff7c0cc,inset -1px -1px 0 #9a7a10aa,0 2px 6px #0005; display:flex; flex-direction:column; gap:0; }
-/* live's CWindowModelListDuelCmd (de-scratch/visual/live/x-duel-cmd.png): a translucent gold frame 6 px wide, each command a
-   19 px blue row (the cursor row lighter), the command's dark text in Arial after its small white mark */
-.de-client button.de-duel-cmd-row { display:block; min-height:0; box-shadow:none; filter:none; width:100%; height:19px; padding:0 6px 0 22px; text-align:left; font:15px/19px Arial,"Liberation Sans",sans-serif; letter-spacing:.06em; color:#0b1830; border:0; border-radius:0; cursor:pointer; position:relative; background:#1a7fe0e0; }
-.de-client button.de-duel-cmd-row:nth-of-type(even) { background:#2a8ae6e0; }
-.de-client button.de-duel-cmd-row::before { content:''; position:absolute; left:6px; top:4px; width:9px; height:10px; background:#fff; clip-path:polygon(0 0,100% 20%,100% 70%,25% 60%,25% 100%,0 100%); }
-.de-client button.de-duel-cmd-row:hover:not(:disabled),.de-client button.de-duel-cmd-row:focus-visible { background:#5ab0ff; color:#04122a; outline:none; }
-.de-client button.de-duel-cmd-row:disabled { color:#5d7a9e; cursor:default; opacity:1; }
-.de-duel-cmd-close { position:absolute; right:-9px; top:-9px; width:18px; height:18px; padding:0; border-radius:50%; font:bold 12px/16px Arial; color:#6b4a00; background:#ffe48a; border:1px solid #b06a00; cursor:pointer; }
 .de-phase-bar>button.de-phase { pointer-events:auto; cursor:pointer; padding:0; border:0; background:none; }
 .de-phase-bar>button.de-phase:hover img { filter:brightness(1.2); }
 .de-phase-bar>button.de-phase:disabled { cursor:default; }
-.de-duel-prompt { position:absolute; left:20%; right:20%; top:35%; max-height:52%; z-index:10; display:flex; flex-direction:column; gap:10px; }
-.de-target-prompt { top:65px; max-height:110px; }
-.de-prompt-inspector { overflow:auto; max-height:160px; background:#effcff; padding:7px; }
-.de-prompt-inspector>.de-card { float:left; width:67px; height:95px; margin-right:10px; }
-.de-prompt-options { display:flex; gap:6px; flex-wrap:wrap; }
-.de-prompt-candidates { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; overflow:auto; }
-.de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
-.de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }
 @media(max-width:700px) { .de-client { font-size:12px; width:100%; } .de-stage { min-height:480px; aspect-ratio:auto; height:75vh; max-height:850px; } .de-scene { padding:10px; } .de-sideboard-columns { grid-template-columns:2fr 1fr; } .de-sideboard-columns>section:last-child { grid-column:1/-1; max-height:100px; } .de-duel-prompt { left:5%; right:5%; top:30%; } .de-target-prompt { top:60px; max-height:110px; } .de-duelist { min-width:0; padding:4px 7px; } .de-duelist strong { font-size:17px; } .de-duel-log { width:30%; max-height:100px; } .de-duel-inspector { position:absolute; left:10px; top:90px; bottom:60px; width:180px; overflow:auto; z-index:12; }
-.de-duel-inspector>.de-card { width:100%; aspect-ratio:.7; flex:none; }
-.de-duel-actions { max-width:65%; } .de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-top { padding:7px; } }
+.de-duelist { width:40%; font-size:11px; } .de-duel-board .de-card-name { display:none; } .de-duel-board { width:160%; left:-30%; top:58px; } .de-duelist { border-radius:0; } .de-duel-log { left:8px; right:auto; width:calc(100% - 16px); bottom:52px; max-height:22%; } .de-lp-value { font-size:13px; min-width:40px; } .de-top { padding:7px; } }
 @media(prefers-reduced-motion:reduce) { .de-client * { animation:none!important; transition:none!important; } }
 .de-client[data-motion=reduced] * { animation:none!important; transition:none!important; }
 .de-client:is(:fullscreen,html:fullscreen .de-client:not(.de-phone)) { --de-fullscreen-width:min(100%,calc((100vh - 120px)*1.333333)); width:100vw; max-width:none; height:100vh; margin:0; padding:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:auto; background:#093d6a; }

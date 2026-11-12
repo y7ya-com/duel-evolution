@@ -30,9 +30,11 @@ describe('duel board mechanics', () => {
     expect(theirs.getAttribute('aria-label')).toBe('Face-down card, opponent spell');
     expect(theirs.dataset).toMatchObject({ side: 'opponent', zone: 'spell', index: '1' });
     theirs.onclick?.({}); await Promise.resolve();
-    expect(f.root.textContent).not.toContain('Card details');
+    // live's card information box (the duel screen's bottom-left box) names the player's own set card, never the opponent's
+    const info = () => f.root.querySelectorAll('aside').find(n => n.className === 'de-duel-info');
+    expect(info()?.hidden ?? true).toBe(true);
     mine.onclick?.({}); await Promise.resolve();
-    expect(f.root.textContent).toContain('Dark Magician'); expect(f.root.textContent).toContain('Set face-down');
+    expect(info()?.hidden).toBe(false); expect(info()?.textContent).toContain('Dark Magician');
     f.mounted.dispose();
   });
   it('binds server actions to the prompt they were rendered for', async () => {
@@ -58,8 +60,10 @@ describe('duel board mechanics', () => {
   it('marks prompt dialogs with their kind and identity', async () => {
     const f = fixture();
     f.update({ scene: 'duel', duel: { players, turn: 2, turnPlayer: 0, phase: 'Main', log: [], cards: [], prompt: { id: '9', kind: 'yes-no', text: 'Chain?', options: [{ id: 'answer:1', label: 'Yes' }, { id: 'answer:0', label: 'No' }] } } }); await Promise.resolve();
-    const dialog = f.root.querySelectorAll('section').find(s => s.getAttribute('role') === 'dialog')!;
-    expect(dialog.dataset).toMatchObject({ kind: 'yes-no', prompt: '9' });
+    // main's duel dialog (CUYesNoDialog) for the prompt, keyed by its identity; no rewrite panel on the stage
+    const dialog = f.mounted.htmlUi.windows().find(s => s.win.cls === 'CUYesNoDialog')!;
+    expect([...dialog.handlers.values()].map(h => h.key)).toEqual(['prompt-option:9:answer:1', 'prompt-option:9:answer:0']);
+    expect(f.root.querySelectorAll('section').some(s => s.getAttribute('role') === 'dialog')).toBe(false);
     f.mounted.dispose();
   });
 });

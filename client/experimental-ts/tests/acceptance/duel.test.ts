@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames, claimNpcReward } from './harness';
+import { RUN, CLIENT, enabled, openPage, closeAll, signIn, openClient, click, openDeckEditor, exitDeckEditor, until, press, pressAvatar, type, byKey, sleep, screenshot, record, prepareDuel, duelBot, startNpcDuel, surrender, claimStarter, type Page, createCharacter, freeSlot, cardButton, lobbyShown, listedNames, claimNpcReward, pointerAway } from './harness';
 import { resultShown, resultLeave } from './harness';
 import { ArchiveReader } from '../../src/assets/archive';
 
@@ -16,11 +16,12 @@ const SNAP = `(()=>{
   // the prompt the server issued: the rewrite's own panel, else main's duel dialogs (window.__deApp's prompt state)
   const panel=document.querySelector('.de-duel-prompt[role=dialog]'),ap=window.__deApp?.getState?.().duel?.prompt;
   const prompt=panel?{id:panel.dataset.prompt??'',kind:panel.dataset.kind??'',text:panel.getAttribute('aria-label')??''}:ap?{id:String(ap.id),kind:ap.kind,text:ap.text??''}:null;
-  const ins=document.querySelector('.de-duel-inspector');
+  // what a card shows the player: live's card information box (its name), and the command menu (CUSummonDialogSp) open on it
+  const info=document.querySelector('.de-duel-info:not([hidden])'),menu=[...document.querySelectorAll('#htmlui-host .win[data-window-class="CUSummonDialogSp"] [data-key^="duel-"]')].map(r=>r.getAttribute('aria-label')??'');
   return {cards,players:[...document.querySelectorAll('.de-duelist')].map(d=>d.getAttribute('aria-label')),bar:document.querySelector('.de-phase-bar')?.getAttribute('aria-label')??'',
     log:[...document.querySelectorAll('.de-duel-log div')].map(d=>d.textContent),prompt,
-    actions:[...document.querySelectorAll('.de-duel-actions button,.de-phase-bar button')].filter(ok).map(b=>b.textContent).filter(t=>t!=='Surrender'),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
-    inspector:ins?[...ins.querySelectorAll('button')].map(b=>b.textContent):null,ended:window.__duelEnd()??null,
+    actions:[...document.querySelectorAll('.de-phase-bar button')].filter(ok).map(b=>b.textContent),zones:[...document.querySelectorAll('.de-zone-target,.de-card-target')].filter(ok).map(b=>b.getAttribute('aria-label')),
+    inspector:info||menu.length?[info?.querySelector('.de-duel-info-name')?.textContent??'',...menu]:null,ended:window.__duelEnd()??null,
     waiting:[...document.querySelectorAll('.de-duel-prompt:not([role])')].map(n=>n.textContent).join(' ')||null,moving:document.body.innerText.includes('Resolving duel animations'),errors:[...document.querySelectorAll('.de-error')].map(n=>n.textContent)};
 })()`;
 const snap = (page:Page) => page.ev(SNAP) as Promise<Snap>;
@@ -231,15 +232,11 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
         for (const c of s.cards.filter(c => c.side === 'opponent' && ['monster','spell','hand'].includes(c.zone)).slice(0,3)) {
           await press(page,`[...document.querySelectorAll('button')].find(b=>b.dataset.key===${JSON.stringify(c.key)})`).catch(() => {});
           await sleep(250);
-          const ins = await page.ev(`(()=>{const i=document.querySelector('.de-duel-inspector');return i?[...i.querySelectorAll('button')].map(b=>b.textContent):null})()`) as string[] | null;
-          if (c.back && ins) stats.opponentActions.push(`${label}: face-down ${c.zone} opened an inspector`);
-          if (ins && ins.some(t => t !== 'Close')) stats.opponentActions.push(`${label}: opponent ${c.zone} offered ${ins.join(', ')}`);
-          if (ins) await press(page,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')`).catch(async (error:Error) => {
-            // Gone (a re-render closed it) is fine; covered is a layout defect.
-            const state = await page.ev(`(()=>{const b=[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close');if(!b)return 'gone';const r=b.getBoundingClientRect(),h=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return 'covered by '+(h?.closest('section,aside,div')?.className??h?.tagName)})()`) as string;
-            if (state !== 'gone') { stats.covered.push(`${label}: inspector Close ${state}`); await screenshot(page,`duel-covered-${stats.covered.length}`); }
-            void error;
-          });
+          // the card's command menu, if one opened (an opponent's card has none), and whether the information box named it
+          const ins = await page.ev(`(()=>{const m=[...document.querySelectorAll('#htmlui-host .win[data-window-class="CUSummonDialogSp"] [data-key^="duel-"]')].map(r=>r.getAttribute('aria-label')??'');const i=document.querySelector('.de-duel-info:not([hidden])');return {menu:m,shown:i?.dataset.cardId===${JSON.stringify(c.key.slice('field-card:'.length))}}})()`) as { menu:string[]; shown:boolean };
+          if (c.back && ins.shown) stats.opponentActions.push(`${label}: face-down ${c.zone} shown in the card information box`);
+          if (ins.menu.length) stats.opponentActions.push(`${label}: opponent ${c.zone} offered ${ins.menu.join(', ')}`);
+          if (ins.menu.length) await pointerAway(page);
         }
       };
 
@@ -309,11 +306,12 @@ describe.skipIf(!enabled)('duel mechanics between two real players and against a
           const mine = sa.cards.find(c => c.side === 'your' && c.zone === 'hand' && !c.back);
           if (mine) {
             await press(a,`[...document.querySelectorAll('button')].find(b=>b.dataset.key===${JSON.stringify(mine.key)})`).catch(() => {});
-            await until(a,`document.querySelector('.de-duel-inspector')`,5000).catch(() => {});
+            await until(a,`document.querySelector('.de-duel-info:not([hidden])')`,5000).catch(() => {});
             for (let i = 0; i < 6; i++) { await duelBot(b); await sleep(250); }
-            const still = await a.ev(`document.querySelector('.de-duel-inspector h2')?.textContent ?? null`);
-            inspectProbe = `A inspected ${nameOf(mine)} during B's actions: ${still ? `still open (${still})` : 'closed'}`;
-            if (still) await press(a,`[...document.querySelectorAll('.de-duel-inspector button')].find(b=>b.textContent==='Close')`);
+            // live's card information box: the card asked about, until another card is pointed at or played
+            const still = await a.ev(`document.querySelector('.de-duel-info:not([hidden]) .de-duel-info-name')?.textContent ?? null`);
+            inspectProbe = `A inspected ${nameOf(mine)} during B's actions: the information box shows ${still ?? 'nothing'}`;
+            await pointerAway(a);
             continue;
           }
         }

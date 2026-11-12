@@ -31,23 +31,24 @@ describe('Discord lines keep their mark', async () => {
   });
 });
 
-describe('the duel scene\'s chat tab (live: the engine\'s duel chat window, "Duel (n.)")', async () => {
-  const { chatTabsFor, CHAT_TABS } = await import('../src/ui/htmlui/windows');
-  const DUEL_CHAT_INDEX = CHAT_TABS.length;   // the duel's tab comes after the lobby's
-  it('is added between Trade and Team in the duel only, after the lobby tab indexes', () => {
-    expect(chatTabsFor(null)).toBe(CHAT_TABS);
-    const tabs = chatTabsFor(['Ann', 'Yami Yugi']);
-    expect(tabs.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels', 'duel']);
-    expect(DUEL_CHAT_INDEX).toBe(4);
-    expect([...tabs].sort((a, b) => a.x - b.x).map(t => t.label.trim())).toEqual(['All Chat', 'TRADE', 'Duel (n.)', 'Team', 'Duels']);
+describe('the duel scene\'s chat (live: the lobby\'s tabs, no duel tab)', async () => {
+  const { CHAT_TABS } = await import('../src/ui/htmlui/windows');
+  it('keeps All Chat / TRADE / Team / Duels; the Duel Log lines stay off All Chat', () => {
+    expect(CHAT_TABS.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels']);
+    expect(CHAT_TABS[0]!.shows('duel-log')).toBe(false);
   });
-  it('shows the two duelists\' own lines; the Duel Log lines stay off All Chat', () => {
-    const duel = chatTabsFor(['Ann', 'Yami Yugi'])[DUEL_CHAT_INDEX]!;
-    expect(duel.shows('global', 'Ann')).toBe(true);
-    expect(duel.shows('global', 'Bob')).toBe(false);
-    expect(duel.shows('trade', 'Ann')).toBe(false);
-    expect(CHAT_TABS[0]!.shows('duel-log', '')).toBe(false);
-    expect(chatCommand(DUEL_CHAT_INDEX, 'gg')).toEqual({ type: 'chat', channel: 'global', text: 'gg' });
+});
+
+describe('the trade\'s chat tab (live: "Trade Partner" between Trade and Team)', async () => {
+  const { chatTabsFor, CHAT_TABS } = await import('../src/ui/htmlui/windows');
+  it('is added in a trade only, after the lobby tab indexes, and shows the partner\'s whispers', () => {
+    expect(chatTabsFor(null)).toBe(CHAT_TABS);
+    const tabs = chatTabsFor('Sr1100');
+    expect(tabs.map(t => t.key)).toEqual(['all', 'trade', 'team', 'duels', 'partner']);
+    expect([...tabs].sort((a, b) => a.x - b.x).map(t => [t.label.trim(), 248 + t.x])).toEqual([['All Chat', 256], ['TRADE', 329], ['Trade Partner', 393], ['Team', 511], ['Duels', 575]]);
+    const partner = tabs[4]!;
+    expect(partner.shows('whisper', 'Sr1100')).toBe(true); expect(partner.shows('whisper', 'Bob')).toBe(false); expect(partner.shows('global', 'Sr1100')).toBe(false);
+    expect(partner.target).toBe('Sr1100');
   });
 });
 
@@ -72,12 +73,6 @@ describe('the chat\'s tabs stack as the game stacks them', async () => {
   it('the Duels tab lies under Team unless it is the current one', () => {
     expect(tabOrder(0)[0]).toBe('tab3');
     expect(tabOrder(3).at(-1)).toBe('tab3');
-  });
-  it('by place on the strip, not by index: the duel\'s tab between TRADE and Team', async () => {
-    const { chatTabsFor } = await import('../src/ui/htmlui/windows');
-    const xs = chatTabsFor(['A', 'B']).map(t => t.x);   // all, trade, team, duels, duel (x 145)
-    expect(tabOrder(0, xs)).toEqual(['tab3', 'tab2', 'tab4', 'tab1', 'tab0']);
-    expect(tabOrder(4, xs).at(-1)).toBe('tab4');
   });
   it('the tabs keep the slots the tabs had: logs and the rest stay where they were', () => {
     const c = strip(1);
