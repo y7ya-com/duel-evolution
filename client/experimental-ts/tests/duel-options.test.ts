@@ -98,4 +98,12 @@ describe('the title\'s OPTIONS window (COptionDlg)', () => {
     by('opt-lang-G').h.click!(); by('opt-fullscreen').h.click!(); by('opt-ok').h.click!();
     expect(set).toEqual([{ language: 'G' }]); expect(toggles).toBe(1); expect(closed).toBe(2);
   });
+  it('opened again while the chosen language loads, it shows that choice and its OK keeps it', () => {
+    const set: unknown[] = []; const ui: OptionsUi = { kind: 'title' };
+    const settings = { sound: 0.6, music: 1, reducedMotion: false, showCardNames: true, language: 'G' as const };
+    const s = titleOptionsWindow(new Ids(), ui, { settings, pendingLanguage: 'J', languageReady: false, set: v => set.push(v), close: () => {}, rerender: () => {} });
+    const by = (key: string) => s.win.controls.find(c => s.handlers.get(c.id)?.key === key)!;
+    expect(by('opt-lang-J').checked).toBe(true); expect(by('opt-lang-G').checked).toBe(false);
+    s.handlers.get(by('opt-ok').id)!.click!(); expect(set).toEqual([]);
+  });
 });

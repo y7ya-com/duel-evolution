@@ -478,7 +478,7 @@ export function mountClient(root: HTMLElement, controller: ClientController): Mo
   const optionsSpecs = (): WindowSpec[] => {
     if (!optionsUi) return languageError([]);
     const display = browserDisplay.state, ui = optionsUi;
-    const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading,
+    const deps: OptionsDeps = { settings: state.settings, busy: !!state.busy, languageReady: !!state.languageStatus?.available && !state.languageStatus.loading, pendingLanguage: state.languageStatus?.loading ?? null,
       fullscreen: { active: display.active, supported: display.supported, pending: display.pending, toggle: () => { void browserDisplay.toggle(); } },
       text: id => gameTexts.get(id), rerender: showHtml,
       set: settings => send({ type: 'settings', settings }), close: () => { optionsUi = null; showHtml(); } };

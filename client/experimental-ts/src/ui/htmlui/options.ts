@@ -19,6 +19,8 @@ export interface OptionsDeps {
   settings: SettingsView;
   fullscreen?: { active: boolean; supported: boolean; pending: boolean; toggle(): void };
   languageReady?: boolean;
+  /** A language chosen and still loading (the last OPTIONS' OK): the choice the window shows and keeps. */
+  pendingLanguage?: GameLanguage | null;
   busy?: boolean;
   /** The original's UI texts by id (yo2text_?: the help lines), once read. */
   text?: (id: number) => string | undefined;
@@ -91,8 +93,10 @@ const sprites = (tex: string, normal: number[], hover: number[], pressed: number
     [k, { tex, src: src as Sprite['src'], shown: k === 'normal' } satisfies Sprite]));
 export function titleOptionsWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): WindowSpec {
   const s = d.settings, fs = d.fullscreen, W = 360, H = 372;
-  ui.before ??= { sound: s.sound, language: s.language ?? 'E' }; ui.beforeFullscreen ??= !!fs?.active;
-  const draft = ui.title ??= { language: s.language ?? 'E', fullscreen: !!fs?.active };
+  // the language as chosen: one still loading is the choice (OPTIONS opened again before it applied keeps it on OK)
+  const chosen: GameLanguage = d.pendingLanguage ?? s.language ?? 'E';
+  ui.before ??= { sound: s.sound, language: chosen }; ui.beforeFullscreen ??= !!fs?.active;
+  const draft = ui.title ??= { language: chosen, fullscreen: !!fs?.active };
   const b = new WindowBuilder(ids, 'options', 'COptionDlg', { x: (1024 - W) / 2, y: (768 - H) / 2, w: W, h: H }, { z: 51453, modal: true, back: OPTION_BACK });
   const text = (name: string, y: number, t: string) => b.add('CWindowTaskText', name, { x: 8, y, w: 344, h: 16 }, { text: t, align: 1, fontSize: 16, color: [1, 1, 1, 1] });
   const lang = GAME_LANGUAGES.find(l => l.code === draft.language) ?? GAME_LANGUAGES[1]!;
@@ -121,7 +125,7 @@ export function titleOptionsWindow(ids: Ids, ui: OptionsUi, d: OptionsDeps): Win
   const button = (name: string, x: number, label: string, key: string, run: () => void) =>
     pick(name, { x, y: 339, w: 158, h: 24 }, sprites(OPTION_BUTTON, [0, 0, 158, 24], [158, 0, 158, 24], [316, 0, 158, 24], [316, 0, 158, 24]), false, key, label, run, { label });
   button('ok', 15, 'OK', 'opt-ok', () => {
-    if (draft.language !== (s.language ?? 'E')) d.set({ language: draft.language as GameLanguage });
+    if (draft.language !== chosen) d.set({ language: draft.language as GameLanguage });
     if (fs && draft.fullscreen !== fs.active && fs.supported && !fs.pending) fs.toggle();
     d.close();
   });
