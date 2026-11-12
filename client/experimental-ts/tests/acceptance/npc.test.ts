@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { RUN, enabled, openPage, closeAll, signIn, openClient, enterWorld, click, until, press, text, sleep, screenshot, record, startNpcDuel, playDuel, ownedCopies, surrender, byKey, byText, resultShown, resultNext, claimNpcReward, lobbyShown, listedNames, openNpcCard } from './harness';
 import { resultLeave } from './harness';
 
-const npcPanel = `document.querySelector('[aria-label="NPC interaction"]')`;
 const fieldCount = (side:'your'|'opponent',zone:string) => `[...document.querySelectorAll('.de-field-card')].filter(b=>(b.getAttribute('aria-label')??'').includes(', ${side} ${zone}')).length`;
 const pileCount = (side:0|1,zone:string) => `Number([...document.querySelectorAll('.de-field-card')].find(b=>(b.getAttribute('aria-label')??'').includes(${JSON.stringify(side ? `opponent ${zone}` : `your ${zone}`)}))?.querySelector('.de-card-count')?.textContent ?? -1)`;
 
@@ -26,7 +25,7 @@ describe.skipIf(!enabled)('NPC duels in the real world with the real duel engine
         expect(await page.ev(`Boolean(document.querySelector('[data-key="npc-start:yes"]'))`)).toBe(false);
         // its click ends the talk (as live: no panel left to close)
         await until(page,`${balloon}&&!${balloon}.disabled`,20000); await press(page,balloon);
-        await until(page,`!${balloon}&&!${npcPanel}`,20000);
+        await until(page,`!${balloon}&&['idle','done'].includes(window.__deApp?.getState().npc?.stage ?? 'idle')`,20000);
       }
       // A first duel: dialogue, rock-paper-scissors, first player, initial field.
       await startNpcDuel(page,'Yami Yugi');

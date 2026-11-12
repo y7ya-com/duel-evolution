@@ -196,9 +196,6 @@ html:has(.yo2r-board) .de-duel-info { display:none; }
 .de-prompt-candidates { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; overflow:auto; }
 .de-prompt-candidates button[aria-pressed=true] { background:linear-gradient(#fffbd0,#f2cd51); outline:2px solid #a36a18; }
 .de-prompt-candidates .de-card { height:95px; width:67px; margin:auto; }
-.de-receipt-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:5px; }
-.de-npc-panel { position:absolute; z-index:15; left:25%; right:18%; top:12%; max-height:76%; overflow:auto; }
-.de-npc-dialogue { white-space:pre-wrap; background:#effcff; padding:10px; border:1px solid #75a8c5; }
 .de-connection { display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbd56b; margin-right:5px; }
 .de-connection.online { background:#95f19a; }
 .de-connection.error,.de-connection.offline { background:#ffb3a2; }

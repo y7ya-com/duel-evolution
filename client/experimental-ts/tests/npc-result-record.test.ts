@@ -3,7 +3,7 @@ import { NpcController } from '../src/features/npc';
 import { duelResultWindows, npcResultWindow } from '../src/ui/htmlui/duel-result';
 import { Ids } from '../src/ui/htmlui/snapshot';
 import { giftItemName } from '../src/npcs/gift-names';
-import { renderNpcFeature } from '../src/ui/npc';
+import { npcItemGetUi, npcItemGetWindows, npcItemMessages } from '../src/ui/htmlui/npc-itemget';
 import type { NpcState } from '../src/features/npc';
 import type { DuelView } from '../src/ui/contracts';
 import { TestDocument, type TestNode } from './ui-dom-fixture';
@@ -49,10 +49,26 @@ describe('NPC gifts by name (CWindowModelItemGet)', () => {
     expect(giftItemName(9000)).toBeNull();
     expect(giftItemName(700, b => b === 700 ? 'Starter Recipe' : undefined)).toBe('Starter Recipe');
   });
-  it('says "You got <item>!" per named gift and counts the rest', () => {
-    vi.stubGlobal('document', new TestDocument());
-    const root = renderNpcFeature(state([229, 9000, 9001]), () => {}, { itemName: giftItemName }) as unknown as TestNode;
-    expect(root.textContent).toContain('You got GUNSLINGER!');
-    expect(root.textContent).toContain('2 item rewards confirmed. Item names are unavailable.');
+  it('says "You got <X>!" per received card and gift, one Ok dialog at a time, and the last OK ends the talk', async () => {
+    const npc = { ...state([229, 9000]), cards: [{ id: 7, isNew: true }], packs: [3], packStatus: 'confirmed' } as NpcState;
+    const names = { cardName: (id: number) => id === 7 ? 'Blast Juggler' : undefined, itemName: (b: number) => giftItemName(b) };
+    expect(npcItemMessages(npc, names).map(m => m.text)).toEqual(['You got Blast Juggler!', 'You got GUNSLINGER!', 'You got an item!']);
+    const ui = npcItemGetUi(); let closed = 0;
+    const deps = { ids: new Ids(), ui, ...names, close: () => { closed++; }, rerender: () => {} };
+    for (let i = 0; i < 3; i++) {
+      const [spec] = npcItemGetWindows(npc, deps);
+      expect(spec!.win.cls).toBe('CWindowModelDialogOk'); expect(spec!.win.z).toBe(51620);
+      const ok = [...spec!.handlers.values()].find(h => h.key === 'npc-itemget-ok')!; ok.click!();
+    }
+    expect(npcItemGetWindows(npc, deps)).toEqual([]); await Promise.resolve(); expect(closed).toBe(1);
+    npcItemGetWindows(npc, deps); await Promise.resolve(); expect(closed).toBe(1);   // once
   });
+  it('waits while a pack is still to pick or a claim is with the server; a refused claim says so first', () => {
+    const deps = { ids: new Ids(), ui: npcItemGetUi(), cardName: () => undefined, itemName: () => null, close: () => {}, rerender: () => {} };
+    expect(npcItemGetWindows({ ...state([]), packs: [3], packStatus: 'idle' } as NpcState, deps)).toEqual([]);
+    expect(npcItemGetWindows({ ...state([]), giftStatus: 'pending', stage: 'claiming' } as NpcState, deps)).toEqual([]);
+    const [err] = npcItemGetWindows({ ...state([]), packs: [3], packStatus: 'failed', error: 'Server refused NPC pack (2)' } as NpcState, deps);
+    expect(err!.win.cls).toBe('CWindowModelDialogError');
+  });
+
 });

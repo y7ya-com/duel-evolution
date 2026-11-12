@@ -5,7 +5,7 @@
 // (CUYesNoDialog: Yes / No). Places measured from live's capture (live-npc-talk2 / live-npc-next, 2048 x 1536 = 2x).
 // The ways out live has: No, Escape (index.ts) and the balloon's own clicks to the end of a line run.
 import type { NpcState } from '../../features/npc';
-import type { NpcCommand } from '../npc';
+import type { ClientCommand } from '../contracts';
 import { PORTRAIT_PLACE, PORTRAIT_SCALE } from '../duel-scene';
 import { WindowBuilder, type Ids, type WindowSpec } from './snapshot';
 import { dialogLines } from './dialog-text';
@@ -17,6 +17,8 @@ export const npcTalkStage = (npc: Readonly<NpcState> | null | undefined): boolea
 export const npcTalkDismissable = (npc: Readonly<NpcState> | null | undefined): boolean =>
   !!npc?.npc && ['opening', 'ask', 'greeting'].includes(npc.stage) && !['pending', 'uncertain'].includes(npc.firstContactStatus);
 
+/** The talk's commands (the app's NPC controller). */
+export type NpcCommand = Extract<ClientCommand, { type: 'npcAnswer' | 'npcAdvance' | 'npcDismiss' | 'npcClose' | 'npcRefreshInventory' | 'npcSelectPack' }>;
 export interface NpcTalkDeps {
   ids: Ids;
   send(command: NpcCommand): void;

@@ -72,7 +72,7 @@ export const SKIN_CSS = `
 .de-client details[open]>summary { margin-bottom:5px; }
 
 /* Inset wells and list rows. */
-.de-client :is(.de-npc-dialogue,.de-prompt-inspector) { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
+.de-client .de-prompt-inspector { background:#effcff; border:1px solid #6299bd; border-radius:2px; box-shadow:inset 0 1px 3px #164c7738,0 1px 0 #e3ffff; }
 .de-client .de-zone-title { color:#fff; ${OUTLINE}; font-weight:bold; border-radius:2px 2px 0 0; padding:3px 8px; background:linear-gradient(180deg,#e6ffd9,#7fdc63 14%,#2ea33a 70%,#16852c); border:1px solid #0d6420; }
 .de-client .de-deck-zone { background:#effcffcc; border:1px solid #6299bd; border-top:0; border-radius:0 0 2px 2px; }
 

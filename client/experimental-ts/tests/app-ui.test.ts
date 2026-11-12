@@ -59,7 +59,7 @@ function harness() {
     const rows = control('Players here', 'CPlayerListDlg')!.c.items as string[], row = rows.findIndex(r => r.endsWith(`/${name}`));
     expect(row).toBeGreaterThanOrEqual(0); pressRow('Players here', row, 'CPlayerListDlg'); await flush();
   };
-  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); await pickNpc('Test NPC', 1); findButton(root, 'Duel NPC').onclick?.({}); await flush(); };
+  const startNpc = async () => { session.npcs = [{ id: 1, name: 'Test NPC', parts: new Uint8Array(16), threshold: 0, spot: 42, previous: 0 }]; emit(); await flush(); await pickNpc('Test NPC', 1); expect(mounted.htmlUi.press('npc-start:yes')).toBe(true); await flush(); };
   return { app, game, api, session, root, mounted, enter, startNpc, pickNpc, openPlayer, emit, dispose: () => { mounted.dispose(); app.dispose(); } };
 }
 afterEach(() => vi.unstubAllGlobals());
@@ -115,7 +115,7 @@ describe('actual ClientApp mounted through semantic UI', () => {
   it('starts the selected NPC from the explicit server NPC list without invented coordinates', async () => {
     const f = harness(); await f.enter(); f.session.npcs = [{ id: 5, name: 'A-lien', parts: new Uint8Array(), threshold: 0, spot: 42, previous: 0 }]; f.emit(); await flush();
     await f.pickNpc('A-lien', 5);
-    expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); findButton(f.root, 'Duel NPC').onclick?.({}); await flush();
+    expect(f.game.startNpcDuel).not.toHaveBeenCalled(); expect(f.app.getState().npc?.stage).toBe('ask'); expect(f.mounted.htmlUi.press('npc-start:yes')).toBe(true); await flush();
     expect(f.game.startNpcDuel).toHaveBeenCalledWith(5, { main: [1], side: [], extra: [] }); f.dispose();
   });
   it('shows and submits every duel-preparation step through the session controller', async () => {
